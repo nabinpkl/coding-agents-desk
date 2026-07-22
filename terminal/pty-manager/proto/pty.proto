@@ -24,6 +24,10 @@ message Envelope {
     Resize resize = 23;
     CloseClient close_client = 24;
     ClientDetached client_detached = 25;
+    TerminalCheckpointBegin terminal_checkpoint_begin = 26;
+    TerminalCheckpointChunk terminal_checkpoint_chunk = 27;
+    TerminalCheckpointEnd terminal_checkpoint_end = 28;
+    RequestTerminalCheckpoint request_terminal_checkpoint = 29;
   }
 }
 
@@ -60,6 +64,9 @@ message Attached {
   string shell = 3;
   uint32 client_count = 4;
   uint64 client_id = 5;
+  uint32 columns = 6;
+  uint32 rows = 7;
+  uint64 revision = 8;
 }
 
 message Detach {}
@@ -75,6 +82,32 @@ message Resize {
 
 message Output {
   bytes data = 1;
+  uint64 revision = 2;
+}
+
+message TerminalCheckpointBegin {
+  uint64 checkpoint_id = 1;
+  uint64 revision = 2;
+  uint32 columns = 3;
+  uint32 rows = 4;
+  uint64 total_bytes = 5;
+  uint32 chunk_count = 6;
+  bool history_truncated = 7;
+}
+
+message TerminalCheckpointChunk {
+  uint64 checkpoint_id = 1;
+  uint32 index = 2;
+  bytes data = 3;
+}
+
+message TerminalCheckpointEnd {
+  uint64 checkpoint_id = 1;
+  uint64 revision = 2;
+}
+
+message RequestTerminalCheckpoint {
+  uint64 last_applied_revision = 1;
 }
 
 message ListSessions {}
@@ -98,6 +131,9 @@ message SessionSummary {
   repeated ClientSummary clients = 6;
   SessionLifetime lifetime = 7;
   uint64 started_at_unix_milliseconds = 8;
+  uint32 columns = 9;
+  uint32 rows = 10;
+  uint64 revision = 11;
 }
 
 message ClientSummary {

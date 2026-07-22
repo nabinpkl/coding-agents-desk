@@ -1,12 +1,84 @@
 use pty_manager::protocol::{
     create_or_attach, decode, encode, envelope, payload, validate_session_name, CommandLaunch,
-    CreateOrAttach, Envelope, Payload, Resize, SessionLifetime, SessionState, SessionSummary,
-    ShellLaunch, SubscribeSessions, PROTOCOL_VERSION,
+    CreateOrAttach, Envelope, Output, Payload, RequestTerminalCheckpoint, Resize, SessionLifetime,
+    SessionState, SessionSummary, ShellLaunch, SubscribeSessions, TerminalCheckpointBegin,
+    TerminalCheckpointChunk, TerminalCheckpointEnd, PROTOCOL_VERSION,
 };
 
 #[test]
-fn protocol_version_is_five() {
-    assert_eq!(PROTOCOL_VERSION, 5);
+fn protocol_version_is_six() {
+    assert_eq!(PROTOCOL_VERSION, 6);
+}
+
+#[test]
+fn chunked_checkpoint_and_revisioned_output_roundtrip() {
+    let begin = envelope(
+        7,
+        "main",
+        Payload::TerminalCheckpointBegin(TerminalCheckpointBegin {
+            checkpoint_id: 9,
+            revision: 41,
+            columns: 100,
+            rows: 30,
+            total_bytes: 10,
+            chunk_count: 1,
+            history_truncated: true,
+        }),
+    );
+    let chunk = envelope(
+        0,
+        "main",
+        Payload::TerminalCheckpointChunk(TerminalCheckpointChunk {
+            checkpoint_id: 9,
+            index: 0,
+            data: b"checkpoint".to_vec(),
+        }),
+    );
+    let end = envelope(
+        0,
+        "main",
+        Payload::TerminalCheckpointEnd(TerminalCheckpointEnd {
+            checkpoint_id: 9,
+            revision: 41,
+        }),
+    );
+    let output = envelope(
+        0,
+        "main",
+        Payload::Output(Output {
+            data: b" next".to_vec(),
+            revision: 42,
+        }),
+    );
+
+    assert_eq!(
+        decode(&encode(&begin).expect("encode")).expect("decode"),
+        begin
+    );
+    assert_eq!(
+        decode(&encode(&chunk).expect("encode")).expect("decode"),
+        chunk
+    );
+    assert_eq!(decode(&encode(&end).expect("encode")).expect("decode"), end);
+    assert_eq!(
+        decode(&encode(&output).expect("encode")).expect("decode"),
+        output
+    );
+}
+
+#[test]
+fn checkpoint_request_roundtrips() {
+    let request = envelope(
+        12,
+        "main",
+        Payload::RequestTerminalCheckpoint(RequestTerminalCheckpoint {
+            last_applied_revision: 41,
+        }),
+    );
+    assert_eq!(
+        decode(&encode(&request).expect("encode")).expect("decode"),
+        request
+    );
 }
 
 #[test]
@@ -90,6 +162,9 @@ fn session_summary_roundtrips_lifetime_and_creation_time() {
                 clients: Vec::new(),
                 lifetime: SessionLifetime::Persistent as i32,
                 started_at_unix_milliseconds: 1_721_344_000_123,
+                columns: 80,
+                rows: 24,
+                revision: 9,
             }],
         }),
     );

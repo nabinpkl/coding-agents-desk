@@ -57,10 +57,12 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
     private let terminalSpawn: SwiftTermPtyManagerTerminalSpawn
     private let socketPath: String
     private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal")
+    private let terminalWindowRegistry: TerminalWindowRegistry
     private var nodes: [Node] = []
     private var subscription: Task<Void, Never>?
 
-    override init() {
+    init(terminalWindowRegistry: TerminalWindowRegistry) {
+        self.terminalWindowRegistry = terminalWindowRegistry
         socketPath = PtyManagerSocketClient.socketPath
         client = PtyManagerSocketClient.makeClient()
         terminalSpawn = SwiftTermPtyManagerTerminalSpawn(client: PtyManagerSocketClient.makeClient())
@@ -303,6 +305,13 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
                 guard let self else { return }
                 switch result {
                 case .success(let window):
+                    self.terminalWindowRegistry.register(
+                        window,
+                        sessionName: session.name,
+                        workspaceID: nil,
+                        workspaceLabel: session.name,
+                        cascadeOrdinal: 0
+                    )
                     window.raise()
                     self.statusLabel.stringValue = "Opened a client for \(session.name)"
                 case .failure(let error):

@@ -457,13 +457,7 @@ async fn attach_ignores_launch_and_cannot_change_original_lifetime() {
     )
     .await
     .expect("list sessions");
-    let list = receive(&mut creator)
-        .await
-        .expect("receive list")
-        .expect("list frame");
-    let Payload::SessionList(list) = protocol::payload(list).expect("list payload") else {
-        panic!("expected session list");
-    };
+    let list = read_session_list_without_duplicate_attach(&mut creator, 4).await;
     assert_eq!(list.sessions[0].lifetime(), SessionLifetime::Persistent);
 
     manager_task.abort();
@@ -552,7 +546,10 @@ async fn read_attached(framed: &mut pty_manager::transport::TerminalFramed) -> A
         let envelope = receive(framed).await.expect("receive").expect("frame");
         match protocol::payload(envelope).expect("payload") {
             Payload::Attached(attached) => return attached,
-            Payload::Output(_) => {}
+            Payload::Output(_)
+            | Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload before attach: {other:?}"),
         }
@@ -573,6 +570,9 @@ async fn read_until_output(
                     return String::from_utf8_lossy(&output).into_owned();
                 }
             }
+            Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload while waiting for output: {other:?}"),
         }
@@ -615,6 +615,9 @@ async fn read_attached_output_and_exit(
         match protocol::payload(envelope).expect("payload") {
             Payload::Attached(_) => panic!("command session sent duplicate Attached response"),
             Payload::Output(frame) => output.extend(frame.data),
+            Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_) => {}
             Payload::SessionExited(exited) => {
                 return (
                     attached,
@@ -645,7 +648,10 @@ async fn read_session_list_without_duplicate_attach(
             Payload::Attached(_) => {
                 panic!("existing session attach sent duplicate Attached response")
             }
-            Payload::Output(_) => {}
+            Payload::Output(_)
+            | Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload after existing session attach: {other:?}"),
         }
@@ -657,7 +663,10 @@ async fn read_until_session_exit(framed: &mut pty_manager::transport::TerminalFr
         let envelope = receive(framed).await.expect("receive").expect("frame");
         match protocol::payload(envelope).expect("payload") {
             Payload::SessionExited(exited) => return exited.status,
-            Payload::Output(_) => {}
+            Payload::Output(_)
+            | Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_) => {}
             Payload::Attached(_) => panic!("command session sent duplicate Attached response"),
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload before command session exit: {other:?}"),

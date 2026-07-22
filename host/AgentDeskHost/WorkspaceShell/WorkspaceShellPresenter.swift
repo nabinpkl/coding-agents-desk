@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import TerminalEmulator
 import os
 
 /// Presents the macOS workspace shell as the agent-workspace-ide reveal-on-hover chrome (ADR-0054): a
@@ -18,6 +19,7 @@ final class WorkspaceShellPresenter: NSObject {
     private let workspaceCoordinator: WorkspaceCoordinator
     private let observationCoordinator: WorkspaceObservationCoordinator
     private let spacesProvider: SpacesProvider
+    private let terminalWindowRegistry: TerminalWindowRegistry
     private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-shell")
 
     private let overlay = WorkspaceShellOverlay()
@@ -87,11 +89,13 @@ final class WorkspaceShellPresenter: NSObject {
     init(
         workspaceCoordinator: WorkspaceCoordinator,
         observationCoordinator: WorkspaceObservationCoordinator,
-        spacesProvider: SpacesProvider
+        spacesProvider: SpacesProvider,
+        terminalWindowRegistry: TerminalWindowRegistry
     ) {
         self.workspaceCoordinator = workspaceCoordinator
         self.observationCoordinator = observationCoordinator
         self.spacesProvider = spacesProvider
+        self.terminalWindowRegistry = terminalWindowRegistry
         super.init()
     }
 
@@ -125,6 +129,7 @@ final class WorkspaceShellPresenter: NSObject {
                 filePane: self.filePane,
                 viewer: self.viewer,
                 desktopSwitcher: desktopSwitcher,
+                terminalWindowRegistry: self.terminalWindowRegistry,
                 slotFrame: { [weak self] in
                     // Invoked on the main actor by the session; a pinned bar insets the slot by the
                     // live sidebar width so an editor/terminal window sits beside it, not under it.
@@ -603,7 +608,9 @@ final class WorkspaceShellPresenter: NSObject {
     @objc private func openPtyManagerTapped() { onOpenPtyManager?() }
 
     private func showPtyManager() {
-        let controller = ptyManagerWindow ?? PtyManagerWindowController()
+        let controller = ptyManagerWindow ?? PtyManagerWindowController(
+            terminalWindowRegistry: terminalWindowRegistry
+        )
         ptyManagerWindow = controller
         controller.show()
     }

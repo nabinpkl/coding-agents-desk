@@ -21,7 +21,7 @@
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
 
-ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with ordered role streams and media datagrams. ADR-0031 records client-visible selected-display projection. ADR-0032 records bounded client diagnostics. ADR-0033 records the adaptive media quality ladder. ADR-0035 records the phone Agent feed. ADR-0051 (superseded by ADR-0053) records the terminal lane. ADR-0052 makes AgentDesk the workspace owner and adds the authenticated files lane at protocol version `6`. ADR-0053 moves the terminal `pty-manager` and `pty-client-swift` packages in-tree, removing the last build dependency on the retired `agent-workspace-ide` donor. ADR-0054 established the shared workspace-data boundary; ADR-0062 supersedes only its platform-presentation decision. ADR-0056 adds host-coordinated leased Agent Panel terminals and raises the session target to protocol version `7`. ADR-0057 adds the shared responsive DOCX renderer, a binary Files codec, and protocol version `8`. ADR-0058 sequences cursor input, separates feedback provenance, and raises the session target to protocol version `9`. ADR-0059 isolates Dock desktop-content mutation behind a transactional yabai adapter without changing the wire protocol or the single SkyLight reader. ADR-0060 keeps the input frame ceiling at 4 MiB while fragmenting only large on-demand Agent raw events. ADR-0061 composes the iOS workspace workbench, shares a host-owned workspace-terminal namespace with macOS, raises the inner PTY protocol to `5`, and raises the AgentDesk session protocol to `10`. ADR-0062 adds the shared responsive Workspace IDE and raises the AgentDesk session protocol to `11`. ADR-0063 established the one-recorder multi-window Chrome projection; ADR-0064 supersedes its local-only surface boundary, projects the same hierarchy to iOS, and raises the AgentDesk session protocol to `12`.
+ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with ordered role streams and media datagrams. ADR-0031 records client-visible selected-display projection. ADR-0032 records bounded client diagnostics. ADR-0033 records the adaptive media quality ladder. ADR-0035 records the phone Agent feed. ADR-0051 (superseded by ADR-0053) records the terminal lane. ADR-0052 makes AgentDesk the workspace owner and adds the authenticated files lane at protocol version `6`. ADR-0053 moves the terminal `pty-manager` and `pty-client-swift` packages in-tree, removing the last build dependency on the retired `agent-workspace-ide` donor. ADR-0054 established the shared workspace-data boundary; ADR-0062 supersedes only its platform-presentation decision. ADR-0056 adds host-coordinated leased Agent Panel terminals and raises the session target to protocol version `7`. ADR-0057 adds the shared responsive DOCX renderer, a binary Files codec, and protocol version `8`. ADR-0058 sequences cursor input, separates feedback provenance, and raises the session target to protocol version `9`. ADR-0059 isolates Dock desktop-content mutation behind a transactional yabai adapter without changing the wire protocol or the single SkyLight reader. ADR-0060 keeps the input frame ceiling at 4 MiB while fragmenting only large on-demand Agent raw events. ADR-0061 composes the iOS workspace workbench, shares a host-owned workspace-terminal namespace with macOS, and raises the AgentDesk session protocol to `10`. ADR-0062 adds the shared responsive Workspace IDE and raises the AgentDesk session protocol to `11`. ADR-0063 established the one-recorder multi-window Chrome projection; ADR-0064 supersedes its local-only surface boundary, projects the same hierarchy to iOS, and raises the AgentDesk session protocol to `12`. ADR-0065 adds viewer-owned responsive browser source sizing and protocol `13`. ADR-0066 raises the inner PTY protocol to `6` for bounded Rust-owned terminal checkpoints, one shared logical grid, client-local fit, and metadata-only window restoration; the outer protocol stays `13`.
 
 ADR-0065 supersedes ADR-0048's fixed mobile-toggle contract with viewer ownership and raises the
 AgentDesk session protocol from `12` to `13`.
@@ -98,9 +98,9 @@ Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesProv
 
 ## Agent Panel Terminal Flow
 
-ADR-0056 locks the landed v5 behavior below. The checked-in PTY pair speaks protocol v4 and the
-AgentDesk session speaks protocol v9 before the ADR-0061 bumps. There is no compatibility mode after
-either implementation bump lands.
+ADR-0056 locks the Agent Panel lifecycle below. The checked-in PTY pair now speaks protocol v6 under
+ADR-0066 and the AgentDesk session speaks protocol v13. There is no compatibility decoder for an older
+inner PTY protocol.
 
 1. The thread-view AgentPanel webview emits open intent containing project path, source, and harness
    session id. It cannot supply an executable, arguments, PTY name, or terminal input.
@@ -241,25 +241,37 @@ material.
 
 Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. Protocol v8 is required because the Files role changed from JSON text-only bodies to binary property-list bodies with native document bytes. Protocol v9 is required because cursor inputs now carry revisions and cursor feedback has distinct applied and host-moved frames. Protocol v10 is required because the iOS workbench coordinates a host-authorized workspace terminal on the input lane. Protocol v11 is required because the Files stream becomes the workspace lane and adds IDE state, Git status, and unsolicited workspace-change messages. Protocol v12 is required because the DOM stream carries full Chrome metadata and bidirectional window/tab selection. Protocol v13 adds authenticated viewer activity, ownership, profile, and source dimensions to that DOM contract. Older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
 
-Terminal PTY frames travel over the reliable ordered `.terminal` stream as opaque PTY protobuf envelopes from AgentDesk's `terminal/pty-client-swift` and `terminal/pty-manager` pair (moved in-tree under ADR-0053). Both checked-in implementations enforce inner protocol v5. Protocol v4 added explicit launch and lifetime semantics; protocol v5 adds immutable session creation time so workspace-terminal fallback is deterministic. There is no compatibility path for older inner protocols:
+Terminal PTY frames travel over the reliable ordered `.terminal` stream as opaque PTY protobuf envelopes from AgentDesk's `terminal/pty-client-swift` and `terminal/pty-manager` pair (moved in-tree under ADR-0053). Both checked-in implementations enforce inner protocol v6. Protocol v4 added explicit launch and lifetime semantics; protocol v5 added immutable session creation time; protocol v6 adds authoritative dimensions, revisions, and bounded chunked ANSI checkpoints. There is no compatibility path for older inner protocols:
 
 ```
 Terminal stream body = UInt32BE ptyFrameLength || Envelope {
-  protocol_version: 5,
+  protocol_version: 6,
   session_name,
   payload: CreateOrAttach {
     createIfMissing,
     launch: ShellLaunch | CommandLaunch { executable, arguments: [String] },
     lifetime: persistent | leased
   }
+  } | Output { data, revision }
+    | TerminalCheckpointBegin { checkpointId, revision, columns, rows, totalBytes, chunkCount }
+    | TerminalCheckpointChunk { checkpointId, index, data }
+    | TerminalCheckpointEnd { checkpointId, revision }
+    | RequestTerminalCheckpoint { lastAppliedRevision }
 }
 
-SessionSummary { sessionName, lifetime, startedAtUnixMilliseconds, clients, ... }
+SessionSummary { sessionName, lifetime, startedAtUnixMilliseconds, columns, rows, revision, clients, ... }
 ```
 
 The generated protobuf types retain the `pty.v1` package prefix; compatibility is governed by
-`Envelope.protocol_version`, which is `5`. The package/type name does not make the current inner
+`Envelope.protocol_version`, which is `6`. The package/type name does not make the current inner
 protocol v1.
+
+Each manager session parses PTY output into one bounded headless Alacritty terminal before assigning a
+revision and publishing it. Attach and explicit resize send a complete checkpoint; the next accepted
+live output must be the next revision. Slow clients are replaced in place with a newer checkpoint.
+The logical grid is manager-owned and changes only through explicit resize. SwiftTerm views preserve
+that grid and fit it locally, so passive window, pane, keyboard, and rotation layout cannot resize the
+PTY. All checkpoint/history state is memory-only and bitmap terminal graphics are not replayed.
 
 The outer `QuicStreamFrame` identifies the stream role. The inner PTY frame is owned by the Rust manager and Swift PTY client; AgentDesk's host bridge does not reinterpret create/attach, input, output, resize, detach, kill, close-client, subscribe, or session-list messages. `ShellLaunch` preserves the existing login-interactive shell behavior. `CommandLaunch` executes the supplied executable with its argument array directly through Rust `CommandBuilder`; argument boundaries survive protobuf decoding and no shell command string is assembled by `pty-manager`. Every caller must choose a lifetime explicitly.
 
@@ -323,7 +335,7 @@ WorkspaceTerminalError       { t: "workspace-terminal-error", requestId, workspa
 
 The client fences every asynchronous completion by request id and selected workspace. A ready response
 for a stale selection is cancelled and cannot replace the visible terminal. Terminal bytes remain
-opaque PTY v5 frames on the `.terminal` lane; no workspace path appears in these input messages.
+opaque PTY v6 frames on the `.terminal` lane; no workspace path appears in these input messages.
 
 Workspace files travel over the reliable ordered `.files` stream. Every request carries a correlation id and workspace id. Paths are normalized relative paths, never absolute host paths.
 
@@ -626,6 +638,12 @@ Every `cursorSet` and `cursorMove` carries a monotonically increasing `cursorRev
 
 ### PTY session lifecycle
 
+- Persistent sessions continue parsing into their bounded headless terminal with zero clients. A late
+  client receives a protocol-6 checkpoint before revisioned live output.
+- One session has one shared logical grid. Explicit size requests are serialized by the manager and
+  reset every client from a new checkpoint; physical viewer layout only changes local fit.
+- Standalone macOS terminal windows persist metadata-only presentation descriptors and reattach on host
+  restart without creating missing shells or taking focus. Embedded panes keep their owner lifecycle.
 - PTY lifetime is independent of the QUIC session state. Persistent workspace PTYs survive client detach and remain manager-owned until explicit kill, natural exit, or manager replacement.
 - Agent Panel resume PTYs are leased. The manager schedules the configured final-lease grace only when detach, close-client, or socket loss removes the final attached client. The production target is 30 seconds through host central config; tests inject shorter values.
 - Reattach during PTY grace cancels reaping and preserves the PTY/PID. With Mac and iPhone attached, the first detach cannot schedule a reap; only loss of the final lease can do so.

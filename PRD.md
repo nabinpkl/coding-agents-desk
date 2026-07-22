@@ -20,6 +20,12 @@ Secondary pain: AnyDesk on phone often degrades to a black canvas with a moving 
 
 Native iOS app plus native macOS menu-bar workspace host, paired over Tailscale. The host owns registered workspace roots, an auto-hiding AppKit sidebar and top bar, editable local file windows, PTY sessions, ATC activity, browser integration, Spaces, and hardware-encoded remote desktop. The iPhone projects the same system through purpose-built Control, Agents, Workspace, IDE, Terminal, and Browser surfaces. The embedded IDE is a shared responsive WebKit workbench inside native AppKit and UIKit pane shells; it is not an internet browser client.
 
+Persistent PTY sessions own bounded terminal display state in the Rust manager, not in a viewer. A
+late or restored macOS/iOS client reconstructs the shared logical grid from a memory-only checkpoint
+and fits it locally. Window resizing is presentation-only; logical size changes only through an
+explicit shared control. AgentDesk persists standalone window placement metadata but never terminal
+text, scrollback, ANSI, checkpoints, or typed input (ADR-0066).
+
 The macOS host also owns a local **Space Agent** overlay: a small draggable spaceship that stays visible while the host app runs. Clicking the spaceship expands an attached Spaces panel showing live thumbnails for the active display's user Spaces; clicking a non-active Space switches the Mac to it. This is a host-side desktop navigator, not the iPhone remote-control surface.
 
 ## v0 acceptance

@@ -75,13 +75,17 @@ without changing the one-recorder and extension-authoritative generation model.
 ## v8 scope (captured, not started)
 
 - [ ] R89. Add workspace terminal tabs, splits, and a workspace-filtered session drawer.
-- [ ] R90. Add bounded PTY output replay so a fully disconnected client reconstructs prior terminal display state.
+- [x] D90. Add bounded Rust-owned PTY replay: protocol-6 chunked checkpoints and revisions, one
+  Alacritty-backed logical grid per session, bounded fan-out/resynchronization, shared SwiftTerm fit
+  and explicit sizing, metadata-only standalone macOS window restoration, and automated tests
+  (ADR-0066).
 
 ## Terminal stability hotfix
 
 - [x] D91. Prevent pre-layout terminal attachments from creating unusable 1x2 PTYs: centralize the
   80x24 bootstrap dimensions, measure laid-out SwiftTerm surfaces atomically, and send an authoritative
   resize immediately after every renderer bind so existing sessions recover on reattachment.
+  ADR-0066 supersedes bind-time resizing; 80x24 remains the creation fallback.
 
 ## Promotion log
 
@@ -97,4 +101,5 @@ D88.3    2026-07-21  landed      ordinary text unredacted regardless of rrweb pa
 D88.4    2026-07-21  landed      viewer-owned responsive Chrome viewport, protocol 13, extension 0.9.0
 D88.5    2026-07-21  landed      workspace-shell top and left edge reveal across every display
 D91      2026-07-21  landed      safe terminal bootstrap dimensions and bind-time resize recovery
+D90      2026-07-22  landed      bounded headless PTY replay and metadata-only window restoration
 ```

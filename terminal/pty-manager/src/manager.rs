@@ -3,6 +3,7 @@ use std::future::Future;
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::UnixStream as StdUnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -16,14 +17,18 @@ use tracing::{error, info, warn};
 use crate::error::{Result, TerminalError};
 use crate::protocol::{
     self, error_envelope, ClientDetached, CloseClient, Detach, Envelope, Input, KillSession,
-    ListSessions, Output, Payload, Resize, SessionExited, SessionList, SubscribeSessions,
+    ListSessions, Output, Payload, RequestTerminalCheckpoint, Resize, SessionExited, SessionList,
+    SubscribeSessions,
 };
 use crate::pty_manager_client_sessions::{
     broadcast_session_snapshot, close_client, create_or_attach, detach_client, handle_natural_exit,
-    kill_session, reap_session, remove_observer, resize_session, send_input,
-    shutdown_leased_sessions, subscribe_sessions, PtyManagerState, ReapRequest, ReapScheduler,
+    kill_session, reap_session, remove_observer, request_checkpoint, resize_session,
+    retry_pending_checkpoints, send_input, shutdown_leased_sessions, subscribe_sessions,
+    PtyManagerState, ReapRequest, ReapScheduler,
 };
 use crate::pty_session::PtyEvent;
+
+pub use crate::pty_manager_client_sessions::PtyManagerLimits;
 
 #[derive(Debug, Clone)]
 pub struct PtyManagerOptions {
@@ -31,13 +36,25 @@ pub struct PtyManagerOptions {
     pub leased_session_grace: std::time::Duration,
 }
 
+impl PtyManagerOptions {
+    pub fn with_limits(self, limits: PtyManagerLimits) -> PtyManagerConfiguredOptions {
+        PtyManagerConfiguredOptions { base: self, limits }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PtyManagerConfiguredOptions {
+    pub base: PtyManagerOptions,
+    pub limits: PtyManagerLimits,
+}
+
 pub struct PtyManager {
     options: PtyManagerOptions,
     state: Arc<Mutex<PtyManagerState>>,
-    events_tx: mpsc::UnboundedSender<PtyEvent>,
-    events_rx: mpsc::UnboundedReceiver<PtyEvent>,
+    events_tx: mpsc::Sender<PtyEvent>,
+    events_rx: mpsc::Receiver<PtyEvent>,
     reaper: ReapScheduler,
-    reap_rx: mpsc::UnboundedReceiver<ReapRequest>,
+    reap_rx: mpsc::Receiver<ReapRequest>,
     client_tasks: JoinSet<()>,
 }
 
@@ -45,12 +62,16 @@ static NEXT_CLIENT_ID: AtomicU64 = AtomicU64::new(1);
 
 impl PtyManager {
     pub fn new(options: PtyManagerOptions) -> Self {
-        let (events_tx, events_rx) = mpsc::unbounded_channel();
-        let (reap_tx, reap_rx) = mpsc::unbounded_channel();
-        let reaper = ReapScheduler::new(options.leased_session_grace, reap_tx);
+        Self::new_configured(options.with_limits(PtyManagerLimits::default()))
+    }
+
+    pub fn new_configured(options: PtyManagerConfiguredOptions) -> Self {
+        let (events_tx, events_rx) = mpsc::channel(options.limits.pty_event_frames);
+        let (reap_tx, reap_rx) = mpsc::channel(64);
+        let reaper = ReapScheduler::new(options.base.leased_session_grace, reap_tx);
         Self {
-            options,
-            state: Arc::new(Mutex::new(PtyManagerState::new())),
+            options: options.base,
+            state: Arc::new(Mutex::new(PtyManagerState::new(options.limits))),
             events_tx,
             events_rx,
             reaper,
@@ -72,6 +93,7 @@ impl PtyManager {
         info!(socket = %self.options.socket_path.display(), "pty manager listening");
         tokio::pin!(shutdown);
 
+        let mut resync_tick = tokio::time::interval(std::time::Duration::from_millis(50));
         let run_result = loop {
             tokio::select! {
                 accepted = listener.accept() => {
@@ -87,6 +109,9 @@ impl PtyManager {
                     if reap_session(&self.state, request).await {
                         broadcast_session_snapshot(&self.state).await;
                     }
+                }
+                _ = resync_tick.tick() => {
+                    retry_pending_checkpoints(&self.state).await;
                 }
                 Some(result) = self.client_tasks.join_next(), if !self.client_tasks.is_empty() => {
                     if let Err(error) = result {
@@ -129,24 +154,64 @@ impl PtyManager {
                 generation,
                 data,
             } => {
-                let clients = {
-                    let state = self.state.lock().await;
-                    state
-                        .sessions
-                        .get(&session_name)
-                        .filter(|session| session.generation == generation)
-                        .map(|session| {
-                            session
-                                .clients
-                                .values()
-                                .map(|client| client.tx.clone())
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default()
+                let mut state = self.state.lock().await;
+                let max_live_output_bytes = state.limits.client_live_outbox_bytes;
+                let Some(session) = state
+                    .sessions
+                    .get_mut(&session_name)
+                    .filter(|session| session.generation == generation)
+                else {
+                    return;
                 };
-                let frame = protocol::envelope(0, session_name, Payload::Output(Output { data }));
-                for client in clients {
-                    let _ = client.send(frame.clone());
+                match session.headless.apply_output(&data) {
+                    Ok(responses) => {
+                        for response in responses {
+                            if let Err(error) = session.pty.send_input(response) {
+                                warn!(%error, session = %session_name, "terminal response queue failed");
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        error!(%error, session = %session_name, "headless terminal update failed");
+                        return;
+                    }
+                }
+                let revision = session.headless.revision();
+                let byte_count = data.len();
+                let frame = protocol::envelope(
+                    0,
+                    &session_name,
+                    Payload::Output(Output { data, revision }),
+                );
+                for client in session.clients.values_mut() {
+                    if client.needs_checkpoint {
+                        continue;
+                    }
+                    let reserved = client.live_output_bytes.fetch_update(
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                        |current| {
+                            current
+                                .checked_add(byte_count)
+                                .filter(|next| *next <= max_live_output_bytes)
+                        },
+                    );
+                    if reserved.is_err() {
+                        client.needs_checkpoint = true;
+                        client
+                            .minimum_live_revision
+                            .store(revision, Ordering::Release);
+                        continue;
+                    }
+                    if client.tx.try_send(frame.clone()).is_err() {
+                        client
+                            .live_output_bytes
+                            .fetch_sub(byte_count, Ordering::AcqRel);
+                        client.needs_checkpoint = true;
+                        client
+                            .minimum_live_revision
+                            .store(revision, Ordering::Release);
+                    }
                 }
             }
             PtyEvent::Exited {
@@ -165,17 +230,37 @@ impl PtyManager {
 async fn handle_client(
     stream: UnixStream,
     state: Arc<Mutex<PtyManagerState>>,
-    events: mpsc::UnboundedSender<PtyEvent>,
+    events: mpsc::Sender<PtyEvent>,
     reaper: ReapScheduler,
 ) -> Result<()> {
     let client_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
     let framed = Framed::new(stream, LengthDelimitedCodec::new());
     let (mut socket_writer, mut socket_reader) = framed.split();
-    let (client_tx, mut client_rx) = mpsc::unbounded_channel::<Envelope>();
-    let (close_tx, mut close_rx) = mpsc::unbounded_channel::<()>();
+    let limits = { state.lock().await.limits.clone() };
+    let (client_tx, mut client_rx) = mpsc::channel::<Envelope>(limits.client_outbox_frames);
+    let live_output_bytes = Arc::new(AtomicUsize::new(0));
+    let minimum_live_revision = Arc::new(AtomicU64::new(0));
+    let (close_tx, mut close_rx) = mpsc::channel::<()>(1);
+    let writer_close_tx = close_tx.clone();
 
+    let writer_live_output_bytes = live_output_bytes.clone();
+    let writer_minimum_live_revision = minimum_live_revision.clone();
     let writer = AbortOnDrop(tokio::spawn(async move {
         while let Some(envelope) = client_rx.recv().await {
+            let output = match envelope.payload.as_ref() {
+                Some(Payload::Output(output)) => Some((output.revision, output.data.len())),
+                _ => None,
+            };
+            if let Some((revision, byte_count)) = output {
+                writer_live_output_bytes.fetch_sub(byte_count, Ordering::AcqRel);
+                if revision <= writer_minimum_live_revision.load(Ordering::Acquire) {
+                    continue;
+                }
+            }
+            let close_after_send = matches!(
+                envelope.payload.as_ref(),
+                Some(Payload::ClientDetached(detached)) if detached.client_id == client_id
+            );
             let bytes = match protocol::encode(&envelope) {
                 Ok(bytes) => bytes,
                 Err(error) => {
@@ -184,6 +269,10 @@ async fn handle_client(
                 }
             };
             if socket_writer.send(bytes).await.is_err() {
+                break;
+            }
+            if close_after_send {
+                let _ = writer_close_tx.try_send(());
                 break;
             }
         }
@@ -208,7 +297,8 @@ async fn handle_client(
                     request_id,
                     client_id,
                     &client_tx,
-                    &close_tx,
+                    live_output_bytes.clone(),
+                    minimum_live_revision.clone(),
                     &session_name,
                     request,
                 )
@@ -216,7 +306,7 @@ async fn handle_client(
                 {
                     Ok(()) => broadcast_session_snapshot(&state).await,
                     Err(error) => {
-                        let _ = client_tx.send(error_envelope(
+                        let _ = client_tx.try_send(error_envelope(
                             request_id,
                             session_name,
                             error.to_string(),
@@ -225,15 +315,43 @@ async fn handle_client(
                 }
             }
             Payload::Input(Input { data }) => {
+                if data.len() > limits.max_input_bytes {
+                    let _ = client_tx.try_send(error_envelope(
+                        request_id,
+                        session_name,
+                        "input exceeds configured byte limit".to_owned(),
+                    ));
+                    continue;
+                }
                 if let Err(error) = send_input(&state, &session_name, data).await {
-                    let _ =
-                        client_tx.send(error_envelope(request_id, session_name, error.to_string()));
+                    let _ = client_tx.try_send(error_envelope(
+                        request_id,
+                        session_name,
+                        error.to_string(),
+                    ));
                 }
             }
             Payload::Resize(Resize { columns, rows }) => {
                 if let Err(error) = resize_session(&state, &session_name, columns, rows).await {
-                    let _ =
-                        client_tx.send(error_envelope(request_id, session_name, error.to_string()));
+                    let _ = client_tx.try_send(error_envelope(
+                        request_id,
+                        session_name,
+                        error.to_string(),
+                    ));
+                }
+            }
+            Payload::RequestTerminalCheckpoint(RequestTerminalCheckpoint {
+                last_applied_revision,
+            }) => {
+                if let Err(error) =
+                    request_checkpoint(&state, &session_name, client_id, last_applied_revision)
+                        .await
+                {
+                    let _ = client_tx.try_send(error_envelope(
+                        request_id,
+                        session_name,
+                        error.to_string(),
+                    ));
                 }
             }
             Payload::Detach(Detach {}) => {
@@ -247,7 +365,7 @@ async fn handle_client(
                     let state = state.lock().await;
                     state.session_summaries()
                 };
-                let _ = client_tx.send(protocol::envelope(
+                let _ = client_tx.try_send(protocol::envelope(
                     request_id,
                     "",
                     Payload::SessionList(SessionList { sessions }),
@@ -256,7 +374,7 @@ async fn handle_client(
             Payload::KillSession(KillSession {}) => {
                 match kill_session(&state, &session_name).await {
                     Ok(status) => {
-                        let _ = client_tx.send(protocol::envelope(
+                        let _ = client_tx.try_send(protocol::envelope(
                             request_id,
                             session_name,
                             Payload::SessionExited(SessionExited { status }),
@@ -264,7 +382,7 @@ async fn handle_client(
                         broadcast_session_snapshot(&state).await;
                     }
                     Err(error) => {
-                        let _ = client_tx.send(error_envelope(
+                        let _ = client_tx.try_send(error_envelope(
                             request_id,
                             session_name,
                             error.to_string(),
@@ -275,7 +393,7 @@ async fn handle_client(
             Payload::CloseClient(CloseClient { client_id }) => {
                 match close_client(&state, &reaper, &session_name, client_id).await {
                     Ok(()) => {
-                        let _ = client_tx.send(protocol::envelope(
+                        let _ = client_tx.try_send(protocol::envelope(
                             request_id,
                             session_name.clone(),
                             Payload::ClientDetached(ClientDetached { client_id }),
@@ -283,7 +401,7 @@ async fn handle_client(
                         broadcast_session_snapshot(&state).await;
                     }
                     Err(error) => {
-                        let _ = client_tx.send(error_envelope(
+                        let _ = client_tx.try_send(error_envelope(
                             request_id,
                             session_name,
                             error.to_string(),
@@ -301,8 +419,11 @@ async fn handle_client(
             | Payload::SessionSnapshot(_)
             | Payload::SessionExited(_)
             | Payload::ClientDetached(_)
+            | Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_)
             | Payload::Error(_) => {
-                let _ = client_tx.send(error_envelope(
+                let _ = client_tx.try_send(error_envelope(
                     request_id,
                     session_name,
                     "unexpected client payload".to_owned(),

@@ -4,7 +4,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::Sender;
 
 use crate::error::{Result, TerminalError};
 
@@ -39,7 +39,7 @@ pub struct PtySession {
     pub cwd: String,
     pub shell: String,
     pub pid: u32,
-    input: mpsc::Sender<Vec<u8>>,
+    input: mpsc::SyncSender<Vec<u8>>,
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
 }
@@ -51,7 +51,7 @@ impl PtySession {
         launch: PtyLaunch,
         columns: u16,
         rows: u16,
-        events: UnboundedSender<PtyEvent>,
+        events: Sender<PtyEvent>,
     ) -> Result<Self> {
         let name = name.into();
         let (cwd, shell, mut command) = match launch {
@@ -100,7 +100,9 @@ impl PtySession {
             .master
             .take_writer()
             .map_err(|error| TerminalError::Pty(error.to_string()))?;
-        let (input, input_rx) = mpsc::channel::<Vec<u8>>();
+        // Input frames are capped at 64 KiB by the manager. Sixteen queued
+        // frames therefore bound the PTY writer backlog at 1 MiB.
+        let (input, input_rx) = mpsc::sync_channel::<Vec<u8>>(16);
 
         spawn_reader(name.clone(), generation, &events, &mut reader);
         spawn_writer(input_rx, &mut writer);
@@ -118,8 +120,8 @@ impl PtySession {
 
     pub fn send_input(&self, data: Vec<u8>) -> Result<()> {
         self.input
-            .send(data)
-            .map_err(|_| TerminalError::Pty("pty writer thread exited".to_owned()))
+            .try_send(data)
+            .map_err(|error| TerminalError::Pty(format!("pty writer queue unavailable: {error}")))
     }
 
     pub fn kill(&mut self) -> Result<()> {
@@ -150,7 +152,7 @@ impl PtySession {
 fn spawn_reader(
     session_name: String,
     generation: u64,
-    events: &UnboundedSender<PtyEvent>,
+    events: &Sender<PtyEvent>,
     reader: &mut Box<dyn Read + Send>,
 ) {
     let events = events.clone();
@@ -160,7 +162,7 @@ fn spawn_reader(
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => {
-                    let _ = events.send(PtyEvent::Exited {
+                    let _ = events.blocking_send(PtyEvent::Exited {
                         session_name: session_name.clone(),
                         generation,
                         status: 0,
@@ -168,14 +170,14 @@ fn spawn_reader(
                     break;
                 }
                 Ok(count) => {
-                    let _ = events.send(PtyEvent::Output {
+                    let _ = events.blocking_send(PtyEvent::Output {
                         session_name: session_name.clone(),
                         generation,
                         data: buffer[..count].to_vec(),
                     });
                 }
                 Err(_) => {
-                    let _ = events.send(PtyEvent::Exited {
+                    let _ = events.blocking_send(PtyEvent::Exited {
                         session_name: session_name.clone(),
                         generation,
                         status: -1,

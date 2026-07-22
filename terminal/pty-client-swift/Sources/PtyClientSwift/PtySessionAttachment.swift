@@ -7,6 +7,9 @@ public struct PtySessionAttachment: Equatable, Sendable {
     public let shell: String
     public let clientCount: UInt32
     public let clientID: UInt64
+    public let columns: UInt32
+    public let rows: UInt32
+    public let revision: UInt64
 
     public init(
         name: String,
@@ -14,7 +17,10 @@ public struct PtySessionAttachment: Equatable, Sendable {
         cwd: String,
         shell: String,
         clientCount: UInt32,
-        clientID: UInt64
+        clientID: UInt64,
+        columns: UInt32 = 80,
+        rows: UInt32 = 24,
+        revision: UInt64 = 1
     ) {
         self.name = name
         self.pid = pid
@@ -22,5 +28,8 @@ public struct PtySessionAttachment: Equatable, Sendable {
         self.shell = shell
         self.clientCount = clientCount
         self.clientID = clientID
+        self.columns = columns
+        self.rows = rows
+        self.revision = revision
     }
 }

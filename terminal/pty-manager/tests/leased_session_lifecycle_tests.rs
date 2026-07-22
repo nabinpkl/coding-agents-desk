@@ -401,7 +401,10 @@ async fn read_session_exit(framed: &mut TerminalFramed) -> i32 {
         let envelope = receive(framed).await.expect("receive").expect("frame");
         match protocol::payload(envelope).expect("payload") {
             Payload::SessionExited(exited) => return exited.status,
-            Payload::Output(_) => {}
+            Payload::Output(_)
+            | Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_) => {}
             other => panic!("expected session exit, got {other:?}"),
         }
     }

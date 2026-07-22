@@ -23,6 +23,7 @@ final class WorkspaceShellSession {
     private var observationSubscription: WorkspaceObservationSubscription?
     private let slotFrame: () -> CGRect
     private let terminalSpawn: TerminalEmulatorSpawn
+    private let terminalWindowRegistry: TerminalWindowRegistry
     private let fileWriter = FileWriter()
     private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-shell")
     /// The latest status for the active workspace. `WorkspaceObservationCoordinator` is the sole producer; this cached
@@ -52,6 +53,7 @@ final class WorkspaceShellSession {
         filePane: FilePane,
         viewer: FileViewer,
         desktopSwitcher: WorkspaceDesktopSwitcher,
+        terminalWindowRegistry: TerminalWindowRegistry,
         slotFrame: @escaping () -> CGRect,
         terminalSpawn: TerminalEmulatorSpawn = SwiftTermPtyManagerTerminalSpawn(client: PtyManagerSocketClient.makeClient())
     ) {
@@ -61,6 +63,7 @@ final class WorkspaceShellSession {
         self.filePane = filePane
         self.viewer = viewer
         self.desktopSwitcher = desktopSwitcher
+        self.terminalWindowRegistry = terminalWindowRegistry
         self.slotFrame = slotFrame
         self.terminalSpawn = terminalSpawn
         wireCallbacks()
@@ -178,6 +181,13 @@ final class WorkspaceShellSession {
                 case .success(let window):
                     window.setWorkspaceLabel(workspaceName)
                     self.terminals[id, default: []].append(window)
+                    self.terminalWindowRegistry.register(
+                        window,
+                        sessionName: sessionName,
+                        workspaceID: id,
+                        workspaceLabel: workspaceName,
+                        cascadeOrdinal: index
+                    )
                     window.raise()
                 case .failure(let error):
                     self.logger.error("workspace-shell: terminal spawn failed for workspace \(id, privacy: .public): \(String(describing: error), privacy: .public)")

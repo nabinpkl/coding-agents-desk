@@ -3,7 +3,7 @@ use prost::Message;
 
 use crate::error::{Result, TerminalError};
 
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 
 pub mod generated {
     include!(concat!(env!("OUT_DIR"), "/pty.v1.rs"));
@@ -13,9 +13,10 @@ pub use generated::create_or_attach;
 pub use generated::envelope::Payload;
 pub use generated::{
     Attached, ClientDetached, ClientSummary, CloseClient, CommandLaunch, CreateOrAttach, Detach,
-    Envelope, Error, Hello, Input, KillSession, ListSessions, Output, Resize, SessionExited,
-    SessionLifetime, SessionList, SessionSnapshot, SessionState, SessionSummary, ShellLaunch,
-    SubscribeSessions,
+    Envelope, Error, Hello, Input, KillSession, ListSessions, Output, RequestTerminalCheckpoint,
+    Resize, SessionExited, SessionLifetime, SessionList, SessionSnapshot, SessionState,
+    SessionSummary, ShellLaunch, SubscribeSessions, TerminalCheckpointBegin,
+    TerminalCheckpointChunk, TerminalCheckpointEnd,
 };
 
 pub fn envelope(request_id: u64, session_name: impl Into<String>, payload: Payload) -> Envelope {

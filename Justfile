@@ -391,6 +391,15 @@ browser-projection-e2e: ext-stamp
       AGENTDESK_E2E_HOST_DERIVED_DATA='{{host_dev_derived_data}}' \
       node '{{justfile_directory()}}/chrome-test/browser-projection-e2e.mjs'
 
+# Visible, test-owned PTY replay and standalone-window restoration acceptance gate. It preflights
+# TCC without prompting, uses a temporary socket and manager, exercises two differently sized
+# SwiftTerm windows plus a deliberately slow client, restarts the test host harness without killing
+# the manager, and writes bounded artifacts under /tmp. It never touches the personal host socket.
+terminal-replay-e2e:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bash '{{justfile_directory()}}/tools/terminal-replay-e2e.sh' '{{justfile_directory()}}'
+
 # ADR-0044 Tier B autonomous gate: capture a REAL DOMSnapshot.captureSnapshot (piercing a CLOSED
 # shadow root) via Playwright's CDP session, run it through the SAME reconstructProjectionHtml the
 # service worker uses, and assert the closed-shadow subtree plus ordinary content are captured while

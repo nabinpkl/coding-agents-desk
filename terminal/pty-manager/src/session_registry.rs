@@ -82,21 +82,38 @@ impl SessionRegistry {
         &self,
         clients_by_session: &BTreeMap<String, Vec<ClientSummary>>,
     ) -> Vec<SessionSummary> {
+        self.list_with_runtime(clients_by_session, &BTreeMap::new())
+    }
+
+    pub fn list_with_runtime(
+        &self,
+        clients_by_session: &BTreeMap<String, Vec<ClientSummary>>,
+        runtime_by_session: &BTreeMap<String, (u32, u32, u64)>,
+    ) -> Vec<SessionSummary> {
         self.sessions
             .values()
             .filter(|record| record.state == SessionLifecycle::Running)
-            .map(|record| SessionSummary {
-                name: record.name.clone(),
-                cwd: record.cwd.clone(),
-                shell: record.shell.clone(),
-                pid: record.pid,
-                state: SessionState::Running as i32,
-                clients: clients_by_session
+            .map(|record| {
+                let (columns, rows, revision) = runtime_by_session
                     .get(&record.name)
-                    .cloned()
-                    .unwrap_or_default(),
-                lifetime: record.lifetime as i32,
-                started_at_unix_milliseconds: record.started_at_unix_milliseconds,
+                    .copied()
+                    .unwrap_or_default();
+                SessionSummary {
+                    name: record.name.clone(),
+                    cwd: record.cwd.clone(),
+                    shell: record.shell.clone(),
+                    pid: record.pid,
+                    state: SessionState::Running as i32,
+                    clients: clients_by_session
+                        .get(&record.name)
+                        .cloned()
+                        .unwrap_or_default(),
+                    lifetime: record.lifetime as i32,
+                    started_at_unix_milliseconds: record.started_at_unix_milliseconds,
+                    columns,
+                    rows,
+                    revision,
+                }
             })
             .collect()
     }

@@ -15,6 +15,9 @@ final class PtyClientTests: XCTestCase {
                     $0.state = .running
                     $0.lifetime = .persistent
                     $0.startedAtUnixMilliseconds = 1_721_344_000_123
+                    $0.columns = 80
+                    $0.rows = 24
+                    $0.revision = 1
                     $0.clients = [
                         .with {
                             $0.id = 10
@@ -83,6 +86,9 @@ final class PtyClientTests: XCTestCase {
                 $0.shell = "/bin/zsh"
                 $0.clientCount = 1
                 $0.clientID = 77
+                $0.columns = 80
+                $0.rows = 24
+                $0.revision = 1
             })
         }.serializedData()]
 
@@ -167,7 +173,10 @@ final class PtyClientTests: XCTestCase {
             try Pty_V1_Envelope.with {
                 $0.protocolVersion = PtyClient.protocolVersion
                 $0.sessionName = "main"
-                $0.payload = .output(.with { $0.data = Data("hello".utf8) })
+                $0.payload = .output(.with {
+                    $0.data = Data("hello".utf8)
+                    $0.revision = 2
+                })
             }.serializedData(),
             try Pty_V1_Envelope.with {
                 $0.protocolVersion = PtyClient.protocolVersion
@@ -196,7 +205,7 @@ final class PtyClientTests: XCTestCase {
         let finished = try await iterator.next()
 
         XCTAssertEqual(attached, .attached(connection.attachment))
-        XCTAssertEqual(output, .output(Data("hello".utf8)))
+        XCTAssertEqual(output, .output(data: Data("hello".utf8), revision: 2))
         XCTAssertEqual(exited, .exited(7))
         XCTAssertNil(finished)
     }

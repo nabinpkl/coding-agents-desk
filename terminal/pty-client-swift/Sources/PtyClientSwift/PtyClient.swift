@@ -1,8 +1,8 @@
 import Foundation
 import SwiftProtobuf
 
-public final class PtyClient {
-    public static let protocolVersion: UInt32 = 5
+public final class PtyClient: @unchecked Sendable {
+    public static let protocolVersion: UInt32 = 6
 
     private let makeTransport: () throws -> PtyTransport
 
@@ -40,7 +40,7 @@ public final class PtyClient {
     }
 
     public func sessionSnapshots() -> AsyncThrowingStream<[PtySessionSummary], Error> {
-        AsyncThrowingStream { continuation in
+        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
             let task = Task {
                 do {
                     let transport = try makeTransport()
@@ -192,6 +192,9 @@ private extension PtySessionSummary {
             state: .init(proto: proto.state),
             lifetime: try .init(proto: proto.lifetime),
             startedAtUnixMilliseconds: proto.startedAtUnixMilliseconds,
+            columns: proto.columns,
+            rows: proto.rows,
+            revision: proto.revision,
             clients: proto.clients.map(PtySessionClientSummary.init(proto:))
         )
     }

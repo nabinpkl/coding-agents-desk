@@ -385,6 +385,145 @@ async fn attach_without_create_fails_for_missing_session() {
     manager_task.abort();
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn late_client_replays_output_produced_with_no_clients_then_receives_consecutive_live_tail() {
+    let tempdir = tempdir().expect("tempdir");
+    let socket_path = tempdir.path().join("terminal.sock");
+    let manager = PtyManager::new(PtyManagerOptions {
+        socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
+    });
+    let manager_task = tokio::spawn(async move { manager.run().await });
+    wait_for_socket(&socket_path).await;
+
+    let mut first = pty_manager::client::connect(&socket_path)
+        .await
+        .expect("connect first client");
+    send_create(&mut first, 1, "replay", tempdir.path()).await;
+    read_attached(&mut first).await;
+    send(
+        &mut first,
+        &protocol::envelope(
+            2,
+            "replay",
+            Payload::Input(Input {
+                data: b"(sleep 0.05; printf 'offline-marker\\n') &\n".to_vec(),
+            }),
+        ),
+    )
+    .await
+    .expect("schedule output");
+    send(
+        &mut first,
+        &protocol::envelope(3, "replay", Payload::Detach(Detach {})),
+    )
+    .await
+    .expect("detach first client");
+    drop(first);
+    tokio::time::sleep(Duration::from_millis(120)).await;
+
+    let mut late = pty_manager::client::connect(&socket_path)
+        .await
+        .expect("connect late client");
+    send(
+        &mut late,
+        &protocol::envelope(
+            4,
+            "replay",
+            Payload::CreateOrAttach(CreateOrAttach {
+                launch: Some(create_or_attach::Launch::ShellLaunch(ShellLaunch {
+                    cwd: tempdir.path().to_string_lossy().into_owned(),
+                    shell: "/bin/sh".to_owned(),
+                })),
+                lifetime: SessionLifetime::Persistent as i32,
+                columns: 160,
+                rows: 60,
+                create_if_missing: false,
+                client_title: "late".to_owned(),
+            }),
+        ),
+    )
+    .await
+    .expect("attach late client");
+    let attached = read_attached(&mut late).await;
+    assert_eq!((attached.columns, attached.rows), (80, 24));
+    let (checkpoint_revision, checkpoint) = read_checkpoint(&mut late).await;
+    assert!(
+        String::from_utf8_lossy(&checkpoint).contains("offline-marker"),
+        "late checkpoint omitted offline output"
+    );
+
+    send(
+        &mut late,
+        &protocol::envelope(
+            5,
+            "replay",
+            Payload::Input(Input {
+                data: b"printf 'live-marker\\n'\n".to_vec(),
+            }),
+        ),
+    )
+    .await
+    .expect("send live output");
+    let first_live_revision = read_output_revisions(&mut late, "live-marker").await;
+    assert_eq!(first_live_revision, checkpoint_revision + 1);
+
+    manager_task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_resize_advances_once_and_checkpoints_every_client_at_the_shared_grid() {
+    let tempdir = tempdir().expect("tempdir");
+    let socket_path = tempdir.path().join("terminal.sock");
+    let manager = PtyManager::new(PtyManagerOptions {
+        socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
+    });
+    let manager_task = tokio::spawn(async move { manager.run().await });
+    wait_for_socket(&socket_path).await;
+
+    let mut first = pty_manager::client::connect(&socket_path)
+        .await
+        .expect("connect first client");
+    send_create(&mut first, 1, "resize-shared", tempdir.path()).await;
+    read_attached(&mut first).await;
+    let (initial_revision, _) = read_checkpoint(&mut first).await;
+
+    let mut second = pty_manager::client::connect(&socket_path)
+        .await
+        .expect("connect second client");
+    send_create(&mut second, 2, "resize-shared", tempdir.path()).await;
+    let second_attached = read_attached(&mut second).await;
+    assert_eq!((second_attached.columns, second_attached.rows), (80, 24));
+    read_checkpoint(&mut second).await;
+
+    send(
+        &mut first,
+        &protocol::envelope(
+            3,
+            "resize-shared",
+            Payload::Resize(protocol::Resize {
+                columns: 120,
+                rows: 35,
+            }),
+        ),
+    )
+    .await
+    .expect("resize shared session");
+
+    let (first_revision, _) = read_checkpoint_with_dimensions(&mut first, 120, 35).await;
+    let (second_revision, _) = read_checkpoint_with_dimensions(&mut second, 120, 35).await;
+    assert_eq!(first_revision, initial_revision + 1);
+    assert_eq!(second_revision, first_revision);
+    let sessions = pty_manager::client::list_sessions(&socket_path)
+        .await
+        .expect("list sessions");
+    assert_eq!((sessions[0].columns, sessions[0].rows), (120, 35));
+    assert_eq!(sessions[0].revision, first_revision);
+
+    manager_task.abort();
+}
+
 async fn wait_for_socket(socket_path: &Path) {
     for _ in 0..100 {
         if UnixStream::connect(socket_path).await.is_ok() {
@@ -431,7 +570,10 @@ async fn read_attached(framed: &mut pty_manager::transport::TerminalFramed) -> A
         let envelope = receive(framed).await.expect("receive").expect("frame");
         match protocol::payload(envelope).expect("payload") {
             Payload::Attached(attached) => return attached,
-            Payload::Output(_) => {}
+            Payload::Output(_)
+            | Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload before attach: {other:?}"),
         }
@@ -443,7 +585,10 @@ async fn read_client_detached(framed: &mut pty_manager::transport::TerminalFrame
         let envelope = receive(framed).await.expect("receive").expect("frame");
         match protocol::payload(envelope).expect("payload") {
             Payload::ClientDetached(detached) => return detached.client_id,
-            Payload::Output(_) => {}
+            Payload::Output(_)
+            | Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload before client detach: {other:?}"),
         }
@@ -464,6 +609,9 @@ async fn read_until_output(
                     return String::from_utf8_lossy(&output).into_owned();
                 }
             }
+            Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload while waiting for output: {other:?}"),
         }
@@ -474,12 +622,124 @@ async fn read_until_output(
     );
 }
 
+async fn read_checkpoint(framed: &mut pty_manager::transport::TerminalFramed) -> (u64, Vec<u8>) {
+    let mut checkpoint_id = None;
+    let mut revision = 0;
+    let mut expected_chunks = 0;
+    let mut chunks = 0;
+    let mut bytes = Vec::new();
+    loop {
+        let envelope = receive(framed).await.expect("receive").expect("frame");
+        match protocol::payload(envelope).expect("payload") {
+            Payload::TerminalCheckpointBegin(begin) => {
+                checkpoint_id = Some(begin.checkpoint_id);
+                revision = begin.revision;
+                expected_chunks = begin.chunk_count;
+            }
+            Payload::TerminalCheckpointChunk(chunk) => {
+                assert_eq!(Some(chunk.checkpoint_id), checkpoint_id);
+                assert_eq!(chunk.index, chunks);
+                chunks += 1;
+                bytes.extend(chunk.data);
+            }
+            Payload::TerminalCheckpointEnd(end) => {
+                assert_eq!(Some(end.checkpoint_id), checkpoint_id);
+                assert_eq!(end.revision, revision);
+                assert_eq!(chunks, expected_chunks);
+                return (revision, bytes);
+            }
+            Payload::Output(_) => {}
+            Payload::Error(error) => panic!("pty manager error: {}", error.message),
+            other => panic!("unexpected payload while waiting for checkpoint: {other:?}"),
+        }
+    }
+}
+
+async fn read_checkpoint_with_dimensions(
+    framed: &mut pty_manager::transport::TerminalFramed,
+    columns: u32,
+    rows: u32,
+) -> (u64, Vec<u8>) {
+    loop {
+        let envelope = receive(framed).await.expect("receive").expect("frame");
+        match protocol::payload(envelope).expect("payload") {
+            Payload::TerminalCheckpointBegin(begin) => {
+                assert_eq!((begin.columns, begin.rows), (columns, rows));
+                let checkpoint_id = begin.checkpoint_id;
+                let revision = begin.revision;
+                let expected_chunks = begin.chunk_count;
+                let mut chunks = 0;
+                let mut bytes = Vec::new();
+                loop {
+                    let envelope = receive(framed).await.expect("receive").expect("frame");
+                    match protocol::payload(envelope).expect("payload") {
+                        Payload::TerminalCheckpointChunk(chunk) => {
+                            assert_eq!(chunk.checkpoint_id, checkpoint_id);
+                            assert_eq!(chunk.index, chunks);
+                            chunks += 1;
+                            bytes.extend(chunk.data);
+                        }
+                        Payload::TerminalCheckpointEnd(end) => {
+                            assert_eq!(end.checkpoint_id, checkpoint_id);
+                            assert_eq!(end.revision, revision);
+                            assert_eq!(chunks, expected_chunks);
+                            return (revision, bytes);
+                        }
+                        Payload::Output(_) => {}
+                        Payload::Error(error) => panic!("pty manager error: {}", error.message),
+                        other => panic!("unexpected payload during resize checkpoint: {other:?}"),
+                    }
+                }
+            }
+            Payload::Output(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_) => {}
+            Payload::Error(error) => panic!("pty manager error: {}", error.message),
+            other => panic!("unexpected payload before resize checkpoint: {other:?}"),
+        }
+    }
+}
+
+async fn read_output_revisions(
+    framed: &mut pty_manager::transport::TerminalFramed,
+    needle: &str,
+) -> u64 {
+    let mut first_revision = None;
+    let mut previous_revision = None;
+    let mut output = Vec::new();
+    for _ in 0..100 {
+        let envelope = receive(framed).await.expect("receive").expect("frame");
+        match protocol::payload(envelope).expect("payload") {
+            Payload::Output(frame) => {
+                first_revision.get_or_insert(frame.revision);
+                if let Some(previous) = previous_revision {
+                    assert_eq!(frame.revision, previous + 1);
+                }
+                previous_revision = Some(frame.revision);
+                output.extend(frame.data);
+                if String::from_utf8_lossy(&output).contains(needle) {
+                    return first_revision.expect("first output revision");
+                }
+            }
+            Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_) => {}
+            Payload::Error(error) => panic!("pty manager error: {}", error.message),
+            other => panic!("unexpected payload while waiting for live output: {other:?}"),
+        }
+    }
+    panic!("output did not contain {needle:?}");
+}
+
 async fn read_session_exited(framed: &mut pty_manager::transport::TerminalFramed) -> SessionExited {
     loop {
         let envelope = receive(framed).await.expect("receive").expect("frame");
         match protocol::payload(envelope).expect("payload") {
             Payload::SessionExited(exited) => return exited,
-            Payload::Output(_) => {}
+            Payload::Output(_)
+            | Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload before exit: {other:?}"),
         }

@@ -5,13 +5,44 @@ import XCTest
 
 @MainActor
 final class PtyTerminalSessionDriverTests: XCTestCase {
+    func testRejectsCheckpointOutsideOperationalBounds() async throws {
+        let connection = FakePtyTerminalConnection()
+        let renderer = FakePtyTerminalRenderer()
+        var failures: [PtyTerminalSynchronizationError] = []
+        let driver = PtyTerminalSessionDriver(
+            connection: connection,
+            renderer: renderer,
+            onError: { error in
+                if let synchronization = error as? PtyTerminalSynchronizationError {
+                    failures.append(synchronization)
+                }
+            }
+        )
+        driver.start()
+
+        connection.yield(.checkpointBegan(.init(
+            checkpointID: 1,
+            revision: 1,
+            columns: 513,
+            rows: 24,
+            totalBytes: 1,
+            chunkCount: 1,
+            historyTruncated: false
+        )))
+
+        try await waitUntil { failures.count == 1 && connection.checkpointRequests == [0] }
+        XCTAssertEqual(failures, [.invalidCheckpoint("invalid checkpoint header")])
+        driver.stop()
+    }
+
     func testOutputAndExitEventsFeedRendererInOrder() async throws {
         let connection = FakePtyTerminalConnection()
         let renderer = FakePtyTerminalRenderer()
         let driver = PtyTerminalSessionDriver(connection: connection, renderer: renderer)
 
         driver.start()
-        connection.yield(.output(Data("hello".utf8)))
+        connection.yieldCheckpoint(revision: 1)
+        connection.yield(.output(data: Data("hello".utf8), revision: 2))
         connection.yield(.exited(7))
         connection.finishEvents()
 
@@ -152,6 +183,63 @@ final class PtyTerminalSessionDriverTests: XCTestCase {
         XCTAssertTrue(terminations.isEmpty)
     }
 
+    func testRevisionGapStopsOutputAndRequestsOneReplacementCheckpoint() async throws {
+        let connection = FakePtyTerminalConnection()
+        let renderer = FakePtyTerminalRenderer()
+        let driver = PtyTerminalSessionDriver(connection: connection, renderer: renderer)
+
+        driver.start()
+        connection.yieldCheckpoint(revision: 4)
+        connection.yield(.output(data: Data("skipped".utf8), revision: 6))
+        connection.yield(.output(data: Data("also skipped".utf8), revision: 7))
+
+        try await waitUntil { connection.checkpointRequests == [4] }
+        XCTAssertTrue(renderer.outputs.isEmpty)
+        XCTAssertEqual(renderer.statuses, ["\r\n[terminal synchronizing]\r\n"])
+        driver.stop()
+    }
+
+    func testReplacementCheckpointRestoresConsecutiveOutput() async throws {
+        let connection = FakePtyTerminalConnection()
+        let renderer = FakePtyTerminalRenderer()
+        let driver = PtyTerminalSessionDriver(connection: connection, renderer: renderer)
+
+        driver.start()
+        connection.yieldCheckpoint(revision: 1)
+        connection.yield(.output(data: Data("gap".utf8), revision: 3))
+        try await waitUntil { connection.checkpointRequests == [1] }
+        connection.yieldCheckpoint(revision: 3)
+        connection.yield(.output(data: Data("live".utf8), revision: 4))
+
+        try await waitUntil { renderer.outputs == [Data("live".utf8)] }
+        XCTAssertEqual(renderer.checkpointEnds.map(\.revision), [1, 3])
+        driver.stop()
+    }
+
+    func testCheckpointCannotMoveAppliedRevisionBackwards() async throws {
+        let connection = FakePtyTerminalConnection()
+        let renderer = FakePtyTerminalRenderer()
+        var failures: [PtyTerminalSynchronizationError] = []
+        let driver = PtyTerminalSessionDriver(
+            connection: connection,
+            renderer: renderer,
+            onError: { error in
+                if let synchronization = error as? PtyTerminalSynchronizationError {
+                    failures.append(synchronization)
+                }
+            }
+        )
+
+        driver.start()
+        connection.yieldCheckpoint(revision: 5)
+        connection.yieldCheckpoint(revision: 4)
+
+        try await waitUntil { failures.count == 1 && connection.checkpointRequests == [5] }
+        XCTAssertEqual(failures, [.invalidCheckpoint("invalid checkpoint header")])
+        XCTAssertEqual(renderer.checkpointEnds.map(\.revision), [5])
+        driver.stop()
+    }
+
     private func waitUntil(
         timeoutNanoseconds: UInt64 = 1_000_000_000,
         condition: @MainActor @escaping () -> Bool
@@ -172,7 +260,23 @@ private final class FakePtyTerminalRenderer: PtyTerminalRenderer {
     var statuses: [String] = []
     var managerDetachCloseCount = 0
 
-    func feedOutput(_ data: Data) {
+    var checkpointBegins: [PtyTerminalCheckpoint] = []
+    var checkpointChunks: [Data] = []
+    var checkpointEnds: [PtyTerminalCheckpoint] = []
+
+    func beginCheckpoint(_ checkpoint: PtyTerminalCheckpoint) {
+        checkpointBegins.append(checkpoint)
+    }
+
+    func feedCheckpointChunk(_ data: Data) {
+        checkpointChunks.append(data)
+    }
+
+    func endCheckpoint(_ checkpoint: PtyTerminalCheckpoint) {
+        checkpointEnds.append(checkpoint)
+    }
+
+    func feedOutput(_ data: Data, revision: UInt64) {
         outputs.append(data)
     }
 
@@ -197,6 +301,7 @@ private final class FakePtyTerminalConnection: PtyTerminalConnection, @unchecked
     private var inputsStorage: [Data] = []
     private var resizesStorage: [Resize] = []
     private var detachCountStorage = 0
+    private var checkpointRequestsStorage: [UInt64] = []
     private var eventStreamTerminationCountStorage = 0
 
     init() {
@@ -222,12 +327,31 @@ private final class FakePtyTerminalConnection: PtyTerminalConnection, @unchecked
         lock.withLock { detachCountStorage }
     }
 
+    var checkpointRequests: [UInt64] {
+        lock.withLock { checkpointRequestsStorage }
+    }
+
     var eventStreamTerminationCount: Int {
         lock.withLock { eventStreamTerminationCountStorage }
     }
 
     func yield(_ event: PtySessionEvent) {
         continuation.yield(event)
+    }
+
+    func yieldCheckpoint(revision: UInt64, data: Data = Data([0x1b, 0x63])) {
+        let checkpoint = PtyTerminalCheckpoint(
+            checkpointID: revision,
+            revision: revision,
+            columns: 80,
+            rows: 24,
+            totalBytes: UInt64(data.count),
+            chunkCount: 1,
+            historyTruncated: false
+        )
+        yield(.checkpointBegan(checkpoint))
+        yield(.checkpointChunk(checkpointID: checkpoint.checkpointID, index: 0, data: data))
+        yield(.checkpointEnded(checkpointID: checkpoint.checkpointID, revision: revision))
     }
 
     func finishEvents() {
@@ -248,6 +372,10 @@ private final class FakePtyTerminalConnection: PtyTerminalConnection, @unchecked
         lock.withLock {
             resizesStorage.append(Resize(columns: columns, rows: rows))
         }
+    }
+
+    func requestCheckpoint(lastAppliedRevision: UInt64) async throws {
+        lock.withLock { checkpointRequestsStorage.append(lastAppliedRevision) }
     }
 
     func detach() async throws {

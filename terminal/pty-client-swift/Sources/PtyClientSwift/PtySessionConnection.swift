@@ -20,7 +20,7 @@ public final class PtySessionConnection: @unchecked Sendable {
     }
 
     public func events() -> AsyncThrowingStream<PtySessionEvent, Error> {
-        AsyncThrowingStream { continuation in
+        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(256)) { continuation in
             eventsStarted.lock()
             let canStart = !didStartEvents
             didStartEvents = true
@@ -41,7 +41,28 @@ public final class PtySessionConnection: @unchecked Sendable {
                         }
                         switch envelope.payload {
                         case .output(let output):
-                            continuation.yield(.output(output.data))
+                            continuation.yield(.output(data: output.data, revision: output.revision))
+                        case .terminalCheckpointBegin(let begin):
+                            continuation.yield(.checkpointBegan(.init(
+                                checkpointID: begin.checkpointID,
+                                revision: begin.revision,
+                                columns: begin.columns,
+                                rows: begin.rows,
+                                totalBytes: begin.totalBytes,
+                                chunkCount: begin.chunkCount,
+                                historyTruncated: begin.historyTruncated
+                            )))
+                        case .terminalCheckpointChunk(let chunk):
+                            continuation.yield(.checkpointChunk(
+                                checkpointID: chunk.checkpointID,
+                                index: chunk.index,
+                                data: chunk.data
+                            ))
+                        case .terminalCheckpointEnd(let end):
+                            continuation.yield(.checkpointEnded(
+                                checkpointID: end.checkpointID,
+                                revision: end.revision
+                            ))
                         case .sessionExited(let exited):
                             continuation.yield(.exited(exited.status))
                             continuation.finish()
@@ -85,6 +106,12 @@ public final class PtySessionConnection: @unchecked Sendable {
         }))
     }
 
+    public func requestCheckpoint(lastAppliedRevision: UInt64) async throws {
+        try await send(.requestTerminalCheckpoint(.with {
+            $0.lastAppliedRevision = lastAppliedRevision
+        }))
+    }
+
     public func detach() async throws {
         defer { transport.close() }
         try await send(.detach(.init()))
@@ -120,7 +147,10 @@ public final class PtySessionConnection: @unchecked Sendable {
             cwd: attached.cwd,
             shell: attached.shell,
             clientCount: attached.clientCount,
-            clientID: attached.clientID
+            clientID: attached.clientID,
+            columns: attached.columns,
+            rows: attached.rows,
+            revision: attached.revision
         )
     }
 }

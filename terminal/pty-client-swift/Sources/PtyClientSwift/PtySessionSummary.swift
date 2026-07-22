@@ -14,6 +14,9 @@ public struct PtySessionSummary: Equatable, Sendable {
     public let state: State
     public let lifetime: PtySessionLifetime
     public let startedAtUnixMilliseconds: UInt64
+    public let columns: UInt32
+    public let rows: UInt32
+    public let revision: UInt64
     public let clients: [PtySessionClientSummary]
 
     public var clientCount: UInt32 {
@@ -28,6 +31,9 @@ public struct PtySessionSummary: Equatable, Sendable {
         state: State,
         lifetime: PtySessionLifetime,
         startedAtUnixMilliseconds: UInt64,
+        columns: UInt32 = 80,
+        rows: UInt32 = 24,
+        revision: UInt64 = 1,
         clients: [PtySessionClientSummary]
     ) {
         self.name = name
@@ -37,6 +43,9 @@ public struct PtySessionSummary: Equatable, Sendable {
         self.state = state
         self.lifetime = lifetime
         self.startedAtUnixMilliseconds = startedAtUnixMilliseconds
+        self.columns = columns
+        self.rows = rows
+        self.revision = revision
         self.clients = clients
     }
 }

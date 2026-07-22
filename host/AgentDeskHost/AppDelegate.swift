@@ -6,6 +6,7 @@ import Network
 import os
 import AgentDeskWire
 import BrowserProjection
+import TerminalEmulator
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -117,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var spaceAgentController: SpaceAgentController?
     private var dictationBarController: DictationBarController?
     private var ptyManagerProcess: HostPtyManagerProcess?
+    private lazy var terminalWindowRegistry = TerminalWindowRegistry()
     private var terminalClientBridges: [ObjectIdentifier: TerminalClientBridge] = [:]
     // Protocol-v11 workspace lane. One responder serializes file writes against the workspace
     // store. Each attached `.files` stream owns a subscription session, while the repository
@@ -407,6 +409,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspaceObservationCoordinator.stop()
         workspaceShellPresenter?.stop()
         workspaceShellPresenter = nil
+        terminalWindowRegistry.prepareForHostTermination()
         // Normal termination waits for this in applicationShouldTerminate. This fallback still
         // establishes the close barrier if AppKit reaches willTerminate without that callback.
         if let controller = agentWindowController {
@@ -509,7 +512,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let presenter = WorkspaceShellPresenter(
             workspaceCoordinator: workspaceCoordinator,
             observationCoordinator: workspaceObservationCoordinator,
-            spacesProvider: spacesProvider
+            spacesProvider: spacesProvider,
+            terminalWindowRegistry: terminalWindowRegistry
         )
         workspaceShellPresenter = presenter
 
@@ -787,6 +791,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let process = HostPtyManagerProcess(binaryURL: binaryURL)
         ptyManagerProcess = process
         process.start()
+        terminalWindowRegistry.startRestoration()
     }
 
     // Start the Chrome-fed native-messaging bridge and pipe its batches into the relay, but only

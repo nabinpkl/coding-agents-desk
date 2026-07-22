@@ -242,6 +242,38 @@ nonisolated struct Pty_V1_Envelope: Sendable {
     set {payload = .clientDetached(newValue)}
   }
 
+  var terminalCheckpointBegin: Pty_V1_TerminalCheckpointBegin {
+    get {
+      if case .terminalCheckpointBegin(let v)? = payload {return v}
+      return Pty_V1_TerminalCheckpointBegin()
+    }
+    set {payload = .terminalCheckpointBegin(newValue)}
+  }
+
+  var terminalCheckpointChunk: Pty_V1_TerminalCheckpointChunk {
+    get {
+      if case .terminalCheckpointChunk(let v)? = payload {return v}
+      return Pty_V1_TerminalCheckpointChunk()
+    }
+    set {payload = .terminalCheckpointChunk(newValue)}
+  }
+
+  var terminalCheckpointEnd: Pty_V1_TerminalCheckpointEnd {
+    get {
+      if case .terminalCheckpointEnd(let v)? = payload {return v}
+      return Pty_V1_TerminalCheckpointEnd()
+    }
+    set {payload = .terminalCheckpointEnd(newValue)}
+  }
+
+  var requestTerminalCheckpoint: Pty_V1_RequestTerminalCheckpoint {
+    get {
+      if case .requestTerminalCheckpoint(let v)? = payload {return v}
+      return Pty_V1_RequestTerminalCheckpoint()
+    }
+    set {payload = .requestTerminalCheckpoint(newValue)}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   nonisolated enum OneOf_Payload: Equatable, Sendable {
@@ -261,6 +293,10 @@ nonisolated struct Pty_V1_Envelope: Sendable {
     case resize(Pty_V1_Resize)
     case closeClient(Pty_V1_CloseClient)
     case clientDetached(Pty_V1_ClientDetached)
+    case terminalCheckpointBegin(Pty_V1_TerminalCheckpointBegin)
+    case terminalCheckpointChunk(Pty_V1_TerminalCheckpointChunk)
+    case terminalCheckpointEnd(Pty_V1_TerminalCheckpointEnd)
+    case requestTerminalCheckpoint(Pty_V1_RequestTerminalCheckpoint)
 
   }
 
@@ -368,6 +404,12 @@ nonisolated struct Pty_V1_Attached: Sendable {
 
   var clientID: UInt64 = 0
 
+  var columns: UInt32 = 0
+
+  var rows: UInt32 = 0
+
+  var revision: UInt64 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -415,6 +457,74 @@ nonisolated struct Pty_V1_Output: Sendable {
   // methods supported on all messages.
 
   var data: Data = Data()
+
+  var revision: UInt64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+nonisolated struct Pty_V1_TerminalCheckpointBegin: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var checkpointID: UInt64 = 0
+
+  var revision: UInt64 = 0
+
+  var columns: UInt32 = 0
+
+  var rows: UInt32 = 0
+
+  var totalBytes: UInt64 = 0
+
+  var chunkCount: UInt32 = 0
+
+  var historyTruncated: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+nonisolated struct Pty_V1_TerminalCheckpointChunk: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var checkpointID: UInt64 = 0
+
+  var index: UInt32 = 0
+
+  var data: Data = Data()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+nonisolated struct Pty_V1_TerminalCheckpointEnd: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var checkpointID: UInt64 = 0
+
+  var revision: UInt64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+nonisolated struct Pty_V1_RequestTerminalCheckpoint: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var lastAppliedRevision: UInt64 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -485,6 +595,12 @@ nonisolated struct Pty_V1_SessionSummary: Sendable {
   var lifetime: Pty_V1_SessionLifetime = .unspecified
 
   var startedAtUnixMilliseconds: UInt64 = 0
+
+  var columns: UInt32 = 0
+
+  var rows: UInt32 = 0
+
+  var revision: UInt64 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 

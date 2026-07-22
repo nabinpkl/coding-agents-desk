@@ -22,7 +22,7 @@ nonisolated extension Pty_V1_SessionLifetime: SwiftProtobuf._ProtoNameProviding 
 
 nonisolated extension Pty_V1_Envelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Envelope"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}protocol_version\0\u{3}request_id\0\u{3}session_name\0\u{2}\u{7}hello\0\u{3}create_or_attach\0\u{1}attached\0\u{1}detach\0\u{1}input\0\u{1}output\0\u{3}list_sessions\0\u{3}session_list\0\u{3}kill_session\0\u{3}session_exited\0\u{1}error\0\u{3}subscribe_sessions\0\u{3}session_snapshot\0\u{1}resize\0\u{3}close_client\0\u{3}client_detached\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}protocol_version\0\u{3}request_id\0\u{3}session_name\0\u{2}\u{7}hello\0\u{3}create_or_attach\0\u{1}attached\0\u{1}detach\0\u{1}input\0\u{1}output\0\u{3}list_sessions\0\u{3}session_list\0\u{3}kill_session\0\u{3}session_exited\0\u{1}error\0\u{3}subscribe_sessions\0\u{3}session_snapshot\0\u{1}resize\0\u{3}close_client\0\u{3}client_detached\0\u{3}terminal_checkpoint_begin\0\u{3}terminal_checkpoint_chunk\0\u{3}terminal_checkpoint_end\0\u{3}request_terminal_checkpoint\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -241,6 +241,58 @@ nonisolated extension Pty_V1_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Mes
           self.payload = .clientDetached(v)
         }
       }()
+      case 26: try {
+        var v: Pty_V1_TerminalCheckpointBegin?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .terminalCheckpointBegin(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .terminalCheckpointBegin(v)
+        }
+      }()
+      case 27: try {
+        var v: Pty_V1_TerminalCheckpointChunk?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .terminalCheckpointChunk(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .terminalCheckpointChunk(v)
+        }
+      }()
+      case 28: try {
+        var v: Pty_V1_TerminalCheckpointEnd?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .terminalCheckpointEnd(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .terminalCheckpointEnd(v)
+        }
+      }()
+      case 29: try {
+        var v: Pty_V1_RequestTerminalCheckpoint?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .requestTerminalCheckpoint(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .requestTerminalCheckpoint(v)
+        }
+      }()
       default: break
       }
     }
@@ -324,6 +376,22 @@ nonisolated extension Pty_V1_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Mes
     case .clientDetached?: try {
       guard case .clientDetached(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 25)
+    }()
+    case .terminalCheckpointBegin?: try {
+      guard case .terminalCheckpointBegin(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 26)
+    }()
+    case .terminalCheckpointChunk?: try {
+      guard case .terminalCheckpointChunk(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 27)
+    }()
+    case .terminalCheckpointEnd?: try {
+      guard case .terminalCheckpointEnd(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 28)
+    }()
+    case .requestTerminalCheckpoint?: try {
+      guard case .requestTerminalCheckpoint(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 29)
     }()
     case nil: break
     }

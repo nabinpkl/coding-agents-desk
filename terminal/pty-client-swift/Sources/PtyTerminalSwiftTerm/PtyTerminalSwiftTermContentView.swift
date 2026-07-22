@@ -6,9 +6,11 @@ import SwiftTerm
 #if canImport(AppKit)
 import AppKit
 public typealias PtyTerminalContentPlatformView = NSView
+private typealias PtyTerminalPlatformLabel = NSTextField
 #elseif canImport(UIKit)
 import UIKit
 public typealias PtyTerminalContentPlatformView = UIView
+private typealias PtyTerminalPlatformLabel = UILabel
 #endif
 
 @MainActor
@@ -46,19 +48,34 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
     public private(set) var isBound = false
     public private(set) var rendererSetupError: Error?
     private(set) var bindingGeneration: UInt64 = 0
+    public private(set) var authoritativeDimensions = PtyTerminalDimensions.bootstrap
+    public private(set) var appliedRevision: UInt64 = 0
+    public private(set) var fitScale: CGFloat = 1
 
     public var columns: Int { terminalView.getTerminal().cols }
     public var rows: Int { terminalView.getTerminal().rows }
     public var attachmentDimensions: PtyTerminalDimensions {
         synchronizeLayout()
-        guard !terminalView.bounds.isEmpty else { return .bootstrap }
+        guard !bounds.isEmpty else { return .bootstrap }
+        let currentColumns = max(columns, 1)
+        let currentRows = max(rows, 1)
+        let optimal = terminalView.getOptimalFrameSize().size
+        guard optimal.width > 0, optimal.height > 0 else { return .bootstrap }
+        let cellWidth = optimal.width / CGFloat(currentColumns)
+        let cellHeight = optimal.height / CGFloat(currentRows)
+        guard cellWidth > 0, cellHeight > 0 else { return .bootstrap }
         return PtyTerminalDimensions(
-            columns: UInt32(max(columns, 1)),
-            rows: UInt32(max(rows, 1))
+            columns: UInt32(min(max(Int(bounds.width / cellWidth), 1), 512)),
+            rows: UInt32(min(max(Int(bounds.height / cellHeight), 1), 256))
         )
     }
 
     private var sessionDriver: PtyTerminalSessionDriver?
+    private var isApplyingManagerData = false
+    public private(set) var isSynchronizing = true
+    private let sizeControl = PtyTerminalSizeControl()
+    private let syncStatus = PtyTerminalPlatformLabel()
+    private let historyStatus = PtyTerminalPlatformLabel()
 
     public init(
         style: PtyTerminalViewStyle = PtyTerminalViewStyle(
@@ -79,6 +96,7 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
         }
         nativeView.translatesAutoresizingMaskIntoConstraints = false
         nativeView.terminalDelegate = self
+        nativeView.changeScrollback(2_000)
         #if canImport(AppKit)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -87,12 +105,15 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
         nativeView.pasteHandler = { [weak self] text in self?.paste(text: text) }
         #endif
         addSubview(nativeView)
-        NSLayoutConstraint.activate([
-            nativeView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            nativeView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            nativeView.topAnchor.constraint(equalTo: topAnchor),
-            nativeView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
+        nativeView.translatesAutoresizingMaskIntoConstraints = true
+        nativeView.isHidden = true
+        #if canImport(AppKit)
+        wantsLayer = true
+        nativeView.wantsLayer = true
+        #elseif canImport(UIKit)
+        clipsToBounds = true
+        #endif
+        configureOverlayControls()
 
         #if canImport(UIKit)
         backgroundColor = .black
@@ -132,8 +153,6 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
         sessionDriver = driver
         isBound = true
         driver.start()
-        let dimensions = attachmentDimensions
-        driver.resize(columns: Int(dimensions.columns), rows: Int(dimensions.rows))
     }
 
     public func detach() {
@@ -190,12 +209,59 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
         sessionDriver?.sendInput(Data(bytes))
     }
 
-    public func feedOutput(_ data: Data) {
-        terminalView.feed(byteArray: [UInt8](data)[...])
+    public func beginCheckpoint(_ checkpoint: PtyTerminalCheckpoint) {
+        isSynchronizing = true
+        terminalView.isHidden = true
+        syncStatus.isHidden = false
+        historyStatus.isHidden = true
+        authoritativeDimensions = PtyTerminalDimensions(
+            columns: checkpoint.columns,
+            rows: checkpoint.rows
+        )
+        applyManagerData(Data([0x1b, 0x63]))
+        terminalView.resize(cols: Int(checkpoint.columns), rows: Int(checkpoint.rows))
+        terminalView.changeScrollback(2_000)
+        sizeControl.update(columns: Int(checkpoint.columns), rows: Int(checkpoint.rows))
+        updateFitLayout()
+    }
+
+    public func feedCheckpointChunk(_ data: Data) {
+        guard isSynchronizing else { return }
+        applyManagerData(data)
+    }
+
+    public func endCheckpoint(_ checkpoint: PtyTerminalCheckpoint) {
+        appliedRevision = checkpoint.revision
+        isSynchronizing = false
+        terminalView.isHidden = false
+        syncStatus.isHidden = true
+        historyStatus.isHidden = !checkpoint.historyTruncated
+        #if canImport(AppKit)
+        setAccessibilityHelp(checkpoint.historyTruncated
+            ? "Terminal synchronized. Older history was truncated."
+            : "Terminal synchronized.")
+        #else
+        accessibilityHint = checkpoint.historyTruncated
+            ? "Terminal synchronized. Older history was truncated."
+            : "Terminal synchronized."
+        #endif
+    }
+
+    public func feedOutput(_ data: Data, revision: UInt64) {
+        guard !isSynchronizing else { return }
+        applyManagerData(data)
+        appliedRevision = revision
     }
 
     public func feedStatus(_ text: String) {
         delegate?.ptyTerminalContent(self, didReceiveStatus: text)
+    }
+
+    /// Renders a client-local diagnostic after synchronization. This is not
+    /// session output and deliberately does not participate in revisions.
+    public func feedLocalStatus(_ data: Data) {
+        guard !isSynchronizing else { return }
+        applyManagerData(data)
     }
 
     public func closeAfterManagerDetach() {
@@ -214,7 +280,8 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
     }
 
     public func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
-        sessionDriver?.resize(columns: newCols, rows: newRows)
+        // The manager owns the logical grid. Container layout only changes the
+        // local fit transform and must never resize the shared PTY.
     }
 
     public func setTerminalTitle(source: TerminalView, title: String) {
@@ -224,7 +291,7 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
     public func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
 
     public func send(source: TerminalView, data: ArraySlice<UInt8>) {
-        guard isInputEnabled else { return }
+        guard isInputEnabled, !isApplyingManagerData else { return }
         sessionDriver?.sendInput(Data(data))
     }
 
@@ -274,6 +341,93 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
         layoutIfNeeded()
         #endif
     }
+
+    public func applyLogicalSize(columns: Int, rows: Int) {
+        guard (1...512).contains(columns), (1...256).contains(rows) else { return }
+        sessionDriver?.resize(columns: columns, rows: rows)
+    }
+
+    private func applyManagerData(_ data: Data) {
+        isApplyingManagerData = true
+        defer { isApplyingManagerData = false }
+        terminalView.feed(byteArray: [UInt8](data)[...])
+    }
+
+    private func updateFitLayout() {
+        let optimal = terminalView.getOptimalFrameSize().size
+        guard let transform = PtyTerminalFitTransform(
+            canvasSize: optimal,
+            containerBounds: bounds
+        ) else { return }
+        fitScale = transform.scale
+        #if canImport(AppKit)
+        // NSView performs event-coordinate conversion through frame/bounds.
+        // Keeping the logical canvas in bounds while sizing the frame to its
+        // visual fit therefore inverse-maps clicks, selection, and AX points.
+        terminalView.layer?.setAffineTransform(.identity)
+        terminalView.frame = transform.visualFrame
+        terminalView.bounds = CGRect(origin: .zero, size: optimal)
+        #elseif canImport(UIKit)
+        terminalView.transform = .identity
+        terminalView.bounds = CGRect(origin: .zero, size: optimal)
+        terminalView.center = CGPoint(x: transform.visualFrame.midX, y: transform.visualFrame.midY)
+        terminalView.transform = CGAffineTransform(scaleX: fitScale, y: fitScale)
+        #endif
+    }
+
+    private func configureOverlayControls() {
+        sizeControl.onApply = { [weak self] columns, rows in
+            self?.applyLogicalSize(columns: columns, rows: rows)
+        }
+        #if canImport(AppKit)
+        syncStatus.stringValue = "Synchronizing…"
+        historyStatus.stringValue = "History truncated"
+        syncStatus.isBezeled = false
+        syncStatus.drawsBackground = false
+        historyStatus.isBezeled = false
+        historyStatus.drawsBackground = false
+        syncStatus.setAccessibilityIdentifier("terminal-sync-status")
+        historyStatus.setAccessibilityIdentifier("terminal-session-history-truncated")
+        #elseif canImport(UIKit)
+        syncStatus.text = "Synchronizing…"
+        historyStatus.text = "History truncated"
+        syncStatus.textColor = .secondaryLabel
+        historyStatus.textColor = .systemOrange
+        syncStatus.accessibilityIdentifier = "terminal-sync-status"
+        historyStatus.accessibilityIdentifier = "terminal-session-history-truncated"
+        #endif
+        historyStatus.isHidden = true
+        addSubview(syncStatus)
+        addSubview(historyStatus)
+        addSubview(sizeControl)
+    }
+
+    private func layoutOverlayControls() {
+        let margin: CGFloat = 8
+        let size = CGSize(width: 96, height: 28)
+        sizeControl.frame = CGRect(
+            x: max(margin, bounds.width - size.width - margin),
+            y: margin,
+            width: size.width,
+            height: size.height
+        )
+        syncStatus.frame = CGRect(x: margin, y: margin, width: 160, height: 24)
+        historyStatus.frame = CGRect(x: margin, y: margin, width: 160, height: 24)
+    }
+
+    #if canImport(AppKit)
+    public override func layout() {
+        super.layout()
+        updateFitLayout()
+        layoutOverlayControls()
+    }
+    #elseif canImport(UIKit)
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        updateFitLayout()
+        layoutOverlayControls()
+    }
+    #endif
 
     #if canImport(AppKit)
     public override func accessibilityPerformPress() -> Bool {

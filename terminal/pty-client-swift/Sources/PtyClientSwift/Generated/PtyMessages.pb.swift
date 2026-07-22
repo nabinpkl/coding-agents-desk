@@ -211,7 +211,7 @@ nonisolated extension Pty_V1_CommandLaunch: SwiftProtobuf.Message, SwiftProtobuf
 
 nonisolated extension Pty_V1_Attached: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Attached"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pid\0\u{1}cwd\0\u{1}shell\0\u{3}client_count\0\u{3}client_id\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pid\0\u{1}cwd\0\u{1}shell\0\u{3}client_count\0\u{3}client_id\0\u{1}columns\0\u{1}rows\0\u{1}revision\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -224,6 +224,9 @@ nonisolated extension Pty_V1_Attached: SwiftProtobuf.Message, SwiftProtobuf._Mes
       case 3: try { try decoder.decodeSingularStringField(value: &self.shell) }()
       case 4: try { try decoder.decodeSingularUInt32Field(value: &self.clientCount) }()
       case 5: try { try decoder.decodeSingularUInt64Field(value: &self.clientID) }()
+      case 6: try { try decoder.decodeSingularUInt32Field(value: &self.columns) }()
+      case 7: try { try decoder.decodeSingularUInt32Field(value: &self.rows) }()
+      case 8: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
       default: break
       }
     }
@@ -245,6 +248,15 @@ nonisolated extension Pty_V1_Attached: SwiftProtobuf.Message, SwiftProtobuf._Mes
     if self.clientID != 0 {
       try visitor.visitSingularUInt64Field(value: self.clientID, fieldNumber: 5)
     }
+    if self.columns != 0 {
+      try visitor.visitSingularUInt32Field(value: self.columns, fieldNumber: 6)
+    }
+    if self.rows != 0 {
+      try visitor.visitSingularUInt32Field(value: self.rows, fieldNumber: 7)
+    }
+    if self.revision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 8)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -254,6 +266,9 @@ nonisolated extension Pty_V1_Attached: SwiftProtobuf.Message, SwiftProtobuf._Mes
     if lhs.shell != rhs.shell {return false}
     if lhs.clientCount != rhs.clientCount {return false}
     if lhs.clientID != rhs.clientID {return false}
+    if lhs.columns != rhs.columns {return false}
+    if lhs.rows != rhs.rows {return false}
+    if lhs.revision != rhs.revision {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -345,7 +360,7 @@ nonisolated extension Pty_V1_Resize: SwiftProtobuf.Message, SwiftProtobuf._Messa
 
 nonisolated extension Pty_V1_Output: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Output"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}data\0\u{1}revision\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -354,6 +369,7 @@ nonisolated extension Pty_V1_Output: SwiftProtobuf.Message, SwiftProtobuf._Messa
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularBytesField(value: &self.data) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
       default: break
       }
     }
@@ -363,11 +379,180 @@ nonisolated extension Pty_V1_Output: SwiftProtobuf.Message, SwiftProtobuf._Messa
     if !self.data.isEmpty {
       try visitor.visitSingularBytesField(value: self.data, fieldNumber: 1)
     }
+    if self.revision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Pty_V1_Output, rhs: Pty_V1_Output) -> Bool {
     if lhs.data != rhs.data {return false}
+    if lhs.revision != rhs.revision {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Pty_V1_TerminalCheckpointBegin: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".TerminalCheckpointBegin"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}checkpoint_id\0\u{1}revision\0\u{1}columns\0\u{1}rows\0\u{3}total_bytes\0\u{3}chunk_count\0\u{3}history_truncated\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.checkpointID) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.columns) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.rows) }()
+      case 5: try { try decoder.decodeSingularUInt64Field(value: &self.totalBytes) }()
+      case 6: try { try decoder.decodeSingularUInt32Field(value: &self.chunkCount) }()
+      case 7: try { try decoder.decodeSingularBoolField(value: &self.historyTruncated) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.checkpointID != 0 {
+      try visitor.visitSingularUInt64Field(value: self.checkpointID, fieldNumber: 1)
+    }
+    if self.revision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 2)
+    }
+    if self.columns != 0 {
+      try visitor.visitSingularUInt32Field(value: self.columns, fieldNumber: 3)
+    }
+    if self.rows != 0 {
+      try visitor.visitSingularUInt32Field(value: self.rows, fieldNumber: 4)
+    }
+    if self.totalBytes != 0 {
+      try visitor.visitSingularUInt64Field(value: self.totalBytes, fieldNumber: 5)
+    }
+    if self.chunkCount != 0 {
+      try visitor.visitSingularUInt32Field(value: self.chunkCount, fieldNumber: 6)
+    }
+    if self.historyTruncated != false {
+      try visitor.visitSingularBoolField(value: self.historyTruncated, fieldNumber: 7)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Pty_V1_TerminalCheckpointBegin, rhs: Pty_V1_TerminalCheckpointBegin) -> Bool {
+    if lhs.checkpointID != rhs.checkpointID {return false}
+    if lhs.revision != rhs.revision {return false}
+    if lhs.columns != rhs.columns {return false}
+    if lhs.rows != rhs.rows {return false}
+    if lhs.totalBytes != rhs.totalBytes {return false}
+    if lhs.chunkCount != rhs.chunkCount {return false}
+    if lhs.historyTruncated != rhs.historyTruncated {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Pty_V1_TerminalCheckpointChunk: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".TerminalCheckpointChunk"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}checkpoint_id\0\u{1}index\0\u{1}data\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.checkpointID) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.index) }()
+      case 3: try { try decoder.decodeSingularBytesField(value: &self.data) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.checkpointID != 0 {
+      try visitor.visitSingularUInt64Field(value: self.checkpointID, fieldNumber: 1)
+    }
+    if self.index != 0 {
+      try visitor.visitSingularUInt32Field(value: self.index, fieldNumber: 2)
+    }
+    if !self.data.isEmpty {
+      try visitor.visitSingularBytesField(value: self.data, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Pty_V1_TerminalCheckpointChunk, rhs: Pty_V1_TerminalCheckpointChunk) -> Bool {
+    if lhs.checkpointID != rhs.checkpointID {return false}
+    if lhs.index != rhs.index {return false}
+    if lhs.data != rhs.data {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Pty_V1_TerminalCheckpointEnd: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".TerminalCheckpointEnd"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}checkpoint_id\0\u{1}revision\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.checkpointID) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.checkpointID != 0 {
+      try visitor.visitSingularUInt64Field(value: self.checkpointID, fieldNumber: 1)
+    }
+    if self.revision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Pty_V1_TerminalCheckpointEnd, rhs: Pty_V1_TerminalCheckpointEnd) -> Bool {
+    if lhs.checkpointID != rhs.checkpointID {return false}
+    if lhs.revision != rhs.revision {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Pty_V1_RequestTerminalCheckpoint: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".RequestTerminalCheckpoint"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}last_applied_revision\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.lastAppliedRevision) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.lastAppliedRevision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.lastAppliedRevision, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Pty_V1_RequestTerminalCheckpoint, rhs: Pty_V1_RequestTerminalCheckpoint) -> Bool {
+    if lhs.lastAppliedRevision != rhs.lastAppliedRevision {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -473,7 +658,7 @@ nonisolated extension Pty_V1_SessionSnapshot: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".SessionSummary"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}cwd\0\u{1}shell\0\u{1}pid\0\u{1}state\0\u{1}clients\0\u{1}lifetime\0\u{3}started_at_unix_milliseconds\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}cwd\0\u{1}shell\0\u{1}pid\0\u{1}state\0\u{1}clients\0\u{1}lifetime\0\u{3}started_at_unix_milliseconds\0\u{1}columns\0\u{1}rows\0\u{1}revision\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -489,6 +674,9 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
       case 6: try { try decoder.decodeRepeatedMessageField(value: &self.clients) }()
       case 7: try { try decoder.decodeSingularEnumField(value: &self.lifetime) }()
       case 8: try { try decoder.decodeSingularUInt64Field(value: &self.startedAtUnixMilliseconds) }()
+      case 9: try { try decoder.decodeSingularUInt32Field(value: &self.columns) }()
+      case 10: try { try decoder.decodeSingularUInt32Field(value: &self.rows) }()
+      case 11: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
       default: break
       }
     }
@@ -519,6 +707,15 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
     if self.startedAtUnixMilliseconds != 0 {
       try visitor.visitSingularUInt64Field(value: self.startedAtUnixMilliseconds, fieldNumber: 8)
     }
+    if self.columns != 0 {
+      try visitor.visitSingularUInt32Field(value: self.columns, fieldNumber: 9)
+    }
+    if self.rows != 0 {
+      try visitor.visitSingularUInt32Field(value: self.rows, fieldNumber: 10)
+    }
+    if self.revision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 11)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -531,6 +728,9 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
     if lhs.clients != rhs.clients {return false}
     if lhs.lifetime != rhs.lifetime {return false}
     if lhs.startedAtUnixMilliseconds != rhs.startedAtUnixMilliseconds {return false}
+    if lhs.columns != rhs.columns {return false}
+    if lhs.rows != rhs.rows {return false}
+    if lhs.revision != rhs.revision {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

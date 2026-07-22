@@ -10,6 +10,29 @@ import AppKit
 
 @MainActor
 final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
+    func testFitTransformCentersCanvasAndInverseMapsContainerPoints() throws {
+        let transform = try XCTUnwrap(PtyTerminalFitTransform(
+            canvasSize: CGSize(width: 1_000, height: 500),
+            containerBounds: CGRect(x: 0, y: 0, width: 500, height: 400)
+        ))
+
+        XCTAssertEqual(transform.scale, 0.5, accuracy: 0.001)
+        XCTAssertEqual(transform.visualFrame, CGRect(x: 0, y: 75, width: 500, height: 250))
+        let point = transform.canvasPoint(forContainerPoint: CGPoint(x: 125, y: 200))
+        XCTAssertEqual(point.x, 250, accuracy: 0.001)
+        XCTAssertEqual(point.y, 250, accuracy: 0.001)
+    }
+
+    func testFitTransformUpscalesLogicalCanvasToFitLargerContainer() throws {
+        let transform = try XCTUnwrap(PtyTerminalFitTransform(
+            canvasSize: CGSize(width: 400, height: 200),
+            containerBounds: CGRect(x: 0, y: 0, width: 1_000, height: 800)
+        ))
+
+        XCTAssertEqual(transform.scale, 2.5)
+        XCTAssertEqual(transform.visualFrame, CGRect(x: 0, y: 150, width: 1_000, height: 500))
+    }
+
     func testFontSizeCanTrackWorkspaceIDEZoom() {
         let content = PtyTerminalSwiftTermContentView()
 
@@ -27,29 +50,23 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
     #if canImport(AppKit)
     func testLaidOutContentUsesMeasuredAttachmentDimensions() {
         let content = PtyTerminalSwiftTermContentView()
-        content.frame = NSRect(x: 0, y: 0, width: 720, height: 460)
+        content.frame = NSRect(x: 0, y: 0, width: 1_200, height: 800)
 
         let dimensions = content.attachmentDimensions
 
-        XCTAssertEqual(dimensions.columns, UInt32(content.columns))
-        XCTAssertEqual(dimensions.rows, UInt32(content.rows))
-        XCTAssertGreaterThan(dimensions.columns, 2)
-        XCTAssertGreaterThan(dimensions.rows, 1)
+        XCTAssertGreaterThan(dimensions.columns, PtyTerminalDimensions.bootstrap.columns)
+        XCTAssertGreaterThan(dimensions.rows, PtyTerminalDimensions.bootstrap.rows)
     }
     #endif
 
-    func testBindImmediatelySynchronizesAttachmentDimensions() async throws {
+    func testBindDoesNotResizeTheSharedSession() async throws {
         let connection = FakeContentConnection()
         let content = PtyTerminalSwiftTermContentView()
 
         content.bind(to: connection)
 
-        try await waitUntil {
-            connection.resizes == [.init(
-                columns: PtyTerminalDimensions.bootstrap.columns,
-                rows: PtyTerminalDimensions.bootstrap.rows
-            )]
-        }
+        try await Task.sleep(nanoseconds: 30_000_000)
+        XCTAssertTrue(connection.resizes.isEmpty)
         content.stop()
         try await waitUntil { connection.eventStreamTerminationCount == 1 }
     }
@@ -61,16 +78,11 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
 
         content.send(source: content.terminalView, data: Array("echo hi\n".utf8)[...])
         content.sizeChanged(source: content.terminalView, newCols: 132, newRows: 43)
+        content.applyLogicalSize(columns: 132, rows: 43)
 
         try await waitUntil {
             connection.sentInputs == [Data("echo hi\n".utf8)]
-                && connection.resizes == [
-                    .init(
-                        columns: PtyTerminalDimensions.bootstrap.columns,
-                        rows: PtyTerminalDimensions.bootstrap.rows
-                    ),
-                    .init(columns: 132, rows: 43),
-                ]
+                && connection.resizes == [.init(columns: 132, rows: 43)]
         }
         content.stop()
         try await waitUntil { connection.eventStreamTerminationCount == 1 }
@@ -81,7 +93,7 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
         let content = PtyTerminalSwiftTermContentView()
         content.bind(to: connection)
 
-        connection.yield(.output(Data("package output".utf8)))
+        connection.yieldCheckpointAndOutput(Data("package output".utf8))
 
         try await waitUntil {
             content.terminalView.getTerminal().getLine(row: 0)?.translateToString(trimRight: true) == "package output"
@@ -101,7 +113,11 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
         }
         XCTAssertEqual(connection.sentInputs[0], Data("plain".utf8))
 
-        content.feedOutput(Data("\u{1B}[?2004h".utf8))
+        let checkpoint = Self.checkpoint(revision: 1)
+        content.beginCheckpoint(checkpoint)
+        content.feedCheckpointChunk(Data([0x1b, 0x63]))
+        content.endCheckpoint(checkpoint)
+        content.feedOutput(Data("\u{1B}[?2004h".utf8), revision: 2)
         content.paste(text: "wrapped")
 
         try await waitUntil {
@@ -128,7 +144,7 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
                 && connection.eventStreamTerminationCount == 1
         }
         XCTAssertEqual(connection.detachCount, 1)
-        connection.yield(.output(Data("after detach".utf8)))
+        connection.yield(.output(data: Data("after detach".utf8), revision: 2))
         XCTAssertFalse(
             content.terminalView.getTerminal().getLine(row: 0)?.translateToString().contains("after detach") ?? false
         )
@@ -252,7 +268,7 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
                 && releasedOldConnection == nil
         }
 
-        currentConnection.yield(.output(Data("current after error".utf8)))
+        currentConnection.yieldCheckpointAndOutput(Data("current after error".utf8))
         try await waitUntil {
             content.terminalView.getTerminal().getLine(row: 0)?.translateToString(trimRight: true)
                 == "current after error"
@@ -289,7 +305,7 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
         XCTAssertTrue(delegate.statuses.isEmpty)
         XCTAssertTrue(delegate.terminations.isEmpty)
 
-        currentConnection.yield(.output(Data("current after detach".utf8)))
+        currentConnection.yieldCheckpointAndOutput(Data("current after detach".utf8))
         try await waitUntil {
             content.terminalView.getTerminal().getLine(row: 0)?.translateToString(trimRight: true)
                 == "current after detach"
@@ -318,6 +334,18 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
         XCTAssertFalse(delivery.isBlocked)
         XCTAssertFalse(inputFailure.isBlocked)
         XCTAssertFalse(inputFailure.didComplete)
+    }
+
+    private static func checkpoint(revision: UInt64) -> PtyTerminalCheckpoint {
+        PtyTerminalCheckpoint(
+            checkpointID: revision,
+            revision: revision,
+            columns: 80,
+            rows: 24,
+            totalBytes: 2,
+            chunkCount: 1,
+            historyTruncated: false
+        )
     }
 
     func testReleaseCancelsEventConsumptionAndDetachesConnection() async throws {
@@ -443,6 +471,22 @@ private final class FakeContentConnection: PtyTerminalConnection, @unchecked Sen
 
     func yield(_ event: PtySessionEvent) {
         continuation.yield(event)
+    }
+
+    func yieldCheckpointAndOutput(_ data: Data) {
+        let checkpoint = PtyTerminalCheckpoint(
+            checkpointID: 1,
+            revision: 1,
+            columns: 80,
+            rows: 24,
+            totalBytes: 2,
+            chunkCount: 1,
+            historyTruncated: false
+        )
+        yield(.checkpointBegan(checkpoint))
+        yield(.checkpointChunk(checkpointID: 1, index: 0, data: Data([0x1b, 0x63])))
+        yield(.checkpointEnded(checkpointID: 1, revision: 1))
+        yield(.output(data: data, revision: 2))
     }
 
     func events() -> AsyncThrowingStream<PtySessionEvent, Error> {

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::Parser;
-use pty_manager::manager::{PtyManager, PtyManagerOptions};
+use pty_manager::manager::{PtyManager, PtyManagerLimits, PtyManagerOptions};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Parser)]
@@ -12,6 +12,39 @@ struct Args {
 
     #[arg(long, default_value_t = 30)]
     leased_session_grace_seconds: u64,
+
+    #[arg(long, default_value_t = 64)]
+    max_sessions: usize,
+
+    #[arg(long, default_value_t = 16)]
+    max_clients_per_session: usize,
+
+    #[arg(long, default_value_t = 512)]
+    max_columns: u32,
+
+    #[arg(long, default_value_t = 256)]
+    max_rows: u32,
+
+    #[arg(long, default_value_t = 2_000)]
+    scrollback_lines: usize,
+
+    #[arg(long, default_value_t = 16)]
+    max_checkpoint_mebibytes: usize,
+
+    #[arg(long, default_value_t = 512)]
+    checkpoint_chunk_kibibytes: usize,
+
+    #[arg(long, default_value_t = 256)]
+    client_outbox_frames: usize,
+
+    #[arg(long, default_value_t = 1_024)]
+    client_live_outbox_kibibytes: usize,
+
+    #[arg(long, default_value_t = 64)]
+    max_input_kibibytes: usize,
+
+    #[arg(long, default_value_t = 512)]
+    pty_event_frames: usize,
 }
 
 #[tokio::main]
@@ -22,11 +55,34 @@ async fn main() -> anyhow::Result<()> {
         .with_target(false)
         .init();
 
-    PtyManager::new(PtyManagerOptions {
-        socket_path: args.socket,
-        leased_session_grace: Duration::from_secs(args.leased_session_grace_seconds),
-    })
+    let limits = PtyManagerLimits {
+        max_sessions: args.max_sessions,
+        max_clients_per_session: args.max_clients_per_session,
+        max_columns: args.max_columns,
+        max_rows: args.max_rows,
+        scrollback_lines: args.scrollback_lines,
+        max_checkpoint_bytes: checked_scale(args.max_checkpoint_mebibytes, 1024 * 1024)?,
+        checkpoint_chunk_bytes: checked_scale(args.checkpoint_chunk_kibibytes, 1024)?,
+        client_outbox_frames: args.client_outbox_frames,
+        client_live_outbox_bytes: checked_scale(args.client_live_outbox_kibibytes, 1024)?,
+        max_input_bytes: checked_scale(args.max_input_kibibytes, 1024)?,
+        pty_event_frames: args.pty_event_frames,
+    };
+    limits.validate()?;
+    PtyManager::new_configured(
+        PtyManagerOptions {
+            socket_path: args.socket,
+            leased_session_grace: Duration::from_secs(args.leased_session_grace_seconds),
+        }
+        .with_limits(limits),
+    )
     .run()
     .await?;
     Ok(())
+}
+
+fn checked_scale(value: usize, scale: usize) -> anyhow::Result<usize> {
+    value
+        .checked_mul(scale)
+        .ok_or_else(|| anyhow::anyhow!("PTY manager byte bound overflow"))
 }

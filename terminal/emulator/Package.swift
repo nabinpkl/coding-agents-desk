@@ -12,6 +12,7 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "TerminalEmulator", targets: ["TerminalEmulator"]),
+        .executable(name: "terminal-replay-harness", targets: ["TerminalReplayHarness"]),
     ],
     dependencies: [
         .package(path: "../pty-client-swift"),
@@ -21,7 +22,20 @@ let package = Package(
             name: "TerminalEmulator",
             dependencies: [
                 .product(name: "PtyClientSwift", package: "pty-client-swift"),
+                .product(name: "PtyTerminalSession", package: "pty-client-swift"),
                 .product(name: "PtyTerminalSwiftTerm", package: "pty-client-swift"),
+            ],
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("Foundation"),
+            ]
+        ),
+        .executableTarget(
+            name: "TerminalReplayHarness",
+            dependencies: [
+                "TerminalEmulator",
+                .product(name: "PtyClientSwift", package: "pty-client-swift"),
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),

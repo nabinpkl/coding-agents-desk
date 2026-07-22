@@ -1,5 +1,6 @@
 pub mod client;
 pub mod error;
+pub mod headless_terminal;
 pub mod manager;
 pub mod protocol;
 pub mod pty_client_footer;

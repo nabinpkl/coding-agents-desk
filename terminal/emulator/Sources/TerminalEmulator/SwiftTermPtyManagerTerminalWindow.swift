@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import PtyClientSwift
+import PtyTerminalSession
 import PtyTerminalSwiftTerm
 import os
 
@@ -8,6 +9,7 @@ public enum SwiftTermPtyManagerTerminalSpawnError: Error, Equatable {
     case managerUnavailable(String)
 }
 
+@MainActor
 public final class SwiftTermPtyManagerTerminalSpawn: TerminalEmulatorSpawn {
     private let client: PtyClient
     private let shell: String
@@ -30,7 +32,7 @@ public final class SwiftTermPtyManagerTerminalSpawn: TerminalEmulatorSpawn {
         completion: @escaping (Result<TerminalEmulatorWindow, Error>) -> Void
     ) {
         DispatchQueue.main.async {
-            let window = SwiftTermPtyManagerTerminalWindow(cwd: cwd, frame: frame)
+            let window = SwiftTermPtyManagerTerminalWindow(sessionName: sessionName, cwd: cwd, frame: frame)
             Task {
                 do {
                     let dimensions = await MainActor.run { window.attachmentDimensions }
@@ -64,7 +66,7 @@ public final class SwiftTermPtyManagerTerminalSpawn: TerminalEmulatorSpawn {
     ) {
         DispatchQueue.main.async {
             let cwd = URL(fileURLWithPath: session.cwd, isDirectory: true)
-            let window = SwiftTermPtyManagerTerminalWindow(cwd: cwd, frame: frame)
+            let window = SwiftTermPtyManagerTerminalWindow(sessionName: session.name, cwd: cwd, frame: frame)
             Task {
                 do {
                     let dimensions = await MainActor.run { window.attachmentDimensions }
@@ -92,8 +94,11 @@ public final class SwiftTermPtyManagerTerminalSpawn: TerminalEmulatorSpawn {
     }
 }
 
+@MainActor
 final class SwiftTermPtyManagerTerminalWindow: NSObject,
     TerminalEmulatorWindow,
+    TerminalWindowPresentationTrackable,
+    TerminalWindowReplayInspectable,
     NSWindowDelegate,
     PtyTerminalSwiftTermContentViewDelegate
 {
@@ -102,10 +107,23 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
     private let cwd: URL
     private let logger = Logger(subsystem: "com.example.agentdesk.agent-workspace-ide", category: "terminal")
     private var closed = false
+    private var frameChanged: ((CGRect) -> Void)?
+    private var presentationClosed: ((TerminalWindowCloseReason) -> Void)?
 
     var attachmentDimensions: PtyTerminalDimensions { terminalContent.attachmentDimensions }
 
     var isOpen: Bool { !closed }
+    var currentFrame: CGRect { window.frame }
+
+    var replayDiagnostics: TerminalWindowReplayDiagnostics {
+        TerminalWindowReplayDiagnostics(
+            columns: terminalContent.authoritativeDimensions.columns,
+            rows: terminalContent.authoritativeDimensions.rows,
+            revision: terminalContent.appliedRevision,
+            fitScale: Double(terminalContent.fitScale),
+            synchronizing: terminalContent.isSynchronizing
+        )
+    }
 
     var assignedDesktopWindowID: UInt32? {
         guard window.windowNumber > 0 else { return nil }
@@ -113,6 +131,7 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
     }
 
     init(
+        sessionName: String,
         cwd: URL,
         frame: CGRect,
         terminalStyle: PtyTerminalViewStyle = PtyTerminalViewStyle(
@@ -130,7 +149,7 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
             defer: false
         )
         window.title = cwd.lastPathComponent.isEmpty ? cwd.path : cwd.lastPathComponent
-        window.setAccessibilityIdentifier("terminal-window-\(cwd.path)")
+        window.setAccessibilityIdentifier("terminal-window-\(sessionName)")
         window.setAccessibilityLabel("Terminal \(window.title)")
         window.setAccessibilityHelp("Terminal session rooted at \(cwd.path)")
         window.isReleasedWhenClosed = false
@@ -142,7 +161,7 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
         window.delegate = self
         terminalContent.delegate = self
         if let error = terminalContent.rendererSetupError {
-            terminalContent.feedOutput(Data("\r\n[terminal renderer unavailable: \(error)]\r\n".utf8))
+            terminalContent.feedLocalStatus(Data("\r\n[terminal renderer unavailable: \(error)]\r\n".utf8))
         }
     }
 
@@ -193,7 +212,7 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
     }
 
     func close() {
-        guard markClosed() else { return }
+        guard markClosed(reason: .user, notifyPresentation: true) else { return }
         window.alphaValue = 1
         window.orderOut(nil)
         window.close()
@@ -218,8 +237,35 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
         terminalContent.focus()
     }
 
+    func observePresentation(
+        frameChanged: @escaping (CGRect) -> Void,
+        closed: @escaping (TerminalWindowCloseReason) -> Void
+    ) {
+        self.frameChanged = frameChanged
+        presentationClosed = closed
+    }
+
+    func orderWithoutFocus() {
+        guard !closed else { return }
+        window.orderFront(nil)
+    }
+
+    func closePreservingPresentation() {
+        guard markClosed(reason: .user, notifyPresentation: false) else { return }
+        window.orderOut(nil)
+        window.close()
+    }
+
     func windowWillClose(_ notification: Notification) {
-        _ = markClosed()
+        _ = markClosed(reason: .user, notifyPresentation: true)
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        frameChanged?(window.frame)
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        frameChanged?(window.frame)
     }
 
     func ptyTerminalContent(
@@ -235,7 +281,7 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
         didReceiveStatus text: String
     ) {
         guard !closed else { return }
-        content.feedOutput(Data(text.utf8))
+        content.feedLocalStatus(Data(text.utf8))
     }
 
     func ptyTerminalContent(
@@ -246,17 +292,31 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
     }
 
     func ptyTerminalContentDidDetachByManager(_ content: PtyTerminalSwiftTermContentView) {
-        guard !closed else { return }
-        closed = true
+        closeAfterSessionExit()
+    }
+
+    func ptyTerminalContent(
+        _ content: PtyTerminalSwiftTermContentView,
+        didTerminate termination: PtyTerminalSessionTermination
+    ) {
+        closeAfterSessionExit()
+    }
+
+    private func closeAfterSessionExit() {
+        guard markClosed(reason: .sessionExited, notifyPresentation: true) else { return }
         window.alphaValue = 1
         window.orderOut(nil)
         window.close()
     }
 
-    private func markClosed() -> Bool {
+    private func markClosed(
+        reason: TerminalWindowCloseReason,
+        notifyPresentation: Bool
+    ) -> Bool {
         guard !closed else { return false }
         closed = true
         terminalContent.detach()
+        if notifyPresentation { presentationClosed?(reason) }
         return true
     }
 
