@@ -45,4 +45,22 @@ final class PtyTerminalWorkspaceStateTests: XCTestCase {
         XCTAssertEqual(restored, state)
         XCTAssertEqual(restored.panes.map(\.sessionName), ["first", "second"])
     }
+
+    func testClosingTabRemovesEveryPaneAndKeepsWorkspaceNonempty() throws {
+        var state = PtyTerminalWorkspaceState(profile: .workspace)
+        let originalTabID = state.selectedTabID
+        _ = try XCTUnwrap(state.splitFocusedPane(axis: .horizontal))
+        let removed = try XCTUnwrap(state.closeTab(originalTabID))
+
+        XCTAssertEqual(removed.count, 2)
+        XCTAssertEqual(state.tabs.count, 1)
+        XCTAssertEqual(state.panes.count, 1)
+        XCTAssertFalse(removed.map(\.paneID).contains(state.selectedPane?.paneID ?? ""))
+
+        let secondTabPane = try XCTUnwrap(state.addTab())
+        let secondTabID = state.selectedTabID
+        let removedSecond = try XCTUnwrap(state.closeTab(secondTabID))
+        XCTAssertEqual(removedSecond.map(\.paneID), [secondTabPane.paneID])
+        XCTAssertEqual(state.tabs.map(\.id), [originalTabID])
+    }
 }

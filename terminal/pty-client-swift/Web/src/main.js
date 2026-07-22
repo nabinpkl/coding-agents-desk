@@ -3,7 +3,9 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@agentdesk/xterm/css/xterm.css';
 import './terminal.css';
-import { paneIds, selectedPaneId, validateSnapshot, visiblePaneIds } from './workspace-state.js';
+import {
+  focusPaneSnapshot, paneIds, selectedPaneId, validateSnapshot, visiblePaneIds,
+} from './workspace-state.js';
 import {
   base64FromBinary, boundedUTF8, bytesFromBase64, calculatePresentation,
   normalizeCapacity, SerializedOperations,
@@ -40,8 +42,10 @@ function makeButton(label, text, intent, paneId) {
   button.type = 'button';
   button.className = 'pane-action';
   button.setAttribute('aria-label', label);
+  button.title = label;
   setIdentifier(button, `terminal-${intent}-${paneId}`);
   button.textContent = text;
+  button.addEventListener('pointerdown', event => event.stopPropagation());
   button.addEventListener('click', event => {
     event.stopPropagation();
     post('workspaceIntent', { intent, paneId });
@@ -182,18 +186,31 @@ function renderWorkspace(snapshot) {
   }
   tabStrip.replaceChildren();
   for (const tab of snapshot.tabs) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'terminal-tab';
-    button.role = 'tab';
-    setIdentifier(button, `terminal-workspace-tab-${tab.id}`);
-    button.setAttribute('aria-selected', tab.id === snapshot.selectedTabId ? 'true' : 'false');
+    const item = document.createElement('div');
+    item.className = 'terminal-tab-item';
+    item.role = 'presentation';
+    item.dataset.selected = tab.id === snapshot.selectedTabId ? 'true' : 'false';
+    const select = document.createElement('button');
+    select.type = 'button';
+    select.className = 'terminal-tab';
+    select.role = 'tab';
+    setIdentifier(select, `terminal-workspace-tab-${tab.id}`);
+    select.setAttribute('aria-selected', tab.id === snapshot.selectedTabId ? 'true' : 'false');
     const label = document.createElement('span');
     label.className = 'terminal-tab-title';
     label.textContent = tab.title;
-    button.append(label);
-    button.addEventListener('click', () => post('workspaceIntent', { intent: 'selectTab', tabId: tab.id }));
-    tabStrip.append(button);
+    select.append(label);
+    select.addEventListener('click', () => post('workspaceIntent', { intent: 'selectTab', tabId: tab.id }));
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'terminal-tab-close';
+    setIdentifier(close, `terminal-workspace-close-tab-${tab.id}`);
+    close.setAttribute('aria-label', `Close ${tab.title}`);
+    close.title = `Close ${tab.title}`;
+    close.textContent = '×';
+    close.addEventListener('click', () => post('workspaceIntent', { intent: 'closeTab', tabId: tab.id }));
+    item.append(select, close);
+    tabStrip.append(item);
   }
   if (snapshot.profile === 'workspace') {
     const add = document.createElement('button');
@@ -224,6 +241,9 @@ function collectTerminalIds(node, result) {
 }
 
 function focusPane(paneId, claim) {
+  const focusedWorkspace = workspace && focusPaneSnapshot(workspace, paneId);
+  if (!focusedWorkspace) return;
+  workspace = focusedWorkspace;
   applyFocusedPane(paneId);
   post('focus', { paneId, claim });
   const entry = [...terminals.values()].find(value => value.paneId === paneId);

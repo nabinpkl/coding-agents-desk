@@ -30,6 +30,22 @@ export function selectedPaneId(snapshot) {
   return snapshot.tabs.find(tab => tab.id === snapshot.selectedTabId)?.focusedPaneId ?? null;
 }
 
+export function focusPaneSnapshot(snapshot, paneId) {
+  const tab = snapshot.tabs.find(candidate => {
+    const ids = [];
+    collectPanes(candidate.root, ids);
+    return ids.includes(paneId);
+  });
+  if (!tab) return null;
+  return {
+    ...snapshot,
+    selectedTabId: tab.id,
+    tabs: snapshot.tabs.map(candidate => (
+      candidate.id === tab.id ? { ...candidate, focusedPaneId: paneId } : candidate
+    )),
+  };
+}
+
 export function visiblePaneIds(snapshot) {
   const selected = snapshot.tabs.find(tab => tab.id === snapshot.selectedTabId);
   if (!selected) return [];

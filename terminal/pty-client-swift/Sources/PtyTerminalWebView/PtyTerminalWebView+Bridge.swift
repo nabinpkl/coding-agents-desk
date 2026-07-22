@@ -95,8 +95,8 @@ extension PtyTerminalWebView {
             )
         case .focus(let paneID, let claim):
             guard workspaceState.focusPane(paneID) else { return }
-            sendWorkspaceSnapshot()
             updateSlotParticipation(claimSelected: claim)
+            delegate?.ptyTerminalContent(self, didUpdateWorkspace: workspaceState)
         case .input(let terminalID, let data):
             guard isInputEnabled, let slot = slots[terminalID] else { return }
             _ = workspaceState.focusPane(slot.paneID)

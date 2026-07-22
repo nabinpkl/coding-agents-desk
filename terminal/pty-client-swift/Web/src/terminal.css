@@ -44,7 +44,7 @@ button { color: inherit; font: inherit; }
   border-bottom: 1px solid var(--border);
 }
 
-.terminal-tab, .workspace-action, .pane-action, #terminal-session-drawer button {
+.terminal-tab, .terminal-tab-close, .workspace-action, .pane-action, #terminal-session-drawer button {
   min-width: 30px;
   min-height: 30px;
   border: 1px solid transparent;
@@ -53,14 +53,24 @@ button { color: inherit; font: inherit; }
   cursor: default;
 }
 
-.terminal-tab {
+.terminal-tab-item {
+  display: flex;
   flex: 0 1 210px;
   max-width: 260px;
-  padding: 4px 10px;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 7px 7px 0 0;
+}
+
+.terminal-tab {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 6px 4px 10px;
   text-align: left;
 }
 
-.terminal-tab[aria-selected="true"] { background: var(--chrome-raised); border-color: var(--border); }
+.terminal-tab-item[data-selected="true"] { background: var(--chrome-raised); border-color: var(--border); }
+.terminal-tab-close { flex: 0 0 30px; border-radius: 5px; color: var(--muted); }
 .terminal-tab-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-action { flex: 0 0 auto; border-radius: 7px; padding: 3px 9px; color: var(--muted); }
 button:hover, button:focus-visible { color: var(--text); background: #2b3444; outline: 1px solid var(--accent); }
@@ -135,13 +145,13 @@ button:hover, button:focus-visible { color: var(--text); background: #2b3444; ou
 
 @container terminal-workspace (max-width: 620px) {
   .terminal-footer { gap: 5px; font-size: 10px; }
-  .terminal-tab { flex-basis: 145px; }
+  .terminal-tab-item { flex-basis: 145px; }
   .pane-header { min-height: 34px; }
 }
 
 @media (pointer: coarse) {
   #terminal-tabs { min-height: 50px; padding-top: 3px; }
-  .terminal-tab, .workspace-action, .pane-action, #terminal-session-drawer button { min-width: 44px; min-height: 44px; }
+  .terminal-tab, .terminal-tab-close, .workspace-action, .pane-action, #terminal-session-drawer button { min-width: 44px; min-height: 44px; }
   .pane-header { min-height: 50px; }
   .terminal-footer { min-height: 25px; }
 }

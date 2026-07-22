@@ -189,6 +189,25 @@ public struct PtyTerminalWorkspaceState: Codable, Equatable, Sendable {
         return true
     }
 
+    @discardableResult
+    public mutating func closeTab(_ tabID: String) -> [PtyTerminalPane]? {
+        guard profile == .workspace,
+              let tabIndex = tabs.firstIndex(where: { $0.id == tabID }) else { return nil }
+        let removed = tabs[tabIndex].root.panes
+        if tabs.count > 1 {
+            tabs.remove(at: tabIndex)
+            if selectedTabID == tabID {
+                selectedTabID = tabs[min(tabIndex, tabs.count - 1)].id
+            }
+        } else {
+            let replacement = freshPane()
+            tabs[0].root = .pane(replacement)
+            tabs[0].focusedPaneID = replacement.paneID
+            tabs[0].title = "Terminal"
+        }
+        return removed
+    }
+
     public mutating func focusPane(_ paneID: String) -> Bool {
         guard let tabIndex = tabs.firstIndex(where: { $0.root.panes.contains(where: { $0.paneID == paneID }) }) else { return false }
         selectedTabID = tabs[tabIndex].id

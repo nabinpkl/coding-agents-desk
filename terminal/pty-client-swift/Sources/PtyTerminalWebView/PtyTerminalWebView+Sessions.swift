@@ -117,6 +117,7 @@ extension PtyTerminalWebView {
             if let paneID { _ = workspaceState.focusPane(paneID) }
             paneToOpen = workspaceState.splitFocusedPane(axis: name == "splitHorizontal" ? .horizontal : .vertical)
         case "selectTab": if let tabID { _ = workspaceState.selectTab(tabID) }
+        case "closeTab": if let tabID { closeTab(tabID) }
         case "closePane": if let paneID { closePane(paneID) }
         case "openSession": if let sessionName { paneToOpen = workspaceState.openExistingSession(sessionName) }
         case "showSessions": sendSessionDrawer()
@@ -136,6 +137,18 @@ extension PtyTerminalWebView {
         closeSessionForRemovedPane(pane, connection: slot?.concreteConnection)
         _ = workspaceState.closePane(paneID)
         if let replacement = workspaceState.panes.first(where: { slots[$0.terminalID] == nil }) { open(pane: replacement) }
+    }
+
+    func closeTab(_ tabID: String) {
+        guard let removedPanes = workspaceState.closeTab(tabID) else { return }
+        for pane in removedPanes {
+            let slot = slots.removeValue(forKey: pane.terminalID)
+            slot?.driver?.stop()
+            closeSessionForRemovedPane(pane, connection: slot?.concreteConnection)
+        }
+        if let replacement = workspaceState.panes.first(where: { slots[$0.terminalID] == nil }) {
+            open(pane: replacement)
+        }
     }
 
     func closeSessionForRemovedPane(_ pane: PtyTerminalPane, connection: PtySessionConnection?) {

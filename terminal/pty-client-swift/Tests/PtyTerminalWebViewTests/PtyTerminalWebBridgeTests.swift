@@ -3,6 +3,21 @@ import XCTest
 
 final class PtyTerminalWebBridgeTests: XCTestCase {
     @MainActor
+    func testPaneFocusDoesNotQueueAWorkspaceRerender() throws {
+        let view = PtyTerminalWebView(profile: .workspace)
+        defer { view.teardown() }
+        view.webView.stopLoading()
+        let second = try XCTUnwrap(view.workspaceState.splitFocusedPane(axis: .vertical))
+        let first = try XCTUnwrap(view.workspaceState.panes.first { $0.paneID != second.paneID })
+        view.deliveryQueue.removeAll()
+
+        view.handle(.focus(paneID: first.paneID, claim: true))
+
+        XCTAssertEqual(view.workspaceState.selectedPane?.paneID, first.paneID)
+        XCTAssertTrue(view.deliveryQueue.deliveries.isEmpty)
+    }
+
+    @MainActor
     func testSelectedLiveOutputAdvancesPublicAppliedRevision() throws {
         let view = PtyTerminalWebView(profile: .workspace)
         defer { view.teardown() }
@@ -86,6 +101,12 @@ final class PtyTerminalWebBridgeTests: XCTestCase {
             "version": 1, "type": "workspaceIntent", "intent": "closePane",
             "paneId": String(repeating: "x", count: 129),
         ]))
+        XCTAssertEqual(
+            PtyTerminalWebIntent.decode([
+                "version": 1, "type": "workspaceIntent", "intent": "closeTab", "tabId": "tab-1",
+            ]),
+            .workspace(name: "closeTab", paneID: nil, tabID: "tab-1", sessionName: nil)
+        )
     }
 
     func testLinkPolicyAllowsOnlyHTTPAndHTTPS() {

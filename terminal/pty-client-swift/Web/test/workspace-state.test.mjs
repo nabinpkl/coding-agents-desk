@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { paneIds, selectedPaneId, validateSnapshot, visiblePaneIds } from '../src/workspace-state.js';
+import {
+  focusPaneSnapshot, paneIds, selectedPaneId, validateSnapshot, visiblePaneIds,
+} from '../src/workspace-state.js';
 
 const snapshot = {
   version: 1,
@@ -54,4 +56,11 @@ test('rejects duplicate terminal identities and invalid capability profiles', ()
   assert.equal(validateSnapshot(duplicate), false);
   assert.equal(validateSnapshot({ ...snapshot, profile: 'untrusted' }), false);
   assert.equal(validateSnapshot({ ...snapshot, profile: 'singleSession' }), false);
+});
+
+test('focus updates the selected pane without mutating the delivered snapshot', () => {
+  const focused = focusPaneSnapshot(snapshot, 'pane-1');
+  assert.equal(selectedPaneId(focused), 'pane-1');
+  assert.equal(selectedPaneId(snapshot), 'pane-2');
+  assert.equal(focusPaneSnapshot(snapshot, 'missing'), null);
 });
