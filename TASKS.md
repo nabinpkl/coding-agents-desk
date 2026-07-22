@@ -86,6 +86,9 @@ without changing the one-recorder and extension-authoritative generation model.
   80x24 bootstrap dimensions, measure laid-out SwiftTerm surfaces atomically, and send an authoritative
   resize immediately after every renderer bind so existing sessions recover on reattachment.
   ADR-0066 supersedes bind-time resizing; 80x24 remains the creation fallback.
+- [x] D92. Remove the standalone terminal window minimum and make shared macOS/iOS terminal views
+  full-fit down to 75 percent, then clip and follow the parser cursor without focus or PTY resize
+  (ADR-0067).
 
 ## Promotion log
 
@@ -102,4 +105,5 @@ D88.4    2026-07-21  landed      viewer-owned responsive Chrome viewport, protoc
 D88.5    2026-07-21  landed      workspace-shell top and left edge reveal across every display
 D91      2026-07-21  landed      safe terminal bootstrap dimensions and bind-time resize recovery
 D90      2026-07-22  landed      bounded headless PTY replay and metadata-only window restoration
+D92      2026-07-22  landed      readable cursor-following terminal viewports without minimum sizes
 ```

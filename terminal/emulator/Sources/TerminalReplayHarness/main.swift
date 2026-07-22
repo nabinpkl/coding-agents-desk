@@ -45,6 +45,8 @@ private struct InitialState: Codable {
     let revision: UInt64
     let screenshots: [String]
     let slowClientResynchronized: Bool
+    let narrowWindowBelowFormerMinimum: Bool
+    let narrowViewportCroppedAtReadableScale: Bool
 }
 
 private struct FinalResult: Codable {
@@ -59,6 +61,8 @@ private struct FinalResult: Codable {
     let restoredWindowCount: Int
     let restoredWithoutFocusTheft: Bool
     let slowClientResynchronizedWithoutReconnect: Bool
+    let narrowWindowBelowFormerMinimum: Bool
+    let narrowViewportCroppedAtReadableScale: Bool
     let screenshots: [String]
     let cleanup: String
 }
@@ -207,7 +211,7 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             through: controller
         )
         summary = try await requireSession(named: sessionName)
-        let narrow = try await spawn(summary, frame: CGRect(x: 1020, y: 220, width: 540, height: 360))
+        let narrow = try await spawn(summary, frame: CGRect(x: 1020, y: 220, width: 360, height: 240))
         retainedWindows.append(narrow)
         windowRegistry.register(
             narrow,
@@ -221,6 +225,15 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
         let diagnostics = try requireMatchingDiagnostics([wide, narrow])
         guard diagnostics[0].fitScale != diagnostics[1].fitScale else {
             throw HarnessError.message("differently sized clients did not use different fit scales")
+        }
+        guard diagnostics[1].viewportCropped,
+              abs(diagnostics[1].fitScale - 0.75) < 0.001 else {
+            throw HarnessError.message("narrow client did not crop at the readable scale floor")
+        }
+        guard let narrowFrame = (narrow as? any TerminalWindowPresentationTrackable)?.currentFrame,
+              narrowFrame.width < 480,
+              narrowFrame.height < 320 else {
+            throw HarnessError.message("narrow terminal retained the former 480x320 minimum")
         }
         screenshots.append(try capture(wide, named: "02-late-join-wide"))
         screenshots.append(try capture(narrow, named: "02-late-join-narrow"))
@@ -266,7 +279,9 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             rows: summary.rows,
             revision: summary.revision,
             screenshots: screenshots,
-            slowClientResynchronized: true
+            slowClientResynchronized: true,
+            narrowWindowBelowFormerMinimum: true,
+            narrowViewportCroppedAtReadableScale: true
         )
         try JSONEncoder.pretty.encode(initial).write(
             to: arguments.artifactDirectory.appendingPathComponent("initial-state.json"),
@@ -330,6 +345,8 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             restoredWindowCount: windowRegistry.openWindowDiagnostics.count,
             restoredWithoutFocusTheft: frontmostBefore == frontmostAfter,
             slowClientResynchronizedWithoutReconnect: initial.slowClientResynchronized,
+            narrowWindowBelowFormerMinimum: initial.narrowWindowBelowFormerMinimum,
+            narrowViewportCroppedAtReadableScale: initial.narrowViewportCroppedAtReadableScale,
             screenshots: screenshots,
             cleanup: "pending harness cleanup"
         )

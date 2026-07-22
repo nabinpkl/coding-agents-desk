@@ -121,6 +121,7 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
             rows: UInt32(terminalContent.rows),
             revision: terminalContent.appliedRevision,
             fitScale: Double(terminalContent.fitScale),
+            viewportCropped: terminalContent.isViewportCropped,
             synchronizing: terminalContent.isSynchronizing
         )
     }
@@ -155,7 +156,6 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
         window.isReleasedWhenClosed = false
         window.hidesOnDeactivate = false
         window.level = .normal
-        window.minSize = NSSize(width: 480, height: 320)
         window.contentView = terminalContent
         super.init()
         window.delegate = self

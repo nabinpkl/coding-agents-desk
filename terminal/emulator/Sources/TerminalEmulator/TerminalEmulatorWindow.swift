@@ -41,13 +41,22 @@ public struct TerminalWindowReplayDiagnostics: Equatable, Sendable {
     public let rows: UInt32
     public let revision: UInt64
     public let fitScale: Double
+    public let viewportCropped: Bool
     public let synchronizing: Bool
 
-    public init(columns: UInt32, rows: UInt32, revision: UInt64, fitScale: Double, synchronizing: Bool) {
+    public init(
+        columns: UInt32,
+        rows: UInt32,
+        revision: UInt64,
+        fitScale: Double,
+        viewportCropped: Bool,
+        synchronizing: Bool
+    ) {
         self.columns = columns
         self.rows = rows
         self.revision = revision
         self.fitScale = fitScale
+        self.viewportCropped = viewportCropped
         self.synchronizing = synchronizing
     }
 }

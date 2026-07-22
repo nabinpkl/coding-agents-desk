@@ -52,6 +52,8 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
     public private(set) var authoritativeDimensions = PtyTerminalDimensions.bootstrap
     public private(set) var appliedRevision: UInt64 = 0
     public private(set) var fitScale: CGFloat = 1
+    public private(set) var viewportOrigin = CGPoint.zero
+    public private(set) var isViewportCropped = false
 
     public var columns: Int { terminalView.getTerminal().cols }
     public var rows: Int { terminalView.getTerminal().rows }
@@ -202,6 +204,7 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
     public func setFontSize(_ pointSize: CGFloat) {
         terminalView.font = PtyTerminalViewStyle.terminalFont(pointSize: pointSize)
         terminalView.resize(cols: columns, rows: rows)
+        updateFitLayout()
         #if canImport(AppKit)
         terminalView.needsDisplay = true
         #elseif canImport(UIKit)
@@ -226,6 +229,8 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
             columns: checkpoint.columns,
             rows: checkpoint.rows
         )
+        viewportOrigin = .zero
+        isViewportCropped = false
         applyManagerData(Data([0x1b, 0x63]))
         terminalView.resize(cols: Int(checkpoint.columns), rows: Int(checkpoint.rows))
         terminalView.changeScrollback(2_000)
@@ -244,6 +249,7 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
         terminalView.isHidden = false
         syncStatus.isHidden = true
         historyStatus.isHidden = !checkpoint.historyTruncated
+        updateFitLayout()
         #if canImport(AppKit)
         setAccessibilityHelp(checkpoint.historyTruncated
             ? "Terminal synchronized. Older history was truncated."
@@ -259,6 +265,7 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
         guard !isSynchronizing else { return }
         applyManagerData(data)
         appliedRevision = revision
+        updateFitLayout()
     }
 
     public func feedStatus(_ text: String) {
@@ -270,6 +277,7 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
     public func feedLocalStatus(_ data: Data) {
         guard !isSynchronizing else { return }
         applyManagerData(data)
+        updateFitLayout()
     }
 
     public func closeAfterManagerDetach() {
@@ -367,11 +375,38 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
             width: ceil(optimal.width.nextUp),
             height: ceil(optimal.height.nextUp)
         )
+        let terminal = terminalView.getTerminal()
+        let columns = max(terminal.cols, 1)
+        let rows = max(terminal.rows, 1)
+        let cellSize = CGSize(
+            width: canvasSize.width / CGFloat(columns),
+            height: canvasSize.height / CGFloat(rows)
+        )
+        let cursorLocation = terminal.getCursorLocation()
+        let cursorPoint = CGPoint(
+            x: (CGFloat(min(max(cursorLocation.x, 0), columns - 1)) + 0.5) * cellSize.width,
+            y: cursorCanvasY(
+                row: min(max(cursorLocation.y, 0), rows - 1),
+                cellHeight: cellSize.height,
+                canvasHeight: canvasSize.height
+            )
+        )
+        #if canImport(AppKit)
+        let initialViewportOrigin = CGPoint.zero
+        #elseif canImport(UIKit)
+        let initialViewportOrigin = CGPoint(x: 0, y: canvasSize.height)
+        #endif
         guard let transform = PtyTerminalFitTransform(
             canvasSize: canvasSize,
-            containerBounds: bounds
+            containerBounds: bounds,
+            cursorPoint: cursorPoint,
+            previousViewportOrigin: isViewportCropped ? viewportOrigin : nil,
+            initialViewportOrigin: initialViewportOrigin,
+            cursorMargin: CGSize(width: cellSize.width * 2, height: cellSize.height * 2)
         ) else { return }
         fitScale = transform.scale
+        viewportOrigin = transform.viewportOrigin
+        isViewportCropped = transform.isCropped
         #if canImport(AppKit)
         // SwiftTerm interprets its own frame changes as terminal resizes. Keep
         // it at the authoritative natural canvas size and scale a neutral
@@ -385,6 +420,14 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
         canvasView.center = CGPoint(x: transform.visualFrame.midX, y: transform.visualFrame.midY)
         terminalView.frame = canvasView.bounds
         canvasView.transform = CGAffineTransform(scaleX: fitScale, y: fitScale)
+        #endif
+    }
+
+    private func cursorCanvasY(row: Int, cellHeight: CGFloat, canvasHeight: CGFloat) -> CGFloat {
+        #if canImport(AppKit)
+        canvasHeight - (CGFloat(row) + 0.5) * cellHeight
+        #elseif canImport(UIKit)
+        (CGFloat(row) + 0.5) * cellHeight
         #endif
     }
 
@@ -418,6 +461,8 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
     private func layoutOverlayControls() {
         let margin: CGFloat = 8
         let size = CGSize(width: 96, height: 28)
+        sizeControl.isHidden = bounds.width < size.width + margin * 2
+            || bounds.height < size.height + margin * 2
         sizeControl.frame = CGRect(
             x: max(margin, bounds.width - size.width - margin),
             y: margin,

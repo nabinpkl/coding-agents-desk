@@ -13,12 +13,12 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
     func testFitTransformCentersCanvasAndInverseMapsContainerPoints() throws {
         let transform = try XCTUnwrap(PtyTerminalFitTransform(
             canvasSize: CGSize(width: 1_000, height: 500),
-            containerBounds: CGRect(x: 0, y: 0, width: 500, height: 400)
+            containerBounds: CGRect(x: 0, y: 0, width: 800, height: 500)
         ))
 
-        XCTAssertEqual(transform.scale, 0.5, accuracy: 0.001)
-        XCTAssertEqual(transform.visualFrame, CGRect(x: 0, y: 75, width: 500, height: 250))
-        let point = transform.canvasPoint(forContainerPoint: CGPoint(x: 125, y: 200))
+        XCTAssertEqual(transform.scale, 0.8, accuracy: 0.001)
+        XCTAssertEqual(transform.visualFrame, CGRect(x: 0, y: 50, width: 800, height: 400))
+        let point = transform.canvasPoint(forContainerPoint: CGPoint(x: 200, y: 250))
         XCTAssertEqual(point.x, 250, accuracy: 0.001)
         XCTAssertEqual(point.y, 250, accuracy: 0.001)
     }
@@ -31,6 +31,39 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
 
         XCTAssertEqual(transform.scale, 2.5)
         XCTAssertEqual(transform.visualFrame, CGRect(x: 0, y: 150, width: 1_000, height: 500))
+    }
+
+    func testFitTransformCropsAtReadableScaleAndFollowsCursor() throws {
+        let transform = try XCTUnwrap(PtyTerminalFitTransform(
+            canvasSize: CGSize(width: 1_000, height: 500),
+            containerBounds: CGRect(x: 0, y: 0, width: 400, height: 200),
+            cursorPoint: CGPoint(x: 900, y: 450),
+            initialViewportOrigin: .zero,
+            cursorMargin: CGSize(width: 20, height: 20)
+        ))
+
+        XCTAssertTrue(transform.isCropped)
+        XCTAssertEqual(transform.scale, PtyTerminalFitTransform.minimumReadableScale)
+        XCTAssertEqual(transform.viewportOrigin.x, 386.667, accuracy: 0.001)
+        XCTAssertEqual(transform.viewportOrigin.y, 203.333, accuracy: 0.001)
+        XCTAssertEqual(transform.visualFrame.origin.x, -290, accuracy: 0.001)
+        XCTAssertEqual(transform.visualFrame.origin.y, -152.5, accuracy: 0.001)
+        XCTAssertEqual(transform.visualFrame.size.width, 750, accuracy: 0.001)
+        XCTAssertEqual(transform.visualFrame.size.height, 375, accuracy: 0.001)
+    }
+
+    func testFitTransformPreservesViewportWhileCursorRemainsVisible() throws {
+        let transform = try XCTUnwrap(PtyTerminalFitTransform(
+            canvasSize: CGSize(width: 1_000, height: 500),
+            containerBounds: CGRect(x: 0, y: 0, width: 400, height: 200),
+            cursorPoint: CGPoint(x: 500, y: 250),
+            previousViewportOrigin: CGPoint(x: 300, y: 150),
+            initialViewportOrigin: .zero,
+            cursorMargin: CGSize(width: 20, height: 20)
+        ))
+
+        XCTAssertEqual(transform.viewportOrigin.x, 300, accuracy: 0.001)
+        XCTAssertEqual(transform.viewportOrigin.y, 150, accuracy: 0.001)
     }
 
     func testFontSizeCanTrackWorkspaceIDEZoom() {
@@ -83,6 +116,36 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
         XCTAssertEqual(content.columns, 100)
         XCTAssertEqual(content.rows, 30)
         XCTAssertLessThan(content.fitScale, 1)
+    }
+
+    func testUnfocusedCroppedViewportFollowsCursorFromOutput() {
+        let content = PtyTerminalSwiftTermContentView()
+        content.frame = NSRect(x: 0, y: 0, width: 240, height: 160)
+        let checkpoint = PtyTerminalCheckpoint(
+            checkpointID: 1,
+            revision: 1,
+            columns: 100,
+            rows: 30,
+            totalBytes: 10,
+            chunkCount: 1,
+            historyTruncated: false
+        )
+
+        content.beginCheckpoint(checkpoint)
+        content.feedCheckpointChunk(Data("\u{1B}[30;100H".utf8))
+        content.endCheckpoint(checkpoint)
+        content.layoutSubtreeIfNeeded()
+
+        XCTAssertNil(content.window)
+        XCTAssertTrue(content.isViewportCropped)
+        XCTAssertEqual(content.fitScale, PtyTerminalFitTransform.minimumReadableScale)
+        XCTAssertGreaterThan(content.viewportOrigin.x, 0)
+        let rightEdgeOrigin = content.viewportOrigin
+
+        content.feedOutput(Data("\u{1B}[1;1H".utf8), revision: 2)
+
+        XCTAssertEqual(content.viewportOrigin.x, 0, accuracy: 0.001)
+        XCTAssertGreaterThan(content.viewportOrigin.y, rightEdgeOrigin.y)
     }
     #endif
 

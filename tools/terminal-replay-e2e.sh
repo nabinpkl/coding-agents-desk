@@ -96,6 +96,8 @@ assert result["ptyPIDBefore"] == result["ptyPIDAfter"]
 assert result["restoredWindowCount"] == 2
 assert result["restoredWithoutFocusTheft"] is True
 assert result["slowClientResynchronizedWithoutReconnect"] is True
+assert result["narrowWindowBelowFormerMinimum"] is True
+assert result["narrowViewportCroppedAtReadableScale"] is True
 assert result["columns"] == 132 and result["rows"] == 40
 PY
 
