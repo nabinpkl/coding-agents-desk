@@ -107,7 +107,8 @@ enum PtyTerminalWebIntent: Equatable {
     }
 
     private static func exactInteger(_ value: Any?) -> Int64? {
-        guard !(value is Bool), let number = value as? NSNumber else { return nil }
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
         let double = number.doubleValue
         guard double.isFinite, double.rounded(.towardZero) == double else { return nil }
         return Int64(exactly: double)

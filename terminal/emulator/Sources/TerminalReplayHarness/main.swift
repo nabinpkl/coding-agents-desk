@@ -51,6 +51,7 @@ private struct InitialState: Codable {
     let passiveResizePreservedSource: Bool
     let ownerResizeAdvancedOnce: Bool
     let inactiveInputClaimedBeforeOutput: Bool
+    let initialWithoutFocusTheft: Bool
 }
 
 private struct FinalResult: Codable {
@@ -72,6 +73,7 @@ private struct FinalResult: Codable {
     let passiveResizePreservedSource: Bool
     let ownerResizeAdvancedOnce: Bool
     let inactiveInputClaimedBeforeOutput: Bool
+    let initialWithoutFocusTheft: Bool
     let screenshots: [String]
     let cleanup: String
 }
@@ -169,8 +171,8 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func runInitial() async throws {
-        NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let frontmostBefore = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let sessionName = "terminal-replay-e2e"
         let controller = try await client.openSession(
             name: sessionName,
@@ -210,7 +212,8 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             "printf '\\033[4;10Hcursor-marker\\n'",
             through: controller
         )
-        wide.raise()
+        (wide as? any TerminalWindowPresentationTrackable)?.orderWithoutFocus()
+        (wide as? any TerminalWindowReplayInspectable)?.claimViewportForReplay()
         try await waitForWindows([wide], session: sessionName)
         let wideOwner = try await waitForOwner(wide, session: sessionName)
         guard wideOwner.sourceColumns == wideOwner.viewColumns,
@@ -224,6 +227,7 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             columns: 100,
             rows: 30
         )
+        try await Task.sleep(nanoseconds: 750_000_000)
         var screenshots = [try capture(wide, named: "01-before")]
 
         try send(
@@ -242,22 +246,26 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
         )
         (narrow as? any TerminalWindowPresentationTrackable)?.orderWithoutFocus()
         try await waitForWindows([wide, narrow], session: sessionName)
-        let diagnostics = try requireMatchingDiagnostics([wide, narrow])
+        var diagnostics: [TerminalWindowReplayDiagnostics] = []
+        try await wait(timeoutSeconds: 12) {
+            guard let matching = try? self.requireMatchingDiagnostics([wide, narrow]),
+                  matching[0].fitScale != matching[1].fitScale,
+                  matching[1].viewportCropped,
+                  abs(matching[1].fitScale - 0.75) < 0.001 else {
+                return false
+            }
+            diagnostics = matching
+            return true
+        }
         guard diagnostics[0].isOwner, !diagnostics[1].isOwner else {
             throw HarnessError.message("late attachment changed terminal ownership")
-        }
-        guard diagnostics[0].fitScale != diagnostics[1].fitScale else {
-            throw HarnessError.message("differently sized clients did not use different fit scales")
-        }
-        guard diagnostics[1].viewportCropped,
-              abs(diagnostics[1].fitScale - 0.75) < 0.001 else {
-            throw HarnessError.message("narrow client did not crop at the readable scale floor")
         }
         guard let narrowFrame = (narrow as? any TerminalWindowPresentationTrackable)?.currentFrame,
               narrowFrame.width < 480,
               narrowFrame.height < 320 else {
             throw HarnessError.message("narrow terminal retained the former 480x320 minimum")
         }
+        try await Task.sleep(nanoseconds: 750_000_000)
         screenshots.append(try capture(wide, named: "02-late-join-wide"))
         screenshots.append(try capture(narrow, named: "02-late-join-narrow"))
 
@@ -288,9 +296,26 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
         }
 
         let revisionBeforeOwnerResize = (try await requireSession(named: sessionName)).revision
+        let ownerDimensionsBeforeResize = (narrowOwner.viewColumns, narrowOwner.viewRows)
         narrow.place(into: CGRect(x: 760, y: 220, width: 620, height: 420))
-        try await Task.sleep(nanoseconds: 300_000_000)
-        let resizedOwner = try await waitForOwner(narrow, session: sessionName)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        narrowInspectable.flushViewportForReplay()
+        var resizedOwner: TerminalWindowReplayDiagnostics?
+        try await wait(timeoutSeconds: 12) {
+            guard let diagnostics = (narrow as? any TerminalWindowReplayInspectable)?.replayDiagnostics,
+                  diagnostics.isOwner,
+                  (diagnostics.viewColumns, diagnostics.viewRows) != ownerDimensionsBeforeResize,
+                  diagnostics.sourceColumns == diagnostics.viewColumns,
+                  diagnostics.sourceRows == diagnostics.viewRows,
+                  diagnostics.sourceRevision == revisionBeforeOwnerResize + 1 else {
+                return false
+            }
+            resizedOwner = diagnostics
+            return true
+        }
+        guard let resizedOwner else {
+            throw HarnessError.message("owner resize status unavailable")
+        }
         try await waitForWindows([wide, narrow], session: sessionName)
         let revisionAfterOwnerResize = (try await requireSession(named: sessionName)).revision
         guard resizedOwner.sourceColumns == resizedOwner.viewColumns,
@@ -341,6 +366,11 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
         try await sendLiveTailAfterLatestCheckpoint(through: wide, observedBy: slowProbe)
         screenshots.append(try capture(narrow, named: "05-slow-resync"))
 
+        let frontmostAfter = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        guard frontmostBefore == frontmostAfter else {
+            throw HarnessError.message("initial terminal verification changed the frontmost application")
+        }
+
         summary = try await requireSession(named: sessionName)
         let initial = InitialState(
             sessionName: sessionName,
@@ -355,7 +385,8 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             ownershipEpoch: reclaimedWide.ownershipEpoch,
             passiveResizePreservedSource: true,
             ownerResizeAdvancedOnce: true,
-            inactiveInputClaimedBeforeOutput: true
+            inactiveInputClaimedBeforeOutput: true,
+            initialWithoutFocusTheft: true
         )
         try JSONEncoder.pretty.encode(initial).write(
             to: arguments.artifactDirectory.appendingPathComponent("initial-state.json"),
@@ -437,6 +468,7 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             passiveResizePreservedSource: initial.passiveResizePreservedSource,
             ownerResizeAdvancedOnce: initial.ownerResizeAdvancedOnce,
             inactiveInputClaimedBeforeOutput: initial.inactiveInputClaimedBeforeOutput,
+            initialWithoutFocusTheft: initial.initialWithoutFocusTheft,
             screenshots: screenshots,
             cleanup: "pending harness cleanup"
         )

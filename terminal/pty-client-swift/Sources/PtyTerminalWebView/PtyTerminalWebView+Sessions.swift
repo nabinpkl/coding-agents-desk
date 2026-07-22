@@ -74,7 +74,11 @@ extension PtyTerminalWebView {
 
     func deliverData(type: String, data: Data, terminalID: String, revision: UInt64? = nil, liveOutput: Bool = false) {
         var object: [String: Any] = ["type": type, "terminalId": terminalID, "data": data.base64EncodedString()]
-        if let revision { object["revision"] = revision; slots[terminalID]?.revision = revision }
+        if let revision {
+            object["revision"] = revision
+            slots[terminalID]?.revision = revision
+            if selectedSlot?.terminalID == terminalID { appliedRevision = revision }
+        }
         deliver(object, terminalID: terminalID, liveOutput: liveOutput)
     }
 

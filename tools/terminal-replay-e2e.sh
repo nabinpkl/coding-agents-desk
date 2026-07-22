@@ -64,7 +64,7 @@ harness="$repo_root/terminal/emulator/.build/debug/terminal-replay-harness"
 
 "$manager" \
   --socket "$socket" \
-  --client-outbox-frames 4 \
+  --client-outbox-frames 256 \
   --client-live-outbox-kibibytes 32 \
   --max-checkpoint-mebibytes 16 \
   --checkpoint-chunk-kibibytes 512 \
@@ -101,6 +101,7 @@ assert result["narrowViewportCroppedAtReadableScale"] is True
 assert result["passiveResizePreservedSource"] is True
 assert result["ownerResizeAdvancedOnce"] is True
 assert result["inactiveInputClaimedBeforeOutput"] is True
+assert result["initialWithoutFocusTheft"] is True
 assert result["ownershipEpochBeforeRestart"] > 0
 assert result["ownerClientIDAfterRestore"] == 0
 assert result["columns"] > 0 and result["rows"] > 0

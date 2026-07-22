@@ -2,6 +2,50 @@ import XCTest
 @testable import PtyTerminalWebView
 
 final class PtyTerminalWebBridgeTests: XCTestCase {
+    @MainActor
+    func testSelectedLiveOutputAdvancesPublicAppliedRevision() throws {
+        let view = PtyTerminalWebView(profile: .workspace)
+        defer { view.teardown() }
+        let pane = try XCTUnwrap(view.workspaceState.selectedPane)
+        view.slots[pane.terminalID] = PtyTerminalWebView.Slot(
+            paneID: pane.paneID,
+            terminalID: pane.terminalID,
+            owner: view
+        )
+
+        view.deliverData(
+            type: "output",
+            data: Data("live".utf8),
+            terminalID: pane.terminalID,
+            revision: 7,
+            liveOutput: true
+        )
+
+        XCTAssertEqual(view.appliedRevision, 7)
+        XCTAssertEqual(view.slots[pane.terminalID]?.revision, 7)
+    }
+
+    func testStartupMessagesDecodeNSNumberVersionsFromWebKit() {
+        XCTAssertEqual(
+            PtyTerminalWebIntent.decode([
+                "version": NSNumber(value: 1),
+                "type": "booted",
+            ]),
+            .booted
+        )
+        XCTAssertEqual(
+            PtyTerminalWebIntent.decode([
+                "version": NSNumber(value: 1),
+                "type": "fontReady",
+            ]),
+            .fontReady
+        )
+        XCTAssertNil(PtyTerminalWebIntent.decode([
+            "version": NSNumber(value: true),
+            "type": "booted",
+        ]))
+    }
+
     func testBundledRuntimeResourceRootExists() throws {
         let root = try XCTUnwrap(PtyTerminalResourceSchemeHandler.bundledRoot)
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("index.html").path))
