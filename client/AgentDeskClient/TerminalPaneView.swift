@@ -95,8 +95,7 @@ final class TerminalPaneView: UIView, PtyTerminalSwiftTermContentViewDelegate, U
         let sessionName = leaf.sessionName
         let createIfMissing = leaf.createIfMissing
         let clientTitle = "AgentDesk iPhone pane \(leaf.paneID.rawValue)"
-        let columns = UInt32(max(terminalContent.columns, 80))
-        let rows = UInt32(max(terminalContent.rows, 24))
+        let dimensions = terminalContent.attachmentDimensions
         connectTask = Task { [weak self, weak transport] in
             do {
                 guard let transport else { throw PtyClientError.closed }
@@ -106,8 +105,8 @@ final class TerminalPaneView: UIView, PtyTerminalSwiftTermContentViewDelegate, U
                     name: sessionName,
                     launch: .shell(cwd: "", shell: ""),
                     lifetime: .persistent,
-                    columns: columns,
-                    rows: rows,
+                    columns: dimensions.columns,
+                    rows: dimensions.rows,
                     createIfMissing: createIfMissing,
                     clientTitle: clientTitle
                 )

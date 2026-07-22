@@ -27,6 +27,7 @@ let package = Package(
         .target(
             name: "PtyTerminalSwiftTerm",
             dependencies: [
+                "PtyClientSwift",
                 "PtyTerminalSession",
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
             ],

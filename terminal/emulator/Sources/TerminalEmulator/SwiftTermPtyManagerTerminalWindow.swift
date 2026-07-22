@@ -33,12 +33,13 @@ public final class SwiftTermPtyManagerTerminalSpawn: TerminalEmulatorSpawn {
             let window = SwiftTermPtyManagerTerminalWindow(cwd: cwd, frame: frame)
             Task {
                 do {
+                    let dimensions = await MainActor.run { window.attachmentDimensions }
                     let connection = try await self.client.openSession(
                         name: sessionName,
                         launch: .shell(cwd: cwd.path, shell: self.shell),
                         lifetime: .persistent,
-                        columns: UInt32(window.columns),
-                        rows: UInt32(window.rows),
+                        columns: dimensions.columns,
+                        rows: dimensions.rows,
                         createIfMissing: true,
                         clientTitle: "Workspace Terminal"
                     )
@@ -66,12 +67,13 @@ public final class SwiftTermPtyManagerTerminalSpawn: TerminalEmulatorSpawn {
             let window = SwiftTermPtyManagerTerminalWindow(cwd: cwd, frame: frame)
             Task {
                 do {
+                    let dimensions = await MainActor.run { window.attachmentDimensions }
                     let connection = try await self.client.openSession(
                         name: session.name,
                         launch: .shell(cwd: session.cwd, shell: session.shell),
                         lifetime: .persistent,
-                        columns: UInt32(window.columns),
-                        rows: UInt32(window.rows),
+                        columns: dimensions.columns,
+                        rows: dimensions.rows,
                         createIfMissing: false,
                         clientTitle: "PTY Manager"
                     )
@@ -101,8 +103,7 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
     private let logger = Logger(subsystem: "com.example.agentdesk.agent-workspace-ide", category: "terminal")
     private var closed = false
 
-    var columns: Int { terminalContent.columns }
-    var rows: Int { terminalContent.rows }
+    var attachmentDimensions: PtyTerminalDimensions { terminalContent.attachmentDimensions }
 
     var isOpen: Bool { !closed }
 

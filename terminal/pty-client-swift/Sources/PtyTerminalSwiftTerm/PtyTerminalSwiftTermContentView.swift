@@ -1,4 +1,5 @@
 import Foundation
+import PtyClientSwift
 import PtyTerminalSession
 import SwiftTerm
 
@@ -48,6 +49,14 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
 
     public var columns: Int { terminalView.getTerminal().cols }
     public var rows: Int { terminalView.getTerminal().rows }
+    public var attachmentDimensions: PtyTerminalDimensions {
+        synchronizeLayout()
+        guard !terminalView.bounds.isEmpty else { return .bootstrap }
+        return PtyTerminalDimensions(
+            columns: UInt32(max(columns, 1)),
+            rows: UInt32(max(rows, 1))
+        )
+    }
 
     private var sessionDriver: PtyTerminalSessionDriver?
 
@@ -123,6 +132,8 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
         sessionDriver = driver
         isBound = true
         driver.start()
+        let dimensions = attachmentDimensions
+        driver.resize(columns: Int(dimensions.columns), rows: Int(dimensions.rows))
     }
 
     public func detach() {
@@ -254,6 +265,14 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
 
     private func invalidateBinding() {
         bindingGeneration &+= 1
+    }
+
+    private func synchronizeLayout() {
+        #if canImport(AppKit)
+        layoutSubtreeIfNeeded()
+        #elseif canImport(UIKit)
+        layoutIfNeeded()
+        #endif
     }
 
     #if canImport(AppKit)

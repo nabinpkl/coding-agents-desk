@@ -2,9 +2,6 @@ import Foundation
 import PtyClientSwift
 
 actor AgentSessionTerminalCoordinator {
-    private static let bootstrapColumns: UInt32 = 80
-    private static let bootstrapRows: UInt32 = 24
-
     private struct Handoff {
         let ready: AgentSessionTerminalReady
         let platform: AgentSessionTerminalPlatform
@@ -235,8 +232,8 @@ actor AgentSessionTerminalCoordinator {
                 name: name,
                 launch: launch.ptyLaunch,
                 lifetime: .leased,
-                columns: Self.bootstrapColumns,
-                rows: Self.bootstrapRows,
+                columns: PtyTerminalDimensions.bootstrap.columns,
+                rows: PtyTerminalDimensions.bootstrap.rows,
                 createIfMissing: existing == nil,
                 clientTitle: request.platform.bootstrapClientTitle
             )

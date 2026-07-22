@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import PtyClientSwift
 import PtyTerminalSession
 import PtyTerminalSwiftTerm
 import UIKit
@@ -27,8 +28,7 @@ final class WorkspaceTerminalView: UIView, PtyTerminalSwiftTermContentViewDelega
     )
     private var connection: (any WorkspaceTerminalConnection)?
 
-    var columns: UInt32 { UInt32(max(terminalContent.columns, 80)) }
-    var rows: UInt32 { UInt32(max(terminalContent.rows, 24)) }
+    var attachmentDimensions: PtyTerminalDimensions { terminalContent.attachmentDimensions }
     var isAttached: Bool { connection != nil && terminalContent.isBound }
     var attachedSessionName: String? { connection?.sessionName }
 

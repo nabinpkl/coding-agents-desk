@@ -18,6 +18,42 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
         XCTAssertEqual(content.terminalView.font.pointSize, 18.2, accuracy: 0.001)
     }
 
+    func testUnlaidOutContentUsesBootstrapAttachmentDimensions() {
+        let content = PtyTerminalSwiftTermContentView()
+
+        XCTAssertEqual(content.attachmentDimensions, .bootstrap)
+    }
+
+    #if canImport(AppKit)
+    func testLaidOutContentUsesMeasuredAttachmentDimensions() {
+        let content = PtyTerminalSwiftTermContentView()
+        content.frame = NSRect(x: 0, y: 0, width: 720, height: 460)
+
+        let dimensions = content.attachmentDimensions
+
+        XCTAssertEqual(dimensions.columns, UInt32(content.columns))
+        XCTAssertEqual(dimensions.rows, UInt32(content.rows))
+        XCTAssertGreaterThan(dimensions.columns, 2)
+        XCTAssertGreaterThan(dimensions.rows, 1)
+    }
+    #endif
+
+    func testBindImmediatelySynchronizesAttachmentDimensions() async throws {
+        let connection = FakeContentConnection()
+        let content = PtyTerminalSwiftTermContentView()
+
+        content.bind(to: connection)
+
+        try await waitUntil {
+            connection.resizes == [.init(
+                columns: PtyTerminalDimensions.bootstrap.columns,
+                rows: PtyTerminalDimensions.bootstrap.rows
+            )]
+        }
+        content.stop()
+        try await waitUntil { connection.eventStreamTerminationCount == 1 }
+    }
+
     func testInputAndResizeForwardToBoundConnection() async throws {
         let connection = FakeContentConnection()
         let content = PtyTerminalSwiftTermContentView()
@@ -28,7 +64,13 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
 
         try await waitUntil {
             connection.sentInputs == [Data("echo hi\n".utf8)]
-                && connection.resizes == [.init(columns: 132, rows: 43)]
+                && connection.resizes == [
+                    .init(
+                        columns: PtyTerminalDimensions.bootstrap.columns,
+                        rows: PtyTerminalDimensions.bootstrap.rows
+                    ),
+                    .init(columns: 132, rows: 43),
+                ]
         }
         content.stop()
         try await waitUntil { connection.eventStreamTerminationCount == 1 }

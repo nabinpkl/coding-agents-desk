@@ -70,13 +70,18 @@ without changing the one-recorder and extension-authoritative generation model.
 - [x] D88.5. Make workspace-shell top and left edge reveal monitor-aware: retain one authoritative
   interactive overlay, move it to the display under the pointer, derive reveal geometry for every
   connected display, and retain the bottom Dock surface's existing main-display ownership.
-
 ---
 
 ## v8 scope (captured, not started)
 
 - [ ] R89. Add workspace terminal tabs, splits, and a workspace-filtered session drawer.
 - [ ] R90. Add bounded PTY output replay so a fully disconnected client reconstructs prior terminal display state.
+
+## Terminal stability hotfix
+
+- [x] D91. Prevent pre-layout terminal attachments from creating unusable 1x2 PTYs: centralize the
+  80x24 bootstrap dimensions, measure laid-out SwiftTerm surfaces atomically, and send an authoritative
+  resize immediately after every renderer bind so existing sessions recover on reattachment.
 
 ## Promotion log
 
@@ -91,4 +96,5 @@ D88.2    2026-07-21  landed      full shared Chrome hierarchy and selection on i
 D88.3    2026-07-21  landed      ordinary text unredacted regardless of rrweb page classes, extension 0.8.1
 D88.4    2026-07-21  landed      viewer-owned responsive Chrome viewport, protocol 13, extension 0.9.0
 D88.5    2026-07-21  landed      workspace-shell top and left edge reveal across every display
+D91      2026-07-21  landed      safe terminal bootstrap dimensions and bind-time resize recovery
 ```

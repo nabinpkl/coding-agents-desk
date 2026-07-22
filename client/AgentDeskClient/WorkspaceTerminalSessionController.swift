@@ -167,12 +167,13 @@ final class WorkspaceTerminalSessionController: WorkspaceTerminalViewDelegate {
 
         operationGeneration &+= 1
         let generation = operationGeneration
+        let dimensions = terminalView.attachmentDimensions
         let request = WorkspaceTerminalOpen(
             requestID: makeRequestID(),
             workspaceID: workspaceID,
             preferredSessionName: stateStore.state(for: workspaceID).preferredTerminalSessionName,
-            columns: terminalView.columns,
-            rows: terminalView.rows
+            columns: dimensions.columns,
+            rows: dimensions.rows
         )
         activeRequest = ActiveRequest(open: request, generation: generation)
         terminalView.showConnecting()
@@ -218,10 +219,11 @@ final class WorkspaceTerminalSessionController: WorkspaceTerminalViewDelegate {
             return
         }
         activeRequest?.ptySessionName = ready.ptySessionName
+        let dimensions = terminalView.attachmentDimensions
         let attachment = WorkspaceTerminalAttachmentRequest(
             sessionName: ready.ptySessionName,
-            columns: terminalView.columns,
-            rows: terminalView.rows
+            columns: dimensions.columns,
+            rows: dimensions.rows
         )
         attachTask = Task { [weak self, weak coordinator, weak sessionOpener] in
             do {

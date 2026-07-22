@@ -2,6 +2,7 @@ import AgentDeskWire
 import AgentPanel
 import Foundation
 import OSLog
+import PtyClientSwift
 import PtyTerminalSession
 import PtyTerminalSwiftTerm
 
@@ -521,10 +522,11 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
         let operationGeneration = self.operationGeneration
         let contextGeneration = self.contextGeneration
         let expectedPID = descriptor?.pid
+        let dimensions = terminalContent.attachmentDimensions
         let request = AgentFeedTerminalAttachmentRequest(
             sessionName: ready.ptySessionName,
-            columns: UInt32(max(terminalContent.columns, 80)),
-            rows: UInt32(max(terminalContent.rows, 24))
+            columns: dimensions.columns,
+            rows: dimensions.rows
         )
         attachTask = Task { [weak self, weak coordinator, weak sessionOpener] in
             do {
