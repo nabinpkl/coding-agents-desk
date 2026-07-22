@@ -57,6 +57,33 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
         XCTAssertGreaterThan(dimensions.columns, PtyTerminalDimensions.bootstrap.columns)
         XCTAssertGreaterThan(dimensions.rows, PtyTerminalDimensions.bootstrap.rows)
     }
+
+    func testFittingNarrowContainerPreservesHistoryBearingAuthoritativeTerminalGrid() {
+        let content = PtyTerminalSwiftTermContentView()
+        content.frame = NSRect(x: 0, y: 0, width: 540, height: 360)
+        let replay = (0..<80)
+            .map { "history-\($0)\r\n" }
+            .joined()
+            .data(using: .utf8)!
+        let checkpoint = PtyTerminalCheckpoint(
+            checkpointID: 1,
+            revision: 1,
+            columns: 100,
+            rows: 30,
+            totalBytes: UInt64(replay.count),
+            chunkCount: 1,
+            historyTruncated: false
+        )
+
+        content.beginCheckpoint(checkpoint)
+        content.feedCheckpointChunk(replay)
+        content.endCheckpoint(checkpoint)
+        content.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(content.columns, 100)
+        XCTAssertEqual(content.rows, 30)
+        XCTAssertLessThan(content.fitScale, 1)
+    }
     #endif
 
     func testBindDoesNotResizeTheSharedSession() async throws {

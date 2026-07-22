@@ -81,6 +81,7 @@ private actor EventProbe {
                     snapshot.checkpointCount += 1
                     snapshot.checkpointRevision = revision
                     snapshot.lastOutputRevision = revision
+                    snapshot.consecutive = true
                 case .output(_, let revision):
                     if snapshot.lastOutputRevision > 0,
                        revision != snapshot.lastOutputRevision + 1 {
@@ -136,7 +137,6 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
                 FileHandle.standardError.write(Data(line.utf8))
                 try? Data("{\"passed\":false,\"error\":\"\(jsonEscaped(String(describing: error)))\"}\n".utf8)
                     .write(to: arguments.artifactDirectory.appendingPathComponent("result.json"), options: .atomic)
-                NSApplication.shared.terminate(nil)
                 exit(1)
             }
         }
@@ -239,7 +239,7 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
         )
         retainedConnections.append(slow)
         try await send(
-            "python3 -c 'import sys; sys.stdout.write(\\\"flood\\\\n\\\" * 120000)'; printf 'FLOOD-END\\n'",
+            "python3 -c 'import sys; sys.stdout.write(\"flood\\n\" * 120000)'; printf 'FLOOD-END\\n'",
             through: controller
         )
         try await Task.sleep(nanoseconds: 500_000_000)
@@ -250,11 +250,7 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             let state = await slowProbe.current()
             return state.checkpointCount >= 2 && state.consecutive
         }
-        try await send("printf 'SLOW-RESYNC-LIVE\\n'", through: controller)
-        try await wait(timeoutSeconds: 8) {
-            let state = await slowProbe.current()
-            return state.lastOutputRevision > state.checkpointRevision && state.consecutive
-        }
+        try await sendLiveTailAfterLatestCheckpoint(through: controller, observedBy: slowProbe)
         screenshots.append(try capture(narrow, named: "03-slow-resync"))
 
         try await controller.resize(columns: 132, rows: 40)
@@ -366,6 +362,31 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
         try await connection.sendInput(Data((command + "\n").utf8))
     }
 
+    private func sendLiveTailAfterLatestCheckpoint(
+        through connection: PtySessionConnection,
+        observedBy probe: EventProbe
+    ) async throws {
+        let deadline = Date().addingTimeInterval(12)
+        var attempt = 1
+        while Date() < deadline {
+            let baseline = await probe.current().lastOutputRevision
+            try await send("printf 'SLOW-RESYNC-LIVE-\(attempt)\\n'", through: connection)
+
+            let attemptDeadline = min(Date().addingTimeInterval(0.75), deadline)
+            while Date() < attemptDeadline {
+                let state = await probe.current()
+                if state.consecutive,
+                   state.lastOutputRevision > baseline,
+                   state.lastOutputRevision > state.checkpointRevision {
+                    return
+                }
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+            attempt += 1
+        }
+        throw HarnessError.message("slow client did not receive live output after its latest checkpoint")
+    }
+
     private func requireSession(named name: String) async throws -> PtySessionSummary {
         try await wait(timeoutSeconds: 8) {
             guard let sessions = try? await self.client.listSessions() else { return false }
@@ -383,14 +404,16 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
         columns: UInt32? = nil,
         rows: UInt32? = nil
     ) async throws {
-        try await wait(timeoutSeconds: 12) {
+        let deadline = Date().addingTimeInterval(12)
+        while Date() < deadline {
             guard let sessions = try? await self.client.listSessions(),
                   let summary = sessions.first(where: { $0.name == session }) else {
-                return false
+                try await Task.sleep(nanoseconds: 50_000_000)
+                continue
             }
             let expectedColumns = columns ?? summary.columns
             let expectedRows = rows ?? summary.rows
-            return windows.allSatisfy { window in
+            let converged = windows.allSatisfy { window in
                 guard let diagnostics = (window as? any TerminalWindowReplayInspectable)?.replayDiagnostics else {
                     return false
                 }
@@ -399,7 +422,19 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
                     && diagnostics.rows == expectedRows
                     && diagnostics.revision == summary.revision
             }
+            if converged { return }
+            try await Task.sleep(nanoseconds: 50_000_000)
         }
+
+        let expected = try await requireSession(named: session)
+        let diagnostics = windows.compactMap {
+            ($0 as? any TerminalWindowReplayInspectable)?.replayDiagnostics
+        }
+        throw HarnessError.message(
+            "terminal windows did not converge; expected " +
+            "\(columns ?? expected.columns)x\(rows ?? expected.rows) revision \(expected.revision), " +
+            "actual \(diagnostics)"
+        )
     }
 
     private func requireMatchingDiagnostics(

@@ -44,6 +44,7 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
     public weak var delegate: PtyTerminalSwiftTermContentViewDelegate?
 
     let terminalView: TerminalView
+    private let canvasView: PtyTerminalContentPlatformView
     public var isInputEnabled = true
     public private(set) var isBound = false
     public private(set) var rendererSetupError: Error?
@@ -87,6 +88,7 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
             font: PtyTerminalViewStyle.terminalFont(pointSize: style.fontSize)
         )
         terminalView = nativeView
+        canvasView = PtyTerminalContentPlatformView(frame: .zero)
         super.init(frame: .zero)
 
         do {
@@ -104,14 +106,20 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
         setAccessibilityHelp("Press to focus the native terminal.")
         nativeView.pasteHandler = { [weak self] text in self?.paste(text: text) }
         #endif
-        addSubview(nativeView)
+        addSubview(canvasView)
+        canvasView.addSubview(nativeView)
+        canvasView.translatesAutoresizingMaskIntoConstraints = true
         nativeView.translatesAutoresizingMaskIntoConstraints = true
         nativeView.isHidden = true
         #if canImport(AppKit)
         wantsLayer = true
+        layer?.masksToBounds = true
+        canvasView.wantsLayer = true
+        canvasView.layer?.masksToBounds = true
         nativeView.wantsLayer = true
         #elseif canImport(UIKit)
         clipsToBounds = true
+        canvasView.clipsToBounds = true
         #endif
         configureOverlayControls()
 
@@ -355,23 +363,28 @@ public final class PtyTerminalSwiftTermContentView: PtyTerminalContentPlatformVi
 
     private func updateFitLayout() {
         let optimal = terminalView.getOptimalFrameSize().size
+        let canvasSize = CGSize(
+            width: ceil(optimal.width.nextUp),
+            height: ceil(optimal.height.nextUp)
+        )
         guard let transform = PtyTerminalFitTransform(
-            canvasSize: optimal,
+            canvasSize: canvasSize,
             containerBounds: bounds
         ) else { return }
         fitScale = transform.scale
         #if canImport(AppKit)
-        // NSView performs event-coordinate conversion through frame/bounds.
-        // Keeping the logical canvas in bounds while sizing the frame to its
-        // visual fit therefore inverse-maps clicks, selection, and AX points.
-        terminalView.layer?.setAffineTransform(.identity)
-        terminalView.frame = transform.visualFrame
-        terminalView.bounds = CGRect(origin: .zero, size: optimal)
+        // SwiftTerm interprets its own frame changes as terminal resizes. Keep
+        // it at the authoritative natural canvas size and scale a neutral
+        // wrapper whose frame/bounds mapping also inverse-maps input points.
+        canvasView.frame = transform.visualFrame
+        canvasView.bounds = CGRect(origin: .zero, size: canvasSize)
+        terminalView.frame = canvasView.bounds
         #elseif canImport(UIKit)
-        terminalView.transform = .identity
-        terminalView.bounds = CGRect(origin: .zero, size: optimal)
-        terminalView.center = CGPoint(x: transform.visualFrame.midX, y: transform.visualFrame.midY)
-        terminalView.transform = CGAffineTransform(scaleX: fitScale, y: fitScale)
+        canvasView.transform = .identity
+        canvasView.bounds = CGRect(origin: .zero, size: canvasSize)
+        canvasView.center = CGPoint(x: transform.visualFrame.midX, y: transform.visualFrame.midY)
+        terminalView.frame = canvasView.bounds
+        canvasView.transform = CGAffineTransform(scaleX: fitScale, y: fitScale)
         #endif
     }
 

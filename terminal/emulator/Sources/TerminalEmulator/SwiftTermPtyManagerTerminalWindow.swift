@@ -117,8 +117,8 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
 
     var replayDiagnostics: TerminalWindowReplayDiagnostics {
         TerminalWindowReplayDiagnostics(
-            columns: terminalContent.authoritativeDimensions.columns,
-            rows: terminalContent.authoritativeDimensions.rows,
+            columns: UInt32(terminalContent.columns),
+            rows: UInt32(terminalContent.rows),
             revision: terminalContent.appliedRevision,
             fitScale: Double(terminalContent.fitScale),
             synchronizing: terminalContent.isSynchronizing
