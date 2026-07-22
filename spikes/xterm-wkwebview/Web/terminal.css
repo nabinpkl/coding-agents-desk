@@ -1,0 +1,125 @@
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  background: #07090d;
+  color: #d8dee9;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+.spike {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.spike {
+  display: grid;
+  grid-template-rows: 54px 1fr;
+  background: #0b0e14;
+}
+
+.tab-strip {
+  display: flex;
+  align-items: end;
+  gap: 1px;
+  padding: 8px 10px 0;
+  border-bottom: 1px solid #2a2f3a;
+  background: #171a21;
+}
+
+.terminal-tab {
+  min-width: 220px;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 8px 8px 0 0;
+  background: #20242d;
+  color: #9da5b4;
+  text-align: left;
+  font: inherit;
+  cursor: default;
+}
+
+.terminal-tab:hover {
+  background: #282d38;
+  color: #f0f3f8;
+}
+
+.terminal-tab[aria-selected="true"] {
+  border-color: #343b49;
+  border-bottom-color: #0b0e14;
+  background: #0b0e14;
+  color: #f0f3f8;
+}
+
+.tab-index {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  margin-right: 8px;
+  place-items: center;
+  border-radius: 5px;
+  background: #313744;
+  color: #8fbcbb;
+  font-family: "SFMono-Regular", Menlo, monospace;
+  font-size: 12px;
+}
+
+.terminal-stage,
+.terminal-pane,
+.terminal-mount {
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.terminal-pane {
+  position: relative;
+  padding: 12px 10px 34px;
+  background: #0b0e14;
+}
+
+.terminal-pane[hidden] {
+  display: none;
+}
+
+.terminal-mount .xterm,
+.terminal-mount .xterm-viewport {
+  width: 100%;
+  height: 100%;
+}
+
+.terminal-footer {
+  position: absolute;
+  right: 10px;
+  bottom: 6px;
+  left: 10px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  height: 22px;
+  color: #7f8796;
+  font-family: "SFMono-Regular", Menlo, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.terminal-status {
+  margin-right: auto;
+  color: #98c379;
+}
+
+.terminal-status[data-kind="warning"] {
+  color: #e5c07b;
+}
+
+.terminal-status[data-kind="error"] {
+  color: #e06c75;
+}
