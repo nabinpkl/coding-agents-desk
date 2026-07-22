@@ -1,7 +1,8 @@
 ---
-status: accepted
+status: partially superseded by ADR-0068
 date: 2026-07-22
 supersedes: D91 bind-time resize behavior
+partially-superseded-by: ADR-0068 (explicit manual sizing only; bounded headless replay and restoration stand)
 ---
 
 # Let the persistent PTY manager own bounded terminal replay

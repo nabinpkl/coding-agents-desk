@@ -303,6 +303,10 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
 
     // MARK: - NSWindowDelegate
 
+    func windowDidBecomeKey(_ notification: Notification) {
+        terminalController?.claimViewportOwnership()
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         // Hide instead of close so `isReleasedWhenClosed = false` keeps the surface alive.
         beginHide(sender, reason: .windowShouldClose)

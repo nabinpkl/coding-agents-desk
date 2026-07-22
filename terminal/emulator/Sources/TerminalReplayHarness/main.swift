@@ -47,6 +47,10 @@ private struct InitialState: Codable {
     let slowClientResynchronized: Bool
     let narrowWindowBelowFormerMinimum: Bool
     let narrowViewportCroppedAtReadableScale: Bool
+    let ownershipEpoch: UInt64
+    let passiveResizePreservedSource: Bool
+    let ownerResizeAdvancedOnce: Bool
+    let inactiveInputClaimedBeforeOutput: Bool
 }
 
 private struct FinalResult: Codable {
@@ -63,6 +67,11 @@ private struct FinalResult: Codable {
     let slowClientResynchronizedWithoutReconnect: Bool
     let narrowWindowBelowFormerMinimum: Bool
     let narrowViewportCroppedAtReadableScale: Bool
+    let ownershipEpochBeforeRestart: UInt64
+    let ownerClientIDAfterRestore: UInt64
+    let passiveResizePreservedSource: Bool
+    let ownerResizeAdvancedOnce: Bool
+    let inactiveInputClaimedBeforeOutput: Bool
     let screenshots: [String]
     let cleanup: String
 }
@@ -195,20 +204,31 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             workspaceLabel: "Harness Wide",
             cascadeOrdinal: 0
         )
-        wide.raise()
-
         try await send(
             "printf '\\033[2J\\033[H\\033[38;2;80;180;255mHEADLESS-PRIMARY\\033[0m\\n'; " +
             "for i in {1..60}; do printf 'history-%03d unicode-λ-界\\n' \"$i\"; done; " +
             "printf '\\033[4;10Hcursor-marker\\n'",
             through: controller
         )
+        wide.raise()
         try await waitForWindows([wide], session: sessionName)
+        let wideOwner = try await waitForOwner(wide, session: sessionName)
+        guard wideOwner.sourceColumns == wideOwner.viewColumns,
+              wideOwner.sourceRows == wideOwner.viewRows else {
+            throw HarnessError.message("selected first window did not size the PTY to its viewport")
+        }
+        try await controller.updateViewerState(
+            sequence: 1,
+            active: false,
+            claim: false,
+            columns: 100,
+            rows: 30
+        )
         var screenshots = [try capture(wide, named: "01-before")]
 
-        try await send(
+        try send(
             "printf '\\033[?1049h\\033[2J\\033[H\\033[1;35mALTERNATE-SCREEN\\033[0m\\nlate-join-marker\\n'",
-            through: controller
+            through: wide
         )
         summary = try await requireSession(named: sessionName)
         let narrow = try await spawn(summary, frame: CGRect(x: 1020, y: 220, width: 360, height: 240))
@@ -223,6 +243,9 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
         (narrow as? any TerminalWindowPresentationTrackable)?.orderWithoutFocus()
         try await waitForWindows([wide, narrow], session: sessionName)
         let diagnostics = try requireMatchingDiagnostics([wide, narrow])
+        guard diagnostics[0].isOwner, !diagnostics[1].isOwner else {
+            throw HarnessError.message("late attachment changed terminal ownership")
+        }
         guard diagnostics[0].fitScale != diagnostics[1].fitScale else {
             throw HarnessError.message("differently sized clients did not use different fit scales")
         }
@@ -238,7 +261,59 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
         screenshots.append(try capture(wide, named: "02-late-join-wide"))
         screenshots.append(try capture(narrow, named: "02-late-join-narrow"))
 
-        try await send("printf '\\033[6;1HLIVE-TAIL\\n'", through: controller)
+        guard let narrowInspectable = narrow as? any TerminalWindowReplayInspectable,
+              let wideInspectable = wide as? any TerminalWindowReplayInspectable else {
+            throw HarnessError.message("terminal windows do not expose replay diagnostics")
+        }
+        narrowInspectable.claimViewportForReplay()
+        let narrowOwner = try await waitForOwner(narrow, session: sessionName)
+        try await waitForWindows([wide, narrow], session: sessionName)
+        guard narrowOwner.sourceColumns == narrowOwner.viewColumns,
+              narrowOwner.sourceRows == narrowOwner.viewRows,
+              narrowOwner.ownershipEpoch > wideOwner.ownershipEpoch else {
+            throw HarnessError.message("second window claim did not become authoritative")
+        }
+        screenshots.append(try capture(narrow, named: "03-second-owner"))
+
+        let sourceBeforePassiveResize = (narrowOwner.sourceColumns, narrowOwner.sourceRows)
+        wide.place(into: CGRect(x: 80, y: 160, width: 560, height: 360))
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let afterPassiveResize = try await waitForOwner(narrow, session: sessionName)
+        guard (afterPassiveResize.sourceColumns, afterPassiveResize.sourceRows) == sourceBeforePassiveResize else {
+            throw HarnessError.message(
+                "passive resize of inactive viewer changed the source grid " +
+                "from \(sourceBeforePassiveResize.0)x\(sourceBeforePassiveResize.1) " +
+                "to \(afterPassiveResize.sourceColumns)x\(afterPassiveResize.sourceRows)"
+            )
+        }
+
+        let revisionBeforeOwnerResize = (try await requireSession(named: sessionName)).revision
+        narrow.place(into: CGRect(x: 760, y: 220, width: 620, height: 420))
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let resizedOwner = try await waitForOwner(narrow, session: sessionName)
+        try await waitForWindows([wide, narrow], session: sessionName)
+        let revisionAfterOwnerResize = (try await requireSession(named: sessionName)).revision
+        guard resizedOwner.sourceColumns == resizedOwner.viewColumns,
+              resizedOwner.sourceRows == resizedOwner.viewRows,
+              resizedOwner.sourceRevision == revisionBeforeOwnerResize + 1 else {
+            throw HarnessError.message(
+                "owner resize was not applied exactly once: " +
+                "source revision \(revisionBeforeOwnerResize)->\(resizedOwner.sourceRevision), " +
+                "observed revision \(revisionAfterOwnerResize), " +
+                "source \(resizedOwner.sourceColumns)x\(resizedOwner.sourceRows), " +
+                "view \(resizedOwner.viewColumns)x\(resizedOwner.viewRows)"
+            )
+        }
+        screenshots.append(try capture(narrow, named: "04-owner-resize"))
+
+        wideInspectable.sendInputForReplay("printf '\\033[6;1HINACTIVE-CLAIM-LIVE\\n'\n")
+        let reclaimedWide = try await waitForOwner(wide, session: sessionName)
+        try await waitForWindows([wide, narrow], session: sessionName)
+        guard reclaimedWide.ownershipEpoch > resizedOwner.ownershipEpoch else {
+            throw HarnessError.message("input through inactive viewer did not claim first")
+        }
+
+        try send("printf '\\033[7;1HLIVE-TAIL\\n'", through: wide)
         try await waitForWindows([wide, narrow], session: sessionName)
 
         let slow = try await client.openSession(
@@ -251,9 +326,9 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             clientTitle: "E2E Slow Client"
         )
         retainedConnections.append(slow)
-        try await send(
+        try send(
             "python3 -c 'import sys; sys.stdout.write(\"flood\\n\" * 120000)'; printf 'FLOOD-END\\n'",
-            through: controller
+            through: wide
         )
         try await Task.sleep(nanoseconds: 500_000_000)
         let slowProbe = EventProbe()
@@ -263,13 +338,8 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             let state = await slowProbe.current()
             return state.checkpointCount >= 2 && state.consecutive
         }
-        try await sendLiveTailAfterLatestCheckpoint(through: controller, observedBy: slowProbe)
-        screenshots.append(try capture(narrow, named: "03-slow-resync"))
-
-        try await controller.resize(columns: 132, rows: 40)
-        try await waitForWindows([wide, narrow], session: sessionName, columns: 132, rows: 40)
-        screenshots.append(try capture(wide, named: "04-resize-wide"))
-        screenshots.append(try capture(narrow, named: "04-resize-narrow"))
+        try await sendLiveTailAfterLatestCheckpoint(through: wide, observedBy: slowProbe)
+        screenshots.append(try capture(narrow, named: "05-slow-resync"))
 
         summary = try await requireSession(named: sessionName)
         let initial = InitialState(
@@ -281,7 +351,11 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             screenshots: screenshots,
             slowClientResynchronized: true,
             narrowWindowBelowFormerMinimum: true,
-            narrowViewportCroppedAtReadableScale: true
+            narrowViewportCroppedAtReadableScale: true,
+            ownershipEpoch: reclaimedWide.ownershipEpoch,
+            passiveResizePreservedSource: true,
+            ownerResizeAdvancedOnce: true,
+            inactiveInputClaimedBeforeOutput: true
         )
         try JSONEncoder.pretty.encode(initial).write(
             to: arguments.artifactDirectory.appendingPathComponent("initial-state.json"),
@@ -303,12 +377,23 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             loggerSubsystem: "com.example.agentdesk.AgentDeskTerminalReplayE2E"
         )
         registry = windowRegistry
+        let retainedSource = try await requireSession(named: initial.sessionName)
         windowRegistry.startRestoration()
-        try await wait(timeoutSeconds: 12) {
-            let diagnostics = windowRegistry.openWindowDiagnostics
-            return diagnostics.count == 2 && diagnostics.values.allSatisfy {
-                !$0.synchronizing && $0.columns == initial.columns && $0.rows == initial.rows
+        do {
+            try await wait(timeoutSeconds: 12) {
+                let diagnostics = windowRegistry.openWindowDiagnostics
+                return diagnostics.count == 2 && diagnostics.values.allSatisfy {
+                    !$0.synchronizing
+                        && $0.columns == retainedSource.columns
+                        && $0.rows == retainedSource.rows
+                }
             }
+        } catch {
+            let diagnostics = windowRegistry.openWindowDiagnostics.values.map {
+                "sync=\($0.synchronizing) grid=\($0.columns)x\($0.rows) " +
+                "source=\($0.sourceColumns)x\($0.sourceRows) owner=\($0.ownerClientID)"
+            }.joined(separator: "; ")
+            throw HarnessError.message("restored windows did not converge: \(diagnostics)")
         }
         let summary = try await requireSession(named: initial.sessionName)
         guard summary.pid == initial.ptyPID else {
@@ -347,11 +432,19 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             slowClientResynchronizedWithoutReconnect: initial.slowClientResynchronized,
             narrowWindowBelowFormerMinimum: initial.narrowWindowBelowFormerMinimum,
             narrowViewportCroppedAtReadableScale: initial.narrowViewportCroppedAtReadableScale,
+            ownershipEpochBeforeRestart: initial.ownershipEpoch,
+            ownerClientIDAfterRestore: summary.ownerClientID,
+            passiveResizePreservedSource: initial.passiveResizePreservedSource,
+            ownerResizeAdvancedOnce: initial.ownerResizeAdvancedOnce,
+            inactiveInputClaimedBeforeOutput: initial.inactiveInputClaimedBeforeOutput,
             screenshots: screenshots,
             cleanup: "pending harness cleanup"
         )
         guard result.restoredWithoutFocusTheft else {
             throw HarnessError.message("restoration changed the frontmost application")
+        }
+        guard result.ownerClientIDAfterRestore == 0 else {
+            throw HarnessError.message("restored windows stole terminal ownership")
         }
         try JSONEncoder.pretty.encode(result).write(
             to: arguments.artifactDirectory.appendingPathComponent("result.json"),
@@ -379,15 +472,22 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
         try await connection.sendInput(Data((command + "\n").utf8))
     }
 
+    private func send(_ command: String, through window: TerminalEmulatorWindow) throws {
+        guard let inspectable = window as? any TerminalWindowReplayInspectable else {
+            throw HarnessError.message("terminal window does not support replay input")
+        }
+        inspectable.sendInputForReplay(command + "\n")
+    }
+
     private func sendLiveTailAfterLatestCheckpoint(
-        through connection: PtySessionConnection,
+        through window: TerminalEmulatorWindow,
         observedBy probe: EventProbe
     ) async throws {
         let deadline = Date().addingTimeInterval(12)
         var attempt = 1
         while Date() < deadline {
             let baseline = await probe.current().lastOutputRevision
-            try await send("printf 'SLOW-RESYNC-LIVE-\(attempt)\\n'", through: connection)
+            try send("printf 'SLOW-RESYNC-LIVE-\(attempt)\\n'", through: window)
 
             let attemptDeadline = min(Date().addingTimeInterval(0.75), deadline)
             while Date() < attemptDeadline {
@@ -413,6 +513,31 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             throw HarnessError.message("missing session \(name)")
         }
         return session
+    }
+
+    private func waitForOwner(
+        _ window: TerminalEmulatorWindow,
+        session: String
+    ) async throws -> TerminalWindowReplayDiagnostics {
+        var match: TerminalWindowReplayDiagnostics?
+        try await wait(timeoutSeconds: 12) {
+            guard let sessions = try? await self.client.listSessions(),
+                  let summary = sessions.first(where: { $0.name == session }),
+                  let diagnostics = (window as? any TerminalWindowReplayInspectable)?.replayDiagnostics,
+                  diagnostics.isOwner,
+                  diagnostics.ownerClientID == summary.ownerClientID,
+                  diagnostics.ownershipEpoch == summary.ownershipEpoch,
+                  diagnostics.sourceColumns == summary.columns,
+                  diagnostics.sourceRows == summary.rows else {
+                return false
+            }
+            match = diagnostics
+            return true
+        }
+        guard let match else {
+            throw HarnessError.message("terminal owner status unavailable")
+        }
+        return match
     }
 
     private func waitForWindows(

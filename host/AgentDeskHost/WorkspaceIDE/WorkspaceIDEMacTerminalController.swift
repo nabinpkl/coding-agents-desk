@@ -18,6 +18,7 @@ final class WorkspaceIDEMacTerminalController: NSObject, PtyTerminalSwiftTermCon
     private var operationGeneration: UInt64 = 0
     private var openTask: Task<Void, Never>?
     private var isWindowPresented = false
+    private var isPanePresented = true
 
     init(
         endpoint: WorkspaceTerminalEndpoint,
@@ -41,6 +42,8 @@ final class WorkspaceIDEMacTerminalController: NSObject, PtyTerminalSwiftTermCon
     func setWindowPresented(_ presented: Bool) {
         guard isWindowPresented != presented else { return }
         isWindowPresented = presented
+        let participates = presented && isPanePresented
+        contentView.setViewportActive(participates, claim: participates)
         if presented {
             restartIfPresented()
         } else {
@@ -49,11 +52,20 @@ final class WorkspaceIDEMacTerminalController: NSObject, PtyTerminalSwiftTermCon
     }
 
     func setPanePresented(_ presented: Bool) {
+        guard isPanePresented != presented else { return }
+        isPanePresented = presented
+        let participates = presented && isWindowPresented
+        contentView.setViewportActive(participates, claim: participates)
         if presented {
             if isWindowPresented, !contentView.isBound { restartIfPresented() }
         } else {
             contentView.resignFocus()
         }
+    }
+
+    func claimViewportOwnership() {
+        guard isWindowPresented, isPanePresented else { return }
+        contentView.claimViewportOwnership()
     }
 
     func setZoomScale(_ scale: Double) {

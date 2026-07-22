@@ -43,6 +43,14 @@ public struct TerminalWindowReplayDiagnostics: Equatable, Sendable {
     public let fitScale: Double
     public let viewportCropped: Bool
     public let synchronizing: Bool
+    public let ownershipEpoch: UInt64
+    public let ownerClientID: UInt64
+    public let isOwner: Bool
+    public let sourceColumns: UInt32
+    public let sourceRows: UInt32
+    public let sourceRevision: UInt64
+    public let viewColumns: UInt32
+    public let viewRows: UInt32
 
     public init(
         columns: UInt32,
@@ -50,7 +58,15 @@ public struct TerminalWindowReplayDiagnostics: Equatable, Sendable {
         revision: UInt64,
         fitScale: Double,
         viewportCropped: Bool,
-        synchronizing: Bool
+        synchronizing: Bool,
+        ownershipEpoch: UInt64 = 0,
+        ownerClientID: UInt64 = 0,
+        isOwner: Bool = false,
+        sourceColumns: UInt32 = 0,
+        sourceRows: UInt32 = 0,
+        sourceRevision: UInt64 = 0,
+        viewColumns: UInt32 = 0,
+        viewRows: UInt32 = 0
     ) {
         self.columns = columns
         self.rows = rows
@@ -58,6 +74,14 @@ public struct TerminalWindowReplayDiagnostics: Equatable, Sendable {
         self.fitScale = fitScale
         self.viewportCropped = viewportCropped
         self.synchronizing = synchronizing
+        self.ownershipEpoch = ownershipEpoch
+        self.ownerClientID = ownerClientID
+        self.isOwner = isOwner
+        self.sourceColumns = sourceColumns
+        self.sourceRows = sourceRows
+        self.sourceRevision = sourceRevision
+        self.viewColumns = viewColumns
+        self.viewRows = viewRows
     }
 }
 
@@ -66,6 +90,9 @@ public struct TerminalWindowReplayDiagnostics: Equatable, Sendable {
 @MainActor
 public protocol TerminalWindowReplayInspectable: TerminalEmulatorWindow {
     var replayDiagnostics: TerminalWindowReplayDiagnostics { get }
+    func claimViewportForReplay()
+    func flushViewportForReplay()
+    func sendInputForReplay(_ text: String)
 }
 
 @MainActor

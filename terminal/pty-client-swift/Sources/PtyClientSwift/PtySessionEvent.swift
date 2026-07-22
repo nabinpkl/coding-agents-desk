@@ -34,6 +34,7 @@ public enum PtySessionEvent: Equatable, Sendable {
     case checkpointChunk(checkpointID: UInt64, index: UInt32, data: Data)
     case checkpointEnded(checkpointID: UInt64, revision: UInt64)
     case output(data: Data, revision: UInt64)
+    case viewportStatus(PtyTerminalViewportStatus)
     case detachedByManager(UInt64)
     case exited(Int32)
     case error(String)

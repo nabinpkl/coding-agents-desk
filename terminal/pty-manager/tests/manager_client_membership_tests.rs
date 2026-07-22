@@ -465,14 +465,16 @@ async fn late_client_replays_output_produced_with_no_clients_then_receives_conse
     )
     .await
     .expect("send live output");
+    let (claimed_revision, _) = read_checkpoint_with_dimensions(&mut late, 160, 60).await;
+    assert_eq!(claimed_revision, checkpoint_revision + 1);
     let first_live_revision = read_output_revisions(&mut late, "live-marker").await;
-    assert_eq!(first_live_revision, checkpoint_revision + 1);
+    assert_eq!(first_live_revision, claimed_revision + 1);
 
     manager_task.abort();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn explicit_resize_advances_once_and_checkpoints_every_client_at_the_shared_grid() {
+async fn owner_viewport_resize_advances_once_and_checkpoints_every_client_at_the_shared_grid() {
     let tempdir = tempdir().expect("tempdir");
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
@@ -502,7 +504,10 @@ async fn explicit_resize_advances_once_and_checkpoints_every_client_at_the_share
         &protocol::envelope(
             3,
             "resize-shared",
-            Payload::Resize(protocol::Resize {
+            Payload::TerminalViewerState(protocol::TerminalViewerState {
+                sequence: 1,
+                active: true,
+                claim: true,
                 columns: 120,
                 rows: 35,
             }),
@@ -522,6 +527,133 @@ async fn explicit_resize_advances_once_and_checkpoints_every_client_at_the_share
     assert_eq!(sessions[0].revision, first_revision);
 
     manager_task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn viewer_claims_passive_reports_equal_size_transfer_and_fallback_are_serialized() {
+    let tempdir = tempdir().expect("tempdir");
+    let socket_path = tempdir.path().join("terminal.sock");
+    let manager = PtyManager::new(PtyManagerOptions {
+        socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_secs(30),
+    });
+    let manager_task = tokio::spawn(async move { manager.run().await });
+    wait_for_socket(&socket_path).await;
+
+    let mut first = pty_manager::client::connect(&socket_path)
+        .await
+        .expect("connect first client");
+    send_create(&mut first, 1, "ownership", tempdir.path()).await;
+    let first_attached = read_attached(&mut first).await;
+    let (initial_revision, _) = read_checkpoint(&mut first).await;
+    let initial_status = read_viewport_status(&mut first).await;
+    assert_eq!(initial_status.owner_client_id, 0);
+
+    let mut second = pty_manager::client::connect(&socket_path)
+        .await
+        .expect("connect second client");
+    send_create(&mut second, 2, "ownership", tempdir.path()).await;
+    let second_attached = read_attached(&mut second).await;
+    read_checkpoint(&mut second).await;
+    read_viewport_status(&mut second).await;
+
+    send_viewer_state(&mut first, 3, "ownership", 1, true, false, 100, 30).await;
+    let passive = read_viewport_status(&mut first).await;
+    assert_eq!(passive.owner_client_id, 0);
+    assert_eq!((passive.view_columns, passive.view_rows), (100, 30));
+    assert_eq!(passive.source_revision, initial_revision);
+
+    send_viewer_state(&mut first, 4, "ownership", 2, true, true, 100, 30).await;
+    let (first_owner_revision, _) = read_checkpoint_with_dimensions(&mut first, 100, 30).await;
+    read_checkpoint_with_dimensions(&mut second, 100, 30).await;
+    let first_owner = read_viewport_status(&mut first).await;
+    let first_owner_for_second = read_viewport_status(&mut second).await;
+    assert_eq!(first_owner.owner_client_id, first_attached.client_id);
+    assert_eq!(
+        first_owner_for_second.owner_client_id,
+        first_attached.client_id
+    );
+    assert!(first_owner.is_owner);
+    assert_eq!(first_owner_revision, initial_revision + 1);
+
+    send_viewer_state(&mut second, 5, "ownership", 1, true, false, 60, 20).await;
+    let second_passive = read_viewport_status(&mut second).await;
+    assert_eq!(second_passive.owner_client_id, first_attached.client_id);
+    assert_eq!(second_passive.source_revision, first_owner_revision);
+
+    send_viewer_state(&mut second, 6, "ownership", 2, true, true, 60, 20).await;
+    read_checkpoint_with_dimensions(&mut first, 60, 20).await;
+    let (second_owner_revision, _) = read_checkpoint_with_dimensions(&mut second, 60, 20).await;
+    let second_owner_for_first = read_viewport_status(&mut first).await;
+    let second_owner = read_viewport_status(&mut second).await;
+    assert_eq!(
+        second_owner_for_first.owner_client_id,
+        second_attached.client_id
+    );
+    assert_eq!(second_owner.owner_client_id, second_attached.client_id);
+    assert_eq!(second_owner_revision, first_owner_revision + 1);
+
+    send_viewer_state(&mut first, 7, "ownership", 3, true, false, 60, 20).await;
+    read_viewport_status(&mut first).await;
+    send_viewer_state(&mut first, 8, "ownership", 4, true, true, 60, 20).await;
+    let equal_size_owner = read_viewport_status(&mut first).await;
+    let equal_size_follower = read_viewport_status(&mut second).await;
+    assert_eq!(equal_size_owner.owner_client_id, first_attached.client_id);
+    assert_eq!(
+        equal_size_follower.owner_client_id,
+        first_attached.client_id
+    );
+    assert_eq!(equal_size_owner.source_revision, second_owner_revision);
+    assert!(equal_size_owner.ownership_epoch > second_owner.ownership_epoch);
+
+    send_viewer_state(&mut first, 9, "ownership", 5, false, false, 60, 20).await;
+    let released = read_viewport_status(&mut first).await;
+    let fallback = read_viewport_status(&mut second).await;
+    assert_eq!(released.owner_client_id, second_attached.client_id);
+    assert_eq!(fallback.owner_client_id, second_attached.client_id);
+    assert_eq!(fallback.source_revision, second_owner_revision);
+
+    send_viewer_state(&mut first, 10, "ownership", 5, true, true, 60, 20).await;
+    let error = read_error(&mut first).await;
+    assert!(error.contains("stale terminal viewer sequence"));
+
+    send_viewer_state(&mut first, 11, "ownership", 6, false, true, 60, 20).await;
+    let error = read_error(&mut first).await;
+    assert!(error.contains("inactive terminal viewer cannot claim ownership"));
+
+    send_viewer_state(&mut first, 12, "ownership", 7, true, true, 0, 20).await;
+    let error = read_error(&mut first).await;
+    assert!(error.contains("columns must be between 1 and 512"));
+
+    manager_task.abort();
+}
+
+async fn send_viewer_state(
+    framed: &mut pty_manager::transport::TerminalFramed,
+    request_id: u64,
+    session_name: &str,
+    sequence: u64,
+    active: bool,
+    claim: bool,
+    columns: u32,
+    rows: u32,
+) {
+    send(
+        framed,
+        &protocol::envelope(
+            request_id,
+            session_name,
+            Payload::TerminalViewerState(protocol::TerminalViewerState {
+                sequence,
+                active,
+                claim,
+                columns,
+                rows,
+            }),
+        ),
+    )
+    .await
+    .expect("send viewer state");
 }
 
 async fn wait_for_socket(socket_path: &Path) {
@@ -573,7 +705,8 @@ async fn read_attached(framed: &mut pty_manager::transport::TerminalFramed) -> A
             Payload::Output(_)
             | Payload::TerminalCheckpointBegin(_)
             | Payload::TerminalCheckpointChunk(_)
-            | Payload::TerminalCheckpointEnd(_) => {}
+            | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload before attach: {other:?}"),
         }
@@ -588,7 +721,8 @@ async fn read_client_detached(framed: &mut pty_manager::transport::TerminalFrame
             Payload::Output(_)
             | Payload::TerminalCheckpointBegin(_)
             | Payload::TerminalCheckpointChunk(_)
-            | Payload::TerminalCheckpointEnd(_) => {}
+            | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload before client detach: {other:?}"),
         }
@@ -611,7 +745,8 @@ async fn read_until_output(
             }
             Payload::TerminalCheckpointBegin(_)
             | Payload::TerminalCheckpointChunk(_)
-            | Payload::TerminalCheckpointEnd(_) => {}
+            | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload while waiting for output: {other:?}"),
         }
@@ -648,7 +783,7 @@ async fn read_checkpoint(framed: &mut pty_manager::transport::TerminalFramed) ->
                 assert_eq!(chunks, expected_chunks);
                 return (revision, bytes);
             }
-            Payload::Output(_) => {}
+            Payload::Output(_) | Payload::TerminalViewportStatus(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload while waiting for checkpoint: {other:?}"),
         }
@@ -685,7 +820,7 @@ async fn read_checkpoint_with_dimensions(
                             assert_eq!(chunks, expected_chunks);
                             return (revision, bytes);
                         }
-                        Payload::Output(_) => {}
+                        Payload::Output(_) | Payload::TerminalViewportStatus(_) => {}
                         Payload::Error(error) => panic!("pty manager error: {}", error.message),
                         other => panic!("unexpected payload during resize checkpoint: {other:?}"),
                     }
@@ -693,7 +828,8 @@ async fn read_checkpoint_with_dimensions(
             }
             Payload::Output(_)
             | Payload::TerminalCheckpointChunk(_)
-            | Payload::TerminalCheckpointEnd(_) => {}
+            | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload before resize checkpoint: {other:?}"),
         }
@@ -723,12 +859,45 @@ async fn read_output_revisions(
             }
             Payload::TerminalCheckpointBegin(_)
             | Payload::TerminalCheckpointChunk(_)
-            | Payload::TerminalCheckpointEnd(_) => {}
+            | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload while waiting for live output: {other:?}"),
         }
     }
     panic!("output did not contain {needle:?}");
+}
+
+async fn read_viewport_status(
+    framed: &mut pty_manager::transport::TerminalFramed,
+) -> protocol::TerminalViewportStatus {
+    loop {
+        let envelope = receive(framed).await.expect("receive").expect("frame");
+        match protocol::payload(envelope).expect("payload") {
+            Payload::TerminalViewportStatus(status) => return status,
+            Payload::Output(_)
+            | Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_) => {}
+            Payload::Error(error) => panic!("pty manager error: {}", error.message),
+            other => panic!("unexpected payload before viewport status: {other:?}"),
+        }
+    }
+}
+
+async fn read_error(framed: &mut pty_manager::transport::TerminalFramed) -> String {
+    loop {
+        let envelope = receive(framed).await.expect("receive").expect("frame");
+        match protocol::payload(envelope).expect("payload") {
+            Payload::Error(error) => return error.message,
+            Payload::Output(_)
+            | Payload::TerminalCheckpointBegin(_)
+            | Payload::TerminalCheckpointChunk(_)
+            | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_) => {}
+            other => panic!("unexpected payload before error: {other:?}"),
+        }
+    }
 }
 
 async fn read_session_exited(framed: &mut pty_manager::transport::TerminalFramed) -> SessionExited {
@@ -739,7 +908,8 @@ async fn read_session_exited(framed: &mut pty_manager::transport::TerminalFramed
             Payload::Output(_)
             | Payload::TerminalCheckpointBegin(_)
             | Payload::TerminalCheckpointChunk(_)
-            | Payload::TerminalCheckpointEnd(_) => {}
+            | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload before exit: {other:?}"),
         }

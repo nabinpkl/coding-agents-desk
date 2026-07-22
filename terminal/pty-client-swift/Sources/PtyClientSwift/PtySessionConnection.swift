@@ -42,6 +42,26 @@ public final class PtySessionConnection: @unchecked Sendable {
                         switch envelope.payload {
                         case .output(let output):
                             continuation.yield(.output(data: output.data, revision: output.revision))
+                        case .terminalViewportStatus(let status):
+                            guard status.sourceColumns > 0, status.sourceRows > 0,
+                                  status.viewColumns > 0, status.viewRows > 0 else {
+                                throw PtyClientError.unexpectedPayload("invalid terminal viewport status")
+                            }
+                            continuation.yield(.viewportStatus(.init(
+                                ownershipEpoch: status.ownershipEpoch,
+                                ownerClientID: status.ownerClientID,
+                                ownerTitle: status.ownerTitle,
+                                isOwner: status.isOwner,
+                                sourceDimensions: .init(
+                                    columns: status.sourceColumns,
+                                    rows: status.sourceRows
+                                ),
+                                sourceRevision: status.sourceRevision,
+                                viewDimensions: .init(
+                                    columns: status.viewColumns,
+                                    rows: status.viewRows
+                                )
+                            )))
                         case .terminalCheckpointBegin(let begin):
                             continuation.yield(.checkpointBegan(.init(
                                 checkpointID: begin.checkpointID,
@@ -99,8 +119,17 @@ public final class PtySessionConnection: @unchecked Sendable {
         try await send(.input(.with { $0.data = data }))
     }
 
-    public func resize(columns: UInt32, rows: UInt32) async throws {
-        try await send(.resize(.with {
+    public func updateViewerState(
+        sequence: UInt64,
+        active: Bool,
+        claim: Bool,
+        columns: UInt32,
+        rows: UInt32
+    ) async throws {
+        try await send(.terminalViewerState(.with {
+            $0.sequence = sequence
+            $0.active = active
+            $0.claim = claim
             $0.columns = columns
             $0.rows = rows
         }))
@@ -150,7 +179,9 @@ public final class PtySessionConnection: @unchecked Sendable {
             clientID: attached.clientID,
             columns: attached.columns,
             rows: attached.rows,
-            revision: attached.revision
+            revision: attached.revision,
+            ownerClientID: attached.ownerClientID,
+            ownershipEpoch: attached.ownershipEpoch
         )
     }
 }

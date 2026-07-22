@@ -116,14 +116,35 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
     var currentFrame: CGRect { window.frame }
 
     var replayDiagnostics: TerminalWindowReplayDiagnostics {
-        TerminalWindowReplayDiagnostics(
+        let viewport = terminalContent.viewportStatus
+        return TerminalWindowReplayDiagnostics(
             columns: UInt32(terminalContent.columns),
             rows: UInt32(terminalContent.rows),
             revision: terminalContent.appliedRevision,
             fitScale: Double(terminalContent.fitScale),
             viewportCropped: terminalContent.isViewportCropped,
-            synchronizing: terminalContent.isSynchronizing
+            synchronizing: terminalContent.isSynchronizing,
+            ownershipEpoch: viewport?.ownershipEpoch ?? 0,
+            ownerClientID: viewport?.ownerClientID ?? 0,
+            isOwner: viewport?.isOwner ?? false,
+            sourceColumns: viewport?.sourceDimensions.columns ?? 0,
+            sourceRows: viewport?.sourceDimensions.rows ?? 0,
+            sourceRevision: viewport?.sourceRevision ?? 0,
+            viewColumns: viewport?.viewDimensions.columns ?? 0,
+            viewRows: viewport?.viewDimensions.rows ?? 0
         )
+    }
+
+    func claimViewportForReplay() {
+        terminalContent.claimViewportOwnership()
+    }
+
+    func flushViewportForReplay() {
+        terminalContent.flushViewportResize()
+    }
+
+    func sendInputForReplay(_ text: String) {
+        terminalContent.sendInput(Data(text.utf8))
     }
 
     var assignedDesktopWindowID: UInt32? {
@@ -177,6 +198,7 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
 
     func park() {
         guard !closed else { return }
+        terminalContent.setViewportActive(false)
         window.orderOut(nil)
     }
 
@@ -184,12 +206,14 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
         guard !closed else { return }
         window.setFrame(frame, display: true)
         window.orderFrontRegardless()
+        terminalContent.setViewportActive(true, claim: true)
         terminalContent.focus()
     }
 
     func raise() {
         guard !closed else { return }
         window.orderFrontRegardless()
+        terminalContent.setViewportActive(true, claim: true)
         terminalContent.focus()
     }
 
@@ -206,6 +230,7 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
         window.setFrame(frame, display: true)
         window.alphaValue = 1
         window.orderFrontRegardless()
+        terminalContent.setViewportActive(true, claim: focus)
         if focus {
             terminalContent.focus()
         }
@@ -248,6 +273,7 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
     func orderWithoutFocus() {
         guard !closed else { return }
         window.orderFront(nil)
+        terminalContent.setViewportActive(true, claim: false)
     }
 
     func closePreservingPresentation() {
@@ -266,6 +292,22 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
 
     func windowDidResize(_ notification: Notification) {
         frameChanged?(window.frame)
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) {
+        terminalContent.flushViewportResize()
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        terminalContent.claimViewportOwnership()
+    }
+
+    func windowDidMiniaturize(_ notification: Notification) {
+        terminalContent.setViewportActive(false)
+    }
+
+    func windowDidDeminiaturize(_ notification: Notification) {
+        terminalContent.setViewportActive(true, claim: false)
     }
 
     func ptyTerminalContent(
@@ -315,6 +357,7 @@ final class SwiftTermPtyManagerTerminalWindow: NSObject,
     ) -> Bool {
         guard !closed else { return false }
         closed = true
+        terminalContent.setViewportActive(false)
         terminalContent.detach()
         if notifyPresentation { presentationClosed?(reason) }
         return true

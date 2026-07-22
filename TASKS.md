@@ -89,6 +89,10 @@ without changing the one-recorder and extension-authoritative generation model.
 - [x] D92. Remove the standalone terminal window minimum and make shared macOS/iOS terminal views
   full-fit down to 75 percent, then clip and follow the parser cursor without focus or PTY resize
   (ADR-0067).
+- [x] D93. Replace explicit shared terminal sizing with protocol-7 last-activated viewer ownership:
+  sequence-fenced viewer reports, targeted ownership status, owner-only debounced capacity changes,
+  input-before-write claims, shared AppKit/UIKit participation, focus-free restoration, and visible
+  two-client ownership verification (ADR-0068).
 
 ## Promotion log
 
@@ -106,4 +110,5 @@ D88.5    2026-07-21  landed      workspace-shell top and left edge reveal across
 D91      2026-07-21  landed      safe terminal bootstrap dimensions and bind-time resize recovery
 D90      2026-07-22  landed      bounded headless PTY replay and metadata-only window restoration
 D92      2026-07-22  landed      readable cursor-following terminal viewports without minimum sizes
+D93      2026-07-22  landed      protocol-7 active-viewer terminal sizing and focus-free restoration
 ```

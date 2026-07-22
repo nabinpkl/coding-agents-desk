@@ -243,7 +243,54 @@ final class PtyClientTests: XCTestCase {
         XCTAssertNil(finished)
     }
 
-    func testSessionConnectionSendsInputResizeDetachAndKill() async throws {
+    func testSessionConnectionYieldsTargetedViewportStatus() async throws {
+        let transport = MockPtyTransport()
+        transport.receivedFrames = [
+            try Pty_V1_Envelope.with {
+                $0.protocolVersion = PtyClient.protocolVersion
+                $0.sessionName = "main"
+                $0.payload = .terminalViewportStatus(.with {
+                    $0.ownershipEpoch = 8
+                    $0.ownerClientID = 44
+                    $0.ownerTitle = "Mac Terminal"
+                    $0.isOwner = false
+                    $0.sourceColumns = 130
+                    $0.sourceRows = 42
+                    $0.sourceRevision = 19
+                    $0.viewColumns = 52
+                    $0.viewRows = 24
+                })
+            }.serializedData(),
+        ]
+        let connection = PtySessionConnection(
+            sessionName: "main",
+            attachment: PtySessionAttachment(
+                name: "main",
+                pid: 1,
+                cwd: "/",
+                shell: "/bin/sh",
+                clientCount: 2,
+                clientID: 45
+            ),
+            transport: transport
+        )
+        var iterator = connection.events().makeAsyncIterator()
+
+        _ = try await iterator.next()
+        let event = try await iterator.next()
+
+        XCTAssertEqual(event, .viewportStatus(.init(
+            ownershipEpoch: 8,
+            ownerClientID: 44,
+            ownerTitle: "Mac Terminal",
+            isOwner: false,
+            sourceDimensions: .init(columns: 130, rows: 42),
+            sourceRevision: 19,
+            viewDimensions: .init(columns: 52, rows: 24)
+        )))
+    }
+
+    func testSessionConnectionSendsInputViewerStateDetachAndKill() async throws {
         let transport = MockPtyTransport()
         let connection = PtySessionConnection(
             sessionName: "main",
@@ -259,7 +306,13 @@ final class PtyClientTests: XCTestCase {
         )
 
         try await connection.sendInput(Data("x".utf8))
-        try await connection.resize(columns: 90, rows: 30)
+        try await connection.updateViewerState(
+            sequence: 1,
+            active: true,
+            claim: true,
+            columns: 90,
+            rows: 30
+        )
         try await connection.kill()
         try await connection.detach()
 
@@ -269,8 +322,8 @@ final class PtyClientTests: XCTestCase {
         guard case .input(let input) = payloads[0] else {
             return XCTFail("expected input")
         }
-        guard case .resize(let resize) = payloads[1] else {
-            return XCTFail("expected resize")
+        guard case .terminalViewerState(let viewer) = payloads[1] else {
+            return XCTFail("expected terminal viewer state")
         }
         guard case .killSession = payloads[2] else {
             return XCTFail("expected kill")
@@ -279,21 +332,24 @@ final class PtyClientTests: XCTestCase {
             return XCTFail("expected detach")
         }
         XCTAssertEqual(input.data, Data("x".utf8))
-        XCTAssertEqual(resize.columns, 90)
-        XCTAssertEqual(resize.rows, 30)
+        XCTAssertEqual(viewer.sequence, 1)
+        XCTAssertTrue(viewer.active)
+        XCTAssertTrue(viewer.claim)
+        XCTAssertEqual(viewer.columns, 90)
+        XCTAssertEqual(viewer.rows, 30)
     }
 
-    func testInvalidProtocolVersionSurfacesError() async throws {
+    func testProtocolVersionSixSurfacesError() async throws {
         let transport = MockPtyTransport()
         transport.receivedFrames = [try Pty_V1_Envelope.with {
-            $0.protocolVersion = PtyClient.protocolVersion + 1
+            $0.protocolVersion = 6
             $0.payload = .sessionList(.init())
         }.serializedData()]
 
         do {
             _ = try await PtyClient(transport: transport).listSessions()
             XCTFail("expected invalid protocol version")
-        } catch PtyClientError.invalidProtocolVersion(PtyClient.protocolVersion + 1) {
+        } catch PtyClientError.invalidProtocolVersion(6) {
         } catch {
             XCTFail("unexpected error: \(error)")
         }

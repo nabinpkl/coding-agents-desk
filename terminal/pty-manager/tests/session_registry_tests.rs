@@ -35,10 +35,18 @@ fn ensure_running_creates_once_and_lists_supplied_clients() {
             ClientSummary {
                 id: 10,
                 title: "left".to_owned(),
+                active: true,
+                columns: 80,
+                rows: 24,
+                is_owner: true,
             },
             ClientSummary {
                 id: 11,
                 title: "right".to_owned(),
+                active: true,
+                columns: 100,
+                rows: 30,
+                is_owner: false,
             },
         ],
     );

@@ -23,9 +23,11 @@ Native iOS app plus native macOS menu-bar workspace host, paired over Tailscale.
 Persistent PTY sessions own bounded terminal display state in the Rust manager, not in a viewer. A
 late or restored macOS/iOS client reconstructs the shared logical grid from a memory-only checkpoint
 and fits it locally while readable, then clips a cursor-following viewport at a local scale floor.
-Window resizing is presentation-only; logical size changes only through an explicit shared control.
-AgentDesk persists standalone window placement metadata but never terminal text, scrollback, ANSI,
-checkpoints, or typed input (ADR-0066, ADR-0067).
+The last selected or interacted-with active viewer automatically owns that shared grid's rows and
+columns; passive changes in another viewer remain presentation-only. Followers display the owner's
+grid through local fit, crop, padding, and cursor following. AgentDesk persists standalone window
+placement metadata but never terminal text, scrollback, ANSI, checkpoints, typed input, viewport
+reports, or ownership state (ADR-0066, ADR-0067, ADR-0068).
 
 The macOS host also owns a local **Space Agent** overlay: a small draggable spaceship that stays visible while the host app runs. Clicking the spaceship expands an attached Spaces panel showing live thumbnails for the active display's user Spaces; clicking a non-active Space switches the Mac to it. This is a host-side desktop navigator, not the iPhone remote-control surface.
 

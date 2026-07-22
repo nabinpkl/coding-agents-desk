@@ -63,6 +63,7 @@ final class TerminalPaneView: UIView, PtyTerminalSwiftTermContentViewDelegate, U
     private var connectTask: Task<Void, Never>?
     private var connectGeneration = 0
     private(set) var isFocusedPane = false
+    private var didApplyFocus = false
     var attachedClientID: UInt64? {
         sessionConnection?.attachedClientID
     }
@@ -139,6 +140,7 @@ final class TerminalPaneView: UIView, PtyTerminalSwiftTermContentViewDelegate, U
         connectGeneration += 1
         connectTask?.cancel()
         connectTask = nil
+        terminalContent.setViewportActive(false)
         terminalContent.detach()
         latestClientCount = nil
         transport = nil
@@ -178,8 +180,11 @@ final class TerminalPaneView: UIView, PtyTerminalSwiftTermContentViewDelegate, U
     }
 
     func setFocused(_ focused: Bool) {
+        guard !didApplyFocus || isFocusedPane != focused else { return }
+        didApplyFocus = true
         isFocusedPane = focused
         terminalContent.isInputEnabled = focused
+        terminalContent.setViewportActive(focused, claim: focused)
         layer.borderWidth = focused ? 2 : 1
         layer.borderColor = focused ? UIColor.systemBlue.cgColor : UIColor.separator.cgColor
         if focused {
@@ -187,6 +192,10 @@ final class TerminalPaneView: UIView, PtyTerminalSwiftTermContentViewDelegate, U
         } else {
             terminalContent.resignFocus()
         }
+    }
+
+    func flushViewportResize() {
+        terminalContent.flushViewportResize()
     }
 
     func setCloseEnabled(_ enabled: Bool) {

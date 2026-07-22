@@ -1,13 +1,14 @@
 use pty_manager::protocol::{
     create_or_attach, decode, encode, envelope, payload, validate_session_name, CommandLaunch,
-    CreateOrAttach, Envelope, Output, Payload, RequestTerminalCheckpoint, Resize, SessionLifetime,
+    CreateOrAttach, Envelope, Output, Payload, RequestTerminalCheckpoint, SessionLifetime,
     SessionState, SessionSummary, ShellLaunch, SubscribeSessions, TerminalCheckpointBegin,
-    TerminalCheckpointChunk, TerminalCheckpointEnd, PROTOCOL_VERSION,
+    TerminalCheckpointChunk, TerminalCheckpointEnd, TerminalViewerState, TerminalViewportStatus,
+    PROTOCOL_VERSION,
 };
 
 #[test]
-fn protocol_version_is_six() {
-    assert_eq!(PROTOCOL_VERSION, 6);
+fn protocol_version_is_seven() {
+    assert_eq!(PROTOCOL_VERSION, 7);
 }
 
 #[test]
@@ -165,6 +166,8 @@ fn session_summary_roundtrips_lifetime_and_creation_time() {
                 columns: 80,
                 rows: 24,
                 revision: 9,
+                owner_client_id: 7,
+                ownership_epoch: 3,
             }],
         }),
     );
@@ -181,9 +184,9 @@ fn session_summary_roundtrips_lifetime_and_creation_time() {
 }
 
 #[test]
-fn rejects_unsupported_protocol_version() {
+fn rejects_protocol_version_six() {
     let original = Envelope {
-        protocol_version: PROTOCOL_VERSION + 1,
+        protocol_version: 6,
         request_id: 1,
         session_name: "main".to_owned(),
         payload: None,
@@ -209,24 +212,42 @@ fn envelope_roundtrips_subscribe_sessions() {
 }
 
 #[test]
-fn envelope_roundtrips_resize() {
-    let original = envelope(
+fn envelope_roundtrips_viewer_state_and_targeted_status() {
+    let state = envelope(
         12,
         "main",
-        Payload::Resize(Resize {
+        Payload::TerminalViewerState(TerminalViewerState {
+            sequence: 4,
+            active: true,
+            claim: true,
             columns: 100,
             rows: 29,
         }),
     );
+    let status = envelope(
+        0,
+        "main",
+        Payload::TerminalViewportStatus(TerminalViewportStatus {
+            ownership_epoch: 3,
+            owner_client_id: 7,
+            owner_title: "Mac Terminal".to_owned(),
+            is_owner: true,
+            source_columns: 100,
+            source_rows: 29,
+            source_revision: 12,
+            view_columns: 100,
+            view_rows: 29,
+        }),
+    );
 
-    let encoded = encode(&original).expect("encode");
-    let decoded = decode(&encoded).expect("decode");
-
-    assert_eq!(decoded, original);
-    assert!(matches!(
-        payload(decoded).expect("payload"),
-        Payload::Resize(_)
-    ));
+    assert_eq!(
+        decode(&encode(&state).expect("encode")).expect("decode"),
+        state
+    );
+    assert_eq!(
+        decode(&encode(&status).expect("encode")).expect("decode"),
+        status
+    );
 }
 
 #[test]

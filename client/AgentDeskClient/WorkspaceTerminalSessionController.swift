@@ -26,6 +26,7 @@ final class WorkspaceTerminalSessionController: WorkspaceTerminalViewDelegate {
     private var openTask: Task<Void, Never>?
     private var attachTask: Task<Void, Never>?
     private var isTornDown = false
+    private var isPresented = false
     private var zoomScale = 1.0
 
     var selectedWorkspaceIDForTesting: String? { selectedWorkspaceID }
@@ -58,20 +59,28 @@ final class WorkspaceTerminalSessionController: WorkspaceTerminalViewDelegate {
         guard let id else {
             let cancellation = invalidateCurrentRequest(detach: true)
             selectedWorkspaceID = nil
-            terminalViews.values.forEach { $0.isHidden = true }
+            terminalViews.values.forEach {
+                $0.setViewportSelected(false, claim: false)
+                $0.isHidden = true
+            }
             sendCancellation(cancellation)
             return
         }
 
         if selectedWorkspaceID == id {
             if let name { terminalViews[id]?.updateWorkspaceName(name) }
+            terminalViews[id]?.setViewportSelected(isPresented, claim: isPresented)
             return
         }
 
         let cancellation = invalidateCurrentRequest(detach: true)
         selectedWorkspaceID = id
         let terminalView = terminalView(workspaceID: id, workspaceName: name ?? id)
-        terminalViews.values.forEach { $0.isHidden = $0 !== terminalView }
+        terminalViews.values.forEach {
+            let selected = $0 === terminalView
+            $0.setViewportSelected(selected && isPresented, claim: selected && isPresented)
+            $0.isHidden = !selected
+        }
         beginOpen(workspaceID: id, terminalView: terminalView, after: cancellation)
     }
 
@@ -92,13 +101,21 @@ final class WorkspaceTerminalSessionController: WorkspaceTerminalViewDelegate {
     }
 
     func setPresented(_ presented: Bool) {
-        guard !presented, let selectedWorkspaceID else { return }
-        terminalViews[selectedWorkspaceID]?.resignFocus()
+        guard isPresented != presented else { return }
+        isPresented = presented
+        guard let selectedWorkspaceID else { return }
+        terminalViews[selectedWorkspaceID]?.setViewportSelected(presented, claim: presented)
+        if !presented { terminalViews[selectedWorkspaceID]?.resignFocus() }
     }
 
     func setZoomScale(_ scale: Double) {
         zoomScale = scale
         terminalViews.values.forEach { $0.setZoomScale(scale) }
+    }
+
+    func flushViewportResize() {
+        guard isPresented, let selectedWorkspaceID else { return }
+        terminalViews[selectedWorkspaceID]?.flushViewportResize()
     }
 
     func terminalViewForTesting(workspaceID: String) -> WorkspaceTerminalView? {

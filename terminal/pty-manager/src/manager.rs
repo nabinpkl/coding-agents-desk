@@ -17,14 +17,14 @@ use tracing::{error, info, warn};
 use crate::error::{Result, TerminalError};
 use crate::protocol::{
     self, error_envelope, ClientDetached, CloseClient, Detach, Envelope, Input, KillSession,
-    ListSessions, Output, Payload, RequestTerminalCheckpoint, Resize, SessionExited, SessionList,
-    SubscribeSessions,
+    ListSessions, Output, Payload, RequestTerminalCheckpoint, SessionExited, SessionList,
+    SubscribeSessions, TerminalViewerState,
 };
 use crate::pty_manager_client_sessions::{
     broadcast_session_snapshot, close_client, create_or_attach, detach_client, handle_natural_exit,
-    kill_session, reap_session, remove_observer, request_checkpoint, resize_session,
-    retry_pending_checkpoints, send_input, shutdown_leased_sessions, subscribe_sessions,
-    PtyManagerState, ReapRequest, ReapScheduler,
+    kill_session, reap_session, remove_observer, request_checkpoint, retry_pending_client_state,
+    send_input, shutdown_leased_sessions, subscribe_sessions, update_viewer_state, PtyManagerState,
+    ReapRequest, ReapScheduler,
 };
 use crate::pty_session::PtyEvent;
 
@@ -111,7 +111,7 @@ impl PtyManager {
                     }
                 }
                 _ = resync_tick.tick() => {
-                    retry_pending_checkpoints(&self.state).await;
+                    retry_pending_client_state(&self.state).await;
                 }
                 Some(result) = self.client_tasks.join_next(), if !self.client_tasks.is_empty() => {
                     if let Err(error) = result {
@@ -323,7 +323,7 @@ async fn handle_client(
                     ));
                     continue;
                 }
-                if let Err(error) = send_input(&state, &session_name, data).await {
+                if let Err(error) = send_input(&state, &session_name, client_id, data).await {
                     let _ = client_tx.try_send(error_envelope(
                         request_id,
                         session_name,
@@ -331,8 +331,10 @@ async fn handle_client(
                     ));
                 }
             }
-            Payload::Resize(Resize { columns, rows }) => {
-                if let Err(error) = resize_session(&state, &session_name, columns, rows).await {
+            Payload::TerminalViewerState(viewer_state @ TerminalViewerState { .. }) => {
+                if let Err(error) =
+                    update_viewer_state(&state, &session_name, client_id, viewer_state).await
+                {
                     let _ = client_tx.try_send(error_envelope(
                         request_id,
                         session_name,
@@ -355,8 +357,16 @@ async fn handle_client(
                 }
             }
             Payload::Detach(Detach {}) => {
-                if detach_client(&state, &reaper, client_id).await {
-                    broadcast_session_snapshot(&state).await;
+                match detach_client(&state, &reaper, client_id).await {
+                    Ok(true) => broadcast_session_snapshot(&state).await,
+                    Ok(false) => {}
+                    Err(error) => {
+                        let _ = client_tx.try_send(error_envelope(
+                            request_id,
+                            session_name,
+                            error.to_string(),
+                        ));
+                    }
                 }
                 break;
             }
@@ -422,6 +432,7 @@ async fn handle_client(
             | Payload::TerminalCheckpointBegin(_)
             | Payload::TerminalCheckpointChunk(_)
             | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_)
             | Payload::Error(_) => {
                 let _ = client_tx.try_send(error_envelope(
                     request_id,
@@ -432,7 +443,13 @@ async fn handle_client(
         }
     }
 
-    let detached = detach_client(&state, &reaper, client_id).await;
+    let detached = match detach_client(&state, &reaper, client_id).await {
+        Ok(detached) => detached,
+        Err(error) => {
+            warn!(client_id, %error, "failed to release terminal viewport during disconnect");
+            false
+        }
+    };
     remove_observer(&state, client_id).await;
     if detached {
         broadcast_session_snapshot(&state).await;

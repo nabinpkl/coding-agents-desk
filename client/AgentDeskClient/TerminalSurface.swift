@@ -15,6 +15,7 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate, Termin
     private var closingPaneIDs = Set<TerminalPaneID>()
     private var renderedRootView: UIView?
     private var sessionSnapshotTask: Task<Void, Never>?
+    private var isViewportPresented = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -62,6 +63,17 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate, Termin
         transport = nil
         stopSessionSnapshotMonitoring()
         sessionDrawerView.setSessions([], status: "Terminal transport is disconnected.")
+    }
+
+    func setViewportPresented(_ presented: Bool) {
+        guard isViewportPresented != presented else { return }
+        isViewportPresented = presented
+        applyFocus()
+    }
+
+    func flushViewportResize() {
+        guard let focused = paneViews[workspaceState.focusedPaneID] else { return }
+        focused.flushViewportResize()
     }
 
     #if DEBUG
@@ -251,7 +263,9 @@ final class TerminalSurface: UIView, @MainActor TerminalPaneViewDelegate, Termin
     private func applyFocus() {
         for leaf in workspaceState.allLeaves() {
             let paneView = paneViews[leaf.paneID]
-            paneView?.setFocused(leaf.paneID == workspaceState.focusedPaneID)
+            paneView?.setFocused(
+                isViewportPresented && leaf.paneID == workspaceState.focusedPaneID
+            )
             paneView?.setCloseEnabled(!closingPaneIDs.contains(leaf.paneID))
         }
     }

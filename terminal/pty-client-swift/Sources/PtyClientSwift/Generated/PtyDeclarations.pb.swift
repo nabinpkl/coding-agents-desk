@@ -218,12 +218,12 @@ nonisolated struct Pty_V1_Envelope: Sendable {
     set {payload = .sessionSnapshot(newValue)}
   }
 
-  var resize: Pty_V1_Resize {
+  var terminalViewerState: Pty_V1_TerminalViewerState {
     get {
-      if case .resize(let v)? = payload {return v}
-      return Pty_V1_Resize()
+      if case .terminalViewerState(let v)? = payload {return v}
+      return Pty_V1_TerminalViewerState()
     }
-    set {payload = .resize(newValue)}
+    set {payload = .terminalViewerState(newValue)}
   }
 
   var closeClient: Pty_V1_CloseClient {
@@ -274,6 +274,14 @@ nonisolated struct Pty_V1_Envelope: Sendable {
     set {payload = .requestTerminalCheckpoint(newValue)}
   }
 
+  var terminalViewportStatus: Pty_V1_TerminalViewportStatus {
+    get {
+      if case .terminalViewportStatus(let v)? = payload {return v}
+      return Pty_V1_TerminalViewportStatus()
+    }
+    set {payload = .terminalViewportStatus(newValue)}
+  }
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   nonisolated enum OneOf_Payload: Equatable, Sendable {
@@ -290,13 +298,14 @@ nonisolated struct Pty_V1_Envelope: Sendable {
     case error(Pty_V1_Error)
     case subscribeSessions(Pty_V1_SubscribeSessions)
     case sessionSnapshot(Pty_V1_SessionSnapshot)
-    case resize(Pty_V1_Resize)
+    case terminalViewerState(Pty_V1_TerminalViewerState)
     case closeClient(Pty_V1_CloseClient)
     case clientDetached(Pty_V1_ClientDetached)
     case terminalCheckpointBegin(Pty_V1_TerminalCheckpointBegin)
     case terminalCheckpointChunk(Pty_V1_TerminalCheckpointChunk)
     case terminalCheckpointEnd(Pty_V1_TerminalCheckpointEnd)
     case requestTerminalCheckpoint(Pty_V1_RequestTerminalCheckpoint)
+    case terminalViewportStatus(Pty_V1_TerminalViewportStatus)
 
   }
 
@@ -410,6 +419,10 @@ nonisolated struct Pty_V1_Attached: Sendable {
 
   var revision: UInt64 = 0
 
+  var ownerClientID: UInt64 = 0
+
+  var ownershipEpoch: UInt64 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -437,14 +450,48 @@ nonisolated struct Pty_V1_Input: Sendable {
   init() {}
 }
 
-nonisolated struct Pty_V1_Resize: Sendable {
+nonisolated struct Pty_V1_TerminalViewerState: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  var sequence: UInt64 = 0
+
+  var active: Bool = false
+
+  var claim: Bool = false
+
   var columns: UInt32 = 0
 
   var rows: UInt32 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+nonisolated struct Pty_V1_TerminalViewportStatus: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var ownershipEpoch: UInt64 = 0
+
+  var ownerClientID: UInt64 = 0
+
+  var ownerTitle: String = String()
+
+  var isOwner: Bool = false
+
+  var sourceColumns: UInt32 = 0
+
+  var sourceRows: UInt32 = 0
+
+  var sourceRevision: UInt64 = 0
+
+  var viewColumns: UInt32 = 0
+
+  var viewRows: UInt32 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -602,6 +649,10 @@ nonisolated struct Pty_V1_SessionSummary: Sendable {
 
   var revision: UInt64 = 0
 
+  var ownerClientID: UInt64 = 0
+
+  var ownershipEpoch: UInt64 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -615,6 +666,14 @@ nonisolated struct Pty_V1_ClientSummary: Sendable {
   var id: UInt64 = 0
 
   var title: String = String()
+
+  var active: Bool = false
+
+  var columns: UInt32 = 0
+
+  var rows: UInt32 = 0
+
+  var isOwner: Bool = false
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 

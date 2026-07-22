@@ -2,7 +2,7 @@ import Foundation
 import SwiftProtobuf
 
 public final class PtyClient: @unchecked Sendable {
-    public static let protocolVersion: UInt32 = 6
+    public static let protocolVersion: UInt32 = 7
 
     private let makeTransport: () throws -> PtyTransport
 
@@ -195,6 +195,8 @@ private extension PtySessionSummary {
             columns: proto.columns,
             rows: proto.rows,
             revision: proto.revision,
+            ownerClientID: proto.ownerClientID,
+            ownershipEpoch: proto.ownershipEpoch,
             clients: proto.clients.map(PtySessionClientSummary.init(proto:))
         )
     }
@@ -202,7 +204,16 @@ private extension PtySessionSummary {
 
 private extension PtySessionClientSummary {
     init(proto: Pty_V1_ClientSummary) {
-        self.init(id: proto.id, title: proto.title)
+        self.init(
+            id: proto.id,
+            title: proto.title,
+            active: proto.active,
+            dimensions: PtyTerminalDimensions(
+                columns: proto.columns == 0 ? PtyTerminalDimensions.bootstrap.columns : proto.columns,
+                rows: proto.rows == 0 ? PtyTerminalDimensions.bootstrap.rows : proto.rows
+            ),
+            isOwner: proto.isOwner
+        )
     }
 }
 

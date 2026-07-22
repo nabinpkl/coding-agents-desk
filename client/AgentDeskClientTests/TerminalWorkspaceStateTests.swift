@@ -212,7 +212,13 @@ private final class FakeTerminalPaneSessionConnection: TerminalPaneSessionConnec
 
     func sendInput(_ data: Data) async throws {}
 
-    func resize(columns: UInt32, rows: UInt32) async throws {}
+    func updateViewerState(
+        sequence: UInt64,
+        active: Bool,
+        claim: Bool,
+        columns: UInt32,
+        rows: UInt32
+    ) async throws {}
 
     func detach() async throws {
         detachCallCount += 1

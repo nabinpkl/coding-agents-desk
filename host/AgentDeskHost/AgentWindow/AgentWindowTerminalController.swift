@@ -16,10 +16,15 @@ enum AgentWindowTerminalExplicitCloseReason: String, Equatable {
 protocol AgentWindowTerminalControlling: AnyObject {
     var terminalView: NSView { get }
     func handle(_ intent: AgentPanelTerminalIntent)
+    func claimViewportOwnership()
     @discardableResult
     func beginExplicitClose(
         reason: AgentWindowTerminalExplicitCloseReason
     ) -> Task<Void, Never>?
+}
+
+extension AgentWindowTerminalControlling {
+    func claimViewportOwnership() {}
 }
 
 @MainActor
@@ -831,6 +836,7 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
     private func updatePresentation(open: Bool) {
         guard open != isTerminalPresented else { return }
         isTerminalPresented = open
+        contentView.setViewportActive(open, claim: open)
         setTerminalOpen(open)
     }
 
@@ -902,5 +908,10 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
         }
         updatePresentation(open: false)
         stateForTesting = .idle
+    }
+
+    func claimViewportOwnership() {
+        guard isTerminalPresented else { return }
+        contentView.claimViewportOwnership()
     }
 }

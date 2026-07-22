@@ -61,6 +61,7 @@ final class WorkspaceTerminalView: UIView, PtyTerminalSwiftTermContentViewDelega
     }
 
     func detach() {
+        terminalContent.setViewportActive(false)
         terminalContent.resignFocus()
         terminalContent.detach()
         connection = nil
@@ -68,11 +69,20 @@ final class WorkspaceTerminalView: UIView, PtyTerminalSwiftTermContentViewDelega
 
     func focus() {
         guard isAttached else { return }
+        terminalContent.setViewportActive(true, claim: true)
         terminalContent.focus()
     }
 
     func resignFocus() {
         terminalContent.resignFocus()
+    }
+
+    func setViewportSelected(_ selected: Bool, claim: Bool) {
+        terminalContent.setViewportActive(selected, claim: claim)
+    }
+
+    func flushViewportResize() {
+        terminalContent.flushViewportResize()
     }
 
     func setZoomScale(_ scale: Double) {

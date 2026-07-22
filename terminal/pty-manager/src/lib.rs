@@ -9,3 +9,4 @@ pub mod session_registry;
 pub mod transport;
 
 mod pty_manager_client_sessions;
+mod session_viewport;

@@ -14,7 +14,8 @@ final class PtyTerminalNativeView: TerminalView {
 #elseif canImport(UIKit)
 import UIKit
 
-final class PtyTerminalNativeView: TerminalView {
+final class PtyTerminalNativeView: TerminalView, UIGestureRecognizerDelegate {
+    var interactionHandler: (() -> Void)?
     private enum WheelDirection {
         case up
         case down
@@ -44,6 +45,26 @@ final class PtyTerminalNativeView: TerminalView {
     private var terminalWheelPanGesture: UIPanGestureRecognizer?
     private var wheelRemainderY: CGFloat = 0
 
+    func installInteractionTracking() {
+        let recognizer = UITapGestureRecognizer(
+            target: self,
+            action: #selector(handleInteractionTap(_:))
+        )
+        recognizer.cancelsTouchesInView = false
+        recognizer.delegate = self
+        addGestureRecognizer(recognizer)
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldReceive touch: UITouch
+    ) -> Bool {
+        interactionHandler?()
+        return true
+    }
+
+    @objc private func handleInteractionTap(_ recognizer: UITapGestureRecognizer) {}
+
     override func mouseModeChanged(source: Terminal) {
         if source.mouseMode != .off {
             enableTerminalWheelPanGesture()
@@ -72,6 +93,7 @@ final class PtyTerminalNativeView: TerminalView {
     @objc private func handleTerminalWheelPan(_ gesture: UIPanGestureRecognizer) {
         switch gesture.state {
         case .began:
+            interactionHandler?()
             wheelRemainderY = 0
             gesture.setTranslation(.zero, in: self)
         case .changed:

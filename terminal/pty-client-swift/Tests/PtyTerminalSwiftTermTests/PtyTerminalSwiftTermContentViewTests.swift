@@ -91,6 +91,38 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
         XCTAssertGreaterThan(dimensions.rows, PtyTerminalDimensions.bootstrap.rows)
     }
 
+    func testViewportCapacityDoesNotDependOnAuthoritativeGrid() {
+        let content = PtyTerminalSwiftTermContentView()
+        content.frame = NSRect(x: 0, y: 0, width: 360, height: 240)
+        let replay = (0..<80)
+            .map { "history-\($0)\r\n" }
+            .joined()
+            .data(using: .utf8)!
+
+        func applyCheckpoint(id: UInt64, columns: UInt32) {
+            let checkpoint = PtyTerminalCheckpoint(
+                checkpointID: id,
+                revision: id,
+                columns: columns,
+                rows: 12,
+                totalBytes: UInt64(replay.count),
+                chunkCount: 1,
+                historyTruncated: false
+            )
+            content.beginCheckpoint(checkpoint)
+            content.feedCheckpointChunk(replay)
+            content.endCheckpoint(checkpoint)
+            content.layoutSubtreeIfNeeded()
+        }
+
+        applyCheckpoint(id: 1, columns: 41)
+        let dimensionsAtFortyOne = content.attachmentDimensions
+        applyCheckpoint(id: 2, columns: 40)
+        let dimensionsAtForty = content.attachmentDimensions
+
+        XCTAssertEqual(dimensionsAtForty, dimensionsAtFortyOne)
+    }
+
     func testFittingNarrowContainerPreservesHistoryBearingAuthoritativeTerminalGrid() {
         let content = PtyTerminalSwiftTermContentView()
         content.frame = NSRect(x: 0, y: 0, width: 540, height: 360)
@@ -156,27 +188,102 @@ final class PtyTerminalSwiftTermContentViewTests: XCTestCase {
         content.bind(to: connection)
 
         try await Task.sleep(nanoseconds: 30_000_000)
-        XCTAssertTrue(connection.resizes.isEmpty)
+        XCTAssertTrue(connection.viewerStates.isEmpty)
         content.stop()
         try await waitUntil { connection.eventStreamTerminationCount == 1 }
     }
 
-    func testInputAndResizeForwardToBoundConnection() async throws {
+    func testInputClaimsViewportBeforeForwardingToBoundConnection() async throws {
         let connection = FakeContentConnection()
         let content = PtyTerminalSwiftTermContentView()
         content.bind(to: connection)
 
         content.send(source: content.terminalView, data: Array("echo hi\n".utf8)[...])
         content.sizeChanged(source: content.terminalView, newCols: 132, newRows: 43)
-        content.applyLogicalSize(columns: 132, rows: 43)
 
         try await waitUntil {
             connection.sentInputs == [Data("echo hi\n".utf8)]
-                && connection.resizes == [.init(columns: 132, rows: 43)]
+                && connection.viewerStates.first?.claim == true
         }
         content.stop()
         try await waitUntil { connection.eventStreamTerminationCount == 1 }
     }
+
+    func testSelectionClaimsAndZeroSizedReleaseUsesLastMeasuredViewport() async throws {
+        let connection = FakeContentConnection()
+        let content = PtyTerminalSwiftTermContentView()
+        content.frame = CGRect(x: 0, y: 0, width: 720, height: 480)
+        content.bind(to: connection)
+
+        content.setViewportActive(true, claim: true)
+        try await waitUntil { connection.viewerStates.count == 1 }
+        let claimed = try XCTUnwrap(connection.viewerStates.first)
+        XCTAssertTrue(claimed.active)
+        XCTAssertTrue(claimed.claim)
+        XCTAssertGreaterThan(claimed.columns, 1)
+        XCTAssertGreaterThan(claimed.rows, 1)
+
+        content.frame = .zero
+        content.setViewportActive(false)
+        try await waitUntil { connection.viewerStates.count == 2 }
+        let released = try XCTUnwrap(connection.viewerStates.last)
+        XCTAssertFalse(released.active)
+        XCTAssertFalse(released.claim)
+        XCTAssertEqual(released.columns, claimed.columns)
+        XCTAssertEqual(released.rows, claimed.rows)
+
+        content.stop()
+        try await waitUntil { connection.eventStreamTerminationCount == 1 }
+    }
+
+    #if canImport(AppKit)
+    func testActiveLayoutChangeReportsDebouncedCapacityWithoutClaiming() async throws {
+        let connection = FakeContentConnection()
+        let content = PtyTerminalSwiftTermContentView()
+        content.frame = NSRect(x: 0, y: 0, width: 720, height: 480)
+        content.bind(to: connection)
+        content.setViewportActive(true, claim: true)
+        try await waitUntil { connection.viewerStates.count == 1 }
+        let claimed = try XCTUnwrap(connection.viewerStates.first)
+
+        content.frame = NSRect(x: 0, y: 0, width: 960, height: 600)
+        content.layoutSubtreeIfNeeded()
+
+        try await waitUntil { connection.viewerStates.count == 2 }
+        let resized = try XCTUnwrap(connection.viewerStates.last)
+        XCTAssertTrue(resized.active)
+        XCTAssertFalse(resized.claim)
+        XCTAssertGreaterThan(resized.columns, claimed.columns)
+        XCTAssertGreaterThan(resized.rows, claimed.rows)
+
+        content.stop()
+        try await waitUntil { connection.eventStreamTerminationCount == 1 }
+    }
+
+    func testViewportStatusRendersStableAccessibilityLabels() throws {
+        let content = PtyTerminalSwiftTermContentView()
+        content.frame = NSRect(x: 0, y: 0, width: 720, height: 480)
+        content.updateViewportStatus(.init(
+            ownershipEpoch: 4,
+            ownerClientID: 22,
+            ownerTitle: "Mac Terminal",
+            isOwner: false,
+            sourceDimensions: .init(columns: 130, rows: 42),
+            sourceRevision: 18,
+            viewDimensions: .init(columns: 52, rows: 24)
+        ))
+        content.layoutSubtreeIfNeeded()
+
+        func label(_ identifier: String) throws -> NSTextField {
+            try XCTUnwrap(content.subviews.first {
+                $0.accessibilityIdentifier() == identifier
+            } as? NSTextField)
+        }
+        XCTAssertEqual(try label("terminal-viewport-ownership").stringValue, "Following Mac Terminal")
+        XCTAssertEqual(try label("terminal-source-size").stringValue, "Source 130×42")
+        XCTAssertEqual(try label("terminal-view-size").stringValue, "View 52×24")
+    }
+    #endif
 
     func testOutputFeedsTerminal() async throws {
         let connection = FakeContentConnection()
@@ -530,7 +637,10 @@ private final class FakeContentDelegate: PtyTerminalSwiftTermContentViewDelegate
 }
 
 private final class FakeContentConnection: PtyTerminalConnection, @unchecked Sendable {
-    struct Resize: Equatable {
+    struct ViewerState: Equatable {
+        let sequence: UInt64
+        let active: Bool
+        let claim: Bool
         let columns: UInt32
         let rows: UInt32
     }
@@ -539,7 +649,7 @@ private final class FakeContentConnection: PtyTerminalConnection, @unchecked Sen
     private let stream: AsyncThrowingStream<PtySessionEvent, Error>
     private let continuation: AsyncThrowingStream<PtySessionEvent, Error>.Continuation
     private var sentInputsStorage: [Data] = []
-    private var resizesStorage: [Resize] = []
+    private var viewerStatesStorage: [ViewerState] = []
     private var detachCountStorage = 0
     private var eventStreamTerminationCountStorage = 0
 
@@ -555,7 +665,7 @@ private final class FakeContentConnection: PtyTerminalConnection, @unchecked Sen
     }
 
     var sentInputs: [Data] { lock.withLock { sentInputsStorage } }
-    var resizes: [Resize] { lock.withLock { resizesStorage } }
+    var viewerStates: [ViewerState] { lock.withLock { viewerStatesStorage } }
     var detachCount: Int { lock.withLock { detachCountStorage } }
     var eventStreamTerminationCount: Int { lock.withLock { eventStreamTerminationCountStorage } }
 
@@ -587,8 +697,22 @@ private final class FakeContentConnection: PtyTerminalConnection, @unchecked Sen
         lock.withLock { sentInputsStorage.append(data) }
     }
 
-    func resize(columns: UInt32, rows: UInt32) async throws {
-        lock.withLock { resizesStorage.append(.init(columns: columns, rows: rows)) }
+    func updateViewerState(
+        sequence: UInt64,
+        active: Bool,
+        claim: Bool,
+        columns: UInt32,
+        rows: UInt32
+    ) async throws {
+        lock.withLock {
+            viewerStatesStorage.append(.init(
+                sequence: sequence,
+                active: active,
+                claim: claim,
+                columns: columns,
+                rows: rows
+            ))
+        }
     }
 
     func detach() async throws {
@@ -615,7 +739,15 @@ private final class GatedContentConnection: PtyTerminalConnection, @unchecked Se
     func sendInput(_ data: Data) async throws {
         try await inputFailure?.waitAndThrow()
     }
-    func resize(columns: UInt32, rows: UInt32) async throws {}
+
+    func updateViewerState(
+        sequence: UInt64,
+        active: Bool,
+        claim: Bool,
+        columns: UInt32,
+        rows: UInt32
+    ) async throws {}
+
     func detach() async throws {}
 }
 

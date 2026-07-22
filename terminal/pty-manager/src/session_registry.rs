@@ -88,16 +88,17 @@ impl SessionRegistry {
     pub fn list_with_runtime(
         &self,
         clients_by_session: &BTreeMap<String, Vec<ClientSummary>>,
-        runtime_by_session: &BTreeMap<String, (u32, u32, u64)>,
+        runtime_by_session: &BTreeMap<String, (u32, u32, u64, u64, u64)>,
     ) -> Vec<SessionSummary> {
         self.sessions
             .values()
             .filter(|record| record.state == SessionLifecycle::Running)
             .map(|record| {
-                let (columns, rows, revision) = runtime_by_session
-                    .get(&record.name)
-                    .copied()
-                    .unwrap_or_default();
+                let (columns, rows, revision, owner_client_id, ownership_epoch) =
+                    runtime_by_session
+                        .get(&record.name)
+                        .copied()
+                        .unwrap_or_default();
                 SessionSummary {
                     name: record.name.clone(),
                     cwd: record.cwd.clone(),
@@ -113,6 +114,8 @@ impl SessionRegistry {
                     columns,
                     rows,
                     revision,
+                    owner_client_id,
+                    ownership_epoch,
                 }
             })
             .collect()

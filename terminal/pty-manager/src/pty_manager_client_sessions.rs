@@ -12,10 +12,11 @@ use crate::headless_terminal::HeadlessTerminal;
 use crate::protocol::{
     self, create_or_attach, validate_session_name, Attached, ClientDetached, ClientSummary,
     CreateOrAttach, Envelope, Payload, SessionLifetime, SessionSnapshot, TerminalCheckpointBegin,
-    TerminalCheckpointChunk, TerminalCheckpointEnd,
+    TerminalCheckpointChunk, TerminalCheckpointEnd, TerminalViewerState, TerminalViewportStatus,
 };
 use crate::pty_session::{PtyEvent, PtyLaunch, PtySession};
 use crate::session_registry::SessionRegistry;
+use crate::session_viewport::{SessionViewport, ViewportDecision};
 
 pub(crate) struct PtyManagerState {
     pub(crate) limits: PtyManagerLimits,
@@ -34,6 +35,7 @@ pub(crate) struct LiveSession {
     pub(crate) lifetime: SessionLifetime,
     pub(crate) generation: u64,
     pub(crate) clients: HashMap<u64, LiveClient>,
+    viewport: SessionViewport,
     next_checkpoint_id: u64,
 }
 
@@ -62,6 +64,7 @@ pub(crate) struct LiveClient {
     pub(crate) needs_checkpoint: bool,
     pub(crate) live_output_bytes: Arc<AtomicUsize>,
     pub(crate) minimum_live_revision: Arc<AtomicU64>,
+    needs_viewport_status: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -109,7 +112,10 @@ impl PtyManagerLimits {
             || self.checkpoint_chunk_bytes == 0
             || self.checkpoint_chunk_bytes > self.max_checkpoint_bytes
             || self.checkpoint_chunk_bytes > 3 * 1024 * 1024
-            || self.max_checkpoint_bytes.div_ceil(self.checkpoint_chunk_bytes) > 256
+            || self
+                .max_checkpoint_bytes
+                .div_ceil(self.checkpoint_chunk_bytes)
+                > 256
             || self.client_outbox_frames < 4
             || self.client_live_outbox_bytes == 0
             || self.max_input_bytes == 0
@@ -148,6 +154,22 @@ impl PtyManagerState {
                     .map(|(client_id, client)| ClientSummary {
                         id: *client_id,
                         title: client.title.clone(),
+                        active: session
+                            .viewport
+                            .viewer(*client_id)
+                            .map(|viewer| viewer.active)
+                            .unwrap_or(false),
+                        columns: session
+                            .viewport
+                            .viewer(*client_id)
+                            .map(|viewer| u32::from(viewer.columns))
+                            .unwrap_or(0),
+                        rows: session
+                            .viewport
+                            .viewer(*client_id)
+                            .map(|viewer| u32::from(viewer.rows))
+                            .unwrap_or(0),
+                        is_owner: session.viewport.is_owner(*client_id),
                     })
                     .collect::<Vec<_>>();
                 clients.sort_by_key(|client| client.id);
@@ -165,6 +187,8 @@ impl PtyManagerState {
                         dimensions.columns as u32,
                         dimensions.rows as u32,
                         session.headless.revision(),
+                        session.viewport.owner_client_id(),
+                        session.viewport.ownership_epoch(),
                     ),
                 )
             })
@@ -332,6 +356,7 @@ pub(crate) async fn create_or_attach(
                 lifetime,
                 generation,
                 clients: HashMap::new(),
+                viewport: SessionViewport::default(),
                 next_checkpoint_id: 1,
             },
         );
@@ -341,13 +366,22 @@ pub(crate) async fn create_or_attach(
     let checkpoint_chunk_bytes = state.limits.checkpoint_chunk_bytes;
     let session = state
         .sessions
-        .get_mut(session_name)
+        .get(session_name)
         .ok_or_else(|| TerminalError::SessionNotFound(session_name.to_owned()))?;
     if session.clients.len() >= max_clients_per_session {
         return Err(TerminalError::Protocol(
             "session client limit reached".to_owned(),
         ));
     }
+    state
+        .client_sessions
+        .entry(client_id)
+        .or_default()
+        .insert(session_name.to_owned());
+    let session = state
+        .sessions
+        .get_mut(session_name)
+        .ok_or_else(|| TerminalError::SessionNotFound(session_name.to_owned()))?;
     let title = if request.client_title.is_empty() {
         format!("client {client_id}")
     } else {
@@ -361,8 +395,10 @@ pub(crate) async fn create_or_attach(
             needs_checkpoint: false,
             live_output_bytes,
             minimum_live_revision,
+            needs_viewport_status: false,
         },
     );
+    session.viewport.register(client_id, columns, rows);
     let dimensions = session.headless.dimensions();
     let attached = Attached {
         pid: session.pty.pid,
@@ -373,15 +409,12 @@ pub(crate) async fn create_or_attach(
         columns: dimensions.columns as u32,
         rows: dimensions.rows as u32,
         revision: session.headless.revision(),
+        owner_client_id: session.viewport.owner_client_id(),
+        ownership_epoch: session.viewport.ownership_epoch(),
     };
 
     let checkpoint = checkpoint_envelopes(session_name, session, checkpoint_chunk_bytes)?;
 
-    state
-        .client_sessions
-        .entry(client_id)
-        .or_default()
-        .insert(session_name.to_owned());
     client_tx
         .try_send(protocol::envelope(
             request_id,
@@ -396,6 +429,10 @@ pub(crate) async fn create_or_attach(
             TerminalError::Protocol("client outbox unavailable during checkpoint".to_owned())
         })?;
     }
+    if let Some(client) = session.clients.get_mut(&client_id) {
+        client.needs_viewport_status = true;
+    }
+    enqueue_pending_viewport_statuses(session_name, session);
 
     Ok(())
 }
@@ -496,40 +533,119 @@ fn defaulted_shell(shell: &str) -> String {
 pub(crate) async fn send_input(
     state: &Arc<Mutex<PtyManagerState>>,
     session_name: &str,
+    client_id: u64,
     data: Vec<u8>,
 ) -> Result<()> {
-    let state = state.lock().await;
-    let session = state
-        .sessions
-        .get(session_name)
-        .ok_or_else(|| TerminalError::SessionNotFound(session_name.to_owned()))?;
-    session.pty.send_input(data)
-}
-
-pub(crate) async fn resize_session(
-    state: &Arc<Mutex<PtyManagerState>>,
-    session_name: &str,
-    columns: u32,
-    rows: u32,
-) -> Result<()> {
     let mut state = state.lock().await;
-    let columns = validate_dimension("columns", columns, state.limits.max_columns)?;
-    let rows = validate_dimension("rows", rows, state.limits.max_rows)?;
     let chunk_bytes = state.limits.checkpoint_chunk_bytes;
     let session = state
         .sessions
         .get_mut(session_name)
         .ok_or_else(|| TerminalError::SessionNotFound(session_name.to_owned()))?;
-    session.pty.resize(columns, rows)?;
-    session.headless.resize(columns, rows)?;
-    let revision = session.headless.revision();
-    for client in session.clients.values_mut() {
-        client.needs_checkpoint = true;
-        client
-            .minimum_live_revision
-            .store(revision, Ordering::Release);
+    let decision = session.viewport.claim_for_input(client_id)?;
+    apply_viewport_decision(session_name, session, decision, chunk_bytes)?;
+    session.pty.send_input(data)
+}
+
+pub(crate) async fn update_viewer_state(
+    state: &Arc<Mutex<PtyManagerState>>,
+    session_name: &str,
+    client_id: u64,
+    viewer_state: TerminalViewerState,
+) -> Result<()> {
+    let mut state = state.lock().await;
+    let columns = validate_dimension("columns", viewer_state.columns, state.limits.max_columns)?;
+    let rows = validate_dimension("rows", viewer_state.rows, state.limits.max_rows)?;
+    let chunk_bytes = state.limits.checkpoint_chunk_bytes;
+    let session = state
+        .sessions
+        .get_mut(session_name)
+        .ok_or_else(|| TerminalError::SessionNotFound(session_name.to_owned()))?;
+    let decision = session
+        .viewport
+        .update(client_id, viewer_state, columns, rows)?;
+    if let Some(client) = session.clients.get_mut(&client_id) {
+        client.needs_viewport_status = true;
     }
-    enqueue_pending_checkpoint(session_name, session, chunk_bytes)
+    apply_viewport_decision(session_name, session, decision, chunk_bytes)
+}
+
+fn apply_viewport_decision(
+    session_name: &str,
+    session: &mut LiveSession,
+    decision: ViewportDecision,
+    chunk_bytes: usize,
+) -> Result<()> {
+    let source_dimensions = session.headless.dimensions();
+    let dimensions_changed = decision
+        .requested_dimensions
+        .map(|(columns, rows)| {
+            source_dimensions.columns != usize::from(columns)
+                || source_dimensions.rows != usize::from(rows)
+        })
+        .unwrap_or(false);
+    if dimensions_changed {
+        let (columns, rows) = decision
+            .requested_dimensions
+            .expect("changed viewport dimensions must exist");
+        session.pty.resize(columns, rows)?;
+        session.headless.resize(columns, rows)?;
+        let revision = session.headless.revision();
+        for client in session.clients.values_mut() {
+            client.needs_checkpoint = true;
+            client
+                .minimum_live_revision
+                .store(revision, Ordering::Release);
+        }
+        enqueue_pending_checkpoint(session_name, session, chunk_bytes)?;
+    }
+    if decision.owner_changed || dimensions_changed {
+        mark_viewport_status_pending(session);
+    }
+    enqueue_pending_viewport_statuses(session_name, session);
+    Ok(())
+}
+
+fn mark_viewport_status_pending(session: &mut LiveSession) {
+    for client in session.clients.values_mut() {
+        client.needs_viewport_status = true;
+    }
+}
+
+fn enqueue_pending_viewport_statuses(session_name: &str, session: &mut LiveSession) {
+    let owner_client_id = session.viewport.owner_client_id();
+    let owner_title = session
+        .clients
+        .get(&owner_client_id)
+        .map(|client| client.title.clone())
+        .unwrap_or_default();
+    let dimensions = session.headless.dimensions();
+    let ownership_epoch = session.viewport.ownership_epoch();
+    let source_revision = session.headless.revision();
+    for (client_id, client) in &mut session.clients {
+        if !client.needs_viewport_status {
+            continue;
+        }
+        let viewer = session.viewport.viewer(*client_id).unwrap_or_default();
+        let frame = protocol::envelope(
+            0,
+            session_name,
+            Payload::TerminalViewportStatus(TerminalViewportStatus {
+                ownership_epoch,
+                owner_client_id,
+                owner_title: owner_title.clone(),
+                is_owner: owner_client_id == *client_id,
+                source_columns: dimensions.columns as u32,
+                source_rows: dimensions.rows as u32,
+                source_revision,
+                view_columns: u32::from(viewer.columns),
+                view_rows: u32::from(viewer.rows),
+            }),
+        );
+        if client.tx.try_send(frame).is_ok() {
+            client.needs_viewport_status = false;
+        }
+    }
 }
 
 pub(crate) async fn request_checkpoint(
@@ -561,7 +677,7 @@ pub(crate) async fn request_checkpoint(
     enqueue_pending_checkpoint(session_name, session, chunk_bytes)
 }
 
-pub(crate) async fn retry_pending_checkpoints(state: &Arc<Mutex<PtyManagerState>>) {
+pub(crate) async fn retry_pending_client_state(state: &Arc<Mutex<PtyManagerState>>) {
     let mut state = state.lock().await;
     let chunk_bytes = state.limits.checkpoint_chunk_bytes;
     for (session_name, session) in &mut state.sessions {
@@ -572,6 +688,7 @@ pub(crate) async fn retry_pending_checkpoints(state: &Arc<Mutex<PtyManagerState>
         {
             let _ = enqueue_pending_checkpoint(session_name, session, chunk_bytes);
         }
+        enqueue_pending_viewport_statuses(session_name, session);
     }
 }
 
@@ -669,16 +786,19 @@ pub(crate) async fn detach_client(
     state: &Arc<Mutex<PtyManagerState>>,
     reaper: &ReapScheduler,
     client_id: u64,
-) -> bool {
+) -> Result<bool> {
     let mut state = state.lock().await;
     let Some(session_names) = state.client_sessions.remove(&client_id) else {
-        return false;
+        return Ok(false);
     };
+    let chunk_bytes = state.limits.checkpoint_chunk_bytes;
     let mut detached = false;
     let mut final_leases = Vec::new();
     for session_name in session_names {
         if let Some(session) = state.sessions.get_mut(&session_name) {
+            let decision = session.viewport.remove(client_id)?;
             session.clients.remove(&client_id);
+            apply_viewport_decision(&session_name, session, decision, chunk_bytes)?;
             detached = true;
             if session.lifetime == SessionLifetime::Leased && session.clients.is_empty() {
                 final_leases.push(session_name);
@@ -688,7 +808,7 @@ pub(crate) async fn detach_client(
     for session_name in final_leases {
         state.schedule_reap(&session_name, reaper);
     }
-    detached
+    Ok(detached)
 }
 
 pub(crate) async fn close_client(
@@ -699,6 +819,7 @@ pub(crate) async fn close_client(
 ) -> Result<()> {
     let (client, close_connection) = {
         let mut state = state.lock().await;
+        let chunk_bytes = state.limits.checkpoint_chunk_bytes;
         let session = state
             .sessions
             .get_mut(session_name)
@@ -707,6 +828,8 @@ pub(crate) async fn close_client(
             .clients
             .remove(&client_id)
             .ok_or(TerminalError::ClientNotFound(client_id))?;
+        let decision = session.viewport.remove(client_id)?;
+        apply_viewport_decision(session_name, session, decision, chunk_bytes)?;
         let final_lease = session.lifetime == SessionLifetime::Leased && session.clients.is_empty();
         let remaining_sessions = state.client_sessions.entry(client_id).or_default();
         remaining_sessions.remove(session_name);

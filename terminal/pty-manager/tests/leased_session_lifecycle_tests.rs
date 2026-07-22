@@ -404,7 +404,8 @@ async fn read_session_exit(framed: &mut TerminalFramed) -> i32 {
             Payload::Output(_)
             | Payload::TerminalCheckpointBegin(_)
             | Payload::TerminalCheckpointChunk(_)
-            | Payload::TerminalCheckpointEnd(_) => {}
+            | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_) => {}
             other => panic!("expected session exit, got {other:?}"),
         }
     }

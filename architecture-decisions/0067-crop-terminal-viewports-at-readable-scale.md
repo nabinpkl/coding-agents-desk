@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: partially superseded by ADR-0068
 date: 2026-07-22
+partially-superseded-by: ADR-0068 (selection may change source dimensions; local fit and crop stand)
 ---
 
 # Crop terminal viewports below a readable scale

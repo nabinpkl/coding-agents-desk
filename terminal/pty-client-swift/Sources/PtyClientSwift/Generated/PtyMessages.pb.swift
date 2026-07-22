@@ -211,7 +211,7 @@ nonisolated extension Pty_V1_CommandLaunch: SwiftProtobuf.Message, SwiftProtobuf
 
 nonisolated extension Pty_V1_Attached: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Attached"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pid\0\u{1}cwd\0\u{1}shell\0\u{3}client_count\0\u{3}client_id\0\u{1}columns\0\u{1}rows\0\u{1}revision\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}pid\0\u{1}cwd\0\u{1}shell\0\u{3}client_count\0\u{3}client_id\0\u{1}columns\0\u{1}rows\0\u{1}revision\0\u{3}owner_client_id\0\u{3}ownership_epoch\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -227,6 +227,8 @@ nonisolated extension Pty_V1_Attached: SwiftProtobuf.Message, SwiftProtobuf._Mes
       case 6: try { try decoder.decodeSingularUInt32Field(value: &self.columns) }()
       case 7: try { try decoder.decodeSingularUInt32Field(value: &self.rows) }()
       case 8: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
+      case 9: try { try decoder.decodeSingularUInt64Field(value: &self.ownerClientID) }()
+      case 10: try { try decoder.decodeSingularUInt64Field(value: &self.ownershipEpoch) }()
       default: break
       }
     }
@@ -257,6 +259,12 @@ nonisolated extension Pty_V1_Attached: SwiftProtobuf.Message, SwiftProtobuf._Mes
     if self.revision != 0 {
       try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 8)
     }
+    if self.ownerClientID != 0 {
+      try visitor.visitSingularUInt64Field(value: self.ownerClientID, fieldNumber: 9)
+    }
+    if self.ownershipEpoch != 0 {
+      try visitor.visitSingularUInt64Field(value: self.ownershipEpoch, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -269,6 +277,8 @@ nonisolated extension Pty_V1_Attached: SwiftProtobuf.Message, SwiftProtobuf._Mes
     if lhs.columns != rhs.columns {return false}
     if lhs.rows != rhs.rows {return false}
     if lhs.revision != rhs.revision {return false}
+    if lhs.ownerClientID != rhs.ownerClientID {return false}
+    if lhs.ownershipEpoch != rhs.ownershipEpoch {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -323,9 +333,9 @@ nonisolated extension Pty_V1_Input: SwiftProtobuf.Message, SwiftProtobuf._Messag
   }
 }
 
-nonisolated extension Pty_V1_Resize: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  static let protoMessageName: String = _protobuf_package + ".Resize"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}columns\0\u{1}rows\0")
+nonisolated extension Pty_V1_TerminalViewerState: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".TerminalViewerState"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sequence\0\u{1}active\0\u{1}claim\0\u{1}columns\0\u{1}rows\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -333,26 +343,111 @@ nonisolated extension Pty_V1_Resize: SwiftProtobuf.Message, SwiftProtobuf._Messa
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularUInt32Field(value: &self.columns) }()
-      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.rows) }()
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.sequence) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.active) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.claim) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.columns) }()
+      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.rows) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.sequence != 0 {
+      try visitor.visitSingularUInt64Field(value: self.sequence, fieldNumber: 1)
+    }
+    if self.active != false {
+      try visitor.visitSingularBoolField(value: self.active, fieldNumber: 2)
+    }
+    if self.claim != false {
+      try visitor.visitSingularBoolField(value: self.claim, fieldNumber: 3)
+    }
     if self.columns != 0 {
-      try visitor.visitSingularUInt32Field(value: self.columns, fieldNumber: 1)
+      try visitor.visitSingularUInt32Field(value: self.columns, fieldNumber: 4)
     }
     if self.rows != 0 {
-      try visitor.visitSingularUInt32Field(value: self.rows, fieldNumber: 2)
+      try visitor.visitSingularUInt32Field(value: self.rows, fieldNumber: 5)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  static func ==(lhs: Pty_V1_Resize, rhs: Pty_V1_Resize) -> Bool {
+  static func ==(lhs: Pty_V1_TerminalViewerState, rhs: Pty_V1_TerminalViewerState) -> Bool {
+    if lhs.sequence != rhs.sequence {return false}
+    if lhs.active != rhs.active {return false}
+    if lhs.claim != rhs.claim {return false}
     if lhs.columns != rhs.columns {return false}
     if lhs.rows != rhs.rows {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Pty_V1_TerminalViewportStatus: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".TerminalViewportStatus"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}ownership_epoch\0\u{3}owner_client_id\0\u{3}owner_title\0\u{3}is_owner\0\u{3}source_columns\0\u{3}source_rows\0\u{3}source_revision\0\u{3}view_columns\0\u{3}view_rows\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularUInt64Field(value: &self.ownershipEpoch) }()
+      case 2: try { try decoder.decodeSingularUInt64Field(value: &self.ownerClientID) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.ownerTitle) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.isOwner) }()
+      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.sourceColumns) }()
+      case 6: try { try decoder.decodeSingularUInt32Field(value: &self.sourceRows) }()
+      case 7: try { try decoder.decodeSingularUInt64Field(value: &self.sourceRevision) }()
+      case 8: try { try decoder.decodeSingularUInt32Field(value: &self.viewColumns) }()
+      case 9: try { try decoder.decodeSingularUInt32Field(value: &self.viewRows) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.ownershipEpoch != 0 {
+      try visitor.visitSingularUInt64Field(value: self.ownershipEpoch, fieldNumber: 1)
+    }
+    if self.ownerClientID != 0 {
+      try visitor.visitSingularUInt64Field(value: self.ownerClientID, fieldNumber: 2)
+    }
+    if !self.ownerTitle.isEmpty {
+      try visitor.visitSingularStringField(value: self.ownerTitle, fieldNumber: 3)
+    }
+    if self.isOwner != false {
+      try visitor.visitSingularBoolField(value: self.isOwner, fieldNumber: 4)
+    }
+    if self.sourceColumns != 0 {
+      try visitor.visitSingularUInt32Field(value: self.sourceColumns, fieldNumber: 5)
+    }
+    if self.sourceRows != 0 {
+      try visitor.visitSingularUInt32Field(value: self.sourceRows, fieldNumber: 6)
+    }
+    if self.sourceRevision != 0 {
+      try visitor.visitSingularUInt64Field(value: self.sourceRevision, fieldNumber: 7)
+    }
+    if self.viewColumns != 0 {
+      try visitor.visitSingularUInt32Field(value: self.viewColumns, fieldNumber: 8)
+    }
+    if self.viewRows != 0 {
+      try visitor.visitSingularUInt32Field(value: self.viewRows, fieldNumber: 9)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Pty_V1_TerminalViewportStatus, rhs: Pty_V1_TerminalViewportStatus) -> Bool {
+    if lhs.ownershipEpoch != rhs.ownershipEpoch {return false}
+    if lhs.ownerClientID != rhs.ownerClientID {return false}
+    if lhs.ownerTitle != rhs.ownerTitle {return false}
+    if lhs.isOwner != rhs.isOwner {return false}
+    if lhs.sourceColumns != rhs.sourceColumns {return false}
+    if lhs.sourceRows != rhs.sourceRows {return false}
+    if lhs.sourceRevision != rhs.sourceRevision {return false}
+    if lhs.viewColumns != rhs.viewColumns {return false}
+    if lhs.viewRows != rhs.viewRows {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -658,7 +753,7 @@ nonisolated extension Pty_V1_SessionSnapshot: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".SessionSummary"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}cwd\0\u{1}shell\0\u{1}pid\0\u{1}state\0\u{1}clients\0\u{1}lifetime\0\u{3}started_at_unix_milliseconds\0\u{1}columns\0\u{1}rows\0\u{1}revision\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}cwd\0\u{1}shell\0\u{1}pid\0\u{1}state\0\u{1}clients\0\u{1}lifetime\0\u{3}started_at_unix_milliseconds\0\u{1}columns\0\u{1}rows\0\u{1}revision\0\u{3}owner_client_id\0\u{3}ownership_epoch\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -677,6 +772,8 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
       case 9: try { try decoder.decodeSingularUInt32Field(value: &self.columns) }()
       case 10: try { try decoder.decodeSingularUInt32Field(value: &self.rows) }()
       case 11: try { try decoder.decodeSingularUInt64Field(value: &self.revision) }()
+      case 12: try { try decoder.decodeSingularUInt64Field(value: &self.ownerClientID) }()
+      case 13: try { try decoder.decodeSingularUInt64Field(value: &self.ownershipEpoch) }()
       default: break
       }
     }
@@ -716,6 +813,12 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
     if self.revision != 0 {
       try visitor.visitSingularUInt64Field(value: self.revision, fieldNumber: 11)
     }
+    if self.ownerClientID != 0 {
+      try visitor.visitSingularUInt64Field(value: self.ownerClientID, fieldNumber: 12)
+    }
+    if self.ownershipEpoch != 0 {
+      try visitor.visitSingularUInt64Field(value: self.ownershipEpoch, fieldNumber: 13)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -731,6 +834,8 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
     if lhs.columns != rhs.columns {return false}
     if lhs.rows != rhs.rows {return false}
     if lhs.revision != rhs.revision {return false}
+    if lhs.ownerClientID != rhs.ownerClientID {return false}
+    if lhs.ownershipEpoch != rhs.ownershipEpoch {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -738,7 +843,7 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
 
 nonisolated extension Pty_V1_ClientSummary: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ClientSummary"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}title\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}title\0\u{1}active\0\u{1}columns\0\u{1}rows\0\u{3}is_owner\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -748,6 +853,10 @@ nonisolated extension Pty_V1_ClientSummary: SwiftProtobuf.Message, SwiftProtobuf
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularUInt64Field(value: &self.id) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.title) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.active) }()
+      case 4: try { try decoder.decodeSingularUInt32Field(value: &self.columns) }()
+      case 5: try { try decoder.decodeSingularUInt32Field(value: &self.rows) }()
+      case 6: try { try decoder.decodeSingularBoolField(value: &self.isOwner) }()
       default: break
       }
     }
@@ -760,12 +869,28 @@ nonisolated extension Pty_V1_ClientSummary: SwiftProtobuf.Message, SwiftProtobuf
     if !self.title.isEmpty {
       try visitor.visitSingularStringField(value: self.title, fieldNumber: 2)
     }
+    if self.active != false {
+      try visitor.visitSingularBoolField(value: self.active, fieldNumber: 3)
+    }
+    if self.columns != 0 {
+      try visitor.visitSingularUInt32Field(value: self.columns, fieldNumber: 4)
+    }
+    if self.rows != 0 {
+      try visitor.visitSingularUInt32Field(value: self.rows, fieldNumber: 5)
+    }
+    if self.isOwner != false {
+      try visitor.visitSingularBoolField(value: self.isOwner, fieldNumber: 6)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Pty_V1_ClientSummary, rhs: Pty_V1_ClientSummary) -> Bool {
     if lhs.id != rhs.id {return false}
     if lhs.title != rhs.title {return false}
+    if lhs.active != rhs.active {return false}
+    if lhs.columns != rhs.columns {return false}
+    if lhs.rows != rhs.rows {return false}
+    if lhs.isOwner != rhs.isOwner {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

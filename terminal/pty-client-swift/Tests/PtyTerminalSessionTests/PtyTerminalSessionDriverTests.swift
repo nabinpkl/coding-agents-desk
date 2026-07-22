@@ -80,18 +80,49 @@ final class PtyTerminalSessionDriverTests: XCTestCase {
         XCTAssertEqual(connection.detachCount, 0)
     }
 
-    func testInputAndResizeForwardToConnection() async throws {
+    func testInputClaimsBeforeForwardingAndViewerStateFollows() async throws {
         let connection = FakePtyTerminalConnection()
         let renderer = FakePtyTerminalRenderer()
         let driver = PtyTerminalSessionDriver(connection: connection, renderer: renderer)
 
-        driver.sendInput(Data("ls\n".utf8))
-        driver.resize(columns: 132, rows: 43)
+        driver.sendInput(
+            Data("ls\n".utf8),
+            viewerDimensions: .init(columns: 100, rows: 30)
+        )
+        driver.updateViewerState(
+            active: true,
+            claim: false,
+            dimensions: .init(columns: 132, rows: 43)
+        )
 
         try await waitUntil {
             connection.sentInputs == [Data("ls\n".utf8)]
-                && connection.resizes == [FakePtyTerminalConnection.Resize(columns: 132, rows: 43)]
+                && connection.viewerStates == [
+                    .init(sequence: 1, active: true, claim: true, columns: 100, rows: 30),
+                    .init(sequence: 2, active: true, claim: false, columns: 132, rows: 43),
+                ]
         }
+    }
+
+    func testViewportStatusReachesRenderer() async throws {
+        let connection = FakePtyTerminalConnection()
+        let renderer = FakePtyTerminalRenderer()
+        let driver = PtyTerminalSessionDriver(connection: connection, renderer: renderer)
+        let status = PtyTerminalViewportStatus(
+            ownershipEpoch: 3,
+            ownerClientID: 12,
+            ownerTitle: "iPhone Terminal",
+            isOwner: true,
+            sourceDimensions: .init(columns: 62, rows: 28),
+            sourceRevision: 9,
+            viewDimensions: .init(columns: 62, rows: 28)
+        )
+
+        driver.start()
+        connection.yield(.viewportStatus(status))
+
+        try await waitUntil { renderer.viewportStatuses == [status] }
+        driver.stop()
     }
 
     func testDetachCancelsAndDetachesConnection() async throws {
@@ -263,6 +294,7 @@ private final class FakePtyTerminalRenderer: PtyTerminalRenderer {
     var checkpointBegins: [PtyTerminalCheckpoint] = []
     var checkpointChunks: [Data] = []
     var checkpointEnds: [PtyTerminalCheckpoint] = []
+    var viewportStatuses: [PtyTerminalViewportStatus] = []
 
     func beginCheckpoint(_ checkpoint: PtyTerminalCheckpoint) {
         checkpointBegins.append(checkpoint)
@@ -280,6 +312,10 @@ private final class FakePtyTerminalRenderer: PtyTerminalRenderer {
         outputs.append(data)
     }
 
+    func updateViewportStatus(_ status: PtyTerminalViewportStatus) {
+        viewportStatuses.append(status)
+    }
+
     func feedStatus(_ text: String) {
         statuses.append(text)
     }
@@ -290,7 +326,10 @@ private final class FakePtyTerminalRenderer: PtyTerminalRenderer {
 }
 
 private final class FakePtyTerminalConnection: PtyTerminalConnection, @unchecked Sendable {
-    struct Resize: Equatable {
+    struct ViewerState: Equatable {
+        let sequence: UInt64
+        let active: Bool
+        let claim: Bool
         let columns: UInt32
         let rows: UInt32
     }
@@ -299,7 +338,7 @@ private final class FakePtyTerminalConnection: PtyTerminalConnection, @unchecked
     private let stream: AsyncThrowingStream<PtySessionEvent, Error>
     private let continuation: AsyncThrowingStream<PtySessionEvent, Error>.Continuation
     private var inputsStorage: [Data] = []
-    private var resizesStorage: [Resize] = []
+    private var viewerStatesStorage: [ViewerState] = []
     private var detachCountStorage = 0
     private var checkpointRequestsStorage: [UInt64] = []
     private var eventStreamTerminationCountStorage = 0
@@ -319,8 +358,8 @@ private final class FakePtyTerminalConnection: PtyTerminalConnection, @unchecked
         lock.withLock { inputsStorage }
     }
 
-    var resizes: [Resize] {
-        lock.withLock { resizesStorage }
+    var viewerStates: [ViewerState] {
+        lock.withLock { viewerStatesStorage }
     }
 
     var detachCount: Int {
@@ -368,9 +407,21 @@ private final class FakePtyTerminalConnection: PtyTerminalConnection, @unchecked
         }
     }
 
-    func resize(columns: UInt32, rows: UInt32) async throws {
+    func updateViewerState(
+        sequence: UInt64,
+        active: Bool,
+        claim: Bool,
+        columns: UInt32,
+        rows: UInt32
+    ) async throws {
         lock.withLock {
-            resizesStorage.append(Resize(columns: columns, rows: rows))
+            viewerStatesStorage.append(.init(
+                sequence: sequence,
+                active: active,
+                claim: claim,
+                columns: columns,
+                rows: rows
+            ))
         }
     }
 
@@ -403,7 +454,14 @@ private final class GatedPtyTerminalConnection: PtyTerminalConnection, @unchecke
     }
 
     func sendInput(_ data: Data) async throws {}
-    func resize(columns: UInt32, rows: UInt32) async throws {}
+
+    func updateViewerState(
+        sequence: UInt64,
+        active: Bool,
+        claim: Bool,
+        columns: UInt32,
+        rows: UInt32
+    ) async throws {}
 
     func detach() async throws {
         lock.withLock {

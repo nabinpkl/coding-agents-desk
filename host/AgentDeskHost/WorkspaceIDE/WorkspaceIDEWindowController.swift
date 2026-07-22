@@ -139,6 +139,22 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         window?.orderOut(nil)
     }
 
+    func windowDidEndLiveResize(_ notification: Notification) {
+        terminalController.contentView.flushViewportResize()
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        terminalController.claimViewportOwnership()
+    }
+
+    func windowDidMiniaturize(_ notification: Notification) {
+        terminalController.setWindowPresented(false)
+    }
+
+    func windowDidDeminiaturize(_ notification: Notification) {
+        terminalController.setWindowPresented(true)
+    }
+
     private func addWorkspace() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true

@@ -31,6 +31,7 @@ final class WorkspaceWorkbenchSurface: UIView {
     private var sidebarDividerWidthConstraint: NSLayoutConstraint?
     private var terminalHeightConstraint: NSLayoutConstraint?
     private var terminalDividerHeightConstraint: NSLayoutConstraint?
+    private var isViewportPresented = false
 
     init(
         browser: WorkspaceFilesBrowser,
@@ -60,6 +61,15 @@ final class WorkspaceWorkbenchSurface: UIView {
     func teardown() {
         browser.onChange = nil
         terminalSessionController.teardown()
+    }
+
+    func setViewportPresented(_ presented: Bool) {
+        isViewportPresented = presented
+        terminalSessionController.setPresented(presented && state.terminalVisible)
+    }
+
+    func flushViewportResize() {
+        terminalSessionController.flushViewportResize()
     }
 
     private func setUp() {
@@ -218,7 +228,7 @@ final class WorkspaceWorkbenchSurface: UIView {
 
         terminalContainer.isHidden = !state.terminalVisible
         terminalDivider.isHidden = !state.terminalVisible
-        terminalSessionController?.setPresented(state.terminalVisible)
+        terminalSessionController?.setPresented(isViewportPresented && state.terminalVisible)
         replaceTerminalHeightConstraint(
             state.terminalVisible
                 ? terminalContainer.heightAnchor.constraint(

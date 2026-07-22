@@ -4,7 +4,13 @@ import PtyClientSwift
 public protocol PtyTerminalConnection: AnyObject {
     func events() -> AsyncThrowingStream<PtySessionEvent, Error>
     func sendInput(_ data: Data) async throws
-    func resize(columns: UInt32, rows: UInt32) async throws
+    func updateViewerState(
+        sequence: UInt64,
+        active: Bool,
+        claim: Bool,
+        columns: UInt32,
+        rows: UInt32
+    ) async throws
     func requestCheckpoint(lastAppliedRevision: UInt64) async throws
     func detach() async throws
 }
@@ -30,8 +36,13 @@ public protocol PtyTerminalRenderer: AnyObject {
     func feedCheckpointChunk(_ data: Data)
     func endCheckpoint(_ checkpoint: PtyTerminalCheckpoint)
     func feedOutput(_ data: Data, revision: UInt64)
+    func updateViewportStatus(_ status: PtyTerminalViewportStatus)
     func feedStatus(_ text: String)
     func closeAfterManagerDetach()
+}
+
+public extension PtyTerminalRenderer {
+    func updateViewportStatus(_ status: PtyTerminalViewportStatus) {}
 }
 
 @MainActor
@@ -53,6 +64,9 @@ public final class PtyTerminalSessionDriver {
     private var awaitingCheckpoint = true
     private var replacementRequested = false
     private var pendingCheckpoint: PendingCheckpoint?
+    private var viewerSequence: UInt64 = 0
+    private var viewerDimensions = PtyTerminalDimensions.bootstrap
+    private var commandTask: Task<Void, Never>?
 
     private struct PendingCheckpoint {
         let metadata: PtyTerminalCheckpoint
@@ -93,27 +107,37 @@ public final class PtyTerminalSessionDriver {
         }
     }
 
-    public func sendInput(_ data: Data) {
-        Task { [connection, onError] in
-            do {
-                try await connection.sendInput(data)
-            } catch {
-                await MainActor.run {
-                    onError(error)
-                }
-            }
+    public func sendInput(_ data: Data, viewerDimensions: PtyTerminalDimensions) {
+        self.viewerDimensions = viewerDimensions
+        let sequence = nextViewerSequence()
+        let dimensions = viewerDimensions
+        enqueueCommand { connection in
+            try await connection.updateViewerState(
+                sequence: sequence,
+                active: true,
+                claim: true,
+                columns: dimensions.columns,
+                rows: dimensions.rows
+            )
+            try await connection.sendInput(data)
         }
     }
 
-    public func resize(columns: Int, rows: Int) {
-        Task { [connection, onError] in
-            do {
-                try await connection.resize(columns: UInt32(columns), rows: UInt32(rows))
-            } catch {
-                await MainActor.run {
-                    onError(error)
-                }
-            }
+    public func updateViewerState(
+        active: Bool,
+        claim: Bool,
+        dimensions: PtyTerminalDimensions
+    ) {
+        viewerDimensions = dimensions
+        let sequence = nextViewerSequence()
+        enqueueCommand { connection in
+            try await connection.updateViewerState(
+                sequence: sequence,
+                active: active,
+                claim: claim,
+                columns: dimensions.columns,
+                rows: dimensions.rows
+            )
         }
     }
 
@@ -125,8 +149,17 @@ public final class PtyTerminalSessionDriver {
 
     public func detach() {
         stop()
-        Task { [connection] in
-            try? await connection.detach()
+        let sequence = nextViewerSequence()
+        let dimensions = viewerDimensions
+        enqueueCommand(reportErrors: false) { connection in
+            try await connection.updateViewerState(
+                sequence: sequence,
+                active: false,
+                claim: false,
+                columns: dimensions.columns,
+                rows: dimensions.rows
+            )
+            try await connection.detach()
         }
     }
 
@@ -143,6 +176,8 @@ public final class PtyTerminalSessionDriver {
             finishCheckpoint(checkpointID: checkpointID, revision: revision)
         case .output(let data, let revision):
             applyOutput(data, revision: revision)
+        case .viewportStatus(let status):
+            renderer?.updateViewportStatus(status)
         case .detachedByManager:
             renderer?.closeAfterManagerDetach()
         case .exited(let status):
@@ -238,5 +273,29 @@ public final class PtyTerminalSessionDriver {
         guard eventsGeneration == self.eventsGeneration else { return }
         renderer?.feedStatus("\r\n[pty manager error: \(error)]\r\n")
         onError(error)
+    }
+
+    private func enqueueCommand(
+        reportErrors: Bool = true,
+        _ operation: @escaping @Sendable (PtyTerminalConnection) async throws -> Void
+    ) {
+        let previous = commandTask
+        let connection = self.connection
+        let onError = self.onError
+        commandTask = Task {
+            await previous?.value
+            do {
+                try await operation(connection)
+            } catch {
+                guard reportErrors else { return }
+                await MainActor.run { onError(error) }
+            }
+        }
+    }
+
+    private func nextViewerSequence() -> UInt64 {
+        precondition(viewerSequence < UInt64.max, "terminal viewer sequence exhausted")
+        viewerSequence += 1
+        return viewerSequence
     }
 }

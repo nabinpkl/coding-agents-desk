@@ -21,13 +21,14 @@ message Envelope {
     Error error = 20;
     SubscribeSessions subscribe_sessions = 21;
     SessionSnapshot session_snapshot = 22;
-    Resize resize = 23;
+    TerminalViewerState terminal_viewer_state = 23;
     CloseClient close_client = 24;
     ClientDetached client_detached = 25;
     TerminalCheckpointBegin terminal_checkpoint_begin = 26;
     TerminalCheckpointChunk terminal_checkpoint_chunk = 27;
     TerminalCheckpointEnd terminal_checkpoint_end = 28;
     RequestTerminalCheckpoint request_terminal_checkpoint = 29;
+    TerminalViewportStatus terminal_viewport_status = 30;
   }
 }
 
@@ -67,6 +68,8 @@ message Attached {
   uint32 columns = 6;
   uint32 rows = 7;
   uint64 revision = 8;
+  uint64 owner_client_id = 9;
+  uint64 ownership_epoch = 10;
 }
 
 message Detach {}
@@ -75,9 +78,24 @@ message Input {
   bytes data = 1;
 }
 
-message Resize {
-  uint32 columns = 1;
-  uint32 rows = 2;
+message TerminalViewerState {
+  uint64 sequence = 1;
+  bool active = 2;
+  bool claim = 3;
+  uint32 columns = 4;
+  uint32 rows = 5;
+}
+
+message TerminalViewportStatus {
+  uint64 ownership_epoch = 1;
+  uint64 owner_client_id = 2;
+  string owner_title = 3;
+  bool is_owner = 4;
+  uint32 source_columns = 5;
+  uint32 source_rows = 6;
+  uint64 source_revision = 7;
+  uint32 view_columns = 8;
+  uint32 view_rows = 9;
 }
 
 message Output {
@@ -134,11 +152,17 @@ message SessionSummary {
   uint32 columns = 9;
   uint32 rows = 10;
   uint64 revision = 11;
+  uint64 owner_client_id = 12;
+  uint64 ownership_epoch = 13;
 }
 
 message ClientSummary {
   uint64 id = 1;
   string title = 2;
+  bool active = 3;
+  uint32 columns = 4;
+  uint32 rows = 5;
+  bool is_owner = 6;
 }
 
 enum SessionState {

@@ -559,6 +559,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             self.view.layoutIfNeeded()
         }, completion: { _ in
             self.domMirrorSurface?.flushViewerLayout()
+            self.agentSurface?.flushViewportResize()
+            if #available(iOS 26.0, *) {
+                self.terminalSurface?.flushViewportResize()
+            }
+            self.workspaceSurface?.flushViewportResize()
+            self.ideSurface?.flushViewportResize()
         })
     }
 

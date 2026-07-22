@@ -98,7 +98,12 @@ assert result["restoredWithoutFocusTheft"] is True
 assert result["slowClientResynchronizedWithoutReconnect"] is True
 assert result["narrowWindowBelowFormerMinimum"] is True
 assert result["narrowViewportCroppedAtReadableScale"] is True
-assert result["columns"] == 132 and result["rows"] == 40
+assert result["passiveResizePreservedSource"] is True
+assert result["ownerResizeAdvancedOnce"] is True
+assert result["inactiveInputClaimedBeforeOutput"] is True
+assert result["ownershipEpochBeforeRestart"] > 0
+assert result["ownerClientIDAfterRestore"] == 0
+assert result["columns"] > 0 and result["rows"] > 0
 PY
 
 echo "terminal-replay-e2e: PASS"

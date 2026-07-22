@@ -466,9 +466,11 @@ extension PairingViewController {
         }
 
         agentSurface?.isHidden = v.agentHidden
+        agentSurface?.setViewportPresented(!v.agentHidden)
         domMirrorSurface?.isHidden = v.browserHidden
         if #available(iOS 26.0, *) {
             terminalSurface?.isHidden = v.terminalHidden
+            terminalSurface?.setViewportPresented(!v.terminalHidden)
         }
 
         // Suppress the interactive control surfaces when a non-control surface
@@ -483,7 +485,9 @@ extension PairingViewController {
         keyboardSurface.isUserInteractionEnabled = v.keyboardInteractive
         applyVideoTouchState()
         workspaceSurface?.isHidden = v.workspaceHidden
+        workspaceSurface?.setViewportPresented(!v.workspaceHidden)
         ideSurface?.isHidden = v.ideHidden
+        ideSurface?.setViewportPresented(!v.ideHidden)
 
         Self.logger.debug("active surface: \(String(describing: surface))")
     }

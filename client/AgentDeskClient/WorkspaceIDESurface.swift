@@ -22,6 +22,7 @@ final class WorkspaceIDESurface: UIView, WorkspaceIDEDelegate {
     private var sidebarDividerWidthConstraint: NSLayoutConstraint?
     private var terminalHeightConstraint: NSLayoutConstraint?
     private var terminalDividerHeightConstraint: NSLayoutConstraint?
+    private var isViewportPresented = false
 
     init(
         controller: WorkspaceIDEController,
@@ -51,6 +52,17 @@ final class WorkspaceIDESurface: UIView, WorkspaceIDEDelegate {
         controller.stop()
         controller.delegate = nil
         terminalSessionController.teardown()
+    }
+
+    func setViewportPresented(_ presented: Bool) {
+        isViewportPresented = presented
+        terminalSessionController.setPresented(
+            presented && controller.currentLocalState.terminalVisible
+        )
+    }
+
+    func flushViewportResize() {
+        terminalSessionController.flushViewportResize()
     }
 
     var sidebarWebViewForTesting: UIView { controller.sidebarView }
@@ -137,7 +149,7 @@ final class WorkspaceIDESurface: UIView, WorkspaceIDEDelegate {
 
         terminalContainer.isHidden = !state.terminalVisible
         terminalDivider.isHidden = !state.terminalVisible
-        terminalSessionController?.setPresented(state.terminalVisible)
+        terminalSessionController?.setPresented(isViewportPresented && state.terminalVisible)
         replaceTerminalHeight(state.terminalVisible
             ? terminalContainer.heightAnchor.constraint(
                 equalTo: rightColumn.heightAnchor,

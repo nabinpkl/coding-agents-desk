@@ -22,7 +22,7 @@ nonisolated extension Pty_V1_SessionLifetime: SwiftProtobuf._ProtoNameProviding 
 
 nonisolated extension Pty_V1_Envelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Envelope"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}protocol_version\0\u{3}request_id\0\u{3}session_name\0\u{2}\u{7}hello\0\u{3}create_or_attach\0\u{1}attached\0\u{1}detach\0\u{1}input\0\u{1}output\0\u{3}list_sessions\0\u{3}session_list\0\u{3}kill_session\0\u{3}session_exited\0\u{1}error\0\u{3}subscribe_sessions\0\u{3}session_snapshot\0\u{1}resize\0\u{3}close_client\0\u{3}client_detached\0\u{3}terminal_checkpoint_begin\0\u{3}terminal_checkpoint_chunk\0\u{3}terminal_checkpoint_end\0\u{3}request_terminal_checkpoint\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}protocol_version\0\u{3}request_id\0\u{3}session_name\0\u{2}\u{7}hello\0\u{3}create_or_attach\0\u{1}attached\0\u{1}detach\0\u{1}input\0\u{1}output\0\u{3}list_sessions\0\u{3}session_list\0\u{3}kill_session\0\u{3}session_exited\0\u{1}error\0\u{3}subscribe_sessions\0\u{3}session_snapshot\0\u{3}terminal_viewer_state\0\u{3}close_client\0\u{3}client_detached\0\u{3}terminal_checkpoint_begin\0\u{3}terminal_checkpoint_chunk\0\u{3}terminal_checkpoint_end\0\u{3}request_terminal_checkpoint\0\u{3}terminal_viewport_status\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -203,16 +203,16 @@ nonisolated extension Pty_V1_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Mes
         }
       }()
       case 23: try {
-        var v: Pty_V1_Resize?
+        var v: Pty_V1_TerminalViewerState?
         var hadOneofValue = false
         if let current = self.payload {
           hadOneofValue = true
-          if case .resize(let m) = current {v = m}
+          if case .terminalViewerState(let m) = current {v = m}
         }
         try decoder.decodeSingularMessageField(value: &v)
         if let v = v {
           if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.payload = .resize(v)
+          self.payload = .terminalViewerState(v)
         }
       }()
       case 24: try {
@@ -293,6 +293,19 @@ nonisolated extension Pty_V1_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Mes
           self.payload = .requestTerminalCheckpoint(v)
         }
       }()
+      case 30: try {
+        var v: Pty_V1_TerminalViewportStatus?
+        var hadOneofValue = false
+        if let current = self.payload {
+          hadOneofValue = true
+          if case .terminalViewportStatus(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.payload = .terminalViewportStatus(v)
+        }
+      }()
       default: break
       }
     }
@@ -365,8 +378,8 @@ nonisolated extension Pty_V1_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Mes
       guard case .sessionSnapshot(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 22)
     }()
-    case .resize?: try {
-      guard case .resize(let v)? = self.payload else { preconditionFailure() }
+    case .terminalViewerState?: try {
+      guard case .terminalViewerState(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 23)
     }()
     case .closeClient?: try {
@@ -392,6 +405,10 @@ nonisolated extension Pty_V1_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Mes
     case .requestTerminalCheckpoint?: try {
       guard case .requestTerminalCheckpoint(let v)? = self.payload else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 29)
+    }()
+    case .terminalViewportStatus?: try {
+      guard case .terminalViewportStatus(let v)? = self.payload else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 30)
     }()
     case nil: break
     }

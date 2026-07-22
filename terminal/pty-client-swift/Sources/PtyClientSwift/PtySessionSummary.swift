@@ -17,6 +17,8 @@ public struct PtySessionSummary: Equatable, Sendable {
     public let columns: UInt32
     public let rows: UInt32
     public let revision: UInt64
+    public let ownerClientID: UInt64
+    public let ownershipEpoch: UInt64
     public let clients: [PtySessionClientSummary]
 
     public var clientCount: UInt32 {
@@ -34,6 +36,8 @@ public struct PtySessionSummary: Equatable, Sendable {
         columns: UInt32 = 80,
         rows: UInt32 = 24,
         revision: UInt64 = 1,
+        ownerClientID: UInt64 = 0,
+        ownershipEpoch: UInt64 = 0,
         clients: [PtySessionClientSummary]
     ) {
         self.name = name
@@ -46,6 +50,8 @@ public struct PtySessionSummary: Equatable, Sendable {
         self.columns = columns
         self.rows = rows
         self.revision = revision
+        self.ownerClientID = ownerClientID
+        self.ownershipEpoch = ownershipEpoch
         self.clients = clients
     }
 }

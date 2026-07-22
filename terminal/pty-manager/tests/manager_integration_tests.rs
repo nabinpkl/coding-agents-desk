@@ -4,7 +4,7 @@ use std::time::Duration;
 use pty_manager::manager::{PtyManager, PtyManagerOptions};
 use pty_manager::protocol::{
     self, create_or_attach, Attached, CommandLaunch, CreateOrAttach, Input, ListSessions, Payload,
-    Resize, SessionLifetime, ShellLaunch,
+    SessionLifetime, ShellLaunch, TerminalViewerState,
 };
 use pty_manager::transport::{receive, send};
 use tempfile::tempdir;
@@ -32,7 +32,10 @@ async fn resize_updates_child_pty_size() {
         &protocol::envelope(
             2,
             "main",
-            Payload::Resize(Resize {
+            Payload::TerminalViewerState(TerminalViewerState {
+                sequence: 1,
+                active: true,
+                claim: true,
                 columns: 100,
                 rows: 17,
             }),
@@ -464,7 +467,7 @@ async fn attach_ignores_launch_and_cannot_change_original_lifetime() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn resize_missing_session_returns_error() {
+async fn viewer_state_for_missing_session_returns_error() {
     let tempdir = tempdir().expect("tempdir");
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
@@ -482,19 +485,22 @@ async fn resize_missing_session_returns_error() {
         &protocol::envelope(
             1,
             "missing",
-            Payload::Resize(Resize {
+            Payload::TerminalViewerState(TerminalViewerState {
+                sequence: 1,
+                active: true,
+                claim: true,
                 columns: 100,
                 rows: 17,
             }),
         ),
     )
     .await
-    .expect("resize missing session");
+    .expect("update missing session viewer");
 
     let envelope = receive(&mut client).await.expect("receive").expect("frame");
     match protocol::payload(envelope).expect("payload") {
         Payload::Error(error) => assert!(error.message.contains("missing")),
-        other => panic!("unexpected payload for missing resize: {other:?}"),
+        other => panic!("unexpected payload for missing viewer state: {other:?}"),
     }
 
     manager_task.abort();
@@ -549,7 +555,8 @@ async fn read_attached(framed: &mut pty_manager::transport::TerminalFramed) -> A
             Payload::Output(_)
             | Payload::TerminalCheckpointBegin(_)
             | Payload::TerminalCheckpointChunk(_)
-            | Payload::TerminalCheckpointEnd(_) => {}
+            | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload before attach: {other:?}"),
         }
@@ -572,7 +579,8 @@ async fn read_until_output(
             }
             Payload::TerminalCheckpointBegin(_)
             | Payload::TerminalCheckpointChunk(_)
-            | Payload::TerminalCheckpointEnd(_) => {}
+            | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload while waiting for output: {other:?}"),
         }
@@ -617,7 +625,8 @@ async fn read_attached_output_and_exit(
             Payload::Output(frame) => output.extend(frame.data),
             Payload::TerminalCheckpointBegin(_)
             | Payload::TerminalCheckpointChunk(_)
-            | Payload::TerminalCheckpointEnd(_) => {}
+            | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_) => {}
             Payload::SessionExited(exited) => {
                 return (
                     attached,
@@ -651,7 +660,8 @@ async fn read_session_list_without_duplicate_attach(
             Payload::Output(_)
             | Payload::TerminalCheckpointBegin(_)
             | Payload::TerminalCheckpointChunk(_)
-            | Payload::TerminalCheckpointEnd(_) => {}
+            | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_) => {}
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload after existing session attach: {other:?}"),
         }
@@ -666,7 +676,8 @@ async fn read_until_session_exit(framed: &mut pty_manager::transport::TerminalFr
             Payload::Output(_)
             | Payload::TerminalCheckpointBegin(_)
             | Payload::TerminalCheckpointChunk(_)
-            | Payload::TerminalCheckpointEnd(_) => {}
+            | Payload::TerminalCheckpointEnd(_)
+            | Payload::TerminalViewportStatus(_) => {}
             Payload::Attached(_) => panic!("command session sent duplicate Attached response"),
             Payload::Error(error) => panic!("pty manager error: {}", error.message),
             other => panic!("unexpected payload before command session exit: {other:?}"),

@@ -35,6 +35,7 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
     let terminalAvailableLayoutGuide = UILayoutGuide()
     private(set) var terminalHeightFraction = AgentFeedSurface.defaultTerminalHeightFraction
     private(set) var isTerminalPresented = false
+    private var isSurfacePresented = false
     private(set) var terminalHeightConstraint: NSLayoutConstraint?
     private(set) var terminalBottomConstraint: NSLayoutConstraint!
 
@@ -211,6 +212,19 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
         replaceTerminalHeightConstraint()
     }
 
+    func setViewportPresented(_ presented: Bool) {
+        guard isSurfacePresented != presented else { return }
+        isSurfacePresented = presented
+        terminalContent.setViewportActive(
+            presented && isTerminalPresented,
+            claim: presented && isTerminalPresented
+        )
+    }
+
+    func flushViewportResize() {
+        terminalContent.flushViewportResize()
+    }
+
     private func setTerminalPresented(_ presented: Bool) {
         guard presented != isTerminalPresented || terminalHeightConstraint == nil else { return }
         isTerminalPresented = presented
@@ -222,6 +236,8 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
         resizeHandle.isHidden = !presented
         terminalKeyboardDismissButton.isHidden = !presented
         terminalContent.isHidden = !presented
+        let participates = presented && isSurfacePresented
+        terminalContent.setViewportActive(participates, claim: participates)
         if presented {
             replaceTerminalHeightConstraint()
         } else {

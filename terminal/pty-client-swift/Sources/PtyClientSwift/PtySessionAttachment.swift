@@ -10,6 +10,8 @@ public struct PtySessionAttachment: Equatable, Sendable {
     public let columns: UInt32
     public let rows: UInt32
     public let revision: UInt64
+    public let ownerClientID: UInt64
+    public let ownershipEpoch: UInt64
 
     public init(
         name: String,
@@ -20,7 +22,9 @@ public struct PtySessionAttachment: Equatable, Sendable {
         clientID: UInt64,
         columns: UInt32 = 80,
         rows: UInt32 = 24,
-        revision: UInt64 = 1
+        revision: UInt64 = 1,
+        ownerClientID: UInt64 = 0,
+        ownershipEpoch: UInt64 = 0
     ) {
         self.name = name
         self.pid = pid
@@ -31,5 +35,7 @@ public struct PtySessionAttachment: Equatable, Sendable {
         self.columns = columns
         self.rows = rows
         self.revision = revision
+        self.ownerClientID = ownerClientID
+        self.ownershipEpoch = ownershipEpoch
     }
 }
