@@ -107,3 +107,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0066 | Let the persistent PTY manager own bounded terminal replay | partially superseded by ADR-0068 | 2026-07-22 |
 | ADR-0067 | Crop terminal viewports below a readable scale | partially superseded by ADR-0068 | 2026-07-22 |
 | ADR-0068 | Let the last active terminal viewer own the source grid size | accepted | 2026-07-22 |
+| ADR-0069 | Share one web terminal workspace across macOS and iOS | accepted | 2026-07-22 |

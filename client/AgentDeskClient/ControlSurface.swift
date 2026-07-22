@@ -8,7 +8,7 @@ enum ControlSurface {
     case control  // trackpad / display rail / keyboard (desktop pixel/video path)
     case agent    // AgentFeedSurface webview
     case browser  // DomMirrorSurface (browser-only DOM path)
-    case terminal  // SwiftTerm PTY client over the dedicated terminal lane
+    case terminal  // native web terminal PTY client over the dedicated terminal lane
     case workspace // WorkspaceWorkbenchSurface over the dedicated .files lane
     case ide // shared responsive Workspace IDE over its own workspace lane
 }

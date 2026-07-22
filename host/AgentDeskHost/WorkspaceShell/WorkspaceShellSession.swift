@@ -55,7 +55,7 @@ final class WorkspaceShellSession {
         desktopSwitcher: WorkspaceDesktopSwitcher,
         terminalWindowRegistry: TerminalWindowRegistry,
         slotFrame: @escaping () -> CGRect,
-        terminalSpawn: TerminalEmulatorSpawn = SwiftTermPtyManagerTerminalSpawn(client: PtyManagerSocketClient.makeClient())
+        terminalSpawn: TerminalEmulatorSpawn = WebPtyManagerTerminalSpawn(client: PtyManagerSocketClient.makeClient())
     ) {
         self.store = store
         self.workspaceCoordinator = workspaceCoordinator
@@ -154,7 +154,7 @@ final class WorkspaceShellSession {
 
     // MARK: - Terminals
 
-    /// Spawns a SwiftTerm terminal window for the active workspace, rooted at its folder and attached
+    /// Spawns a native web terminal terminal window for the active workspace, rooted at its folder and attached
     /// to a fresh pty-manager session on our socket (`PtyManagerSocketClient`). Successive terminals in
     /// a workspace cascade down-right. The window is a normal titled NSWindow created on the workspace's
     /// Desktop, so macOS Spaces shows/hides it as the user switches workspaces (= Desktops) without any

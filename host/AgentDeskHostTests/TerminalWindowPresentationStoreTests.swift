@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import TerminalEmulator
+import PtyTerminalWebView
 import XCTest
 @testable import AgentDeskHost
 
@@ -52,6 +53,28 @@ final class TerminalWindowPresentationStoreTests: XCTestCase {
             TerminalWindowPresentationStore.maximumPresentations
         )
         XCTAssertEqual(fixture.store.descriptors.first?.sessionName, "session-1")
+    }
+
+    func testLegacySingleSessionDocumentMigratesToWorkspaceEncoding() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try FileManager.default.createDirectory(at: fixture.directory, withIntermediateDirectories: true)
+        let id = UUID()
+        let legacy = """
+        {"presentations":[{"id":"\(id.uuidString)","sessionName":"legacy","frame":{"x":1,"y":2,"width":700,"height":460},"cascadeOrdinal":0,"workspaceLabel":"Legacy"}]}
+        """
+        try Data(legacy.utf8).write(to: fixture.url)
+
+        let migrated = TerminalWindowPresentationStore(url: fixture.url)
+        XCTAssertEqual(migrated.descriptors.first?.sessionNames, ["legacy"])
+        try migrated.upsert(try XCTUnwrap(migrated.descriptors.first))
+        let persisted = try String(contentsOf: fixture.url, encoding: .utf8)
+        XCTAssertTrue(persisted.contains("\"workspace\""))
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(persisted.utf8)) as? [String: Any]
+        )
+        let presentations = try XCTUnwrap(object["presentations"] as? [[String: Any]])
+        XCTAssertNil(presentations.first?["sessionName"])
     }
 
     private func descriptor(session: String) -> TerminalWindowPresentationDescriptor {

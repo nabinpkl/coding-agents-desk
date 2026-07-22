@@ -11,6 +11,7 @@
 | Capture | `ScreenCaptureKit` on macOS 26+ | First-party selected-display capture without composition tricks. |
 | Encode / decode | Hardware-required VideoToolbox, HEVC by default and H.264 as an explicit owned-media codec setting | Rest-state text crispness depends on hardware screen-content quality. In this worktree HEVC remains the full-frame refresh path while retained graphics commands target scroll motion. |
 | Workspace | Host-owned workspace domain plus shared wire and `WorkspaceIDE` WebKit packages | Workspace roots, revisions, observation, Git reads, and PTY authority stay inside the Mac host. One native coordinator projects the same bundled sidebar and editor regions into AppKit and UIKit while native shells own geometry and terminal lifecycle. ADR-0052 and ADR-0062. |
+| Terminal presentation | Shared `PtyTerminalWebView` package with a bundled xterm.js 6.0.0 runtime | One WKWebView renders terminal tabs, recursive splits, pane chrome, session discovery, status, and terminal cells on macOS and iOS. Native shells retain lifecycle and OS integration while Rust owns replay, revisions, source sizing, and parser replies. ADR-0069. |
 | Browser projection | MV3 extension, authenticated native bridge, shared `BrowserProjection` WebKit package | macOS and iOS render every normal Chrome window and tab; one selected tab supplies isolated-world rrweb batches. The last active viewer owns Chrome's emulated source viewport while zoom remains local. Focus and projection are independent, and generation fencing prevents prior pages from leaking into a new selection. ADR-0064 and ADR-0065. |
 | Transport | One authenticated `NetworkConnection<QUIC>` per live session, ALPN `agentdesk-session-quic-v2` | Control, input, DOM, terminal, and files use ordered QUIC streams. HEVC media uses the same connection's datagram lane. File payloads cannot head-of-line block input. ADR-0030 and ADR-0052. |
 | Network | Tailscale only | No public rendezvous, relay, or internet routing. Both peers are on the tailnet. |
@@ -25,6 +26,10 @@ ADR-0001 records the original v0 stack decision. ADR-0015 records the owned sing
 
 ADR-0068 raises the inner PTY protocol to `7`, removes manual terminal sizing, and lets the last
 selected or interacted-with active terminal viewer own the shared source grid dimensions.
+
+ADR-0069 replaces SwiftTerm and platform-specific terminal workspace chrome with one bounded
+WKWebView and xterm.js runtime while retaining PTY protocol `7`, AgentDesk protocol `13`, and the Rust
+manager's state authority.
 
 ADR-0065 supersedes ADR-0048's fixed mobile-toggle contract with viewer ownership and raises the
 AgentDesk session protocol from `12` to `13`.
@@ -90,12 +95,12 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 13. **InputChannel.** Reliable input lane inside the authenticated session QUIC connection. It stays logically independent from media even though both lanes share the same connection. Main-actor input sends are chained so cursor revision order is the order presented to the QUIC stream. It sends `ClientConfig.selectedDisplayId` when the user picks a display and sends client-owned media preferences (`crispTextOverlayEnabled`, `showHostCursorInVideo`, `mediaQuality`) on input-channel open and settings changes. `mediaQuality` carries adaptive on/off plus an optional fixed target. When adaptive is on, the host still owns rung selection; when adaptive is off, the host pins the video bitrate/FPS/resolution to the fixed target while packet repair and backpressure stay active. The lane receives revisioned cursor application acknowledgements, independently observed Mac cursor movement, host text-input focus metadata, `DiagnosticsRequest`, and Agent raw-event responses. It reassembles only raw-event fragment envelopes before delivering one logical response to the shared webview.
 14. **CursorReconciliationStateMachine.** UIKit-free owner of pending cursor operations and prediction confidence (`confirmed`, `awaitingHost`, or `ghost`). It ignores stale applied positions as visible corrections, rebases genuine Mac movement and replays only newer client operations, uses the oldest pending deadline, and bounds its pending window. `PairingViewController` owns only transport/lifecycle wiring and the displayed cursor point.
 15. **ClientDiagnosticsStore.** Bounded durable client diagnostics store in `Application Support/Diagnostics`. It persists structured NDJSON essentials for the current run plus two prior runs, rotates unclean exits on bootstrap, mirrors essentials to OSLog, summarizes delayed MetricKit payloads, and serves prior-run tails on demand over the input lane or the foreground tailnet control listener.
-16. **TerminalSurface.** Full-bleed SwiftTerm renderer selected from the Control | Agent | Terminal | Browser switcher. It opens `.terminal` QUIC streams, wraps them in `PtyClientSwift`, and gives each app-owned split pane its own persistent `agentdesk-N` PTY session with the default host login shell. A drawer overlays the terminal and subscribes to the PTY manager session tree: sessions expand to client rows, Open joins an existing manager-owned session as a new iOS pane/client with `createIfMissing=false`, close-client asks the manager to detach that exact client id, and close-session asks the manager to kill the session. User close on a pane still detaches only when other PTY clients remain attached to that session; when the pane is the only client, user close kills the PTY session. Teardown and view deallocation detach only, which is correct for these persistent workspace PTYs and does not apply to leased Agent Panel PTYs.
+16. **TerminalSurface.** Thin UIKit host for `PtyTerminalWebView` in workspace mode. The shared runtime owns bounded tabs, recursive splits, pane chrome, the session drawer, xterm rendering, selection, and input. Its remote backend opens one authenticated `.terminal` stream per pane, creates only fixed persistent login-shell sessions, and preserves close-client and close-session authority. UIKit owns visibility, safe-area lifecycle, and keyboard dismissal only.
 17. **WorkspaceTransport.** Opens the authenticated `.files` workspace lane, correlates file and Git responses, serializes subscriptions and shared-state operations, and delivers unsolicited IDE-state and change pushes. It cancels pending work and subscriptions when the session ends.
-18. **WorkspaceWorkbenchSurface.** UIKit composition selected from the Workspace control. Its resizable left sidebar owns workspace and directory navigation; its upper-right editor owns the existing shared WebKit file viewer/editor; its lower-right pane owns one shared SwiftTerm content view for the selected workspace. The sidebar and terminal start visible, the editor starts empty, and pane geometry persists per workspace. Collapse and resize preserve both WKWebView and SwiftTerm instances. The shared SPA owns content-aware zoom: text, Markdown, and notebooks scale their typography, while DOCX retains responsive fit-width, page scaling, and pinch zoom. Text saves carry the last observed file revision and surface conflicts instead of overwriting host changes.
-19. **AgentFeedSurface.** UIKit vertical container for the AgentPanel webview, native resize handle, and shared `PtyTerminalSwiftTerm` content. It requests a host-coordinated leased PTY over protocol v7, attaches over `.terminal` with `createIfMissing=false`, acknowledges handoff, and owns iOS layout and explicit/involuntary lifecycle mapping. It does not construct harness commands or own process lifetime.
+18. **WorkspaceWorkbenchSurface.** UIKit composition selected from the Workspace control. Its resizable left sidebar owns workspace and directory navigation; its upper-right editor owns the existing shared WebKit file viewer/editor; its lower-right pane hosts `PtyTerminalWebView` in single-session mode for the selected workspace. The sidebar and terminal start visible, the editor starts empty, and pane geometry persists per workspace. Collapse and resize retain both webviews. The file SPA owns content-aware zoom: text, Markdown, and notebooks scale their typography, while DOCX retains responsive fit-width, page scaling, and pinch zoom. Text saves carry the last observed file revision and surface conflicts instead of overwriting host changes.
+19. **AgentFeedSurface.** UIKit vertical container for the AgentPanel webview, native resize handle, and `PtyTerminalWebView` in single-session mode. It requests a host-coordinated leased PTY over protocol v7, attaches over `.terminal` with `createIfMissing=false`, acknowledges handoff, and owns iOS layout and explicit or involuntary lifecycle mapping. It does not construct harness commands or own process lifetime.
 20. **WorkspaceIDEController.** Cross-platform package coordinator owning retained sidebar and editor WKWebViews, strict intent decoding, serialized data-source calls, request-generation fencing, device-local active state and drafts, 700 ms autosave, and tailored projections. Platform containers receive terminal and layout intents through a delegate.
-21. **WorkspaceIDESurface.** Separate UIKit entry that composes the retained sidebar webview beside an editor webview and native workspace SwiftTerm. The terminal starts open and reattaches through the existing workspace-terminal coordinator. Its active tab and pane geometry remain local while shared tab membership and expanded folders reconcile from host pushes.
+21. **WorkspaceIDESurface.** Separate UIKit entry that composes the retained sidebar webview beside an editor webview and `PtyTerminalWebView` in single-session mode. The terminal starts open and reattaches through the existing workspace-terminal coordinator. Its active tab and pane geometry remain local while shared editor-tab membership and expanded folders reconcile from host pushes.
 
 Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView.** Additional owned-media contract tests pin wire shapes, packet repair, and decoder recovery behavior where regressions are expensive.
 
@@ -117,10 +122,10 @@ inner PTY protocol.
    PTY or creates one `leased + CommandLaunch` PTY and holds a bootstrap attachment until the native
    renderer acknowledges attachment. A failed or timed-out handoff kills the new PTY. If ATC says the
    harness is live and the deterministic PTY is absent, open fails with `activeElsewhere`.
-5. AppKit and UIKit each compose the AgentPanel webview above a native resize handle and shared
-   `PtyTerminalSwiftTerm` content. The feed shrinks as the terminal grows. Shared SwiftTerm content owns
-   input delegation, paste, selection, output feeding, viewport participation, and focus; React owns
-   none of them.
+5. AppKit and UIKit each compose the AgentPanel webview above a native resize handle and
+   `PtyTerminalWebView` in single-session mode. The feed shrinks as the terminal grows. The shared web
+   terminal owns input, paste, selection, output, viewport participation, and focus; React owns none
+   of them.
 6. Explicit panel/context exit asks the coordinator to kill immediately. Unexpected renderer/socket
    loss detaches. A leased PTY is reaped only after its final client lease is absent for the configured
    grace, and a reattach during grace preserves its PID.
@@ -130,7 +135,7 @@ Platform ownership remains explicit:
 | Owner | Responsibility |
 | --- | --- |
 | AgentPanel WebKit | Feed presentation and session-scoped terminal intent/status only. |
-| Shared `PtyTerminalSwiftTerm` | Native SwiftTerm rendering, input, output, paste, focus, and resize. |
+| Shared `PtyTerminalWebView` | xterm rendering, input provenance, output, paste, selection, focus, and viewport participation. |
 | macOS AppKit adapter | Vertical layout, local coordinator calls, window/back/hide/close lifecycle. |
 | iOS UIKit adapter | Vertical and keyboard-safe layout, v7 request routing, surface/background lifecycle. |
 | Host coordinator | Context validation, deterministic identity, command construction, handoff, explicit kill, and `activeElsewhere`. |
@@ -287,11 +292,24 @@ their capacity without resizing. A different owner capacity resizes the PTY and 
 advances revision once, and checkpoints all clients. An equal-size transfer advances only ownership
 epoch. Input and paste claim with the sender's latest valid capacity before bytes reach the PTY.
 
-SwiftTerm followers preserve the owner's grid and fit it locally while the required scale is at least
-75 percent. Below that threshold, the shared AppKit/UIKit renderer holds 75 percent scale, clips
+Web terminal followers preserve the owner's grid and fit it locally while the required scale is at least
+75 percent. Below that threshold, the shared runtime holds 75 percent scale, clips
 overflow, and follows the parser cursor with a two-cell inset after layout or output without requiring
 focus. Passive container layout never claims ownership. All checkpoint/history, viewer-capacity, and
 ownership state is memory-only and bitmap terminal graphics are not replayed.
+
+`PtyTerminalWebView` is the native renderer coordinator. Its private nonpersistent WKWebView loads only
+bundled resources through `agentdesk-terminal://`; CSP disables network access. The versioned internal
+bridge validates message tags, terminal identifiers, dimensions, revisions, links, and input sizes.
+Native-to-web writes are serialized and bounded to 1 MiB of live output per terminal and 32 MiB per
+WKWebView. Overflow, JavaScript failure, navigation failure, or WebKit process termination pauses the
+affected renderer, reloads the runtime, and resumes only from a complete replacement checkpoint.
+
+`PtyTerminalWorkspaceState` is authoritative for a maximum of 16 tabs and 16 total panes. JavaScript
+renders immutable snapshots and emits intents. Full macOS and iOS Terminal surfaces use workspace
+mode; context-bound Agent and Workspace terminals use single-session mode with management controls
+absent. Hidden panes release viewport participation. Selecting or interacting with a pane claims using
+its measured capacity, while passive follower layout remains presentation-only.
 
 The outer `QuicStreamFrame` identifies the stream role. The inner PTY frame is owned by the Rust manager and Swift PTY client; AgentDesk's host bridge does not reinterpret create/attach, viewer-state, viewport-status, input, output, detach, kill, close-client, subscribe, or session-list messages. `ShellLaunch` preserves the existing login-interactive shell behavior. `CommandLaunch` executes the supplied executable with its argument array directly through Rust `CommandBuilder`; argument boundaries survive protobuf decoding and no shell command string is assembled by `pty-manager`. Every caller must choose a lifetime explicitly.
 
@@ -326,7 +344,7 @@ Terminal surface or exposing host filesystem authority:
    path. Otherwise the coordinator selects the eligible session with the greatest immutable creation
    time. It creates a persistent login shell at the workspace root only when no eligible session exists.
 3. The host holds a bootstrap PTY attachment while the client opens a dedicated `.terminal` stream and
-   attaches with `createIfMissing=false`. The client acknowledges only after SwiftTerm is attached. A
+   attaches with `createIfMissing=false`. The client acknowledges only after the shared web terminal is attached. A
    failed or timed-out handoff detaches the bootstrap and kills only a newly-created, otherwise-unowned
    session; it never kills a preexisting Mac terminal.
 4. The workbench stores only the returned PTY name. Collapse, workspace switching, transport loss, and
@@ -422,7 +440,7 @@ ADR-0062 adds a separate embedded IDE without removing the current native Worksp
    It refreshes visible listings and clean files. Dirty files become conflicted. DOCX refresh uses the
    existing file-identity viewport state so scroll and zoom survive content replacement.
 6. macOS calls the same contract in-process. iPhone uses protocol-v11 workspace-lane messages. The
-   platform shell alone owns native dividers, keyboard avoidance, focus, and the lower-right SwiftTerm.
+   platform shell alone owns native dividers, keyboard avoidance, focus, and the lower-right shared web terminal.
    DOCX bytes are registered in the native resource store and reach WebKit through `app://` rather than JSON.
 
 `WorkspaceIDEPlatformCapabilities` is enforced before a delegate call. macOS may add, remove, reorder,

@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 import PtyClientSwift
 import PtyTerminalSession
-import PtyTerminalSwiftTerm
+import PtyTerminalWebView
 import UIKit
 
 @MainActor
@@ -12,7 +12,7 @@ protocol WorkspaceTerminalViewDelegate: AnyObject {
 }
 
 @MainActor
-final class WorkspaceTerminalView: UIView, PtyTerminalSwiftTermContentViewDelegate {
+final class WorkspaceTerminalView: UIView, PtyTerminalWebViewDelegate {
     private static let titleFontSize: CGFloat = 12
 
     let workspaceID: String
@@ -23,9 +23,7 @@ final class WorkspaceTerminalView: UIView, PtyTerminalSwiftTermContentViewDelega
     private let statusLabel = UILabel()
     private let retryButton = UIButton(type: .system)
     private let dismissKeyboardButton = UIButton(type: .system)
-    private let terminalContent = PtyTerminalSwiftTermContentView(
-        style: PtyTerminalViewStyle(fontSize: 14, metalRendering: PtyTerminalMetalRendering.from())
-    )
+    private let terminalContent = PtyTerminalWebView()
     private var connection: (any WorkspaceTerminalConnection)?
 
     var attachmentDimensions: PtyTerminalDimensions { terminalContent.attachmentDimensions }
@@ -91,11 +89,11 @@ final class WorkspaceTerminalView: UIView, PtyTerminalSwiftTermContentViewDelega
             ofSize: Self.titleFontSize * resolvedScale,
             weight: .medium
         )
-        terminalContent.setFontSize(PtyTerminalViewStyle.defaultFontSize * resolvedScale)
+        terminalContent.setFontSize(14 * resolvedScale)
     }
 
     func ptyTerminalContent(
-        _ content: PtyTerminalSwiftTermContentView,
+        _ content: PtyTerminalWebView,
         didFail error: Error
     ) {
         logger.error("workspace terminal driver failed: \(String(describing: error), privacy: .public)")
@@ -106,7 +104,7 @@ final class WorkspaceTerminalView: UIView, PtyTerminalSwiftTermContentViewDelega
     }
 
     func ptyTerminalContent(
-        _ content: PtyTerminalSwiftTermContentView,
+        _ content: PtyTerminalWebView,
         didTerminate termination: PtyTerminalSessionTermination
     ) {
         connection = nil
@@ -114,7 +112,7 @@ final class WorkspaceTerminalView: UIView, PtyTerminalSwiftTermContentViewDelega
         delegate?.workspaceTerminalViewDidLoseConnection(self)
     }
 
-    func ptyTerminalContentDidDetachByManager(_ content: PtyTerminalSwiftTermContentView) {
+    func ptyTerminalContentDidDetachByManager(_ content: PtyTerminalWebView) {
         connection = nil
         showFailure("Workspace terminal ended on the Mac.")
         delegate?.workspaceTerminalViewDidLoseConnection(self)

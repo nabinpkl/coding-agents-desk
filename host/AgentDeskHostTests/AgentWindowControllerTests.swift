@@ -1,7 +1,7 @@
 import AppKit
 import AgentPanel
 import ApplicationServices
-import PtyTerminalSwiftTerm
+import PtyTerminalWebView
 import Testing
 import WebKit
 
@@ -148,7 +148,7 @@ struct AgentWindowControllerTests {
     @Test func nativeTerminalIdentifiersReachExternalAccessibilityClients() async throws {
         let split = AgentWindowSplitView(
             feedView: NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 320)),
-            terminalView: PtyTerminalSwiftTermContentView()
+            terminalView: PtyTerminalWebView()
         )
         split.frame = NSRect(x: 0, y: 0, width: 480, height: 320)
         split.setTerminalOpen(true)

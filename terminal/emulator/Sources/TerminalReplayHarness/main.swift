@@ -118,7 +118,7 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
     private let arguments: HarnessArguments
     private let client: PtyClient
     private let store: TerminalWindowPresentationStore
-    private let spawner: SwiftTermPtyManagerTerminalSpawn
+    private let spawner: WebPtyManagerTerminalSpawn
     private var registry: TerminalWindowRegistry?
     private var retainedWindows: [TerminalEmulatorWindow] = []
     private var retainedConnections: [PtySessionConnection] = []
@@ -130,7 +130,7 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
         store = TerminalWindowPresentationStore(
             url: arguments.artifactDirectory.appendingPathComponent("presentations.json")
         )
-        spawner = SwiftTermPtyManagerTerminalSpawn(
+        spawner = WebPtyManagerTerminalSpawn(
             client: PtyClient(socketPath: arguments.socketPath),
             shell: "/bin/bash"
         )

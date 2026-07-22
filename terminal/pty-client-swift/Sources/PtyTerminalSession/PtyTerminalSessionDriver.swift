@@ -147,6 +147,16 @@ public final class PtyTerminalSessionDriver {
         eventsTask = nil
     }
 
+    /// Pauses live output after renderer loss and asks the manager for one new
+    /// authoritative checkpoint. Further deltas are ignored until that
+    /// checkpoint completes.
+    public func pauseAndRequestCheckpoint() {
+        pendingCheckpoint = nil
+        awaitingCheckpoint = true
+        replacementRequested = false
+        requestReplacementCheckpoint()
+    }
+
     public func detach() {
         stop()
         let sequence = nextViewerSequence()
@@ -257,6 +267,10 @@ public final class PtyTerminalSessionDriver {
         awaitingCheckpoint = true
         renderer?.feedStatus("\r\n[terminal synchronizing]\r\n")
         onError(error)
+        requestReplacementCheckpoint()
+    }
+
+    private func requestReplacementCheckpoint() {
         guard !replacementRequested else { return }
         replacementRequested = true
         let lastAppliedRevision = appliedRevision

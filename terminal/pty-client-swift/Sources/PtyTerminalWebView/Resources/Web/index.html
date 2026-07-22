@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src agentdesk-terminal:; style-src agentdesk-terminal: 'unsafe-inline'; font-src agentdesk-terminal:; img-src data:; connect-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <link rel="stylesheet" href="agentdesk-terminal://bundle/app.css">
+  <title>Terminal</title>
+</head>
+<body>
+  <main id="terminal-workspace-root" data-profile="singleSession" aria-label="Terminal workspace">
+    <header id="terminal-tabs" role="tablist" aria-label="Terminal tabs"></header>
+    <section id="terminal-stage"></section>
+    <aside id="terminal-session-drawer" role="dialog" aria-modal="true" aria-label="PTY sessions" hidden></aside>
+    <div id="terminal-announcer" class="visually-hidden" aria-live="polite"></div>
+  </main>
+  <script src="agentdesk-terminal://bundle/app.js"></script>
+</body>
+</html>

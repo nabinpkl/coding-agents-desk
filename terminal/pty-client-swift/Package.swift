@@ -7,11 +7,10 @@ let package = Package(
     products: [
         .library(name: "PtyClientSwift", targets: ["PtyClientSwift"]),
         .library(name: "PtyTerminalSession", targets: ["PtyTerminalSession"]),
-        .library(name: "PtyTerminalSwiftTerm", targets: ["PtyTerminalSwiftTerm"]),
+        .library(name: "PtyTerminalWebView", targets: ["PtyTerminalWebView"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.30.0"),
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.13.0"),
     ],
     targets: [
         .target(
@@ -25,11 +24,10 @@ let package = Package(
             dependencies: ["PtyClientSwift"]
         ),
         .target(
-            name: "PtyTerminalSwiftTerm",
+            name: "PtyTerminalWebView",
             dependencies: [
                 "PtyClientSwift",
                 "PtyTerminalSession",
-                .product(name: "SwiftTerm", package: "SwiftTerm"),
             ],
             resources: [.process("Resources")]
         ),
@@ -39,12 +37,11 @@ let package = Package(
             dependencies: ["PtyTerminalSession", "PtyClientSwift"]
         ),
         .testTarget(
-            name: "PtyTerminalSwiftTermTests",
+            name: "PtyTerminalWebViewTests",
             dependencies: [
                 "PtyClientSwift",
                 "PtyTerminalSession",
-                "PtyTerminalSwiftTerm",
-                "SwiftTerm",
+                "PtyTerminalWebView",
             ]
         ),
     ]

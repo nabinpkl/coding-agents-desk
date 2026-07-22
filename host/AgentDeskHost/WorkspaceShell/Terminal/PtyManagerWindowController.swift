@@ -54,7 +54,7 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
     private let outlineView = NSOutlineView()
     private let statusLabel = NSTextField(labelWithString: "Disconnected")
     private let client: PtyClient
-    private let terminalSpawn: SwiftTermPtyManagerTerminalSpawn
+    private let terminalSpawn: WebPtyManagerTerminalSpawn
     private let socketPath: String
     private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal")
     private let terminalWindowRegistry: TerminalWindowRegistry
@@ -65,7 +65,7 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
         self.terminalWindowRegistry = terminalWindowRegistry
         socketPath = PtyManagerSocketClient.socketPath
         client = PtyManagerSocketClient.makeClient()
-        terminalSpawn = SwiftTermPtyManagerTerminalSpawn(client: PtyManagerSocketClient.makeClient())
+        terminalSpawn = WebPtyManagerTerminalSpawn(client: PtyManagerSocketClient.makeClient())
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 980, height: 520),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],

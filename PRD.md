@@ -29,6 +29,12 @@ grid through local fit, crop, padding, and cursor following. AgentDesk persists 
 placement metadata but never terminal text, scrollback, ANSI, checkpoints, typed input, viewport
 reports, or ownership state (ADR-0066, ADR-0067, ADR-0068).
 
+Every terminal surface uses one bundled responsive WKWebView and xterm.js workspace runtime. Full
+Terminal surfaces share tabs, recursive splits, pane chrome, session discovery, rendering, and input
+behavior across macOS and iOS. Embedded Agent and Workspace terminals use the same runtime with
+management controls hidden. Thin AppKit and UIKit adapters retain only platform lifecycle and OS
+integration; the Rust manager remains authoritative for terminal state and replies (ADR-0069).
+
 The macOS host also owns a local **Space Agent** overlay: a small draggable spaceship that stays visible while the host app runs. Clicking the spaceship expands an attached Spaces panel showing live thumbnails for the active display's user Spaces; clicking a non-active Space switches the Mac to it. This is a host-side desktop navigator, not the iPhone remote-control surface.
 
 ## v0 acceptance
@@ -52,7 +58,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 13. Open a macOS Agents window from the top bar and browse all ATC projects, sessions, history, and live activity.
 14. On iPhone, browse the same registered workspace roots, preview files, edit UTF-8 text, and save only when the host revision still matches.
 15. On macOS, inspect running apps by Desktop in the bottom Dock-enrichment strip and transactionally swap the ordinary window contents of two existing Desktops, with a short conservative Undo.
-16. Open a separate Workspace IDE on macOS or iPhone with the same Explorer, read-only Source Control, shared open tabs, file editor/viewer, and a native terminal rooted at the selected workspace. Tab membership and expanded folders synchronize through the host while each device keeps its own active tab, selected workspace, pane layout, drafts, and cursor positions.
+16. Open a separate Workspace IDE on macOS or iPhone with the same Explorer, read-only Source Control, shared open tabs, file editor/viewer, and shared web terminal rooted at the selected workspace. Tab membership and expanded folders synchronize through the host while each device keeps its own active tab, selected workspace, pane layout, drafts, and cursor positions.
 17. Open the Browser Projection on macOS or iPhone showing every normal Chrome window, the selected window's ordered tabs, and one reconstructed active page. AgentDesk may select a projected window without raising Chrome and may activate a tab without focusing its Chrome window. The last active Browser viewer controls the real tab's responsive source viewport, with Desktop, Mobile, custom dimensions, viewer-linked sizing, and projection-only zoom in the shared shell. Hiding the final viewer restores native Chrome behavior. Both platforms share one extension recorder.
 
 ## What v0 is not

@@ -1,0 +1,74 @@
+import XCTest
+@testable import PtyTerminalWebView
+
+final class PtyTerminalWebBridgeTests: XCTestCase {
+    func testBundledRuntimeResourceRootExists() throws {
+        let root = try XCTUnwrap(PtyTerminalResourceSchemeHandler.bundledRoot)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("index.html").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("app.js").path))
+    }
+
+    func testViewportRequiresBoundsAndActiveClaim() {
+        XCTAssertEqual(
+            PtyTerminalWebIntent.decode([
+                "version": 1, "type": "viewport", "terminalId": "terminal-1",
+                "active": true, "claim": true, "columns": 120, "rows": 40,
+            ]),
+            .viewport(terminalID: "terminal-1", active: true, claim: true, columns: 120, rows: 40)
+        )
+        XCTAssertNil(PtyTerminalWebIntent.decode([
+            "version": 1, "type": "viewport", "terminalId": "terminal-1",
+            "active": false, "claim": true, "columns": 120, "rows": 40,
+        ]))
+        XCTAssertNil(PtyTerminalWebIntent.decode([
+            "version": 1, "type": "viewport", "terminalId": "terminal-1",
+            "active": true, "claim": false, "columns": 513, "rows": 40,
+        ]))
+        XCTAssertNil(PtyTerminalWebIntent.decode([
+            "version": 1, "type": "viewport", "terminalId": "terminal-1",
+            "active": true, "claim": false, "columns": 80.5, "rows": 40,
+        ]))
+        XCTAssertNil(PtyTerminalWebIntent.decode([
+            "version": 1.5, "type": "ready",
+        ]))
+    }
+
+    func testWorkspaceIntentRejectsPresentButInvalidOptionalFields() {
+        XCTAssertEqual(
+            PtyTerminalWebIntent.decode(["version": 1, "type": "workspaceIntent", "intent": "addTab"]),
+            .workspace(name: "addTab", paneID: nil, tabID: nil, sessionName: nil)
+        )
+        XCTAssertNil(PtyTerminalWebIntent.decode([
+            "version": 1, "type": "workspaceIntent", "intent": "closePane",
+            "paneId": String(repeating: "x", count: 129),
+        ]))
+    }
+
+    func testLinkPolicyAllowsOnlyHTTPAndHTTPS() {
+        XCTAssertNotNil(PtyTerminalWebIntent.decode(["version": 1, "type": "openLink", "url": "https://example.com/"]))
+        XCTAssertNil(PtyTerminalWebIntent.decode(["version": 1, "type": "openLink", "url": "file:///tmp/secret"]))
+        XCTAssertNil(PtyTerminalWebIntent.decode(["version": 1, "type": "openLink", "url": "javascript:alert(1)"]))
+    }
+
+    func testPresentationMetricsAreBounded() {
+        XCTAssertEqual(
+            PtyTerminalWebIntent.decode([
+                "version": 1, "type": "presentation", "terminalId": "terminal-1",
+                "scale": 0.75, "cropped": true,
+            ]),
+            .presentation(terminalID: "terminal-1", scale: 0.75, cropped: true)
+        )
+        XCTAssertNil(PtyTerminalWebIntent.decode([
+            "version": 1, "type": "presentation", "terminalId": "terminal-1",
+            "scale": 1.1, "cropped": false,
+        ]))
+    }
+
+    func testQueueBoundsLiveOutputPerTerminal() {
+        var queue = PtyTerminalWebDeliveryQueue()
+        XCTAssertTrue(queue.append(.init(terminalID: "one", json: "a", byteCount: 512 * 1024, liveOutput: true)))
+        XCTAssertTrue(queue.append(.init(terminalID: "one", json: "b", byteCount: 512 * 1024, liveOutput: true)))
+        XCTAssertFalse(queue.append(.init(terminalID: "one", json: "c", byteCount: 1, liveOutput: true)))
+        XCTAssertTrue(queue.append(.init(terminalID: "two", json: "d", byteCount: 1, liveOutput: true)))
+    }
+}

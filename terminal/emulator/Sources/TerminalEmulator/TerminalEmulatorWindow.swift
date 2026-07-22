@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import PtyTerminalWebView
 
 @MainActor
 public protocol TerminalEmulatorWindow: AnyObject {
@@ -28,8 +29,10 @@ public enum TerminalWindowCloseReason: Sendable {
 @MainActor
 public protocol TerminalWindowPresentationTrackable: TerminalEmulatorWindow {
     var currentFrame: CGRect { get }
+    var terminalWorkspaceState: PtyTerminalWorkspaceState { get }
     func observePresentation(
         frameChanged: @escaping (CGRect) -> Void,
+        workspaceChanged: @escaping (PtyTerminalWorkspaceState) -> Void,
         closed: @escaping (TerminalWindowCloseReason) -> Void
     )
     func orderWithoutFocus()

@@ -72,18 +72,19 @@ without changing the one-recorder and extension-authoritative generation model.
   connected display, and retain the bottom Dock surface's existing main-display ownership.
 ---
 
-## v8 scope (captured, not started)
+## v8 terminal workspace
 
-- [ ] R89. Add workspace terminal tabs, splits, and a workspace-filtered session drawer.
+- [x] D89. Promote terminal tabs, recursive splits, pane chrome, and the session drawer into one
+  bounded `PtyTerminalWebView` workspace shared by macOS and iOS (ADR-0069).
 - [x] D90. Add bounded Rust-owned PTY replay: protocol-6 chunked checkpoints and revisions, one
-  Alacritty-backed logical grid per session, bounded fan-out/resynchronization, shared SwiftTerm fit
+  Alacritty-backed logical grid per session, bounded fan-out/resynchronization, shared renderer fit
   and explicit sizing, metadata-only standalone macOS window restoration, and automated tests
   (ADR-0066).
 
 ## Terminal stability hotfix
 
 - [x] D91. Prevent pre-layout terminal attachments from creating unusable 1x2 PTYs: centralize the
-  80x24 bootstrap dimensions, measure laid-out SwiftTerm surfaces atomically, and send an authoritative
+  80x24 bootstrap dimensions, measure laid-out terminal surfaces atomically, and send an authoritative
   resize immediately after every renderer bind so existing sessions recover on reattachment.
   ADR-0066 supersedes bind-time resizing; 80x24 remains the creation fallback.
 - [x] D92. Remove the standalone terminal window minimum and make shared macOS/iOS terminal views
@@ -93,6 +94,10 @@ without changing the one-recorder and extension-authoritative generation model.
   sequence-fenced viewer reports, targeted ownership status, owner-only debounced capacity changes,
   input-before-write claims, shared AppKit/UIKit participation, focus-free restoration, and visible
   two-client ownership verification (ADR-0068).
+- [x] D94. Replace every SwiftTerm consumer with the production WKWebView and xterm runtime, add the
+  user-input provenance fork, bounded bridge recovery, shared workspace coordinator, one-session
+  adapters, metadata-schema migration, deterministic web build, and compile-only host/iOS gates
+  (ADR-0069).
 
 ## Promotion log
 
@@ -111,4 +116,6 @@ D91      2026-07-21  landed      safe terminal bootstrap dimensions and bind-tim
 D90      2026-07-22  landed      bounded headless PTY replay and metadata-only window restoration
 D92      2026-07-22  landed      readable cursor-following terminal viewports without minimum sizes
 D93      2026-07-22  landed      protocol-7 active-viewer terminal sizing and focus-free restoration
+D89      2026-07-22  landed      shared terminal tabs, recursive splits, and session drawer
+D94      2026-07-22  landed      one bounded WKWebView and xterm terminal runtime across macOS and iOS
 ```

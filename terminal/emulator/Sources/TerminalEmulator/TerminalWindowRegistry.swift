@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import PtyClientSwift
+import PtyTerminalWebView
 import os
 
 public protocol TerminalSessionListing: Sendable {
@@ -11,14 +12,15 @@ extension PtyClient: TerminalSessionListing {}
 
 @MainActor
 public protocol TerminalExistingSessionSpawning: AnyObject {
-    func spawnExistingSession(
-        _ session: PtySessionSummary,
+    func spawnExistingWorkspace(
+        sessions: [PtySessionSummary],
+        state: PtyTerminalWorkspaceState,
         into frame: CGRect,
         completion: @escaping (Result<TerminalEmulatorWindow, Error>) -> Void
     )
 }
 
-extension SwiftTermPtyManagerTerminalSpawn: TerminalExistingSessionSpawning {}
+extension WebPtyManagerTerminalSpawn: TerminalExistingSessionSpawning {}
 
 /// Owns only standalone-window presentation and attachment metadata. The Rust
 /// manager remains the sole owner of terminal cells and replay history.
@@ -31,6 +33,7 @@ public final class TerminalWindowRegistry {
     private var windows: [UUID: any TerminalWindowPresentationTrackable] = [:]
     private var restoring: Set<UUID> = []
     private var frameTasks: [UUID: Task<Void, Never>] = [:]
+    private var workspaceTasks: [UUID: Task<Void, Never>] = [:]
     private var restorationTask: Task<Void, Never>?
     private var shuttingDown = false
 
@@ -68,7 +71,7 @@ public final class TerminalWindowRegistry {
         }
         let descriptor = TerminalWindowPresentationDescriptor(
             id: presentationID,
-            sessionName: sessionName,
+            workspace: tracked.terminalWorkspaceState,
             workspaceID: workspaceID,
             frame: TerminalWindowFrame(tracked.currentFrame),
             cascadeOrdinal: cascadeOrdinal,
@@ -84,6 +87,9 @@ public final class TerminalWindowRegistry {
         tracked.observePresentation(
             frameChanged: { [weak self] frame in
                 self?.scheduleFrame(frame, id: presentationID)
+            },
+            workspaceChanged: { [weak self] workspace in
+                self?.scheduleWorkspace(workspace, id: presentationID)
             },
             closed: { [weak self] _ in
                 self?.removePresentation(id: presentationID)
@@ -114,6 +120,8 @@ public final class TerminalWindowRegistry {
         restorationTask = nil
         for task in frameTasks.values { task.cancel() }
         frameTasks.removeAll()
+        for task in workspaceTasks.values { task.cancel() }
+        workspaceTasks.removeAll()
         let openWindows = windows.values
         windows.removeAll()
         restoring.removeAll()
@@ -126,13 +134,18 @@ public final class TerminalWindowRegistry {
             .map { ($0.name, $0) })
         for descriptor in store.descriptors {
             guard windows[descriptor.id] == nil, !restoring.contains(descriptor.id) else { continue }
-            guard let session = running[descriptor.sessionName] else {
+            let sessions = descriptor.sessionNames.compactMap { running[$0] }
+            guard sessions.count == descriptor.sessionNames.count else {
                 try? store.remove(id: descriptor.id)
                 continue
             }
             let frame = constrainedFrame(descriptor.frame.cgRect)
             restoring.insert(descriptor.id)
-            spawn.spawnExistingSession(session, into: frame) { [weak self] result in
+            spawn.spawnExistingWorkspace(
+                sessions: sessions,
+                state: descriptor.workspace,
+                into: frame
+            ) { [weak self] result in
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.restoring.remove(descriptor.id)
@@ -176,9 +189,30 @@ public final class TerminalWindowRegistry {
         }
     }
 
+    private func scheduleWorkspace(_ workspace: PtyTerminalWorkspaceState, id: UUID) {
+        guard !shuttingDown else { return }
+        workspaceTasks[id]?.cancel()
+        workspaceTasks[id] = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard !Task.isCancelled, let self,
+                  var descriptor = self.store.descriptors.first(where: { $0.id == id }) else { return }
+            descriptor = TerminalWindowPresentationDescriptor(
+                id: descriptor.id,
+                workspace: workspace,
+                workspaceID: descriptor.workspaceID,
+                frame: descriptor.frame,
+                cascadeOrdinal: descriptor.cascadeOrdinal,
+                workspaceLabel: descriptor.workspaceLabel
+            )
+            try? self.store.upsert(descriptor)
+            self.workspaceTasks[id] = nil
+        }
+    }
+
     private func removePresentation(id: UUID) {
         guard !shuttingDown else { return }
         frameTasks.removeValue(forKey: id)?.cancel()
+        workspaceTasks.removeValue(forKey: id)?.cancel()
         windows.removeValue(forKey: id)
         try? store.remove(id: id)
     }

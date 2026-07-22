@@ -6,7 +6,7 @@ extension TerminalWindowRegistry {
         self.init(
             store: TerminalWindowPresentationStore(url: Config.terminalWindowPresentationsURL),
             client: PtyManagerSocketClient.makeClient(),
-            spawn: SwiftTermPtyManagerTerminalSpawn(client: PtyManagerSocketClient.makeClient()),
+            spawn: WebPtyManagerTerminalSpawn(client: PtyManagerSocketClient.makeClient()),
             loggerSubsystem: Config.logSubsystem
         )
     }

@@ -182,7 +182,7 @@ build-agent-sidecar:
     mv -f "$BUILD_DIR/atc-sidecar" "$OUT"
 
 # Build Agent Workspace IDE's Rust PTY manager into the host app bundle source
-# dir. The host launches this binary and bridges iOS SwiftTerm clients into its
+# dir. The host launches this binary and bridges shared web terminal clients into its
 # Unix-socket multiplexer.
 build-pty-manager:
     #!/usr/bin/env bash
@@ -393,12 +393,22 @@ browser-projection-e2e: ext-stamp
 
 # Visible, test-owned PTY replay and standalone-window restoration acceptance gate. It preflights
 # TCC without prompting, uses a temporary socket and manager, exercises two differently sized
-# SwiftTerm windows plus a deliberately slow client, restarts the test host harness without killing
+# production web-terminal windows plus a deliberately slow client, restarts the test host harness without killing
 # the manager, and writes bounded artifacts under /tmp. It never touches the personal host socket.
 terminal-replay-e2e:
     #!/usr/bin/env bash
     set -euo pipefail
     bash '{{justfile_directory()}}/tools/terminal-replay-e2e.sh' '{{justfile_directory()}}'
+
+# Build the deterministic shared terminal web runtime from the audited xterm fork.
+terminal-web-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd '{{justfile_directory()}}/terminal/pty-client-swift/Web'
+    npm ci
+    npm test
+    npm run build
+    npm run check-generated
 
 # ADR-0044 Tier B autonomous gate: capture a REAL DOMSnapshot.captureSnapshot (piercing a CLOSED
 # shadow root) via Playwright's CDP session, run it through the SAME reconstructProjectionHtml the
@@ -478,7 +488,7 @@ dom-mirror-e2e: ext-stamp
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
 # everything with `just check-all`.
-check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholder workspace-ide-fitness
+check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholder workspace-ide-fitness terminal-web-build
     #!/usr/bin/env bash
     set -euo pipefail
     sh tools/media-architecture-guard.sh
@@ -490,6 +500,8 @@ check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholde
     (cd packages/BrowserProjection && swift test)
     (cd packages/WorkspaceKit && swift test)
     (cd packages/WorkspaceIDE && swift test)
+    (cd terminal/pty-client-swift && swift test)
+    (cd terminal/emulator && swift build)
     (cd '{{pty_manager_dir}}' && cargo build --bin pty-manager)
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
@@ -1503,7 +1515,7 @@ ui-flow flow variant="stable":
         -e "CODEX_SESSION=$CODEX_SESSION" \
         "../$FLOW.yaml"
 
-# Stronger terminal simulator smoke: drives the SwiftTerm surface, types a host
+# Stronger terminal simulator smoke: drives the shared web terminal, types a host
 # command, screenshots the rendered PTY output, then OCR-checks the pixel buffer.
 terminal-smoke:
     just agent-feed-sim-pair

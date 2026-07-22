@@ -355,3 +355,22 @@ too, so both host targets link the terminal products.
 - **Protocol v11 generalizes the Files stream.** The stream becomes a typed workspace lane carrying the
   existing native binary file codec plus shared IDE state, Git status, and change pushes. The existing
   101 MiB Files frame bound remains, DOCX is not base64 encoded, and there is no v10 compatibility path.
+
+## One shared web terminal workspace (ADR-0069)
+
+- **Presentation is shared; PTY authority is unchanged.** One bundled WKWebView and xterm runtime now
+  renders tabs, recursive splits, pane chrome, session discovery, input, selection, status, and cells
+  on macOS and iOS. Rust still owns replay, revisions, the authoritative grid, viewport ownership, and
+  parser-generated terminal replies.
+- **Native code is an adapter boundary.** AppKit and UIKit retain window or view lifecycle, transport
+  creation, clipboard writes, external HTTP(S) links, keyboard dismissal, safe areas, and accessibility
+  activation. Terminal features no longer require parallel native implementations.
+- **Workspace state remains native-authoritative and bounded.** JavaScript renders immutable snapshots
+  and emits validated intents. One WKWebView admits at most 16 tabs, 16 panes, and 16 connections.
+  Hidden panes release viewport participation; passive resize cannot steal ownership.
+- **Recovery starts from a checkpoint.** The native bridge serializes delivery, caps live and aggregate
+  queued bytes, reloads failed WebKit content, and requests a replacement checkpoint before accepting
+  more revisions. Terminal payloads, clipboard contents, and typed input are absent from logs and disk.
+- **Restoration stores workspace metadata only.** The old one-session descriptor decodes into one tab.
+  New descriptors persist bounded tabs, split trees, focused pane, session names, labels, and frames.
+  Cells, scrollback, ANSI, input, checkpoints, and ownership remain memory-only.

@@ -2,6 +2,7 @@ import CoreGraphics
 import Foundation
 import PtyClientSwift
 import TerminalEmulator
+import PtyTerminalWebView
 import XCTest
 @testable import AgentDeskHost
 
@@ -135,8 +136,9 @@ private struct FakeSessionLister: TerminalSessionListing {
 private final class FakeExistingSessionSpawner: TerminalExistingSessionSpawning {
     var window: FakeTrackedTerminalWindow?
 
-    func spawnExistingSession(
-        _ session: PtySessionSummary,
+    func spawnExistingWorkspace(
+        sessions: [PtySessionSummary],
+        state: PtyTerminalWorkspaceState,
         into frame: CGRect,
         completion: @escaping (Result<TerminalEmulatorWindow, Error>) -> Void
     ) {
@@ -155,6 +157,7 @@ private final class FakeTrackedTerminalWindow: TerminalWindowPresentationTrackab
     var orderedWithoutFocus = false
     var closedPreservingPresentation = false
     var raised = false
+    var terminalWorkspaceState = PtyTerminalWorkspaceState(restoringSessionName: "persistent")
     private var frameChanged: ((CGRect) -> Void)?
     private var closed: ((TerminalWindowCloseReason) -> Void)?
 
@@ -171,6 +174,7 @@ private final class FakeTrackedTerminalWindow: TerminalWindowPresentationTrackab
     func focusForAccessibility() { raised = true }
     func observePresentation(
         frameChanged: @escaping (CGRect) -> Void,
+        workspaceChanged: @escaping (PtyTerminalWorkspaceState) -> Void,
         closed: @escaping (TerminalWindowCloseReason) -> Void
     ) {
         self.frameChanged = frameChanged

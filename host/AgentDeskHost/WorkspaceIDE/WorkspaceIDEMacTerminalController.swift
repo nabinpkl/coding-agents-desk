@@ -2,11 +2,11 @@ import AgentDeskWire
 import AppKit
 import OSLog
 import PtyClientSwift
-import PtyTerminalSwiftTerm
+import PtyTerminalWebView
 
 @MainActor
-final class WorkspaceIDEMacTerminalController: NSObject, PtyTerminalSwiftTermContentViewDelegate {
-    let contentView = PtyTerminalSwiftTermContentView()
+final class WorkspaceIDEMacTerminalController: NSObject, PtyTerminalWebViewDelegate {
+    let contentView = PtyTerminalWebView()
 
     private let endpoint: WorkspaceTerminalEndpoint
     nonisolated(unsafe) private let ptyClient: PtyClient
@@ -69,7 +69,7 @@ final class WorkspaceIDEMacTerminalController: NSObject, PtyTerminalSwiftTermCon
     }
 
     func setZoomScale(_ scale: Double) {
-        contentView.setFontSize(PtyTerminalViewStyle.defaultFontSize * CGFloat(scale))
+        contentView.setFontSize(14 * CGFloat(scale))
     }
 
     func stop() {
@@ -206,14 +206,14 @@ final class WorkspaceIDEMacTerminalController: NSObject, PtyTerminalSwiftTermCon
         logger.error("workspace IDE terminal open failed: \(code.rawValue, privacy: .public)")
     }
 
-    func ptyTerminalContent(_ content: PtyTerminalSwiftTermContentView, didFail error: Error) {
+    func ptyTerminalContent(_ content: PtyTerminalWebView, didFail error: Error) {
         logger.error("workspace IDE terminal connection failed: \(String(describing: error), privacy: .public)")
         activeRequest = nil
         contentView.detach()
         restartIfPresented()
     }
 
-    func ptyTerminalContentDidDetachByManager(_ content: PtyTerminalSwiftTermContentView) {
+    func ptyTerminalContentDidDetachByManager(_ content: PtyTerminalWebView) {
         activeRequest = nil
         restartIfPresented()
     }

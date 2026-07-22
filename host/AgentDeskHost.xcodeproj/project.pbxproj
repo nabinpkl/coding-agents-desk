@@ -23,8 +23,8 @@
 		A0000000000000000000F505 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F504 /* PtyClientSwift */; };
 		A0000000000000000000F508 /* PtyTerminalSession in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F506 /* PtyTerminalSession */; };
 		A0000000000000000000F509 /* PtyTerminalSession in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F507 /* PtyTerminalSession */; };
-		A0000000000000000000F50C /* PtyTerminalSwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F50A /* PtyTerminalSwiftTerm */; };
-		A0000000000000000000F50D /* PtyTerminalSwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F50B /* PtyTerminalSwiftTerm */; };
+		A0000000000000000000F50C /* PtyTerminalWebView in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F50A /* PtyTerminalWebView */; };
+		A0000000000000000000F50D /* PtyTerminalWebView in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F50B /* PtyTerminalWebView */; };
 		A0000000000000000000F513 /* TerminalEmulator in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F512 /* TerminalEmulator */; };
 		A0000000000000000000F515 /* TerminalEmulator in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F514 /* TerminalEmulator */; };
 /* End PBXBuildFile section */
@@ -97,7 +97,7 @@
 				A0000000000000000000B603 /* BrowserProjection in Frameworks */,
 				A0000000000000000000F503 /* PtyClientSwift in Frameworks */,
 				A0000000000000000000F508 /* PtyTerminalSession in Frameworks */,
-				A0000000000000000000F50C /* PtyTerminalSwiftTerm in Frameworks */,
+				A0000000000000000000F50C /* PtyTerminalWebView in Frameworks */,
 				A0000000000000000000F513 /* TerminalEmulator in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -114,7 +114,7 @@
 				A0000000000000000000B605 /* BrowserProjection in Frameworks */,
 				A0000000000000000000F505 /* PtyClientSwift in Frameworks */,
 				A0000000000000000000F509 /* PtyTerminalSession in Frameworks */,
-				A0000000000000000000F50D /* PtyTerminalSwiftTerm in Frameworks */,
+				A0000000000000000000F50D /* PtyTerminalWebView in Frameworks */,
 				A0000000000000000000F515 /* TerminalEmulator in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -168,7 +168,7 @@
 				A0000000000000000000B602 /* BrowserProjection */,
 				A0000000000000000000F502 /* PtyClientSwift */,
 				A0000000000000000000F506 /* PtyTerminalSession */,
-				A0000000000000000000F50A /* PtyTerminalSwiftTerm */,
+				A0000000000000000000F50A /* PtyTerminalWebView */,
 				A0000000000000000000F512 /* TerminalEmulator */,
 			);
 			productName = AgentDeskHost;
@@ -202,7 +202,7 @@
 				A0000000000000000000B604 /* BrowserProjection */,
 				A0000000000000000000F504 /* PtyClientSwift */,
 				A0000000000000000000F507 /* PtyTerminalSession */,
-				A0000000000000000000F50B /* PtyTerminalSwiftTerm */,
+				A0000000000000000000F50B /* PtyTerminalWebView */,
 				A0000000000000000000F514 /* TerminalEmulator */,
 			);
 			productName = AgentDeskHostTests;
@@ -604,15 +604,15 @@
 			package = A0000000000000000000F501 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
 			productName = PtyTerminalSession;
 		};
-		A0000000000000000000F50A /* PtyTerminalSwiftTerm */ = {
+		A0000000000000000000F50A /* PtyTerminalWebView */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A0000000000000000000F501 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
-			productName = PtyTerminalSwiftTerm;
+			productName = PtyTerminalWebView;
 		};
-		A0000000000000000000F50B /* PtyTerminalSwiftTerm */ = {
+		A0000000000000000000F50B /* PtyTerminalWebView */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A0000000000000000000F501 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
-			productName = PtyTerminalSwiftTerm;
+			productName = PtyTerminalWebView;
 		};
 		A0000000000000000000F512 /* TerminalEmulator */ = {
 			isa = XCSwiftPackageProductDependency;

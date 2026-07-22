@@ -12,9 +12,9 @@
 		C0000000000000000000EE07 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE03 /* PtyClientSwift */; };
 		C0000000000000000000EE09 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE05 /* PtyClientSwift */; };
 		C0000000000000000000EE0B /* PtyTerminalSession in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE0F /* PtyTerminalSession */; };
-		C0000000000000000000EE0C /* PtyTerminalSwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE10 /* PtyTerminalSwiftTerm */; };
+		C0000000000000000000EE0C /* PtyTerminalWebView in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE10 /* PtyTerminalWebView */; };
 		C0000000000000000000EE0D /* PtyTerminalSession in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE11 /* PtyTerminalSession */; };
-		C0000000000000000000EE0E /* PtyTerminalSwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE12 /* PtyTerminalSwiftTerm */; };
+		C0000000000000000000EE0E /* PtyTerminalWebView in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE12 /* PtyTerminalWebView */; };
 		D0000000000000000000AF04 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000AF02 /* AgentPanel */; };
 		D0000000000000000000AF05 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000AF03 /* AgentPanel */; };
 		D0000000000000000000C504 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000C502 /* WorkspaceKit */; };
@@ -83,7 +83,7 @@
 				A0000000000000000000EE03 /* AgentDeskWire in Frameworks */,
 				C0000000000000000000EE07 /* PtyClientSwift in Frameworks */,
 				C0000000000000000000EE0B /* PtyTerminalSession in Frameworks */,
-				C0000000000000000000EE0C /* PtyTerminalSwiftTerm in Frameworks */,
+				C0000000000000000000EE0C /* PtyTerminalWebView in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -99,7 +99,7 @@
 				A0000000000000000000EE05 /* AgentDeskWire in Frameworks */,
 				C0000000000000000000EE09 /* PtyClientSwift in Frameworks */,
 				C0000000000000000000EE0D /* PtyTerminalSession in Frameworks */,
-				C0000000000000000000EE0E /* PtyTerminalSwiftTerm in Frameworks */,
+				C0000000000000000000EE0E /* PtyTerminalWebView in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -152,7 +152,7 @@
 				A0000000000000000000EE02 /* AgentDeskWire */,
 				C0000000000000000000EE03 /* PtyClientSwift */,
 				C0000000000000000000EE0F /* PtyTerminalSession */,
-				C0000000000000000000EE10 /* PtyTerminalSwiftTerm */,
+				C0000000000000000000EE10 /* PtyTerminalWebView */,
 			);
 			productName = AgentDeskClient;
 			productReference = B00000000000000000000141 /* AgentDeskClient.app */;
@@ -184,7 +184,7 @@
 				A0000000000000000000EE04 /* AgentDeskWire */,
 				C0000000000000000000EE05 /* PtyClientSwift */,
 				C0000000000000000000EE11 /* PtyTerminalSession */,
-				C0000000000000000000EE12 /* PtyTerminalSwiftTerm */,
+				C0000000000000000000EE12 /* PtyTerminalWebView */,
 			);
 			productName = AgentDeskClientTests;
 			productReference = B00000000000000000000142 /* AgentDeskClientTests.xctest */;
@@ -610,20 +610,20 @@
 			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
 			productName = PtyTerminalSession;
 		};
-		C0000000000000000000EE10 /* PtyTerminalSwiftTerm */ = {
+		C0000000000000000000EE10 /* PtyTerminalWebView */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
-			productName = PtyTerminalSwiftTerm;
+			productName = PtyTerminalWebView;
 		};
 		C0000000000000000000EE11 /* PtyTerminalSession */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
 			productName = PtyTerminalSession;
 		};
-		C0000000000000000000EE12 /* PtyTerminalSwiftTerm */ = {
+		C0000000000000000000EE12 /* PtyTerminalWebView */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
-			productName = PtyTerminalSwiftTerm;
+			productName = PtyTerminalWebView;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

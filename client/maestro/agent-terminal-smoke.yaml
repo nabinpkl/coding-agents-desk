@@ -26,7 +26,7 @@ appId: ${APP_ID}
     text: "Open project ${PROJECT_NAME}"
     retryTapIfNoChange: true
 
-# Claude: native SwiftTerm handoff, non-submitted input, resize, and explicit close.
+# Claude: native native web terminal handoff, non-submitted input, resize, and explicit close.
 - scrollUntilVisible:
     centerElement: true
     element: "Open Claude session ${CLAUDE_SESSION}"

@@ -720,7 +720,7 @@ struct AgentFeedTerminalTests {
         }
     }
 
-    @Test func keyboardDismissButtonResignsSwiftTermFocus() async throws {
+    @Test func keyboardDismissButtonResignsWebTerminalFocus() async throws {
         let harness = makeHarness()
         let window = hostInWindow(harness.surface)
         defer { window.isHidden = true }

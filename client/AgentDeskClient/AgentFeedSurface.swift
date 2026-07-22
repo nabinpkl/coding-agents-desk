@@ -4,7 +4,7 @@ import UIKit
 import WebKit
 import AgentDeskWire
 import AgentPanel
-import PtyTerminalSwiftTerm
+import PtyTerminalWebView
 
 /// The iOS Agent surface. AgentPanel retains web content ownership while this UIKit container owns
 /// the native terminal layout and attachment workflow.
@@ -29,9 +29,7 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
     private(set) var panelContentView = UIView()
     let resizeHandle = UIView()
     let terminalKeyboardDismissButton = UIButton(type: .system)
-    let terminalContent = PtyTerminalSwiftTermContentView(
-        style: PtyTerminalViewStyle(fontSize: 14, metalRendering: PtyTerminalMetalRendering.from())
-    )
+    let terminalContent = PtyTerminalWebView()
     let terminalAvailableLayoutGuide = UILayoutGuide()
     private(set) var terminalHeightFraction = AgentFeedSurface.defaultTerminalHeightFraction
     private(set) var isTerminalPresented = false

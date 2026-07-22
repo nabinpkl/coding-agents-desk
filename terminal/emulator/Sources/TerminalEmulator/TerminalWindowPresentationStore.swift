@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import PtyTerminalWebView
 
 public struct TerminalWindowFrame: Codable, Equatable, Sendable {
     public let x: Double
@@ -21,11 +22,27 @@ public struct TerminalWindowFrame: Codable, Equatable, Sendable {
 
 public struct TerminalWindowPresentationDescriptor: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
-    public let sessionName: String
+    public let workspace: PtyTerminalWorkspaceState
     public let workspaceID: UUID?
     public var frame: TerminalWindowFrame
     public let cascadeOrdinal: Int
     public let workspaceLabel: String
+
+    public init(
+        id: UUID,
+        workspace: PtyTerminalWorkspaceState,
+        workspaceID: UUID?,
+        frame: TerminalWindowFrame,
+        cascadeOrdinal: Int,
+        workspaceLabel: String
+    ) {
+        self.id = id
+        self.workspace = workspace
+        self.workspaceID = workspaceID
+        self.frame = frame
+        self.cascadeOrdinal = cascadeOrdinal
+        self.workspaceLabel = workspaceLabel
+    }
 
     public init(
         id: UUID,
@@ -35,12 +52,47 @@ public struct TerminalWindowPresentationDescriptor: Codable, Equatable, Identifi
         cascadeOrdinal: Int,
         workspaceLabel: String
     ) {
-        self.id = id
-        self.sessionName = sessionName
-        self.workspaceID = workspaceID
-        self.frame = frame
-        self.cascadeOrdinal = cascadeOrdinal
-        self.workspaceLabel = workspaceLabel
+        self.init(
+            id: id,
+            workspace: PtyTerminalWorkspaceState(restoringSessionName: sessionName),
+            workspaceID: workspaceID,
+            frame: frame,
+            cascadeOrdinal: cascadeOrdinal,
+            workspaceLabel: workspaceLabel
+        )
+    }
+
+    public var sessionName: String { workspace.selectedPane?.sessionName ?? "" }
+    public var sessionNames: [String] { workspace.panes.map(\.sessionName) }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, workspace, sessionName, workspaceID, frame, cascadeOrdinal, workspaceLabel
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        if let decoded = try values.decodeIfPresent(PtyTerminalWorkspaceState.self, forKey: .workspace) {
+            workspace = decoded
+        } else {
+            workspace = PtyTerminalWorkspaceState(
+                restoringSessionName: try values.decode(String.self, forKey: .sessionName)
+            )
+        }
+        workspaceID = try values.decodeIfPresent(UUID.self, forKey: .workspaceID)
+        frame = try values.decode(TerminalWindowFrame.self, forKey: .frame)
+        cascadeOrdinal = try values.decode(Int.self, forKey: .cascadeOrdinal)
+        workspaceLabel = try values.decode(String.self, forKey: .workspaceLabel)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(workspace, forKey: .workspace)
+        try values.encodeIfPresent(workspaceID, forKey: .workspaceID)
+        try values.encode(frame, forKey: .frame)
+        try values.encode(cascadeOrdinal, forKey: .cascadeOrdinal)
+        try values.encode(workspaceLabel, forKey: .workspaceLabel)
     }
 }
 
@@ -63,7 +115,9 @@ public final class TerminalWindowPresentationStore {
     }
 
     public func upsert(_ descriptor: TerminalWindowPresentationDescriptor) throws {
-        guard descriptor.sessionName.utf8.count <= 256,
+        guard descriptor.workspace.profile == .workspace,
+              !descriptor.sessionNames.isEmpty,
+              descriptor.sessionNames.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 256 }),
               descriptor.workspaceLabel.utf8.count <= 256,
               descriptor.cascadeOrdinal >= 0,
               descriptor.frame.width >= 1,

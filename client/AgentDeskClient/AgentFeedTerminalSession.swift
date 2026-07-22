@@ -4,7 +4,7 @@ import Foundation
 import OSLog
 import PtyClientSwift
 import PtyTerminalSession
-import PtyTerminalSwiftTerm
+import PtyTerminalWebView
 
 enum AgentFeedTerminalAbandonmentReason: String, CaseIterable {
     case userClose = "user-close"
@@ -184,7 +184,7 @@ final class AgentFeedTerminalLifecycleRouter {
 }
 
 @MainActor
-final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
+final class AgentFeedTerminalSession: PtyTerminalWebViewDelegate {
     private struct TerminalDescriptor: Equatable {
         let open: AgentTerminalOpen
         var ptySessionName: String?
@@ -200,7 +200,7 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
     }
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-terminal")
-    private weak var terminalContent: PtyTerminalSwiftTermContentView?
+    private weak var terminalContent: PtyTerminalWebView?
     private let setPresented: (Bool) -> Void
     private let deliver: (AgentTerminalHostMessage) -> Void
     private let closeDelivery: AgentFeedTerminalCloseDelivery
@@ -220,7 +220,7 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
     private var activeTerminal: ActiveTerminal?
 
     init(
-        terminalContent: PtyTerminalSwiftTermContentView,
+        terminalContent: PtyTerminalWebView,
         closeDelivery: AgentFeedTerminalCloseDelivery,
         setPresented: @escaping (Bool) -> Void,
         deliver: @escaping (AgentTerminalHostMessage) -> Void
@@ -852,7 +852,7 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
     }
 
     func ptyTerminalContent(
-        _ content: PtyTerminalSwiftTermContentView,
+        _ content: PtyTerminalWebView,
         didTerminate termination: PtyTerminalSessionTermination
     ) {
         guard let activeTerminal,
@@ -877,7 +877,7 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
     }
 
     func ptyTerminalContent(
-        _ content: PtyTerminalSwiftTermContentView,
+        _ content: PtyTerminalWebView,
         didFail error: Error
     ) {
         guard let activeTerminal,
@@ -899,7 +899,7 @@ final class AgentFeedTerminalSession: PtyTerminalSwiftTermContentViewDelegate {
         )
     }
 
-    func ptyTerminalContentDidDetachByManager(_ content: PtyTerminalSwiftTermContentView) {
+    func ptyTerminalContentDidDetachByManager(_ content: PtyTerminalWebView) {
         guard let activeTerminal,
               activeTerminal.operationGeneration == operationGeneration,
               activeTerminal.contextGeneration == contextGeneration else {

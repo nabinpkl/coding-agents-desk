@@ -16,7 +16,7 @@ private final class AgentPanelWindow: NSPanel {
 
 /// The macOS Agents window (R24): one reusable Agent surface hosted directly on the Mac, backed by
 /// the host-owned ATC sidecar through `AgentPanel`. It composes the shared webview above an optional
-/// native SwiftTerm pane and routes both through host-owned bridges. Feed requests flow webview ->
+/// native web terminal pane and routes both through host-owned bridges. Feed requests flow webview ->
 /// `AgentPanelBridgeTransport` -> `AgentFeedBridge` -> sidecar. Terminal intent flows through the
 /// local Agent-session coordinator and attaches the deterministic leased PTY below the shrinking feed.
 @MainActor

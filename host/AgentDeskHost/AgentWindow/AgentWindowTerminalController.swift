@@ -4,7 +4,7 @@ import AgentPanel
 import Foundation
 import PtyClientSwift
 import PtyTerminalSession
-import PtyTerminalSwiftTerm
+import PtyTerminalWebView
 
 enum AgentWindowTerminalExplicitCloseReason: String, Equatable {
     case windowHidden = "window-hidden"
@@ -226,7 +226,7 @@ enum AgentWindowTerminalState: Equatable {
 
 @MainActor
 final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControlling,
-    PtyTerminalSwiftTermContentViewDelegate
+    PtyTerminalWebViewDelegate
 {
     private struct OpenRequest: Equatable {
         let requestID: String
@@ -364,7 +364,7 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
         case closing(CloseBarrier)
     }
 
-    let contentView: PtyTerminalSwiftTermContentView
+    let contentView: PtyTerminalWebView
     var terminalView: NSView { contentView }
     private(set) var stateForTesting: AgentWindowTerminalState = .idle
 
@@ -381,7 +381,7 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
     init(
         endpoint: any AgentWindowTerminalEndpointRouting,
         attacher: any AgentWindowTerminalAttaching,
-        contentView: PtyTerminalSwiftTermContentView = PtyTerminalSwiftTermContentView(),
+        contentView: PtyTerminalWebView = PtyTerminalWebView(),
         acknowledgementCloseGrace: Duration = .milliseconds(250),
         setTerminalOpen: @escaping (Bool) -> Void,
         deliverStatus: @escaping (AgentTerminalHostMessage) -> Void
@@ -858,7 +858,7 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
     }
 
     func ptyTerminalContent(
-        _ content: PtyTerminalSwiftTermContentView,
+        _ content: PtyTerminalWebView,
         didTerminate termination: PtyTerminalSessionTermination
     ) {
         guard case .exited(let status) = termination,
@@ -877,14 +877,18 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
     }
 
     func ptyTerminalContent(
-        _ content: PtyTerminalSwiftTermContentView,
+        _ content: PtyTerminalWebView,
         didFail error: Error
     ) {
+        // The shared web renderer recovers its own process, bridge, and
+        // navigation failures by reloading and requesting fresh checkpoints.
+        // Only a PTY/session failure means this coordinator lost its binding.
+        guard !(error is PtyTerminalWebViewError) else { return }
         detachAfterUnexpectedLoss(contentAlreadyStopped: false)
     }
 
     func ptyTerminalContentDidDetachByManager(
-        _ content: PtyTerminalSwiftTermContentView
+        _ content: PtyTerminalWebView
     ) {
         detachAfterUnexpectedLoss(contentAlreadyStopped: true)
     }
