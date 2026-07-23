@@ -149,10 +149,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // host-owned ATC sidecar through AgentPanel, independent of the QUIC-lane agent feed.
     private var agentWindowController: AgentWindowController?
     private var agentWindowTerminationTask: Task<Void, Never>?
+    // The macOS gesture window: the shared InteractionPanel webview runs camera +
+    // the TS swipe tracker and applies each Space step in-process. Opt-in via
+    // AGENTDESK_GESTURE_WINDOW_ENABLED until a top-bar toggle is added.
+    private var gestureWindowController: GestureWindowController?
     private let agentWindowApplicationLifecycle = AgentWindowApplicationLifecycle()
-    private var gesturePortalController: GesturePortalController?
-    private var gestureChildController: GestureChildController?
-    private var voiceChildController: VoiceChildController?
     private var agentSayServer: AgentSayLocalServer?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
@@ -177,6 +178,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return AgentEngineSidecar(binaryURL: binaryURL, port: Config.agentSidecarPort)
     }()
+    // Voice server sidecar: spawns `voice-server` on loopback for the
+    // InteractionPanel's voice UI (live capture + transcript). Built in
+    // startVoiceEngineSidecar() after the venv is provisioned (or from the
+    // env-driven dev launch), so it is a plain var rather than a lazy resolved
+    // before provisioning completes.
+    private var voiceEngineSidecar: VoiceEngineSidecar?
     // Bridge between the sidecar and the active session's input lane.
     private var agentFeedBridge: AgentFeedBridge?
     private lazy var agentSessionTerminalCoordinator: AgentSessionTerminalCoordinator = {
@@ -295,12 +302,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installCursorMonitor()
         startAgentSayServer()
         startSpaceAgent()
-        startVoiceChildIfConfigured()
         startDictationBar()
         startPtyManager()
-        startGesturePortalIfConfigured()
-        startGestureChildIfConfigured()
         startAgentEngineSidecar()
+        startVoiceEngineSidecar()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
         }
@@ -418,10 +423,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         agentWindowController = nil
-        voiceChildController?.stop()
+        gestureWindowController?.stop()
+        gestureWindowController = nil
         agentSayServer?.stop()
         signalingServer?.stop()
         agentEngineSidecar?.stop()
+        voiceEngineSidecar?.stop()
     }
 
     private func configureStatusItem() {
@@ -432,6 +439,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startAgentEngineSidecar() {
         agentEngineSidecar?.start()
+    }
+
+    private func startVoiceEngineSidecar() {
+        // Prefer the shipped provisioned venv; fall back to the env-driven dev
+        // launch. Provisioning is off-main and can take a while on first launch,
+        // so the sidecar is constructed and started from its completion.
+        if let inputs = Config.voiceProvisionerInputs {
+            let provisioner = VoiceVenvProvisioner(inputs: inputs)
+            provisioner.ensureProvisioned { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    switch result {
+                    case .success(let voiceServer):
+                        self.startVoiceSidecar(
+                            launch: Config.provisionedVoiceLaunch(
+                                voiceServerExecutable: voiceServer
+                            )
+                        )
+                    case .failure:
+                        // Provisioning failed loud in the provisioner's log; try
+                        // the dev launch so a configured checkout still works.
+                        self.startVoiceSidecarFromDevLaunch()
+                    }
+                }
+            }
+            return
+        }
+        startVoiceSidecarFromDevLaunch()
+    }
+
+    private func startVoiceSidecarFromDevLaunch() {
+        guard let launch = Config.voiceSidecarLaunch else {
+            launchAgentLogger.notice("voice sidecar launch not configured; voice UI will be offline")
+            return
+        }
+        startVoiceSidecar(launch: launch)
+    }
+
+    private func startVoiceSidecar(launch: VoiceSidecarLaunch) {
+        // Guard against a double-start if provisioning and a fallback ever race.
+        guard voiceEngineSidecar == nil else { return }
+        let sidecar = VoiceEngineSidecar(launch: launch, port: Config.voiceSidecarPort)
+        voiceEngineSidecar = sidecar
+        sidecar.start()
     }
 
     private func startAgentSayServer() {
@@ -500,9 +551,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         popoverController.onQuit = {
-            self.gestureChildController?.stop()
-            self.gesturePortalController?.stop()
-            self.voiceChildController?.stop()
             NSApp.terminate(nil)
         }
     }
@@ -531,6 +579,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presenter.onAgentsCommand = { [weak agentWindow] in agentWindow?.toggle() }
         presenter.onIDECommand = { [weak self] in self?.toggleWorkspaceIDE() }
         presenter.onBrowserCommand = { [weak self] in self?.toggleBrowserProjection() }
+
+        // Gesture window: the InteractionPanel webview detects swipes and steps
+        // Spaces via the same commitStep path the QUIC input lane uses. Toggled
+        // from the top-bar "Gesture" button.
+        let gestureWindow = GestureWindowController(onSpaceStep: { [weak self] delta in
+            self?.spacesProvider.commitStep(delta: delta)
+        })
+        gestureWindowController = gestureWindow
+        presenter.onGestureCommand = { [weak gestureWindow] in gestureWindow?.toggle() }
 
         presenter.show()
     }
@@ -1325,7 +1382,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startDictationBar() {
-        let transcriber = TranscriptionClient(voiceChild: voiceChildController)
+        let transcriber = TranscriptionClient()
         let controller = DictationBarController(
             transcriber: transcriber,
             typeText: { [inputDispatcher] text in inputDispatcher.typeText(text) }
@@ -1337,58 +1394,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         dictationBarController = controller
         controller.start()
-        // And keep dodging as the handle is dragged or the popover resizes. A
-        // handle move re-dodges both sibling overlays.
+        // And keep dodging as the handle is dragged or the popover resizes.
         spaceAgentController?.onHandleFrameDidChange = { [weak self] in
             self?.dictationBarController?.keepClearOfSpaceAgentHandle()
-            self?.gesturePortalController?.keepClearOfNeighbors()
         }
-        // A dictation-bar move re-dodges the gesture portal (its other neighbor).
-        controller.onFrameDidChange = { [weak self] in
-            self?.gesturePortalController?.keepClearOfNeighbors()
-        }
-    }
-
-    private func startVoiceChildIfConfigured() {
-        guard let executableURL = Config.voiceChildExecutableURL else { return }
-        let controller = VoiceChildController(
-            executableURL: executableURL,
-            arguments: Config.voiceChildArguments,
-            model: Config.transcriptionModel
-        )
-        voiceChildController = controller
-        controller.start()
-    }
-
-    private func startGesturePortalIfConfigured() {
-        // The portal is the gesture child's on-screen surface; with no child
-        // configured there is nothing to drive it, so do not show the panel.
-        guard Config.gestureChildExecutableURL != nil else { return }
-        let controller = GesturePortalController()
-        controller.spaceAgentHandleFrame = { [weak self] in
-            self?.spaceAgentController?.currentHandleScreenFrame()
-        }
-        controller.dictationBarFrame = { [weak self] in
-            self?.dictationBarController?.currentScreenFrame()
-        }
-        gesturePortalController = controller
-        controller.start()
-    }
-
-    private func startGestureChildIfConfigured() {
-        guard let executableURL = Config.gestureChildExecutableURL else { return }
-        let controller = GestureChildController(
-            executableURL: executableURL,
-            arguments: Config.gestureChildArguments,
-            onGestureState: { [weak self] state in
-                self?.gesturePortalController?.update(state)
-            },
-            commitStep: { [spacesProvider] delta in
-                spacesProvider.commitStep(delta: delta)
-            }
-        )
-        gestureChildController = controller
-        controller.start()
     }
 
     // R11: NSWorkspace publishes activeSpaceDidChangeNotification on

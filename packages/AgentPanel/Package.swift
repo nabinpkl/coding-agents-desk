@@ -10,9 +10,15 @@ let package = Package(
     products: [
         .library(name: "AgentPanel", targets: ["AgentPanel"]),
     ],
+    dependencies: [
+        .package(path: "../WebPanelKit"),
+    ],
     targets: [
         .target(
             name: "AgentPanel",
+            dependencies: [
+                .product(name: "WebPanelKit", package: "WebPanelKit"),
+            ],
             resources: [
                 .copy("Resources/AgentPanelFixture"),
                 .copy("Resources/AgentPanelWebview"),

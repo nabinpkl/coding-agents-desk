@@ -1,7 +1,9 @@
 import Foundation
 
+/// Serializes async native-to-JS deliveries so callAsyncJavaScript pushes never
+/// overlap, preserving order. Generic; shared by every panel.
 @MainActor
-public final class AgentPanelSerialDelivery {
+public final class WebPanelSerialDelivery {
     public typealias Delivery = (String) async -> Void
 
     private let deliver: Delivery

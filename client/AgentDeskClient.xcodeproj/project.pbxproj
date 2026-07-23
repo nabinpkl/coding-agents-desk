@@ -16,7 +16,9 @@
 		C0000000000000000000EE0D /* PtyTerminalSession in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE11 /* PtyTerminalSession */; };
 		C0000000000000000000EE0E /* PtyTerminalWebView in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE12 /* PtyTerminalWebView */; };
 		D0000000000000000000AF04 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000AF02 /* AgentPanel */; };
+		D00000000000000000001C04 /* InteractionPanel in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000001C02 /* InteractionPanel */; };
 		D0000000000000000000AF05 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000AF03 /* AgentPanel */; };
+		D00000000000000000001C05 /* InteractionPanel in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000001C03 /* InteractionPanel */; };
 		D0000000000000000000C504 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000C502 /* WorkspaceKit */; };
 		D0000000000000000000C505 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000C503 /* WorkspaceKit */; };
 		D0000000000000000000E504 /* WorkspaceFileViewer in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E502 /* WorkspaceFileViewer */; };
@@ -76,6 +78,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D0000000000000000000AF04 /* AgentPanel in Frameworks */,
+				D00000000000000000001C04 /* InteractionPanel in Frameworks */,
 				D0000000000000000000C504 /* WorkspaceKit in Frameworks */,
 				D0000000000000000000E504 /* WorkspaceFileViewer in Frameworks */,
 				D0000000000000000000E508 /* WorkspaceIDE in Frameworks */,
@@ -92,6 +95,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				D0000000000000000000AF05 /* AgentPanel in Frameworks */,
+				D00000000000000000001C05 /* InteractionPanel in Frameworks */,
 				D0000000000000000000C505 /* WorkspaceKit in Frameworks */,
 				D0000000000000000000E505 /* WorkspaceFileViewer in Frameworks */,
 				D0000000000000000000E509 /* WorkspaceIDE in Frameworks */,
@@ -145,6 +149,7 @@
 			name = AgentDeskClient;
 			packageProductDependencies = (
 				D0000000000000000000AF02 /* AgentPanel */,
+				D00000000000000000001C02 /* InteractionPanel */,
 				D0000000000000000000C502 /* WorkspaceKit */,
 				D0000000000000000000E502 /* WorkspaceFileViewer */,
 				D0000000000000000000E506 /* WorkspaceIDE */,
@@ -177,6 +182,7 @@
 			name = AgentDeskClientTests;
 			packageProductDependencies = (
 				D0000000000000000000AF03 /* AgentPanel */,
+				D00000000000000000001C03 /* InteractionPanel */,
 				D0000000000000000000C503 /* WorkspaceKit */,
 				D0000000000000000000E503 /* WorkspaceFileViewer */,
 				D0000000000000000000E507 /* WorkspaceIDE */,
@@ -220,6 +226,7 @@
 			mainGroup = B00000000000000000000002;
 			packageReferences = (
 				D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */,
+				D00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */,
 				D0000000000000000000C501 /* XCLocalSwiftPackageReference "../packages/WorkspaceKit" */,
 				D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */,
 				D0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */,
@@ -524,6 +531,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/AgentPanel;
 		};
+		D00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/InteractionPanel;
+		};
 		A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/AgentDeskWire;
@@ -540,10 +551,20 @@
 			package = D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */;
 			productName = AgentPanel;
 		};
+		D00000000000000000001C02 /* InteractionPanel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */;
+			productName = InteractionPanel;
+		};
 		D0000000000000000000AF03 /* AgentPanel */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */;
 			productName = AgentPanel;
+		};
+		D00000000000000000001C03 /* InteractionPanel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */;
+			productName = InteractionPanel;
 		};
 		D0000000000000000000C502 /* WorkspaceKit */ = {
 			isa = XCSwiftPackageProductDependency;

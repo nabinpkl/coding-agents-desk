@@ -299,20 +299,8 @@ final class PairingClient {
         do {
             try Task.checkCancellation()
             let fingerprint = DeviceFingerprint(try deviceKeyProvider.publicKey.agentDeskFingerprint)
-            let connection: SessionHandshakeOutcome
-            if let resume = pendingResume,
-               resume.resume.expiresAt >= Int(Date().timeIntervalSince1970) {
-                connection = try await dialer.resume(
-                    host: host,
-                    port: port,
-                    deviceFingerprint: fingerprint,
-                    active: resume.active,
-                    resume: resume.resume,
-                    hostPublicKey: record.hostPublicKey
-                )
-            } else {
-                pendingResume = nil
-                connection = try await dialer.dial(
+            func dialDurablePairing() async throws -> SessionHandshakeOutcome {
+                try await dialer.dial(
                     host: host,
                     port: port,
                     deviceFingerprint: fingerprint,
@@ -320,6 +308,42 @@ final class PairingClient {
                     hostPublicKey: record.hostPublicKey,
                     deviceKey: deviceKeyProvider
                 )
+            }
+            let connection: SessionHandshakeOutcome
+            if let resume = pendingResume,
+               resume.resume.expiresAt >= Int(Date().timeIntervalSince1970) {
+                connection = try await Self.resumeOrRetryDurablePairing(
+                    resume: {
+                        try await dialer.resume(
+                            host: host,
+                            port: port,
+                            deviceFingerprint: fingerprint,
+                            active: resume.active,
+                            resume: resume.resume,
+                            hostPublicKey: record.hostPublicKey
+                        )
+                    },
+                    durablePairing: {
+                        try await dialDurablePairing()
+                    },
+                    onFallback: { rejectionReason in
+                        // A resume credential belongs to one in-memory host
+                        // session. Host restart, grace expiry, or session
+                        // replacement does not invalidate durable pairing.
+                        pendingResume = nil
+                        ClientDiagnostics.shared.record(
+                            type: "sessionResumeRejected",
+                            fields: [
+                                "reason": String(describing: rejectionReason),
+                                "action": "retry-durable-pairing"
+                            ],
+                            level: .info
+                        )
+                    }
+                )
+            } else {
+                pendingResume = nil
+                connection = try await dialDurablePairing()
             }
             do {
                 try Task.checkCancellation()
@@ -386,12 +410,26 @@ final class PairingClient {
         }
     }
 
+    static func resumeOrRetryDurablePairing<Connection>(
+        resume: () async throws -> Connection,
+        durablePairing: () async throws -> Connection,
+        onFallback: (SessionRejectionReason) -> Void
+    ) async throws -> Connection {
+        do {
+            return try await resume()
+        } catch let rejection as SessionRejected
+            where rejection.reason.allowsDurablePairingRetryAfterResume {
+            onFallback(rejection.reason)
+            return try await durablePairing()
+        }
+    }
+
     func applyRejection(_ rejection: SessionRejected) {
         switch rejection.reason {
-        case .revoked, .unknownDevice, .badSignature, .unauthorized:
+        case .revoked, .unknownDevice, .badSignature:
             try? tokenStore.clear()
             state = .revoked
-        case .replay, .malformed, .expiredResume, .signingKeyUnavailable:
+        case .replay, .malformed, .expiredResume, .signingKeyUnavailable, .unauthorized:
             state = .pairedDisconnected
         case .incompatibleProtocol:
             // Not recoverable by retrying; keep the token but surface that an app
@@ -570,6 +608,20 @@ final class PairingClient {
             return true
         }
         return false
+    }
+}
+
+extension SessionRejectionReason {
+    /// Resume authorization proves only a short-lived session credential. An
+    /// authorization failure here says nothing about the durable pairing token.
+    var allowsDurablePairingRetryAfterResume: Bool {
+        switch self {
+        case .unauthorized, .expiredResume:
+            true
+        case .revoked, .unknownDevice, .replay, .badSignature, .malformed,
+             .signingKeyUnavailable, .incompatibleProtocol:
+            false
+        }
     }
 }
 

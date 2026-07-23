@@ -1,4 +1,5 @@
 import Foundation
+import WebPanelKit
 
 public struct AgentPanelJavaScriptContract: Equatable, Sendable {
     public static let agentFeed = AgentPanelJavaScriptContract()
@@ -25,6 +26,19 @@ public struct AgentPanelJavaScriptContract: Equatable, Sendable {
 
     public var indexRequestURL: URL? {
         URL(string: "\(scheme)://\(host)/\(indexPath)")
+    }
+
+    /// The generic contract WebPanelKit's controller consumes. AgentPanel's
+    /// bridge global is always `__agentFeedBridge`.
+    public var webPanelContract: WebPanelContract {
+        WebPanelContract(
+            scheme: scheme,
+            host: host,
+            indexPath: indexPath,
+            messageHandlerName: messageHandlerName,
+            deliveryFunctionName: deliveryFunctionName,
+            bridgeGlobalName: "__agentFeedBridge"
+        )
     }
 }
 

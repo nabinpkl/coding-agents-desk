@@ -717,38 +717,6 @@ enum Config {
             return defaultValue
         }
     }
-    static let gestureChildExecutableURL: URL? = {
-        guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_GESTURE_CHILD_PATH"],
-              !raw.isEmpty
-        else {
-            return nil
-        }
-        return URL(fileURLWithPath: (raw as NSString).expandingTildeInPath)
-    }()
-    static let gestureChildArguments: [String] = {
-        guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_GESTURE_CHILD_ARGS"],
-              !raw.isEmpty
-        else {
-            return []
-        }
-        return raw.split(separator: " ").map(String.init)
-    }()
-    static let voiceChildExecutableURL: URL? = {
-        guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_VOICE_CHILD_PATH"],
-              !raw.isEmpty
-        else {
-            return nil
-        }
-        return URL(fileURLWithPath: (raw as NSString).expandingTildeInPath)
-    }()
-    static let voiceChildArguments: [String] = {
-        guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_VOICE_CHILD_ARGS"],
-              !raw.isEmpty
-        else {
-            return []
-        }
-        return raw.split(separator: " ").map(String.init)
-    }()
     static let spaceAgentLayout = SpaceAgentLayout(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_SPACE_AGENT_LAYOUT"]
     )
@@ -793,22 +761,23 @@ enum Config {
     // Host-local transcription service, OpenAI-compatible. The clip never
     // touches disk; it is POSTed as multipart/form-data (fields "file" and
     // "model") from an in-memory WAV buffer. Required: set
-    // AGENTDESK_TRANSCRIBE_URL (see .env.example). There is no baked-in
-    // default, so an unset or malformed URL leaves this nil and dictation
-    // fails loudly rather than silently POSTing at a host that may not exist.
+    // Dictation transcription endpoint. Defaults to the host-owned voice
+    // sidecar's OpenAI-compatible route on loopback (the sidecar serves
+    // /v1/audio/transcriptions on voiceSidecarPort), so dictation works out of
+    // the box once the sidecar is up. Override with AGENTDESK_TRANSCRIBE_URL to
+    // point at a different local server.
     static let transcriptionEndpoint: URL? = {
-        guard let raw = ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_URL"],
-              let url = URL(string: raw),
-              url.scheme != nil
-        else {
-            return nil
+        if let raw = ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_URL"],
+           let url = URL(string: raw),
+           url.scheme != nil {
+            return url
         }
-        return url
+        return URL(string: "http://127.0.0.1:\(voiceSidecarPort)/v1/audio/transcriptions")
     }()
     // Model name sent in the multipart body for OpenAI-compatible servers.
-    // Servers that ignore the field are unaffected.
+    // Defaults to the quantized turbo model the sidecar ships/caches locally.
     static let transcriptionModel: String = {
-        ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_MODEL"] ?? "mlx-community/whisper-large-v3-turbo"
+        ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_MODEL"] ?? "mlx-community/whisper-large-v3-turbo-q4"
     }()
     // ATC engine sidecar. The binary is compiled by `just build-agent-sidecar`
     // and bundled as a resource in the host app. The port is loopback-only and
@@ -821,6 +790,92 @@ enum Config {
     static let agentSidecarResourceName = "atc-sidecar"
     static var agentSidecarURL: URL? {
         Bundle.main.url(forResource: agentSidecarResourceName, withExtension: nil)
+    }
+    // Voice server sidecar (`voice-server` in the gesture-agent project). Runs
+    // on loopback like the ATC sidecar; the phone reaches voice only through the
+    // host-mounted webview, never this port.
+    static let voiceSidecarPort: UInt16 = port(
+        environmentKey: "AGENTDESK_VOICE_SIDECAR_PORT",
+        defaultValue: tieredPort(stable: 7692, dev: 7792)
+    )
+    // The command that launches the voice server. Env-driven until the
+    // Application-Support venv provisioning lands (Phase 3d): a developer sets
+    // AGENTDESK_VOICE_UV_PATH (the `uv` binary) and AGENTDESK_VOICE_PROJECT_DIR
+    // (the gesture-agent checkout). Returns nil when either is unset, so the
+    // host leaves the voice sidecar unstarted rather than spawning a broken
+    // child — the absent-config-is-a-no-op contract the agent sidecar also uses.
+    static var voiceSidecarLaunch: VoiceSidecarLaunch? {
+        let env = ProcessInfo.processInfo.environment
+        guard
+            let uvPath = env["AGENTDESK_VOICE_UV_PATH"], !uvPath.isEmpty,
+            let projectDir = env["AGENTDESK_VOICE_PROJECT_DIR"], !projectDir.isEmpty
+        else {
+            return nil
+        }
+        let args = env["AGENTDESK_VOICE_SERVER_ARGS"]
+            .map { $0.split(separator: " ").map(String.init) }
+            ?? ["run", "voice-server"]
+        return VoiceSidecarLaunch(
+            executableURL: URL(fileURLWithPath: uvPath),
+            arguments: args,
+            workingDirectory: URL(fileURLWithPath: projectDir, isDirectory: true)
+        )
+    }
+
+    // Shipped voice provisioning. `uv` and the interaction-agent source are
+    // staged into the app bundle by `just build-voice-sidecar`; the venv, uv
+    // cache, and fetched models live under Application Support (writable, unsigned,
+    // per-user). Returns nil when the bundled inputs are absent, so a build
+    // without the staged sidecar simply has no shipped voice path (the env-driven
+    // dev launch above still works).
+    static let voiceVenvDirectory = applicationSupportDirectory
+        .appendingPathComponent("voice-venv", isDirectory: true)
+    static let voiceUvCacheDirectory = applicationSupportDirectory
+        .appendingPathComponent("voice-uv-cache", isDirectory: true)
+    static let voiceDataDirectory = applicationSupportDirectory
+        .appendingPathComponent("voice-data", isDirectory: true)
+    static let voiceModelDirectory = applicationSupportDirectory
+        .appendingPathComponent("voice-models", isDirectory: true)
+    static let voiceSourceResourceName = "voice-src"
+    static var voiceSourceURL: URL? {
+        Bundle.main.url(forResource: voiceSourceResourceName, withExtension: nil)
+    }
+    static var voiceUvURL: URL? {
+        Bundle.main.url(forResource: "uv", withExtension: nil)
+    }
+    static var voiceWheelhouseURL: URL? {
+        Bundle.main.url(forResource: "voice-wheelhouse", withExtension: nil)
+    }
+    static var voiceProvisionerInputs: VoiceVenvProvisioner.Inputs? {
+        guard let uvURL = voiceUvURL, let sourceURL = voiceSourceURL else {
+            return nil
+        }
+        // The staged source version stamps the venv; a changed source triggers a
+        // rebuild. The app's short version is a coarse but sufficient signal.
+        let version = Bundle.main
+            .infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        return VoiceVenvProvisioner.Inputs(
+            uvURL: uvURL,
+            sourceURL: sourceURL,
+            venvURL: voiceVenvDirectory,
+            cacheURL: voiceUvCacheDirectory,
+            wheelhouseURL: voiceWheelhouseURL,
+            versionStamp: version
+        )
+    }
+    // The launch that runs the provisioned venv's `voice-server` console entry
+    // directly (no uv at runtime), pointing data + models at writable
+    // Application-Support paths.
+    static func provisionedVoiceLaunch(voiceServerExecutable: URL) -> VoiceSidecarLaunch {
+        VoiceSidecarLaunch(
+            executableURL: voiceServerExecutable,
+            arguments: [],
+            workingDirectory: voiceSourceURL,
+            environment: [
+                "VOICE_DATA_ROOT": voiceDataDirectory.path,
+                "VOICE_MODEL_ROOT": voiceModelDirectory.path,
+            ]
+        )
     }
     static let ptyManagerResourceName = "pty-manager"
     static let ptyLeasedSessionGraceSeconds = positiveInt(

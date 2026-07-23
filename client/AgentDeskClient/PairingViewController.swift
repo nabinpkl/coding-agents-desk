@@ -132,6 +132,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // settings button and synthesises a UIWindowScene geometry update
     // when tapped.
     let orientationToggleButton = UIButton(type: .system)
+    // Toggles the half-screen gesture panel (camera + swipe tracker for desktop
+    // switching) below the video. Sits left of the orientation toggle.
+    let gestureToggleButton = UIButton(type: .system)
     // MARK: - One-handed affordances
     //
     // Issue #6 originally called for two-finger right-click and

@@ -10,7 +10,9 @@
 		A0000000000000000000EE03 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE02 /* AgentDeskWire */; };
 		A0000000000000000000EE05 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE04 /* AgentDeskWire */; };
 		A0000000000000000000AF03 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000AF02 /* AgentPanel */; };
+		A00000000000000000001C03 /* InteractionPanel in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000001C02 /* InteractionPanel */; };
 		A0000000000000000000AF05 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000AF04 /* AgentPanel */; };
+		A00000000000000000001C05 /* InteractionPanel in Frameworks */ = {isa = PBXBuildFile; productRef = A00000000000000000001C04 /* InteractionPanel */; };
 		A0000000000000000000C503 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000C502 /* WorkspaceKit */; };
 		A0000000000000000000C505 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000C504 /* WorkspaceKit */; };
 		A0000000000000000000D503 /* WorkspaceFileViewer in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000D502 /* WorkspaceFileViewer */; };
@@ -80,7 +82,7 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		DDD787112FF7B21500F8BB76 /* AgentDeskHost */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (DDD787A52FF7B21600F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, DDD787A62FF7B21600F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = AgentDeskHost; sourceTree = "<group>"; };
+		DDD787112FF7B21500F8BB76 /* AgentDeskHost */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (DDD787A52FF7B21600F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, DDD787A62FF7B21600F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = ("voice-src", ); path = AgentDeskHost; sourceTree = "<group>"; };
 		DDD787D32FF7B32600F8BB76 /* AgentDeskHostTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = AgentDeskHostTests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
@@ -91,6 +93,7 @@
 			files = (
 				A0000000000000000000EE03 /* AgentDeskWire in Frameworks */,
 				A0000000000000000000AF03 /* AgentPanel in Frameworks */,
+				A00000000000000000001C03 /* InteractionPanel in Frameworks */,
 				A0000000000000000000C503 /* WorkspaceKit in Frameworks */,
 				A0000000000000000000D503 /* WorkspaceFileViewer in Frameworks */,
 				A0000000000000000000D508 /* WorkspaceIDE in Frameworks */,
@@ -108,6 +111,7 @@
 			files = (
 				A0000000000000000000EE05 /* AgentDeskWire in Frameworks */,
 				A0000000000000000000AF05 /* AgentPanel in Frameworks */,
+				A00000000000000000001C05 /* InteractionPanel in Frameworks */,
 				A0000000000000000000C505 /* WorkspaceKit in Frameworks */,
 				A0000000000000000000D505 /* WorkspaceFileViewer in Frameworks */,
 				A0000000000000000000D509 /* WorkspaceIDE in Frameworks */,
@@ -162,6 +166,7 @@
 			packageProductDependencies = (
 				A0000000000000000000EE02 /* AgentDeskWire */,
 				A0000000000000000000AF02 /* AgentPanel */,
+				A00000000000000000001C02 /* InteractionPanel */,
 				A0000000000000000000C502 /* WorkspaceKit */,
 				A0000000000000000000D502 /* WorkspaceFileViewer */,
 				A0000000000000000000D506 /* WorkspaceIDE */,
@@ -196,6 +201,7 @@
 			packageProductDependencies = (
 				A0000000000000000000EE04 /* AgentDeskWire */,
 				A0000000000000000000AF04 /* AgentPanel */,
+				A00000000000000000001C04 /* InteractionPanel */,
 				A0000000000000000000C504 /* WorkspaceKit */,
 				A0000000000000000000D504 /* WorkspaceFileViewer */,
 				A0000000000000000000D507 /* WorkspaceIDE */,
@@ -240,6 +246,7 @@
 			packageReferences = (
 				A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */,
 				A0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */,
+				A00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */,
 				A0000000000000000000C501 /* XCLocalSwiftPackageReference "../packages/WorkspaceKit" */,
 				A0000000000000000000D501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */,
 				A0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */,
@@ -531,6 +538,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/AgentPanel;
 		};
+		A00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/InteractionPanel;
+		};
 		A0000000000000000000C501 /* XCLocalSwiftPackageReference "../packages/WorkspaceKit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/WorkspaceKit;
@@ -569,10 +580,20 @@
 			package = A0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */;
 			productName = AgentPanel;
 		};
+		A00000000000000000001C02 /* InteractionPanel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */;
+			productName = InteractionPanel;
+		};
 		A0000000000000000000AF04 /* AgentPanel */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */;
 			productName = AgentPanel;
+		};
+		A00000000000000000001C04 /* InteractionPanel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */;
+			productName = InteractionPanel;
 		};
 		A0000000000000000000C502 /* WorkspaceKit */ = {
 			isa = XCSwiftPackageProductDependency;

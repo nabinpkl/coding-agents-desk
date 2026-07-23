@@ -141,7 +141,8 @@ struct PairingClientTests {
             SessionRejectionReason.replay,
             .malformed,
             .expiredResume,
-            .signingKeyUnavailable
+            .signingKeyUnavailable,
+            .unauthorized
         ] {
             let store = InMemorySessionTokenStore()
             try store.store(StoredPairingRecord(
@@ -158,6 +159,31 @@ struct PairingClientTests {
             #expect(client.state == .pairedDisconnected)
             #expect(try store.load()?.token == token)
         }
+    }
+
+    @Test func staleResumeAuthorizationFallsBackToDurablePairing() async throws {
+        var attempts: [String] = []
+        let result: Int = try await PairingClient.resumeOrRetryDurablePairing(
+            resume: {
+                attempts.append("resume")
+                throw SessionRejected(reason: .unauthorized)
+            },
+            durablePairing: {
+                attempts.append("durable-pairing")
+                return 42
+            },
+            onFallback: { reason in
+                attempts.append("fallback-\(reason.rawValue)")
+            }
+        )
+
+        #expect(result == 42)
+        #expect(attempts == ["resume", "fallback-unauthorized", "durable-pairing"])
+        #expect(SessionRejectionReason.expiredResume.allowsDurablePairingRetryAfterResume)
+        #expect(!SessionRejectionReason.revoked.allowsDurablePairingRetryAfterResume)
+        #expect(!SessionRejectionReason.unknownDevice.allowsDurablePairingRetryAfterResume)
+        #expect(!SessionRejectionReason.badSignature.allowsDurablePairingRetryAfterResume)
+        #expect(!SessionRejectionReason.incompatibleProtocol.allowsDurablePairingRetryAfterResume)
     }
 
     private func signedToken(hostKey: P256.Signing.PrivateKey, deviceFingerprint: DeviceFingerprint) throws -> SessionToken {

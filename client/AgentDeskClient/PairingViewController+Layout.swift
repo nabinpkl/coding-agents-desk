@@ -520,6 +520,25 @@ extension PairingViewController {
             orientationToggleButton.heightAnchor.constraint(equalToConstant: 36)
         ])
         updateOrientationToggleIcon(forLandscape: view.bounds.width > view.bounds.height)
+
+        // Gesture panel toggle, left of the orientation toggle. Reveals the
+        // half-screen camera + swipe tracker below the video for desktop switching.
+        gestureToggleButton.setImage(UIImage(systemName: "hand.wave"), for: .normal)
+        gestureToggleButton.tintColor = .label
+        gestureToggleButton.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.7)
+        gestureToggleButton.layer.cornerRadius = 18
+        gestureToggleButton.layer.masksToBounds = true
+        gestureToggleButton.accessibilityLabel = "Gesture"
+        gestureToggleButton.accessibilityIdentifier = "gesture-toggle"
+        gestureToggleButton.addTarget(self, action: #selector(toggleGesturePanel), for: .touchUpInside)
+        gestureToggleButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(gestureToggleButton)
+        NSLayoutConstraint.activate([
+            gestureToggleButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            gestureToggleButton.trailingAnchor.constraint(equalTo: orientationToggleButton.leadingAnchor, constant: -8),
+            gestureToggleButton.widthAnchor.constraint(equalToConstant: 36),
+            gestureToggleButton.heightAnchor.constraint(equalToConstant: 36)
+        ])
     }
 
     func updateOrientationToggleIcon(forLandscape isLandscape: Bool) {

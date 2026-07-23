@@ -1,6 +1,9 @@
 import Foundation
 
-public struct AgentPanelAssetResolver {
+/// Resolves a request path against a fixed root directory, rejecting traversal
+/// and assigning a content type. Pure and generic; shared by every webview
+/// panel's scheme handler.
+public struct WebPanelAssetResolver {
     public enum ResolveError: Error, Equatable {
         case notInRoot
         case notFound

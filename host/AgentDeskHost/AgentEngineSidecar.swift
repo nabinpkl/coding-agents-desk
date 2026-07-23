@@ -44,8 +44,8 @@ final class AgentEngineSidecar: @unchecked Sendable {
 
     deinit {
         // Terminate the child if the object is dropped without an explicit
-        // stop() (matches JsonlChildProcess / GestureChildController). Run
-        // synchronously here: by deinit the queue may no longer drain, so a
+        // stop(). Run synchronously here: by deinit the queue may no longer
+        // drain, so a
         // queued async would never fire. terminateCurrentProcess is safe to
         // call directly because no other queue work can race a deallocating self.
         stopped = true
@@ -86,7 +86,7 @@ final class AgentEngineSidecar: @unchecked Sendable {
         // Merge into the inherited env rather than replacing it. Setting
         // Process.environment replaces the whole child env, which would strip
         // PATH/HOME and break the engine's tmux/git/open subprocesses. Inherit
-        // the parent env (matching JsonlChildProcess) and override only ours.
+        // the parent env and override only ours.
         proc.environment = ProcessInfo.processInfo.environment.merging([
             "ATC_PORT": String(port),
             "ATC_HOST": "127.0.0.1",

@@ -1,13 +1,15 @@
 import Foundation
 import WebKit
 
-public final class AgentPanelSchemeHandler: NSObject, WKURLSchemeHandler {
-    private let resolver: AgentPanelAssetResolver?
+/// Serves a panel's bundled web assets over its custom scheme, backed by
+/// `WebPanelAssetResolver`. No HTTP server; the WKWebView talks to the bundle.
+public final class WebPanelSchemeHandler: NSObject, WKURLSchemeHandler {
+    private let resolver: WebPanelAssetResolver?
     private var activeTasks = Set<ObjectIdentifier>()
 
     public init(rootDirectory: URL?) {
         if let rootDirectory {
-            resolver = AgentPanelAssetResolver(rootDirectory: rootDirectory)
+            resolver = WebPanelAssetResolver(rootDirectory: rootDirectory)
         } else {
             resolver = nil
         }
@@ -19,7 +21,7 @@ public final class AgentPanelSchemeHandler: NSObject, WKURLSchemeHandler {
         activeTasks.insert(key)
 
         guard let resolver, let url = urlSchemeTask.request.url else {
-            finish(urlSchemeTask, key: key, failure: AgentPanelAssetResolver.ResolveError.notFound)
+            finish(urlSchemeTask, key: key, failure: WebPanelAssetResolver.ResolveError.notFound)
             return
         }
 
@@ -40,7 +42,7 @@ public final class AgentPanelSchemeHandler: NSObject, WKURLSchemeHandler {
                 ]
             )
             guard let response else {
-                finish(urlSchemeTask, key: key, failure: AgentPanelAssetResolver.ResolveError.unreadable)
+                finish(urlSchemeTask, key: key, failure: WebPanelAssetResolver.ResolveError.unreadable)
                 return
             }
             urlSchemeTask.didReceive(response)

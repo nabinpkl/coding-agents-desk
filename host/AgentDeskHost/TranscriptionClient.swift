@@ -15,27 +15,22 @@ struct TranscriptionClient {
     private let endpoint: URL?
     private let model: String
     private let session: URLSession
-    private let voiceChild: VoiceChildController?
 
     init(
         endpoint: URL? = Config.transcriptionEndpoint,
         model: String = Config.transcriptionModel,
-        session: URLSession = .shared,
-        voiceChild: VoiceChildController? = nil
+        session: URLSession = .shared
     ) {
         self.endpoint = endpoint
         self.model = model
         self.session = session
-        self.voiceChild = voiceChild
     }
 
     func transcribe(wav: Data) async throws -> String {
-        if let voiceChild {
-            return try await voiceChild.transcribe(wav: wav)
-        }
-
-        // No endpoint means AGENTDESK_TRANSCRIBE_URL was never set; fail here
-        // rather than fabricate a default that may point nowhere.
+        // Dictation posts to the host-owned voice sidecar's OpenAI-compatible
+        // endpoint (Config.transcriptionEndpoint defaults to its loopback URL).
+        // A nil endpoint fails here rather than POSTing at a host that may not
+        // exist.
         guard let endpoint else { throw TranscriptionError.notConfigured }
         let boundary = "AgentDesk-\(UUID().uuidString)"
         var request = URLRequest(url: endpoint)

@@ -1,7 +1,9 @@
 import Foundation
 
+/// Buffers native-to-JS pushes until the webview reports ready (nav finished),
+/// then flushes in order. Generic; shared by every panel.
 @MainActor
-public final class AgentPanelDeliveryQueue {
+public final class WebPanelDeliveryQueue {
     public typealias Delivery = (String) -> Void
 
     private let deliver: Delivery
