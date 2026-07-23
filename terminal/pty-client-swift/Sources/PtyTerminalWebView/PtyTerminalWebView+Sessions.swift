@@ -46,7 +46,12 @@ extension PtyTerminalWebView {
         driver.start()
         if viewportPresented && workspaceState.selectedPane?.terminalID == pane.terminalID {
             let shouldClaim = pendingViewportClaimPaneID == pane.paneID
-            driver.updateViewerState(active: true, claim: shouldClaim, dimensions: slot.dimensions)
+                && slot.hasSettledViewportDimensions
+            driver.updateViewerState(
+                active: true,
+                claim: shouldClaim,
+                dimensions: viewportAuthorityDimensions(for: slot)
+            )
             if shouldClaim { pendingViewportClaimPaneID = nil }
         }
     }
@@ -203,11 +208,18 @@ extension PtyTerminalWebView {
         let visibleTerminalIDs = Set(workspaceState.visiblePanes.map(\.terminalID))
         for slot in slots.values {
             let active = viewportPresented && visibleTerminalIDs.contains(slot.terminalID)
+            let selected = slot.terminalID == selectedTerminalID
+            if active && selected && claimSelected && !slot.hasSettledViewportDimensions {
+                pendingViewportClaimPaneID = slot.paneID
+            }
+            let shouldClaim = active && selected && claimSelected
+                && slot.hasSettledViewportDimensions
             slot.driver?.updateViewerState(
                 active: active,
-                claim: active && slot.terminalID == selectedTerminalID && claimSelected,
-                dimensions: slot.dimensions
+                claim: shouldClaim,
+                dimensions: viewportAuthorityDimensions(for: slot)
             )
+            if shouldClaim { pendingViewportClaimPaneID = nil }
         }
     }
 }

@@ -25,6 +25,15 @@ export function normalizeCapacity(proposed) {
   return { columns: Math.min(512, columns), rows: Math.min(256, rows) };
 }
 
+export function isAuthoritativeCapacity(capacity) {
+  return capacity?.columns >= 2 && capacity?.rows >= 2;
+}
+
+export function settledCapacity(first, second) {
+  if (!isAuthoritativeCapacity(first) || !isAuthoritativeCapacity(second)) return null;
+  return first.columns === second.columns && first.rows === second.rows ? second : null;
+}
+
 export function calculatePresentation({
   viewColumns, viewRows, sourceColumns, sourceRows,
   viewportWidth, viewportHeight, cursorColumn, cursorRow,

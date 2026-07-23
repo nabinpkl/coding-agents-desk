@@ -87,12 +87,25 @@ extension PtyTerminalWebView {
         case .fontReady: flushViewportResize()
         case .viewport(let terminalID, let active, let claim, let columns, let rows):
             guard let slot = slots[terminalID] else { return }
+            guard columns >= 2, rows >= 2 else {
+                delegate?.ptyTerminalContent(
+                    self,
+                    didReceiveStatus: "ignored unsettled terminal viewport \(columns)x\(rows)"
+                )
+                return
+            }
             slot.dimensions = PtyTerminalDimensions(columns: columns, rows: rows)
+            slot.hasSettledViewportDimensions = true
+            let shouldClaimPending = active
+                && viewportPresented
+                && workspaceState.selectedPane?.terminalID == terminalID
+                && pendingViewportClaimPaneID == slot.paneID
             slot.driver?.updateViewerState(
                 active: active && viewportPresented,
-                claim: claim && viewportPresented,
+                claim: (claim && viewportPresented) || shouldClaimPending,
                 dimensions: slot.dimensions
             )
+            if shouldClaimPending { pendingViewportClaimPaneID = nil }
         case .focus(let paneID, let claim):
             guard workspaceState.focusPane(paneID) else { return }
             updateSlotParticipation(claimSelected: claim)
@@ -101,7 +114,7 @@ extension PtyTerminalWebView {
             guard isInputEnabled, let slot = slots[terminalID] else { return }
             _ = workspaceState.focusPane(slot.paneID)
             updateSlotParticipation(claimSelected: false)
-            slot.driver?.sendInput(data, viewerDimensions: slot.dimensions)
+            slot.driver?.sendInput(data, viewerDimensions: viewportAuthorityDimensions(for: slot))
         case .workspace(let name, let paneID, let tabID, let sessionName):
             handleWorkspaceIntent(name: name, paneID: paneID, tabID: tabID, sessionName: sessionName)
         case .clipboardWrite(let text): writeClipboard(text)

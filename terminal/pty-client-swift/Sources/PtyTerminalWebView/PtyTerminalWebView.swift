@@ -65,6 +65,7 @@ public final class PtyTerminalWebView: PtyTerminalWebPlatformView {
         var concreteConnection: PtySessionConnection?
         var driver: PtyTerminalSessionDriver?
         var dimensions = PtyTerminalDimensions.bootstrap
+        var hasSettledViewportDimensions = false
         var columns: UInt32 = 80
         var rows: UInt32 = 24
         var revision: UInt64 = 0
@@ -271,7 +272,7 @@ public final class PtyTerminalWebView: PtyTerminalWebPlatformView {
 
     public func sendInput(_ data: Data) {
         guard isInputEnabled, data.count <= PtyTerminalWebBridgeLimits.maximumInputBytes, let slot = selectedSlot else { return }
-        slot.driver?.sendInput(data, viewerDimensions: slot.dimensions)
+        slot.driver?.sendInput(data, viewerDimensions: viewportAuthorityDimensions(for: slot))
     }
 
     public func feedLocalStatus(_ data: Data) {
@@ -286,6 +287,11 @@ public final class PtyTerminalWebView: PtyTerminalWebPlatformView {
 
     public func setViewportActive(_ active: Bool, claim: Bool = false) {
         viewportPresented = active
+        if !active {
+            pendingViewportClaimPaneID = nil
+        } else if claim {
+            pendingViewportClaimPaneID = workspaceState.selectedPane?.paneID
+        }
         updateSlotParticipation(claimSelected: active && claim)
     }
 
@@ -308,6 +314,17 @@ public final class PtyTerminalWebView: PtyTerminalWebPlatformView {
     var selectedSlot: Slot? {
         guard let terminalID = workspaceState.selectedPane?.terminalID else { return nil }
         return slots[terminalID]
+    }
+
+    func viewportAuthorityDimensions(for slot: Slot) -> PtyTerminalDimensions {
+        if slot.hasSettledViewportDimensions {
+            return slot.dimensions
+        }
+        if let source = slot.viewportStatus?.sourceDimensions,
+           source.columns >= 2, source.rows >= 2 {
+            return source
+        }
+        return .bootstrap
     }
 
     func loadRuntime() {

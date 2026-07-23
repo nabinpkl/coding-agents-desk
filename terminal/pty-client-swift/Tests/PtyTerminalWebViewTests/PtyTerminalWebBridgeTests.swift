@@ -92,6 +92,44 @@ final class PtyTerminalWebBridgeTests: XCTestCase {
         ]))
     }
 
+    @MainActor
+    func testUnsettledViewportCannotReplaceAuthorityDimensions() throws {
+        let view = PtyTerminalWebView()
+        defer { view.teardown() }
+        let pane = try XCTUnwrap(view.workspaceState.selectedPane)
+        let slot = PtyTerminalWebView.Slot(
+            paneID: pane.paneID,
+            terminalID: pane.terminalID,
+            owner: view
+        )
+        view.slots[pane.terminalID] = slot
+        view.setViewportActive(true, claim: true)
+
+        view.handle(.viewport(
+            terminalID: pane.terminalID,
+            active: true,
+            claim: true,
+            columns: 127,
+            rows: 1
+        ))
+
+        XCTAssertEqual(slot.dimensions, .bootstrap)
+        XCTAssertFalse(slot.hasSettledViewportDimensions)
+        XCTAssertEqual(view.pendingViewportClaimPaneID, pane.paneID)
+
+        view.handle(.viewport(
+            terminalID: pane.terminalID,
+            active: true,
+            claim: false,
+            columns: 127,
+            rows: 40
+        ))
+
+        XCTAssertEqual(slot.dimensions, .init(columns: 127, rows: 40))
+        XCTAssertTrue(slot.hasSettledViewportDimensions)
+        XCTAssertNil(view.pendingViewportClaimPaneID)
+    }
+
     func testWorkspaceIntentRejectsPresentButInvalidOptionalFields() {
         XCTAssertEqual(
             PtyTerminalWebIntent.decode(["version": 1, "type": "workspaceIntent", "intent": "addTab"]),

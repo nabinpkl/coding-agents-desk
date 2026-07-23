@@ -1,11 +1,24 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { boundedUTF8, calculatePresentation, normalizeCapacity, SerializedOperations } from '../src/runtime-state.js';
+import {
+  boundedUTF8, calculatePresentation, isAuthoritativeCapacity, normalizeCapacity,
+  SerializedOperations, settledCapacity,
+} from '../src/runtime-state.js';
 
 test('capacity ignores zero layouts and clamps manager protocol bounds', () => {
   assert.equal(normalizeCapacity({ cols: 0, rows: 24 }), null);
   assert.deepEqual(normalizeCapacity({ cols: 900.8, rows: 400.2 }), { columns: 512, rows: 256 });
+});
+
+test('viewport authority requires two usable matching layout samples', () => {
+  assert.equal(isAuthoritativeCapacity({ columns: 127, rows: 1 }), false);
+  assert.equal(settledCapacity({ columns: 127, rows: 1 }, { columns: 127, rows: 1 }), null);
+  assert.equal(settledCapacity({ columns: 120, rows: 39 }, { columns: 120, rows: 40 }), null);
+  assert.deepEqual(
+    settledCapacity({ columns: 120, rows: 40 }, { columns: 120, rows: 40 }),
+    { columns: 120, rows: 40 },
+  );
 });
 
 test('presentation fits while readable and crops around the cursor below the scale floor', () => {

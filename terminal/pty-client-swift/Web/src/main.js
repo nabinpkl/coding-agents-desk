@@ -8,7 +8,7 @@ import {
 } from './workspace-state.js';
 import {
   base64FromBinary, boundedUTF8, bytesFromBase64, calculatePresentation,
-  normalizeCapacity, SerializedOperations,
+  isAuthoritativeCapacity, normalizeCapacity, SerializedOperations, settledCapacity,
 } from './runtime-state.js';
 import { terminalOptions } from './terminal-options.js';
 
@@ -122,8 +122,10 @@ function createPane(pane) {
       id: pane.terminalId, paneId: pane.paneId, term, fit, element, viewport, canvas,
       sync, ownership, source, view, history,
       operations: new SerializedOperations(() => post('rendererFailure', { terminalId: pane.terminalId })),
-      resizeTimer: null, status: null, sourceColumns: 80, sourceRows: 24,
-      checkpointOpen: false, lastPresentation: '',
+      resizeTimer: null, resizeGeneration: 0, resizeObserver: null,
+      settledDimensions: null, pendingViewportClaim: false,
+      status: null, sourceColumns: 80, sourceRows: 24, checkpointOpen: false,
+      lastPresentation: '',
     };
     terminals.set(entry.id, entry);
     term.onUserData(data => emitInput(entry, data));
@@ -134,8 +136,10 @@ function createPane(pane) {
     });
     term.onRender(() => updatePresentation(entry));
     term.registerLinkProvider({ provideLinks: (line, callback) => callback(linksForLine(term, line)) });
-    new ResizeObserver(() => scheduleViewport(entry)).observe(viewport);
+    entry.resizeObserver = new ResizeObserver(() => scheduleViewport(entry));
+    entry.resizeObserver.observe(viewport);
   } else {
+    entry.resizeObserver.disconnect();
     entry.paneId = pane.paneId;
     entry.element = element;
     entry.viewport = viewport;
@@ -147,6 +151,8 @@ function createPane(pane) {
     entry.history = history;
     element.dataset.synchronizing = entry.checkpointOpen ? 'true' : 'false';
     mount.replaceWith(entry.term.element?.parentElement ?? mount);
+    entry.resizeObserver.observe(viewport);
+    scheduleViewport(entry);
   }
   return element;
 }
@@ -181,6 +187,7 @@ function renderWorkspace(snapshot) {
   for (const [id, entry] of terminals) {
     if (liveTerminalIds.has(id)) continue;
     clearTimeout(entry.resizeTimer);
+    entry.resizeObserver.disconnect();
     entry.term.dispose();
     terminals.delete(id);
   }
@@ -275,18 +282,45 @@ function proposedDimensions(entry) {
 
 function scheduleViewport(entry) {
   clearTimeout(entry.resizeTimer);
-  entry.resizeTimer = setTimeout(() => flushViewport(entry, false), 150);
+  entry.resizeGeneration += 1;
+  const generation = entry.resizeGeneration;
+  entry.resizeTimer = setTimeout(() => {
+    const first = proposedDimensions(entry);
+    requestAnimationFrame(() => {
+      if (entry.resizeGeneration !== generation) return;
+      const second = proposedDimensions(entry);
+      const dimensions = settledCapacity(first, second);
+      if (!dimensions) {
+        if (isAuthoritativeCapacity(second)) scheduleViewport(entry);
+        return;
+      }
+      entry.settledDimensions = dimensions;
+      if (publishViewport(entry, dimensions, entry.pendingViewportClaim)) {
+        entry.pendingViewportClaim = false;
+      }
+    });
+  }, 150);
   updatePresentation(entry);
 }
 
 function flushViewport(entry, claim) {
-  if (!nativeReady || !workspace) return;
-  const dimensions = proposedDimensions(entry);
-  if (!dimensions) return;
+  entry.pendingViewportClaim ||= claim;
+  if (!entry.settledDimensions) {
+    scheduleViewport(entry);
+    return;
+  }
+  if (publishViewport(entry, entry.settledDimensions, entry.pendingViewportClaim)) {
+    entry.pendingViewportClaim = false;
+  }
+}
+
+function publishViewport(entry, dimensions, claim) {
+  if (!nativeReady || !workspace || !isAuthoritativeCapacity(dimensions)) return false;
   const active = visiblePaneIds(workspace).includes(entry.paneId);
   const focused = selectedPaneId(workspace) === entry.paneId;
   post('viewport', { terminalId: entry.id, active, claim: active && focused && claim, ...dimensions });
   entry.view.textContent = `View ${dimensions.columns}×${dimensions.rows}`;
+  return true;
 }
 
 function updatePresentation(entry) {
@@ -423,7 +457,7 @@ function renderDrawer(sessions, status) {
 
 window.agentDeskTerminal = Object.freeze({ receive, flushViewport: () => {
   const entry = [...terminals.values()].find(value => workspace && selectedPaneId(workspace) === value.paneId);
-  if (entry) flushViewport(entry, false);
+  if (entry) scheduleViewport(entry);
 }});
 
 document.addEventListener('copy', event => {

@@ -126,6 +126,12 @@ without changing the one-recorder and extension-authoritative generation model.
   read that display's `Current Space`, compute its exact assignment delta, and locate the synthesized
   swipe on that display; verification is pending the user-run host relaunch.
 
+## Workspace IDE terminal viewport recovery
+
+- [ ] R99. Make the shared web terminal fill its stage, rebind resize observation whenever pane DOM
+  is replaced, publish viewport authority only after two matching laid-out measurements, and reject
+  one-row native and manager claims so transient WKWebView geometry cannot resize the shared PTY.
+
 ## Promotion log
 
 ```text
@@ -149,4 +155,5 @@ D95      2026-07-22  landed      opt-in bounded paired-client screenshots and pr
 D96      2026-07-23  landed      event-driven Mission Control topology reconciliation by Space ID
 D97      2026-07-23  landed      unassigned Desktops clear the active workspace selection
 R98      2026-07-23  pending     target-display Dock gesture switching awaiting user verification
+R99      2026-07-23  pending     settled web terminal viewport authority awaiting verification
 ```

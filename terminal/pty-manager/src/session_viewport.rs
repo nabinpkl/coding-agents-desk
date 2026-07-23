@@ -31,8 +31,8 @@ impl SessionViewport {
         self.viewers.insert(
             client_id,
             ViewerViewport {
-                columns,
-                rows,
+                columns: columns.max(2),
+                rows: rows.max(2),
                 ..ViewerViewport::default()
             },
         );
@@ -66,8 +66,10 @@ impl SessionViewport {
         }
         viewer.sequence = state.sequence;
         viewer.active = state.active;
-        viewer.columns = columns;
-        viewer.rows = rows;
+        if columns >= 2 && rows >= 2 {
+            viewer.columns = columns;
+            viewer.rows = rows;
+        }
 
         let owner_changed = if state.claim {
             self.activate_and_select(client_id)?
@@ -254,6 +256,21 @@ mod tests {
         assert_eq!(decision.requested_dimensions, Some((120, 40)));
         assert_eq!(viewport.owner_client_id(), 1);
         assert!(viewport.viewer(1).unwrap().active);
+    }
+
+    #[test]
+    fn one_row_claim_retains_the_last_usable_dimensions() {
+        let mut viewport = SessionViewport::default();
+        viewport.register(1, 120, 40);
+
+        let decision = viewport
+            .update(1, state(1, true, true, 127, 1), 127, 1)
+            .unwrap();
+
+        assert!(decision.owner_changed);
+        assert_eq!(decision.requested_dimensions, Some((120, 40)));
+        assert_eq!(viewport.viewer(1).unwrap().columns, 120);
+        assert_eq!(viewport.viewer(1).unwrap().rows, 40);
     }
 
     #[test]
