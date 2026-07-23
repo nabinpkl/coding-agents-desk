@@ -18,6 +18,18 @@ final class PtyTerminalWorkspaceStateTests: XCTestCase {
         XCTAssertNotEqual(state.selectedPane?.paneID, original.paneID)
     }
 
+    func testClosingOnePaneFromThreePreservesBothSiblings() throws {
+        var state = PtyTerminalWorkspaceState(profile: .workspace)
+        let first = try XCTUnwrap(state.selectedPane)
+        let second = try XCTUnwrap(state.splitFocusedPane(axis: .horizontal))
+        let third = try XCTUnwrap(state.splitFocusedPane(axis: .horizontal))
+
+        let removed = try XCTUnwrap(state.closePane(second.paneID))
+
+        XCTAssertEqual(removed.paneID, second.paneID)
+        XCTAssertEqual(state.visiblePanes.map(\.paneID), [first.paneID, third.paneID])
+    }
+
     func testExistingSessionOpensInNewTabWithoutMutationAuthority() {
         var state = PtyTerminalWorkspaceState(profile: .workspace)
         let pane = state.openExistingSession("shared-session")

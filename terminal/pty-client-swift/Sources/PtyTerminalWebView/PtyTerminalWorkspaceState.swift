@@ -60,12 +60,18 @@ public indirect enum PtyTerminalPaneNode: Codable, Equatable, Sendable {
     func removing(_ paneID: String) -> (node: Self?, removed: PtyTerminalPane)? {
         switch self {
         case .pane(let pane): return pane.paneID == paneID ? (nil, pane) : nil
-        case .split(_, let first, let second):
+        case .split(let axis, let first, let second):
             if let result = first.removing(paneID) {
-                return (result.node ?? second, result.removed)
+                let node = result.node.map {
+                    Self.split(axis: axis, first: $0, second: second)
+                } ?? second
+                return (node, result.removed)
             }
             if let result = second.removing(paneID) {
-                return (result.node ?? first, result.removed)
+                let node = result.node.map {
+                    Self.split(axis: axis, first: first, second: $0)
+                } ?? first
+                return (node, result.removed)
             }
             return nil
         }
