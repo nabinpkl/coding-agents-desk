@@ -1,6 +1,16 @@
 import AgentDeskWire
 import Foundation
 
+public struct WorkspaceMonitorPresentation: Equatable {
+    public let badge: String
+    public let accessibilityValue: String
+
+    public init(badge: String, accessibilityValue: String) {
+        self.badge = badge
+        self.accessibilityValue = accessibilityValue
+    }
+}
+
 /// Switches the macOS Desktop (Space) to a workspace's assigned Desktop by driving AgentDesk's
 /// existing Spaces control (ADR-0054). The agent-workspace-ide donor synthesized Dock-swipe CGEvents
 /// and polled SkyLight because it had no Spaces provider; AgentDesk already owns one with a verified
@@ -45,6 +55,33 @@ final class WorkspaceDesktopSwitcher {
             nextNumber += 1
         }
         return numbers
+    }
+
+    /// Live monitor markers for workspace rows. The primary monitor is always P. A single
+    /// secondary is S; multiple secondaries are numbered in the display order reported by SkyLight.
+    func monitorPresentationsByDisplayID() -> [String: WorkspaceMonitorPresentation] {
+        guard let state = state() else { return [:] }
+        let secondaryCount = state.displays.filter { !$0.isMain }.count
+        var secondaryNumber = 0
+        var presentations: [String: WorkspaceMonitorPresentation] = [:]
+        for display in state.displays {
+            if display.isMain {
+                presentations[display.id] = WorkspaceMonitorPresentation(
+                    badge: "P",
+                    accessibilityValue: "primary monitor"
+                )
+                continue
+            }
+            secondaryNumber += 1
+            let suffix = secondaryCount > 1 ? "\(secondaryNumber)" : ""
+            presentations[display.id] = WorkspaceMonitorPresentation(
+                badge: "S\(suffix)",
+                accessibilityValue: secondaryCount > 1
+                    ? "secondary monitor \(secondaryNumber)"
+                    : "secondary monitor"
+            )
+        }
+        return presentations
     }
 
     /// The live user Desktops on the active display, for the switcher / audit.

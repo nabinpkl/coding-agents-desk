@@ -231,6 +231,10 @@ final class WorkspaceShellSession {
         desktopSwitcher.missionControlNumbersBySpaceID()
     }
 
+    var monitorPresentationsByDisplayID: [String: WorkspaceMonitorPresentation] {
+        desktopSwitcher.monitorPresentationsByDisplayID()
+    }
+
     /// Toggle a workspace's desktop auto-assign (a row's A toggle).
     func setDesktopAutoAssign(_ id: UUID, enabled: Bool) {
         guard store.workspace(id: id) != nil else { return }

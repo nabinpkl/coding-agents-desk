@@ -692,7 +692,8 @@ final class WorkspaceShellPresenter: NSObject {
         switcher.render(
             workspaces: session?.store.workspaces ?? [],
             activeID: session?.store.activeID,
-            missionControlNumbersBySpaceID: session?.missionControlNumbersBySpaceID ?? [:]
+            missionControlNumbersBySpaceID: session?.missionControlNumbersBySpaceID ?? [:],
+            monitorPresentationsByDisplayID: session?.monitorPresentationsByDisplayID ?? [:]
         )
         sidebarTitleLabel.stringValue = (session?.store.active?.name).map { $0.uppercased() } ?? "WORKSPACE"
     }

@@ -114,6 +114,44 @@ struct WorkspaceDesktopSwitcherTests {
         #expect(switcher.missionControlNumbersBySpaceID() == [10: 1, 20: 2, 30: 3, 40: 4])
     }
 
+    @Test func monitorPresentationsUsePAndSWhenThereIsOneSecondary() {
+        let state = DesktopState(
+            displays: [
+                DisplayMetadata(id: "D1", label: "Studio Display", isMain: true, widthPoints: 1920, heightPoints: 1080),
+                DisplayMetadata(id: "D2", label: "Built-in Display", widthPoints: 1512, heightPoints: 982),
+            ],
+            spaces: [],
+            activeDisplayId: "D1",
+            activeSpaceId: nil
+        )
+        let switcher = WorkspaceDesktopSwitcher(state: { state }, commit: { _ in })
+
+        let presentations = switcher.monitorPresentationsByDisplayID()
+
+        #expect(presentations["D1"] == WorkspaceMonitorPresentation(badge: "P", accessibilityValue: "primary monitor"))
+        #expect(presentations["D2"] == WorkspaceMonitorPresentation(badge: "S", accessibilityValue: "secondary monitor"))
+    }
+
+    @Test func monitorPresentationsNumberMultipleSecondariesInDisplayOrder() {
+        let state = DesktopState(
+            displays: [
+                DisplayMetadata(id: "D1", label: "Studio Display", isMain: true, widthPoints: 1920, heightPoints: 1080),
+                DisplayMetadata(id: "D2", label: "Left Display", widthPoints: 1512, heightPoints: 982),
+                DisplayMetadata(id: "D3", label: "Right Display", widthPoints: 1512, heightPoints: 982),
+            ],
+            spaces: [],
+            activeDisplayId: "D1",
+            activeSpaceId: nil
+        )
+        let switcher = WorkspaceDesktopSwitcher(state: { state }, commit: { _ in })
+
+        let presentations = switcher.monitorPresentationsByDisplayID()
+
+        #expect(presentations["D1"]?.badge == "P")
+        #expect(presentations["D2"] == WorkspaceMonitorPresentation(badge: "S1", accessibilityValue: "secondary monitor 1"))
+        #expect(presentations["D3"] == WorkspaceMonitorPresentation(badge: "S2", accessibilityValue: "secondary monitor 2"))
+    }
+
     @Test func sidebarBadgeUsesLiveMissionControlNumberInsteadOfInternalOrdinal() throws {
         let workspaceID = UUID()
         let workspace = Workspace(
@@ -127,13 +165,18 @@ struct WorkspaceDesktopSwitcherTests {
         switcher.render(
             workspaces: [workspace],
             activeID: workspaceID,
-            missionControlNumbersBySpaceID: [40: 4]
+            missionControlNumbersBySpaceID: [40: 4],
+            monitorPresentationsByDisplayID: [
+                "D2": WorkspaceMonitorPresentation(badge: "S", accessibilityValue: "secondary monitor"),
+            ]
         )
 
         let badge = try #require(descendant(in: switcher.view, identifier: "workspace-desktop-status") as? NSTextField)
         #expect(badge.stringValue == "D4")
+        let monitor = try #require(descendant(in: switcher.view, identifier: "workspace-monitor-status") as? NSTextField)
+        #expect(monitor.stringValue == "S")
         let row = try #require(descendant(in: switcher.view, identifier: "workspace-\(workspaceID.uuidString)"))
-        #expect(row.accessibilityValue() as? String == "active, desktop 4")
+        #expect(row.accessibilityValue() as? String == "active, desktop 4, secondary monitor")
     }
 
     private func descendant(in root: NSView, identifier: String) -> NSView? {

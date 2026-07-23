@@ -39,7 +39,8 @@ public final class WorkspaceSwitcher: NSObject {
     public func render(
         workspaces: [Workspace],
         activeID: UUID?,
-        missionControlNumbersBySpaceID: [UInt64: Int]
+        missionControlNumbersBySpaceID: [UInt64: Int],
+        monitorPresentationsByDisplayID: [String: WorkspaceMonitorPresentation]
     ) {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         add(makeHeader())
@@ -52,6 +53,10 @@ public final class WorkspaceSwitcher: NSObject {
                     isActive: workspace.id == activeID,
                     missionControlNumber: workspace.desktopAssignment.flatMap {
                         missionControlNumbersBySpaceID[$0.spaceID]
+                    },
+                    monitorPresentation: workspace.desktopAssignment.map {
+                        monitorPresentationsByDisplayID[$0.displayID]
+                            ?? WorkspaceMonitorPresentation(badge: "?", accessibilityValue: "monitor unavailable")
                     }
                 ))
             }
@@ -177,7 +182,8 @@ public final class WorkspaceSwitcher: NSObject {
     private func makeRow(
         _ workspace: Workspace,
         isActive: Bool,
-        missionControlNumber: Int?
+        missionControlNumber: Int?,
+        monitorPresentation: WorkspaceMonitorPresentation?
     ) -> NSView {
         let desktopPresentation = DesktopAssignmentPresentation(
             assignment: workspace.desktopAssignment,
@@ -185,7 +191,10 @@ public final class WorkspaceSwitcher: NSObject {
         )
         let button = WorkspaceRowButton(
             workspaceID: workspace.id,
-            desktopAccessibilityValue: desktopPresentation.accessibilityValue,
+            assignmentAccessibilityValue: [
+                desktopPresentation.accessibilityValue,
+                monitorPresentation?.accessibilityValue,
+            ].compactMap { $0 }.joined(separator: ", "),
             desktopAutoAssignEnabled: workspace.desktopAutoAssignEnabled
         )
         button.title = workspace.name
@@ -196,7 +205,7 @@ public final class WorkspaceSwitcher: NSObject {
         button.alignment = .left
         button.isBordered = false
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.reserveTrailingContentWidth(116)
+        button.reserveTrailingContentWidth(144)
         button.setAccessibilityIdentifier("workspace-\(workspace.id.uuidString)")
         button.setAccessibilityLabel(workspace.name)
         button.setAccessibilityHelp("Switch to workspace \(workspace.name)")
@@ -206,7 +215,22 @@ public final class WorkspaceSwitcher: NSObject {
         button.onReorderCommit = { [weak self] in self?.dragCommitted() }
         button.applyActive(isActive, textZoom: textZoom)
 
-        let desktopBadge = DesktopAssignmentBadge(presentation: desktopPresentation, active: isActive)
+        let desktopBadge = WorkspaceStatusBadge(
+            value: desktopPresentation.badge,
+            accessibilityIdentifier: "workspace-desktop-status",
+            accessibilityLabel: "Workspace desktop assignment",
+            accessibilityValue: desktopPresentation.accessibilityValue,
+            active: isActive
+        )
+        let monitorBadge = monitorPresentation.map {
+            WorkspaceStatusBadge(
+                value: $0.badge,
+                accessibilityIdentifier: "workspace-monitor-status",
+                accessibilityLabel: "Workspace monitor assignment",
+                accessibilityValue: $0.accessibilityValue,
+                active: isActive
+            )
+        }
         let controls = NSStackView()
         controls.orientation = .horizontal
         controls.alignment = .centerY
@@ -259,6 +283,13 @@ public final class WorkspaceSwitcher: NSObject {
         close.setAccessibilityHelp("Close this workspace")
         close.isHidden = true
         close.translatesAutoresizingMaskIntoConstraints = false
+        if let monitorBadge {
+            controls.addArrangedSubview(monitorBadge)
+            NSLayoutConstraint.activate([
+                monitorBadge.widthAnchor.constraint(greaterThanOrEqualToConstant: 24),
+                monitorBadge.heightAnchor.constraint(equalToConstant: 17),
+            ])
+        }
         controls.addArrangedSubview(desktopBadge)
         controls.addArrangedSubview(assign)
         controls.addArrangedSubview(autoAssign)
@@ -306,7 +337,7 @@ public final class WorkspaceSwitcher: NSObject {
 /// inside the non-activating sidebar panel without a focusing pre-click.
 private final class WorkspaceRowButton: HoverButton {
     let workspaceID: UUID
-    let desktopAccessibilityValue: String
+    let assignmentAccessibilityValue: String
     let desktopAutoAssignEnabled: Bool
 
     /// A plain click (no drag) selects this workspace.
@@ -321,11 +352,11 @@ private final class WorkspaceRowButton: HoverButton {
 
     init(
         workspaceID: UUID,
-        desktopAccessibilityValue: String,
+        assignmentAccessibilityValue: String,
         desktopAutoAssignEnabled: Bool
     ) {
         self.workspaceID = workspaceID
-        self.desktopAccessibilityValue = desktopAccessibilityValue
+        self.assignmentAccessibilityValue = assignmentAccessibilityValue
         self.desktopAutoAssignEnabled = desktopAutoAssignEnabled
         super.init(frame: .zero)
         cornerRadius = 0  // full-bleed row highlight, not a rounded pill
@@ -346,7 +377,7 @@ private final class WorkspaceRowButton: HoverButton {
         setActiveHighlight(active)
         setAccessibilitySelected(active)
         setAccessibilityValue(rowAccessibilityValue(isActive: active))
-        descendants(of: self, as: DesktopAssignmentBadge.self).forEach { $0.setActive(active) }
+        descendants(of: self, as: WorkspaceStatusBadge.self).forEach { $0.setActive(active) }
         for button in descendants(of: self, as: NSButton.self) where button !== self {
             let autoAssignSelected = button.accessibilityIdentifier().hasPrefix("auto-assign-workspace-desktop-") && desktopAutoAssignEnabled
             button.contentTintColor = autoAssignSelected || active ? AppTheme.onAccent : .secondaryLabelColor
@@ -399,7 +430,7 @@ private final class WorkspaceRowButton: HoverButton {
 
     private func rowAccessibilityValue(isActive: Bool) -> String {
         let active = isActive ? "active" : "inactive"
-        return "\(active), \(desktopAccessibilityValue)"
+        return "\(active), \(assignmentAccessibilityValue)"
     }
 
     private func descendants<T: NSView>(of root: NSView, as type: T.Type) -> [T] {
@@ -434,13 +465,19 @@ private struct DesktopAssignmentPresentation {
     }
 }
 
-private final class DesktopAssignmentBadge: NSTextField {
+private final class WorkspaceStatusBadge: NSTextField {
     private var active: Bool
 
-    init(presentation: DesktopAssignmentPresentation, active: Bool) {
+    init(
+        value: String,
+        accessibilityIdentifier: String,
+        accessibilityLabel: String,
+        accessibilityValue: String,
+        active: Bool
+    ) {
         self.active = active
         super.init(frame: .zero)
-        stringValue = presentation.badge
+        stringValue = value
         font = .systemFont(ofSize: 10, weight: .semibold)
         alignment = .center
         isEditable = false
@@ -449,9 +486,9 @@ private final class DesktopAssignmentBadge: NSTextField {
         drawsBackground = false
         wantsLayer = true
         layer?.cornerRadius = 4
-        setAccessibilityIdentifier("workspace-desktop-status")
-        setAccessibilityLabel("Workspace desktop assignment")
-        setAccessibilityValue(presentation.accessibilityValue)
+        setAccessibilityIdentifier(accessibilityIdentifier)
+        setAccessibilityLabel(accessibilityLabel)
+        setAccessibilityValue(accessibilityValue)
         setContentHuggingPriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.required, for: .horizontal)
         applyStyle()
@@ -474,7 +511,7 @@ private final class DesktopAssignmentBadge: NSTextField {
     private func applyStyle() {
         textColor = active ? AppTheme.onAccent : .secondaryLabelColor
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = DesktopAssignmentBadge.background(active: active).cgColor
+            layer?.backgroundColor = WorkspaceStatusBadge.background(active: active).cgColor
         }
     }
 
