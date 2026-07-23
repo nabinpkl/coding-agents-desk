@@ -52,6 +52,14 @@ final class SurfaceControlRail: UIView {
         )
     }
 
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard isCollapsed else {
+            return super.point(inside: point, with: event)
+        }
+        let collapseButtonPoint = collapseButton.convert(point, from: self)
+        return collapseButton.point(inside: collapseButtonPoint, with: event)
+    }
+
     func setSurfaces(
         _ surfaces: [ControlSurface],
         selected: ControlSurface,
@@ -232,9 +240,18 @@ final class SurfaceControlRail: UIView {
     }
 
     private func applyCollapsedState(animated: Bool) {
-        surfaceButtons.forEach { $0.isHidden = isCollapsed }
-        separator.isHidden = isCollapsed || surfaceButtons.isEmpty
-        utilityButtons.forEach { $0.isHidden = isCollapsed }
+        // Preserve layout slots so the final collapse button stays at the same vertical position.
+        // point(inside:with:) makes the resulting transparent area pass touches through.
+        let controls = surfaceButtons + utilityButtons
+        controls.forEach {
+            $0.isHidden = false
+            $0.alpha = isCollapsed ? 0 : 1
+            $0.isUserInteractionEnabled = !isCollapsed
+            $0.accessibilityElementsHidden = isCollapsed
+        }
+        separator.isHidden = surfaceButtons.isEmpty
+        separator.alpha = isCollapsed ? 0 : 1
+        scrollView.isScrollEnabled = !isCollapsed
         updateCollapseButtonAppearance()
         invalidateIntrinsicContentSize()
         superview?.setNeedsLayout()

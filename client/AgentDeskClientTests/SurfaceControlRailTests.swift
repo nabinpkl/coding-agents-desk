@@ -119,6 +119,7 @@ struct SurfaceControlRailTests {
         let agent = try #require(
             rail.surfaceButtons.first { $0.accessibilityLabel == "Agent" }
         )
+        let expandedHeight = rail.intrinsicContentSize.height
 
         rail.collapseButton.sendActions(for: .touchUpInside)
 
@@ -127,8 +128,11 @@ struct SurfaceControlRailTests {
         #expect(rail.collapseButton.accessibilityLabel == "Expand controls")
         #expect(rail.collapseButton.accessibilityValue == "Collapsed")
         #expect(rail.intrinsicContentSize.width == 44)
-        #expect(rail.surfaceButtons.allSatisfy { $0.isHidden })
-        #expect(rail.utilityButtons.allSatisfy { $0.isHidden })
+        #expect(rail.intrinsicContentSize.height == expandedHeight)
+        #expect(rail.surfaceButtons.allSatisfy { !$0.isHidden && $0.alpha == 0 })
+        #expect(rail.utilityButtons.allSatisfy { !$0.isHidden && $0.alpha == 0 })
+        #expect(rail.surfaceButtons.allSatisfy { !$0.isUserInteractionEnabled })
+        #expect(rail.utilityButtons.allSatisfy { $0.accessibilityElementsHidden })
         #expect(agent.isSelected)
 
         rail.collapseButton.sendActions(for: .touchUpInside)
@@ -136,8 +140,11 @@ struct SurfaceControlRailTests {
         #expect(!rail.isCollapsed)
         #expect(rail.collapseButton.accessibilityLabel == "Collapse controls")
         #expect(rail.intrinsicContentSize.width == 60)
-        #expect(rail.surfaceButtons.allSatisfy { !$0.isHidden })
-        #expect(rail.utilityButtons.allSatisfy { !$0.isHidden })
+        #expect(rail.intrinsicContentSize.height == expandedHeight)
+        #expect(rail.surfaceButtons.allSatisfy { !$0.isHidden && $0.alpha == 1 })
+        #expect(rail.utilityButtons.allSatisfy { !$0.isHidden && $0.alpha == 1 })
+        #expect(rail.surfaceButtons.allSatisfy { $0.isUserInteractionEnabled })
+        #expect(rail.utilityButtons.allSatisfy { !$0.accessibilityElementsHidden })
         #expect(agent.isSelected)
     }
 
