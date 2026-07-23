@@ -215,14 +215,13 @@ final class SurfaceControlRail: UIView {
         image: UIImage?
     ) -> UIButton.Configuration {
         var configuration = UIButton.Configuration.plain()
-        configuration.baseForegroundColor = .white
+        configuration.baseForegroundColor = selected ? .systemBlue : .white
         configuration.image = image
         configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
             pointSize: 18,
-            weight: selected ? .semibold : .regular
+            weight: .regular
         )
-        configuration.background.backgroundColor = selected ? .systemBlue : .clear
-        configuration.background.cornerRadius = 14
+        configuration.background.backgroundColor = .clear
         return configuration
     }
 

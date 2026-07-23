@@ -100,7 +100,8 @@ struct SurfaceControlRailTests {
 
         #expect(gesture.isSelected)
         #expect(gesture.accessibilityTraits.contains(.selected))
-        #expect(gesture.configuration?.background.backgroundColor == .systemBlue)
+        #expect(gesture.configuration?.baseForegroundColor == .systemBlue)
+        #expect(gesture.configuration?.background.backgroundColor == .clear)
     }
 
     @Test func collapseHidesControlsButPreservesSelectionAndAReopenButton() throws {
