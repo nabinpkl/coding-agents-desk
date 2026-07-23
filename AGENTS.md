@@ -39,10 +39,11 @@ Before doing project work, read `PRD.md` and `SPEC.md` once. They are short on p
 
 # How work is done
 
-Workers mode is opt-in. Use it only when the user explicitly asks to use workers mode for the current
-task. Do not infer workers mode from task size, complexity, an R-task, or the generic ECC guidance to
-delegate proactively. Outside workers mode, the active thread plans, implements, reviews, and verifies
-the work itself without spawning workers.
+Subagents and workers mode are opt-in. Do not spawn, start, or delegate to any subagent, worker,
+reviewer, planner, or parallel agent unless the user explicitly consents for the current task. Consent
+is task-scoped and does not carry forward. Do not infer consent from task size, complexity, an R-task,
+or guidance to delegate proactively. Without explicit consent, the active thread plans, implements,
+reviews, and verifies the work itself.
 
 When workers mode is active, major features run through Codex native threads, not a generic subagent
 flow. The four standing roles are **Co-ordinator**, **Implementor**, **Reviewer**, and **Small Tasks
