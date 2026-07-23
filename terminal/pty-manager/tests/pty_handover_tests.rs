@@ -112,6 +112,11 @@ fn live_pty_survives_owner_binary_exit_and_keeps_io_resize_and_status() {
         0
     );
 
+    let observed_pid = owner.pid;
+    let exit_observer = std::thread::spawn(move || {
+        pty_manager::process_observer::observe_exit_status(observed_pid)
+            .expect("observe child exit")
+    });
     master.write_all(b"after-handover\n").expect("write PTY");
     master.flush().expect("flush PTY");
     let reply = read_until(&mut master, "reply:after-handover", Duration::from_secs(2));
@@ -119,8 +124,7 @@ fn live_pty_survives_owner_binary_exit_and_keeps_io_resize_and_status() {
         reply.contains("reply:after-handover"),
         "replacement did not receive child output: {reply:?}"
     );
-    let status =
-        pty_manager::process_observer::observe_exit_status(owner.pid).expect("observe child exit");
+    let status = exit_observer.join().expect("join exit observer");
     assert_eq!(status, 7);
 }
 

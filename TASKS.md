@@ -54,11 +54,11 @@ the master descriptor.
 
 ## v8 Phase 2: common descriptor vault
 
-- R106. Add `terminal/pty-vault` as a small executable with a variant-scoped `0600` Unix socket and a
+- D106. Add `terminal/pty-vault` as a small executable with a variant-scoped `0600` Unix socket and a
   bounded session table; keep its ownership to immutable session identity, PID/process group identity,
   descriptor custody, launch and close primitives, peer and protocol validation, and handover
   generation, with getters, viewport logic, replay, parsing, client fan-out, and UI outside it.
-- R107. Implement vault create, enumerate, lease, release, signal, and close operations; duplicate each
+- D107. Implement vault create, enumerate, lease, release, signal, and close operations; duplicate each
   manager lease with `SCM_RIGHTS`, never read terminal bytes in the vault, and protect control
   operations with session generation and process identity so PID reuse or a stale manager cannot
   resize, signal, or close a replacement process.
@@ -120,6 +120,8 @@ the master descriptor.
 ```text
 D101     2026-07-23  landed      accepted centralized PTY custody and handover decision
 D103     2026-07-23  landed      Darwin descriptor transfer and post-parent exit gates
+D106-107 2026-07-23 landed       common vault custody, validated control, and descriptor leases
 R102     2026-07-23  active      continuous TUI marker handover gate
-R104-117 2026-07-23  planned     PTY lease seam through authorized live acceptance
+R104-105 2026-07-23  planned     manager PTY lease seam and focused behavior gates
+R108-117 2026-07-23  planned     vault handover through authorized live acceptance
 ```

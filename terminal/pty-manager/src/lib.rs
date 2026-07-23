@@ -10,6 +10,9 @@ pub mod pty_client_footer;
 pub mod pty_session;
 pub mod session_registry;
 pub mod transport;
+pub mod vault;
+pub mod vault_client;
+pub mod vault_protocol;
 
 mod pty_manager_client_sessions;
 mod session_viewport;

@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package pty.vault.v1;
+
+message VaultRequest {
+  uint32 protocol_version = 1;
+  uint64 request_id = 2;
+
+  oneof payload {
+    CreateSession create_session = 10;
+    ListSessions list_sessions = 11;
+    LeaseSession lease_session = 12;
+    ResizeSession resize_session = 13;
+    KillSession kill_session = 14;
+    QueryExitStatus query_exit_status = 15;
+  }
+}
+
+message VaultResponse {
+  uint32 protocol_version = 1;
+  uint64 request_id = 2;
+  string error = 3;
+
+  oneof payload {
+    SessionLease session_lease = 10;
+    SessionList session_list = 11;
+    Acknowledged acknowledged = 12;
+    ExitStatus exit_status = 13;
+  }
+}
+
+message CreateSession {
+  string name = 1;
+  uint32 columns = 2;
+  uint32 rows = 3;
+  int32 lifetime = 4;
+
+  oneof launch {
+    ShellLaunch shell_launch = 10;
+    CommandLaunch command_launch = 11;
+  }
+}
+
+message ShellLaunch {
+  string cwd = 1;
+  string shell = 2;
+}
+
+message CommandLaunch {
+  string cwd = 1;
+  string executable = 2;
+  repeated string arguments = 3;
+}
+
+message ListSessions {}
+
+message LeaseSession {
+  string name = 1;
+  uint64 generation = 2;
+}
+
+message ResizeSession {
+  string name = 1;
+  uint64 generation = 2;
+  uint32 columns = 3;
+  uint32 rows = 4;
+}
+
+message KillSession {
+  string name = 1;
+  uint64 generation = 2;
+}
+
+message QueryExitStatus {
+  string name = 1;
+  uint64 generation = 2;
+  bool acknowledge = 3;
+}
+
+message SessionLease {
+  Session session = 1;
+}
+
+message SessionList {
+  repeated Session sessions = 1;
+}
+
+message Session {
+  string name = 1;
+  string cwd = 2;
+  string shell = 3;
+  uint32 pid = 4;
+  int32 process_group = 5;
+  uint64 generation = 6;
+  uint64 started_at_unix_milliseconds = 7;
+  uint32 columns = 8;
+  uint32 rows = 9;
+  int32 lifetime = 10;
+  bool exited = 11;
+  int32 exit_status = 12;
+}
+
+message Acknowledged {}
+
+message ExitStatus {
+  bool exited = 1;
+  int32 status = 2;
+}

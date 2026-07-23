@@ -20,6 +20,10 @@ path = "src/bin/pty-client.rs"
 name = "pty-status"
 path = "src/bin/pty-status.rs"
 
+[[bin]]
+name = "pty-vault"
+path = "src/bin/pty-vault.rs"
+
 [dependencies]
 alacritty_terminal = { path = "../vendor/alacritty_terminal", default-features = false }
 anyhow = "1.0"
