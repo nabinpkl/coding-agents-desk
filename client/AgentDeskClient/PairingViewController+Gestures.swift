@@ -190,12 +190,12 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             label.text = "Mac locked\nKeyboard input stays available"
             label.isHidden = false
             view.bringSubviewToFront(label)
-            view.bringSubviewToFront(settingsButton)
+            view.bringSubviewToFront(surfaceControlRail)
         case .captureUnavailable:
             label.text = "Mac display unavailable\nInput stays connected"
             label.isHidden = false
             view.bringSubviewToFront(label)
-            view.bringSubviewToFront(settingsButton)
+            view.bringSubviewToFront(surfaceControlRail)
         case .disconnected:
             label.isHidden = true
             label.text = nil

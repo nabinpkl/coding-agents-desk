@@ -104,16 +104,8 @@ extension PairingViewController {
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = activeControlSurface != .ide
         view.addSubview(surface)
-        let top = surfaceSegmentedControl.map {
-            surface.topAnchor.constraint(equalTo: $0.bottomAnchor, constant: 8)
-        } ?? surface.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
-        NSLayoutConstraint.activate([
-            top,
-            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-        if let surfaceSegmentedControl { view.bringSubviewToFront(surfaceSegmentedControl) }
+        constrainSurfaceBesideControlRail(surface, bottomAnchor: view.bottomAnchor)
+        view.bringSubviewToFront(surfaceControlRail)
 
         let state = workspaceIDEState
         state.transport = transport
@@ -131,9 +123,7 @@ extension PairingViewController {
         state.task = nil
         guard activeControlSurface == .ide else { return }
         activeControlSurface = .control
-        if let surfaceSegmentedControl {
-            surfaceSegmentedControl.selectedSegmentIndex = segmentIndex(for: .control, in: surfaceSegmentedControl)
-        }
+        surfaceControlRail.select(.control)
         applySurface(.control)
     }
 }

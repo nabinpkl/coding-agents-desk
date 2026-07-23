@@ -1,7 +1,7 @@
 import Testing
 import UIKit
 
-// Pure surface -> visibility mapping for the Control | Agent | Browser switcher.
+// Pure surface -> visibility mapping for the shared surface control rail.
 // No view controller required: this is the testable seam that keeps the UIKit
 // wiring (applySurface) trivial.
 struct ControlSurfaceVisibilityTests {
@@ -77,7 +77,7 @@ struct ControlSurfaceVisibilityTests {
     }
 }
 
-// R30: the switcher offers icon segments for every surface, fitting narrow iPhone widths where text
+// R30: the rail offers icon buttons for every surface, fitting narrow iPhone widths where text
 // labels crowd. These pin the pure ordering/availability and per-surface metadata the UIKit
 // switcher builds from (and that a11y-driven flows target by label).
 struct SurfaceSwitcherTests {

@@ -3,7 +3,7 @@ import UIKit
 import AgentDeskWire
 
 /// The iOS gesture panel: a half-screen `GestureSurface` shown below the video
-/// when the top-bar gesture button is tapped. Detection runs in the webview; a
+/// when the control-rail gesture button is tapped. Detection runs in the webview; a
 /// detected swipe becomes a `NormalizedInput.switchSpaceStep` frame on the input
 /// lane, so the phone's camera switches the Mac's Spaces while the desktop stays
 /// visible in the top half.
@@ -28,7 +28,8 @@ extension PairingViewController {
         if show {
             view.bringSubviewToFront(surface)
         }
-        gestureToggleButton.tintColor = show ? .systemBlue : .label
+        surfaceControlRail.setUtilityButton(gestureToggleButton, selected: show)
+        view.bringSubviewToFront(surfaceControlRail)
     }
 
     /// Lazily builds the panel pinned to the bottom half of the screen and wires

@@ -1,5 +1,5 @@
-// The surfaces the top switcher can select between. Browser is only
-// offered as a segment when the session opened a .dom lane.
+// The surfaces the control rail can select between. Browser is only
+// offered when the session opened a .dom lane.
 //
 // This file is intentionally dependency-free (no UIKit) so it can be compiled
 // into the test target directly — the repo tests production code via dual
@@ -29,8 +29,8 @@ struct SurfaceVisibility: Equatable {
 }
 
 extension ControlSurface {
-    /// SF Symbol name for the switcher segment. Icons keep all six segments legible across supported
-    /// iPhone widths where text labels would crowd or truncate. Pure (a name string) so it stays in
+    /// SF Symbol name for the control rail. Icons keep all six surfaces legible across supported
+    /// iPhone heights where text labels would crowd or truncate. Pure (a name string) so it stays in
     /// this UIKit-free, test-compiled file;
     /// the UIKit layer resolves it via `UIImage(systemName:)`.
     var switcherSymbolName: String {
@@ -44,11 +44,9 @@ extension ControlSurface {
         }
     }
 
-    /// VoiceOver / Maestro accessibility label for the segment. This is the product-facing surface
+    /// VoiceOver / Maestro accessibility label for the rail button. This is the product-facing surface
     /// name and the stable target used by accessibility-driven flows.
-    /// This label is also the switcher's read-back key: the UIKit layer resolves a tapped segment
-    /// back to its surface via `ControlSurface(switcherAccessibilityLabel:)` on the segment's own
-    /// image label, so the mapping reads what was actually built rather than re-deriving availability.
+    /// This remains the stable label-to-surface key for accessibility-driven clients.
     var switcherAccessibilityLabel: String {
         switch self {
         case .control: return "Control"
@@ -71,7 +69,7 @@ extension ControlSurface {
 
 /// The ordered surfaces the switcher offers. Browser is present only when the session opened a `.dom`
 /// lane; the rest are always available. Pure so the ordering + availability is unit-tested without
-/// UIKit, and so selection can map by index into this list rather than by matching segment titles.
+/// UIKit.
 func availableControlSurfaces(browserAvailable: Bool) -> [ControlSurface] {
     var surfaces: [ControlSurface] = [.control, .agent, .terminal]
     if browserAvailable {

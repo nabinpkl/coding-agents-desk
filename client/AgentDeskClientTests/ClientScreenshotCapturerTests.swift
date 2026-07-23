@@ -3,6 +3,7 @@ import Testing
 import AgentDeskWire
 @testable import AgentDeskClient
 
+@MainActor
 struct ClientScreenshotCapturerTests {
     @Test func chunksAreBoundedOrderedAndExactlyReconstructPayload() throws {
         let source = Data((0..<255).map(UInt8.init)) + Data((0..<255).map(UInt8.init))

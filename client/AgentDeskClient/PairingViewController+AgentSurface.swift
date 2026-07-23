@@ -5,11 +5,10 @@ import WebKit
 // Extension: surface switcher and lifecycle for Control, Agent, Terminal, Browser, Workspace, and IDE.
 // The ControlSurface enum + visibility(for:) mapping live in ControlSurface.swift.
 //
-// Each non-control surface sits full-bleed alongside the existing control
-// surfaces (trackpad, display rail, keyboard). A segmented control in the
-// safe-area top lets the user switch between them. When a non-control surface
-// is shown the interactive control surfaces are hidden so gestures do not
-// conflict; the inactive surfaces are hidden too.
+// Each non-control surface sits beside the shared right-side control rail. The
+// rail lets the user switch between them without consuming the top status row.
+// When a non-control surface is shown the interactive control surfaces are
+// hidden so gestures do not conflict; the inactive surfaces are hidden too.
 //
 // Lifecycle (state-driven, race-free):
 //   - The TOGGLE is added from render()'s .connected case via
@@ -31,7 +30,6 @@ extension PairingViewController {
     private enum Keys {
         nonisolated(unsafe) static var agentSurface: UInt8 = 0
         nonisolated(unsafe) static var terminalSurface: UInt8 = 0
-        nonisolated(unsafe) static var surfaceSegmentedControl: UInt8 = 0
         nonisolated(unsafe) static var agentSurfaceConstraints: UInt8 = 0
         nonisolated(unsafe) static var agentSurfaceBoundTransport: UInt8 = 0
         nonisolated(unsafe) static var agentTerminalLifecycleRouter: UInt8 = 0
@@ -78,11 +76,6 @@ extension PairingViewController {
     var terminalSurface: TerminalSurface? {
         get { objc_getAssociatedObject(self, &Keys.terminalSurface) as? TerminalSurface }
         set { objc_setAssociatedObject(self, &Keys.terminalSurface, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
-    }
-
-    var surfaceSegmentedControl: UISegmentedControl? {
-        get { objc_getAssociatedObject(self, &Keys.surfaceSegmentedControl) as? UISegmentedControl }
-        set { objc_setAssociatedObject(self, &Keys.surfaceSegmentedControl, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
     }
 
     var workspaceSurface: WorkspaceWorkbenchSurface? {
@@ -145,51 +138,19 @@ extension PairingViewController {
 
     // MARK: - Toggle UI (state-driven from render())
 
-    // Idempotent: adds the surface switcher once, with the
-    // safe-area-top constraints. Called from render()'s .connected case, which
-    // runs on every state change, so the toggle cannot be skipped by a channel
-    // timing race. The webview itself is created lazily on first Agent select.
+    // Idempotent: populates the surface section of the shared right-side rail.
+    // Called from render()'s .connected case, which runs on every state change,
+    // so the switcher cannot be skipped by a channel timing race. Webviews are
+    // still created lazily on first selection.
     func showSurfaceToggleIfNeeded() {
-        guard surfaceSegmentedControl == nil else {
-            if let seg = surfaceSegmentedControl {
-                if case .connected = pairingClient.state {
-                    refreshSurfaceToggleSegments(seg)
-                }
-                seg.selectedSegmentIndex = segmentIndex(for: activeControlSurface, in: seg)
-                // Already present; keep it on top of any later-added media chrome.
-                view.bringSubviewToFront(seg)
-            }
-            return
+        let wasConfigured = !surfaceControlRail.surfaceButtons.isEmpty
+        let previousSurface = activeControlSurface
+        refreshSurfaceToggle()
+        surfaceControlRail.select(activeControlSurface)
+        view.bringSubviewToFront(surfaceControlRail)
+        if !wasConfigured || previousSurface != activeControlSurface {
+            applySurface(activeControlSurface)
         }
-
-        // Browser is offered only when this session opened a .dom lane.
-        // Availability is fixed for the session's lifetime (decided at the
-        // handshake) and the toggle is torn down + rebuilt on every
-        // non-connected state, so reading it once here is race-free.
-        let seg = UISegmentedControl()
-        configureSurfaceSegments(seg)
-        seg.selectedSegmentIndex = segmentIndex(for: activeControlSurface, in: seg)
-        seg.translatesAutoresizingMaskIntoConstraints = false
-        seg.addTarget(self, action: #selector(surfaceSegmentChanged(_:)), for: .valueChanged)
-        view.addSubview(seg)
-        let centered = seg.centerXAnchor.constraint(equalTo: view.centerXAnchor)
-        centered.priority = .defaultHigh
-        NSLayoutConstraint.activate([
-            centered,
-            seg.leadingAnchor.constraint(
-                greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor,
-                constant: 12
-            ),
-            seg.trailingAnchor.constraint(
-                lessThanOrEqualTo: orientationToggleButton.leadingAnchor,
-                constant: -8
-            ),
-            seg.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-        ])
-        // Cheap z-order safety: keep the toggle above the media sink / surfaces.
-        view.bringSubviewToFront(seg)
-        surfaceSegmentedControl = seg
-        applySurface(activeControlSurface)
     }
 
     @discardableResult
@@ -217,8 +178,7 @@ extension PairingViewController {
         teardownWorkspaceSurface()
         teardownIDESurface()
 
-        surfaceSegmentedControl?.removeFromSuperview()
-        surfaceSegmentedControl = nil
+        surfaceControlRail.clearSurfaces()
         return terminalCloseTask
     }
 
@@ -274,19 +234,7 @@ extension PairingViewController {
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = true
         view.addSubview(surface)
-        // Top-anchor to the toggle's bottom (not view.top) so the webview's own
-        // header sits BELOW the native Control/Agent switcher instead of behind
-        // it. The toggle is created before any Agent select, so it is present
-        // here; the safe-area fallback only guards a defensive nil.
-        let surfaceTop = surfaceSegmentedControl.map {
-            surface.topAnchor.constraint(equalTo: $0.bottomAnchor, constant: 8)
-        } ?? surface.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
-        NSLayoutConstraint.activate([
-            surfaceTop,
-            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
+        constrainSurfaceBesideControlRail(surface, bottomAnchor: view.bottomAnchor)
         agentSurface = surface
         let transport = pairingClient.activeSessionTransport
         agentSurfaceBoundTransport = transport
@@ -315,10 +263,7 @@ extension PairingViewController {
             surface?.deliver(rawJSON: json)
         }
 
-        // Keep the toggle above the freshly-added full-bleed surface.
-        if let seg = surfaceSegmentedControl {
-            view.bringSubviewToFront(seg)
-        }
+        view.bringSubviewToFront(surfaceControlRail)
 
         return surface
     }
@@ -338,8 +283,7 @@ extension PairingViewController {
         surface.resumeAfterSessionReconnect()
     }
 
-    @objc private func surfaceSegmentChanged(_ sender: UISegmentedControl) {
-        let surface = selectedSurface(on: sender)
+    private func surfaceSelectionChanged(_ surface: ControlSurface) {
         if activeControlSurface == .agent, surface != .agent {
             agentTerminalLifecycleRouter.route(.switchAway, to: agentSurface)
         }
@@ -388,9 +332,7 @@ extension PairingViewController {
         case .browser:
             if ensureDomMirrorSurface() == nil {
                 activeControlSurface = .control
-                if let seg = surfaceSegmentedControl {
-                    seg.selectedSegmentIndex = segmentIndex(for: .control, in: seg)
-                }
+                surfaceControlRail.select(.control)
             }
         case .workspace:
             ensureWorkspaceSurface()
@@ -400,53 +342,14 @@ extension PairingViewController {
         domMirrorSurface?.setPaused(activeControlSurface != .browser)
     }
 
-    // The ordered surfaces the current toggle offers. Browser is present only with a `.dom` lane;
+    // The ordered surfaces the current rail offers. Browser is present only with a `.dom` lane;
     // availability is fixed for the session, so the index<->surface mapping is stable between rebuilds.
     private func currentSurfaces() -> [ControlSurface] {
         availableControlSurfaces(browserAvailable: pairingClient.activeDomMirror != nil)
     }
 
-    // Populates the toggle with one icon segment per available surface. Icons (SF Symbols) keep all
-    // six segments legible on the narrowest supported iPhone where text labels would truncate;
-    // each segment carries the surface's accessibility label so VoiceOver and the a11y-driven Maestro
-    // flows still target it by name.
-    private func configureSurfaceSegments(_ seg: UISegmentedControl) {
-        seg.removeAllSegments()
-        for (index, surface) in currentSurfaces().enumerated() {
-            let image = UIImage(systemName: surface.switcherSymbolName)
-            image?.accessibilityLabel = surface.switcherAccessibilityLabel
-            seg.insertSegment(with: image, at: index, animated: false)
-        }
-        seg.accessibilityIdentifier = "surface-switcher"
-    }
-
-    // Maps the selected segment to a ControlSurface by reading the segment's own image accessibility
-    // label — the source of truth for what was actually built — rather than re-deriving the surface
-    // list. An unknown/absent label falls back safely to .control instead of silently resolving to a
-    // wrong surface if build-time and tap-time availability ever diverged.
-    private func selectedSurface(on seg: UISegmentedControl) -> ControlSurface {
-        let index = seg.selectedSegmentIndex
-        guard index >= 0, index < seg.numberOfSegments,
-              let label = seg.imageForSegment(at: index)?.accessibilityLabel,
-              let surface = ControlSurface(switcherAccessibilityLabel: label) else {
-            return .control
-        }
-        return surface
-    }
-
-    func segmentIndex(for surface: ControlSurface, in seg: UISegmentedControl) -> Int {
-        for index in 0..<seg.numberOfSegments
-            where seg.imageForSegment(at: index)?.accessibilityLabel == surface.switcherAccessibilityLabel {
-            return index
-        }
-        activeControlSurface = .control
-        return 0
-    }
-
-    private func refreshSurfaceToggleSegments(_ seg: UISegmentedControl) {
+    private func refreshSurfaceToggle() {
         let surfaces = currentSurfaces()
-        guard surfaces.count != seg.numberOfSegments else { return }
-
         if !surfaces.contains(.browser) {
             if activeControlSurface == .browser {
                 activeControlSurface = .control
@@ -454,10 +357,31 @@ extension PairingViewController {
             teardownDomMirrorSurface()
         }
 
-        configureSurfaceSegments(seg)
+        surfaceControlRail.setSurfaces(
+            surfaces,
+            selected: activeControlSurface,
+            onSelection: { [weak self] surface in
+                self?.surfaceSelectionChanged(surface)
+            }
+        )
     }
 
     // MARK: - Visibility
+
+    func constrainSurfaceBesideControlRail(
+        _ surface: UIView,
+        bottomAnchor: NSLayoutYAxisAnchor
+    ) {
+        NSLayoutConstraint.activate([
+            surface.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            surface.trailingAnchor.constraint(
+                equalTo: surfaceControlRail.leadingAnchor,
+                constant: -8
+            ),
+            surface.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
 
     func applySurface(_ surface: ControlSurface) {
         let v = visibility(for: surface)
@@ -520,16 +444,11 @@ extension PairingViewController {
                 surface.translatesAutoresizingMaskIntoConstraints = false
                 surface.isHidden = self.activeControlSurface != .workspace
                 self.view.addSubview(surface)
-                let top = self.surfaceSegmentedControl.map {
-                    surface.topAnchor.constraint(equalTo: $0.bottomAnchor, constant: 8)
-                } ?? surface.topAnchor.constraint(equalTo: self.view.safeAreaLayoutGuide.topAnchor)
-                NSLayoutConstraint.activate([
-                    top,
-                    surface.leadingAnchor.constraint(equalTo: self.view.leadingAnchor),
-                    surface.trailingAnchor.constraint(equalTo: self.view.trailingAnchor),
-                    surface.bottomAnchor.constraint(equalTo: self.view.bottomAnchor),
-                ])
-                if let seg = self.surfaceSegmentedControl { self.view.bringSubviewToFront(seg) }
+                self.constrainSurfaceBesideControlRail(
+                    surface,
+                    bottomAnchor: self.view.bottomAnchor
+                )
+                self.view.bringSubviewToFront(self.surfaceControlRail)
                 self.filesTransport = transport
                 self.workspaceBrowser = browser
                 self.workspaceSurface = surface
@@ -546,9 +465,7 @@ extension PairingViewController {
                 // Workspace screen with every other surface hidden.
                 if self.activeControlSurface == .workspace {
                     self.activeControlSurface = .control
-                    if let seg = self.surfaceSegmentedControl {
-                        seg.selectedSegmentIndex = self.segmentIndex(for: .control, in: seg)
-                    }
+                    self.surfaceControlRail.select(.control)
                     self.applySurface(.control)
                 }
             }
@@ -565,20 +482,13 @@ extension PairingViewController {
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = true
         view.addSubview(surface)
-        let surfaceTop = surfaceSegmentedControl.map {
-            surface.topAnchor.constraint(equalTo: $0.bottomAnchor, constant: 8)
-        } ?? surface.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
-        NSLayoutConstraint.activate([
-            surfaceTop,
-            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            surface.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
-        ])
+        constrainSurfaceBesideControlRail(
+            surface,
+            bottomAnchor: view.keyboardLayoutGuide.topAnchor
+        )
         terminalSurface = surface
         surface.connect(using: pairingClient.activeSessionTransport)
-        if let seg = surfaceSegmentedControl {
-            view.bringSubviewToFront(seg)
-        }
+        view.bringSubviewToFront(surfaceControlRail)
         return surface
     }
 

@@ -99,7 +99,10 @@ extension PairingViewController {
         NSLayoutConstraint.activate([
             diag.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
             diag.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            diag.trailingAnchor.constraint(lessThanOrEqualTo: settingsButton.leadingAnchor, constant: -8)
+            diag.trailingAnchor.constraint(
+                lessThanOrEqualTo: surfaceControlRail.leadingAnchor,
+                constant: -8
+            )
         ])
         view.bringSubviewToFront(diag)
         mediaDiagnosticsLabel = diag
@@ -367,15 +370,9 @@ extension PairingViewController {
 
         applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
 
-        // R24: the chrome buttons (settings + orientation toggle) were
-        // added to the view in configureSettingsButton (viewDidLoad)
-        // before the session UI existed, so showTrackpad's addSubview
-        // calls for scrollStripView et al land in front of them. Bring
-        // the chrome back to the top so the pills are tappable in the
-        // landscape right column where their 36pt box overlaps the
-        // scroll strip's x range.
-        view.bringSubviewToFront(orientationToggleButton)
-        view.bringSubviewToFront(settingsButton)
+        // The rail is added before session UI. Keep it above later surfaces so its controls
+        // remain tappable without letting each button become an independent overlay.
+        view.bringSubviewToFront(surfaceControlRail)
 
         gestureTranslator.delegate = self
         trackpadView.gestureRecognizers?.forEach { trackpadView.removeGestureRecognizer($0) }
@@ -484,66 +481,49 @@ extension PairingViewController {
     }
 
     func configureSettingsButton() {
-        let image = UIImage(systemName: "gearshape")
-        settingsButton.setImage(image, for: .normal)
-        settingsButton.tintColor = .label
-        // Sits on top of the live screen-share video. The translucent
-        // pill keeps the icon legible against arbitrary video content.
-        settingsButton.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.7)
-        settingsButton.layer.cornerRadius = 18
-        settingsButton.layer.masksToBounds = true
+        settingsButton.setImage(UIImage(systemName: "gearshape"), for: .normal)
         settingsButton.accessibilityLabel = "Settings"
         settingsButton.accessibilityIdentifier = "settings-button"
         settingsButton.addTarget(self, action: #selector(openSettings), for: .touchUpInside)
-        settingsButton.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(settingsButton)
-        NSLayoutConstraint.activate([
-            settingsButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            settingsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
-            settingsButton.widthAnchor.constraint(equalToConstant: 36),
-            settingsButton.heightAnchor.constraint(equalToConstant: 36)
-        ])
 
-        // R24: orientation toggle to the left of the settings button.
-        orientationToggleButton.tintColor = .label
-        orientationToggleButton.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.7)
-        orientationToggleButton.layer.cornerRadius = 18
-        orientationToggleButton.layer.masksToBounds = true
+        // R24: orientation remains a global action in the same rail as surface selection.
         orientationToggleButton.accessibilityIdentifier = "orientation-toggle"
         orientationToggleButton.addTarget(self, action: #selector(toggleOrientation), for: .touchUpInside)
-        orientationToggleButton.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(orientationToggleButton)
-        NSLayoutConstraint.activate([
-            orientationToggleButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            orientationToggleButton.trailingAnchor.constraint(equalTo: settingsButton.leadingAnchor, constant: -8),
-            orientationToggleButton.widthAnchor.constraint(equalToConstant: 36),
-            orientationToggleButton.heightAnchor.constraint(equalToConstant: 36)
-        ])
         updateOrientationToggleIcon(forLandscape: view.bounds.width > view.bounds.height)
 
-        // Gesture panel toggle, left of the orientation toggle. Reveals the
-        // half-screen camera + swipe tracker below the video for desktop switching.
+        // Gesture panel toggle reveals the camera + swipe tracker below the video.
         gestureToggleButton.setImage(UIImage(systemName: "hand.wave"), for: .normal)
-        gestureToggleButton.tintColor = .label
-        gestureToggleButton.backgroundColor = UIColor.systemBackground.withAlphaComponent(0.7)
-        gestureToggleButton.layer.cornerRadius = 18
-        gestureToggleButton.layer.masksToBounds = true
         gestureToggleButton.accessibilityLabel = "Gesture"
         gestureToggleButton.accessibilityIdentifier = "gesture-toggle"
         gestureToggleButton.addTarget(self, action: #selector(toggleGesturePanel), for: .touchUpInside)
-        gestureToggleButton.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(gestureToggleButton)
+
+        surfaceControlRail.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(surfaceControlRail)
         NSLayoutConstraint.activate([
-            gestureToggleButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            gestureToggleButton.trailingAnchor.constraint(equalTo: orientationToggleButton.leadingAnchor, constant: -8),
-            gestureToggleButton.widthAnchor.constraint(equalToConstant: 36),
-            gestureToggleButton.heightAnchor.constraint(equalToConstant: 36)
+            surfaceControlRail.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.topAnchor,
+                constant: 8
+            ),
+            surfaceControlRail.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+                constant: -8
+            ),
+            surfaceControlRail.widthAnchor.constraint(equalToConstant: 60),
+            surfaceControlRail.bottomAnchor.constraint(
+                lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor,
+                constant: -8
+            )
         ])
     }
 
     func updateOrientationToggleIcon(forLandscape isLandscape: Bool) {
         let name = isLandscape ? "rectangle.portrait.rotate" : "rectangle.landscape.rotate"
-        orientationToggleButton.setImage(UIImage(systemName: name), for: .normal)
+        let image = UIImage(systemName: name)
+        orientationToggleButton.setImage(image, for: .normal)
+        if var configuration = orientationToggleButton.configuration {
+            configuration.image = image
+            orientationToggleButton.configuration = configuration
+        }
         orientationToggleButton.accessibilityLabel = isLandscape ? "Rotate to portrait" : "Rotate to landscape"
     }
 

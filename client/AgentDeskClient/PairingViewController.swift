@@ -132,13 +132,16 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }()
     let scrollStripHint = UIImageView()
     let settingsButton = UIButton(type: .system)
-    // R24: top-right orientation toggle. Sits to the left of the
-    // settings button and synthesises a UIWindowScene geometry update
-    // when tapped.
+    // R24: orientation toggle. Synthesises a UIWindowScene geometry update when tapped.
     let orientationToggleButton = UIButton(type: .system)
     // Toggles the half-screen gesture panel (camera + swipe tracker for desktop
-    // switching) below the video. Sits left of the orientation toggle.
+    // switching) below the video.
     let gestureToggleButton = UIButton(type: .system)
+    lazy var surfaceControlRail = SurfaceControlRail(
+        gestureButton: gestureToggleButton,
+        orientationButton: orientationToggleButton,
+        settingsButton: settingsButton
+    )
     // MARK: - One-handed affordances
     //
     // Issue #6 originally called for two-finger right-click and

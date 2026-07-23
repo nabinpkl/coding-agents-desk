@@ -295,10 +295,9 @@ extension PairingViewController {
     }
 
     func isControlSurfaceActive() -> Bool {
-        // Use the authoritative selected surface, kept in sync by surfaceSegmentChanged. Reading the
-        // segment's title breaks under R30's icon segments (they carry an image, not a title, so
-        // titleForSegment returns nil and this always read false — permanently hiding the trackpad
-        // and scroll strip even on the Control surface).
+        // Use the authoritative selected surface, kept in sync by the control rail. Deriving this
+        // state from button presentation would couple video input to the rail's current icon and
+        // accessibility treatment.
         activeControlSurface == .control
     }
 
