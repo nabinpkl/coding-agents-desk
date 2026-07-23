@@ -1,0 +1,325 @@
+"""Single source of truth for the browser<->backend wire contract.
+
+Every WebSocket message and REST payload exchanged between the Next.js frontend
+and the FastAPI voice backend is declared here as a Pydantic model. JSON is
+camelCase on the wire; Python fields stay snake_case and are aliased by
+``to_camel``. The TypeScript mirror in ``web/src/lib/wire.ts`` is generated from
+these models by ``just wire-gen`` (which runs ``python -m
+interaction_agent.voice.wire``); never edit that file by hand.
+
+The ``SignalAnalysis`` and ``PronunciationComparison`` models mirror the
+``.to_json_payload()`` shapes of ``voice.signals`` and ``voice.pronunciation``
+exactly, so a payload produced by those modules validates against these models.
+"""
+
+import json
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Any, Final, Literal
+
+from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
+from pydantic.json_schema import models_json_schema
+
+from interaction_agent.paths import PROJECT_ROOT
+
+
+WIRE_TS_PATH: Final = PROJECT_ROOT / "web" / "src" / "lib" / "wire.ts"
+
+
+class WireModel(BaseModel):
+    """Base for every wire model: camelCase JSON aliases, strict payloads."""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        extra="forbid",
+    )
+
+
+# --- Client -> server WebSocket messages -----------------------------------
+
+
+class SessionStartMessage(WireModel):
+    type: Literal["sessionStart"] = "sessionStart"
+    preamp_gain: float | None = None
+
+
+class AudioFrameMessage(WireModel):
+    type: Literal["audioFrame"] = "audioFrame"
+    pcm: str
+    """Base64-encoded PCM samples in the ``encoding`` below."""
+    sample_rate: int
+    encoding: Literal["int16", "float32"] = "int16"
+    channels: int = 1
+    """Interleaved channel count. Only mono (1) is accepted; the decoder rejects
+    anything else rather than silently misreading interleaved samples."""
+
+
+class SessionStopMessage(WireModel):
+    type: Literal["sessionStop"] = "sessionStop"
+
+
+# --- Server -> client WebSocket messages -----------------------------------
+
+
+class PartialTranscriptMessage(WireModel):
+    type: Literal["partialTranscript"] = "partialTranscript"
+    text: str
+
+
+class FinalTranscriptMessage(WireModel):
+    type: Literal["finalTranscript"] = "finalTranscript"
+    text: str
+
+
+class MeterMessage(WireModel):
+    type: Literal["meter"] = "meter"
+    rms: float
+    peak: float
+
+
+class SessionCompleteMessage(WireModel):
+    type: Literal["sessionComplete"] = "sessionComplete"
+    recording_id: str
+    """Emitted only after the recording is fully persisted (momentum->truth)."""
+
+
+# The gesture WebSocket protocol was retired once the swipe tracker moved
+# client-side (the webview runs it locally). Its message models and the
+# `/ws/gesture` route are gone; the gesture anchor is now a frontend-only shape
+# defined in web/src/features/gesture/types.ts.
+
+
+# --- REST record models ----------------------------------------------------
+
+
+class Recording(WireModel):
+    id: str
+    created_at: str
+    duration_seconds: float
+    transcript: str | None = None
+    sample_rate: int
+
+
+class RecordingListResponse(WireModel):
+    recordings: list[Recording]
+
+
+# --- Signal analysis (mirror of voice.signals.to_json_payload) -------------
+
+
+class VoiceSignalFramePayload(WireModel):
+    elapsed_seconds: float
+    rms: float
+    peak: float
+    decibels: float
+    zero_crossing_rate: float
+    spectral_centroid_hz: float
+    spectral_rolloff_hz: float
+    spectral_flatness: float
+    low_band_ratio: float
+    mid_band_ratio: float
+    high_band_ratio: float
+
+
+class VoiceSignalSummaryPayload(WireModel):
+    duration_seconds: float
+    sample_rate: int
+    sample_count: int
+    frame_count: int
+    mean_rms: float
+    max_rms: float
+    peak_amplitude: float
+    mean_decibels: float
+    silence_ratio: float
+    mean_zero_crossing_rate: float
+    mean_spectral_centroid_hz: float
+
+
+class SignalAnalysis(WireModel):
+    summary: VoiceSignalSummaryPayload
+    frames: list[VoiceSignalFramePayload]
+
+
+# --- Pronunciation (mirror of voice.pronunciation.to_json_payload) ---------
+
+
+class PronunciationFrameCostPayload(WireModel):
+    reference_seconds: float
+    learner_seconds: float
+    cost: float
+
+
+class PronunciationComparison(WireModel):
+    distance: float
+    closeness: float
+    reference_frame_count: int
+    learner_frame_count: int
+    path_length: int
+    coefficient_count: int
+    trace: list[PronunciationFrameCostPayload]
+
+
+# --- REST request models ---------------------------------------------------
+
+
+class SaveRecordingRequest(WireModel):
+    sample_rate: int
+    pcm: str
+    """Base64-encoded PCM of the full utterance in the ``encoding`` below."""
+    transcript: str | None = None
+    encoding: Literal["int16", "float32"] = "int16"
+
+
+class AnalyzeSignalsRequest(WireModel):
+    recording_id: str
+
+
+class AnalyzePronunciationRequest(WireModel):
+    reference_recording_id: str
+    learner_recording_id: str
+
+
+# --- Generation ------------------------------------------------------------
+
+
+MODELS: Final[list[type[BaseModel]]] = [
+    SessionStartMessage,
+    AudioFrameMessage,
+    SessionStopMessage,
+    PartialTranscriptMessage,
+    FinalTranscriptMessage,
+    MeterMessage,
+    SessionCompleteMessage,
+    Recording,
+    RecordingListResponse,
+    VoiceSignalFramePayload,
+    VoiceSignalSummaryPayload,
+    SignalAnalysis,
+    PronunciationFrameCostPayload,
+    PronunciationComparison,
+    SaveRecordingRequest,
+    AnalyzeSignalsRequest,
+    AnalyzePronunciationRequest,
+]
+
+_CLIENT_MESSAGES: Final = [
+    "SessionStartMessage",
+    "AudioFrameMessage",
+    "SessionStopMessage",
+]
+_SERVER_MESSAGES: Final = [
+    "PartialTranscriptMessage",
+    "FinalTranscriptMessage",
+    "MeterMessage",
+    "SessionCompleteMessage",
+]
+
+_HEADER: Final = (
+    "// AUTO-GENERATED by `just wire-gen`"
+    " (src/interaction_agent/voice/wire.py). Do not edit by hand.\n\n"
+)
+
+_EMPTY_INTERFACE = re.compile(
+    r"export interface [A-Za-z0-9_]+ \{\s*\}\n?",
+)
+
+_JSON2TS_PREAMBLE = re.compile(
+    r"^/\* eslint-disable \*/\n/\*\*.*?\*/\n+",
+    re.DOTALL,
+)
+
+
+def _strip_titles(node: Any) -> None:
+    """Drop ``title`` recursively so json2ts inlines scalars, no alias soup."""
+    if isinstance(node, dict):
+        node.pop("title", None)
+        for value in node.values():
+            _strip_titles(value)
+    elif isinstance(node, list):
+        for value in node:
+            _strip_titles(value)
+
+
+def build_json_schema() -> dict[str, Any]:
+    """JSON Schema with every wire model under ``$defs``.
+
+    Pydantic gives every field an auto title; left in place, json2ts turns each
+    into a standalone ``export type`` alias. We strip titles inside each model's
+    properties so scalars inline directly into the interfaces, and neutralize
+    the wrapper root into an empty (later stripped) interface with a stable
+    name so the output is deterministic run to run.
+    """
+    _, schema = models_json_schema(
+        [(model, "serialization") for model in MODELS],
+        by_alias=True,
+    )
+    for definition in schema.get("$defs", {}).values():
+        for prop in definition.get("properties", {}).values():
+            _strip_titles(prop)
+    schema["title"] = "WireContract"
+    schema["type"] = "object"
+    schema["properties"] = {}
+    schema["additionalProperties"] = False
+    return schema
+
+
+def _union_alias(name: str, members: list[str]) -> str:
+    body = "\n  | ".join(members)
+    return f"export type {name} =\n  | {body};\n"
+
+
+def render_typescript() -> str:
+    """Run json2ts over the schema and append the message union aliases."""
+    schema = build_json_schema()
+    handle = tempfile.NamedTemporaryFile(
+        "w",
+        suffix=".json",
+        delete=False,
+        encoding="utf-8",
+    )
+    try:
+        json.dump(schema, handle)
+        handle.close()
+        # Call the installed json2ts binary directly rather than via
+        # `pnpm exec`: pnpm prints its own supply-chain-audit chatter to stdout,
+        # which would otherwise be captured into the generated file.
+        json2ts_bin = PROJECT_ROOT / "web" / "node_modules" / ".bin" / "json2ts"
+        completed = subprocess.run(
+            [
+                str(json2ts_bin),
+                "--unreachableDefinitions",
+                "-i",
+                handle.name,
+            ],
+            cwd=PROJECT_ROOT / "web",
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    finally:
+        Path(handle.name).unlink(missing_ok=True)
+
+    without_preamble = _JSON2TS_PREAMBLE.sub("", completed.stdout, count=1)
+    body = _EMPTY_INTERFACE.sub("", without_preamble).strip()
+    unions = "\n".join(
+        [
+            _union_alias("ClientWireMessage", _CLIENT_MESSAGES),
+            _union_alias("ServerWireMessage", _SERVER_MESSAGES),
+        ]
+    )
+    return f"{_HEADER}{body}\n\n{unions}"
+
+
+def main() -> int:
+    WIRE_TS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    WIRE_TS_PATH.write_text(render_typescript(), encoding="utf-8")
+    print(f"wrote {WIRE_TS_PATH}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

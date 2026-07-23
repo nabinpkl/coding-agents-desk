@@ -1,0 +1,117 @@
+set dotenv-load
+
+hand-model-url := "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+hand-model-path := "data/gesture/models/hand_landmarker.task"
+face-model-url := "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
+face-model-path := "data/gesture/models/face_landmarker.task"
+sherpa-model-url := "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25.tar.bz2"
+sherpa-model-root := "data/voice/models"
+sherpa-model-name := "sherpa-onnx-nemotron-speech-streaming-en-0.6b-560ms-int8-2026-04-25"
+sherpa-model-path := sherpa-model-root / sherpa-model-name
+sherpa-model-archive := sherpa-model-root / (sherpa-model-name + ".tar.bz2")
+mlx-model-name := "mlx-community/whisper-large-v3-turbo-q4"
+
+download-model:
+    mkdir -p data/gesture/models
+    test -f {{hand-model-path}} || curl --fail --location --output {{hand-model-path}} {{hand-model-url}}
+    test -f {{face-model-path}} || curl --fail --location --output {{face-model-path}} {{face-model-url}}
+
+gesture-run: download-model
+    uv run gesture-agent
+
+voice-run: download-voice-model download-mlx-model
+    uv run voice-agent
+
+download-voice-model:
+    mkdir -p {{sherpa-model-root}}
+    if [ ! -d {{sherpa-model-path}} ]; then test -f {{sherpa-model-archive}} || curl --fail --location --output {{sherpa-model-archive}} {{sherpa-model-url}}; tar -xjf {{sherpa-model-archive}} -C {{sherpa-model-root}}; fi
+
+download-mlx-model:
+    uv run python -c 'from interaction_agent.voice.runtime import ensure_local_model; ensure_local_model("{{mlx-model-name}}")'
+
+voice-live: download-voice-model download-mlx-model
+    uv run voice-live
+
+agentdesk-child: download-model
+    uv run gesture-agent-child
+
+voice-child:
+    uv run voice-agent-child
+
+voice-server host="127.0.0.1" port="8001":
+    uv run uvicorn interaction_agent.voice.http_server:app --host {{host}} --port {{port}} --reload
+
+voice-compare reference learner:
+    uv run voice-compare {{reference}} {{learner}}
+
+clip video start end:
+    uv run video-clip "{{video}}" {{start}} {{end}}
+
+clip-pick video="":
+    uv run clip-pick "{{video}}"
+
+# Full-stack browser dev. Frees the ports, starts the FastAPI backend and the
+# Next dev server fresh, and tears both down together on Ctrl-C.
+dev web_port="3001" api_port="8001":
+    #!/usr/bin/env bash
+    set -uo pipefail
+
+    web_port="{{web_port}}"
+    api_port="{{api_port}}"
+
+    free_port() {
+        local port="$1" pids
+        pids=$(lsof -tnP -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true)
+        if [ -n "${pids}" ]; then
+            echo "freeing port ${port} (killing ${pids//$'\n'/ })"
+            kill ${pids} 2>/dev/null || true
+            sleep 1
+            pids=$(lsof -tnP -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true)
+            [ -n "${pids}" ] && kill -9 ${pids} 2>/dev/null || true
+        fi
+    }
+
+    backend_pid=""
+    web_pid=""
+    cleanup() {
+        trap - EXIT INT TERM
+        echo
+        echo "shutting down dev servers..."
+        [ -n "${backend_pid}" ] && kill "${backend_pid}" 2>/dev/null || true
+        [ -n "${web_pid}" ] && kill "${web_pid}" 2>/dev/null || true
+        # Backstop: reclaim the ports even if a child spawned grandchildren.
+        free_port "${api_port}"
+        free_port "${web_port}"
+    }
+    trap cleanup EXIT INT TERM
+
+    free_port "${api_port}"
+    free_port "${web_port}"
+
+    if [ ! -d "{{sherpa-model-path}}" ]; then
+        echo "note: sherpa model missing; live voice ASR fails until 'just download-voice-model'"
+    fi
+
+    echo "backend -> http://127.0.0.1:${api_port}"
+    # Gesture swipes step macOS spaces via yabai; override with GESTURE_SPACE_SWITCH=0.
+    export GESTURE_SPACE_SWITCH="${GESTURE_SPACE_SWITCH:-1}"
+    uv run uvicorn interaction_agent.voice.http_server:app --host 127.0.0.1 --port "${api_port}" --reload &
+    backend_pid=$!
+
+    echo "web     -> http://localhost:${web_port}"
+    ( cd web && pnpm dev --port "${web_port}" ) &
+    web_pid=$!
+
+    echo "both running. Ctrl-C stops both."
+    wait
+
+# The native OpenCV multi-view dev console (recording, clipping, signal views).
+dev-console:
+    uv run dev
+
+check:
+    uvx ruff check src
+    uvx ty check src
+
+wire-gen:
+    uv run python -m interaction_agent.voice.wire

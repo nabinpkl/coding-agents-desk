@@ -1,0 +1,33 @@
+allowBuilds:
+  sharp: false
+  unrs-resolver: false
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver
+
+# Accepted exception to the global minimumReleaseAge (48h) supply-chain cooldown.
+# The Next 16 / TanStack / typescript-eslint lines cut releases faster than the
+# 48h window, so pinning to the latest stable (which this project targets) means
+# the newest patch is always inside the cooldown. These are all mainstream,
+# human-maintained packages; we accept installing their latest release
+# immediately and keep the cooldown enforced for every other dependency.
+# See docs/dependency-exceptions.md. Revisit trigger: drop any entry that no
+# longer needs exempting on the next dependency bump.
+minimumReleaseAgeExclude:
+  # Direct deps this project pins to the latest stable.
+  - next
+  - eslint-config-next
+  - "@next/*"
+  - "@tanstack/*"
+  - "@typescript-eslint/*"
+  - typescript-eslint
+  # Transitive deps of the latest Next toolchain that published in the same wave.
+  - baseline-browser-mapping
+  - browserslist
+  - electron-to-chromium
+  - enhanced-resolve
+  - jose
+  - own-keys
+  - postcss
+  - prettier
+  - systeminformation

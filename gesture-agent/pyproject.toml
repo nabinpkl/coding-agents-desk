@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "interaction-agent"
+version = "0.1.0"
+description = "Local gesture and voice interaction agents for AgentDesk."
+requires-python = ">=3.13"
+# Core deps are what the host-owned voice sidecar (`voice-server`) needs. The
+# heavy desktop-only computer-vision stack (cv2/mediapipe) lives under the
+# `desktop` extra so the shipped voice venv stays lean. `sounddevice` stays in
+# core: it is small, its wheel bundles PortAudio, and the server imports it
+# transitively (via recording.py) but never opens a stream, so importing it is
+# safe headless — dropping it would need a 3-file lazy-import refactor for a
+# marginal size win.
+dependencies = [
+    "fastapi",
+    "mlx-whisper",
+    "numpy",
+    "onnxruntime==1.24.4",
+    "python-multipart",
+    "sherpa-onnx>=1.13.3",
+    "sounddevice",
+    "uvicorn[standard]",
+]
+
+[project.optional-dependencies]
+# Desktop debug tools (gesture-agent, voice-agent, clip pickers) that open cv2
+# windows / MediaPipe graphs. Not installed into the shipped voice sidecar venv.
+desktop = [
+    "mediapipe",
+    "opencv-python",
+]
+
+[project.scripts]
+gesture-agent = "interaction_agent.gesture.app:main"
+voice-agent = "interaction_agent.voice.app:main"
+voice-server = "interaction_agent.voice.http_server:main"
+voice-live = "interaction_agent.voice.live_sherpa:main"
+voice-compare = "interaction_agent.voice.pronunciation:main"
+video-clip = "interaction_agent.voice.clips:main"
+clip-pick = "interaction_agent.voice.clip_picker:main"
+dev = "interaction_agent.voice.dev_console:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["interaction_agent*"]
+
+[tool.ruff.lint]
+# configure_cache() must run before importing cv2/mediapipe and other modules
+# that read cache dirs at import time, so module-level imports intentionally
+# follow it. E402 flags that deliberate ordering.
+ignore = ["E402"]

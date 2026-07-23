@@ -125,6 +125,23 @@ pty_manager_out := justfile_directory() + "/host/AgentDeskHost/pty-manager"
 # AppKit and UIKit consumers. The ATC dashboard remains the authored renderer;
 # its Vite output is copied here before the consuming app build.
 webview_out := justfile_directory() + "/packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelWebview"
+# Source directory for the gesture/voice interaction web app (the shared webview
+# authored once in gesture-agent, now vendored in-repo under ./gesture-agent).
+# SSOT for its location; override via env for an out-of-tree checkout.
+gesture_web_dir := env_var_or_default("AGENTDESK_GESTURE_WEB_DIR", justfile_directory() + "/gesture-agent/web")
+# The reusable InteractionPanel package owns the generated gesture webview
+# resource for both AppKit and UIKit consumers. The gesture-agent embed build
+# output is copied here before the consuming app build.
+gesture_webview_out := justfile_directory() + "/packages/InteractionPanel/Sources/InteractionPanel/Resources/InteractionPanelWebview"
+# Root of the in-repo gesture-agent tree (holds pyproject.toml + src for the
+# voice sidecar). SSOT for its location; override via env for an out-of-tree checkout.
+gesture_agent_dir := env_var_or_default("AGENTDESK_GESTURE_AGENT_DIR", justfile_directory() + "/gesture-agent")
+# Staged voice-sidecar inputs inside the host app source tree (auto-picked up by
+# the synchronized root group and copied into the app bundle). `uv` is the
+# resolver/runner; `voice-src` is the read-only interaction-agent source the
+# first-launch provisioner installs into the Application-Support venv.
+voice_uv_out := justfile_directory() + "/host/AgentDeskHost/uv"
+voice_src_out := justfile_directory() + "/host/AgentDeskHost/voice-src"
 
 # Ensure a minimal placeholder exists at the sidecar output path. The real
 # ~64 MB binary is gitignored (never tracked), so a fresh checkout has nothing
@@ -285,6 +302,60 @@ build-agent-webview:
     # checkout; a build must not leave it deleted in git status.
     touch "$OUT/.gitkeep"
     echo "build-agent-webview: DONE"
+
+# Build the gesture/voice interaction webview bundle into InteractionPanel's
+# package resources. The gesture-agent web app is the authored renderer; its
+# Vite embed output is copied here before the consuming app build. Requires
+# pnpm on PATH and replaces any prior ignored output in place.
+build-gesture-webview:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    WEB='{{gesture_web_dir}}'
+    OUT='{{gesture_webview_out}}'
+    echo "build-gesture-webview: running pnpm build:embed in $WEB"
+    cd "$WEB" && pnpm build:embed
+    echo "build-gesture-webview: copying gesture-webview-dist/ -> $OUT"
+    rm -rf "$OUT"
+    mkdir -p "$OUT"
+    cp -R "$WEB/gesture-webview-dist/." "$OUT/"
+    # Re-create the tracked .gitkeep that the rm -rf above removed, so the Xcode
+    # folder reference resolves on a fresh checkout.
+    touch "$OUT/.gitkeep"
+    echo "build-gesture-webview: DONE"
+
+# Stage the voice sidecar's Python inputs into the host app source tree: the `uv`
+# binary and a read-only copy of the interaction-agent source (pyproject.toml +
+# uv.lock + src, WITHOUT the heavy data/ models tree — models are fetch-and-cached
+# to Application Support at runtime). The first-launch VoiceVenvProvisioner uses
+# these to build the Application-Support venv (core deps, no `desktop` extra).
+#
+# NOTE (Xcode inclusion): `uv` is a single file and is picked up as a bundle
+# resource by the synchronized root group like `atc-sidecar`. `voice-src/` is a
+# directory tree; confirm it lands in the built app at
+# `Contents/Resources/voice-src/` with structure preserved (a folder reference,
+# not flattened). Verify once with:
+#   just build-host && ls "{{host_app}}/Contents/Resources/voice-src/pyproject.toml"
+build-voice-sidecar:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SRC='{{gesture_agent_dir}}'
+    UV_OUT='{{voice_uv_out}}'
+    SRC_OUT='{{voice_src_out}}'
+    UV_BIN="$(command -v uv)"
+    if [ -z "$UV_BIN" ]; then echo "build-voice-sidecar: uv not on PATH" >&2; exit 1; fi
+    if [ ! -f "$SRC/pyproject.toml" ]; then echo "build-voice-sidecar: no pyproject at $SRC" >&2; exit 1; fi
+    if [ ! -f "$SRC/uv.lock" ]; then echo "build-voice-sidecar: no uv.lock at $SRC (run 'uv lock')" >&2; exit 1; fi
+    echo "build-voice-sidecar: staging uv -> $UV_OUT"
+    cp -f "$UV_BIN" "$UV_OUT"
+    chmod +x "$UV_OUT"
+    echo "build-voice-sidecar: staging interaction-agent source -> $SRC_OUT"
+    rm -rf "$SRC_OUT"
+    mkdir -p "$SRC_OUT"
+    cp "$SRC/pyproject.toml" "$SRC/uv.lock" "$SRC_OUT/"
+    [ -f "$SRC/README.md" ] && cp "$SRC/README.md" "$SRC_OUT/" || true
+    # src/ only — exclude data/ (models), __pycache__, and any local venv.
+    rsync -a --exclude '__pycache__' --exclude '*.pyc' --exclude '*.egg-info' "$SRC/src" "$SRC_OUT/"
+    echo "build-voice-sidecar: DONE"
 
 # Verify the webview bundle was built and landed correctly. Checks that index.html
 # and a non-empty assets/ dir are present and that index.html references assets
@@ -1154,7 +1225,7 @@ fresh-install:
 # not connected by cable — the app arrives over wifi through TestFlight while the freshly launched
 # host waits for menu-bar pairing. The upload archives into its own derived-data dir, so it does not
 # disturb the host launched just above. Bump client_marketing_version first if this ships a change.
-fresh-testflight:
+testflight-fresh:
     just build-agent-sidecar
     just build-agent-webview
     just host-run
