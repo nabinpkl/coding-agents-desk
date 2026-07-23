@@ -114,6 +114,12 @@ without changing the one-recorder and extension-authoritative generation model.
   retain missing assignments as unresolved, remove ordinal identity fallback, and refresh workspace
   and Dock presentation after topology edits (ADR-0071).
 
+## Workspace/Desktop selection reconciliation
+
+- [x] D97. Clear the active workspace when the user enters an unassigned Desktop instead of retaining
+  the workspace selected on the previous Desktop; persist the empty selection and cover the
+  coordinator path with a regression test.
+
 ## Promotion log
 
 ```text
@@ -135,4 +141,5 @@ D89      2026-07-22  landed      shared terminal tabs, recursive splits, and ses
 D94      2026-07-22  landed      one bounded WKWebView and xterm terminal runtime across macOS and iOS
 D95      2026-07-22  landed      opt-in bounded paired-client screenshots and protocol 14
 D96      2026-07-23  landed      event-driven Mission Control topology reconciliation by Space ID
+D97      2026-07-23  landed      unassigned Desktops clear the active workspace selection
 ```

@@ -277,14 +277,14 @@ final class WorkspaceShellSession {
     /// The persisted sidebar width, so the presenter lays out the sidebar panel on first render.
     var sidebarWidth: CGFloat { store.sidebarWidth }
 
-    /// The user switched Spaces manually: select the workspace that owns the now-active Desktop
-    /// (without re-switching the Space). Wired to NSWorkspace.activeSpaceDidChange by the presenter.
+    /// The user switched Spaces manually: select the workspace that owns the now-active Desktop,
+    /// or clear the selection when no workspace owns it, without re-switching the Space. Wired to
+    /// NSWorkspace.activeSpaceDidChange by the presenter.
     func reconcileFromObservedDesktop() {
-        guard let assignment = desktopSwitcher.currentAssignment(),
-              let workspace = store.workspaceAssigned(to: assignment),
-              workspace.id != store.activeID
-        else { return }
-        submit(.select(workspace.id)) { [weak self] _ in
+        guard let assignment = desktopSwitcher.currentAssignment() else { return }
+        let workspaceID = store.preferredWorkspaceID(assignedTo: assignment)
+        guard workspaceID != store.activeID else { return }
+        submit(.select(workspaceID)) { [weak self] _ in
             self?.renderActive()
             self?.onActiveChanged?()
         }

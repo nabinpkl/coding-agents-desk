@@ -80,6 +80,29 @@ struct WorkspaceCoordinatorTests {
         #expect(reconciled.workspace(id: secondID)?.desktopAssignment?.displayID == "D2")
         #expect(reconciled.workspace(id: secondID)?.desktopAssignment?.ordinal == 0)
     }
+
+    @Test func unassignedObservedDesktopClearsActiveWorkspace() async throws {
+        let (coordinator, root, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let workspaceID = UUID()
+        let assignedDesktop = WorkspaceDesktopAssignment(spaceID: 10, displayID: "D1", ordinal: 0)
+        let unassignedDesktop = WorkspaceDesktopAssignment(spaceID: 20, displayID: "D1", ordinal: 1)
+        let registered = try await coordinator.apply(.add(Workspace(
+            id: workspaceID,
+            root: root,
+            name: "Project",
+            desktopAssignment: assignedDesktop
+        )))
+
+        let observedWorkspaceID = registered.preferredWorkspaceID(assignedTo: unassignedDesktop)
+        let reconciled = try await coordinator.apply(.select(observedWorkspaceID))
+
+        #expect(observedWorkspaceID == nil)
+        #expect(reconciled.activeID == nil)
+        #expect(try WorkspaceStore.load(
+            from: directory.appendingPathComponent("workspaces.json")
+        ).activeID == nil)
+    }
 }
 
 private actor WorkspaceStoreRecorder {
