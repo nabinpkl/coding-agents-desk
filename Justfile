@@ -1004,11 +1004,12 @@ restart-pty-manager variant="stable": build-pty-manager
 client-install variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
+    GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
     if [ "{{variant}}" = "dev" ]; then
-        xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{dev_derived_data}}' -destination 'platform=iOS,id={{ios_device}}' PRODUCT_BUNDLE_IDENTIFIER='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev' build >/dev/null
+        xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{dev_derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$GIT_SHA" PRODUCT_BUNDLE_IDENTIFIER='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev' build >/dev/null
         xcrun devicectl device install app --device {{ios_device}} '{{client_dev_app}}'
     else
-        xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' build >/dev/null
+        xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$GIT_SHA" build >/dev/null
         xcrun devicectl device install app --device {{ios_device}} '{{client_app}}'
     fi
 
@@ -1028,7 +1029,7 @@ client-reinstall variant="stable":
 # automatic development signing as the Debug path, so no distribution provisioning
 # is needed. Used by the fresh-install feel-test composite.
 client-install-release:
-    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' build >/dev/null
+    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     xcrun devicectl device install app --device {{ios_device}} '{{client_app_release}}'
 
 # Uninstall + clean Release install on the iPhone (stable). Mirrors client-reinstall

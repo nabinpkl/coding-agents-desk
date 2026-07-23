@@ -118,7 +118,8 @@ final class ClientScreenshotCapturer {
         let manifest = ClientScreenshotManifest(
             requestId: request.requestId,
             capturedAt: Int(Date().timeIntervalSince1970),
-            clientBuildSHA: Bundle.main.object(forInfoDictionaryKey: "AgentDeskGitSHA") as? String ?? "dev",
+            clientBuildSHA: (Bundle.main.object(forInfoDictionaryKey: "AgentDeskGitSHA") as? String)
+                .flatMap { $0.isEmpty ? nil : $0 } ?? "dev",
             surfaceName: surfaceName,
             pixelWidth: encoded.pixelWidth,
             pixelHeight: encoded.pixelHeight,
