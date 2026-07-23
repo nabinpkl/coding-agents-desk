@@ -137,6 +137,123 @@ without changing the one-recorder and extension-authoritative generation model.
 - [ ] R100. Add multi-row selection plus Select All and confirmed Close All controls to the embedded
   PTY Manager, closing each top-level session exactly once through the existing daemon lifecycle API.
 
+## Centralized PTY live handover
+
+Position: split kernel PTY custody from terminal policy. One bundle-variant-scoped `pty-vault` process
+will hold the primary master descriptor for every live session while the restartable `pty-manager`
+leases those descriptors and continues to own readers, writers, the headless parser, bounded replay,
+clients, viewport authority, and lifecycle policy. The two processes deliberately hold duplicate
+descriptors while a manager is active, so updating or losing either one alone never closes the final
+master descriptor. Stable and dev hosts retain completely separate sockets, processes, and session
+tables.
+
+An authorized host relaunch must update the host, manager, and vault independently. A changed manager
+performs a stateful manager-to-manager handover; a changed vault transfers its listener, complete
+session manifest, and every primary descriptor to a candidate vault. Each transfer is all-or-nothing:
+the old generation stays authoritative and keeps its descriptors until the candidate validates the
+complete manifest and acknowledges readiness. No update path may use `pkill` or close both descriptor
+holders. Explicit terminal close remains the only normal path that signals the process group and closes
+the final master.
+
+The live-update acceptance invariant is stronger than child-process survival: after changing host,
+manager, or vault code and performing the authorized relaunch, each existing session keeps the same
+session identity, child PID/process group, visible TUI state, revision, input path, resize behavior, and
+exit notification. Client connections may reconnect at the generation boundary, but the reconstructed
+checkpoint must not become a new shell or a blank terminal. A simultaneous vault-and-manager crash is
+outside this guarantee because macOS has no remaining process in which the master descriptor can live.
+
+### Phase 0: decision and Darwin capability gates
+
+- [ ] R101. Draft and explicitly accept ADR-0072 before implementation. Record the common-vault choice,
+  dual descriptor custody, manager-owned terminal semantics, sequential component updates, atomic
+  rollback behavior, exact-exit-status contract, stable/dev isolation, and the simultaneous-holder-loss
+  boundary. Leave accepted ADR-0066 immutable; cross-reference it from ADR-0072 and update `SPEC.md`
+  only after the superseding decision is accepted.
+- [ ] R102. Add a Darwin-only integration harness that opens a real PTY, runs a continuously changing
+  TUI marker, transfers the master and listening Unix-socket descriptors with `SCM_RIGHTS`, exits the
+  original owner, and proves the same child PID, process group, screen marker, input, resize, EOF, and
+  cleanup survive in the replacement. Exercise `EVFILT_PROC` with `NOTE_EXIT` and `NOTE_EXITSTATUS`
+  after parent replacement; do not proceed without an exact exit result or an explicitly revised ADR.
+- [ ] R103. Audit `portable-pty` at the production call sites in
+  `terminal/pty-manager/src/pty_session.rs` and choose the smallest Darwin descriptor seam. Prove that
+  a transferred descriptor can drive the existing reader, writer, resize, and signal paths without
+  duplicating terminal policy in the vault. Record any unavoidable dependency or raw-FD adapter in
+  ADR-0072 before changing the session model.
+
+### Phase 1: separate PTY transport from manager policy
+
+- [ ] R104. Refactor `terminal/pty-manager/src/pty_session.rs` and
+  `terminal/pty-manager/src/pty_manager_client_sessions.rs` so `LiveSession` consumes a narrow PTY I/O
+  lease instead of directly owning `portable_pty::MasterPty` and `Child`. Keep session naming, lifetime,
+  headless terminal, replay, clients, generations, and viewport authority in `pty-manager`; retain the
+  current in-process lease adapter until the vault path is green.
+- [ ] R105. Pin the seam with existing protocol tests plus focused real-PTY tests for byte ordering,
+  backpressure, resize, signal, close, session exit status, and one-reader ownership. This phase is a
+  behavior-preserving refactor and must leave the current host launch path unchanged.
+
+### Phase 2: one common descriptor vault
+
+- [ ] R106. Add a small `terminal/pty-vault` executable with a variant-scoped `0600` Unix socket and a
+  bounded session table. It owns only immutable session identity, PID/process group identity,
+  descriptor custody, launch/close primitives, peer and protocol validation, and handover generation;
+  getters, viewport logic, replay, parsing, client fan-out, and UI remain outside it.
+- [ ] R107. Implement vault create, enumerate, lease, release, signal, and close operations. A manager
+  lease duplicates the master descriptor with `SCM_RIGHTS`; the vault never reads terminal bytes.
+  Protect every control operation with session generation and process identity so PID reuse or a stale
+  manager cannot resize, signal, or close a replacement process.
+- [ ] R108. Implement candidate-vault handover with the existing listener descriptor, a checksummed
+  complete manifest, every primary master descriptor, and a prepare/validate/commit protocol. On any
+  timeout, missing descriptor, count mismatch, peer death, or rejected protocol version, the candidate
+  closes its duplicates and the old vault resumes without changing authority.
+- [ ] R109. Add failure-injection tests for zero, one, and many sessions; output during transfer;
+  candidate death before and after readiness; partial descriptor delivery; stale generations; PID
+  reuse; exact exit during transfer; and stable/dev cross-connection rejection. Assert after every
+  failure that at least one valid holder still owns every live master descriptor.
+
+### Phase 3: restartable manager with stateful handover
+
+- [ ] R110. Move production session creation and attachment in `pty-manager` onto vault leases while
+  retaining the current protocol and client behavior. On a vault restart, let the live manager reseed
+  the replacement from its leased descriptors; on a manager restart, let the vault enumerate the
+  authoritative sessions and issue leases to the candidate manager.
+- [ ] R111. Add manager-to-manager prepare/commit handover. Quiesce each old reader at a byte boundary,
+  drain already-read bytes into the headless terminal, transfer the manager listener and PTY leases,
+  and send a bounded reconstruction envelope containing session metadata, headless ANSI checkpoint,
+  revision/generation, grid size, lifetime, and viewport authority. The candidate restores but does not
+  read until it has validated the whole set; after readiness the old manager closes its leases and
+  client sockets, and the candidate starts readers before reconnecting clients receive checkpoints.
+- [ ] R112. Make a failed manager update non-destructive: the old manager resumes its readers and keeps
+  serving clients when the candidate cannot restore every session. A forced old-manager crash may lose
+  bounded replay state, but the vault must retain the child and allow a replacement manager to attach,
+  trigger a same-size redraw, and continue input/output without spawning a new shell.
+- [ ] R113. Add integration tests that replace both manager and vault generations independently while
+  a full-screen TUI and an ordinary shell are busy. Assert unchanged child PID/process group, session
+  identity, visible marker/checkpoint, revision continuity, ordered output, input, owner resize, close,
+  and exact exit status; include rollback at each prepare/commit boundary.
+
+### Phase 4: host lifecycle cutover
+
+- [ ] R114. Replace the incompatible-peer kill in
+  `host/AgentDeskHost/HostPtyManagerProcess.swift` with a variant-aware PTY runtime coordinator that
+  starts or connects to the vault, updates vault and manager one component at a time, waits for a
+  committed handover, and exposes a usable manager socket to the host. A rejected update keeps the
+  previous runtime active and reports the exact blocker.
+- [ ] R115. Update the `Justfile` host-run, host-run-dev, restart, bundle, and hash checks to build both
+  executables and request live handover when either hash changes. Remove changed-binary `pkill`
+  behavior, never update vault and manager concurrently, preserve stable/dev isolation, and add an
+  explicit destructive reset recipe for the human-only case that intentionally closes sessions.
+- [ ] R116. Add one bounded `just pty-live-update-verify` gate that starts test-owned sessions, replaces
+  host-only code, manager code, and vault code in sequence, and emits machine-readable before/after
+  PIDs, generations, revisions, screen markers, and exit results. It must clean only its own sockets
+  and processes and must not launch either installed AgentDesk host.
+
+### Phase 5: authorized live acceptance
+
+- [ ] R117. After `just check` and `just pty-live-update-verify` are green, stop at the repository launch
+  checkpoint and state the exact host command. After explicit user approval, relaunch the selected host
+  variant with a real workspace TUI running; verify matching build identity plus unchanged session PID,
+  visible state, revision, input, resize, and close behavior across host, manager, and vault updates.
+
 ## Promotion log
 
 ```text
@@ -162,4 +279,5 @@ D97      2026-07-23  landed      unassigned Desktops clear the active workspace 
 R98      2026-07-23  pending     target-display Dock gesture switching awaiting user verification
 R99      2026-07-23  pending     settled web terminal viewport authority awaiting verification
 R100     2026-07-23  pending     PTY Manager bulk controls awaiting verification
+R101-117 2026-07-23  planned     centralized PTY descriptor custody and stateful live handover
 ```
