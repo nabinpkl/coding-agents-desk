@@ -60,6 +60,10 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 15. On macOS, inspect running apps by Desktop in the bottom Dock-enrichment strip and transactionally swap the ordinary window contents of two existing Desktops, with a short conservative Undo.
 16. Open a separate Workspace IDE on macOS or iPhone with the same Explorer, read-only Source Control, shared open tabs, file editor/viewer, and shared web terminal rooted at the selected workspace. Tab membership and expanded folders synchronize through the host while each device keeps its own active tab, selected workspace, pane layout, drafts, and cursor positions.
 17. Open the Browser Projection on macOS or iPhone showing every normal Chrome window, the selected window's ordered tabs, and one reconstructed active page. AgentDesk may select a projected window without raising Chrome and may activate a tab without focusing its Chrome window. The last active Browser viewer controls the real tab's responsive source viewport, with Desktop, Mobile, custom dimensions, viewer-linked sizing, and projection-only zoom in the shared shell. Hiding the final viewer restores native Chrome behavior. Both platforms share one extension recorder.
+18. For visual debugging, explicitly opt in on the iPhone and let the paired Mac request one bounded
+    screenshot of the currently visible AgentDesk app window. The client remains foreground-only,
+    shows an accessible disclosure after sharing, stores no screenshot, and supports one command that
+    collects the image alone or beside bounded durable diagnostics.
 
 ## What v0 is not
 
@@ -70,6 +74,9 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 - **Not cross-platform.** macOS host and iOS client only. No Android, no web, no Windows host.
 - **No arbitrary filesystem or bulk file-transfer surface.** Files are exposed only through registered workspace roots. The iPhone file lane supports bounded UTF-8 browse, read, and revision-checked write operations, not downloads from unrelated host paths. Clipboard sync and remote audio remain out of scope. One host-local exception remains the push-to-talk dictation bar (ADR-0010).
 - **No Chrome management surface.** Browser Projection does not create, close, reorder, pin, group, navigate, reload, resize, move, or focus Chrome windows. It selects only an existing projected window or an existing tab.
+- **No continuous client screenshot telemetry.** Paired-client screenshots are explicit, default-off,
+  foreground-only debugging captures. There is no background capture, scheduled upload, client pixel
+  history, cloud destination, or general host access to other iOS apps and system windows.
 
 ## Explicitly deferred
 

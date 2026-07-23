@@ -4,25 +4,6 @@ import Network
 import os
 import AgentDeskWire
 
-struct ClientDiagnosticsAutomationRequest: Codable {
-    let requestId: String
-    let outputDirectory: String
-    let includePreviousRuns: Bool
-    let maxBytes: Int?
-}
-
-struct ClientDiagnosticsAutomationResult: Codable {
-    let requestId: String
-    let status: String
-    let outputDirectory: String?
-    let message: String
-}
-
-struct CollectedClientDiagnostics {
-    let summary: DiagnosticsSummary
-    let runPayloads: [String: Data]
-}
-
 enum ClientDiagnosticsRequesterError: Error, LocalizedError {
     case noActiveSession
     case timedOut
@@ -50,7 +31,7 @@ enum ClientDiagnosticsRequesterError: Error, LocalizedError {
 }
 
 @MainActor
-final class ClientDiagnosticsRequester {
+final class ClientDiagnosticsRequester: ClientDiagnosticsRequesting {
     private let sessions: SessionRegistry
     private let pairing: Pairing
     private let tailnetDiscovery: TailnetDiscovering
@@ -64,49 +45,6 @@ final class ClientDiagnosticsRequester {
         self.sessions = sessions
         self.pairing = pairing
         self.tailnetDiscovery = tailnetDiscovery
-    }
-
-    func handleAutomationRequestFromDisk() async {
-        let requestURL = Config.devDiagnosticsRequestPath
-        let resultURL = Config.devDiagnosticsResultPath
-        let decoder = JSONDecoder()
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let requestData = try? Data(contentsOf: requestURL)
-        let requestId = requestData
-            .flatMap { try? decoder.decode(ClientDiagnosticsAutomationRequest.self, from: $0).requestId }
-            ?? UUID().uuidString.lowercased()
-        do {
-            guard let data = requestData else {
-                throw ClientDiagnosticsRequesterError.unavailable
-            }
-            let automation = try decoder.decode(ClientDiagnosticsAutomationRequest.self, from: data)
-            try? FileManager.default.removeItem(at: resultURL)
-            let request = DiagnosticsRequest(
-                requestId: automation.requestId,
-                sinceRunId: nil,
-                includePreviousRuns: automation.includePreviousRuns,
-                maxBytes: automation.maxBytes
-            )
-            let collected = try await collect(request: request)
-            try write(collected: collected, to: URL(fileURLWithPath: automation.outputDirectory))
-            let result = ClientDiagnosticsAutomationResult(
-                requestId: automation.requestId,
-                status: "ok",
-                outputDirectory: automation.outputDirectory,
-                message: "client diagnostics written"
-            )
-            try encoder.encode(result).write(to: resultURL, options: .atomic)
-        } catch {
-            let result = ClientDiagnosticsAutomationResult(
-                requestId: requestId,
-                status: "error",
-                outputDirectory: nil,
-                message: error.localizedDescription
-            )
-            try? encoder.encode(result).write(to: resultURL, options: .atomic)
-            logger.error("client diagnostics automation failed: \(String(describing: error), privacy: .public)")
-        }
     }
 
     func collect(request: DiagnosticsRequest) async throws -> CollectedClientDiagnostics {
@@ -212,19 +150,24 @@ final class ClientDiagnosticsRequester {
         return try OfferPortFrame.encode(JSONEncoder().encode(signed))
     }
 
-    private func write(collected: CollectedClientDiagnostics, to directory: URL) throws {
+    func write(collected: CollectedClientDiagnostics, to directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let summaryURL = directory.appendingPathComponent("summary.json", isDirectory: false)
         try encoder.encode(collected.summary).write(
-            to: directory.appendingPathComponent("summary.json", isDirectory: false),
+            to: summaryURL,
             options: .atomic
         )
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: summaryURL.path)
         for (runId, payload) in collected.runPayloads {
+            let payloadURL = directory.appendingPathComponent("\(runId).ndjson.gz", isDirectory: false)
             try payload.write(
-                to: directory.appendingPathComponent("\(runId).ndjson.gz", isDirectory: false),
+                to: payloadURL,
                 options: .atomic
             )
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: payloadURL.path)
         }
     }
 

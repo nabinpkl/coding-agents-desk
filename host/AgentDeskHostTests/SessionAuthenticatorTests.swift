@@ -461,6 +461,7 @@ private final class ByteSequence {
 private final class FakeInputChannelServer: InputChannelServing, @unchecked Sendable {
     let events: AsyncStream<InputChannelEvent>
     let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
+    let screenshotUpdates: AsyncStream<ClientScreenshotChannelUpdate>
     private let continuation: AsyncStream<InputChannelEvent>.Continuation
     private let diagnosticsContinuation: AsyncStream<DiagnosticsChannelUpdate>.Continuation
     private(set) var closed = false
@@ -474,8 +475,10 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     init() {
         var continuation: AsyncStream<InputChannelEvent>.Continuation!
         var diagnosticsContinuation: AsyncStream<DiagnosticsChannelUpdate>.Continuation!
+        var screenshotContinuation: AsyncStream<ClientScreenshotChannelUpdate>.Continuation!
         events = AsyncStream { continuation = $0 }
         diagnosticsUpdates = AsyncStream { diagnosticsContinuation = $0 }
+        screenshotUpdates = AsyncStream { screenshotContinuation = $0 }
         self.continuation = continuation
         self.diagnosticsContinuation = diagnosticsContinuation
     }
@@ -502,6 +505,7 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     func pushTextInputFocus(_ push: HostTextInputFocusPush) {}
 
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest) {}
+    func pushScreenshotRequest(_ request: ClientScreenshotRequest) {}
 
     func pushAgentData(_ data: Data) {}
 }

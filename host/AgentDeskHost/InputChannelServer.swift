@@ -9,6 +9,12 @@ enum DiagnosticsChannelUpdate: Equatable, Sendable {
     case error(DiagnosticsError)
 }
 
+enum ClientScreenshotChannelUpdate: Equatable, Sendable {
+    case manifest(ClientScreenshotManifest)
+    case chunk(ClientScreenshotChunk)
+    case error(ClientScreenshotError)
+}
+
 // Agent request message routed to the caller via agentRequestHandler.
 enum AgentFeedRequest: Sendable {
     case projectsSubscribe(AgentProjectsSubscribe)
@@ -44,6 +50,7 @@ extension AgentDataPushing {
 protocol InputChannelServing: AgentDataPushing {
     var events: AsyncStream<InputChannelEvent> { get }
     var diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate> { get }
+    var screenshotUpdates: AsyncStream<ClientScreenshotChannelUpdate> { get }
     var configHandler: ((ClientConfig) -> Void)? { get set }
     // Called on each decoded agent-feed request from the client.
     var agentRequestHandler: ((AgentFeedRequest) -> Void)? { get set }
@@ -68,6 +75,7 @@ protocol InputChannelServing: AgentDataPushing {
     func pushHostAvailability(_ push: HostAvailabilityPush)
     func pushTextInputFocus(_ push: HostTextInputFocusPush)
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest)
+    func pushScreenshotRequest(_ request: ClientScreenshotRequest)
 }
 
 @available(macOS 26.0, *)
@@ -88,6 +96,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     private let fingerprint: DeviceFingerprint
     private var continuation: AsyncStream<InputChannelEvent>.Continuation?
     private var diagnosticsContinuation: AsyncStream<DiagnosticsChannelUpdate>.Continuation?
+    private var screenshotContinuation: AsyncStream<ClientScreenshotChannelUpdate>.Continuation?
     private var receiveTask: Task<Void, Never>?
     // Every host -> client frame on this QUIC stream shares one byte lane.
     // Synchronous enqueue under the lock preserves producer call order; each
@@ -97,6 +106,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
 
     let events: AsyncStream<InputChannelEvent>
     let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
+    let screenshotUpdates: AsyncStream<ClientScreenshotChannelUpdate>
     var configHandler: ((ClientConfig) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
     var workspaceTerminalRequestHandler: ((WorkspaceTerminalClientMessage) -> Void)?
@@ -119,6 +129,11 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             capturedDiagnostics = continuation
         }
         diagnosticsContinuation = capturedDiagnostics
+        var capturedScreenshots: AsyncStream<ClientScreenshotChannelUpdate>.Continuation?
+        screenshotUpdates = AsyncStream(bufferingPolicy: .bufferingNewest(20)) { continuation in
+            capturedScreenshots = continuation
+        }
+        screenshotContinuation = capturedScreenshots
         startReceiveLoop()
     }
 
@@ -133,6 +148,8 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         continuation = nil
         diagnosticsContinuation?.finish()
         diagnosticsContinuation = nil
+        screenshotContinuation?.finish()
+        screenshotContinuation = nil
         configHandler = nil
         agentRequestHandler = nil
         workspaceTerminalRequestHandler = nil
@@ -181,6 +198,10 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     }
 
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest) {
+        sendCodableFrame(request)
+    }
+
+    func pushScreenshotRequest(_ request: ClientScreenshotRequest) {
         sendCodableFrame(request)
     }
 
@@ -325,6 +346,24 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
                 diagnosticsContinuation?.yield(.error(frame))
             } else {
                 logger.error("diagnostics-error decode failed")
+            }
+        case "client-screenshot-manifest":
+            if let frame = try? JSONDecoder().decode(ClientScreenshotManifest.self, from: data) {
+                screenshotContinuation?.yield(.manifest(frame))
+            } else {
+                logger.error("client-screenshot-manifest decode failed")
+            }
+        case "client-screenshot-chunk":
+            if let frame = try? JSONDecoder().decode(ClientScreenshotChunk.self, from: data) {
+                screenshotContinuation?.yield(.chunk(frame))
+            } else {
+                logger.error("client-screenshot-chunk decode failed")
+            }
+        case "client-screenshot-error":
+            if let frame = try? JSONDecoder().decode(ClientScreenshotError.self, from: data) {
+                screenshotContinuation?.yield(.error(frame))
+            } else {
+                logger.error("client-screenshot-error decode failed")
             }
         case "agent-projects-sub":
             logger.notice("input lane agent-projects-sub received fp=\(self.fingerprint.rawValue, privacy: .public)")

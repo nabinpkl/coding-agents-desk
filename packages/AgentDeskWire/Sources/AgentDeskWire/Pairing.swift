@@ -434,6 +434,10 @@ public enum OfferPortMessage: Sendable {
     case diagnosticsSummary(DiagnosticsSummary)
     case diagnosticsChunk(DiagnosticsChunk)
     case diagnosticsError(DiagnosticsError)
+    case screenshotRequest(SignedClientScreenshotRequest)
+    case screenshotManifest(ClientScreenshotManifest)
+    case screenshotChunk(ClientScreenshotChunk)
+    case screenshotError(ClientScreenshotError)
     case unknown
 
     private struct TypeTag: Decodable {
@@ -468,6 +472,26 @@ public enum OfferPortMessage: Sendable {
         case "diagnostics-error":
             if let error = try? JSONDecoder().decode(DiagnosticsError.self, from: body) {
                 return .diagnosticsError(error)
+            }
+            return .unknown
+        case "client-screenshot-request":
+            if let request = try? JSONDecoder().decode(SignedClientScreenshotRequest.self, from: body) {
+                return .screenshotRequest(request)
+            }
+            return .unknown
+        case "client-screenshot-manifest":
+            if let manifest = try? JSONDecoder().decode(ClientScreenshotManifest.self, from: body) {
+                return .screenshotManifest(manifest)
+            }
+            return .unknown
+        case "client-screenshot-chunk":
+            if let chunk = try? JSONDecoder().decode(ClientScreenshotChunk.self, from: body) {
+                return .screenshotChunk(chunk)
+            }
+            return .unknown
+        case "client-screenshot-error":
+            if let error = try? JSONDecoder().decode(ClientScreenshotError.self, from: body) {
+                return .screenshotError(error)
             }
             return .unknown
         default:

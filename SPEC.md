@@ -16,7 +16,7 @@
 | Transport | One authenticated `NetworkConnection<QUIC>` per live session, ALPN `agentdesk-session-quic-v2` | Control, input, DOM, terminal, and files use ordered QUIC streams. HEVC media uses the same connection's datagram lane. File payloads cannot head-of-line block input. ADR-0030 and ADR-0052. |
 | Network | Tailscale only | No public rendezvous, relay, or internet routing. Both peers are on the tailnet. |
 | Pairing | Mac-initiated tailnet device picker (ADR-0019), QR fallback | The Mac enumerates online iOS tailnet peers, probes each on the plain-TCP offer port (`AGENTDESK_OFFER_PORT`, default 41890) for a self-reported display name, and pushes a pre-approved signed offer to the picked device. The pick is the authorization. The iPhone runs the unchanged signed handshake. Signed token stored in Keychain on both sides. |
-| Wire compatibility | Current protocol version is 13 (ADR-0020, ADR-0057, ADR-0058, ADR-0061, ADR-0062, ADR-0064, ADR-0065) | Protocol v8 changes the Files body codec to carry native document bytes. Protocol v9 sequences cursor input. Protocol v10 adds workspace-terminal coordination. Protocol v11 generalizes Files into the workspace lane. Protocol v12 projects the complete Chrome hierarchy to iOS. Protocol v13 adds authenticated Browser viewer viewport ownership. Host and client reject peers below `13` with `incompatible-protocol`; matching app versions remain irrelevant. |
+| Wire compatibility | Current protocol version is 14 (ADR-0020, ADR-0057, ADR-0058, ADR-0061, ADR-0062, ADR-0064, ADR-0065, ADR-0070) | Protocol v8 changes the Files body codec to carry native document bytes. Protocol v9 sequences cursor input. Protocol v10 adds workspace-terminal coordination. Protocol v11 generalizes Files into the workspace lane. Protocol v12 projects the complete Chrome hierarchy to iOS. Protocol v13 adds authenticated Browser viewer viewport ownership. Protocol v14 adds opt-in, on-demand paired-client screenshots. Host and client reject peers below `14` with `incompatible-protocol`; matching app versions remain irrelevant. |
 | Spaces enumeration | Private SkyLight/CoreGraphics symbols bound with `dlopen` and `dlsym` | No public API exists. Risk is acceptable because App Store distribution is not the v0 target. |
 | Spaces switch | Synthesize Dock swipe `CGEvent`s via `SpacesProvider.postDockSwipeFrame` and `commitStep(delta:)` | Stock macOS path that preserves live Space transition animation. |
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
@@ -30,6 +30,9 @@ selected or interacted-with active terminal viewer own the shared source grid di
 ADR-0069 replaces SwiftTerm and platform-specific terminal workspace chrome with one bounded
 WKWebView and xterm.js runtime while retaining PTY protocol `7`, AgentDesk protocol `13`, and the Rust
 manager's state authority.
+
+ADR-0070 adds explicit-opt-in, foreground-only client screenshot capture over authenticated
+protocol `14`, with bounded ephemeral transfer and private host-side temporary artifacts.
 
 ADR-0065 supersedes ADR-0048's fixed mobile-toggle contract with viewer ownership and raises the
 AgentDesk session protocol from `12` to `13`.
@@ -50,12 +53,12 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 6. **TailnetDiscovery.** Parses `tailscale status --json` into online tailnet peers (`TailnetDeviceOption`), keeping iOS peers with a tailnet IPv4 and ordering online ones first. The JSON parser is split out for unit testing without running `tailscale`.
 7. **PairingOfferSender.** Outbound plain-TCP `NWConnection` to a picked peer's offer port. Writes one length-prefixed `PairingPayload` and closes. Plaintext is acceptable: WireGuard encrypts the peer hop, the host public key in the payload is already public, and the nonce is one-use and pre-approval-gated.
 8. **TailnetIdentityProber.** Outbound `whois` probe on the offer port. An unpaired client whose listener is running replies with a display-only `DeviceIdentity`; the picker lists only the peers that answered, by their reported name. Display-only and pre-auth: tailnet membership is the trust boundary and the signed handshake still gates pairing.
-9. **ClientDiagnosticsRequester.** Host-side on-demand diagnostics collector. It requests diagnostics from the active paired client over the session input lane first, then falls back to the foreground tailnet control path on the offer port using the stored paired host key for request signing. Dev automation writes retrieved runs under `/tmp/agentdesk-client-diagnostics-<timestamp>/`.
+9. **ClientDebugAutomation.** `ClientDiagnosticsRequester` and `ClientScreenshotRequester` collect bounded evidence from the active paired client over the session input lane first, then fall back to the foreground tailnet control path on the offer port using the stored paired host key for request signing. Screenshot assembly validates manifest metadata, chunk order, byte and pixel limits, and SHA-256 before private artifacts are written under an explicitly requested `/tmp/agentdesk-client-*` directory. Dev automation exposes screenshot-only, diagnostics-only, and combined debug-bundle operations without logging payloads.
 10. **SessionAuthenticator.** Runs the per-connection mutual challenge-response on the session QUIC control stream. Rejects a peer whose advertised `protocolVersion` is below the host's `minCompatibleProtocolVersion` with `incompatible-protocol` (ADR-0020). Produces `SessionReady` with the session id, memory-only resume id, resume secret, resume expiry, and media key salt.
-11. **QuicSessionTransport.** Owns the single live `NetworkConnection<QUIC>` and routes lanes by role. The control stream carries session init, challenge, proof, ready, resume, revoke, and heartbeat. The input stream carries `InputChannelEvent`, `ClientConfig`, diagnostics requests, and host pushes. The datagram lane carries authenticated `ADMD` media packets, packet resend requests, keyframe requests, ACKs, and link-health reports.
+11. **QuicSessionTransport.** Owns the single live `NetworkConnection<QUIC>` and routes lanes by role. The control stream carries session init, challenge, proof, ready, resume, revoke, and heartbeat. The input stream carries `InputChannelEvent`, `ClientConfig`, diagnostics and screenshot requests and responses, and host pushes. The datagram lane carries authenticated `ADMD` media packets, packet resend requests, keyframe requests, ACKs, and link-health reports.
 12. **MediaTransport.** Sends HEVC full-frame refreshes over the session datagram lane. The media packet key is derived per session from fresh handshake material, the session id, and the `SessionReady.mediaKeySalt`; no static datagram key or separate media listener remains.
 13. **ScrollDeltaEngine.** Rest-state retained-graphics producer (ADR-0025), retained as local crisp-repair/compositor machinery. Damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`), omitting cells that already match the retained baseline. It does not own a separate network connection.
-14. **InputChannelServer.** Owns the host side of the session input stream. Preserves each `InputChannelEvent` cursor revision through dispatch, acknowledges the applied revision only to its originating channel, and tags independently observed Mac cursor movement with that channel's last applied revision. It also pushes desktop state, thumbnails, cursor image updates, text-input focus metadata, agent speech events, diagnostics responses, and bounded Agent raw-event fragments on the same serialized lane.
+14. **InputChannelServer.** Owns the host side of the session input stream. Preserves each `InputChannelEvent` cursor revision through dispatch, acknowledges the applied revision only to its originating channel, and tags independently observed Mac cursor movement with that channel's last applied revision. It also pushes desktop state, thumbnails, cursor image updates, text-input focus metadata, agent speech events, diagnostics and screenshot requests, and bounded Agent raw-event fragments on the same serialized lane.
 15. **SignalingChannel.** Supplies length-prefixed QUIC stream framing and role routing for the session control and input streams. It is not a WebSocket wrapper.
 16. **HostPtyManagerProcess.** Reuses a live Rust `pty-manager` on the host variant's Application Support socket or launches the bundled AgentDesk `pty-manager` (`terminal/pty-manager`, ADR-0053) when no process is listening. The manager, not the host lifecycle or iOS app, spawns commands and owns host PTYs. Persistent workspace PTYs survive detach and host relaunch. Under the ADR-0056 target, leased Agent Panel PTYs survive only while a client lease exists or the configured final-lease grace is pending; manager shutdown reaps leased children.
 17. **TerminalClientBridge.** Bridges a dedicated `.terminal` QUIC stream to the `pty-manager` Unix socket as opaque length-prefixed PTY protobuf frames. It does not decode terminal protocol payloads; it only enforces stream role and frame bounds. Persistent full-screen terminal clients remain trusted multiplexer clients with the existing session-management controls. Agent Panel creation and kill authority stays behind `AgentSessionTerminalCoordinator`; its iOS renderer attaches only to the deterministic PTY returned by that coordinator.
@@ -86,28 +89,29 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 4. **SpacesDotsView.** One-handed Spaces switch surface driven by `DesktopStatePush` from the input channel. It filters Spaces by `selectedDisplayId` when present, falling back to `activeDisplayId`.
 5. **KeyboardSurface.** Compact keyboard plus accessory row. Emits key and modifier input frames.
 6. **PairingClient.** QR decode, token verification, and Keychain write. Reports the device display name (`UIDevice` name or hardware model identifier plus a short per-device id) in the handshake so the host labels the paired record. Its `TailnetServerTrustDelegate` applies strict TLS validation to FQDN dials and, for a tailnet CGNAT IPv4 literal (100.64.0.0/10), validates the cert chain but skips the hostname match, because the FQDN-only `tailscale cert` cannot pass a hostname check on an IP literal (ADR-0019). The L3 WireGuard peer auth plus the signed handshake are the real authentication.
-7. **PairingOfferListener.** `NWListener` on the offer port, running only while the app is foregrounded. When the app is unpaired it routes pairing offers and `whois` probes. When paired, it additionally accepts authenticated `diagnostics-request` frames from the paired host and returns diagnostics summaries and chunks. It prefers the `utun` tailnet IPv4 (100.x) over a carrier-CGNAT address when reporting its own address.
+7. **PairingOfferListener.** `NWListener` on the offer port, running only while the app is foregrounded. When the app is unpaired it routes pairing offers and `whois` probes. When paired, it additionally accepts signed diagnostics and screenshot requests from the paired host and returns bounded responses after fingerprint, signature, timestamp, and nonce validation. It prefers the `utun` tailnet IPv4 (100.x) over a carrier-CGNAT address when reporting its own address.
 8. **SessionDialer.** Client mirror of session authentication. Rejects a host whose `protocolVersion` is below the client minimum with `incompatible-protocol` (ADR-0020). Opens the single QUIC session connection, authenticates on the control stream, resumes with a memory-only token inside the grace window, and clears stored credentials on terminal rejection.
 9. **QuicSessionTransport.** Owns the connected client QUIC session. Input/control sends are immediate. Media datagrams are paced and are the first lane to drop or degrade under pressure.
 10. **MediaTransport.** Uses the session datagram lane to verify `ADMD` v2 packets, repair missing packet indexes before deadline, skip stale delta frames, and ask for keyframe recovery only when decoder continuity requires it.
 11. **OwnedHEVCFrameDecoder.** Planned `VTDecompressionSession` bridge for the hybrid worktree. It decodes HEVC refreshes into `CVPixelBuffer` output instead of enqueueing directly into `AVSampleBufferDisplayLayer`.
 12. **OwnedSurfaceCompositor.** Planned `@MainActor` single writer for the retained BGRA surface. It applies HEVC full-surface refreshes and retained graphics commands in strict `(surfaceGeneration, frameId)` order, then commits the visible layer.
-13. **InputChannel.** Reliable input lane inside the authenticated session QUIC connection. It stays logically independent from media even though both lanes share the same connection. Main-actor input sends are chained so cursor revision order is the order presented to the QUIC stream. It sends `ClientConfig.selectedDisplayId` when the user picks a display and sends client-owned media preferences (`crispTextOverlayEnabled`, `showHostCursorInVideo`, `mediaQuality`) on input-channel open and settings changes. `mediaQuality` carries adaptive on/off plus an optional fixed target. When adaptive is on, the host still owns rung selection; when adaptive is off, the host pins the video bitrate/FPS/resolution to the fixed target while packet repair and backpressure stay active. The lane receives revisioned cursor application acknowledgements, independently observed Mac cursor movement, host text-input focus metadata, `DiagnosticsRequest`, and Agent raw-event responses. It reassembles only raw-event fragment envelopes before delivering one logical response to the shared webview.
+13. **InputChannel.** Reliable input lane inside the authenticated session QUIC connection. It stays logically independent from media even though both lanes share the same connection. Main-actor input sends are chained so cursor revision order is the order presented to the QUIC stream. It sends `ClientConfig.selectedDisplayId` when the user picks a display and sends client-owned media preferences (`crispTextOverlayEnabled`, `showHostCursorInVideo`, `mediaQuality`, and default-off `diagnosticScreenshotsEnabled`) on input-channel open and settings changes. `mediaQuality` carries adaptive on/off plus an optional fixed target. When adaptive is on, the host still owns rung selection; when adaptive is off, the host pins the video bitrate/FPS/resolution to the fixed target while packet repair and backpressure stay active. The lane receives revisioned cursor application acknowledgements, independently observed Mac cursor movement, host text-input focus metadata, diagnostics and screenshot requests, and Agent raw-event responses. It reassembles only raw-event fragment envelopes before delivering one logical response to the shared webview.
 14. **CursorReconciliationStateMachine.** UIKit-free owner of pending cursor operations and prediction confidence (`confirmed`, `awaitingHost`, or `ghost`). It ignores stale applied positions as visible corrections, rebases genuine Mac movement and replays only newer client operations, uses the oldest pending deadline, and bounds its pending window. `PairingViewController` owns only transport/lifecycle wiring and the displayed cursor point.
 15. **ClientDiagnosticsStore.** Bounded durable client diagnostics store in `Application Support/Diagnostics`. It persists structured NDJSON essentials for the current run plus two prior runs, rotates unclean exits on bootstrap, mirrors essentials to OSLog, summarizes delayed MetricKit payloads, and serves prior-run tails on demand over the input lane or the foreground tailnet control listener.
-16. **TerminalSurface.** Thin UIKit host for `PtyTerminalWebView` in workspace mode. The shared runtime owns bounded tabs, recursive splits, pane chrome, the session drawer, xterm rendering, selection, and input. Its remote backend opens one authenticated `.terminal` stream per pane, creates only fixed persistent login-shell sessions, and preserves close-client and close-session authority. UIKit owns visibility, safe-area lifecycle, and keyboard dismissal only.
-17. **WorkspaceTransport.** Opens the authenticated `.files` workspace lane, correlates file and Git responses, serializes subscriptions and shared-state operations, and delivers unsolicited IDE-state and change pushes. It cancels pending work and subscriptions when the session ends.
-18. **WorkspaceWorkbenchSurface.** UIKit composition selected from the Workspace control. Its resizable left sidebar owns workspace and directory navigation; its upper-right editor owns the existing shared WebKit file viewer/editor; its lower-right pane hosts `PtyTerminalWebView` in single-session mode for the selected workspace. The sidebar and terminal start visible, the editor starts empty, and pane geometry persists per workspace. Collapse and resize retain both webviews. The file SPA owns content-aware zoom: text, Markdown, and notebooks scale their typography, while DOCX retains responsive fit-width, page scaling, and pinch zoom. Text saves carry the last observed file revision and surface conflicts instead of overwriting host changes.
-19. **AgentFeedSurface.** UIKit vertical container for the AgentPanel webview, native resize handle, and `PtyTerminalWebView` in single-session mode. It requests a host-coordinated leased PTY over protocol v7, attaches over `.terminal` with `createIfMissing=false`, acknowledges handoff, and owns iOS layout and explicit or involuntary lifecycle mapping. It does not construct harness commands or own process lifetime.
-20. **WorkspaceIDEController.** Cross-platform package coordinator owning retained sidebar and editor WKWebViews, strict intent decoding, serialized data-source calls, request-generation fencing, device-local active state and drafts, 700 ms autosave, and tailored projections. Platform containers receive terminal and layout intents through a delegate.
-21. **WorkspaceIDESurface.** Separate UIKit entry that composes the retained sidebar webview beside an editor webview and `PtyTerminalWebView` in single-session mode. The terminal starts open and reattaches through the existing workspace-terminal coordinator. Its active tab and pane geometry remain local while shared editor-tab membership and expanded folders reconcile from host pushes.
+16. **ClientScreenshotCapturer.** Main-actor, memory-only capture authority for the visible foreground AgentDesk window. It rechecks the default-off setting for each request, composites UIKit hierarchy output with visible WebKit snapshots, declares omitted system and live-video layers, encodes one bounded JPEG, and exposes only a manifest plus ordered chunks. It rate-limits requests and posts an accessible on-screen disclosure after a successful capture.
+17. **TerminalSurface.** Thin UIKit host for `PtyTerminalWebView` in workspace mode. The shared runtime owns bounded tabs, recursive splits, pane chrome, the session drawer, xterm rendering, selection, and input. Its remote backend opens one authenticated `.terminal` stream per pane, creates only fixed persistent login-shell sessions, and preserves close-client and close-session authority. UIKit owns visibility, safe-area lifecycle, and keyboard dismissal only.
+18. **WorkspaceTransport.** Opens the authenticated `.files` workspace lane, correlates file and Git responses, serializes subscriptions and shared-state operations, and delivers unsolicited IDE-state and change pushes. It cancels pending work and subscriptions when the session ends.
+19. **WorkspaceWorkbenchSurface.** UIKit composition selected from the Workspace control. Its resizable left sidebar owns workspace and directory navigation; its upper-right editor owns the existing shared WebKit file viewer/editor; its lower-right pane hosts `PtyTerminalWebView` in single-session mode for the selected workspace. The sidebar and terminal start visible, the editor starts empty, and pane geometry persists per workspace. Collapse and resize retain both webviews. The file SPA owns content-aware zoom: text, Markdown, and notebooks scale their typography, while DOCX retains responsive fit-width, page scaling, and pinch zoom. Text saves carry the last observed file revision and surface conflicts instead of overwriting host changes.
+20. **AgentFeedSurface.** UIKit vertical container for the AgentPanel webview, native resize handle, and `PtyTerminalWebView` in single-session mode. It requests a host-coordinated leased PTY over protocol v7, attaches over `.terminal` with `createIfMissing=false`, acknowledges handoff, and owns iOS layout and explicit or involuntary lifecycle mapping. It does not construct harness commands or own process lifetime.
+21. **WorkspaceIDEController.** Cross-platform package coordinator owning retained sidebar and editor WKWebViews, strict intent decoding, serialized data-source calls, request-generation fencing, device-local active state and drafts, 700 ms autosave, and tailored projections. Platform containers receive terminal and layout intents through a delegate.
+22. **WorkspaceIDESurface.** Separate UIKit entry that composes the retained sidebar webview beside an editor webview and `PtyTerminalWebView` in single-session mode. The terminal starts open and reattaches through the existing workspace-terminal coordinator. Its active tab and pane geometry remain local while shared editor-tab membership and expanded folders reconcile from host pushes.
 
 Tests required for v0: **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView.** Additional owned-media contract tests pin wire shapes, packet repair, and decoder recovery behavior where regressions are expensive.
 
 ## Agent Panel Terminal Flow
 
 ADR-0056 locks the Agent Panel lifecycle below. The checked-in PTY pair now speaks protocol v7 under
-ADR-0068 and the AgentDesk session speaks protocol v13. There is no compatibility decoder for an older
+ADR-0068 and the AgentDesk session speaks protocol v14. There is no compatibility decoder for an older
 inner PTY protocol.
 
 1. The thread-view AgentPanel webview emits open intent containing project path, source, and harness
@@ -200,10 +204,16 @@ SignedDiagnosticsRequest { t: "diagnostics-request", rid, sr?, pr, mb?,
 DiagnosticsSummary      { t: "diagnostics-summary", rid, r, de, db, mk? }
 DiagnosticsChunk        { t: "diagnostics-chunk", rid, s, f, run, ub, p }
 DiagnosticsError        { t: "diagnostics-error", rid, r }
+SignedClientScreenshotRequest { t: "client-screenshot-request", rid, mp?, mb?,
+                                hf, ts, n, hs }
+ClientScreenshotManifest { t: "client-screenshot-manifest", rid, ca, sha, sn,
+                           pw, ph, sc, o, mt, tb, h, ol }
+ClientScreenshotChunk    { t: "client-screenshot-chunk", rid, s, f, p }
+ClientScreenshotError    { t: "client-screenshot-error", rid, r }
 ```
 
 The offer is an untagged `PairingPayload`; the iPhone synthesizes its `pairingURL()` locally and reuses the QR handshake path. `whois`/`id` carry only a display name for the picker and are pre-auth; the signed handshake still gates pairing. The payload carries the host's bound signaling port (`sp`), so the client dials the advertised port rather than a hardcoded default; this is what lets the stable and dev hosts run concurrently on tier-derived ports (ADR-0037).
-Foreground diagnostics fallback reuses the same offer port only when the app is paired and foregrounded. The host signs the request body with the paired host key; the client rejects a request whose host fingerprint does not match the stored pairing, whose signature fails, or whose timestamp is older than 60 seconds.
+Foreground diagnostics and screenshot fallback reuse the same offer port only when the app is paired and foregrounded. The host signs the complete request body with the paired host key; the client rejects a request whose host fingerprint does not match the stored pairing, whose signature fails, whose nonce was already used, or whose timestamp is outside the 60-second skew bound.
 
 Session establishment is locked by ADR-0003, ADR-0011, ADR-0020, and ADR-0030. Frames on QUIC streams are length-prefixed. Protocol v8 encodes Files request/response bodies as binary property lists so `Data` stays binary. Protocol v9 changes the input body contract for revisioned cursor causality. Protocol v10 adds workspace-terminal control messages to the input body contract; control, graphics, DOM, terminal, and files bodies are unchanged.
 
@@ -212,7 +222,7 @@ QuicStreamFrame   = UInt8 role || UInt32BE length || body
 role              = 1 control | 2 input | 3 graphics | 4 dom | 5 terminal | 6 files
 
 SessionInit       { deviceFingerprint, sessionToken, clientNonce,
-                    protocolVersion, minCompatibleProtocolVersion }   // current target: pv must be >= 13
+                    protocolVersion, minCompatibleProtocolVersion }   // current target: pv must be >= 14
 SessionChallenge  { hostNonce, hostSignature, protocolVersion }
 SessionProof      { clientSignature }
 SessionReady      { sessionId, resumeId, resumeSecret, resumeExpiresAt, mediaKeySalt,
@@ -248,7 +258,7 @@ and rotates resume id, resume secret, and media key salt in the next signed
 `SessionReady`; the client verifies the ready signature before accepting the new
 material.
 
-Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. Protocol v8 is required because the Files role changed from JSON text-only bodies to binary property-list bodies with native document bytes. Protocol v9 is required because cursor inputs now carry revisions and cursor feedback has distinct applied and host-moved frames. Protocol v10 is required because the iOS workbench coordinates a host-authorized workspace terminal on the input lane. Protocol v11 is required because the Files stream becomes the workspace lane and adds IDE state, Git status, and unsolicited workspace-change messages. Protocol v12 is required because the DOM stream carries full Chrome metadata and bidirectional window/tab selection. Protocol v13 adds authenticated viewer activity, ownership, profile, and source dimensions to that DOM contract. Older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
+Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. Protocol v8 is required because the Files role changed from JSON text-only bodies to binary property-list bodies with native document bytes. Protocol v9 is required because cursor inputs now carry revisions and cursor feedback has distinct applied and host-moved frames. Protocol v10 is required because the iOS workbench coordinates a host-authorized workspace terminal on the input lane. Protocol v11 is required because the Files stream becomes the workspace lane and adds IDE state, Git status, and unsolicited workspace-change messages. Protocol v12 is required because the DOM stream carries full Chrome metadata and bidirectional window/tab selection. Protocol v13 adds authenticated viewer activity, ownership, profile, and source dimensions to that DOM contract. Protocol v14 adds explicit-opt-in, bounded client screenshot request and response frames to the input lane and signed foreground fallback. Older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
 
 Terminal PTY frames travel over the reliable ordered `.terminal` stream as opaque PTY protobuf envelopes from AgentDesk's `terminal/pty-client-swift` and `terminal/pty-manager` pair (moved in-tree under ADR-0053). Both checked-in implementations enforce inner protocol v7. Protocol v4 added explicit launch and lifetime semantics; protocol v5 added immutable session creation time; protocol v6 added authoritative dimensions, revisions, and bounded chunked ANSI checkpoints; protocol v7 replaces manual resizing with authenticated-client viewer participation, ownership, and targeted viewport status. There is no compatibility path for older inner protocols:
 
@@ -610,7 +620,8 @@ HostTextInputFocus { editability: editable | nonEditable | ambiguous,
                       secure, source, role?, subrole?, cursorKind? }  // t: "text-input-focus"
 ClientConfig        { thumbnailsEnabled, thumbnailRefresh?,
                       selectedDisplayId?, crispTextOverlayEnabled?,
-                      showHostCursorInVideo?, mediaQuality? }
+                      showHostCursorInVideo?, mediaQuality?,
+                      diagnosticScreenshotsEnabled }
 ClientMediaQuality  { adaptiveEnabled, fixedTarget? }
 ClientQualityTarget { bitrateKbps, fps, resolutionScale }
                                                                         // t: "client-config"
@@ -621,6 +632,13 @@ DiagnosticsSummary  { requestId, runs, droppedEvents, droppedBytes,
 DiagnosticsChunk    { requestId, sequence, isFinal, runId,
                       uncompressedBytes, payloadBase64 }               // t: "diagnostics-chunk"
 DiagnosticsError    { requestId, reason }                             // t: "diagnostics-error"
+ClientScreenshotRequest { requestId, maxPixelDimension?, maxBytes? }  // t: "client-screenshot-request"
+ClientScreenshotManifest { requestId, capturedAt, clientBuildSHA,
+                           surfaceName, pixelWidth, pixelHeight, scale,
+                           orientation, mimeType, totalBytes, sha256,
+                           omittedLayers }                             // t: "client-screenshot-manifest"
+ClientScreenshotChunk { requestId, sequence, isFinal, payloadBase64 } // t: "client-screenshot-chunk"
+ClientScreenshotError { requestId, reason }                           // t: "client-screenshot-error"
 ```
 
 `NormalizedInput.cursorSet { displayId, x, y }` is an absolute cursor retarget in host/global display points, same coordinate space as `DesktopState.cursorX/cursorY`. The host accepts it only when `displayId` matches the currently selected display, clamps it to that display bounds, posts one mouse move, and uses the set point as the base for subsequent relative cursor moves. The iPhone uses it after manual zoomed-viewport pan: viewport browsing stays local, then the next pointer-location-dependent action sends `cursorSet` before the original pointer input so the host cursor starts from the visible region.
@@ -629,6 +647,13 @@ Every `cursorSet` and `cursorMove` carries a monotonically increasing `cursorRev
 
 `DiagnosticsChunk.payloadBase64` is gzipped NDJSON. The client caps each encoded payload chunk at 48 KB and the total response at 768 KB unless the host requests less.
 
+`ClientScreenshotChunk.payloadBase64` carries one JPEG split into ordered chunks of at most 256 KiB
+before base64 encoding. The client caps the long edge at 2,048 pixels and the encoded image at 4 MiB,
+or applies smaller request bounds. It captures only its visible foreground app window after explicit
+opt-in, stores no image on the client, and reports omitted system or live-video layers in the manifest.
+The host verifies the manifest, exact aggregate size, chunk sequence, and SHA-256 before writing
+`client.jpg` and `manifest.json` with private permissions under `/tmp/agentdesk-client-*`.
+
 ## Diagnostics Retention
 
 - The client persists structured essentials to `Application Support/Diagnostics`.
@@ -636,6 +661,19 @@ Every `cursorSet` and `cursorMove` carries a monotonically increasing `cursorRev
 - When the current run exceeds its cap, oldest events are dropped from that run first.
 - On next launch, an unfinished current run is rotated to the archive set and surfaced as `previousRunUncleanExit`.
 - Prior unclean runs remain requestable until the host retrieves them or bounded retention evicts them.
+
+## On-Demand Client Screenshot Privacy
+
+- The client setting is off by default and remains authoritative even when an older advertised config
+  said capture was enabled.
+- Capture is rejected while the app or its own window is hidden, backgrounded, or inactive.
+- System keyboard and system overlay windows are not captured. Live video may be omitted and must be
+  declared rather than represented as complete.
+- Image bytes, chunks, rendered text, typed input, and clipboard content never enter client durable
+  diagnostics or either side's logs.
+- Every successful capture shows `Screenshot shared with paired Mac` in the client UI.
+- The host writes an image only for an explicit local automation request and uses directory mode
+  `0700` and file mode `0600`.
 
 ## Recovery Policy
 

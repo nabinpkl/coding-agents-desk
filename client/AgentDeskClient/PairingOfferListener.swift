@@ -25,6 +25,8 @@ final class PairingOfferListener: @unchecked Sendable {
     var localIdentity: DeviceIdentity?
     var storedPairingRecordProvider: (() -> StoredPairingRecord?)?
     var diagnosticsResponseProvider: ((DiagnosticsRequest) -> Result<ClientDiagnosticsPreparedResponse, DiagnosticsError>)?
+    var screenshotResponseProvider: ((ClientScreenshotRequest) async -> Result<PreparedClientScreenshot, ClientScreenshotError>)?
+    var screenshotDeliveryHandler: (@MainActor @Sendable () -> Void)?
 
     func start(port: UInt16 = Config.offerPort) {
         guard listener == nil else { return }
@@ -90,7 +92,12 @@ final class PairingOfferListener: @unchecked Sendable {
                             self.logger.notice("diagnostics request received")
                             self.respondToDiagnosticsRequest(request, on: connection)
                             return
-                        case .diagnosticsSummary, .diagnosticsChunk, .diagnosticsError:
+                        case .screenshotRequest(let request):
+                            self.logger.notice("client screenshot request received")
+                            self.respondToScreenshotRequest(request, on: connection)
+                            return
+                        case .diagnosticsSummary, .diagnosticsChunk, .diagnosticsError,
+                             .screenshotManifest, .screenshotChunk, .screenshotError:
                             connection.cancel()
                             return
                         case .identity, .unknown:
@@ -134,7 +141,7 @@ final class PairingOfferListener: @unchecked Sendable {
         guard let record = storedPairingRecordProvider?(),
               ClientDiagnostics.shared.validateFallbackRequest(request, record: record),
               let responseProvider = diagnosticsResponseProvider else {
-            sendDiagnosticsFrames([
+            sendFrames([
                 DiagnosticsError(requestId: request.requestId, reason: "unauthorized")
             ], on: connection) {
                 connection.cancel()
@@ -143,31 +150,73 @@ final class PairingOfferListener: @unchecked Sendable {
         }
         switch responseProvider(request.request) {
         case .failure(let error):
-            sendDiagnosticsFrames([error], on: connection) {
+            sendFrames([error], on: connection) {
                 connection.cancel()
             }
         case .success(let prepared):
             var frames: [Encodable] = [prepared.summary]
             frames.append(contentsOf: prepared.chunks)
-            sendDiagnosticsFrames(frames, on: connection) {
+            sendFrames(frames, on: connection) {
                 ClientDiagnostics.shared.completeResponse(prepared)
                 connection.cancel()
             }
         }
     }
 
-    private func sendDiagnosticsFrames(
+    private func respondToScreenshotRequest(_ request: SignedClientScreenshotRequest, on connection: NWConnection) {
+        guard let record = storedPairingRecordProvider?(),
+              ClientDiagnostics.shared.validateFallbackRequest(request, record: record),
+              let responseProvider = screenshotResponseProvider else {
+            sendFrames([
+                ClientScreenshotError(requestId: request.requestId, reason: "unauthorized")
+            ], on: connection) {
+                connection.cancel()
+            }
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else {
+                connection.cancel()
+                return
+            }
+            switch await responseProvider(request.request) {
+            case .failure(let error):
+                self.sendFrames([error], on: connection) {
+                    connection.cancel()
+                }
+            case .success(let prepared):
+                var frames: [any Encodable] = [prepared.manifest]
+                frames.append(contentsOf: ClientScreenshotCapturer.makeChunks(
+                    data: prepared.jpegData,
+                    requestId: request.requestId,
+                    chunkBytes: Config.screenshotOfferPortChunkBytes
+                ))
+                self.sendFrames(frames, on: connection) {
+                    Task { @MainActor [weak self] in
+                        self?.screenshotDeliveryHandler?()
+                        connection.cancel()
+                    }
+                }
+            }
+        }
+    }
+
+    private func sendFrames(
         _ frames: [any Encodable],
         on connection: NWConnection,
         completion: @escaping @Sendable () -> Void
     ) {
         let encoder = JSONEncoder()
-        let encodedFrames = frames.compactMap { frame -> Data? in
-            guard let data = try? encode(encodable: frame, encoder: encoder),
-                  let wrapped = try? OfferPortFrame.encode(data) else {
-                return nil
+        let encodedFrames: [Data]
+        do {
+            encodedFrames = try frames.map { frame in
+                let data = try encode(encodable: frame, encoder: encoder)
+                return try OfferPortFrame.encode(data)
             }
-            return wrapped
+        } catch {
+            logger.error("offer-port response encoding failed")
+            connection.cancel()
+            return
         }
         sendFrame(at: 0, from: encodedFrames, on: connection, completion: completion)
     }

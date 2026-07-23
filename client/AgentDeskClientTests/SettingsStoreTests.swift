@@ -31,6 +31,16 @@ struct SettingsStoreTests {
         #expect(observed)
     }
 
+    @Test func diagnosticScreenshotsRequireExplicitOptIn() {
+        let defaults = isolatedDefaults()
+        let store = SettingsStore(defaults: defaults)
+
+        #expect(store.diagnosticScreenshotsEnabled == false)
+        store.diagnosticScreenshotsEnabled = true
+        #expect(store.diagnosticScreenshotsEnabled)
+        #expect(defaults.object(forKey: "agentDesk.diagnosticScreenshotsEnabled") as? Bool == true)
+    }
+
     private func isolatedDefaults() -> UserDefaults {
         let name = "SettingsStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!

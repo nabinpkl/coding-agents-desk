@@ -32,8 +32,10 @@ last_pair_url_path := host_support_dir + "/.last-pair-url"
 host_dev_last_pair_url_path := host_dev_support_dir + "/.last-pair-url"
 host_pty_manager_socket_path := host_support_dir + "/pty-manager.sock"
 host_dev_pty_manager_socket_path := host_dev_support_dir + "/pty-manager.sock"
-client_diagnostics_request_path := host_support_dir + "/.client-diagnostics-request.json"
-client_diagnostics_result_path := host_support_dir + "/.client-diagnostics-result.json"
+client_debug_request_path := host_support_dir + "/.client-debug-request.json"
+client_debug_result_path := host_support_dir + "/.client-debug-result.json"
+host_dev_client_debug_request_path := host_dev_support_dir + "/.client-debug-request.json"
+host_dev_client_debug_result_path := host_dev_support_dir + "/.client-debug-result.json"
 derived_data := env_var_or_default("AGENTDESK_DERIVED_DATA_PATH", justfile_directory() + "/.build/DerivedData")
 host_app := derived_data + "/Build/Products/Debug/AgentDeskHost.app"
 client_app := derived_data + "/Build/Products/Debug-iphoneos/AgentDeskClient.app"
@@ -1067,20 +1069,79 @@ pair-iphone variant="stable":
 client-diagnostics variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
-    HOST_PID="$(pgrep -f '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}' | head -1 || true)"
+    umask 077
+    case "{{variant}}" in
+      stable) HOST_DD='{{derived_data}}'; REQUEST_PATH='{{client_debug_request_path}}'; RESULT_PATH='{{client_debug_result_path}}' ;;
+      dev) HOST_DD='{{host_dev_derived_data}}'; REQUEST_PATH='{{host_dev_client_debug_request_path}}'; RESULT_PATH='{{host_dev_client_debug_result_path}}' ;;
+      *) echo "variant must be stable or dev"; exit 2 ;;
+    esac
+    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     TS="$(date +%Y%m%d-%H%M%S)"
     OUT_DIR="${AGENTDESK_CLIENT_DIAGNOSTICS_OUTPUT:-/tmp/agentdesk-client-diagnostics-$TS}"
     REQUEST_ID="$(uuidgen | tr 'A-Z' 'a-z')"
-    mkdir -p "$(dirname '{{client_diagnostics_request_path}}')"
-    rm -f '{{client_diagnostics_request_path}}' '{{client_diagnostics_result_path}}'
-    printf '%s\n' "{\"requestId\":\"$REQUEST_ID\",\"outputDirectory\":\"$OUT_DIR\",\"includePreviousRuns\":true,\"maxBytes\":786432}" > '{{client_diagnostics_request_path}}'
+    mkdir -p "$(dirname "$REQUEST_PATH")"
+    rm -f "$REQUEST_PATH" "$RESULT_PATH"
+    python3 -c 'import json,sys; json.dump({"version":1,"operation":"diagnostics","requestId":sys.argv[2],"outputDirectory":sys.argv[3],"includePreviousRuns":True,"maxDiagnosticsBytes":786432}, open(sys.argv[1], "w", encoding="utf-8"))' "$REQUEST_PATH" "$REQUEST_ID" "$OUT_DIR"
     kill -USR2 "$HOST_PID"
     i=0
-    while [ ! -s '{{client_diagnostics_result_path}}' ] && [ $i -lt 400 ]; do sleep 0.1; i=$((i+1)); done
-    test -s '{{client_diagnostics_result_path}}' || { echo "host did not write diagnostics result"; exit 1; }
-    python3 -c 'import json,sys; path="{{client_diagnostics_result_path}}"; data=json.load(open(path, "r", encoding="utf-8")); print(json.dumps(data, indent=2, sort_keys=True)); sys.exit(0 if data.get("status") == "ok" else 1)'
+    while [ ! -s "$RESULT_PATH" ] && [ $i -lt 400 ]; do sleep 0.1; i=$((i+1)); done
+    test -s "$RESULT_PATH" || { echo "host did not write diagnostics result"; exit 1; }
+    python3 -c 'import json,sys; data=json.load(open(sys.argv[1], "r", encoding="utf-8")); print(json.dumps(data, indent=2, sort_keys=True)); sys.exit(0 if data.get("status") == "ok" else 1)' "$RESULT_PATH"
     echo "Diagnostics directory: $OUT_DIR"
+
+# Capture the foreground AgentDesk client window on demand. The iOS setting
+# "Allow paired Mac screenshots" must be enabled. This uses an active session
+# when available, then the authenticated foreground offer-port fallback.
+client-screenshot variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    umask 077
+    case "{{variant}}" in
+      stable) HOST_DD='{{derived_data}}'; REQUEST_PATH='{{client_debug_request_path}}'; RESULT_PATH='{{client_debug_result_path}}' ;;
+      dev) HOST_DD='{{host_dev_derived_data}}'; REQUEST_PATH='{{host_dev_client_debug_request_path}}'; RESULT_PATH='{{host_dev_client_debug_result_path}}' ;;
+      *) echo "variant must be stable or dev"; exit 2 ;;
+    esac
+    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
+    test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
+    TS="$(date +%Y%m%d-%H%M%S)"
+    OUT_DIR="${AGENTDESK_CLIENT_SCREENSHOT_OUTPUT:-/tmp/agentdesk-client-screenshot-$TS}"
+    REQUEST_ID="$(uuidgen | tr 'A-Z' 'a-z')"
+    mkdir -p "$(dirname "$REQUEST_PATH")"
+    rm -f "$REQUEST_PATH" "$RESULT_PATH"
+    python3 -c 'import json,sys; json.dump({"version":1,"operation":"screenshot","requestId":sys.argv[2],"outputDirectory":sys.argv[3],"maxScreenshotBytes":4194304,"maxPixelDimension":2048}, open(sys.argv[1], "w", encoding="utf-8"))' "$REQUEST_PATH" "$REQUEST_ID" "$OUT_DIR"
+    kill -USR2 "$HOST_PID"
+    i=0
+    while [ ! -s "$RESULT_PATH" ] && [ $i -lt 400 ]; do sleep 0.1; i=$((i+1)); done
+    test -s "$RESULT_PATH" || { echo "host did not write screenshot result"; exit 1; }
+    python3 -c 'import json,sys; data=json.load(open(sys.argv[1], "r", encoding="utf-8")); print(json.dumps(data, indent=2, sort_keys=True)); sys.exit(0 if data.get("status") == "ok" else 1)' "$RESULT_PATH"
+    echo "Screenshot: $OUT_DIR/client.jpg"
+
+# Collect both the foreground app screenshot and bounded durable diagnostics
+# into one private /tmp directory using the same request identifier.
+client-debug-bundle variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    umask 077
+    case "{{variant}}" in
+      stable) HOST_DD='{{derived_data}}'; REQUEST_PATH='{{client_debug_request_path}}'; RESULT_PATH='{{client_debug_result_path}}' ;;
+      dev) HOST_DD='{{host_dev_derived_data}}'; REQUEST_PATH='{{host_dev_client_debug_request_path}}'; RESULT_PATH='{{host_dev_client_debug_result_path}}' ;;
+      *) echo "variant must be stable or dev"; exit 2 ;;
+    esac
+    HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
+    test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
+    TS="$(date +%Y%m%d-%H%M%S)"
+    OUT_DIR="${AGENTDESK_CLIENT_DEBUG_OUTPUT:-/tmp/agentdesk-client-debug-$TS}"
+    REQUEST_ID="$(uuidgen | tr 'A-Z' 'a-z')"
+    mkdir -p "$(dirname "$REQUEST_PATH")"
+    rm -f "$REQUEST_PATH" "$RESULT_PATH"
+    python3 -c 'import json,sys; json.dump({"version":1,"operation":"debug-bundle","requestId":sys.argv[2],"outputDirectory":sys.argv[3],"includePreviousRuns":True,"maxDiagnosticsBytes":786432,"maxScreenshotBytes":4194304,"maxPixelDimension":2048}, open(sys.argv[1], "w", encoding="utf-8"))' "$REQUEST_PATH" "$REQUEST_ID" "$OUT_DIR"
+    kill -USR2 "$HOST_PID"
+    i=0
+    while [ ! -s "$RESULT_PATH" ] && [ $i -lt 400 ]; do sleep 0.1; i=$((i+1)); done
+    test -s "$RESULT_PATH" || { echo "host did not write debug bundle result"; exit 1; }
+    python3 -c 'import json,sys; data=json.load(open(sys.argv[1], "r", encoding="utf-8")); print(json.dumps(data, indent=2, sort_keys=True)); sys.exit(0 if data.get("status") == "ok" else 1)' "$RESULT_PATH"
+    echo "Debug bundle: $OUT_DIR"
 
 # Pair-launch the physical iPhone client with the console attached. Blocks until
 # the app exits and tees stdout/stderr to {{iphone_console_log}}. Owned-media stderr

@@ -42,9 +42,85 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded.payload == payload)
 }
 
-@Test func wireProtocolRemoteBrowserProjectionVersionIsPinned() {
-    #expect(WireProtocol.version == 13)
-    #expect(WireProtocol.minCompatibleVersion == 13)
+@Test func wireProtocolClientScreenshotVersionIsPinned() {
+    #expect(WireProtocol.version == 14)
+    #expect(WireProtocol.minCompatibleVersion == 14)
+}
+
+@Test func clientScreenshotContractsRoundTrip() throws {
+    let request = ClientScreenshotRequest(
+        requestId: "capture-1",
+        maxPixelDimension: 2_048,
+        maxBytes: 4 * 1_024 * 1_024
+    )
+    let manifest = ClientScreenshotManifest(
+        requestId: request.requestId,
+        capturedAt: 1_800_000_000,
+        clientBuildSHA: "abc1234",
+        surfaceName: "terminal",
+        pixelWidth: 1_179,
+        pixelHeight: 2_556,
+        scale: 3,
+        orientation: "portrait",
+        mimeType: "image/jpeg",
+        totalBytes: 123_456,
+        sha256: String(repeating: "a", count: 64),
+        omittedLayers: ["system-keyboard"]
+    )
+    let chunk = ClientScreenshotChunk(
+        requestId: request.requestId,
+        sequence: 0,
+        isFinal: true,
+        payloadBase64: Data([1, 2, 3]).base64EncodedString()
+    )
+    let error = ClientScreenshotError(requestId: request.requestId, reason: "not-authorized")
+    let signed = SignedClientScreenshotRequest(
+        requestId: request.requestId,
+        maxPixelDimension: request.maxPixelDimension,
+        maxBytes: request.maxBytes,
+        hostFingerprint: "host-fingerprint",
+        issuedAt: 1_800_000_000,
+        nonce: Data(repeating: 7, count: 32),
+        hostSignature: Data(repeating: 8, count: 64)
+    )
+
+    try roundTrip(request)
+    try roundTrip(manifest)
+    try roundTrip(chunk)
+    try roundTrip(error)
+    try roundTrip(signed)
+    #expect(signed.request == request)
+}
+
+@Test func screenshotSignatureCoversRequestBounds() throws {
+    let nonce = Data(repeating: 9, count: 32)
+    let first = try ClientScreenshotRequestSignature.signingData(
+        request: ClientScreenshotRequest(requestId: "capture", maxPixelDimension: 2_048, maxBytes: 4_000_000),
+        hostFingerprint: "host",
+        issuedAt: 123,
+        nonce: nonce
+    )
+    let changed = try ClientScreenshotRequestSignature.signingData(
+        request: ClientScreenshotRequest(requestId: "capture", maxPixelDimension: 1_024, maxBytes: 4_000_000),
+        hostFingerprint: "host",
+        issuedAt: 123,
+        nonce: nonce
+    )
+    #expect(first != changed)
+}
+
+@Test func screenshotFallbackChunkFitsOfferPortFrame() throws {
+    let chunk = ClientScreenshotChunk(
+        requestId: UUID().uuidString.lowercased(),
+        sequence: 0,
+        isFinal: true,
+        payloadBase64: Data(repeating: 0xA5, count: 32 * 1_024).base64EncodedString()
+    )
+    let body = try JSONEncoder().encode(chunk)
+
+    #expect(body.count <= OfferPortFrame.maxPayloadByteCount)
+    let framed = try OfferPortFrame.encode(body)
+    #expect(framed.count == body.count + OfferPortFrame.fixedHeaderByteCount)
 }
 
 @Test func workspaceTerminalMessagesRoundTripWithoutHostPathOrLaunchAuthority() throws {
@@ -455,7 +531,8 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
                 resolutionScale: 0.5
             )
         ),
-        autoKeyboardEnabled: false
+        autoKeyboardEnabled: false,
+        diagnosticScreenshotsEnabled: true
     )
     try roundTrip(config)
 
@@ -469,12 +546,14 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(fixedTarget?["fps"] as? Int == 15)
     #expect(fixedTarget?["rs"] as? Double == 0.5)
     #expect(object?["ak"] as? Bool == false)
+    #expect(object?["ds"] as? Bool == true)
 }
 
 @Test func clientConfigDefaultsAutoKeyboardEnabledWhenMissing() throws {
     let data = Data(#"{"t":"client-config","te":false}"#.utf8)
     let decoded = try JSONDecoder().decode(ClientConfig.self, from: data)
     #expect(decoded.autoKeyboardEnabled)
+    #expect(decoded.diagnosticScreenshotsEnabled == false)
 }
 
 @Test func hostAvailabilityPushRoundTripsLockedAndCaptureUnavailable() throws {

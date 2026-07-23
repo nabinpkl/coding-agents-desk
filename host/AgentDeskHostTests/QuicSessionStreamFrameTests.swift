@@ -250,9 +250,9 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded.cursorRevision == 11)
     }
 
-    @Test func protocolVersionIsThirteenForViewerOwnedBrowserProjection() {
-        #expect(Config.protocolVersion == 13)
-        #expect(Config.minCompatibleProtocolVersion == 13)
+    @Test func protocolVersionIsFourteenForOnDemandClientScreenshots() {
+        #expect(Config.protocolVersion == 14)
+        #expect(Config.minCompatibleProtocolVersion == 14)
     }
 
     @available(macOS 26.0, *)

@@ -1061,11 +1061,16 @@ enum Config {
     }()
     static let devLastPairURLPath = applicationSupportDirectory
         .appendingPathComponent(".last-pair-url", isDirectory: false)
-    static let devDiagnosticsRequestPath = applicationSupportDirectory
-        .appendingPathComponent(".client-diagnostics-request.json", isDirectory: false)
-    static let devDiagnosticsResultPath = applicationSupportDirectory
-        .appendingPathComponent(".client-diagnostics-result.json", isDirectory: false)
+    static let devClientDebugRequestPath = applicationSupportDirectory
+        .appendingPathComponent(".client-debug-request.json", isDirectory: false)
+    static let devClientDebugResultPath = applicationSupportDirectory
+        .appendingPathComponent(".client-debug-result.json", isDirectory: false)
     static let diagnosticsRequestTimeoutSeconds: TimeInterval = 20
+    static let screenshotRequestTimeoutSeconds: TimeInterval = 20
+    static let screenshotMaxPixelDimension = 2_048
+    static let screenshotMaxBytes = 4 * 1_024 * 1_024
+    static let screenshotChunkBytes = 256 * 1_024
+    static let clientDebugAutomationRequestMaxBytes = 64 * 1_024
     static let tlsCertURL = applicationSupportDirectory
         .appendingPathComponent("host.crt", isDirectory: false)
     static let tlsKeyURL = applicationSupportDirectory

@@ -89,7 +89,7 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         latestMetricKitPayloadAt: nil
     )
     private var bootstrapped = false
-    private var seenFallbackNonces: Set<String> = []
+    private var seenFallbackNonces: [String: Int] = [:]
 
     init(
         configuration: ClientDiagnosticsStoreConfiguration = .live,
@@ -150,39 +150,82 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
 
     func validateFallbackRequest(_ request: SignedDiagnosticsRequest, record: StoredPairingRecord?) -> Bool {
         queue.sync {
-            guard bootstrapped,
-                  let record,
-                  record.token.hostFingerprint == request.hostFingerprint else {
-                return false
-            }
-            let skew = abs(now() - request.issuedAt)
-            guard skew <= configuration.authMaxSkewSeconds else {
-                return false
-            }
-            let nonceKey = request.nonce.base64URLEncodedString()
-            guard !seenFallbackNonces.contains(nonceKey) else {
-                return false
-            }
-            let publicKey: P256.Signing.PublicKey
-            let signature: P256.Signing.ECDSASignature
-            do {
-                publicKey = try P256.Signing.PublicKey(x963Representation: record.hostPublicKey)
-                signature = try P256.Signing.ECDSASignature(rawRepresentation: request.hostSignature)
-            } catch {
-                return false
-            }
-            guard let signingData = try? DiagnosticsRequestSignature.signingData(
-                request: request.request,
+            validateFallbackEnvelope(
                 hostFingerprint: request.hostFingerprint,
                 issuedAt: request.issuedAt,
-                nonce: request.nonce
-            ),
-            publicKey.isValidSignature(signature, for: signingData) else {
-                return false
+                nonce: request.nonce,
+                signatureData: request.hostSignature,
+                record: record
+            ) {
+                try DiagnosticsRequestSignature.signingData(
+                    request: request.request,
+                    hostFingerprint: request.hostFingerprint,
+                    issuedAt: request.issuedAt,
+                    nonce: request.nonce
+                )
             }
-            seenFallbackNonces.insert(nonceKey)
-            return true
         }
+    }
+
+    func validateFallbackRequest(_ request: SignedClientScreenshotRequest, record: StoredPairingRecord?) -> Bool {
+        queue.sync {
+            validateFallbackEnvelope(
+                hostFingerprint: request.hostFingerprint,
+                issuedAt: request.issuedAt,
+                nonce: request.nonce,
+                signatureData: request.hostSignature,
+                record: record
+            ) {
+                try ClientScreenshotRequestSignature.signingData(
+                    request: request.request,
+                    hostFingerprint: request.hostFingerprint,
+                    issuedAt: request.issuedAt,
+                    nonce: request.nonce
+                )
+            }
+        }
+    }
+
+    private func validateFallbackEnvelope(
+        hostFingerprint: String,
+        issuedAt: Int,
+        nonce: Data,
+        signatureData: Data,
+        record: StoredPairingRecord?,
+        signingData: () throws -> Data
+    ) -> Bool {
+        guard bootstrapped,
+              let record,
+              record.token.hostFingerprint == hostFingerprint else {
+            return false
+        }
+        let currentTime = now()
+        let skew = abs(currentTime - issuedAt)
+        guard skew <= configuration.authMaxSkewSeconds else {
+            return false
+        }
+        seenFallbackNonces = seenFallbackNonces.filter {
+            abs(currentTime - $0.value) <= configuration.authMaxSkewSeconds
+        }
+        let nonceKey = nonce.base64URLEncodedString()
+        guard seenFallbackNonces[nonceKey] == nil else {
+            return false
+        }
+        let publicKey: P256.Signing.PublicKey
+        let signature: P256.Signing.ECDSASignature
+        do {
+            publicKey = try P256.Signing.PublicKey(x963Representation: record.hostPublicKey)
+            signature = try P256.Signing.ECDSASignature(rawRepresentation: signatureData)
+        } catch {
+            return false
+        }
+        guard let signedBytes = try? signingData(),
+              publicKey.isValidSignature(signature, for: signedBytes) else {
+            return false
+        }
+        guard seenFallbackNonces.count < Config.diagnosticsAuthNonceCacheLimit else { return false }
+        seenFallbackNonces[nonceKey] = issuedAt
+        return true
     }
 
     func reconnectAnnouncementSummary() -> DiagnosticsSummary? {

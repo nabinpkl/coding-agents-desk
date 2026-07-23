@@ -322,6 +322,10 @@ public struct ClientConfig: Codable, Equatable, Sendable {
     // true preserves the automatic keyboard-open behavior for peers that predate this
     // setting; false lets the host skip cursor/AX probes for this client.
     public let autoKeyboardEnabled: Bool
+    // The client-side privacy decision for paired-host screenshot requests.
+    // This advertises capability only; the client re-checks the setting at
+    // capture time and remains authoritative.
+    public let diagnosticScreenshotsEnabled: Bool
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case type = "t"
@@ -332,6 +336,7 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         case showHostCursorInVideo = "hc"
         case mediaQuality = "mq"
         case autoKeyboardEnabled = "ak"
+        case diagnosticScreenshotsEnabled = "ds"
     }
 
     public init(
@@ -341,7 +346,8 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         crispTextOverlayEnabled: Bool? = nil,
         showHostCursorInVideo: Bool? = nil,
         mediaQuality: ClientMediaQualityConfig? = nil,
-        autoKeyboardEnabled: Bool = true
+        autoKeyboardEnabled: Bool = true,
+        diagnosticScreenshotsEnabled: Bool = false
     ) {
         self.type = "client-config"
         self.thumbnailsEnabled = thumbnailsEnabled
@@ -351,6 +357,7 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         self.showHostCursorInVideo = showHostCursorInVideo
         self.mediaQuality = mediaQuality
         self.autoKeyboardEnabled = autoKeyboardEnabled
+        self.diagnosticScreenshotsEnabled = diagnosticScreenshotsEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -363,6 +370,7 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         showHostCursorInVideo = try container.decodeIfPresent(Bool.self, forKey: .showHostCursorInVideo)
         mediaQuality = try container.decodeIfPresent(ClientMediaQualityConfig.self, forKey: .mediaQuality)
         autoKeyboardEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoKeyboardEnabled) ?? true
+        diagnosticScreenshotsEnabled = try container.decodeIfPresent(Bool.self, forKey: .diagnosticScreenshotsEnabled) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -375,5 +383,6 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         try container.encodeIfPresent(showHostCursorInVideo, forKey: .showHostCursorInVideo)
         try container.encodeIfPresent(mediaQuality, forKey: .mediaQuality)
         try container.encode(autoKeyboardEnabled, forKey: .autoKeyboardEnabled)
+        try container.encode(diagnosticScreenshotsEnabled, forKey: .diagnosticScreenshotsEnabled)
     }
 }

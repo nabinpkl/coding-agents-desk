@@ -173,6 +173,7 @@ struct HostTextInputFocusProbeCoordinatorTests {
 private final class RecordingInputChannelServer: InputChannelServing, @unchecked Sendable {
     let events: AsyncStream<InputChannelEvent>
     let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
+    let screenshotUpdates: AsyncStream<ClientScreenshotChannelUpdate>
     var configHandler: ((ClientConfig) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
     var workspaceTerminalRequestHandler: ((WorkspaceTerminalClientMessage) -> Void)?
@@ -186,6 +187,9 @@ private final class RecordingInputChannelServer: InputChannelServing, @unchecked
             continuation.finish()
         }
         diagnosticsUpdates = AsyncStream { continuation in
+            continuation.finish()
+        }
+        screenshotUpdates = AsyncStream { continuation in
             continuation.finish()
         }
     }
@@ -202,6 +206,7 @@ private final class RecordingInputChannelServer: InputChannelServing, @unchecked
         textInputFocusPushes.append(push)
     }
     func pushDiagnosticsRequest(_ request: DiagnosticsRequest) {}
+    func pushScreenshotRequest(_ request: ClientScreenshotRequest) {}
     func pushAgentData(_ data: Data) {}
 }
 

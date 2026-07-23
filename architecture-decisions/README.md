@@ -74,7 +74,7 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0029 | Capacity survival rung: trade frame rate and bitrate for a slow link | proposed | 2026-06-26 |
 | ADR-0030 | Single QUIC session transport for v0 | accepted | 2026-06-27 |
 | ADR-0031 | Selected display projection on the client | accepted | 2026-06-27 |
-| ADR-0032 | Durable client diagnostics | accepted | 2026-06-27 |
+| ADR-0032 | Durable client diagnostics | partially superseded by ADR-0070 | 2026-06-27 |
 | ADR-0033 | Adaptive media quality ladder | proposed | 2026-06-28 |
 | ADR-0034 | Motion-region crisp-repair: revive tiles at rest as a per-region sharpen over video | proposed | 2026-06-28 |
 | ADR-0035 | Phone-side agent-feed observability surface fed by an embedded engine sidecar | accepted | 2026-06-30 |
@@ -108,3 +108,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0067 | Crop terminal viewports below a readable scale | partially superseded by ADR-0068 | 2026-07-22 |
 | ADR-0068 | Let the last active terminal viewer own the source grid size | accepted | 2026-07-22 |
 | ADR-0069 | Share one web terminal workspace across macOS and iOS | accepted | 2026-07-22 |
+| ADR-0070 | Capture paired-client screenshots on demand | accepted | 2026-07-22 |

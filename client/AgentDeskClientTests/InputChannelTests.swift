@@ -1061,9 +1061,9 @@ struct InputChannelTests {
         #expect(decoded.cursorRevision == 8)
     }
 
-    @Test func protocolVersionIsThirteenForViewerOwnedBrowserProjection() {
-        #expect(Config.protocolVersion == 13)
-        #expect(Config.minCompatibleProtocolVersion == 13)
+    @Test func protocolVersionIsFourteenForOnDemandClientScreenshots() {
+        #expect(Config.protocolVersion == 14)
+        #expect(Config.minCompatibleProtocolVersion == 14)
     }
 
     @Test func eventFrameRoundTripPreservesKeyWithModifiers() throws {
@@ -1283,6 +1283,118 @@ struct InputChannelTests {
         default:
             Issue.record("expected diagnostics error")
         }
+    }
+
+    @Test func screenshotOfferPortClassifierRoutesAllFrames() throws {
+        let request = SignedClientScreenshotRequest(
+            requestId: "capture-1",
+            maxPixelDimension: 2_048,
+            maxBytes: 4_194_304,
+            hostFingerprint: "host-fp",
+            issuedAt: 1_800_000_000,
+            nonce: Data([1, 2, 3]),
+            hostSignature: Data([4, 5, 6])
+        )
+        let manifest = ClientScreenshotManifest(
+            requestId: "capture-1",
+            capturedAt: 1_800_000_001,
+            clientBuildSHA: "abc1234",
+            surfaceName: "terminal",
+            pixelWidth: 390,
+            pixelHeight: 844,
+            scale: 1,
+            orientation: "portrait",
+            mimeType: "image/jpeg",
+            totalBytes: 3,
+            sha256: String(repeating: "a", count: 64),
+            omittedLayers: ["system-keyboard"]
+        )
+        let chunk = ClientScreenshotChunk(
+            requestId: "capture-1",
+            sequence: 0,
+            isFinal: true,
+            payloadBase64: Data([1, 2, 3]).base64EncodedString()
+        )
+        let error = ClientScreenshotError(requestId: "capture-1", reason: "not-authorized")
+
+        guard case .screenshotRequest(let decodedRequest) = OfferPortMessage.classify(try JSONEncoder().encode(request)) else {
+            Issue.record("expected screenshot request")
+            return
+        }
+        #expect(decodedRequest == request)
+        guard case .screenshotManifest(let decodedManifest) = OfferPortMessage.classify(try JSONEncoder().encode(manifest)) else {
+            Issue.record("expected screenshot manifest")
+            return
+        }
+        #expect(decodedManifest == manifest)
+        guard case .screenshotChunk(let decodedChunk) = OfferPortMessage.classify(try JSONEncoder().encode(chunk)) else {
+            Issue.record("expected screenshot chunk")
+            return
+        }
+        #expect(decodedChunk == chunk)
+        guard case .screenshotError(let decodedError) = OfferPortMessage.classify(try JSONEncoder().encode(error)) else {
+            Issue.record("expected screenshot error")
+            return
+        }
+        #expect(decodedError == error)
+    }
+
+    @Test func screenshotFallbackAuthenticationRejectsReplayAndTampering() throws {
+        let now = 1_800_000_000
+        let harness = try Self.makeDiagnosticsHarness(name: #function)
+        defer { harness.cleanup() }
+        let store = ClientDiagnosticsStore(configuration: harness.configuration, nowProvider: { now })
+        store.bootstrap()
+
+        let hostKey = P256.Signing.PrivateKey()
+        let fingerprint = hostKey.publicKey.agentDeskFingerprint
+        let record = StoredPairingRecord(
+            token: SessionToken(
+                hostFingerprint: fingerprint,
+                deviceFingerprint: DeviceFingerprint("device"),
+                issuedAt: now,
+                signature: Data()
+            ),
+            hostPublicKey: hostKey.publicKey.x963Representation,
+            tailnetFQDN: "mac.tailnet.ts.net",
+            tailnetIPv4: "100.64.0.10",
+            signalingPort: 41_888
+        )
+        let request = ClientScreenshotRequest(
+            requestId: "capture-1",
+            maxPixelDimension: 2_048,
+            maxBytes: 4_194_304
+        )
+        let nonce = Data(repeating: 7, count: 32)
+        let signature = try hostKey.signature(for: ClientScreenshotRequestSignature.signingData(
+            request: request,
+            hostFingerprint: fingerprint,
+            issuedAt: now,
+            nonce: nonce
+        )).rawRepresentation
+        let signed = SignedClientScreenshotRequest(
+            requestId: request.requestId,
+            maxPixelDimension: request.maxPixelDimension,
+            maxBytes: request.maxBytes,
+            hostFingerprint: fingerprint,
+            issuedAt: now,
+            nonce: nonce,
+            hostSignature: signature
+        )
+
+        #expect(store.validateFallbackRequest(signed, record: record))
+        #expect(!store.validateFallbackRequest(signed, record: record))
+
+        let tampered = SignedClientScreenshotRequest(
+            requestId: request.requestId,
+            maxPixelDimension: 1_024,
+            maxBytes: request.maxBytes,
+            hostFingerprint: fingerprint,
+            issuedAt: now,
+            nonce: Data(repeating: 8, count: 32),
+            hostSignature: signature
+        )
+        #expect(!store.validateFallbackRequest(tampered, record: record))
     }
 
     @Test func clientDiagnosticsStoreRedactsSecretsAndTruncatesOversizedEvents() throws {

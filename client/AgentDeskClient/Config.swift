@@ -78,6 +78,13 @@ enum Config {
     static let diagnosticsMaxResponseBytes = 768 * 1024
     static let diagnosticsMaxChunkEncodedBytes = 48 * 1024
     static let diagnosticsAuthMaxSkewSeconds = 60
+    static let diagnosticsAuthNonceCacheLimit = 256
+    static let screenshotMaxPixelDimension = 2_048
+    static let screenshotMaxBytes = 4 * 1_024 * 1_024
+    static let screenshotChunkBytes = 256 * 1_024
+    static let screenshotOfferPortChunkBytes = 32 * 1_024
+    static let screenshotJPEGQuality: CGFloat = 0.85
+    static let screenshotMinimumIntervalSeconds: TimeInterval = 3
     static let diagnosticsMediaSummaryIntervalNs: UInt64 = 1_000_000_000
     static let ownedMediaExpectedFrameRate = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_EXPECTED_FRAME_RATE",

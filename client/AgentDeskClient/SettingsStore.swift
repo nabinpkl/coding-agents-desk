@@ -43,6 +43,7 @@ final class SettingsStore: @unchecked Sendable {
         static let domMirrorEnabled = "agentDesk.domMirrorEnabled"
         static let agentSayVoiceLanguage = "agentDesk.agentSayVoiceLanguage"
         static let agentSayVoiceIdentifier = "agentDesk.agentSayVoiceIdentifier"
+        static let diagnosticScreenshotsEnabled = "agentDesk.diagnosticScreenshotsEnabled"
     }
 
     // iOS HIG / QuickType bar standard is 44pt; key chiclets at 36pt
@@ -259,6 +260,16 @@ final class SettingsStore: @unchecked Sendable {
         get { defaults.object(forKey: Key.autoKeyboardEnabled) as? Bool ?? true }
         set {
             defaults.set(newValue, forKey: Key.autoKeyboardEnabled)
+            postChange()
+        }
+    }
+
+    // Screen pixels can contain terminal, browser, or remote desktop content,
+    // so paired-host screenshot requests require an explicit one-time opt-in.
+    var diagnosticScreenshotsEnabled: Bool {
+        get { defaults.object(forKey: Key.diagnosticScreenshotsEnabled) as? Bool ?? false }
+        set {
+            defaults.set(newValue, forKey: Key.diagnosticScreenshotsEnabled)
             postChange()
         }
     }

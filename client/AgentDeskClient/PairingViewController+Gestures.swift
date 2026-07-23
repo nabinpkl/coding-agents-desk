@@ -469,7 +469,8 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             crispTextOverlayEnabled: SettingsStore.shared.crispTextOverlayEnabled,
             showHostCursorInVideo: SettingsStore.shared.showHostCursorInVideo,
             mediaQuality: SettingsStore.shared.mediaQualityConfig,
-            autoKeyboardEnabled: SettingsStore.shared.autoKeyboardEnabled
+            autoKeyboardEnabled: SettingsStore.shared.autoKeyboardEnabled,
+            diagnosticScreenshotsEnabled: SettingsStore.shared.diagnosticScreenshotsEnabled
         )
     }
 

@@ -19,6 +19,7 @@ final class SettingsViewController: UIViewController {
     private let crispOverlaySwitch = UISwitch()
     private let hostCursorSwitch = UISwitch()
     private let adaptiveMediaQualitySwitch = UISwitch()
+    private let diagnosticScreenshotsSwitch = UISwitch()
     private let manualMediaBitrateSlider = UISlider()
     private let manualMediaBitrateLabel = UILabel()
     private let manualMediaFpsControl = UISegmentedControl(items: ["6", "10", "15", "24", "30"])
@@ -138,6 +139,16 @@ final class SettingsViewController: UIViewController {
             footnote: "Used for AgentDesk spoken subtitles. Download higher-quality voices in Settings > Accessibility > Read & Speak > Voices."
         )
 
+        diagnosticScreenshotsSwitch.accessibilityIdentifier = "diagnostic-screenshots-enabled"
+        diagnosticScreenshotsSwitch.accessibilityLabel = "Allow diagnostic screenshots"
+        diagnosticScreenshotsSwitch.accessibilityHint = "Allows the paired Mac to request an image, including sensitive visible text, while AgentDesk is open."
+        let diagnosticsSection = makeSection(
+            title: "Diagnostics",
+            rows: [],
+            switchRow: ("Allow paired Mac screenshots", diagnosticScreenshotsSwitch),
+            footnote: "Off by default. When enabled, the paired Mac can request the visible AgentDesk app surface while the app is foregrounded. Screenshots may include sensitive text from terminal, browser, workspace, or remote desktop content."
+        )
+
         // Connection: the only place to end a live session or unpair while
         // connected, since the connected screen shows just the gear button (the
         // pairing screen's controls are hidden once connected). Disconnect keeps the
@@ -162,7 +173,7 @@ final class SettingsViewController: UIViewController {
             footnote: "Disconnect ends the current session but stays paired, so you can reconnect with one tap. Unpair forgets this Mac and needs pairing again from the Mac."
         )
 
-        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, videoTouchSection, spacesSection, previewsSection, crispSection, hostCursorSection, mediaQualitySection, speechSection, accessorySection, connectionSection])
+        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, videoTouchSection, spacesSection, previewsSection, crispSection, hostCursorSection, mediaQualitySection, speechSection, accessorySection, diagnosticsSection, connectionSection])
         stack.axis = .vertical
         stack.spacing = 28
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -219,6 +230,7 @@ final class SettingsViewController: UIViewController {
         crispOverlaySwitch.addTarget(self, action: #selector(crispOverlayChanged), for: .valueChanged)
         hostCursorSwitch.addTarget(self, action: #selector(hostCursorChanged), for: .valueChanged)
         adaptiveMediaQualitySwitch.addTarget(self, action: #selector(adaptiveMediaQualityChanged), for: .valueChanged)
+        diagnosticScreenshotsSwitch.addTarget(self, action: #selector(diagnosticScreenshotsChanged), for: .valueChanged)
         manualMediaBitrateSlider.minimumValue = Float(SettingsStore.manualMediaBitrateKbpsRange.lowerBound)
         manualMediaBitrateSlider.maximumValue = Float(SettingsStore.manualMediaBitrateKbpsRange.upperBound)
         manualMediaBitrateSlider.isContinuous = true
@@ -259,6 +271,7 @@ final class SettingsViewController: UIViewController {
         crispOverlaySwitch.isOn = store.crispTextOverlayEnabled
         hostCursorSwitch.isOn = store.showHostCursorInVideo
         adaptiveMediaQualitySwitch.isOn = store.adaptiveMediaQualityEnabled
+        diagnosticScreenshotsSwitch.isOn = store.diagnosticScreenshotsEnabled
         manualMediaBitrateSlider.value = Float(store.manualMediaBitrateKbps)
         manualMediaFpsControl.selectedSegmentIndex = index(for: store.manualMediaFps, in: manualFpsValues())
         manualMediaResolutionControl.selectedSegmentIndex = index(for: store.manualMediaResolutionScale, in: manualResolutionValues())
@@ -332,6 +345,10 @@ final class SettingsViewController: UIViewController {
     @objc private func adaptiveMediaQualityChanged() {
         store.adaptiveMediaQualityEnabled = adaptiveMediaQualitySwitch.isOn
         refreshLabels()
+    }
+
+    @objc private func diagnosticScreenshotsChanged() {
+        store.diagnosticScreenshotsEnabled = diagnosticScreenshotsSwitch.isOn
     }
 
     @objc private func manualMediaBitrateChanged() {

@@ -170,6 +170,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pairing: pairing,
         tailnetDiscovery: tailnetDiscovery
     )
+    private lazy var screenshotRequester = ClientScreenshotRequester(
+        sessions: sessions,
+        pairing: pairing,
+        tailnetDiscovery: tailnetDiscovery
+    )
+    private lazy var clientDebugAutomationController = ClientDebugAutomationController(
+        diagnosticsRequester: diagnosticsRequester,
+        screenshotRequester: screenshotRequester
+    )
     // Agent engine sidecar: spawns the ATC binary and exposes its loopback base URL.
     private lazy var agentEngineSidecar: AgentEngineSidecar? = {
         guard let binaryURL = Config.agentSidecarURL else {
@@ -346,8 +355,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // SIGUSR1 fires startPairing on the main queue so `just pair-iphone` can
     // mint a fresh URL without a menubar click. SIGUSR2 runs an on-demand
-    // client diagnostics collection described in ADR-0032. Both signals are
-    // local-uid-only and mirror the trust model of the menubar actions.
+    // client debug artifact collection described in ADR-0032 and ADR-0070.
+    // Both signals are local-uid-only and mirror the trust model of the
+    // menubar actions.
     private func installAutomationSignalHandlers() {
         signal(SIGUSR1, SIG_IGN)
         signal(SIGUSR2, SIG_IGN)
@@ -362,9 +372,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let diagnostics = DispatchSource.makeSignalSource(signal: SIGUSR2, queue: .main)
         diagnostics.setEventHandler { [weak self] in
             guard let self else { return }
-            self.diagnosticsLogger.notice("SIGUSR2 received; collecting client diagnostics")
+            self.diagnosticsLogger.notice("SIGUSR2 received; collecting requested client debug artifacts")
             Task { @MainActor in
-                await self.diagnosticsRequester.handleAutomationRequestFromDisk()
+                await self.clientDebugAutomationController.handleRequestFromDisk()
             }
         }
         diagnostics.resume()

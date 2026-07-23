@@ -83,6 +83,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var textInputFocusTask: Task<Void, Never>?
     var keyboardPendingTimeoutTask: Task<Void, Never>?
     var diagnosticsTask: Task<Void, Never>?
+    var screenshotTask: Task<Void, Never>?
+    let screenshotCapturer = ClientScreenshotCapturer()
+    var screenshotToastTask: Task<Void, Never>?
+    weak var screenshotToastLabel: UILabel?
     var cursorHotspotFrac: CGPoint = .zero
     var cursorRenderSize: CGSize = CursorPointerView.pointerSize
     var cursorHidden = false
@@ -294,6 +298,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         keyboardPendingTimeoutTask = nil
         diagnosticsTask?.cancel()
         diagnosticsTask = nil
+        screenshotTask?.cancel()
+        screenshotTask = nil
+        screenshotToastTask?.cancel()
+        screenshotToastTask = nil
+        screenshotToastLabel?.removeFromSuperview()
         agentSayTask?.cancel()
         agentSayTask = nil
         stopAgentSayForegroundPresentation()
@@ -337,6 +346,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                     guard self.sessionAttemptGeneration == generation else { return }
                     if let channel = self.pairingClient.activeInputChannel {
                         self.startDiagnosticsHandlingIfNeeded(channel: channel)
+                        self.startScreenshotHandlingIfNeeded(channel: channel)
                         self.sendReconnectDiagnosticsAnnouncementIfNeeded(channel: channel)
                         self.sendCurrentClientConfig()
                     }
@@ -378,6 +388,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         inputSendTailTask?.cancel()
         hostAvailabilityTask?.cancel()
         diagnosticsTask?.cancel()
+        screenshotTask?.cancel()
+        screenshotToastTask?.cancel()
+        screenshotToastLabel?.removeFromSuperview()
         agentSayTask?.cancel()
         agentSaySpeechTask?.cancel()
         agentSayHideTask?.cancel()
@@ -845,6 +858,15 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         listener.diagnosticsResponseProvider = { request in
             ClientDiagnostics.shared.prepareResponse(for: request)
         }
+        listener.screenshotResponseProvider = { [weak self] request in
+            guard let self else {
+                return .failure(ClientScreenshotError(requestId: request.requestId, reason: "capture-unavailable"))
+            }
+            return await self.prepareScreenshotResponse(request)
+        }
+        listener.screenshotDeliveryHandler = { [weak self] in
+            self?.showScreenshotSharedStatus()
+        }
     }
 
     private func startDiagnosticsHandlingIfNeeded(channel: InputChannel) {
@@ -897,6 +919,111 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             return .delivered(prepared)
         } catch {
             return .failed
+        }
+    }
+
+    private func startScreenshotHandlingIfNeeded(channel: InputChannel) {
+        screenshotTask?.cancel()
+        screenshotTask = Task { [weak self, channel] in
+            for await update in channel.screenshotUpdates {
+                guard let self else { return }
+                switch update {
+                case .request(let request):
+                    await self.respondToScreenshotRequest(request, on: channel)
+                }
+            }
+        }
+    }
+
+    private func respondToScreenshotRequest(_ request: ClientScreenshotRequest, on channel: InputChannel) async {
+        switch await prepareScreenshotResponse(request) {
+        case .failure(let error):
+            try? await channel.sendScreenshotError(error)
+        case .success(let prepared):
+            do {
+                try await channel.sendScreenshotManifest(prepared.manifest)
+                for chunk in ClientScreenshotCapturer.makeChunks(
+                    data: prepared.jpegData,
+                    requestId: request.requestId,
+                    chunkBytes: Config.screenshotChunkBytes
+                ) {
+                    try await channel.sendScreenshotChunk(chunk)
+                }
+                showScreenshotSharedStatus()
+            } catch {
+                ClientDiagnostics.shared.record(
+                    type: "clientScreenshotSendFailed",
+                    fields: ["requestId": request.requestId],
+                    level: .error
+                )
+            }
+        }
+    }
+
+    private func prepareScreenshotResponse(
+        _ request: ClientScreenshotRequest
+    ) async -> Result<PreparedClientScreenshot, ClientScreenshotError> {
+        do {
+            let prepared = try await screenshotCapturer.capture(
+                request: request,
+                window: view.window,
+                surfaceName: activeControlSurface.switcherAccessibilityLabel.lowercased(),
+                authorized: SettingsStore.shared.diagnosticScreenshotsEnabled
+            )
+            ClientDiagnostics.shared.record(
+                type: "clientScreenshotCaptured",
+                fields: [
+                    "requestId": request.requestId,
+                    "surface": prepared.manifest.surfaceName,
+                    "pixelWidth": String(prepared.manifest.pixelWidth),
+                    "pixelHeight": String(prepared.manifest.pixelHeight),
+                    "bytes": String(prepared.manifest.totalBytes)
+                ],
+                level: .info
+            )
+            return .success(prepared)
+        } catch let failure as ClientScreenshotCaptureFailure {
+            ClientDiagnostics.shared.record(
+                type: "clientScreenshotRejected",
+                fields: ["requestId": request.requestId, "reason": failure.wireReason],
+                level: .info
+            )
+            return .failure(ClientScreenshotError(requestId: request.requestId, reason: failure.wireReason))
+        } catch {
+            return .failure(ClientScreenshotError(requestId: request.requestId, reason: "capture-failed"))
+        }
+    }
+
+    private func showScreenshotSharedStatus() {
+        screenshotToastTask?.cancel()
+        screenshotToastLabel?.removeFromSuperview()
+        let label = UILabel()
+        label.text = "Screenshot shared with paired Mac"
+        label.font = .preferredFont(forTextStyle: .footnote)
+        label.textColor = .white
+        label.backgroundColor = UIColor.systemIndigo.withAlphaComponent(0.94)
+        label.layer.cornerRadius = 10
+        label.layer.masksToBounds = true
+        label.textAlignment = .center
+        label.numberOfLines = 2
+        label.accessibilityIdentifier = "client-screenshot-shared-status"
+        label.accessibilityLabel = "Screenshot shared with paired Mac"
+        label.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(label)
+        screenshotToastLabel = label
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            label.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.82),
+            label.heightAnchor.constraint(greaterThanOrEqualToConstant: 44)
+        ])
+        UIAccessibility.post(notification: .announcement, argument: label.accessibilityLabel)
+        screenshotToastTask = Task { @MainActor [weak self, weak label] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            label?.removeFromSuperview()
+            if self?.screenshotToastLabel === label {
+                self?.screenshotToastLabel = nil
+            }
         }
     }
 

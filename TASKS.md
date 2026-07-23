@@ -99,6 +99,13 @@ without changing the one-recorder and extension-authoritative generation model.
   adapters, metadata-schema migration, deterministic web build, and compile-only host/iOS gates
   (ADR-0069).
 
+## Client visual diagnostics
+
+- [x] D95. Add explicit-opt-in, foreground-only paired-client screenshot capture over protocol 14;
+  authenticate the session and signed offer-port paths, bound and verify manifests plus JPEG chunks,
+  keep client pixels memory-only, write private host temporary artifacts, disclose successful sharing
+  in the client UI, and add screenshot-only and combined debug-bundle recipes (ADR-0070).
+
 ## Promotion log
 
 ```text
@@ -118,4 +125,5 @@ D92      2026-07-22  landed      readable cursor-following terminal viewports wi
 D93      2026-07-22  landed      protocol-7 active-viewer terminal sizing and focus-free restoration
 D89      2026-07-22  landed      shared terminal tabs, recursive splits, and session drawer
 D94      2026-07-22  landed      one bounded WKWebView and xterm terminal runtime across macOS and iOS
+D95      2026-07-22  landed      opt-in bounded paired-client screenshots and protocol 14
 ```

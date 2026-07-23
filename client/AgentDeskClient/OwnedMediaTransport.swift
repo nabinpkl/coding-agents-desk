@@ -37,6 +37,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     let textInputFocusUpdates: AsyncStream<HostTextInputFocusPush>
     private let diagnosticsContinuation: AsyncStream<InputChannelDiagnosticsUpdate>.Continuation
     let diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate>
+    private let screenshotContinuation: AsyncStream<InputChannelScreenshotUpdate>.Continuation
+    let screenshotUpdates: AsyncStream<InputChannelScreenshotUpdate>
     private let agentTerminalContinuation: AsyncStream<AgentTerminalHostMessage>.Continuation
     let agentTerminalUpdates: AsyncStream<AgentTerminalHostMessage>
     private let workspaceTerminalContinuation: AsyncStream<WorkspaceTerminalHostMessage>.Continuation
@@ -104,6 +106,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         var diagnosticsCont: AsyncStream<InputChannelDiagnosticsUpdate>.Continuation!
         diagnosticsUpdates = AsyncStream { diagnosticsCont = $0 }
         diagnosticsContinuation = diagnosticsCont
+        var screenshotCont: AsyncStream<InputChannelScreenshotUpdate>.Continuation!
+        screenshotUpdates = AsyncStream(bufferingPolicy: .bufferingNewest(2)) { screenshotCont = $0 }
+        screenshotContinuation = screenshotCont
         var agentTerminalCont: AsyncStream<AgentTerminalHostMessage>.Continuation!
         agentTerminalUpdates = AsyncStream { agentTerminalCont = $0 }
         agentTerminalContinuation = agentTerminalCont
@@ -181,6 +186,18 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     }
 
     func sendDiagnosticsError(_ error: DiagnosticsError) async throws {
+        try await QuicSessionStreamIO.send(error, role: .input, on: inputStream)
+    }
+
+    func sendScreenshotManifest(_ manifest: ClientScreenshotManifest) async throws {
+        try await QuicSessionStreamIO.send(manifest, role: .input, on: inputStream)
+    }
+
+    func sendScreenshotChunk(_ chunk: ClientScreenshotChunk) async throws {
+        try await QuicSessionStreamIO.send(chunk, role: .input, on: inputStream)
+    }
+
+    func sendScreenshotError(_ error: ClientScreenshotError) async throws {
         try await QuicSessionStreamIO.send(error, role: .input, on: inputStream)
     }
 
@@ -265,6 +282,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         hostAvailabilityContinuation.finish()
         textInputFocusContinuation.finish()
         diagnosticsContinuation.finish()
+        screenshotContinuation.finish()
         agentTerminalContinuation.finish()
         workspaceTerminalContinuation.finish()
         closedContinuation.yield(())
@@ -419,6 +437,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         case "diagnostics-request":
             if let request = try? JSONDecoder().decode(DiagnosticsRequest.self, from: data) {
                 diagnosticsContinuation.yield(.request(request))
+            }
+        case "client-screenshot-request":
+            if let request = try? JSONDecoder().decode(ClientScreenshotRequest.self, from: data) {
+                screenshotContinuation.yield(.request(request))
             }
         case "agent-projects":
             logger.debug("input lane agent-projects received")

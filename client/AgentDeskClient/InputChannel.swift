@@ -5,6 +5,10 @@ enum InputChannelDiagnosticsUpdate: Equatable, Sendable {
     case request(DiagnosticsRequest)
 }
 
+enum InputChannelScreenshotUpdate: Equatable, Sendable {
+    case request(ClientScreenshotRequest)
+}
+
 enum CursorReconciliationUpdate: Equatable, Sendable {
     case applied(CursorAppliedPush)
     case hostMoved(HostCursorMovedPush)
@@ -26,6 +30,7 @@ protocol InputChannel: AnyObject, Sendable {
     var hostAvailabilityUpdates: AsyncStream<HostAvailabilityPush> { get }
     var textInputFocusUpdates: AsyncStream<HostTextInputFocusPush> { get }
     var diagnosticsUpdates: AsyncStream<InputChannelDiagnosticsUpdate> { get }
+    var screenshotUpdates: AsyncStream<InputChannelScreenshotUpdate> { get }
     var agentTerminalUpdates: AsyncStream<AgentTerminalHostMessage> { get }
     var workspaceTerminalUpdates: AsyncStream<WorkspaceTerminalHostMessage> { get }
 
@@ -36,6 +41,9 @@ protocol InputChannel: AnyObject, Sendable {
     func sendDiagnosticsSummary(_ summary: DiagnosticsSummary) async throws
     func sendDiagnosticsChunk(_ chunk: DiagnosticsChunk) async throws
     func sendDiagnosticsError(_ error: DiagnosticsError) async throws
+    func sendScreenshotManifest(_ manifest: ClientScreenshotManifest) async throws
+    func sendScreenshotChunk(_ chunk: ClientScreenshotChunk) async throws
+    func sendScreenshotError(_ error: ClientScreenshotError) async throws
 
     // Agent requests encode shared t-tagged types on the authenticated input lane.
     func sendAgentProjectsSubscribe() async throws
