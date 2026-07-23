@@ -109,3 +109,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0068 | Let the last active terminal viewer own the source grid size | accepted | 2026-07-22 |
 | ADR-0069 | Share one web terminal workspace across macOS and iOS | accepted | 2026-07-22 |
 | ADR-0070 | Capture paired-client screenshots on demand | accepted | 2026-07-22 |
+| ADR-0071 | Reconcile workspace assignments after Mission Control | accepted | 2026-07-23 |

@@ -42,6 +42,49 @@ struct WorkspaceStoreTests {
         try data.write(to: url)
     }
 
+    @Test func desktopAssignmentIdentityNeverFallsBackToDisplayAndOrdinal() {
+        let assigned = WorkspaceDesktopAssignment(spaceID: 10, displayID: "D1", ordinal: 1)
+
+        #expect(assigned.matches(WorkspaceDesktopAssignment(spaceID: 10, displayID: "D2", ordinal: 0)))
+        #expect(!assigned.matches(WorkspaceDesktopAssignment(spaceID: 99, displayID: "D1", ordinal: 1)))
+    }
+
+    @Test func topologyReconciliationMovesKnownSpacesAndRetainsMissingAssignments() {
+        let movedID = UUID()
+        let missingID = UUID()
+        var store = WorkspaceStore(
+            workspaces: [
+                Workspace(
+                    id: movedID,
+                    root: URL(fileURLWithPath: "/tmp/moved", isDirectory: true),
+                    name: "Moved",
+                    desktopAssignment: WorkspaceDesktopAssignment(spaceID: 10, displayID: "D1", ordinal: 0)
+                ),
+                Workspace(
+                    id: missingID,
+                    root: URL(fileURLWithPath: "/tmp/missing", isDirectory: true),
+                    name: "Missing",
+                    desktopAssignment: WorkspaceDesktopAssignment(spaceID: 20, displayID: "D1", ordinal: 1)
+                ),
+            ]
+        )
+
+        store.reconcileDesktopAssignments([
+            10: WorkspaceDesktopAssignment(spaceID: 10, displayID: "D2", ordinal: 3),
+        ])
+
+        #expect(store.workspace(id: movedID)?.desktopAssignment == WorkspaceDesktopAssignment(
+            spaceID: 10,
+            displayID: "D2",
+            ordinal: 3
+        ))
+        #expect(store.workspace(id: missingID)?.desktopAssignment == WorkspaceDesktopAssignment(
+            spaceID: 20,
+            displayID: "D1",
+            ordinal: 1
+        ))
+    }
+
     @Test func registrationStandardizesRootsAndPreservesOrderAndActiveWorkspace() throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

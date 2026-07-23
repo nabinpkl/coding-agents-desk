@@ -47,6 +47,39 @@ struct WorkspaceCoordinatorTests {
         #expect(snapshots.count == 1)
         #expect(snapshots.first?.activeID == id)
     }
+
+    @Test func reconcilesAllDesktopAssignmentsInOnePublishedMutation() async throws {
+        let (coordinator, root, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let firstID = UUID()
+        let secondID = UUID()
+        _ = try await coordinator.apply(.add(Workspace(
+            id: firstID,
+            root: root,
+            name: "First",
+            desktopAssignment: WorkspaceDesktopAssignment(spaceID: 10, displayID: "D1", ordinal: 0)
+        )))
+        _ = try await coordinator.apply(.add(Workspace(
+            id: secondID,
+            root: root.appendingPathComponent("second"),
+            name: "Second",
+            desktopAssignment: WorkspaceDesktopAssignment(spaceID: 20, displayID: "D1", ordinal: 1)
+        )))
+        let recorder = WorkspaceStoreRecorder()
+        let token = await coordinator.subscribe { store in await recorder.append(store) }
+
+        let reconciled = try await coordinator.apply(.reconcileDesktopAssignments([
+            10: WorkspaceDesktopAssignment(spaceID: 10, displayID: "D2", ordinal: 1),
+            20: WorkspaceDesktopAssignment(spaceID: 20, displayID: "D2", ordinal: 0),
+        ]))
+        await coordinator.unsubscribe(token)
+
+        #expect(await recorder.snapshots.count == 1)
+        #expect(reconciled.workspace(id: firstID)?.desktopAssignment?.displayID == "D2")
+        #expect(reconciled.workspace(id: firstID)?.desktopAssignment?.ordinal == 1)
+        #expect(reconciled.workspace(id: secondID)?.desktopAssignment?.displayID == "D2")
+        #expect(reconciled.workspace(id: secondID)?.desktopAssignment?.ordinal == 0)
+    }
 }
 
 private actor WorkspaceStoreRecorder {

@@ -17,8 +17,7 @@ public struct WorkspaceDesktopAssignment: Codable, Equatable, Sendable {
     }
 
     public func matches(_ other: WorkspaceDesktopAssignment) -> Bool {
-        if spaceID == other.spaceID && displayID == other.displayID { return true }
-        return displayID == other.displayID && ordinal == other.ordinal
+        spaceID == other.spaceID
     }
 }
 

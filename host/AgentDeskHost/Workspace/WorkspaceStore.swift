@@ -195,6 +195,17 @@ public extension WorkspaceStore {
         workspaces[index].desktopAssignment = assignment
     }
 
+    mutating func reconcileDesktopAssignments(
+        _ assignmentsBySpaceID: [UInt64: WorkspaceDesktopAssignment]
+    ) {
+        for index in workspaces.indices {
+            guard let current = workspaces[index].desktopAssignment,
+                  let resolved = assignmentsBySpaceID[current.spaceID]
+            else { continue }
+            workspaces[index].desktopAssignment = resolved
+        }
+    }
+
     mutating func clearDesktopAssignment(for id: UUID) {
         guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
         workspaces[index].desktopAssignment = nil
@@ -205,15 +216,8 @@ public extension WorkspaceStore {
     }
 
     func workspaceIDsAssigned(to assignment: WorkspaceDesktopAssignment) -> [UUID] {
-        let exact = workspaces.compactMap { workspace -> UUID? in
-            guard workspace.desktopAssignment?.spaceID == assignment.spaceID,
-                  workspace.desktopAssignment?.displayID == assignment.displayID else { return nil }
-            return workspace.id
-        }
-        if !exact.isEmpty { return exact }
         return workspaces.compactMap { workspace -> UUID? in
-            guard workspace.desktopAssignment?.displayID == assignment.displayID,
-                  workspace.desktopAssignment?.ordinal == assignment.ordinal else { return nil }
+            guard workspace.desktopAssignment?.spaceID == assignment.spaceID else { return nil }
             return workspace.id
         }
     }
@@ -235,10 +239,7 @@ public extension WorkspaceStore {
 
     private func desktopOrder(for workspace: Workspace, desktops: [WorkspaceDesktop]) -> Int? {
         guard let assignment = workspace.desktopAssignment else { return nil }
-        if let exact = desktops.firstIndex(where: { $0.id == assignment.spaceID && $0.displayID == assignment.displayID }) {
-            return exact
-        }
-        return desktops.firstIndex { $0.displayID == assignment.displayID && $0.ordinal == assignment.ordinal }
+        return desktops.firstIndex { $0.id == assignment.spaceID }
     }
 
     mutating func resetModesToEditor() {

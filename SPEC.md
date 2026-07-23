@@ -17,7 +17,7 @@
 | Network | Tailscale only | No public rendezvous, relay, or internet routing. Both peers are on the tailnet. |
 | Pairing | Mac-initiated tailnet device picker (ADR-0019), QR fallback | The Mac enumerates online iOS tailnet peers, probes each on the plain-TCP offer port (`AGENTDESK_OFFER_PORT`, default 41890) for a self-reported display name, and pushes a pre-approved signed offer to the picked device. The pick is the authorization. The iPhone runs the unchanged signed handshake. Signed token stored in Keychain on both sides. |
 | Wire compatibility | Current protocol version is 14 (ADR-0020, ADR-0057, ADR-0058, ADR-0061, ADR-0062, ADR-0064, ADR-0065, ADR-0070) | Protocol v8 changes the Files body codec to carry native document bytes. Protocol v9 sequences cursor input. Protocol v10 adds workspace-terminal coordination. Protocol v11 generalizes Files into the workspace lane. Protocol v12 projects the complete Chrome hierarchy to iOS. Protocol v13 adds authenticated Browser viewer viewport ownership. Protocol v14 adds opt-in, on-demand paired-client screenshots. Host and client reject peers below `14` with `incompatible-protocol`; matching app versions remain irrelevant. |
-| Spaces enumeration | Private SkyLight/CoreGraphics symbols bound with `dlopen` and `dlsym` | No public API exists. Risk is acceptable because App Store distribution is not the v0 target. |
+| Spaces enumeration | Private SkyLight/CoreGraphics symbols bound with `dlopen` and `dlsym` | No public API exists. Risk is acceptable because App Store distribution is not the v0 target. Mission Control topology edits use event-driven entry and bounded exit observation under ADR-0071. |
 | Spaces switch | Synthesize Dock swipe `CGEvent`s via `SpacesProvider.postDockSwipeFrame` and `commitStep(delta:)` | Stock macOS path that preserves live Space transition animation. |
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
@@ -33,6 +33,9 @@ manager's state authority.
 
 ADR-0070 adds explicit-opt-in, foreground-only client screenshot capture over authenticated
 protocol `14`, with bounded ephemeral transfer and private host-side temporary artifacts.
+
+ADR-0071 adds event-driven Mission Control topology reconciliation without changing the wire
+protocol. Stable Space IDs are authoritative; display and ordinal are presentation metadata only.
 
 ADR-0065 supersedes ADR-0048's fixed mobile-toggle contract with viewer ownership and raises the
 AgentDesk session protocol from `12` to `13`.
@@ -80,6 +83,7 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 33. **BrowserProjectionSession.** Main-actor local state owner for one validated browser snapshot. It routes window, tab, tap, and scroll commands through `DomBridgeServer.sendToBridge`, admits page batches only for the projected window's active tab and generation, and feeds one AppKit `BrowserProjectionWindowController`.
 34. **BrowserProjectionViewportCoordinator.** Host authority for active local and authenticated remote viewers. It caches each viewer's profile and dimensions, orders explicit claims, selects one owner, targets owner status, and sends only resolved epoch-and-revision source viewport commands to Chrome.
 35. **BrowserProjection extension session.** Enumerates normal Chrome windows with tabs, groups, and bounded favicons; persists enabled state, stable window ordering, projected window, target document, recorder identity, and generation in `chrome.storage.session`; and owns one isolated recorder, one debugger attachment, and the desired source viewport.
+36. **MissionControlTopologyObserver.** Registers current-macOS Dock accessibility entry notifications and legacy SkyLight event `1204` once, polls the unnamed layer-18 Dock window every 100 ms only while Mission Control is open, and reads one ordered user-Space topology on exit. Changed topology is reconciled through one `WorkspaceCoordinator` mutation. Space ID is the only assignment identity; absent IDs stay durable and unresolved rather than falling back to display and ordinal (ADR-0071).
 
 ### Client
 

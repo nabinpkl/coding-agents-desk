@@ -35,15 +35,14 @@ struct WorkspaceDesktopSwitcherTests {
         #expect(committed == [2]) // target ordinal 2 - active ordinal 0
     }
 
-    /// A reboot can renumber Space ids while positions hold; the assignment falls back to display+ordinal.
-    @Test func switchFallsBackToDisplayAndOrdinalWhenSpaceIdIsStale() {
+    @Test func switchRefusesAStaleSpaceIdEvenWhenItsOldOrdinalStillExists() {
         var committed: [Int] = []
         let switcher = WorkspaceDesktopSwitcher(
             state: { self.desktopState(active: 11, spaces: [(11, 0), (22, 1), (33, 2)]) },
             commit: { committed.append($0) }
         )
-        #expect(switcher.switchToDesktop(WorkspaceDesktopAssignment(spaceID: 99, displayID: "D1", ordinal: 1)))
-        #expect(committed == [1])
+        #expect(!switcher.switchToDesktop(WorkspaceDesktopAssignment(spaceID: 99, displayID: "D1", ordinal: 1)))
+        #expect(committed.isEmpty)
     }
 
     @Test func switchToTheAlreadyActiveDesktopIsANoOp() {

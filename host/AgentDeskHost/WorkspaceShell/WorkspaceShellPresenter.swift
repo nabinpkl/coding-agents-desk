@@ -38,6 +38,7 @@ final class WorkspaceShellPresenter: NSObject {
     private var activeScreenFrame: CGRect?
     private var screenObserver: NSObjectProtocol?
     private var spaceObserver: NSObjectProtocol?
+    private var missionControlTopologyObserver: MissionControlTopologyObserver?
     private var loadTask: Task<Void, Never>?
 
     /// The donor sidebar workspace switcher (ported verbatim): one row per workspace with its
@@ -125,6 +126,7 @@ final class WorkspaceShellPresenter: NSObject {
         loadTask = Task { [weak self] in
             guard let self else { return }
             let store = await self.loadInitialStore()
+            guard !Task.isCancelled else { return }
             let desktopSwitcher = WorkspaceDesktopSwitcher(spaces: self.spacesProvider)
             let session = WorkspaceShellSession(
                 store: store,
@@ -166,6 +168,7 @@ final class WorkspaceShellPresenter: NSObject {
             self.onOpenTerminal = { [weak session] in session?.openTerminal() }
             self.onOpenPtyManager = { [weak self] in self?.showPtyManager() }
             session.start()
+            self.observeMissionControlTopology()
             self.refreshSwitcher()
             self.relayout()
             self.logAXSelfReport()
@@ -192,6 +195,7 @@ final class WorkspaceShellPresenter: NSObject {
         pointerTap = nil
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver); self.screenObserver = nil }
         if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver); self.spaceObserver = nil }
+        missionControlTopologyObserver?.stop()
         ptyManagerWindow?.stop()
         ptyManagerWindow = nil
         dockPresenter?.stop()
@@ -348,6 +352,19 @@ final class WorkspaceShellPresenter: NSObject {
                 self?.dockPresenter?.refreshIfVisible()
             }
         }
+    }
+
+    private func observeMissionControlTopology() {
+        let observer = MissionControlTopologyObserver(spacesProvider: spacesProvider)
+        observer.onTopologyChanged = { [weak self] topology in
+            guard let self else { return }
+            self.session?.reconcileFromMissionControlTopology(topology) { [weak self] in
+                self?.refreshSwitcher()
+                self?.dockPresenter?.refreshIfVisible()
+            }
+        }
+        missionControlTopologyObserver = observer
+        observer.start()
     }
 
     // MARK: - Content

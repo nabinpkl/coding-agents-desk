@@ -106,6 +106,14 @@ without changing the one-recorder and extension-authoritative generation model.
   keep client pixels memory-only, write private host temporary artifacts, disclose successful sharing
   in the client UI, and add screenshot-only and combined debug-bundle recipes (ADR-0070).
 
+## Mission Control topology reconciliation
+
+- [x] D96. Add process-lifetime yabai-style Mission Control entry sources (Dock accessibility on
+  current macOS and SkyLight event `1204` for the legacy path) with 100 ms exit checks only while
+  Mission Control is open; reconcile surviving workspace assignments atomically by exact Space ID,
+  retain missing assignments as unresolved, remove ordinal identity fallback, and refresh workspace
+  and Dock presentation after topology edits (ADR-0071).
+
 ## Promotion log
 
 ```text
@@ -126,4 +134,5 @@ D93      2026-07-22  landed      protocol-7 active-viewer terminal sizing and fo
 D89      2026-07-22  landed      shared terminal tabs, recursive splits, and session drawer
 D94      2026-07-22  landed      one bounded WKWebView and xterm terminal runtime across macOS and iOS
 D95      2026-07-22  landed      opt-in bounded paired-client screenshots and protocol 14
+D96      2026-07-23  landed      event-driven Mission Control topology reconciliation by Space ID
 ```

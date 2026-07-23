@@ -290,6 +290,20 @@ final class WorkspaceShellSession {
         }
     }
 
+    /// Mission Control can reorder Desktops without changing the active Space. Refresh every known
+    /// assignment's presentation coordinates in one persisted mutation, retaining missing Space IDs
+    /// as unresolved assignments rather than guessing by ordinal.
+    func reconcileFromMissionControlTopology(
+        _ topology: MissionControlTopology,
+        completion: (() -> Void)? = nil
+    ) {
+        submit(.reconcileDesktopAssignments(topology.assignmentsBySpaceID)) { [weak self] _ in
+            self?.reconcileFromObservedDesktop()
+            self?.onActiveChanged?()
+            completion?()
+        }
+    }
+
     // MARK: - Rendering
 
     private func renderActive() {

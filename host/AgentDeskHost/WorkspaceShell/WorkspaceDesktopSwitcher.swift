@@ -122,10 +122,9 @@ final class WorkspaceDesktopSwitcher {
         else { return false }
         let userSpaces = userSpaces(on: activeDisplayId, in: state)
         guard let activeOrdinal = userSpaces.firstIndex(where: { $0.id == activeSpaceId }) else { return false }
-        // Resolve the target ordinal: exact spaceID match wins; else display+ordinal fallback (a
-        // reboot can renumber Space ids while positions hold), matching WorkspaceDesktopAssignment.
+        // Space id64 is the identity. Display and ordinal are presentation coordinates only; using
+        // them as a fallback can silently route an unresolved assignment to a different Desktop.
         let targetOrdinal = userSpaces.firstIndex(where: { $0.id == assignment.spaceID })
-            ?? (assignment.displayID == activeDisplayId ? assignment.ordinal : nil)
         guard let targetOrdinal, userSpaces.indices.contains(targetOrdinal) else { return false }
         let delta = targetOrdinal - activeOrdinal
         guard delta != 0 else { return true }

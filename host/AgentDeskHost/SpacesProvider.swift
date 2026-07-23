@@ -35,11 +35,25 @@ import AgentDeskWire
 
 private let skylightPath = "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
 
+typealias SkyLightConnectionCallback = @convention(c) (
+    UInt32,
+    UnsafeMutableRawPointer?,
+    Int,
+    UnsafeMutableRawPointer?,
+    Int32
+) -> Void
+
 private struct SkyLight {
     typealias MainConnectionIDFn = @convention(c) () -> Int32
     typealias GetActiveSpaceFn = @convention(c) (Int32) -> UInt64
     typealias CopyManagedDisplaySpacesFn = @convention(c) (Int32) -> CFArray?
     typealias ManagedDisplaySetCurrentSpaceFn = @convention(c) (Int32, CFString, UInt64) -> Void
+    typealias RegisterConnectionNotifyProcFn = @convention(c) (
+        Int32,
+        SkyLightConnectionCallback,
+        UInt32,
+        UnsafeMutableRawPointer?
+    ) -> CGError
     // Per-window Space membership. Same binding, one extra symbol — the dock-enrichment audit
     // (ADR-0054) needs to know which Desktop each window lives on. Optional so a macOS build that
     // drops it degrades the enrichment to ungrouped rather than failing the whole binding.
@@ -50,6 +64,7 @@ private struct SkyLight {
     let copyManagedDisplaySpaces: CopyManagedDisplaySpacesFn
     let managedDisplaySetCurrentSpace: ManagedDisplaySetCurrentSpaceFn?
     let copySpacesForWindows: CopySpacesForWindowsFn?
+    let registerConnectionNotifyProc: RegisterConnectionNotifyProcFn?
 
     static let shared: SkyLight? = {
         guard let handle = dlopen(skylightPath, RTLD_NOW) else { return nil }
@@ -63,6 +78,7 @@ private struct SkyLight {
         else { return nil }
         let setter = resolve("SLSManagedDisplaySetCurrentSpace", "CGSManagedDisplaySetCurrentSpace")
         let winSpaces = resolve("SLSCopySpacesForWindows", "CGSCopySpacesForWindows")
+        let registerNotify = resolve("SLSRegisterConnectionNotifyProc", "CGSRegisterConnectionNotifyProc")
         return SkyLight(
             mainConnectionID: unsafeBitCast(m1, to: MainConnectionIDFn.self),
             getActiveSpace: unsafeBitCast(m2, to: GetActiveSpaceFn.self),
@@ -72,6 +88,9 @@ private struct SkyLight {
             },
             copySpacesForWindows: winSpaces.map {
                 unsafeBitCast($0, to: CopySpacesForWindowsFn.self)
+            },
+            registerConnectionNotifyProc: registerNotify.map {
+                unsafeBitCast($0, to: RegisterConnectionNotifyProcFn.self)
             }
         )
     }()
@@ -315,6 +334,14 @@ final class SpacesProvider {
             cursorX: cursorLoc.map { Float($0.x) },
             cursorY: cursorLoc.map { Float($0.y) }
         )
+    }
+
+    static func registerMissionControlEntry(
+        callback: SkyLightConnectionCallback,
+        context: UnsafeMutableRawPointer
+    ) -> Bool {
+        guard let sl = SkyLight.shared, let register = sl.registerConnectionNotifyProc else { return false }
+        return register(sl.mainConnectionID(), callback, 1_204, context) == .success
     }
 
     // Forward one frame of the iPhone-side swipe gesture into the Dock.

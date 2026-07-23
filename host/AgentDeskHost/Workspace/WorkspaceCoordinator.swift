@@ -8,6 +8,7 @@ enum WorkspaceMutation: Sendable {
     case remove(UUID)
     case reorder([UUID])
     case setDesktopAssignment(WorkspaceDesktopAssignment, workspaceID: UUID)
+    case reconcileDesktopAssignments([UInt64: WorkspaceDesktopAssignment])
     case setDesktopAutoAssign(Bool, workspaceID: UUID)
     case setSidebarWidth(CGFloat, screenWidth: CGFloat?)
     case setTextZoom(WorkspaceTextZoom)
@@ -89,6 +90,10 @@ actor WorkspaceCoordinator {
         case .setDesktopAssignment(let assignment, let workspaceID):
             var next = current
             next.setDesktopAssignment(assignment, for: workspaceID)
+            return next
+        case .reconcileDesktopAssignments(let assignmentsBySpaceID):
+            var next = current
+            next.reconcileDesktopAssignments(assignmentsBySpaceID)
             return next
         case .setDesktopAutoAssign(let enabled, let workspaceID):
             var next = current
