@@ -142,6 +142,10 @@ gesture_agent_dir := env_var_or_default("AGENTDESK_GESTURE_AGENT_DIR", justfile_
 # first-launch provisioner installs into the Application-Support venv.
 voice_uv_out := justfile_directory() + "/host/AgentDeskHost/uv"
 voice_src_out := justfile_directory() + "/host/AgentDeskHost/voice-src"
+# Content-hash stamps that gate the bundled-artifact builds so host-run skips a
+# rebuild when inputs are unchanged (see tools/source-hash.sh). Gitignored (.build).
+stamps_dir := justfile_directory() + "/.build/stamps"
+source_hash := justfile_directory() + "/tools/source-hash.sh"
 
 # Ensure a minimal placeholder exists at the sidecar output path. The real
 # ~64 MB binary is gitignored (never tracked), so a fresh checkout has nothing
@@ -180,6 +184,12 @@ build-agent-sidecar:
     set -euo pipefail
     ENTRY='{{atc_engine_dir}}/src/server.ts'
     OUT='{{sidecar_out}}'
+    STAMP='{{stamps_dir}}/agent-sidecar'
+    HASH="$('{{source_hash}}' '{{atc_engine_dir}}')"
+    if [ -f "$OUT" ] && [ "$HASH" = "$(cat "$STAMP" 2>/dev/null || true)" ]; then
+        echo "build-agent-sidecar: engine unchanged, skipping (bun --compile)"
+        exit 0
+    fi
     TEMP_ROOT="${TMPDIR:-/tmp}"
     BUILD_DIR="$(mktemp -d "${TEMP_ROOT%/}/agentdesk-bun-build.XXXXXX")"
     cleanup() {
@@ -197,6 +207,7 @@ build-agent-sidecar:
     bun build --compile "$ENTRY" --outfile "$BUILD_DIR/atc-sidecar"
     chmod +x "$BUILD_DIR/atc-sidecar"
     mv -f "$BUILD_DIR/atc-sidecar" "$OUT"
+    mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"
 
 # Build Agent Workspace IDE's Rust PTY manager into the host app bundle source
 # dir. The host launches this binary and bridges shared web terminal clients into its
@@ -291,6 +302,12 @@ build-agent-webview:
     set -euo pipefail
     DASHBOARD='{{atc_dashboard_dir}}'
     OUT='{{webview_out}}'
+    STAMP='{{stamps_dir}}/agent-webview'
+    HASH="$('{{source_hash}}' "$DASHBOARD")"
+    if [ -f "$OUT/index.html" ] && [ "$HASH" = "$(cat "$STAMP" 2>/dev/null || true)" ]; then
+        echo "build-agent-webview: dashboard unchanged, skipping"
+        exit 0
+    fi
     echo "build-agent-webview: running bun run webview:build in $DASHBOARD"
     cd "$DASHBOARD" && bun run webview:build
     echo "build-agent-webview: copying webview-dist/ -> $OUT"
@@ -301,6 +318,7 @@ build-agent-webview:
     # directory tracked by git so the Xcode folder reference resolves on a fresh
     # checkout; a build must not leave it deleted in git status.
     touch "$OUT/.gitkeep"
+    mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"
     echo "build-agent-webview: DONE"
 
 # Build the gesture/voice interaction webview bundle into InteractionPanel's
@@ -312,6 +330,12 @@ build-gesture-webview:
     set -euo pipefail
     WEB='{{gesture_web_dir}}'
     OUT='{{gesture_webview_out}}'
+    STAMP='{{stamps_dir}}/gesture-webview'
+    HASH="$('{{source_hash}}' "$WEB")"
+    if [ -f "$OUT/index.html" ] && [ "$HASH" = "$(cat "$STAMP" 2>/dev/null || true)" ]; then
+        echo "build-gesture-webview: web unchanged, skipping"
+        exit 0
+    fi
     echo "build-gesture-webview: running pnpm build:embed in $WEB"
     cd "$WEB" && pnpm build:embed
     echo "build-gesture-webview: copying gesture-webview-dist/ -> $OUT"
@@ -321,6 +345,7 @@ build-gesture-webview:
     # Re-create the tracked .gitkeep that the rm -rf above removed, so the Xcode
     # folder reference resolves on a fresh checkout.
     touch "$OUT/.gitkeep"
+    mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"
     echo "build-gesture-webview: DONE"
 
 # Stage the voice sidecar's Python inputs into the host app source tree: the `uv`
@@ -345,6 +370,14 @@ build-voice-sidecar:
     if [ -z "$UV_BIN" ]; then echo "build-voice-sidecar: uv not on PATH" >&2; exit 1; fi
     if [ ! -f "$SRC/pyproject.toml" ]; then echo "build-voice-sidecar: no pyproject at $SRC" >&2; exit 1; fi
     if [ ! -f "$SRC/uv.lock" ]; then echo "build-voice-sidecar: no uv.lock at $SRC (run 'uv lock')" >&2; exit 1; fi
+    STAMP='{{stamps_dir}}/voice-sidecar'
+    # Hash only pyproject + uv.lock + src + the uv binary — never the whole tree
+    # (its data/ holds a ~500 MB model). $UV_BIN in the hash catches a uv upgrade.
+    HASH="$('{{source_hash}}' "$SRC/pyproject.toml" "$SRC/uv.lock" "$SRC/src" "$UV_BIN")"
+    if [ -x "$UV_OUT" ] && [ -f "$SRC_OUT/pyproject.toml" ] && [ "$HASH" = "$(cat "$STAMP" 2>/dev/null || true)" ]; then
+        echo "build-voice-sidecar: inputs unchanged, skipping"
+        exit 0
+    fi
     echo "build-voice-sidecar: staging uv -> $UV_OUT"
     cp -f "$UV_BIN" "$UV_OUT"
     chmod +x "$UV_OUT"
@@ -355,6 +388,7 @@ build-voice-sidecar:
     [ -f "$SRC/README.md" ] && cp "$SRC/README.md" "$SRC_OUT/" || true
     # src/ only — exclude data/ (models), __pycache__, and any local venv.
     rsync -a --exclude '__pycache__' --exclude '*.pyc' --exclude '*.egg-info' "$SRC/src" "$SRC_OUT/"
+    mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"
     echo "build-voice-sidecar: DONE"
 
 # Verify the webview bundle was built and landed correctly. Checks that index.html
