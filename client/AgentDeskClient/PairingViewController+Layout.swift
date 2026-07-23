@@ -508,7 +508,6 @@ extension PairingViewController {
                 equalTo: view.safeAreaLayoutGuide.trailingAnchor,
                 constant: -8
             ),
-            surfaceControlRail.widthAnchor.constraint(equalToConstant: 60),
             surfaceControlRail.bottomAnchor.constraint(
                 lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor,
                 constant: -8

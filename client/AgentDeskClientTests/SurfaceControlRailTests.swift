@@ -21,6 +21,11 @@ struct SurfaceControlRailTests {
 
         #expect(rail.accessibilityIdentifier == "surface-control-rail")
         #expect(rail.axis == .vertical)
+        #expect(rail.backgroundColor == .clear)
+        #expect(!rail.isOpaque)
+        #expect(rail.collapseButton.accessibilityIdentifier == "surface-control-collapse")
+        #expect(rail.collapseButton.accessibilityLabel == "Collapse controls")
+        #expect(rail.intrinsicContentSize.width == 60)
         #expect(rail.surfaceButtons.count == 6)
         #expect(rail.surfaceButtons.map(\.accessibilityLabel) == [
             "Control", "Agent", "Terminal", "Browser", "Workspace", "IDE"
@@ -96,6 +101,43 @@ struct SurfaceControlRailTests {
         #expect(gesture.isSelected)
         #expect(gesture.accessibilityTraits.contains(.selected))
         #expect(gesture.configuration?.background.backgroundColor == .systemBlue)
+    }
+
+    @Test func collapseHidesControlsButPreservesSelectionAndAReopenButton() throws {
+        let gesture = utilityButton(label: "Gesture", identifier: "gesture-toggle")
+        let rail = SurfaceControlRail(
+            gestureButton: gesture,
+            orientationButton: utilityButton(label: "Rotate", identifier: "orientation-toggle"),
+            settingsButton: utilityButton(label: "Settings", identifier: "settings-button")
+        )
+        rail.setSurfaces(
+            [.control, .agent, .terminal],
+            selected: .agent,
+            onSelection: { _ in }
+        )
+        let agent = try #require(
+            rail.surfaceButtons.first { $0.accessibilityLabel == "Agent" }
+        )
+
+        rail.collapseButton.sendActions(for: .touchUpInside)
+
+        #expect(rail.isCollapsed)
+        #expect(rail.collapseButton.isHidden == false)
+        #expect(rail.collapseButton.accessibilityLabel == "Expand controls")
+        #expect(rail.collapseButton.accessibilityValue == "Collapsed")
+        #expect(rail.intrinsicContentSize.width == 44)
+        #expect(rail.surfaceButtons.allSatisfy { $0.isHidden })
+        #expect(rail.utilityButtons.allSatisfy { $0.isHidden })
+        #expect(agent.isSelected)
+
+        rail.collapseButton.sendActions(for: .touchUpInside)
+
+        #expect(!rail.isCollapsed)
+        #expect(rail.collapseButton.accessibilityLabel == "Collapse controls")
+        #expect(rail.intrinsicContentSize.width == 60)
+        #expect(rail.surfaceButtons.allSatisfy { !$0.isHidden })
+        #expect(rail.utilityButtons.allSatisfy { !$0.isHidden })
+        #expect(agent.isSelected)
     }
 
     private func utilityButton(label: String, identifier: String) -> UIButton {

@@ -4,7 +4,7 @@ import UIKit
 ///
 /// The rail owns presentation and selection state only. PairingViewController remains the
 /// authoritative owner of the active surface and of every action performed by the utility buttons.
-final class SurfaceControlRail: UIVisualEffectView {
+final class SurfaceControlRail: UIView {
     private static let buttonSide: CGFloat = 44
     private static let railWidth: CGFloat = 60
     private static let contentInset: CGFloat = 8
@@ -16,6 +16,8 @@ final class SurfaceControlRail: UIVisualEffectView {
     private var onSelection: ((ControlSurface) -> Void)?
 
     private(set) var surfaceButtons: [UIButton] = []
+    private(set) var isCollapsed = false
+    let collapseButton = UIButton(type: .system)
     let utilityButtons: [UIButton]
 
     var axis: NSLayoutConstraint.Axis { stackView.axis }
@@ -26,8 +28,10 @@ final class SurfaceControlRail: UIVisualEffectView {
         settingsButton: UIButton
     ) {
         utilityButtons = [gestureButton, orientationButton, settingsButton]
-        super.init(effect: UIBlurEffect(style: .systemThinMaterialDark))
+        super.init(frame: .zero)
         configureView()
+        configureCollapseButton()
+        utilityButtons.forEach(configureRailButton)
         rebuildStack()
     }
 
@@ -43,7 +47,7 @@ final class SurfaceControlRail: UIVisualEffectView {
             verticalFittingPriority: .fittingSizeLevel
         ).height
         return CGSize(
-            width: Self.railWidth,
+            width: isCollapsed ? Self.buttonSide : Self.railWidth,
             height: contentHeight + (Self.contentInset * 2)
         )
     }
@@ -98,16 +102,16 @@ final class SurfaceControlRail: UIVisualEffectView {
     private func configureView() {
         accessibilityIdentifier = "surface-control-rail"
         isAccessibilityElement = false
-        clipsToBounds = true
-        layer.cornerRadius = 22
-        layer.borderWidth = 0.5
-        layer.borderColor = UIColor.white.withAlphaComponent(0.12).cgColor
+        isOpaque = false
+        backgroundColor = .clear
+        clipsToBounds = false
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.alwaysBounceVertical = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.contentInsetAdjustmentBehavior = .never
-        contentView.addSubview(scrollView)
+        scrollView.backgroundColor = .clear
+        addSubview(scrollView)
 
         stackView.axis = .vertical
         stackView.alignment = .center
@@ -124,13 +128,11 @@ final class SurfaceControlRail: UIVisualEffectView {
             separator.widthAnchor.constraint(equalToConstant: 36)
         ])
 
-        utilityButtons.forEach(configureRailButton)
-
         NSLayoutConstraint.activate([
-            scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
@@ -146,16 +148,27 @@ final class SurfaceControlRail: UIVisualEffectView {
         ])
     }
 
+    private func configureCollapseButton() {
+        collapseButton.accessibilityIdentifier = "surface-control-collapse"
+        collapseButton.addTarget(
+            self,
+            action: #selector(collapseButtonPressed),
+            for: .touchUpInside
+        )
+        configureRailButton(collapseButton)
+        updateCollapseButtonAppearance()
+    }
+
     private func rebuildStack() {
         stackView.arrangedSubviews.forEach {
             stackView.removeArrangedSubview($0)
             $0.removeFromSuperview()
         }
+        stackView.addArrangedSubview(collapseButton)
         surfaceButtons.forEach(stackView.addArrangedSubview)
-        separator.isHidden = surfaceButtons.isEmpty
         stackView.addArrangedSubview(separator)
         utilityButtons.forEach(stackView.addArrangedSubview)
-        invalidateIntrinsicContentSize()
+        applyCollapsedState(animated: false)
     }
 
     private func makeSurfaceButton(_ surface: ControlSurface) -> UIButton {
@@ -171,6 +184,10 @@ final class SurfaceControlRail: UIVisualEffectView {
     private func configureRailButton(_ button: UIButton) {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.tintColor = .white
+        button.layer.shadowColor = UIColor.black.cgColor
+        button.layer.shadowOpacity = 0.7
+        button.layer.shadowRadius = 2
+        button.layer.shadowOffset = .zero
         button.configuration = railButtonConfiguration(
             selected: false,
             image: button.image(for: .normal)
@@ -207,6 +224,44 @@ final class SurfaceControlRail: UIVisualEffectView {
         configuration.background.backgroundColor = selected ? .systemBlue : .clear
         configuration.background.cornerRadius = 14
         return configuration
+    }
+
+    private func setCollapsed(_ collapsed: Bool, animated: Bool) {
+        guard collapsed != isCollapsed else { return }
+        isCollapsed = collapsed
+        applyCollapsedState(animated: animated)
+    }
+
+    private func applyCollapsedState(animated: Bool) {
+        surfaceButtons.forEach { $0.isHidden = isCollapsed }
+        separator.isHidden = isCollapsed || surfaceButtons.isEmpty
+        utilityButtons.forEach { $0.isHidden = isCollapsed }
+        updateCollapseButtonAppearance()
+        invalidateIntrinsicContentSize()
+        superview?.setNeedsLayout()
+
+        guard animated else { return }
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.beginFromCurrentState, .curveEaseInOut]
+        ) {
+            self.superview?.layoutIfNeeded()
+        }
+    }
+
+    private func updateCollapseButtonAppearance() {
+        let symbolName = isCollapsed ? "chevron.left" : "chevron.right"
+        collapseButton.configuration = railButtonConfiguration(
+            selected: false,
+            image: UIImage(systemName: symbolName)
+        )
+        collapseButton.accessibilityLabel = isCollapsed ? "Expand controls" : "Collapse controls"
+        collapseButton.accessibilityValue = isCollapsed ? "Collapsed" : "Expanded"
+    }
+
+    @objc private func collapseButtonPressed() {
+        setCollapsed(!isCollapsed, animated: true)
     }
 
     @objc private func surfaceButtonPressed(_ sender: UIButton) {
