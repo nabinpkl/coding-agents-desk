@@ -132,6 +132,11 @@ without changing the one-recorder and extension-authoritative generation model.
   is replaced, publish viewport authority only after two matching laid-out measurements, and reject
   one-row native and manager claims so transient WKWebView geometry cannot resize the shared PTY.
 
+## PTY Manager bulk controls
+
+- [ ] R100. Add multi-row selection plus Select All and confirmed Close All controls to the embedded
+  PTY Manager, closing each top-level session exactly once through the existing daemon lifecycle API.
+
 ## Promotion log
 
 ```text
@@ -156,4 +161,5 @@ D96      2026-07-23  landed      event-driven Mission Control topology reconcili
 D97      2026-07-23  landed      unassigned Desktops clear the active workspace selection
 R98      2026-07-23  pending     target-display Dock gesture switching awaiting user verification
 R99      2026-07-23  pending     settled web terminal viewport authority awaiting verification
+R100     2026-07-23  pending     PTY Manager bulk controls awaiting verification
 ```

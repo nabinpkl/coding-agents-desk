@@ -53,6 +53,8 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
     private let window: NSWindow
     private let outlineView = NSOutlineView()
     private let statusLabel = NSTextField(labelWithString: "Disconnected")
+    private let selectAllButton = NSButton(title: "Select All", target: nil, action: nil)
+    private let closeAllButton = NSButton(title: "Close All", target: nil, action: nil)
     private let client: PtyClient
     private let terminalSpawn: WebPtyManagerTerminalSpawn
     private let socketPath: String
@@ -60,6 +62,7 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
     private let terminalWindowRegistry: TerminalWindowRegistry
     private var nodes: [Node] = []
     private var subscription: Task<Void, Never>?
+    private var bulkCloseInFlight = false
 
     init(terminalWindowRegistry: TerminalWindowRegistry) {
         self.terminalWindowRegistry = terminalWindowRegistry
@@ -93,9 +96,20 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
     private func buildChrome() {
         let reconnectButton = NSButton(title: "Reconnect", target: self, action: #selector(reconnectTapped))
         reconnectButton.setAccessibilityIdentifier("pty-manager-reconnect")
+        selectAllButton.target = self
+        selectAllButton.action = #selector(selectAllTapped)
+        selectAllButton.setAccessibilityIdentifier("pty-manager-select-all")
+        selectAllButton.isEnabled = false
+        closeAllButton.target = self
+        closeAllButton.action = #selector(closeAllTapped)
+        closeAllButton.setAccessibilityIdentifier("pty-manager-close-all")
+        closeAllButton.hasDestructiveAction = true
+        closeAllButton.isEnabled = false
         let header = NSStackView(views: [
             NSTextField(labelWithString: "PTY Sessions"),
             NSView(),
+            selectAllButton,
+            closeAllButton,
             reconnectButton,
         ])
         header.orientation = .horizontal
@@ -111,6 +125,7 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
         outlineView.outlineTableColumn = outlineView.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier(Column.name.rawValue))
         outlineView.dataSource = self
         outlineView.delegate = self
+        outlineView.allowsMultipleSelection = true
         outlineView.usesAlternatingRowBackgroundColors = true
         outlineView.setAccessibilityIdentifier("pty-manager-outline")
 
@@ -187,6 +202,8 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
         statusLabel.stringValue = status
         outlineView.reloadData()
         for node in nodes { outlineView.expandItem(node) }
+        selectAllButton.isEnabled = !nodes.isEmpty
+        closeAllButton.isEnabled = !nodes.isEmpty && !bulkCloseInFlight
     }
 
     func stop() {
@@ -296,6 +313,45 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
     }
 
     // MARK: - Actions
+
+    @objc private func selectAllTapped() {
+        outlineView.selectAll(nil)
+    }
+
+    @objc private func closeAllTapped() {
+        guard !bulkCloseInFlight else { return }
+        let names = nodes.map(\.session.name)
+        guard !names.isEmpty else { return }
+        guard confirm(
+            title: "Close all \(names.count) sessions?",
+            info: "This kills every listed session and its shell process."
+        ) else { return }
+
+        bulkCloseInFlight = true
+        closeAllButton.isEnabled = false
+        statusLabel.stringValue = "Closing \(names.count) sessions…"
+        Task.detached { [weak self] in
+            let bulkClient = PtyManagerSocketClient.makeClient()
+            var failures: [String] = []
+            for name in names {
+                do {
+                    try await bulkClient.killSession(name: name)
+                } catch {
+                    failures.append("\(name): \(error)")
+                }
+            }
+            await MainActor.run {
+                guard let self else { return }
+                self.bulkCloseInFlight = false
+                self.closeAllButton.isEnabled = !self.nodes.isEmpty
+                if failures.isEmpty {
+                    self.statusLabel.stringValue = "Closed \(names.count) sessions"
+                } else {
+                    self.statusLabel.stringValue = "Close all failed: \(failures.joined(separator: "; "))"
+                }
+            }
+        }
+    }
 
     @objc private func openClientTapped(_ sender: NSButton) {
         guard let node = node(forSender: sender), node.isSession else { return }
