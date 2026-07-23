@@ -25,7 +25,7 @@ the master descriptor.
 
 ## v8 Phase 0: decision and Darwin capability gates
 
-- R101. Draft and explicitly accept ADR-0072 before implementation, recording the common-vault
+- D101. Draft and explicitly accept ADR-0072 before implementation, recording the common-vault
   choice, dual descriptor custody, manager-owned terminal semantics, sequential updates, atomic
   rollback, exact exit status, stable/dev isolation, and the simultaneous-holder-loss boundary; leave
   accepted ADR-0066 immutable, cross-reference it from ADR-0072, and update `SPEC.md` only after the
@@ -118,5 +118,6 @@ the master descriptor.
 ## Promotion log
 
 ```text
-R101-117 2026-07-23  planned     centralized PTY descriptor custody and stateful live handover
+D101     2026-07-23  landed      accepted centralized PTY custody and handover decision
+R102-117 2026-07-23  planned     descriptor seam through authorized live acceptance
 ```

@@ -20,9 +20,11 @@ Secondary pain: AnyDesk on phone often degrades to a black canvas with a moving 
 
 Native iOS app plus native macOS menu-bar workspace host, paired over Tailscale. The host owns registered workspace roots, an auto-hiding AppKit sidebar and top bar, editable local file windows, PTY sessions, ATC activity, browser integration, Spaces, and hardware-encoded remote desktop. The iPhone projects the same system through purpose-built Control, Agents, Workspace, IDE, Terminal, and Browser surfaces. The embedded IDE is a shared responsive WebKit workbench inside native AppKit and UIKit pane shells; it is not an internet browser client.
 
-Persistent PTY sessions own bounded terminal display state in the Rust manager, not in a viewer. A
-late or restored macOS/iOS client reconstructs the shared logical grid from a memory-only checkpoint
-and fits it locally while readable, then clips a cursor-following viewport at a local scale floor.
+Persistent PTY sessions keep their master descriptors in a small Rust vault while the replaceable Rust
+manager owns bounded terminal display state, not a viewer. A late or restored macOS/iOS client
+reconstructs the shared logical grid from a memory-only checkpoint and fits it locally while readable,
+then clips a cursor-following viewport at a local scale floor. Vault and manager code updates hand over
+live descriptors and bounded manager state without replacing the running shell or TUI.
 The last selected or interacted-with active viewer automatically owns that shared grid's rows and
 columns; passive changes in another viewer remain presentation-only. Followers display the owner's
 grid through local fit, crop, padding, and cursor following. AgentDesk persists standalone window

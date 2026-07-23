@@ -31,6 +31,9 @@ ADR-0069 replaces SwiftTerm and platform-specific terminal workspace chrome with
 WKWebView and xterm.js runtime while retaining PTY protocol `7`, AgentDesk protocol `13`, and the Rust
 manager's state authority.
 
+ADR-0072 separates PTY descriptor custody into one common, variant-scoped vault and requires stateful
+live handover for both vault and manager code updates.
+
 ADR-0070 adds explicit-opt-in, foreground-only client screenshot capture over authenticated
 protocol `14`, with bounded ephemeral transfer and private host-side temporary artifacts.
 
@@ -63,7 +66,7 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 13. **ScrollDeltaEngine.** Rest-state retained-graphics producer (ADR-0025), retained as local crisp-repair/compositor machinery. Damage tiles through the content-cache ladder (`cacheTile`/`drawCachedTile`/`bitmapTile`), omitting cells that already match the retained baseline. It does not own a separate network connection.
 14. **InputChannelServer.** Owns the host side of the session input stream. Preserves each `InputChannelEvent` cursor revision through dispatch, acknowledges the applied revision only to its originating channel, and tags independently observed Mac cursor movement with that channel's last applied revision. It also pushes desktop state, thumbnails, cursor image updates, text-input focus metadata, agent speech events, diagnostics and screenshot requests, and bounded Agent raw-event fragments on the same serialized lane.
 15. **SignalingChannel.** Supplies length-prefixed QUIC stream framing and role routing for the session control and input streams. It is not a WebSocket wrapper.
-16. **HostPtyManagerProcess.** Reuses a live Rust `pty-manager` on the host variant's Application Support socket or launches the bundled AgentDesk `pty-manager` (`terminal/pty-manager`, ADR-0053) when no process is listening. The manager, not the host lifecycle or iOS app, spawns commands and owns host PTYs. Persistent workspace PTYs survive detach and host relaunch. Under the ADR-0056 target, leased Agent Panel PTYs survive only while a client lease exists or the configured final-lease grace is pending; manager shutdown reaps leased children.
+16. **HostPtyRuntimeProcess.** Reuses matching Rust `pty-vault` and `pty-manager` generations on the host variant's Application Support sockets or launches bundled candidates. A changed candidate performs the ADR-0072 private handover before the old generation exits. The vault spawns commands and retains the primary PTY masters. The manager leases duplicate masters and owns terminal state and policy. The host never terminates a changed runtime peer.
 17. **TerminalClientBridge.** Bridges a dedicated `.terminal` QUIC stream to the `pty-manager` Unix socket as opaque length-prefixed PTY protobuf frames. It does not decode terminal protocol payloads; it only enforces stream role and frame bounds. Persistent full-screen terminal clients remain trusted multiplexer clients with the existing session-management controls. Agent Panel creation and kill authority stays behind `AgentSessionTerminalCoordinator`; its iOS renderer attaches only to the deterministic PTY returned by that coordinator.
 18. **VideoFrameSource.** Concrete implementation `ScreenCaptureKitFrameSource` captures one stream for the selected display and exposes a display-selection hook. `TestPatternFrameSource` exists as a diagnostic source.
 19. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces, enabled by owner-scoped demand.
@@ -147,7 +150,8 @@ Platform ownership remains explicit:
 | macOS AppKit adapter | Vertical layout, local coordinator calls, window/back/hide/close lifecycle. |
 | iOS UIKit adapter | Vertical and keyboard-safe layout, v7 request routing, surface/background lifecycle. |
 | Host coordinator | Context validation, deterministic identity, command construction, handoff, explicit kill, and `activeElsewhere`. |
-| Rust `pty-manager` | Direct process launch, PTY state, client leases, final-lease grace, natural-exit cleanup, and reaping. |
+| Rust `pty-vault` | PTY launch, primary descriptor custody, process identity, exact exit observation, signal, close, and vault handover. |
+| Rust `pty-manager` | Descriptor leases, headless terminal state, bounded replay, client leases, viewport ownership, final-lease grace, manager handover, and session policy. |
 
 ## Wire Shapes
 
@@ -264,7 +268,7 @@ material.
 
 Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. Protocol v8 is required because the Files role changed from JSON text-only bodies to binary property-list bodies with native document bytes. Protocol v9 is required because cursor inputs now carry revisions and cursor feedback has distinct applied and host-moved frames. Protocol v10 is required because the iOS workbench coordinates a host-authorized workspace terminal on the input lane. Protocol v11 is required because the Files stream becomes the workspace lane and adds IDE state, Git status, and unsolicited workspace-change messages. Protocol v12 is required because the DOM stream carries full Chrome metadata and bidirectional window/tab selection. Protocol v13 adds authenticated viewer activity, ownership, profile, and source dimensions to that DOM contract. Protocol v14 adds explicit-opt-in, bounded client screenshot request and response frames to the input lane and signed foreground fallback. Older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
 
-Terminal PTY frames travel over the reliable ordered `.terminal` stream as opaque PTY protobuf envelopes from AgentDesk's `terminal/pty-client-swift` and `terminal/pty-manager` pair (moved in-tree under ADR-0053). Both checked-in implementations enforce inner protocol v7. Protocol v4 added explicit launch and lifetime semantics; protocol v5 added immutable session creation time; protocol v6 added authoritative dimensions, revisions, and bounded chunked ANSI checkpoints; protocol v7 replaces manual resizing with authenticated-client viewer participation, ownership, and targeted viewport status. There is no compatibility path for older inner protocols:
+Terminal PTY frames travel over the reliable ordered `.terminal` stream as opaque PTY protobuf envelopes from AgentDesk's `terminal/pty-client-swift` and `terminal/pty-manager` pair (moved in-tree under ADR-0053). Both checked-in implementations enforce inner protocol v7. Protocol v4 added explicit launch and lifetime semantics; protocol v5 added immutable session creation time; protocol v6 added authoritative dimensions, revisions, and bounded chunked ANSI checkpoints; protocol v7 replaces manual resizing with authenticated-client viewer participation, ownership, and targeted viewport status. The private vault and handover protocols are local implementation details from ADR-0072 and do not change this client wire. There is no compatibility path for older inner protocols:
 
 ```
 Terminal stream body = UInt32BE ptyFrameLength || Envelope {
@@ -733,7 +737,7 @@ The host verifies the manifest, exact aggregate size, chunk sequence, and SHA-25
 - Agent Panel resume PTYs are leased. The manager schedules the configured final-lease grace only when detach, close-client, or socket loss removes the final attached client. The production target is 30 seconds through host central config; tests inject shorter values.
 - Reattach during PTY grace cancels reaping and preserves the PTY/PID. With Mac and iPhone attached, the first detach cannot schedule a reap; only loss of the final lease can do so.
 - Explicit terminal close, panel back/context change, session replacement, iOS switch away from Agent or teardown, macOS Agents-window hide or close, revoke, and app termination go through the host coordinator and kill the leased PTY immediately. They do not wait for grace.
-- If the final lease is still absent when grace expires, `pty-manager` kills the harness and removes its PTY, clients, and registry state. Natural harness exit, explicit kill, and manager shutdown cancel pending reap work and leave no leased child.
+- If the final lease is still absent when grace expires, `pty-manager` asks `pty-vault` to kill the harness and removes its PTY, clients, and registry state. Natural harness exit and explicit kill cancel pending reap work. Manager handover transfers leased sessions without applying shutdown policy.
 - An unexpected renderer failure, terminal socket loss, transport loss, or iOS suspension detaches rather than issuing explicit kill, preserving the bounded reattach path.
 
 ## Risks Tracked Outside This Doc
