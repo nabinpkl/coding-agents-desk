@@ -10,6 +10,19 @@
   --ide-accent: #007a80;
   --ide-danger: #c62828;
   --ide-warning: #a15c00;
+  --ide-icon-folder: #12a7b8;
+  --ide-icon-git: #f28c00;
+  --ide-icon-config: #8e5cc7;
+  --ide-icon-swift: #e95d2a;
+  --ide-icon-python: #3776ab;
+  --ide-icon-javascript: #b78b00;
+  --ide-icon-typescript: #2775c2;
+  --ide-icon-markdown: #1674d1;
+  --ide-icon-html: #dc5b2c;
+  --ide-icon-css: #c4498d;
+  --ide-icon-shell: #3a9952;
+  --ide-icon-ruby: #c23b3b;
+  --ide-icon-image: #8e5cc7;
   --ide-row-height: 28px;
 }
 
@@ -25,6 +38,19 @@
     --ide-accent: #2dd4bf;
     --ide-danger: #ff7b72;
     --ide-warning: #e3b341;
+    --ide-icon-folder: #35c2ca;
+    --ide-icon-git: #ff9f2e;
+    --ide-icon-config: #b48aeb;
+    --ide-icon-swift: #ff7b50;
+    --ide-icon-python: #5aa5e8;
+    --ide-icon-javascript: #e1bd42;
+    --ide-icon-typescript: #62a8eb;
+    --ide-icon-markdown: #62a8eb;
+    --ide-icon-html: #ff8055;
+    --ide-icon-css: #e77ab7;
+    --ide-icon-shell: #65c47a;
+    --ide-icon-ruby: #ff6b6b;
+    --ide-icon-image: #b48aeb;
   }
 }
 
@@ -133,13 +159,30 @@ body[data-region='sidebar'] #workspace-ide {
 .ide-tree-row:hover { background: var(--ide-hover); }
 .ide-disclosure { width: 12px; color: var(--ide-muted); text-align: center; }
 .ide-file-icon {
-  min-width: 28px;
-  max-width: 36px;
-  overflow: hidden;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
   color: var(--ide-muted);
-  font: 9px/1.1 ui-monospace, monospace;
-  text-transform: uppercase;
 }
+.ide-file-icon svg { display: block; width: 16px; height: 16px; fill: currentColor; }
+.ide-file-icon[data-tone='folder'] { color: var(--ide-icon-folder); }
+.ide-file-icon[data-tone='git'] { color: var(--ide-icon-git); }
+.ide-file-icon[data-tone='config'] { color: var(--ide-icon-config); }
+.ide-file-icon[data-tone='environment'] { color: var(--ide-icon-shell); }
+.ide-file-icon[data-tone='docker'], .ide-file-icon[data-tone='typescript'],
+.ide-file-icon[data-tone='code'], .ide-file-icon[data-tone='document'] { color: var(--ide-icon-typescript); }
+.ide-file-icon[data-tone='swift'] { color: var(--ide-icon-swift); }
+.ide-file-icon[data-tone='python'] { color: var(--ide-icon-python); }
+.ide-file-icon[data-tone='javascript'] { color: var(--ide-icon-javascript); }
+.ide-file-icon[data-tone='markdown'] { color: var(--ide-icon-markdown); }
+.ide-file-icon[data-tone='html'] { color: var(--ide-icon-html); }
+.ide-file-icon[data-tone='css'] { color: var(--ide-icon-css); }
+.ide-file-icon[data-tone='shell'] { color: var(--ide-icon-shell); }
+.ide-file-icon[data-tone='go'] { color: var(--ide-icon-folder); }
+.ide-file-icon[data-tone='rust'] { color: var(--ide-icon-swift); }
+.ide-file-icon[data-tone='ruby'], .ide-file-icon[data-tone='java'],
+.ide-file-icon[data-tone='pdf'] { color: var(--ide-icon-ruby); }
+.ide-file-icon[data-tone='image'] { color: var(--ide-icon-image); }
 .ide-tree-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ide-git-decoration { margin-left: auto; color: var(--ide-warning); font: 11px/1 ui-monospace, monospace; }
 
@@ -248,7 +291,6 @@ body[data-region='editor'] #workspace-ide {
 @container sidebar (max-width: 210px) {
   .ide-activity button { font-size: 0; width: 31px; padding: 0; }
   .ide-activity button::first-letter { font-size: 13px; }
-  .ide-file-icon { display: none; }
   .ide-management button { padding: 0 5px; }
   .ide-management button:nth-last-child(-n + 3) { font-size: 0; width: 29px; padding: 0; }
   .ide-management button:nth-last-child(3)::after { content: 'D'; font-size: 12px; }

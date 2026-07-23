@@ -1,5 +1,11 @@
 import { installFileSurface } from './viewer.mjs'
-import { fileRenderIdentity, normalizeProjection, orderedPathsAfterMove, regionFromLocation } from './ideModel.mjs'
+import {
+  fileIconSpec,
+  fileRenderIdentity,
+  normalizeProjection,
+  orderedPathsAfterMove,
+  regionFromLocation,
+} from './ideModel.mjs'
 import { applyWorkspaceZoom } from './workspaceZoom.mjs'
 
 const root = document.getElementById('workspace-ide')
@@ -134,8 +140,7 @@ function renderTree(nodes, send, nested = false) {
     row.className = 'ide-tree-row'
     const disclosure = element('span', 'ide-disclosure')
     disclosure.textContent = node.isDirectory ? (node.expanded ? '▾' : '▸') : ''
-    const icon = element('span', 'ide-file-icon')
-    icon.textContent = node.isDirectory ? 'folder' : fileExtension(node.name)
+    const icon = fileIcon(node.name, node.isDirectory)
     const label = element('span', 'ide-tree-label')
     label.textContent = node.name
     row.append(disclosure, icon, label)
@@ -294,7 +299,19 @@ function button(title, label, action) {
   return value
 }
 
-function fileExtension(name) {
-  const index = name.lastIndexOf('.')
-  return index > 0 ? name.slice(index + 1).toLowerCase() : 'file'
+function fileIcon(name, isDirectory) {
+  const spec = fileIconSpec(name, isDirectory)
+  const container = element('span', 'ide-file-icon')
+  container.dataset.tone = spec.tone
+  container.setAttribute('aria-hidden', 'true')
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.setAttribute('focusable', 'false')
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  path.setAttribute('d', spec.shape === 'folder'
+    ? 'M1.5 4.25c0-.69.56-1.25 1.25-1.25h3.1l1.4 1.5h6c.69 0 1.25.56 1.25 1.25v6.5c0 .69-.56 1.25-1.25 1.25H2.75c-.69 0-1.25-.56-1.25-1.25v-8Z'
+    : 'M3 1.5h6.2l3.8 3.8v9.2H3v-13Zm6 1.4v2.6h2.6L9 2.9Z')
+  svg.append(path)
+  container.append(svg)
+  return container
 }

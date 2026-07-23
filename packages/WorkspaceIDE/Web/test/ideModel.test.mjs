@@ -1,6 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { fileRenderIdentity, normalizeProjection, orderedPathsAfterMove } from '../src/ideModel.mjs'
+import {
+  fileIconSpec,
+  fileRenderIdentity,
+  normalizeProjection,
+  orderedPathsAfterMove,
+} from '../src/ideModel.mjs'
 
 test('sidebar normalizes compact wire workspaces and Git entries', () => {
   const projection = normalizeProjection({
@@ -35,4 +40,22 @@ test('file render identity ignores local keystrokes and changes for native refre
     fileRenderIdentity({ id: 'd', kind: 'docx', mode: 'preview', renderToken: 'one' }),
     fileRenderIdentity({ id: 'd', kind: 'docx', mode: 'preview', renderToken: 'two' }),
   )
+})
+
+test('Explorer icons distinguish folders and curated file types', () => {
+  assert.deepEqual(fileIconSpec('Sources', true), { shape: 'folder', tone: 'folder' })
+  assert.deepEqual(fileIconSpec('.gitignore', false), { shape: 'file', tone: 'git' })
+  assert.deepEqual(fileIconSpec('Package.swift', false), { shape: 'file', tone: 'swift' })
+  assert.deepEqual(fileIconSpec('worker.py', false), { shape: 'file', tone: 'python' })
+  assert.deepEqual(fileIconSpec('app.tsx', false), { shape: 'file', tone: 'typescript' })
+  assert.deepEqual(fileIconSpec('README.md', false), { shape: 'file', tone: 'markdown' })
+  assert.deepEqual(fileIconSpec('preview.png', false), { shape: 'file', tone: 'image' })
+  assert.deepEqual(fileIconSpec('unknown.data', false), { shape: 'file', tone: 'default' })
+})
+
+test('Explorer icon matching is case insensitive and handles special filenames', () => {
+  assert.deepEqual(fileIconSpec('DOCKERFILE', false), { shape: 'file', tone: 'docker' })
+  assert.deepEqual(fileIconSpec('LICENSE.md', false), { shape: 'file', tone: 'muted' })
+  assert.deepEqual(fileIconSpec('Package-Lock.JSON', false), { shape: 'file', tone: 'muted' })
+  assert.deepEqual(fileIconSpec('.ENV.LOCAL', false), { shape: 'file', tone: 'environment' })
 })
