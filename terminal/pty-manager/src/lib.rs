@@ -1,7 +1,10 @@
 pub mod client;
 pub mod error;
+pub mod fd_transfer;
 pub mod headless_terminal;
 pub mod manager;
+#[cfg(target_os = "macos")]
+pub mod process_observer;
 pub mod protocol;
 pub mod pty_client_footer;
 pub mod pty_session;

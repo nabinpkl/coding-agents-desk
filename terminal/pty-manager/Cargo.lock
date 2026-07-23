@@ -793,6 +793,7 @@ dependencies = [
  "clap",
  "crossterm",
  "futures-util",
+ "libc",
  "portable-pty",
  "prost",
  "prost-build",

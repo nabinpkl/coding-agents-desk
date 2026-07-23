@@ -35,7 +35,7 @@ the master descriptor.
   original owner, and proves the same child PID, process group, screen marker, input, resize, EOF, and
   cleanup survive in the replacement; exercise `EVFILT_PROC` with `NOTE_EXIT` and `NOTE_EXITSTATUS`
   after parent replacement and stop if exact exit status cannot be preserved.
-- R103. Audit `portable-pty` at the production call sites in
+- D103. Audit `portable-pty` at the production call sites in
   `terminal/pty-manager/src/pty_session.rs` and choose the smallest Darwin descriptor seam; prove that
   a transferred descriptor drives the existing reader, writer, resize, and signal paths without
   moving terminal policy into the vault, and record any unavoidable dependency or raw-FD adapter in
@@ -119,5 +119,7 @@ the master descriptor.
 
 ```text
 D101     2026-07-23  landed      accepted centralized PTY custody and handover decision
-R102-117 2026-07-23  planned     descriptor seam through authorized live acceptance
+D103     2026-07-23  landed      Darwin descriptor transfer and post-parent exit gates
+R102     2026-07-23  active      continuous TUI marker handover gate
+R104-117 2026-07-23  planned     PTY lease seam through authorized live acceptance
 ```
