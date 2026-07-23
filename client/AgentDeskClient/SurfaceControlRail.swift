@@ -164,10 +164,10 @@ final class SurfaceControlRail: UIView {
             stackView.removeArrangedSubview($0)
             $0.removeFromSuperview()
         }
-        stackView.addArrangedSubview(collapseButton)
         surfaceButtons.forEach(stackView.addArrangedSubview)
         stackView.addArrangedSubview(separator)
         utilityButtons.forEach(stackView.addArrangedSubview)
+        stackView.addArrangedSubview(collapseButton)
         applyCollapsedState(animated: false)
     }
 
