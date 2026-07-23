@@ -36,14 +36,24 @@ public final class WorkspaceSwitcher: NSObject {
     }
 
     /// Rebuild the list. Cheap — v0 caps the live set at ~3 workspaces.
-    public func render(workspaces: [Workspace], activeID: UUID?) {
+    public func render(
+        workspaces: [Workspace],
+        activeID: UUID?,
+        missionControlNumbersBySpaceID: [UInt64: Int]
+    ) {
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         add(makeHeader())
         if workspaces.isEmpty {
             add(makeEmptyState())
         } else {
             for workspace in workspaces {
-                addRow(makeRow(workspace, isActive: workspace.id == activeID))
+                addRow(makeRow(
+                    workspace,
+                    isActive: workspace.id == activeID,
+                    missionControlNumber: workspace.desktopAssignment.flatMap {
+                        missionControlNumbersBySpaceID[$0.spaceID]
+                    }
+                ))
             }
         }
     }
@@ -164,10 +174,18 @@ public final class WorkspaceSwitcher: NSObject {
         return button
     }
 
-    private func makeRow(_ workspace: Workspace, isActive: Bool) -> NSView {
+    private func makeRow(
+        _ workspace: Workspace,
+        isActive: Bool,
+        missionControlNumber: Int?
+    ) -> NSView {
+        let desktopPresentation = DesktopAssignmentPresentation(
+            assignment: workspace.desktopAssignment,
+            missionControlNumber: missionControlNumber
+        )
         let button = WorkspaceRowButton(
             workspaceID: workspace.id,
-            desktopAssignment: workspace.desktopAssignment,
+            desktopAccessibilityValue: desktopPresentation.accessibilityValue,
             desktopAutoAssignEnabled: workspace.desktopAutoAssignEnabled
         )
         button.title = workspace.name
@@ -188,7 +206,7 @@ public final class WorkspaceSwitcher: NSObject {
         button.onReorderCommit = { [weak self] in self?.dragCommitted() }
         button.applyActive(isActive, textZoom: textZoom)
 
-        let desktopBadge = DesktopAssignmentBadge(assignment: workspace.desktopAssignment, active: isActive)
+        let desktopBadge = DesktopAssignmentBadge(presentation: desktopPresentation, active: isActive)
         let controls = NSStackView()
         controls.orientation = .horizontal
         controls.alignment = .centerY
@@ -288,7 +306,7 @@ public final class WorkspaceSwitcher: NSObject {
 /// inside the non-activating sidebar panel without a focusing pre-click.
 private final class WorkspaceRowButton: HoverButton {
     let workspaceID: UUID
-    let desktopAssignment: WorkspaceDesktopAssignment?
+    let desktopAccessibilityValue: String
     let desktopAutoAssignEnabled: Bool
 
     /// A plain click (no drag) selects this workspace.
@@ -303,11 +321,11 @@ private final class WorkspaceRowButton: HoverButton {
 
     init(
         workspaceID: UUID,
-        desktopAssignment: WorkspaceDesktopAssignment?,
+        desktopAccessibilityValue: String,
         desktopAutoAssignEnabled: Bool
     ) {
         self.workspaceID = workspaceID
-        self.desktopAssignment = desktopAssignment
+        self.desktopAccessibilityValue = desktopAccessibilityValue
         self.desktopAutoAssignEnabled = desktopAutoAssignEnabled
         super.init(frame: .zero)
         cornerRadius = 0  // full-bleed row highlight, not a rounded pill
@@ -381,8 +399,7 @@ private final class WorkspaceRowButton: HoverButton {
 
     private func rowAccessibilityValue(isActive: Bool) -> String {
         let active = isActive ? "active" : "inactive"
-        let desktop = desktopAssignment.map { "desktop \($0.ordinal)" } ?? "unassigned desktop"
-        return "\(active), \(desktop)"
+        return "\(active), \(desktopAccessibilityValue)"
     }
 
     private func descendants<T: NSView>(of root: NSView, as type: T.Type) -> [T] {
@@ -397,13 +414,33 @@ private final class WorkspaceRowButton: HoverButton {
     }
 }
 
+private struct DesktopAssignmentPresentation {
+    let badge: String
+    let accessibilityValue: String
+
+    init(assignment: WorkspaceDesktopAssignment?, missionControlNumber: Int?) {
+        guard assignment != nil else {
+            badge = "D-"
+            accessibilityValue = "unassigned desktop"
+            return
+        }
+        guard let missionControlNumber else {
+            badge = "D?"
+            accessibilityValue = "assigned desktop unavailable"
+            return
+        }
+        badge = "D\(missionControlNumber)"
+        accessibilityValue = "desktop \(missionControlNumber)"
+    }
+}
+
 private final class DesktopAssignmentBadge: NSTextField {
     private var active: Bool
 
-    init(assignment: WorkspaceDesktopAssignment?, active: Bool) {
+    init(presentation: DesktopAssignmentPresentation, active: Bool) {
         self.active = active
         super.init(frame: .zero)
-        stringValue = assignment.map { "D\($0.ordinal)" } ?? "D-"
+        stringValue = presentation.badge
         font = .systemFont(ofSize: 10, weight: .semibold)
         alignment = .center
         isEditable = false
@@ -414,7 +451,7 @@ private final class DesktopAssignmentBadge: NSTextField {
         layer?.cornerRadius = 4
         setAccessibilityIdentifier("workspace-desktop-status")
         setAccessibilityLabel("Workspace desktop assignment")
-        setAccessibilityValue(assignment.map { "desktop \($0.ordinal)" } ?? "unassigned")
+        setAccessibilityValue(presentation.accessibilityValue)
         setContentHuggingPriority(.required, for: .horizontal)
         setContentCompressionResistancePriority(.required, for: .horizontal)
         applyStyle()

@@ -1,3 +1,4 @@
+import AppKit
 import AgentDeskWire
 import Foundation
 import Testing
@@ -94,5 +95,49 @@ struct WorkspaceDesktopSwitcherTests {
 
         #expect(desktops.map(\.ordinal) == [0])
         #expect(desktops.map(\.missionControlOrdinal) == [2])
+    }
+
+    @Test func missionControlNumbersAreGlobalAndOneBasedAcrossDisplays() {
+        let state = DesktopState(
+            displays: [],
+            spaces: [
+                SpaceMetadata(id: 10, displayId: "D1", index: 0, type: 0),
+                SpaceMetadata(id: 20, displayId: "D1", index: 1, type: 0),
+                SpaceMetadata(id: 30, displayId: "D1", index: 2, type: 0),
+                SpaceMetadata(id: 40, displayId: "D2", index: 0, type: 0),
+            ],
+            activeDisplayId: "D2",
+            activeSpaceId: 40
+        )
+        let switcher = WorkspaceDesktopSwitcher(state: { state }, commit: { _ in })
+
+        #expect(switcher.missionControlNumbersBySpaceID() == [10: 1, 20: 2, 30: 3, 40: 4])
+    }
+
+    @Test func sidebarBadgeUsesLiveMissionControlNumberInsteadOfInternalOrdinal() throws {
+        let workspaceID = UUID()
+        let workspace = Workspace(
+            id: workspaceID,
+            root: URL(fileURLWithPath: "/tmp/project", isDirectory: true),
+            name: "Project",
+            desktopAssignment: WorkspaceDesktopAssignment(spaceID: 40, displayID: "D2", ordinal: 0)
+        )
+        let switcher = WorkspaceSwitcher()
+
+        switcher.render(
+            workspaces: [workspace],
+            activeID: workspaceID,
+            missionControlNumbersBySpaceID: [40: 4]
+        )
+
+        let badge = try #require(descendant(in: switcher.view, identifier: "workspace-desktop-status") as? NSTextField)
+        #expect(badge.stringValue == "D4")
+        let row = try #require(descendant(in: switcher.view, identifier: "workspace-\(workspaceID.uuidString)"))
+        #expect(row.accessibilityValue() as? String == "active, desktop 4")
+    }
+
+    private func descendant(in root: NSView, identifier: String) -> NSView? {
+        if root.accessibilityIdentifier() == identifier { return root }
+        return root.subviews.lazy.compactMap { descendant(in: $0, identifier: identifier) }.first
     }
 }

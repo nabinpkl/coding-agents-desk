@@ -34,6 +34,19 @@ final class WorkspaceDesktopSwitcher {
         return WorkspaceDesktopAssignment(spaceID: activeSpaceId, displayID: activeDisplayId, ordinal: ordinal)
     }
 
+    /// Live, human-facing Desktop numbers in Mission Control order. These are deliberately derived
+    /// for each render instead of persisted because display topology and Space ordering can change.
+    func missionControlNumbersBySpaceID() -> [UInt64: Int] {
+        guard let state = state() else { return [:] }
+        var numbers: [UInt64: Int] = [:]
+        var nextNumber = 1
+        for space in state.spaces where space.type == 0 {
+            numbers[space.id] = nextNumber
+            nextNumber += 1
+        }
+        return numbers
+    }
+
     /// The live user Desktops on the active display, for the switcher / audit.
     func desktops() -> [WorkspaceDesktop] {
         guard let state = state(), let activeDisplayId = state.activeDisplayId else { return [] }

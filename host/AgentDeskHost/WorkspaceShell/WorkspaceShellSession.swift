@@ -225,6 +225,12 @@ final class WorkspaceShellSession {
         }
     }
 
+    /// Human-facing Desktop numbers for the current topology. Switching continues to use the
+    /// persisted exact Space identity plus its display-local fallback coordinate.
+    var missionControlNumbersBySpaceID: [UInt64: Int] {
+        desktopSwitcher.missionControlNumbersBySpaceID()
+    }
+
     /// Toggle a workspace's desktop auto-assign (a row's A toggle).
     func setDesktopAutoAssign(_ id: UUID, enabled: Bool) {
         guard store.workspace(id: id) != nil else { return }

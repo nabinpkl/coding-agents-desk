@@ -326,6 +326,7 @@ final class WorkspaceShellPresenter: NSObject {
             MainActor.assumeIsolated {
                 DockDisplayMonitorCache.shared.refreshFromScreens()
                 self?.dockGeometry.refresh()
+                self?.refreshSwitcher()
                 self?.relayout()
             }
         }
@@ -337,6 +338,7 @@ final class WorkspaceShellPresenter: NSObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.session?.reconcileFromObservedDesktop()
+                self?.refreshSwitcher()
                 // The active Desktop changed; if the strip is showing, re-snapshot so the active-pill
                 // highlight and per-desktop grouping follow.
                 self?.dockPresenter?.refreshIfVisible()
@@ -687,7 +689,11 @@ final class WorkspaceShellPresenter: NSObject {
     // MARK: - Switcher render
 
     private func refreshSwitcher() {
-        switcher.render(workspaces: session?.store.workspaces ?? [], activeID: session?.store.activeID)
+        switcher.render(
+            workspaces: session?.store.workspaces ?? [],
+            activeID: session?.store.activeID,
+            missionControlNumbersBySpaceID: session?.missionControlNumbersBySpaceID ?? [:]
+        )
         sidebarTitleLabel.stringValue = (session?.store.active?.name).map { $0.uppercased() } ?? "WORKSPACE"
     }
 
