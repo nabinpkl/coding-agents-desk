@@ -120,6 +120,12 @@ without changing the one-recorder and extension-authoritative generation model.
   the workspace selected on the previous Desktop; persist the empty selection and cover the
   coordinator path with a regression test.
 
+## Exact Workspace/Desktop activation
+
+- [ ] R98. Replace active-display-relative workspace switching with a target-display Dock gesture:
+  read that display's `Current Space`, compute its exact assignment delta, and locate the synthesized
+  swipe on that display; verification is pending the user-run host relaunch.
+
 ## Promotion log
 
 ```text
@@ -142,4 +148,5 @@ D94      2026-07-22  landed      one bounded WKWebView and xterm terminal runtim
 D95      2026-07-22  landed      opt-in bounded paired-client screenshots and protocol 14
 D96      2026-07-23  landed      event-driven Mission Control topology reconciliation by Space ID
 D97      2026-07-23  landed      unassigned Desktops clear the active workspace selection
+R98      2026-07-23  pending     target-display Dock gesture switching awaiting user verification
 ```

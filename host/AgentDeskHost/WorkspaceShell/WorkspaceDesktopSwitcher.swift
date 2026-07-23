@@ -11,25 +11,32 @@ public struct WorkspaceMonitorPresentation: Equatable {
     }
 }
 
-/// Switches the macOS Desktop (Space) to a workspace's assigned Desktop by driving AgentDesk's
-/// existing Spaces control (ADR-0054). The agent-workspace-ide donor synthesized Dock-swipe CGEvents
-/// and polled SkyLight because it had no Spaces provider; AgentDesk already owns one with a verified
-/// direct space-set, so this computes the ordinal delta to the target Desktop and reuses its
-/// relative-step switch. The `state`/`commit` seams (backed by `SpacesProvider`) keep the pure
-/// ordinal math unit-testable.
+/// Switches the macOS Desktop (Space) to a workspace's assigned Desktop through AgentDesk's existing
+/// Dock-gesture control (ADR-0054). Workspace assignments identify an exact display and Space; the
+/// switcher reads that display's own current Space and computes the relative gesture within it.
 @MainActor
 final class WorkspaceDesktopSwitcher {
     private let state: () -> DesktopState?
-    private let commit: (Int) -> Void
+    private let currentSpaceID: (_ displayID: String) -> UInt64?
+    private let commit: (_ delta: Int, _ displayID: String) -> Bool
 
-    init(state: @escaping () -> DesktopState?, commit: @escaping (Int) -> Void) {
+    init(
+        state: @escaping () -> DesktopState?,
+        currentSpaceID: @escaping (_ displayID: String) -> UInt64?,
+        commit: @escaping (_ delta: Int, _ displayID: String) -> Bool
+    ) {
         self.state = state
+        self.currentSpaceID = currentSpaceID
         self.commit = commit
     }
 
     /// Convenience for production wiring over the host's SpacesProvider.
     convenience init(spaces: SpacesProvider) {
-        self.init(state: { spaces.current() }, commit: { spaces.commitStep(delta: $0) })
+        self.init(
+            state: { spaces.current() },
+            currentSpaceID: { spaces.currentSpaceID(on: $0) },
+            commit: { spaces.commitWorkspaceStep(delta: $0, displayId: $1) }
+        )
     }
 
     /// The Desktop currently active, as a workspace assignment. Nil when unavailable or the active
@@ -111,25 +118,20 @@ final class WorkspaceDesktopSwitcher {
         currentAssignment().map { assignment.matches($0) } ?? false
     }
 
-    /// Switch to the assignment's Desktop. Returns false when it can't be resolved on the currently
-    /// active display (e.g. the workspace is assigned to a Desktop on another monitor). The switch
-    /// itself is async (the Space animates) inside the injected `commit`.
+    /// Switch to the assignment's exact display and Space through Dock's gesture state machine.
+    /// Returns false when the target or that display's current user Desktop cannot be resolved.
     @discardableResult
     func switchToDesktop(_ assignment: WorkspaceDesktopAssignment) -> Bool {
         guard let state = state(),
-              let activeDisplayId = state.activeDisplayId,
-              let activeSpaceId = state.activeSpaceId
+              let currentSpaceID = currentSpaceID(assignment.displayID)
         else { return false }
-        let userSpaces = userSpaces(on: activeDisplayId, in: state)
-        guard let activeOrdinal = userSpaces.firstIndex(where: { $0.id == activeSpaceId }) else { return false }
-        // Space id64 is the identity. Display and ordinal are presentation coordinates only; using
-        // them as a fallback can silently route an unresolved assignment to a different Desktop.
-        let targetOrdinal = userSpaces.firstIndex(where: { $0.id == assignment.spaceID })
-        guard let targetOrdinal, userSpaces.indices.contains(targetOrdinal) else { return false }
-        let delta = targetOrdinal - activeOrdinal
+        let userSpaces = userSpaces(on: assignment.displayID, in: state)
+        guard let currentIndex = userSpaces.firstIndex(where: { $0.id == currentSpaceID }),
+              let targetIndex = userSpaces.firstIndex(where: { $0.id == assignment.spaceID })
+        else { return false }
+        let delta = targetIndex - currentIndex
         guard delta != 0 else { return true }
-        commit(delta)
-        return true
+        return commit(delta, assignment.displayID)
     }
 
     private func userSpaces(on displayId: String, in state: DesktopState) -> [SpaceMetadata] {

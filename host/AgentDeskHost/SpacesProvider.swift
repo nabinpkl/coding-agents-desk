@@ -382,17 +382,65 @@ final class SpacesProvider {
         }
     }
 
-    private func commitStepViaDockSwipe(delta: Int) {
+    /// The Desktop currently visible on one display. `SLSGetActiveSpace` reports only the globally
+    /// active display, while each managed-display record carries its own `Current Space`.
+    func currentSpaceID(on displayId: String) -> UInt64? {
+        guard let sl = SkyLight.shared else {
+            logger.error("current Space lookup failed: SkyLight private framework not loadable")
+            return nil
+        }
+        let cid = sl.mainConnectionID()
+        guard let raw = sl.copyManagedDisplaySpaces(cid),
+              let displays = raw as? [[String: Any]],
+              let display = displays.first(where: { $0["Display Identifier"] as? String == displayId }),
+              let current = display["Current Space"] as? [String: Any],
+              let spaceId = (current["id64"] as? NSNumber)?.uint64Value
+        else {
+            logger.error("current Space lookup failed display=\(displayId, privacy: .public)")
+            return nil
+        }
+        return spaceId
+    }
+
+    /// Commit a workspace switch through Dock's gesture state machine on one exact display. The
+    /// event location routes the synthetic swipe to that display without moving the system cursor.
+    @discardableResult
+    func commitWorkspaceStep(delta: Int, displayId: String) -> Bool {
+        guard delta != 0 else { return true }
+        guard let bounds = HostDisplayResolver.displaysBySkyLightId()[displayId]?.bounds else {
+            logger.error("workspace Dock swipe failed: display unavailable \(displayId, privacy: .public)")
+            return false
+        }
+        let eventLocation = CGPoint(x: bounds.midX, y: bounds.midY)
+        switchQueue.async { [weak self] in
+            guard let self else { return }
+            self.logger.notice(
+                "workspace Dock swipe display=\(displayId, privacy: .public) delta=\(delta, privacy: .public)"
+            )
+            self.commitStepViaDockSwipe(delta: delta, eventLocation: eventLocation)
+        }
+        return true
+    }
+
+    private func commitStepViaDockSwipe(delta: Int, eventLocation: CGPoint? = nil) {
         let steps = abs(delta)
         let dir: Float = delta > 0 ? 1.0 : -1.0
         let gapMs = interCycleGapMs
         for i in 0..<steps {
-            postDockSwipeFrame(phase: .began, progress: 0, velocityX: 0)
             postDockSwipeFrame(
-                phase: .changed, progress: dir * 0.5, velocityX: dir * 1500
+                phase: .began, progress: 0, velocityX: 0, eventLocation: eventLocation
             )
             postDockSwipeFrame(
-                phase: .ended, progress: dir, velocityX: dir * 2000
+                phase: .changed,
+                progress: dir * 0.5,
+                velocityX: dir * 1500,
+                eventLocation: eventLocation
+            )
+            postDockSwipeFrame(
+                phase: .ended,
+                progress: dir,
+                velocityX: dir * 2000,
+                eventLocation: eventLocation
             )
             if gapMs > 0, i < steps - 1 {
                 usleep(gapMs * 1000)
@@ -473,11 +521,15 @@ final class SpacesProvider {
     func postDockSwipeFrame(
         phase: NormalizedInput.SwipePhase,
         progress: Float,
-        velocityX: Float
+        velocityX: Float,
+        eventLocation: CGPoint? = nil
     ) -> Bool {
         guard let event = CGEvent(source: nil) else {
             logger.error("CGEvent(source:nil) returned nil")
             return false
+        }
+        if let eventLocation {
+            event.location = eventLocation
         }
         event.setIntegerValueField(DockSwipeField.cgsEventType, value: DockSwipeConstant.dockControl)
         event.setIntegerValueField(DockSwipeField.gestureHIDType, value: DockSwipeConstant.dockSwipeHIDType)

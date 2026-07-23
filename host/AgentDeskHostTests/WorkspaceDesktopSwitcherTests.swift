@@ -20,56 +20,89 @@ struct WorkspaceDesktopSwitcherTests {
     @Test func currentAssignmentReadsTheActiveUserDesktop() {
         let switcher = WorkspaceDesktopSwitcher(
             state: { self.desktopState(active: 20, spaces: [(10, 0), (20, 1), (30, 2)]) },
-            commit: { _ in }
+            currentSpaceID: { _ in 20 },
+            commit: { _, _ in true }
         )
         #expect(switcher.currentAssignment() == WorkspaceDesktopAssignment(spaceID: 20, displayID: "D1", ordinal: 1))
     }
 
-    @Test func switchByExactSpaceIdCommitsTheOrdinalDelta() {
-        var committed: [Int] = []
+    @Test func switchByExactSpaceIdCommitsTheAssignedDisplayDelta() {
+        var committedDelta: Int?
+        var committedDisplayID: String?
         let switcher = WorkspaceDesktopSwitcher(
             state: { self.desktopState(active: 10, spaces: [(10, 0), (20, 1), (30, 2)]) },
-            commit: { committed.append($0) }
+            currentSpaceID: { _ in 10 },
+            commit: {
+                committedDelta = $0
+                committedDisplayID = $1
+                return true
+            }
         )
         #expect(switcher.switchToDesktop(WorkspaceDesktopAssignment(spaceID: 30, displayID: "D1", ordinal: 2)))
-        #expect(committed == [2]) // target ordinal 2 - active ordinal 0
+        #expect(committedDelta == 2)
+        #expect(committedDisplayID == "D1")
     }
 
     @Test func switchRefusesAStaleSpaceIdEvenWhenItsOldOrdinalStillExists() {
-        var committed: [Int] = []
+        var committedDelta: Int?
         let switcher = WorkspaceDesktopSwitcher(
             state: { self.desktopState(active: 11, spaces: [(11, 0), (22, 1), (33, 2)]) },
-            commit: { committed.append($0) }
+            currentSpaceID: { _ in 11 },
+            commit: { delta, _ in
+                committedDelta = delta
+                return true
+            }
         )
         #expect(!switcher.switchToDesktop(WorkspaceDesktopAssignment(spaceID: 99, displayID: "D1", ordinal: 1)))
-        #expect(committed.isEmpty)
+        #expect(committedDelta == nil)
     }
 
     @Test func switchToTheAlreadyActiveDesktopIsANoOp() {
-        var committed: [Int] = []
+        var committedDelta: Int?
         let switcher = WorkspaceDesktopSwitcher(
             state: { self.desktopState(active: 20, spaces: [(10, 0), (20, 1)]) },
-            commit: { committed.append($0) }
+            currentSpaceID: { _ in 20 },
+            commit: { delta, _ in
+                committedDelta = delta
+                return true
+            }
         )
         #expect(switcher.switchToDesktop(WorkspaceDesktopAssignment(spaceID: 20, displayID: "D1", ordinal: 1)))
-        #expect(committed.isEmpty)
+        #expect(committedDelta == nil)
     }
 
-    @Test func switchToADesktopOnAnotherDisplayFailsWithoutCommitting() {
-        var committed: [Int] = []
-        let switcher = WorkspaceDesktopSwitcher(
-            state: { self.desktopState(active: 10, display: "D1", spaces: [(10, 0), (20, 1)]) },
-            commit: { committed.append($0) }
+    @Test func switchToADesktopOnAnotherDisplayUsesThatDisplaysCurrentSpace() {
+        let state = DesktopState(
+            displays: [],
+            spaces: [
+                SpaceMetadata(id: 10, displayId: "D1", index: 0, type: 0),
+                SpaceMetadata(id: 66, displayId: "D2", index: 0, type: 0),
+                SpaceMetadata(id: 77, displayId: "D2", index: 1, type: 0),
+            ],
+            activeDisplayId: "D1",
+            activeSpaceId: 10
         )
-        // Assignment targets display D2, but D1 is active: not resolvable, so no switch and no commit.
-        #expect(!switcher.switchToDesktop(WorkspaceDesktopAssignment(spaceID: 77, displayID: "D2", ordinal: 0)))
-        #expect(committed.isEmpty)
+        var committedDelta: Int?
+        var committedDisplayID: String?
+        let switcher = WorkspaceDesktopSwitcher(
+            state: { state },
+            currentSpaceID: { displayID in displayID == "D2" ? 66 : 10 },
+            commit: {
+                committedDelta = $0
+                committedDisplayID = $1
+                return true
+            }
+        )
+        #expect(switcher.switchToDesktop(WorkspaceDesktopAssignment(spaceID: 77, displayID: "D2", ordinal: 1)))
+        #expect(committedDelta == 1)
+        #expect(committedDisplayID == "D2")
     }
 
     @Test func desktopsEnumeratesUserSpacesWithTheActiveFlag() {
         let switcher = WorkspaceDesktopSwitcher(
             state: { self.desktopState(active: 20, spaces: [(10, 0), (20, 1)]) },
-            commit: { _ in }
+            currentSpaceID: { _ in 20 },
+            commit: { _, _ in true }
         )
         let desktops = switcher.desktops()
         #expect(desktops.map(\.id) == [10, 20])
@@ -88,7 +121,11 @@ struct WorkspaceDesktopSwitcherTests {
             activeDisplayId: "D2",
             activeSpaceId: 20
         )
-        let switcher = WorkspaceDesktopSwitcher(state: { state }, commit: { _ in })
+        let switcher = WorkspaceDesktopSwitcher(
+            state: { state },
+            currentSpaceID: { _ in 20 },
+            commit: { _, _ in true }
+        )
 
         let desktops = switcher.desktops()
 
@@ -108,7 +145,11 @@ struct WorkspaceDesktopSwitcherTests {
             activeDisplayId: "D2",
             activeSpaceId: 40
         )
-        let switcher = WorkspaceDesktopSwitcher(state: { state }, commit: { _ in })
+        let switcher = WorkspaceDesktopSwitcher(
+            state: { state },
+            currentSpaceID: { _ in 40 },
+            commit: { _, _ in true }
+        )
 
         #expect(switcher.missionControlNumbersBySpaceID() == [10: 1, 20: 2, 30: 3, 40: 4])
     }
@@ -123,7 +164,11 @@ struct WorkspaceDesktopSwitcherTests {
             activeDisplayId: "D1",
             activeSpaceId: nil
         )
-        let switcher = WorkspaceDesktopSwitcher(state: { state }, commit: { _ in })
+        let switcher = WorkspaceDesktopSwitcher(
+            state: { state },
+            currentSpaceID: { _ in nil },
+            commit: { _, _ in true }
+        )
 
         let presentations = switcher.monitorPresentationsByDisplayID()
 
@@ -142,7 +187,11 @@ struct WorkspaceDesktopSwitcherTests {
             activeDisplayId: "D1",
             activeSpaceId: nil
         )
-        let switcher = WorkspaceDesktopSwitcher(state: { state }, commit: { _ in })
+        let switcher = WorkspaceDesktopSwitcher(
+            state: { state },
+            currentSpaceID: { _ in nil },
+            commit: { _, _ in true }
+        )
 
         let presentations = switcher.monitorPresentationsByDisplayID()
 
