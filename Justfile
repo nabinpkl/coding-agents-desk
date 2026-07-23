@@ -663,10 +663,12 @@ iphone-log-collect variant="stable":
 # variant: "stable" (default) or "dev" (the experimental side-by-side host:
 # bundle id {{host_dev_bundle_id}}, DEV-badged icon, separate derived-data dir,
 # tier-derived ports). The dev host runs concurrently with the stable one.
-host-run-dev variant="stable" install_live_bridge="true":
+host-run-dev variant="stable" install_live_bridge="true": build-agent-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
-    # DOM mirror (Chrome page mirroring, ADR-0038) is baked on by default for every
+    # Like host-run, this builds the real bundled artifacts (agent sidecar + webview,
+    # gesture/voice webview + voice-server source) first, so a dev launch always
+    # reflects the latest code. DOM mirror (Chrome page mirroring, ADR-0038) is baked on by default for every
     # variant now, so no AGENTDESK_DOM_MIRROR_ENABLED override is injected here; the
     # host's own code default carries it (single source of truth). The native-messaging
     # bridge is wired at the end of this recipe so browser mode works out of the box.
@@ -801,7 +803,11 @@ host-run-dev variant="stable" install_live_bridge="true":
 # performance. A Debug (-Onone) host pegs a core in the crisp tile codec (OwnedTileCodec.extractTileWithHash
 # per-byte Range loops); Release optimizes that away (~100% -> ~30% CPU). For fast, breakpoint-friendly
 # iteration use the Debug twin host-run-dev; both share the same kill + rebuild + relaunch lifecycle.
-host-run variant="stable":
+# Builds the real bundled artifacts first (agent sidecar + agent webview, and the
+# gesture/voice webview + voice-server source), so every launch reflects the latest
+# code instead of stale staged binaries. Composites therefore no longer pre-build
+# these before calling host-run.
+host-run variant="stable": build-agent-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
     # DOM mirror is baked on by default (see host-run-dev); no enable override injected here.
@@ -1146,8 +1152,6 @@ dom-mirror-sim channel="chrome":
 dom-mirror-device-run:
     #!/usr/bin/env bash
     set -euo pipefail
-    just build-agent-sidecar
-    just build-agent-webview
     launchctl setenv AGENTDESK_DOM_MIRROR_ENABLED 1
     trap 'launchctl unsetenv AGENTDESK_DOM_MIRROR_ENABLED 2>/dev/null || true' EXIT
     just host-run
@@ -1173,8 +1177,6 @@ dom-mirror-device-run:
 dom-mirror-device-run-dev:
     #!/usr/bin/env bash
     set -euo pipefail
-    just build-agent-sidecar
-    just build-agent-webview
     launchctl setenv AGENTDESK_DOM_MIRROR_ENABLED 1
     trap 'launchctl unsetenv AGENTDESK_DOM_MIRROR_ENABLED 2>/dev/null || true' EXIT
     just host-run-dev dev
@@ -1207,14 +1209,11 @@ dom-mirror-device-run-dev:
 # {{iphone_console_log}} unbounded with no teardown. For bounded background capture
 # use `motion-verify`, which tears the stream down after a fixed window.)
 #
-# Each first builds the REAL agent-feed artifacts the app bundles -- the compiled
-# Bun engine sidecar (host resource) and the Vite webview bundle (client resource)
-# -- so the phone agent surface serves real projects/threads, not the build
-# placeholder. Without these the device shows an empty "No projects yet" feed.
-# (This mirrors what agent-feed-sim / agent-feed-sim-pair do for the simulator.)
+# The real bundled artifacts (Bun engine sidecar + Vite agent webview, and the
+# gesture/voice webview + voice-server source) are built by host-run / host-run-dev
+# itself now, so these composites no longer pre-build them -- the phone agent
+# surface serves real projects/threads, not a build placeholder.
 fresh-install:
-    just build-agent-sidecar
-    just build-agent-webview
     just host-run
     just client-reinstall-release
     just pair-iphone stable
@@ -1226,28 +1225,20 @@ fresh-install:
 # host waits for menu-bar pairing. The upload archives into its own derived-data dir, so it does not
 # disturb the host launched just above. Bump client_marketing_version first if this ships a change.
 testflight-fresh:
-    just build-agent-sidecar
-    just build-agent-webview
     just host-run
     just testflight-upload stable
 
 fresh-install-dev:
-    just build-agent-sidecar
-    just build-agent-webview
     just host-run-dev dev
     just client-reinstall dev
     just pair-iphone dev
 
 fresh-release-diagnostic-run:
-    just build-agent-sidecar
-    just build-agent-webview
     just host-run
     just client-reinstall-release
     just iphone-console-run stable
 
 fresh-diagnostic-run-dev:
-    just build-agent-sidecar
-    just build-agent-webview
     just host-run-dev dev
     just client-reinstall dev
     just iphone-console-run dev
@@ -1490,32 +1481,27 @@ sim-fresh-install:
 # DISTINCTION: agent-feed-sim BLOCKS with an attached console (use it to watch
 # host/client traces live); agent-feed-sim-pair RETURNS (use it to then drive
 # the app with `just ui-flow`). Both do a real build+install of host AND client;
-# pair-sim does NOT (relaunch only); sim-fresh-install builds host+client but
-# bundles the artifact placeholders, not the real sidecar/webview.
+# pair-sim does NOT (relaunch only). agent-feed-sim runs the DEBUG stack
+# (host-run-dev); sim-fresh-install runs the RELEASE stack (host-run). Both now
+# bundle the real artifacts, since host-run / host-run-dev build them first.
 #
-# Full agent-feed end-to-end simulator bring-up, blocking (attached console).
-# Unlike sim-fresh-install, this first builds the REAL agent-feed artifacts the
-# app bundles -- the compiled Bun engine sidecar (host resource) and the Vite
-# webview bundle (client resource) -- so the agent surface serves real data
-# instead of the build-placeholder. Then it kills+rebuilds+relaunches the host,
-# uninstalls+rebuilds+installs the client, pairs, and tails the client console
-# to {{sim_console_log}}. Blocks. Use agent-feed-sim-pair for the non-blocking
-# variant when driving with Maestro (just ui-flow agent-feed-smoke).
+# Full agent-feed end-to-end simulator bring-up, blocking (attached console). It
+# kills+rebuilds+relaunches the host (host-run-dev builds the real Bun sidecar +
+# agent/gesture/voice webviews first), uninstalls+rebuilds+installs the client,
+# pairs, and tails the client console to {{sim_console_log}}. Blocks. Use
+# agent-feed-sim-pair for the non-blocking variant driven by Maestro (just
+# ui-flow agent-feed-smoke).
 agent-feed-sim:
-    just build-agent-sidecar
-    just build-agent-webview
     just host-run-dev
     just client-sim-reinstall
     just dom-bridge-reinstall stable
     just sim-console-run
 
-# Non-blocking twin of agent-feed-sim: builds the real artifacts, rebuilds and
-# reinstalls host + client, then does a non-blocking paired launch (pair-sim)
-# so the app stays open for `just ui-flow <flow>` (e.g. agent-feed-smoke) to
-# drive it and capture screenshots.
+# Non-blocking twin of agent-feed-sim: rebuilds and reinstalls host + client
+# (host-run-dev builds the real artifacts first), then does a non-blocking paired
+# launch (pair-sim) so the app stays open for `just ui-flow <flow>` (e.g.
+# agent-feed-smoke) to drive it and capture screenshots.
 agent-feed-sim-pair:
-    just build-agent-sidecar
-    just build-agent-webview
     just host-run-dev
     just client-sim-reinstall
     just dom-bridge-reinstall stable
@@ -1530,16 +1516,12 @@ agent-feed-sim-pair:
 # attached console (watch DOM-mirror probes + traces live); agent-feed-sim-pair-dev
 # RETURNS so you can drive the app with `just ui-flow <flow>`.
 agent-feed-sim-dev:
-    just build-agent-sidecar
-    just build-agent-webview
     just host-run-dev dev
     just client-sim-reinstall dev
     just dom-bridge-reinstall dev
     just sim-console-run dev
 
 agent-feed-sim-pair-dev:
-    just build-agent-sidecar
-    just build-agent-webview
     just host-run-dev dev
     just client-sim-reinstall dev
     just dom-bridge-reinstall dev

@@ -38,6 +38,12 @@ host/AgentDeskHost/atc-sidecar
 # by `just ensure-pty-manager-placeholder` for host builds.
 host/AgentDeskHost/pty-manager
 
+# Voice sidecar inputs staged into the app bundle by `just build-voice-sidecar`
+# (run automatically by host-run): the `uv` binary and a read-only copy of the
+# in-repo interaction-agent source. Regenerated on demand, never tracked.
+host/AgentDeskHost/uv
+host/AgentDeskHost/voice-src/
+
 # Agent feed webview bundle. Never tracked: the real bundle (~5 MB) is produced
 # by `just build-agent-webview` and the placeholder is regenerated on demand by
 # `just ensure-webview-placeholder` (a dependency of `just sim-test`). A fresh
@@ -48,6 +54,8 @@ client/AgentDeskClient/AgentFeedWebview/*
 !client/AgentDeskClient/AgentFeedWebview/.gitkeep
 packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelWebview/*
 !packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelWebview/.gitkeep
+packages/InteractionPanel/Sources/InteractionPanel/Resources/InteractionPanelWebview/*
+!packages/InteractionPanel/Sources/InteractionPanel/Resources/InteractionPanelWebview/.gitkeep
 
 # Bun --compile temp artifacts
 *.bun-build
