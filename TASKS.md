@@ -143,6 +143,14 @@ the master descriptor.
   independent window on the current Desktop; isolate each window's feed and terminal endpoint, remove
   it from the registry after close, and make app termination await every open window.
 
+## Deterministic generated-artifact build pipeline
+
+- R124. Replace unconditional JavaScript dependency installation and mtime-churning generated-resource
+  writes with tested dependency-state and content-aware publication modules; make normal terminal
+  builds validate rather than mutate vendored xterm, remove duplicate TerminalEmulator compilation
+  from the fast gate, migrate the remaining generated web artifacts, and keep a warm serial
+  `just check` below 60 seconds without weakening test coverage or parallelizing PTY lifecycle tests.
+
 ## Promotion log
 
 ```text
@@ -159,4 +167,5 @@ D118-120 2026-07-24 landed       AgentDesk-owned AgentPanel Vite source and tran
 D121     2026-07-24  landed       layered no-cache Agent feed, live SSE, protocol 15, and timing gates
 D122     2026-07-24  landed       restored bundle-scoped host state after Agent Feed cache deletion
 D123     2026-07-24  landed       current-Desktop independent Agents windows beside Terminal
+R124     2026-07-24  active       deterministic generated artifacts and sub-60-second warm check
 ```

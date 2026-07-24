@@ -403,6 +403,9 @@ build-agent-webview:
 agent-panel-web-check:
     cd '{{agent_panel_web_dir}}' && bun install --frozen-lockfile && bun run typecheck && bun run test
 
+build-tools-check:
+    node --test tools/build-system/*.test.mjs
+
 # Build the gesture/voice interaction webview bundle into InteractionPanel's
 # package resources. The gesture-agent web app is the authored renderer; its
 # Vite embed output is copied here before the consuming app build. Requires
@@ -675,7 +678,7 @@ dom-mirror-e2e: ext-stamp
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
 # everything with `just check-all`.
-check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar-check agent-panel-web-check ensure-pty-runtime-placeholder workspace-ide-fitness terminal-web-build
+check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar-check agent-panel-web-check build-tools-check ensure-pty-runtime-placeholder workspace-ide-fitness terminal-web-build
     #!/usr/bin/env bash
     set -euo pipefail
     sh tools/media-architecture-guard.sh
