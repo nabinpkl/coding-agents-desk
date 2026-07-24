@@ -12,13 +12,13 @@ One user (the author). One macOS host. One iPhone client. Tailscale already on b
 
 ## Problem
 
-The author's coding work is split across project folders, terminals, agents, browser windows, and macOS Spaces. AgentDesk already owned remote control, Spaces, PTYs, and ATC activity, while the sibling `agent-workspace-ide` owned the workspace sidebar and file editor — two applications that left workspace state and control fragmented, with the iPhone unable to browse or edit the same authoritative workspace files. AgentDesk has since absorbed the workspace shell, local editing, and terminal packages and retired that donor (ADR-0052, ADR-0053), so one application now owns the authoritative workspace.
+The author's coding work is split across project folders, terminals, agents, browser windows, and macOS Spaces. AgentDesk already owned remote control, Spaces, PTYs, and agent activity, while the sibling `agent-workspace-ide` owned the workspace sidebar and file editor — two applications that left workspace state and control fragmented, with the iPhone unable to browse or edit the same authoritative workspace files. AgentDesk has since absorbed the workspace shell, local editing, and terminal packages and retired that donor (ADR-0052, ADR-0053), so one application now owns the authoritative workspace.
 
 Secondary pain: AnyDesk on phone often degrades to a black canvas with a moving cursor, no native trackpad gestures (two-finger scroll, right-click, drag), and text crispness on Retina-scale content is mushy.
 
 ## Solution
 
-Native iOS app plus native macOS menu-bar workspace host, paired over Tailscale. The host owns registered workspace roots, an auto-hiding AppKit sidebar and top bar, editable local file windows, PTY sessions, ATC activity, browser integration, Spaces, and hardware-encoded remote desktop. The iPhone projects the same system through purpose-built Control, Agents, Workspace, IDE, Terminal, and Browser surfaces. The embedded IDE is a shared responsive WebKit workbench inside native AppKit and UIKit pane shells; it is not an internet browser client.
+Native iOS app plus native macOS menu-bar workspace host, paired over Tailscale. The host owns registered workspace roots, an auto-hiding AppKit sidebar and top bar, editable local file windows, PTY sessions, agent activity, browser integration, Spaces, and hardware-encoded remote desktop. The iPhone projects the same system through purpose-built Control, Agents, Workspace, IDE, Terminal, and Browser surfaces. The embedded IDE is a shared responsive WebKit workbench inside native AppKit and UIKit pane shells; it is not an internet browser client.
 
 Persistent PTY sessions keep their master descriptors in a small Rust vault while the replaceable Rust
 manager owns bounded terminal display state, not a viewer. A late or restored macOS/iOS client
@@ -57,7 +57,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 10. macOS host starts an auto-hiding workspace sidebar and top bar while remaining a menu-bar application with no Dock icon.
 11. Add project folders as persistent workspaces, browse their files, and open text, Markdown, HTML, and notebooks in the host-owned viewer/editor.
 12. Edit workspace files locally with atomic autosave and visible external-change conflicts.
-13. Open a macOS Agents window from the top bar and browse all ATC projects, sessions, history, and live activity.
+13. Open a macOS Agents window from the top bar and browse discovered Claude and Codex projects, sessions, history, and live activity.
 14. On iPhone, browse the same registered workspace roots, preview files, edit UTF-8 text, and save only when the host revision still matches.
 15. On macOS, inspect running apps by Desktop in the bottom Dock-enrichment strip, focus an exact
     Desktop-scoped window without moving it, and transactionally swap the ordinary window contents of

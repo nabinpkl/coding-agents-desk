@@ -146,7 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var browserProjectionLane: BrowserProjectionLocalLane?
     private var browserProjectionViewportCoordinator: BrowserProjectionViewportCoordinator?
     // R24: the macOS Agents window, toggled from the shell's top-bar "Agents" command. Backed by the
-    // host-owned ATC sidecar through AgentPanel, independent of the QUIC-lane agent feed.
+    // host-owned transcript sidecar through AgentPanel, independent of the QUIC-lane agent feed.
     private var agentWindowController: AgentWindowController?
     private var agentWindowTerminationTask: Task<Void, Never>?
     // The macOS gesture window: the shared InteractionPanel webview runs camera +
@@ -179,13 +179,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         diagnosticsRequester: diagnosticsRequester,
         screenshotRequester: screenshotRequester
     )
-    // Agent engine sidecar: spawns the ATC binary and exposes its loopback base URL.
-    private lazy var agentEngineSidecar: AgentEngineSidecar? = {
-        guard let binaryURL = Config.agentSidecarURL else {
+    // Agent feed sidecar: owns transcript discovery and exposes its loopback API.
+    private lazy var agentFeedSidecar: AgentFeedSidecarProcess? = {
+        guard let binaryURL = Config.agentFeedSidecarURL else {
             launchAgentLogger.error("agent sidecar binary not found in bundle")
             return nil
         }
-        return AgentEngineSidecar(binaryURL: binaryURL, port: Config.agentSidecarPort)
+        return AgentFeedSidecarProcess(
+            binaryURL: binaryURL,
+            port: Config.agentFeedSidecarPort,
+            stateDirectory: Config.agentFeedSidecarStateDirectory
+        )
     }()
     // Voice server sidecar: spawns `voice-server` on loopback for the
     // InteractionPanel's voice UI (live capture + transcript). Built in
@@ -196,7 +200,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Bridge between the sidecar and the active session's input lane.
     private var agentFeedBridge: AgentFeedBridge?
     private lazy var agentSessionTerminalCoordinator: AgentSessionTerminalCoordinator = {
-        let sidecar = agentEngineSidecar
+        let sidecar = agentFeedSidecar
         return AgentSessionTerminalCoordinator(
             ptyClient: PtyClientAgentSessionTerminalAdapter(
                 client: PtyManagerSocketClient.makeClient()
@@ -313,7 +317,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startSpaceAgent()
         startDictationBar()
         startPtyManager()
-        startAgentEngineSidecar()
+        startAgentFeedSidecar()
         startVoiceEngineSidecar()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
@@ -437,7 +441,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         gestureWindowController = nil
         agentSayServer?.stop()
         signalingServer?.stop()
-        agentEngineSidecar?.stop()
+        agentFeedSidecar?.stop()
         voiceEngineSidecar?.stop()
     }
 
@@ -447,8 +451,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.action = #selector(togglePopover)
     }
 
-    private func startAgentEngineSidecar() {
-        agentEngineSidecar?.start()
+    private func startAgentFeedSidecar() {
+        agentFeedSidecar?.start()
     }
 
     private func startVoiceEngineSidecar() {
@@ -579,7 +583,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // it resolves the sidecar base URL lazily per request, same as the QUIC-lane wiring, so a
         // toggle that arrives while the sidecar is mid-restart fails transiently rather than for good.
         // The controller remains unpresented until the top-bar command invokes toggle().
-        let sidecar = agentEngineSidecar
+        let sidecar = agentFeedSidecar
         let agentWindow = AgentWindowController(
             sidecarClient: HttpSidecarClient(baseURLProvider: { [weak sidecar] in sidecar?.baseURL }),
             localTerminalEndpoint: localAgentSessionTerminalEndpoint,
@@ -1176,7 +1180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // sidecar base URL is resolved lazily per request, so a subscribe that
         // arrives once the sidecar is back succeeds, and one that arrives while it
         // is still down fails transiently and the client retries.
-        let sidecar = agentEngineSidecar
+        let sidecar = agentFeedSidecar
         let httpClient = HttpSidecarClient(baseURLProvider: { [weak sidecar] in sidecar?.baseURL })
         let bridge = AgentFeedBridge(client: httpClient, send: { [weak server] data in
             server?.pushAgentData(data)

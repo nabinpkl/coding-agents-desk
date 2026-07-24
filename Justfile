@@ -107,27 +107,24 @@ client_dev_ipa_path := client_dev_export_path + "/AgentDeskClient.ipa"
 host_marketing_version := env_var_or_default("AGENTDESK_HOST_VERSION", "1.6.0")
 client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.10.0")
 apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
-# Source directory for the ATC engine. Override via env when the engine repo
-# lives somewhere other than the default sibling path. This is the SSOT for
-# the engine source location; nothing in source code should hardcode the path.
-atc_engine_dir := env_var_or_default("AGENTDESK_ATC_ENGINE_DIR", justfile_directory() + "/../atc/engine")
-# Source directory for the ATC dashboard (webview build). Override via env when
-# the dashboard lives somewhere other than the default sibling path.
-atc_dashboard_dir := env_var_or_default("AGENTDESK_ATC_DASHBOARD_DIR", justfile_directory() + "/../atc/dashboard")
+# AgentDesk-owned source for transcript discovery, parsing, indexing, and feed
+# HTTP/SSE delivery.
+agent_feed_sidecar_dir := justfile_directory() + "/agent-feed/sidecar"
+# AgentDesk-owned Vite source for the shared AgentPanel webview.
+agent_panel_web_dir := justfile_directory() + "/packages/AgentPanel/Web"
 # Source directory for the AgentDesk-owned Rust PTY manager (moved in from the
 # agent-workspace-ide donor under R34). Override only for out-of-tree experiments.
 pty_manager_dir := env_var_or_default("AGENTDESK_PTY_MANAGER_DIR", justfile_directory() + "/terminal/pty-manager")
 # The sidecar binary is placed alongside the Swift sources in AgentDeskHost/
 # so Xcode picks it up as a bundled resource (it is wired into the project's
-# Resources build phase). It is loaded at runtime via Config.agentSidecarURL.
-sidecar_out := justfile_directory() + "/host/AgentDeskHost/atc-sidecar"
+# Resources build phase). It is loaded at runtime via Config.agentFeedSidecarURL.
+agent_feed_sidecar_out := justfile_directory() + "/host/AgentDeskHost/agent-feed-sidecar"
 # The PTY manager binary is also placed alongside the host Swift sources so
 # Xcode bundles it as a resource. It is loaded via Config.ptyManagerURL.
 pty_manager_out := justfile_directory() + "/host/AgentDeskHost/pty-manager"
 pty_vault_out := justfile_directory() + "/host/AgentDeskHost/pty-vault"
-# The reusable AgentPanel package owns the generated webview resource for both
-# AppKit and UIKit consumers. The ATC dashboard remains the authored renderer;
-# its Vite output is copied here before the consuming app build.
+# The reusable AgentPanel package owns the authored Vite source and generated
+# webview resource for both AppKit and UIKit consumers.
 webview_out := justfile_directory() + "/packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelWebview"
 # Source directory for the gesture/voice interaction web app (the shared webview
 # authored once in gesture-agent, now vendored in-repo under ./gesture-agent).
@@ -151,17 +148,15 @@ voice_src_out := justfile_directory() + "/host/AgentDeskHost/voice-src"
 stamps_dir := justfile_directory() + "/.build/stamps"
 source_hash := justfile_directory() + "/tools/source-hash.sh"
 
-# Ensure a minimal placeholder exists at the sidecar output path. The real
-# ~64 MB binary is gitignored (never tracked), so a fresh checkout has nothing
-# there; without a placeholder, Xcode's Copy-Resources phase would fail for a
-# path it expects to bundle. This writes a tiny executable stub if and only if
-# the path is missing, so it never clobbers a real built binary.
-ensure-sidecar-placeholder:
+# Ensure a minimal placeholder exists at the sidecar output path. The compiled
+# binary is gitignored, so a fresh checkout needs a resource placeholder before
+# Xcode resolves the synchronized source group.
+ensure-agent-feed-sidecar-placeholder:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -e '{{sidecar_out}}' ]; then
-        printf '#!/bin/sh\necho "atc-sidecar placeholder - run: just build-agent-sidecar" >&2\nexit 1\n' > '{{sidecar_out}}'
-        chmod +x '{{sidecar_out}}'
+    if [ ! -e '{{agent_feed_sidecar_out}}' ]; then
+        printf '#!/bin/sh\necho "agent-feed-sidecar placeholder - run: just build-agent-feed-sidecar" >&2\nexit 1\n' > '{{agent_feed_sidecar_out}}'
+        chmod +x '{{agent_feed_sidecar_out}}'
     fi
 
 # Ensure a minimal placeholder exists at the PTY manager output path. The real
@@ -179,23 +174,23 @@ ensure-pty-runtime-placeholder:
         chmod +x '{{pty_vault_out}}'
     fi
 
-# Build the ATC engine sidecar into the host app bundle source dir. The result
-# is a self-contained executable (~64 MB) that the host spawns at runtime via
-# AgentEngineSidecar. It requires bun to be on PATH and OVERWRITES the
-# gitignored placeholder in place.
+# Build AgentDesk's transcript sidecar into the host app bundle source dir.
+# The result is a self-contained executable that AgentFeedSidecarProcess spawns
+# at runtime. It overwrites the gitignored placeholder in place.
 #
 # Distribution signing and notarization of this embedded binary is handled at
 # DMG packaging time, not here. Local/dev builds run unsigned or with the
 # local Developer ID applied during the normal Xcode codesign step.
-build-agent-sidecar:
+build-agent-feed-sidecar:
     #!/usr/bin/env bash
     set -euo pipefail
-    ENTRY='{{atc_engine_dir}}/src/server.ts'
-    OUT='{{sidecar_out}}'
-    STAMP='{{stamps_dir}}/agent-sidecar'
-    HASH="$('{{source_hash}}' '{{atc_engine_dir}}')"
+    SIDECAR='{{agent_feed_sidecar_dir}}'
+    ENTRY="$SIDECAR/src/server.ts"
+    OUT='{{agent_feed_sidecar_out}}'
+    STAMP='{{stamps_dir}}/agent-feed-sidecar'
+    HASH="$('{{source_hash}}' "$SIDECAR")"
     if [ -f "$OUT" ] && [ "$HASH" = "$(cat "$STAMP" 2>/dev/null || true)" ]; then
-        echo "build-agent-sidecar: engine unchanged, skipping (bun --compile)"
+        echo "build-agent-feed-sidecar: source unchanged, skipping"
         exit 0
     fi
     TEMP_ROOT="${TMPDIR:-/tmp}"
@@ -212,10 +207,13 @@ build-agent-sidecar:
     # Leave Bun's own temp-cache selection alone; overriding BUN_TMPDIR makes
     # standalone compilation miss its normal fast path.
     cd "$BUILD_DIR"
-    bun build --compile "$ENTRY" --outfile "$BUILD_DIR/atc-sidecar"
-    chmod +x "$BUILD_DIR/atc-sidecar"
-    mv -f "$BUILD_DIR/atc-sidecar" "$OUT"
+    bun build --compile "$ENTRY" --outfile "$BUILD_DIR/agent-feed-sidecar"
+    chmod +x "$BUILD_DIR/agent-feed-sidecar"
+    mv -f "$BUILD_DIR/agent-feed-sidecar" "$OUT"
     mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"
+
+agent-feed-sidecar-check:
+    cd '{{agent_feed_sidecar_dir}}' && bun install --frozen-lockfile && bun run typecheck && bun run test
 
 # Build Agent Workspace IDE's Rust PTY manager into the host app bundle source
 # dir. The host launches this binary and bridges shared web terminal clients into its
@@ -232,18 +230,19 @@ build-pty-runtime:
     cp "$PTY/target/release/pty-vault" "$VAULT_OUT"
     chmod +x "$MANAGER_OUT" "$VAULT_OUT"
 
-# Build the real engine binary and run AgentEngineSidecar against it, curling
+# Build the real sidecar binary and run it directly, curling
 # /api/projects/digest on loopback to confirm the binary integrates end-to-end.
 # This is for manual/coordinator verification; it is NOT part of `just check`.
-sidecar-smoke: build-agent-sidecar
+agent-feed-sidecar-smoke: build-agent-feed-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
     PORT=47998
-    BINARY='{{sidecar_out}}'
-    echo "sidecar-smoke: launching $BINARY on port $PORT"
-    ATC_PORT=$PORT ATC_HOST=127.0.0.1 "$BINARY" &
+    BINARY='{{agent_feed_sidecar_out}}'
+    STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agent-feed-state.XXXXXX")"
+    echo "agent-feed-sidecar-smoke: launching $BINARY on port $PORT"
+    AGENT_FEED_PORT=$PORT AGENT_FEED_HOST=127.0.0.1 AGENT_FEED_STATE_DIR="$STATE_DIR" "$BINARY" &
     SPID=$!
-    trap "kill $SPID 2>/dev/null; wait $SPID 2>/dev/null" EXIT
+    trap "kill $SPID 2>/dev/null; wait $SPID 2>/dev/null; rm -rf '$STATE_DIR'" EXIT
     # Poll for up to 10 seconds.
     for i in $(seq 1 100); do
         if curl -sf http://127.0.0.1:$PORT/api/config > /dev/null 2>&1; then break; fi
@@ -253,18 +252,18 @@ sidecar-smoke: build-agent-sidecar
     # pretty-printer whose blocking stdout write can fail (BlockingIOError) and
     # mask a working integration. curl writes to a file, then we head-truncate.
     CFG=$(curl -sf "http://127.0.0.1:$PORT/api/config")
-    echo "sidecar-smoke: /api/config -> ${CFG}"
+    echo "agent-feed-sidecar-smoke: /api/config -> ${CFG}"
     DIGEST_FILE=$(mktemp)
     trap "kill $SPID 2>/dev/null; wait $SPID 2>/dev/null; rm -f $DIGEST_FILE" EXIT
     if ! curl -sf "http://127.0.0.1:$PORT/api/projects/digest" -o "$DIGEST_FILE"; then
-        echo "sidecar-smoke: FAIL - /api/projects/digest did not respond" >&2
+        echo "agent-feed-sidecar-smoke: FAIL - /api/projects/digest did not respond" >&2
         exit 1
     fi
     BYTES=$(wc -c < "$DIGEST_FILE" | tr -d ' ')
-    echo "sidecar-smoke: /api/projects/digest -> ${BYTES} bytes, first 800:"
+    echo "agent-feed-sidecar-smoke: /api/projects/digest -> ${BYTES} bytes, first 800:"
     head -c 800 "$DIGEST_FILE"
     echo ""
-    echo "sidecar-smoke: PASS"
+    echo "agent-feed-sidecar-smoke: PASS"
 
 # Keep the legacy recipe name while builds migrate to AgentPanel resources. A
 # clean checkout uses AgentPanelFixture; this recipe only verifies that fallback
@@ -304,32 +303,33 @@ workspace-ide-fitness:
 workspace-ide-test: workspace-ide-fitness
     cd packages/WorkspaceIDE && swift test
 
-# Build the ATC dashboard webview bundle into AgentPanel's package resources.
-# The package resource bundle then embeds the same renderer in macOS and iOS.
-# Requires bun on PATH and replaces any prior ignored Vite output in place.
+# Build AgentPanel's owned Vite project into its Swift package resources.
 build-agent-webview:
     #!/usr/bin/env bash
     set -euo pipefail
-    DASHBOARD='{{atc_dashboard_dir}}'
+    WEB='{{agent_panel_web_dir}}'
     OUT='{{webview_out}}'
     STAMP='{{stamps_dir}}/agent-webview'
-    HASH="$('{{source_hash}}' "$DASHBOARD")"
+    HASH="$('{{source_hash}}' "$WEB")"
     if [ -f "$OUT/index.html" ] && [ "$HASH" = "$(cat "$STAMP" 2>/dev/null || true)" ]; then
-        echo "build-agent-webview: dashboard unchanged, skipping"
+        echo "build-agent-webview: source unchanged, skipping"
         exit 0
     fi
-    echo "build-agent-webview: running bun run webview:build in $DASHBOARD"
-    cd "$DASHBOARD" && bun run webview:build
-    echo "build-agent-webview: copying webview-dist/ -> $OUT"
+    echo "build-agent-webview: building AgentPanel Web"
+    cd "$WEB" && bun install --frozen-lockfile && bun run build
+    echo "build-agent-webview: copying dist/ -> $OUT"
     rm -rf "$OUT"
     mkdir -p "$OUT"
-    cp -R "$DASHBOARD/webview-dist/." "$OUT/"
+    cp -R "$WEB/dist/." "$OUT/"
     # Re-create the tracked .gitkeep that the rm -rf above removed. It keeps the
     # directory tracked by git so the Xcode folder reference resolves on a fresh
     # checkout; a build must not leave it deleted in git status.
     touch "$OUT/.gitkeep"
     mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"
     echo "build-agent-webview: DONE"
+
+agent-panel-web-check:
+    cd '{{agent_panel_web_dir}}' && bun install --frozen-lockfile && bun run typecheck && bun run test
 
 # Build the gesture/voice interaction webview bundle into InteractionPanel's
 # package resources. The gesture-agent web app is the authored renderer; its
@@ -365,7 +365,7 @@ build-gesture-webview:
 # these to build the Application-Support venv (core deps, no `desktop` extra).
 #
 # NOTE (Xcode inclusion): `uv` is a single file and is picked up as a bundle
-# resource by the synchronized root group like `atc-sidecar`. `voice-src/` is a
+# resource by the synchronized root group like `agent-feed-sidecar`. `voice-src/` is a
 # directory tree; confirm it lands in the built app at
 # `Contents/Resources/voice-src/` with structure preserved (a folder reference,
 # not flattened). Verify once with:
@@ -603,7 +603,7 @@ dom-mirror-e2e: ext-stamp
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
 # everything with `just check-all`.
-check variant="stable": ensure-sidecar-placeholder ensure-pty-runtime-placeholder workspace-ide-fitness terminal-web-build
+check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar-check agent-panel-web-check ensure-pty-runtime-placeholder workspace-ide-fitness terminal-web-build
     #!/usr/bin/env bash
     set -euo pipefail
     sh tools/media-architecture-guard.sh
@@ -747,7 +747,7 @@ prepare-pty-runtime variant="stable": build-pty-runtime
         fi
     fi
 
-host-run-dev variant="stable" install_live_bridge="true": build-agent-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
+host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
     # Like host-run, this builds the real bundled artifacts (agent sidecar + webview,
@@ -795,7 +795,7 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-sidecar bu
     # Kill both build configurations of THIS variant. LaunchServices treats Debug
     # and Release as the same running app because they share a bundle id, so leaving
     # either one alive can make `open "$APP"` silently keep the stale executable.
-    # Exact executable matching avoids selecting atc-sidecar or PTY processes.
+    # Exact executable matching avoids selecting agent-feed-sidecar or PTY processes.
     HOST_PIDS="$(
         {
             sh tools/exact-executable-pids.sh "$DD/Build/Products/Debug/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"
@@ -864,7 +864,7 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-sidecar bu
 # gesture/voice webview + voice-server source), so every launch reflects the latest
 # code instead of stale staged binaries. Composites therefore no longer pre-build
 # these before calling host-run.
-host-run variant="stable": build-agent-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
+host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
     # DOM mirror is baked on by default (see host-run-dev); no enable override injected here.
@@ -907,7 +907,7 @@ host-run variant="stable": build-agent-sidecar build-agent-webview build-gesture
     # Kill both build configurations of THIS variant. LaunchServices treats Debug
     # and Release as the same running app because they share a bundle id, so leaving
     # either one alive can make `open "$APP"` silently keep the stale executable.
-    # Exact executable matching avoids selecting atc-sidecar or PTY processes.
+    # Exact executable matching avoids selecting agent-feed-sidecar or PTY processes.
     HOST_PIDS="$(
         {
             sh tools/exact-executable-pids.sh "$DD/Build/Products/Debug/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"

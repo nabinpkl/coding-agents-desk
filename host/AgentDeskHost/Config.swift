@@ -767,20 +767,18 @@ enum Config {
     static let transcriptionModel: String = {
         ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_MODEL"] ?? "mlx-community/whisper-large-v3-turbo-q4"
     }()
-    // ATC engine sidecar. The binary is compiled by `just build-agent-sidecar`
-    // and bundled as a resource in the host app. The port is loopback-only and
-    // must not conflict with other services; override via env for debugging.
-    // The resource name is the leaf filename of the compiled binary.
-    static let agentSidecarPort: UInt16 = port(
-        environmentKey: "AGENTDESK_SIDECAR_PORT",
+    // Agent feed transcript sidecar. The binary is compiled in-repository and
+    // bundled as a host resource. It is reachable only over loopback.
+    static let agentFeedSidecarPort: UInt16 = port(
+        environmentKey: "AGENTDESK_AGENT_FEED_PORT",
         defaultValue: tieredPort(stable: 7682, dev: 7782)
     )
-    static let agentSidecarResourceName = "atc-sidecar"
-    static var agentSidecarURL: URL? {
-        Bundle.main.url(forResource: agentSidecarResourceName, withExtension: nil)
+    static let agentFeedSidecarResourceName = "agent-feed-sidecar"
+    static var agentFeedSidecarURL: URL? {
+        Bundle.main.url(forResource: agentFeedSidecarResourceName, withExtension: nil)
     }
     // Voice server sidecar (`voice-server` in the gesture-agent project). Runs
-    // on loopback like the ATC sidecar; the phone reaches voice only through the
+    // on loopback like the agent feed sidecar; the phone reaches voice only through the
     // host-mounted webview, never this port.
     static let voiceSidecarPort: UInt16 = port(
         environmentKey: "AGENTDESK_VOICE_SIDECAR_PORT",
@@ -919,6 +917,8 @@ enum Config {
     static let applicationSupportDirectory = FileManager.default
         .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent(bundleIdentifier, isDirectory: true)
+    static let agentFeedSidecarStateDirectory = applicationSupportDirectory
+        .appendingPathComponent("AgentFeed", isDirectory: true)
     static let pairedDevicesURL = applicationSupportDirectory
         .appendingPathComponent("paired-devices.json", isDirectory: false)
     // ADR-0049: durable pre-armed pairing targets (devices picked while their app

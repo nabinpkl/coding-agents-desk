@@ -91,11 +91,11 @@ final class AgentFeedBridge: @unchecked Sendable {
                 let total = probe.total
                 let offset = max(0, total - Self.pageSize)
                 let limit = total - offset
-                let page: EngineEventsPage
+                let page: AgentFeedEventsPage
                 if limit > 0 {
                     page = try await client.fetchEventsPage(sessionId: sessionId, offset: offset, limit: limit)
                 } else {
-                    page = EngineEventsPage(events: [], total: total)
+                    page = AgentFeedEventsPage(events: [], total: total)
                 }
                 let wireEvents = page.events.map { wireEvent(from: $0) }
                 let chunk = AgentThreadChunk(
@@ -121,12 +121,12 @@ final class AgentFeedBridge: @unchecked Sendable {
             do {
                 let offset = max(0, request.beforeIndex - request.limit)
                 let limit = request.beforeIndex - offset
-                let page: EngineEventsPage
+                let page: AgentFeedEventsPage
                 if limit > 0 {
                     page = try await client.fetchEventsPage(sessionId: sessionId, offset: offset, limit: limit)
                 } else {
                     // Nothing to load older than index 0.
-                    page = EngineEventsPage(events: [], total: 0)
+                    page = AgentFeedEventsPage(events: [], total: 0)
                 }
                 let wireEvents = page.events.map { wireEvent(from: $0) }
                 let chunk = AgentThreadChunk(
@@ -284,8 +284,8 @@ final class AgentFeedBridge: @unchecked Sendable {
 
     // MARK: - Mapping sidecar DTOs to wire types
 
-    private func wireEvent(from engine: EngineActivityEvent) -> ActivityEvent {
-        let blocks = engine.blocks.map { block -> ActivityBlock in
+    private func wireEvent(from sidecar: AgentFeedActivityEvent) -> ActivityEvent {
+        let blocks = sidecar.blocks.map { block -> ActivityBlock in
             ActivityBlock(
                 kind: block.kind,
                 label: block.label,
@@ -298,27 +298,27 @@ final class AgentFeedBridge: @unchecked Sendable {
         }
         // The sidecar emits the event field as "type"; ActivityEvent uses CodingKey "tp".
         // Constructing the wire struct here performs the type -> tp mapping.
-        return ActivityEvent(index: engine.index, ts: engine.ts, type: engine.type, blocks: blocks)
+        return ActivityEvent(index: sidecar.index, ts: sidecar.ts, type: sidecar.type, blocks: blocks)
     }
 
     // Cap on the number of sessions surfaced per project in a digest push, to
     // bound the push size (a project can carry 100+ otherSessions).
     static let maxSessionsPerProject = 30
 
-    private func wireDigest(from engine: EngineProjectDigest) -> ProjectDigest {
+    private func wireDigest(from sidecar: AgentFeedProjectDigest) -> ProjectDigest {
         // Union the full sessions[] and compact otherSessions[] lists (and the
         // primary, in case it is not in either), so the project-first surface
         // shows the combined Claude + Codex thread list, not just the primary.
-        var combined: [EngineSessionDigest] = []
-        combined.append(contentsOf: engine.sessions ?? [])
-        combined.append(contentsOf: engine.otherSessions ?? [])
-        if let primary = engine.primary {
+        var combined: [AgentFeedSessionDigest] = []
+        combined.append(contentsOf: sidecar.sessions ?? [])
+        combined.append(contentsOf: sidecar.otherSessions ?? [])
+        if let primary = sidecar.primary {
             combined.append(primary)
         }
         // Dedup by sessionId, keeping the first (richest) occurrence, then sort
         // by recency descending and cap.
         var seen = Set<String>()
-        var deduped: [EngineSessionDigest] = []
+        var deduped: [AgentFeedSessionDigest] = []
         for entry in combined where !seen.contains(entry.sessionId) {
             seen.insert(entry.sessionId)
             deduped.append(entry)
@@ -329,7 +329,7 @@ final class AgentFeedBridge: @unchecked Sendable {
             let title = entry.title
                 ?? entry.firstPrompt
                 ?? entry.lastUserPrompt
-                ?? engine.projectName
+                ?? sidecar.projectName
             return AgentSessionSummary(
                 sessionId: entry.sessionId,
                 source: entry.source,
@@ -339,8 +339,8 @@ final class AgentFeedBridge: @unchecked Sendable {
             )
         }
         return ProjectDigest(
-            projectPath: engine.project,
-            displayName: engine.projectName,
+            projectPath: sidecar.project,
+            displayName: sidecar.projectName,
             sessions: sessions
         )
     }

@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: superseded by ADR-0074
 date: 2026-06-30
+superseded-by: ADR-0074
 ---
 
 # Phone-side agent-feed observability surface fed by an embedded engine sidecar

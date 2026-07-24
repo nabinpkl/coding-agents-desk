@@ -6,13 +6,13 @@ import AgentDeskWire
 // name "type" for the event kind; the wire ActivityEvent uses CodingKey "tp".
 // These separate structs bridge the two without touching the wire types.
 
-struct EngineActivityBlock: Codable {
+struct AgentFeedActivityBlock: Codable {
     let kind: String
     let label: String?
     let text: String?
     // tool_use carries tool + summary (+ callId); tool_result carries preview
     // (+ callId). The sidecar emits these with full field names, matching the
-    // engine's ActivityBlock shape. Decoded here so the wire block can carry
+    // sidecar's ActivityBlock shape. Decoded here so the wire block can carry
     // them; without this, only text survived and TOOL/RESULT rows rendered
     // empty on the client. `input`/`hidden*` are intentionally omitted (the
     // mobile surface renders summary/preview/text, not raw tool input).
@@ -44,15 +44,15 @@ struct EngineActivityBlock: Codable {
     }
 }
 
-struct EngineActivityEvent: Codable {
+struct AgentFeedActivityEvent: Codable {
     let index: Int
     let ts: Double
     let type: String
-    let blocks: [EngineActivityBlock]
+    let blocks: [AgentFeedActivityBlock]
 }
 
-struct EngineEventsPage {
-    let events: [EngineActivityEvent]
+struct AgentFeedEventsPage {
+    let events: [AgentFeedActivityEvent]
     let total: Int
 }
 
@@ -61,7 +61,7 @@ struct EngineEventsPage {
 // `otherSessions[]`; both carry these fields (otherSessions omits firstPrompt).
 // Decode only the fields the mobile surface needs; the rest of each object is
 // ignored by the decoder.
-struct EngineSessionDigest: Codable {
+struct AgentFeedSessionDigest: Codable {
     let sessionId: String
     let source: String
     let bin: String?
@@ -81,19 +81,18 @@ struct EngineSessionDigest: Codable {
     }
 }
 
-struct EngineProjectDigest: Codable {
+struct AgentFeedProjectDigest: Codable {
     let project: String
     let projectName: String
     let source: String
     let sources: [String]
-    let observed: Bool?
     let lastEventAt: Double?
     let bin: String?
-    let primary: EngineSessionDigest?
+    let primary: AgentFeedSessionDigest?
     // Full digests for the newest sessions across all sources for this project.
-    let sessions: [EngineSessionDigest]?
+    let sessions: [AgentFeedSessionDigest]?
     // Compact entries for the remaining sessions (older / less active).
-    let otherSessions: [EngineSessionDigest]?
+    let otherSessions: [AgentFeedSessionDigest]?
 }
 
 // A live SSE stream handle. Cancellation stops the background task.
@@ -111,13 +110,13 @@ final class SidecarStreamHandle: @unchecked Sendable {
 
 // Injectable seam for the sidecar HTTP/SSE surface.
 protocol SidecarClient: Sendable {
-    func fetchDigest() async throws -> [EngineProjectDigest]
-    func fetchEventsPage(sessionId: String, offset: Int, limit: Int) async throws -> EngineEventsPage
+    func fetchDigest() async throws -> [AgentFeedProjectDigest]
+    func fetchEventsPage(sessionId: String, offset: Int, limit: Int) async throws -> AgentFeedEventsPage
     func fetchRawEvent(sessionId: String, eventIndex: Int) async throws -> String
     func openEventStream(
         sessionId: String,
         after: Int,
-        onEvent: @escaping @Sendable (EngineActivityEvent) -> Void,
+        onEvent: @escaping @Sendable (AgentFeedActivityEvent) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle
 }
@@ -150,18 +149,18 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         return url
     }
 
-    func fetchDigest() async throws -> [EngineProjectDigest] {
+    func fetchDigest() async throws -> [AgentFeedProjectDigest] {
         let url = try currentBaseURL().appendingPathComponent("/api/projects/digest")
         let (data, response) = try await session.data(from: url)
         try validateHTTP(response, url: url)
         struct Envelope: Decodable {
-            let projects: [EngineProjectDigest]
+            let projects: [AgentFeedProjectDigest]
         }
         let envelope = try JSONDecoder().decode(Envelope.self, from: data)
         return envelope.projects
     }
 
-    func fetchEventsPage(sessionId: String, offset: Int, limit: Int) async throws -> EngineEventsPage {
+    func fetchEventsPage(sessionId: String, offset: Int, limit: Int) async throws -> AgentFeedEventsPage {
         var components = URLComponents(
             url: try currentBaseURL().appendingPathComponent("/api/sessions/\(sessionId)/events"),
             resolvingAgainstBaseURL: false
@@ -176,11 +175,11 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         let (data, response) = try await session.data(from: url)
         try validateHTTP(response, url: url)
         struct Envelope: Decodable {
-            let events: [EngineActivityEvent]
+            let events: [AgentFeedActivityEvent]
             let total: Int
         }
         let envelope = try JSONDecoder().decode(Envelope.self, from: data)
-        return EngineEventsPage(events: envelope.events, total: envelope.total)
+        return AgentFeedEventsPage(events: envelope.events, total: envelope.total)
     }
 
     func fetchRawEvent(sessionId: String, eventIndex: Int) async throws -> String {
@@ -208,7 +207,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
     func openEventStream(
         sessionId: String,
         after: Int,
-        onEvent: @escaping @Sendable (EngineActivityEvent) -> Void,
+        onEvent: @escaping @Sendable (AgentFeedActivityEvent) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
         guard let base = baseURLProvider() else {
@@ -238,13 +237,23 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
                         // multi-line buffering to do.
                         let latestDataLine = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
                         if latestDataLine.isEmpty { continue }
-                        if let data = latestDataLine.data(using: .utf8),
-                           let event = try? JSONDecoder().decode(EngineActivityEvent.self, from: data) {
-                            onEvent(event)
-                        } else {
-                            logger.error("agent-feed-stream: failed to decode SSE event json=\(latestDataLine, privacy: .public)")
+                        if latestDataLine == "\"shutdown\"" { return }
+                        guard let data = latestDataLine.data(using: .utf8) else {
+                            onError(SidecarClientError.server("agent feed stream emitted non-UTF-8 data"))
+                            return
+                        }
+                        do {
+                            onEvent(try JSONDecoder().decode(AgentFeedActivityEvent.self, from: data))
+                        } catch {
+                            logger.error("agent-feed-stream: invalid SSE event json=\(latestDataLine, privacy: .public)")
+                            onError(SidecarClientError.server("agent feed stream emitted an invalid event"))
+                            return
                         }
                     }
+                }
+                guard Task.isCancelled else {
+                    onError(SidecarClientError.server("agent feed stream ended unexpectedly"))
+                    return
                 }
             } catch is CancellationError {
                 // normal cancellation

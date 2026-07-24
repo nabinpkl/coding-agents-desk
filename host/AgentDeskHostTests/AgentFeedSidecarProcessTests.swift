@@ -4,10 +4,10 @@ import Testing
 
 @testable import AgentDeskHost
 
-// Tests for AgentEngineSidecar using a stub binary written to a temp path.
+// Tests for AgentFeedSidecarProcess using a stub binary written to a temp path.
 // The stub is a shell script that binds the port and answers /api/config with
 // a minimal JSON body, so `just check` stays fast and hermetic. The real 64 MB
-// engine binary is exercised only by `just sidecar-smoke`.
+// compiled sidecar is exercised by `just agent-feed-sidecar-smoke`.
 //
 // Serialized: each test spawns and SIGKILLs real child processes. Swift Testing
 // runs tests in parallel by default, and concurrent child-process churn under a
@@ -16,7 +16,7 @@ import Testing
 // destabilizes the restart-count assertion. Serializing keeps each test's
 // process lifecycle isolated. They are fast (~1 s each) so the cost is small.
 @Suite(.serialized)
-struct AgentEngineSidecarTests {
+struct AgentFeedSidecarProcessTests {
 
     // Probe for a free loopback TCP port: bind a socket to 127.0.0.1:0, let the
     // OS assign an ephemeral port, read it back, then close the socket. Each test
@@ -62,7 +62,7 @@ struct AgentEngineSidecarTests {
     // or the inherited PATH). Returns the stub URL.
     private func makeStubBinary(port: UInt16, extraLines: [String] = []) throws -> URL {
         let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("atc-stub-\(port)-\(UUID().uuidString)")
+            .appendingPathComponent("agent-feed-stub-\(port)-\(UUID().uuidString)")
         let script = """
         #!/usr/bin/env python3
         import http.server, socketserver, signal, sys, os, json
@@ -112,11 +112,11 @@ struct AgentEngineSidecarTests {
     @Test func spawnedChildInheritsPath() async throws {
         let port = try freePort()
         // The stub writes its own PATH to a temp file on startup. If
-        // AgentEngineSidecar replaced (rather than merged) the child env, PATH
-        // would be empty here, and the engine's tmux/git/open subprocesses
+        // AgentFeedSidecarProcess replaced (rather than merged) the child env,
+        // PATH would be empty here and transcript discovery subprocesses
         // would fail. Asserting a non-empty PATH proves the merge.
         let pathFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("atc-stub-path-\(port)-\(UUID().uuidString)")
+            .appendingPathComponent("agent-feed-stub-path-\(port)-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: pathFile) }
 
         let stubURL = try makeStubBinary(port: port, extraLines: [
@@ -124,7 +124,11 @@ struct AgentEngineSidecarTests {
         ])
         defer { try? FileManager.default.removeItem(at: stubURL) }
 
-        let sidecar = AgentEngineSidecar(binaryURL: stubURL, port: port)
+        let sidecar = AgentFeedSidecarProcess(
+            binaryURL: stubURL,
+            port: port,
+            stateDirectory: FileManager.default.temporaryDirectory
+        )
         // Defer teardown so the stub child is terminated before the test returns
         // even if an assertion below fails or a throw unwinds early.
         defer { sidecar.stop() }
@@ -150,7 +154,11 @@ struct AgentEngineSidecarTests {
         let stubURL = try makeStubBinary(port: port)
         defer { try? FileManager.default.removeItem(at: stubURL) }
 
-        let sidecar = AgentEngineSidecar(binaryURL: stubURL, port: port)
+        let sidecar = AgentFeedSidecarProcess(
+            binaryURL: stubURL,
+            port: port,
+            stateDirectory: FileManager.default.temporaryDirectory
+        )
         defer { sidecar.stop() }
         sidecar.start()
 
@@ -170,7 +178,11 @@ struct AgentEngineSidecarTests {
         let stubURL = try makeStubBinary(port: port)
         defer { try? FileManager.default.removeItem(at: stubURL) }
 
-        let sidecar = AgentEngineSidecar(binaryURL: stubURL, port: port)
+        let sidecar = AgentFeedSidecarProcess(
+            binaryURL: stubURL,
+            port: port,
+            stateDirectory: FileManager.default.temporaryDirectory
+        )
         // The mid-test stop() below is the subject under test; this defer is a
         // safety net for early-exit paths (stop() is idempotent).
         defer { sidecar.stop() }
@@ -212,7 +224,7 @@ struct AgentEngineSidecarTests {
         // supervisor's restart counter is the precise signal that one induced
         // exit produced exactly one restart (the double-restart guard at work).
         let pidFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("atc-stub-pid-\(port)-\(UUID().uuidString)")
+            .appendingPathComponent("agent-feed-stub-pid-\(port)-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: pidFile) }
 
         let stubURL = try makeStubBinary(port: port, extraLines: [
@@ -220,7 +232,11 @@ struct AgentEngineSidecarTests {
         ])
         defer { try? FileManager.default.removeItem(at: stubURL) }
 
-        let sidecar = AgentEngineSidecar(binaryURL: stubURL, port: port)
+        let sidecar = AgentFeedSidecarProcess(
+            binaryURL: stubURL,
+            port: port,
+            stateDirectory: FileManager.default.temporaryDirectory
+        )
         // Defer teardown so the (possibly restarted) stub child is terminated
         // before the test returns on any path, including the early return below.
         defer { sidecar.stop() }

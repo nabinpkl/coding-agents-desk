@@ -8,9 +8,9 @@ import AgentDeskWire
 
 final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     // Configurable canned return values.
-    var digestResult: Result<[EngineProjectDigest], Error> = .success([])
+    var digestResult: Result<[AgentFeedProjectDigest], Error> = .success([])
     var digestDelayNanoseconds: UInt64 = 0
-    var eventsPageResult: Result<EngineEventsPage, Error> = .success(EngineEventsPage(events: [], total: 0))
+    var eventsPageResult: Result<AgentFeedEventsPage, Error> = .success(AgentFeedEventsPage(events: [], total: 0))
     var rawEventResult: Result<String, Error> = .success("")
 
     private let digestLock = NSLock()
@@ -23,10 +23,10 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     // Whether a stream was opened and the injected event-push closure.
     private(set) var streamOpenedForSessionId: String?
     private(set) var streamCancelledCount = 0
-    private var capturedOnEvent: (@Sendable (EngineActivityEvent) -> Void)?
+    private var capturedOnEvent: (@Sendable (AgentFeedActivityEvent) -> Void)?
     private var capturedOnError: (@Sendable (Error) -> Void)?
 
-    func fetchDigest() async throws -> [EngineProjectDigest] {
+    func fetchDigest() async throws -> [AgentFeedProjectDigest] {
         digestLock.withLock { _fetchDigestCount += 1 }
         if digestDelayNanoseconds > 0 {
             try await Task.sleep(nanoseconds: digestDelayNanoseconds)
@@ -34,7 +34,7 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
         return try digestResult.get()
     }
 
-    func fetchEventsPage(sessionId: String, offset: Int, limit: Int) async throws -> EngineEventsPage {
+    func fetchEventsPage(sessionId: String, offset: Int, limit: Int) async throws -> AgentFeedEventsPage {
         try eventsPageResult.get()
     }
 
@@ -45,7 +45,7 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     func openEventStream(
         sessionId: String,
         after: Int,
-        onEvent: @escaping @Sendable (EngineActivityEvent) -> Void,
+        onEvent: @escaping @Sendable (AgentFeedActivityEvent) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
         streamOpenedForSessionId = sessionId
@@ -65,7 +65,7 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     }
 
     // Push a synthetic event into the open stream.
-    func pushStreamEvent(_ event: EngineActivityEvent) {
+    func pushStreamEvent(_ event: AgentFeedActivityEvent) {
         capturedOnEvent?(event)
     }
 
@@ -102,12 +102,12 @@ final class CapturingSink: @unchecked Sendable {
 
 // MARK: - Test helpers
 
-private func makeEngineEvent(index: Int = 0, type: String = "assistant") -> EngineActivityEvent {
-    EngineActivityEvent(
+private func makeAgentFeedEvent(index: Int = 0, type: String = "assistant") -> AgentFeedActivityEvent {
+    AgentFeedActivityEvent(
         index: index,
         ts: 1_700_000_000_000.0,
         type: type,
-        blocks: [EngineActivityBlock(kind: "text", text: "hello")]
+        blocks: [AgentFeedActivityBlock(kind: "text", text: "hello")]
     )
 }
 
@@ -119,8 +119,8 @@ private func makeSession(
     title: String? = "Fix the bug",
     firstPrompt: String? = nil,
     lastUserPrompt: String? = nil
-) -> EngineSessionDigest {
-    EngineSessionDigest(
+) -> AgentFeedSessionDigest {
+    AgentFeedSessionDigest(
         sessionId: sessionId,
         source: source,
         bin: bin,
@@ -136,17 +136,16 @@ private func makeDigest(
     projectName: String = "my-project",
     bin: String = "live",
     sources: [String] = ["claude"],
-    primary: EngineSessionDigest? = nil,
-    sessions: [EngineSessionDigest]? = nil,
-    otherSessions: [EngineSessionDigest]? = nil
-) -> EngineProjectDigest {
+    primary: AgentFeedSessionDigest? = nil,
+    sessions: [AgentFeedSessionDigest]? = nil,
+    otherSessions: [AgentFeedSessionDigest]? = nil
+) -> AgentFeedProjectDigest {
     let resolvedPrimary = primary ?? makeSession()
-    return EngineProjectDigest(
+    return AgentFeedProjectDigest(
         project: project,
         projectName: projectName,
         source: "claude",
         sources: sources,
-        observed: false,
         lastEventAt: 1_700_000_001_000.0,
         bin: bin,
         primary: resolvedPrimary,
@@ -313,8 +312,8 @@ struct AgentFeedBridgeTests {
 
     @Test func threadSubscribeSendsSeedChunkThenLiveChunk() async throws {
         let fake = FakeSidecarClient()
-        let event = makeEngineEvent(index: 5, type: "user")
-        fake.eventsPageResult = .success(EngineEventsPage(events: [event], total: 6))
+        let event = makeAgentFeedEvent(index: 5, type: "user")
+        fake.eventsPageResult = .success(AgentFeedEventsPage(events: [event], total: 6))
         let sink = CapturingSink()
         let bridge = AgentFeedBridge(client: fake, send: { sink.accept($0) })
 
@@ -330,7 +329,7 @@ struct AgentFeedBridgeTests {
         #expect(seedChunk.events.count == 1)
 
         // Push a live event from the fake stream.
-        let liveEvent = makeEngineEvent(index: 6, type: "assistant")
+        let liveEvent = makeAgentFeedEvent(index: 6, type: "assistant")
         fake.pushStreamEvent(liveEvent)
         await waitForMessages(sink, count: 2)
 
@@ -346,13 +345,13 @@ struct AgentFeedBridgeTests {
 
     @Test func engineEventTypeFieldMapsToWireTpKey() async throws {
         let fake = FakeSidecarClient()
-        let event = EngineActivityEvent(
+        let event = AgentFeedActivityEvent(
             index: 0,
             ts: 1_700_000_000_000.0,
             type: "assistant",
-            blocks: [EngineActivityBlock(kind: "text", text: "hi")]
+            blocks: [AgentFeedActivityBlock(kind: "text", text: "hi")]
         )
-        fake.eventsPageResult = .success(EngineEventsPage(events: [event], total: 1))
+        fake.eventsPageResult = .success(AgentFeedEventsPage(events: [event], total: 1))
         let sink = CapturingSink()
         let bridge = AgentFeedBridge(client: fake, send: { sink.accept($0) })
 
@@ -376,8 +375,8 @@ struct AgentFeedBridgeTests {
 
     @Test func threadLoadOlderSendsOlderChunk() async throws {
         let fake = FakeSidecarClient()
-        let event = makeEngineEvent(index: 3, type: "user")
-        fake.eventsPageResult = .success(EngineEventsPage(events: [event], total: 10))
+        let event = makeAgentFeedEvent(index: 3, type: "user")
+        fake.eventsPageResult = .success(AgentFeedEventsPage(events: [event], total: 10))
         let sink = CapturingSink()
         let bridge = AgentFeedBridge(client: fake, send: { sink.accept($0) })
 
@@ -396,7 +395,7 @@ struct AgentFeedBridgeTests {
 
     @Test func threadUnsubscribeCancelsStream() async throws {
         let fake = FakeSidecarClient()
-        fake.eventsPageResult = .success(EngineEventsPage(events: [], total: 0))
+        fake.eventsPageResult = .success(AgentFeedEventsPage(events: [], total: 0))
         let sink = CapturingSink()
         let bridge = AgentFeedBridge(client: fake, send: { sink.accept($0) })
 
@@ -481,7 +480,7 @@ struct AgentFeedBridgeTests {
     @Test func streamErrorSendsAgentThreadError() async throws {
         let fake = FakeSidecarClient()
         // A clean subscribe so the live stream opens (seed chunk first).
-        fake.eventsPageResult = .success(EngineEventsPage(events: [], total: 0))
+        fake.eventsPageResult = .success(AgentFeedEventsPage(events: [], total: 0))
         let sink = CapturingSink()
         let bridge = AgentFeedBridge(client: fake, send: { sink.accept($0) })
 
@@ -507,7 +506,7 @@ struct AgentFeedBridgeTests {
 
     @Test func resetCancelsAllActiveStreams() async throws {
         let fake = FakeSidecarClient()
-        fake.eventsPageResult = .success(EngineEventsPage(events: [], total: 0))
+        fake.eventsPageResult = .success(AgentFeedEventsPage(events: [], total: 0))
         let sink = CapturingSink()
         let bridge = AgentFeedBridge(client: fake, send: { sink.accept($0) })
 
@@ -521,14 +520,9 @@ struct AgentFeedBridgeTests {
         #expect(fake.streamCancelledCount >= 1)
     }
 
-    // MARK: EngineProjectDigest decodes the real sidecar wire shape
+    // MARK: AgentFeedProjectDigest decodes the sidecar wire shape
 
-    // Regression: the engine emits `observed` as a JSON bool (from a Set.has())
-    // and `lastEventAt` as a fractional epoch-ms Double. The DTO must decode that
-    // exact shape. A prior fixture used a Double for `observed`, so the decoder
-    // was never exercised against the engine's real payload and a type mismatch
-    // (Double vs Bool) shipped, breaking every projects fetch in the bridge.
-    @Test func engineProjectDigestDecodesRealSidecarPayload() throws {
+    @Test func agentFeedProjectDigestDecodesFractionalTimestamps() throws {
         let json = """
         [
           {
@@ -536,26 +530,24 @@ struct AgentFeedBridgeTests {
             "project": "/Users/dev/projects/agent-desk",
             "source": "claude",
             "sources": ["claude", "codex"],
-            "observed": false,
             "lastEventAt": 1782851101572.0078
           }
         ]
         """.data(using: .utf8)!
 
-        let digests = try JSONDecoder().decode([EngineProjectDigest].self, from: json)
+        let digests = try JSONDecoder().decode([AgentFeedProjectDigest].self, from: json)
 
         #expect(digests.count == 1)
-        #expect(digests[0].observed == false)
         #expect(digests[0].project == "/Users/dev/projects/agent-desk")
         #expect(digests[0].lastEventAt == 1782851101572.0078)
     }
 
-    // Decode-contract guard against the real sidecar block shape. The engine
+    // Decode-contract guard against the real sidecar block shape. The sidecar
     // emits tool_use blocks with `tool`/`summary`/`callId` and tool_result
     // blocks with `preview`/`callId` (full field names). A prior version of
-    // EngineActivityBlock decoded only kind+text, so TOOL/RESULT rows arrived
+    // AgentFeedActivityBlock decoded only kind+text, so TOOL/RESULT rows arrived
     // empty on the client. Feed the real shape and assert every field survives.
-    @Test func engineActivityBlockDecodesToolAndResultFields() throws {
+    @Test func agentFeedActivityBlockDecodesToolAndResultFields() throws {
         let json = """
         {
           "index": 42,
@@ -569,7 +561,7 @@ struct AgentFeedBridgeTests {
         }
         """.data(using: .utf8)!
 
-        let event = try JSONDecoder().decode(EngineActivityEvent.self, from: json)
+        let event = try JSONDecoder().decode(AgentFeedActivityEvent.self, from: json)
 
         #expect(event.blocks.count == 3)
         #expect(event.blocks[0].text == "Running the build.")

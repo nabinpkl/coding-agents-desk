@@ -379,7 +379,7 @@ function devProcessRows() {
     if (!line.includes(hostDerivedData) && !line.includes(supportDirectory)) return [];
     if (!line.includes('AgentDeskHost.app/Contents/MacOS/AgentDeskHost')
         && !line.includes('/pty-manager ')
-        && !line.endsWith('/atc-sidecar')) return [];
+        && !line.endsWith('/agent-feed-sidecar')) return [];
     const pid = Number(line.trim().split(/\s+/, 1)[0]);
     return Number.isInteger(pid) && pid > 1 ? [{ pid, command: line.trim() }] : [];
   });

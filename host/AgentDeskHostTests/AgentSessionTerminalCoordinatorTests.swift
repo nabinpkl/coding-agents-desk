@@ -158,7 +158,7 @@ struct AgentSessionTerminalCoordinatorTests {
         let fixture = try Fixture()
         defer { fixture.removeTemporaryFiles() }
         let identity = try fixture.identity(source: "claude", sessionID: claudeSessionID)
-        let liveSession = EngineSessionDigest(
+        let liveSession = AgentFeedSessionDigest(
             sessionId: claudeSessionID.uppercased(),
             source: "claude",
             bin: "live",
@@ -168,12 +168,11 @@ struct AgentSessionTerminalCoordinatorTests {
             lastUserPrompt: nil
         )
         let client = DigestSidecarClient(projects: [
-            EngineProjectDigest(
+            AgentFeedProjectDigest(
                 project: fixture.project.path,
                 projectName: "project",
                 source: "claude",
                 sources: ["claude"],
-                observed: true,
                 lastEventAt: nil,
                 bin: "live",
                 primary: liveSession,
@@ -972,20 +971,20 @@ private actor BlockingFirstCloseTerminalCoordinator: AgentSessionTerminalCoordin
 }
 
 private struct DigestSidecarClient: SidecarClient, @unchecked Sendable {
-    let projects: [EngineProjectDigest]
+    let projects: [AgentFeedProjectDigest]
 
-    func fetchDigest() async throws -> [EngineProjectDigest] {
+    func fetchDigest() async throws -> [AgentFeedProjectDigest] {
         projects
     }
 
-    func fetchEventsPage(sessionId: String, offset: Int, limit: Int) async throws -> EngineEventsPage {
-        EngineEventsPage(events: [], total: 0)
+    func fetchEventsPage(sessionId: String, offset: Int, limit: Int) async throws -> AgentFeedEventsPage {
+        AgentFeedEventsPage(events: [], total: 0)
     }
 
     func openEventStream(
         sessionId: String,
         after: Int,
-        onEvent: @escaping @Sendable (EngineActivityEvent) -> Void,
+        onEvent: @escaping @Sendable (AgentFeedActivityEvent) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
         SidecarStreamHandle(task: Task {})

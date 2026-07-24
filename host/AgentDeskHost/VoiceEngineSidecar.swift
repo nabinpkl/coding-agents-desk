@@ -5,7 +5,7 @@ import os
 // until it answers /health on loopback, supervises the child (restarting on
 // unexpected exit with a small backoff), and tears down cleanly on stop.
 //
-// It is a deliberate sibling of AgentEngineSidecar, not a shared abstraction:
+// It is a deliberate sibling of AgentFeedSidecarProcess, not a shared abstraction:
 // the agent sidecar spawns a single bundled binary, whereas the voice server is
 // launched through `uv run voice-server` against a Python venv, so the spawn
 // shape (executable + arguments + working directory) differs. Cloning keeps the
@@ -53,7 +53,7 @@ final class VoiceEngineSidecar: @unchecked Sendable {
 
     deinit {
         // Terminate the child if the object is dropped without an explicit
-        // stop() (matches AgentEngineSidecar). Run synchronously here: by deinit
+        // stop() (matches AgentFeedSidecarProcess). Run synchronously here: by deinit
         // the queue may no longer drain, so a queued async would never fire.
         // terminateCurrentProcess is safe to call directly because no other
         // queue work can race a deallocating self.
@@ -213,7 +213,7 @@ final class VoiceEngineSidecar: @unchecked Sendable {
 /// resolved from the environment so a developer can point the host at a local
 /// `uv` + the gesture-agent project. `Config.voiceSidecarLaunch` returns nil
 /// when the environment is unset, and the host simply does not start the voice
-/// sidecar — mirroring `Config.agentSidecarURL` returning nil when the bundled
+/// sidecar — mirroring `Config.agentFeedSidecarURL` returning nil when the bundled
 /// binary is absent (absent config is a no-op, never a crash).
 struct VoiceSidecarLaunch {
     let executableURL: URL

@@ -1,0 +1,221 @@
+/* Activity-feed Markdown renderer (marked + DOMPurify + Shiki + KaTeX +
+   Mermaid). Co-located with the component and imported once from Markdown.tsx,
+   so both the desktop Next app and the phone Vite webview share a single source
+   of these styles. Replaces the former Milkdown/Crepe overrides.
+
+   Everything re-bases to em units so the tile's `--agent-panel-fs-tile-*` font-size
+   cascade keeps driving size. Colors use the global theme custom properties
+   (defined in each surface's globals.css :root / .dark). */
+
+.agent-panel-md {
+  font-size: inherit;
+}
+
+/* ---- prose ------------------------------------------------------------- */
+
+.agent-panel-md__prose {
+  font-size: inherit;
+  line-height: 1.45;
+}
+.agent-panel-md__prose > :first-child {
+  margin-top: 0;
+}
+.agent-panel-md__prose > :last-child {
+  margin-bottom: 0;
+}
+.agent-panel-md__prose p {
+  margin: 0.3em 0;
+}
+.agent-panel-md__prose h1 {
+  font-size: 1.5em;
+  line-height: 1.2;
+  font-weight: 700;
+  margin: 0.6em 0 0.3em;
+}
+.agent-panel-md__prose h2 {
+  font-size: 1.3em;
+  line-height: 1.25;
+  font-weight: 700;
+  margin: 0.55em 0 0.3em;
+}
+.agent-panel-md__prose h3 {
+  font-size: 1.15em;
+  line-height: 1.3;
+  font-weight: 700;
+  margin: 0.5em 0 0.25em;
+}
+.agent-panel-md__prose h4,
+.agent-panel-md__prose h5,
+.agent-panel-md__prose h6 {
+  font-size: 1em;
+  line-height: 1.4;
+  font-weight: 700;
+  margin: 0.45em 0 0.2em;
+}
+.agent-panel-md__prose ul,
+.agent-panel-md__prose ol {
+  margin: 0.3em 0;
+  padding-left: 1.4em;
+}
+.agent-panel-md__prose ul {
+  list-style: disc;
+}
+.agent-panel-md__prose ol {
+  list-style: decimal;
+}
+.agent-panel-md__prose li {
+  margin: 0.15em 0;
+}
+.agent-panel-md__prose li > p {
+  margin: 0.15em 0;
+}
+.agent-panel-md__prose blockquote {
+  margin: 0.4em 0;
+  padding-left: 0.8em;
+  border-left: 2px solid var(--border);
+  color: var(--muted-foreground);
+}
+.agent-panel-md__prose a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.agent-panel-md__prose :not(pre) > code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.9em;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  background: var(--muted);
+}
+.agent-panel-md__prose hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.6em 0;
+}
+.agent-panel-md__prose img {
+  max-width: 100%;
+  height: auto;
+}
+.agent-panel-md__prose table {
+  border-collapse: collapse;
+  font-size: inherit;
+  margin: 0.4em 0;
+  display: block;
+  overflow-x: auto;
+}
+.agent-panel-md__prose th,
+.agent-panel-md__prose td {
+  border: 1px solid var(--border);
+  padding: 0.25em 0.5em;
+  text-align: left;
+}
+.agent-panel-md__prose th {
+  background: var(--muted);
+  font-weight: 600;
+}
+
+/* ---- code blocks (Shiki) ---------------------------------------------- */
+
+.agent-panel-code {
+  margin: 0.4em 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--muted);
+}
+.agent-panel-code__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em;
+  padding: 0.25em 0.6em;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--agent-panel-fs-tile-chip, 12px);
+  color: var(--muted-foreground);
+}
+.agent-panel-code__lang {
+  text-transform: lowercase;
+}
+.agent-panel-code__copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2em;
+  border-radius: 4px;
+  color: var(--muted-foreground);
+  transition: background-color 120ms, color 120ms;
+}
+.agent-panel-code__copy:hover {
+  background: var(--background);
+  color: var(--foreground);
+}
+/* The body padding lives on the wrapper; both the Shiki <pre> and the plain
+   fallback <pre> reset their own margin so the highlighted/plain swap is
+   height-identical. */
+.agent-panel-code__body {
+  margin: 0;
+  padding: 0.6em 0.8em;
+  overflow-x: auto;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+.agent-panel-code__body pre {
+  margin: 0;
+  background: transparent;
+}
+.agent-panel-code__fallback,
+.agent-panel-code__body .shiki {
+  background: transparent !important;
+  white-space: pre;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.agent-panel-code__body code {
+  font-family: inherit;
+  font-size: inherit;
+}
+/* Shiki dual-theme: tokens carry --shiki-light / --shiki-dark; pick by theme. */
+.agent-panel-code__body .shiki,
+.agent-panel-code__body .shiki span {
+  color: var(--shiki-light);
+}
+.dark .agent-panel-code__body .shiki,
+.dark .agent-panel-code__body .shiki span {
+  color: var(--shiki-dark);
+}
+
+/* ---- mermaid ----------------------------------------------------------- */
+
+.agent-panel-mermaid {
+  margin: 0.4em 0;
+}
+.agent-panel-mermaid__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: var(--agent-panel-fs-tile-chip, 12px);
+  color: var(--muted-foreground);
+  transition: color 120ms;
+}
+.agent-panel-mermaid__toggle:hover {
+  color: var(--foreground);
+}
+.agent-panel-mermaid__body {
+  margin-top: 0.4em;
+}
+.agent-panel-mermaid__body svg {
+  max-width: 100%;
+  height: auto;
+}
+.agent-panel-mermaid__error {
+  margin: 0.4em 0;
+  padding: 0.4em 0.6em;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.9em;
+  color: var(--muted-foreground);
+}

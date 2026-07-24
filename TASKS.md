@@ -115,6 +115,17 @@ the master descriptor.
   PID, visible state, revision, input, resize, and close behavior across host, manager, and vault
   updates.
 
+## Concurrent agent-feed ownership extraction
+
+- D118. Copy and organize the AgentPanel Vite renderer under `packages/AgentPanel/Web`, remove the
+  dashboard HTTP datasource and ATC names, and make its focused typecheck, tests, and production build
+  green.
+- D119. Copy and organize Claude/Codex discovery, parsing, byte indexing, digest, and live tailing
+  under `agent-feed/sidecar`; expose only the host-consumed routes, isolate stable/dev cache state,
+  and keep the parser/index/watcher test suite green.
+- D120. Cut the host, Xcode resource, Justfile, PRD, SPEC, and ADR ledger to the AgentDesk-owned
+  components; remove sibling paths and compatibility names, then pass focused smoke plus `just check`.
+
 ## Promotion log
 
 ```text
@@ -127,4 +138,5 @@ D108-109 2026-07-23  landed      transactional vault handover and failure matrix
 D110-113 2026-07-23  landed      vault-backed manager handover, rollback, and recovery
 D114-116 2026-07-23  landed      host coordinator, sequential recipes, and bounded update gate
 R117     2026-07-23  checkpoint  authorized real-host acceptance remains
+D118-120 2026-07-24 landed       AgentDesk-owned AgentPanel Vite source and transcript sidecar
 ```

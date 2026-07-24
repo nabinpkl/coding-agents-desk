@@ -59,7 +59,7 @@
 			membershipExceptions = (
 				AppDelegate.swift,
 				Assets.xcassets,
-				"atc-sidecar",
+				"agent-feed-sidecar",
 				ClientDiagnosticsRequester.swift,
 				DictationBar/DictationBarController.swift,
 				DictationBar/DictationBarViewController.swift,

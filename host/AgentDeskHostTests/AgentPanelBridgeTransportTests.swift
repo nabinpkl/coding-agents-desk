@@ -42,7 +42,7 @@ struct AgentPanelBridgeTransportTests {
 
     @Test func threadSubscribeCarriesSessionIdIntoSeedChunkAndStream() async throws {
         let fake = FakeSidecarClient()
-        fake.eventsPageResult = .success(EngineEventsPage(events: [], total: 0))
+        fake.eventsPageResult = .success(AgentFeedEventsPage(events: [], total: 0))
         let (transport, sink) = makeTransport(fake)
 
         transport.sendAgentPanelRequest(
@@ -58,7 +58,7 @@ struct AgentPanelBridgeTransportTests {
 
     @Test func threadLoadOlderCarriesSessionIdIntoAnOlderChunk() async throws {
         let fake = FakeSidecarClient()
-        fake.eventsPageResult = .success(EngineEventsPage(events: [], total: 10))
+        fake.eventsPageResult = .success(AgentFeedEventsPage(events: [], total: 10))
         let (transport, sink) = makeTransport(fake)
 
         transport.sendAgentPanelRequest(
@@ -73,7 +73,7 @@ struct AgentPanelBridgeTransportTests {
 
     @Test func threadUnsubscribeCancelsTheSessionStream() async throws {
         let fake = FakeSidecarClient()
-        fake.eventsPageResult = .success(EngineEventsPage(events: [], total: 0))
+        fake.eventsPageResult = .success(AgentFeedEventsPage(events: [], total: 0))
         let (transport, sink) = makeTransport(fake)
 
         transport.sendAgentPanelRequest(

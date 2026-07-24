@@ -20,7 +20,7 @@ trap cleanup EXIT INT TERM
 app="$tmpdir/checkout with spaces/AgentDeskHost.app"
 other_app="$tmpdir/other-checkout/AgentDeskHost.app"
 host_executable="$app/Contents/MacOS/AgentDeskHost"
-sidecar_executable="$app/Contents/Resources/atc-sidecar"
+sidecar_executable="$app/Contents/Resources/agent-feed-sidecar"
 manager_executable="$app/Contents/Resources/pty-manager"
 other_host_executable="$other_app/Contents/MacOS/AgentDeskHost"
 

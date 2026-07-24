@@ -6,7 +6,7 @@
 
 | Layer | Choice | Why |
 | --- | --- | --- |
-| macOS host | Swift, AppKit `LSUIElement` menu-bar app with workspace sidebar/top-bar panels, editable file windows, and Space Agent | One process owns the workspace, local UI, ATC, PTYs, Spaces, and paired-client services while focused controllers keep `AppDelegate` as composition. |
+| macOS host | Swift, AppKit `LSUIElement` menu-bar app with workspace sidebar/top-bar panels, editable file windows, and Space Agent | One process owns the workspace, local UI, agent feed, PTYs, Spaces, and paired-client services while focused controllers keep `AppDelegate` as composition. |
 | iOS client | Swift, UIKit, current `AVSampleBufferDisplayLayer` baseline with a retained BGRA compositor target in this worktree | Native required for text crispness and gesture fidelity. Browser path rejected in `PRD.md`. The branch target decodes HEVC through `VTDecompressionSession` into one retained compositor surface. |
 | Capture | `ScreenCaptureKit` on macOS 26+ | First-party selected-display capture without composition tricks. |
 | Encode / decode | Hardware-required VideoToolbox, HEVC by default and H.264 as an explicit owned-media codec setting | Rest-state text crispness depends on hardware screen-content quality. In this worktree HEVC remains the full-frame refresh path while retained graphics commands target scroll motion. |
@@ -74,7 +74,7 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 21. **DictationBar.** Host-local push-to-talk overlay under `host/AgentDeskHost/DictationBar/`, independent of the iPhone media and input channels.
 22. **WorkspaceCoordinator.** Sole runtime mutation owner above the persisted workspace repository. Existing reveal chrome, file service, terminal coordination, observation, and IDE adapters consume immutable snapshots and submit typed mutations instead of retaining writable copies.
 23. **WorkspaceShell.** AppKit sidebar and top bar composed at host launch. It uses AgentDesk Spaces,
-    PTY, terminal launcher, and ATC ownership instead of donor implementations. Its Dock window-focus
+    PTY, terminal launcher, and agent-feed ownership instead of donor implementations. Its Dock window-focus
     executor treats each icon as Desktop-scoped: one window focuses directly, multiple windows open
     the scoped chooser, an off-Space target waits for the exact stable Space id before reacquiring and
     raising its AX window, and an all-Spaces target focuses in place. It never moves the target window
@@ -82,7 +82,7 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 24. **DockDesktopSwapExecutor.** Host-only yabai adapter (ADR-0059). It accepts stable Space IDs, resolves current indices at transaction time, captures eligible windows, verifies every move, rolls back partial failure, and returns a conservative in-memory Undo receipt. It invokes the configured executable directly without a shell and does not reorder or create Spaces.
 25. **WorkspaceFiles.** Walks workspace-relative path components from an open registered-root descriptor with `openat` and no-follow semantics, rejects traversal and symlinks, reads bounded UTF-8 content or read-only DOCX bytes, and performs atomic revision-checked text writes.
 26. **WorkspaceLane.** Owns the host `.files` stream as a typed workspace lane. It serializes correlated file and Git requests with IDE subscriptions, idempotent shared-state operations, and unsolicited change/state pushes. Native document bytes retain the existing binary codec and frame bound. It never runs workspace I/O on the input or media lanes.
-27. **AgentPanel.** Reusable WebKit surface. The macOS adapter reads the local ATC sidecar directly; the iOS adapter carries the same request/push contract over the authenticated session. For the bottom terminal it emits session-scoped open, close, and context-ended intent only; it never renders a terminal or forwards terminal keystrokes.
+27. **AgentPanel.** Reusable WebKit surface whose authored Vite project lives at `packages/AgentPanel/Web`. The macOS adapter reads the AgentDesk-owned transcript sidecar directly; the iOS adapter carries the same request/push contract over the authenticated session. For the bottom terminal it emits session-scoped open, close, and context-ended intent only; it never renders a terminal or forwards terminal keystrokes (ADR-0074).
 28. **AgentSessionTerminalCoordinator.** Host-only authority for Agent Panel resume terminals (ADR-0056). It validates project/source/session context, derives `agent-resume-<source>-<session-id>`, constructs the fixed Claude or Codex argv, serializes create-or-attach, holds a bootstrap client through native renderer handoff, rejects `activeElsewhere`, and owns immediate explicit kill. macOS calls it directly; iOS reaches the same coordinator through the terminal messages introduced in protocol v7 and carried by current protocol v10.
 29. **WorkspaceTerminalCoordinator.** Host-only authority for persistent workspace shells (ADR-0061). It resolves an opaque workspace id through `WorkspaceStore`, validates a remembered running session against the workspace namespace, canonical root, and persistent lifetime, otherwise selects the newest eligible session by immutable PTY creation time, and creates one login shell at the root only when none exists. macOS and iOS use the same host-generated `workspace-<workspace-id>-<suffix>` names; no workspace root crosses the wire.
 30. **WorkspaceIDEStateCoordinator.** Persists revisioned ordered open paths and expanded directory paths per workspace, applies idempotent operations, and fans snapshots to local and remote subscribers. It never owns selected workspace, active tab, drafts, cursor positions, or pane geometry.
@@ -136,7 +136,7 @@ inner PTY protocol.
    forwarding wrapper and PTY protocol; no joined command string or terminal-input injection exists.
 4. The coordinator serializes opens by deterministic PTY name. It attaches an existing panel-owned
    PTY or creates one `leased + CommandLaunch` PTY and holds a bootstrap attachment until the native
-   renderer acknowledges attachment. A failed or timed-out handoff kills the new PTY. If ATC says the
+   renderer acknowledges attachment. A failed or timed-out handoff kills the new PTY. If the agent feed says the
    harness is live and the deterministic PTY is absent, open fails with `activeElsewhere`.
 5. AppKit and UIKit each compose the AgentPanel webview above a native resize handle and
    `PtyTerminalWebView` in single-session mode. The feed shrinks as the terminal grows. The shared web

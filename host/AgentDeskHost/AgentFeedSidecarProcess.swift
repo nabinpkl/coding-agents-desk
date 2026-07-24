@@ -1,22 +1,22 @@
 import Foundation
 import os
 
-// AgentEngineSidecar spawns the bundled ATC engine binary, polls until it
+// AgentFeedSidecarProcess spawns the bundled transcript sidecar, polls until it
 // answers /api/config on loopback, supervises the child (restarting on
 // unexpected exit with a small backoff), and tears down cleanly on stop.
 //
-// The sidecar is host-internal and loopback-only; it is never exposed to the
-// phone. Wiring it into the live AppDelegate is the responsibility of the
-// bridge task (2.3), not this file.
-final class AgentEngineSidecar: @unchecked Sendable {
+// The sidecar is host-internal and loopback-only; the authenticated bridge,
+// rather than the phone, is its sole application consumer.
+final class AgentFeedSidecarProcess: @unchecked Sendable {
     // Base URL on loopback once the sidecar is ready (e.g. http://127.0.0.1:7682).
     // Nil until the first successful ready-poll.
     private(set) var baseURL: URL?
 
     private let binaryURL: URL
     private let port: UInt16
+    private let stateDirectory: URL
     private let logger: Logger
-    private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).agent-engine-sidecar")
+    private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).agent-feed-sidecar")
 
     private var process: Process?
     private var stopped = false
@@ -36,10 +36,11 @@ final class AgentEngineSidecar: @unchecked Sendable {
     // Maximum backoff between restart attempts (seconds).
     private static let maxBackoffSeconds: TimeInterval = 16
 
-    init(binaryURL: URL, port: UInt16) {
+    init(binaryURL: URL, port: UInt16, stateDirectory: URL) {
         self.binaryURL = binaryURL
         self.port = port
-        self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-engine-sidecar")
+        self.stateDirectory = stateDirectory
+        self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-sidecar")
     }
 
     deinit {
@@ -85,18 +86,19 @@ final class AgentEngineSidecar: @unchecked Sendable {
         proc.executableURL = binaryURL
         // Merge into the inherited env rather than replacing it. Setting
         // Process.environment replaces the whole child env, which would strip
-        // PATH/HOME and break the engine's tmux/git/open subprocesses. Inherit
+        // PATH/HOME and break transcript discovery. Inherit
         // the parent env and override only ours.
         proc.environment = ProcessInfo.processInfo.environment.merging([
-            "ATC_PORT": String(port),
-            "ATC_HOST": "127.0.0.1",
+            "AGENT_FEED_PORT": String(port),
+            "AGENT_FEED_HOST": "127.0.0.1",
+            "AGENT_FEED_STATE_DIR": stateDirectory.path,
         ]) { _, new in new }
         // Detach the child's stdio from the host's. The sidecar logs to its own
         // stdout/stderr; inheriting the host's file handles would both pollute
         // the host console and couple the child's lifetime to those handles (a
         // closed/reset parent fd can fault the child). Send child stdio to
         // /dev/null. The bridge task can add a capture pipe later if it wants
-        // the engine logs.
+        // sidecar logs.
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
         // Dispatch onto our serial queue: Process invokes terminationHandler on
