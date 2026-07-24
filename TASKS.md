@@ -43,12 +43,12 @@ the master descriptor.
 
 ## v8 Phase 1: PTY transport seam
 
-- R104. Refactor `terminal/pty-manager/src/pty_session.rs` and
+- D104. Refactor `terminal/pty-manager/src/pty_session.rs` and
   `terminal/pty-manager/src/pty_manager_client_sessions.rs` so `LiveSession` consumes a narrow PTY I/O
   lease instead of directly owning `portable_pty::MasterPty` and `Child`; keep session naming,
   lifetime, headless terminal, replay, clients, generations, and viewport authority in `pty-manager`,
   and retain the current in-process lease adapter until the vault path is green.
-- R105. Pin the seam with existing protocol tests plus focused real-PTY tests for byte ordering,
+- D105. Pin the seam with existing protocol tests plus focused real-PTY tests for byte ordering,
   backpressure, resize, signal, close, session exit status, and one-reader ownership; leave the current
   host launch behavior unchanged throughout this refactor.
 
@@ -120,8 +120,8 @@ the master descriptor.
 ```text
 D101     2026-07-23  landed      accepted centralized PTY custody and handover decision
 D103     2026-07-23  landed      Darwin descriptor transfer and post-parent exit gates
+D104-105 2026-07-23 landed       manager PTY lease seam and lifecycle behavior gates
 D106-107 2026-07-23 landed       common vault custody, validated control, and descriptor leases
 R102     2026-07-23  active      continuous TUI marker handover gate
-R104-105 2026-07-23  planned     manager PTY lease seam and focused behavior gates
 R108-117 2026-07-23  planned     vault handover through authorized live acceptance
 ```

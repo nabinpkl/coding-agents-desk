@@ -13,6 +13,8 @@ use tempfile::{tempdir, TempDir};
 use tokio::net::UnixStream;
 use tokio::task::JoinHandle;
 
+mod support;
+
 const TEST_GRACE: Duration = Duration::from_millis(80);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -210,7 +212,7 @@ async fn natural_exit_clears_leased_session_state() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn manager_shutdown_waits_for_leased_child_exit() {
+async fn manager_shutdown_preserves_leased_child_in_vault() {
     let tempdir = tempdir().expect("tempdir");
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
@@ -270,10 +272,22 @@ async fn manager_shutdown_waits_for_leased_child_exit() {
         .await
         .expect("manager shutdown timed out")
         .expect("manager task failed");
-    wait_for_process_exit(attached.pid).await;
+    assert!(
+        process_exists(attached.pid),
+        "vault did not preserve child after manager shutdown"
+    );
+    let mut preserved_pids = vec![attached.pid];
     if let Ok(contents) = fs::read_to_string(marker) {
         let racing_pid = contents.trim().parse::<u32>().expect("racing child pid");
-        wait_for_process_exit(racing_pid).await;
+        assert!(
+            process_exists(racing_pid),
+            "vault did not preserve racing child after manager shutdown"
+        );
+        preserved_pids.push(racing_pid);
+    }
+    support::close_all_vault_sessions(&socket_path);
+    for pid in preserved_pids {
+        wait_for_process_exit(pid).await;
     }
 }
 
@@ -330,6 +344,13 @@ impl RunningManager {
                 .expect("manager shutdown timed out")
                 .expect("manager task failed");
         }
+        for pid in leased_pids {
+            assert!(
+                process_exists(*pid),
+                "leased child {pid} did not survive manager shutdown"
+            );
+        }
+        support::close_all_vault_sessions(&self.socket_path);
         for pid in leased_pids {
             wait_for_process_exit(*pid).await;
         }
@@ -428,6 +449,7 @@ async fn wait_for_no_sessions(socket_path: &Path) {
 }
 
 async fn wait_for_socket(socket_path: &Path) {
+    support::ensure_vault_for_manager(socket_path);
     for _ in 0..100 {
         if UnixStream::connect(socket_path).await.is_ok() {
             return;

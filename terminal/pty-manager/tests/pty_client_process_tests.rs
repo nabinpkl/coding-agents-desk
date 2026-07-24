@@ -6,6 +6,8 @@ use pty_manager::manager::{PtyManager, PtyManagerOptions};
 use tempfile::tempdir;
 use tokio::net::UnixStream;
 
+mod support;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pty_client_exits_when_child_session_exits_with_stdin_open() {
     let tempdir = tempdir().expect("tempdir");
@@ -67,6 +69,7 @@ async fn send_exit_and_wait(client: &mut Child) {
 }
 
 async fn wait_for_socket(socket_path: &Path) {
+    support::ensure_vault_for_manager(socket_path);
     for _ in 0..100 {
         if UnixStream::connect(socket_path).await.is_ok() {
             return;

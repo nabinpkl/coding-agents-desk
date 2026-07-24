@@ -10,6 +10,8 @@ use pty_manager::transport::{receive, send};
 use tempfile::tempdir;
 use tokio::net::UnixStream;
 
+mod support;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn resize_updates_child_pty_size() {
     let tempdir = tempdir().expect("tempdir");
@@ -507,6 +509,7 @@ async fn viewer_state_for_missing_session_returns_error() {
 }
 
 async fn wait_for_socket(socket_path: &Path) {
+    support::ensure_vault_for_manager(socket_path);
     for _ in 0..100 {
         if UnixStream::connect(socket_path).await.is_ok() {
             return;

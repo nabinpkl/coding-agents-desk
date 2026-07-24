@@ -157,3 +157,11 @@ fn receive_header_and_descriptor(stream: &UnixStream) -> Result<([u8; 4], Option
     }
     Ok((header, descriptor))
 }
+
+pub fn duplicate_descriptor(descriptor: RawFd) -> Result<OwnedFd> {
+    let duplicate = unsafe { libc::fcntl(descriptor, libc::F_DUPFD_CLOEXEC, 0) };
+    if duplicate < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(unsafe { OwnedFd::from_raw_fd(duplicate) })
+}

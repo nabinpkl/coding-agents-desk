@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
 use crate::error::{Result, TerminalError};
-use crate::fd_transfer::{receive_message, send_message};
+use crate::fd_transfer::{duplicate_descriptor, receive_message, send_message};
 use crate::protocol::validate_session_name;
 use crate::vault_protocol::generated::{
     create_session, vault_request, vault_response, Acknowledged, CreateSession, ExitStatus,
@@ -346,6 +346,13 @@ fn spawn_exit_observer(
                 -1
             }
         };
+        // Reap while this vault is still the spawning parent. After a vault
+        // handover this returns ECHILD, while kqueue still supplies the exact
+        // exit status.
+        let mut wait_status = 0;
+        unsafe {
+            libc::waitpid(pid as libc::pid_t, &mut wait_status, libc::WNOHANG);
+        }
         let Ok(mut state) = state.lock() else {
             return;
         };
@@ -357,10 +364,6 @@ fn spawn_exit_observer(
         }
         session.metadata.exited = true;
         session.metadata.exit_status = status;
-        let mut wait_status = 0;
-        unsafe {
-            libc::waitpid(pid as libc::pid_t, &mut wait_status, libc::WNOHANG);
-        }
     });
 }
 
@@ -406,14 +409,6 @@ fn validate_dimension(label: &str, value: u32) -> Result<u16> {
         )));
     }
     Ok(value as u16)
-}
-
-fn duplicate_descriptor(descriptor: RawFd) -> Result<OwnedFd> {
-    let duplicate = unsafe { libc::fcntl(descriptor, libc::F_DUPFD_CLOEXEC, 0) };
-    if duplicate < 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    Ok(unsafe { OwnedFd::from_raw_fd(duplicate) })
 }
 
 fn resize_descriptor(descriptor: RawFd, columns: u16, rows: u16) -> Result<()> {

@@ -23,10 +23,11 @@ use crate::protocol::{
 use crate::pty_manager_client_sessions::{
     broadcast_session_snapshot, close_client, create_or_attach, detach_client, handle_natural_exit,
     kill_session, reap_session, remove_observer, request_checkpoint, retry_pending_client_state,
-    send_input, shutdown_leased_sessions, subscribe_sessions, update_viewer_state, PtyManagerState,
-    ReapRequest, ReapScheduler,
+    send_input, subscribe_sessions, update_viewer_state, PtyManagerState, ReapRequest,
+    ReapScheduler,
 };
 use crate::pty_session::PtyEvent;
+use crate::vault_client::VaultClient;
 
 pub use crate::pty_manager_client_sessions::PtyManagerLimits;
 
@@ -69,9 +70,15 @@ impl PtyManager {
         let (events_tx, events_rx) = mpsc::channel(options.limits.pty_event_frames);
         let (reap_tx, reap_rx) = mpsc::channel(64);
         let reaper = ReapScheduler::new(options.base.leased_session_grace, reap_tx);
+        let vault = VaultClient::new(
+            options
+                .base
+                .socket_path
+                .with_file_name("pty-vault.sock"),
+        );
         Self {
             options: options.base,
-            state: Arc::new(Mutex::new(PtyManagerState::new(options.limits))),
+            state: Arc::new(Mutex::new(PtyManagerState::new(options.limits, vault))),
             events_tx,
             events_rx,
             reaper,
@@ -129,9 +136,6 @@ impl PtyManager {
                     warn!(%error, "pty client task failed during shutdown");
                 }
             }
-        }
-        if shutdown_leased_sessions(&self.state).await {
-            broadcast_session_snapshot(&self.state).await;
         }
         run_result
     }

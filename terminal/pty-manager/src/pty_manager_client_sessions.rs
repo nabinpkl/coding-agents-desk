@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
@@ -14,9 +14,10 @@ use crate::protocol::{
     CreateOrAttach, Envelope, Payload, SessionLifetime, SessionSnapshot, TerminalCheckpointBegin,
     TerminalCheckpointChunk, TerminalCheckpointEnd, TerminalViewerState, TerminalViewportStatus,
 };
-use crate::pty_session::{PtyEvent, PtyLaunch, PtySession};
+use crate::pty_session::{PtyEvent, PtySession};
 use crate::session_registry::SessionRegistry;
 use crate::session_viewport::{SessionViewport, ViewportDecision};
+use crate::vault_client::{VaultClient, VaultLaunch};
 
 pub(crate) struct PtyManagerState {
     pub(crate) limits: PtyManagerLimits,
@@ -25,8 +26,8 @@ pub(crate) struct PtyManagerState {
     pub(crate) client_sessions: HashMap<u64, HashSet<String>>,
     pub(crate) observers: HashMap<u64, mpsc::Sender<Envelope>>,
     pending_reaps: HashMap<String, PendingReap>,
-    next_session_generation: u64,
     next_reap_token: u64,
+    vault: VaultClient,
 }
 
 pub(crate) struct LiveSession {
@@ -130,7 +131,7 @@ impl PtyManagerLimits {
 }
 
 impl PtyManagerState {
-    pub(crate) fn new(limits: PtyManagerLimits) -> Self {
+    pub(crate) fn new(limits: PtyManagerLimits, vault: VaultClient) -> Self {
         Self {
             limits,
             registry: SessionRegistry::new(),
@@ -138,8 +139,8 @@ impl PtyManagerState {
             client_sessions: HashMap::new(),
             observers: HashMap::new(),
             pending_reaps: HashMap::new(),
-            next_session_generation: 1,
             next_reap_token: 1,
+            vault,
         }
     }
 
@@ -195,12 +196,6 @@ impl PtyManagerState {
             .collect::<BTreeMap<_, _>>();
         self.registry
             .list_with_runtime(&clients_by_session, &runtime_by_session)
-    }
-
-    fn allocate_session_generation(&mut self) -> u64 {
-        let generation = self.next_session_generation;
-        self.next_session_generation = self.next_session_generation.wrapping_add(1).max(1);
-        generation
     }
 
     fn cancel_pending_reap(&mut self, session_name: &str) {
@@ -308,8 +303,8 @@ pub(crate) async fn create_or_attach(
             return Err(TerminalError::Protocol("session limit reached".to_owned()));
         }
         let launch = match request.launch.as_ref().expect("launch checked above") {
-            create_or_attach::Launch::ShellLaunch(launch) => PtyLaunch::Shell {
-                cwd: defaulted_cwd(&launch.cwd),
+            create_or_attach::Launch::ShellLaunch(launch) => VaultLaunch::Shell {
+                cwd: defaulted_cwd(&launch.cwd).to_string_lossy().into_owned(),
                 shell: defaulted_shell(&launch.shell),
             },
             create_or_attach::Launch::CommandLaunch(launch) => {
@@ -318,22 +313,23 @@ pub(crate) async fn create_or_attach(
                         "command executable must not be empty".to_owned(),
                     ));
                 }
-                PtyLaunch::Command {
-                    cwd: defaulted_cwd(&launch.cwd),
+                VaultLaunch::Command {
+                    cwd: defaulted_cwd(&launch.cwd).to_string_lossy().into_owned(),
                     executable: launch.executable.clone(),
                     arguments: launch.arguments.clone(),
                 }
             }
         };
-        let generation = state.allocate_session_generation();
-        let pty = PtySession::spawn(
+        let lease = state.vault.create(
             session_name,
-            generation,
             launch,
             columns,
             rows,
-            events.clone(),
+            lifetime as i32,
         )?;
+        let started_at_unix_milliseconds = lease.session.started_at_unix_milliseconds;
+        let generation = lease.session.generation;
+        let pty = PtySession::from_vault_lease(lease, state.vault.clone(), events.clone())?;
         let headless = HeadlessTerminal::new(
             columns,
             rows,
@@ -346,7 +342,7 @@ pub(crate) async fn create_or_attach(
             pty.shell.clone(),
             pty.pid,
             lifetime,
-            unix_time_milliseconds(),
+            started_at_unix_milliseconds,
         )?;
         state.sessions.insert(
             session_name.to_owned(),
@@ -491,14 +487,6 @@ fn checkpoint_envelopes(
         }),
     ));
     Ok(frames)
-}
-
-fn unix_time_milliseconds() -> u64 {
-    let milliseconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    u64::try_from(milliseconds).unwrap_or(u64::MAX)
 }
 
 fn explicit_lifetime(value: i32) -> Result<SessionLifetime> {
@@ -929,34 +917,6 @@ pub(crate) async fn handle_natural_exit(
         let _ = client.tx.try_send(frame.clone());
     }
     true
-}
-
-pub(crate) async fn shutdown_leased_sessions(state: &Arc<Mutex<PtyManagerState>>) -> bool {
-    let removed = {
-        let mut state = state.lock().await;
-        let names = state
-            .sessions
-            .iter()
-            .filter_map(|(name, session)| {
-                (session.lifetime == SessionLifetime::Leased).then(|| name.clone())
-            })
-            .collect::<Vec<_>>();
-        names
-            .into_iter()
-            .filter_map(|name| {
-                state
-                    .remove_session_state(&name)
-                    .map(|session| (name, session))
-            })
-            .collect::<Vec<_>>()
-    };
-    let removed_any = !removed.is_empty();
-    for (session_name, mut session) in removed {
-        let _ = session.pty.kill();
-        let _ = session.pty.wait_status();
-        notify_removed_clients(&session_name, 129, session.clients.into_iter(), true);
-    }
-    removed_any
 }
 
 fn notify_removed_clients(
