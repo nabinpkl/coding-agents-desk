@@ -1,5 +1,11 @@
 import type { ActivityEvent } from "../useSessionEventsStream";
-import type { HarnessSession, LinkState } from "../activityTypes";
+
+export type AgentSource = "claude" | "codex";
+
+export interface SessionReference {
+  source: AgentSource;
+  sessionId: string;
+}
 
 export interface EventsPage {
   events: ActivityEvent[];
@@ -12,28 +18,24 @@ export interface SessionEventsHandlers {
   onError?: () => void;
 }
 
-export interface SessionsHandlers {
-  onSessions: (sessions: HarnessSession[]) => void;
-  onLink: (link: LinkState) => void;
-}
-
 export interface AgentDataSource {
   /** Fetches a page of events for a session. Throws on non-ok HTTP. */
-  fetchEventsPage(sessionId: string, offset: number, limit: number): Promise<EventsPage>;
+  fetchEventsPage(
+    session: SessionReference,
+    offset: number,
+    limit: number,
+  ): Promise<EventsPage>;
 
   /** Opens an SSE stream for new events after `after`. Returns unsubscribe. */
   subscribeSessionEvents(
-    sessionId: string,
+    session: SessionReference,
     after: number,
     handlers: SessionEventsHandlers,
   ): () => void;
 
-  /** Opens an SSE stream for the sessions list. Returns unsubscribe. */
-  subscribeSessions(handlers: SessionsHandlers): () => void;
-
   /** Fetches the exact original JSONL line for one visible event. */
   fetchRawEvent(
-    sessionId: string,
+    session: SessionReference,
     eventIndex: number,
   ): Promise<string>;
 }

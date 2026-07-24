@@ -9,27 +9,17 @@ export interface OpenStream {
   teardown: () => void;
 }
 
-export interface TailWatcherEntry {
-  watcher: FSWatcher;
-  lastFireAt: number;
-  debounceTimer: ReturnType<typeof setTimeout> | null;
-  draining: boolean;
-  pending: boolean;
-}
-
 export interface TranscriptState {
   sessions: Map<string, Session>;
   subscribers: Set<(snapshot: Session[]) => void>;
-  tailWatchers: Map<string, TailWatcherEntry>;
-  discoveryTeardowns: Array<() => void>;
-  discoveryRescans: Array<() => Promise<void>>;
-  cacheSaveTimer: ReturnType<typeof setTimeout> | null;
-  pruneTimer: ReturnType<typeof setInterval> | null;
-  safetyTimer: ReturnType<typeof setInterval> | null;
+  sourceWatchers: FSWatcher[];
+  discoveryTimer: ReturnType<typeof setInterval> | null;
   watcherState: WatcherState;
   eventByteOffsets: Map<string, number[]>;
+  indexedSizes: Map<string, number>;
   indexed: Set<string>;
   indexBuilds: Map<string, Promise<void>>;
+  indexReferences: Map<string, number>;
   eventSubscribers: Map<string, Set<EventSubscriber>>;
   openStreams: Set<OpenStream>;
   shuttingDown: boolean;
@@ -38,16 +28,14 @@ export interface TranscriptState {
 export const state: TranscriptState = {
   sessions: new Map(),
   subscribers: new Set(),
-  tailWatchers: new Map(),
-  discoveryTeardowns: [],
-  discoveryRescans: [],
-  cacheSaveTimer: null,
-  pruneTimer: null,
-  safetyTimer: null,
+  sourceWatchers: [],
+  discoveryTimer: null,
   watcherState: "idle",
   eventByteOffsets: new Map(),
+  indexedSizes: new Map(),
   indexed: new Set(),
   indexBuilds: new Map(),
+  indexReferences: new Map(),
   eventSubscribers: new Map(),
   openStreams: new Set(),
   shuttingDown: false,

@@ -10,18 +10,21 @@ public enum AgentRawEventLimits {
 public struct AgentRawEventRequest: Codable, Equatable, Sendable {
     public let type = "agent-raw-event-get"
     public let requestId: String
+    public let source: String
     public let sessionId: String
     public let eventIndex: Int
 
     public enum CodingKeys: String, CodingKey {
         case type = "t"
         case requestId = "rid"
+        case source = "src"
         case sessionId = "sid"
         case eventIndex = "ei"
     }
 
-    public init(requestId: String, sessionId: String, eventIndex: Int) {
+    public init(requestId: String, source: String, sessionId: String, eventIndex: Int) {
         self.requestId = requestId
+        self.source = source
         self.sessionId = sessionId
         self.eventIndex = eventIndex
     }
@@ -30,6 +33,7 @@ public struct AgentRawEventRequest: Codable, Equatable, Sendable {
 public struct AgentRawEventResponse: Codable, Equatable, Sendable {
     public let type = "agent-raw-event"
     public let requestId: String
+    public let source: String
     public let sessionId: String
     public let eventIndex: Int
     public let text: String
@@ -37,13 +41,15 @@ public struct AgentRawEventResponse: Codable, Equatable, Sendable {
     public enum CodingKeys: String, CodingKey {
         case type = "t"
         case requestId = "rid"
+        case source = "src"
         case sessionId = "sid"
         case eventIndex = "ei"
         case text = "tx"
     }
 
-    public init(requestId: String, sessionId: String, eventIndex: Int, text: String) {
+    public init(requestId: String, source: String, sessionId: String, eventIndex: Int, text: String) {
         self.requestId = requestId
+        self.source = source
         self.sessionId = sessionId
         self.eventIndex = eventIndex
         self.text = text
@@ -54,6 +60,7 @@ public struct AgentRawEventPart: Codable, Equatable, Sendable {
     public let type = "agent-raw-event-part"
     public let transferId: String
     public let requestId: String
+    public let source: String
     public let sessionId: String
     public let eventIndex: Int
     public let partIndex: Int
@@ -65,6 +72,7 @@ public struct AgentRawEventPart: Codable, Equatable, Sendable {
         case type = "t"
         case transferId = "xid"
         case requestId = "rid"
+        case source = "src"
         case sessionId = "sid"
         case eventIndex = "ei"
         case partIndex = "pi"
@@ -76,6 +84,7 @@ public struct AgentRawEventPart: Codable, Equatable, Sendable {
     public init(
         transferId: String,
         requestId: String,
+        source: String,
         sessionId: String,
         eventIndex: Int,
         partIndex: Int,
@@ -85,6 +94,7 @@ public struct AgentRawEventPart: Codable, Equatable, Sendable {
     ) {
         self.transferId = transferId
         self.requestId = requestId
+        self.source = source
         self.sessionId = sessionId
         self.eventIndex = eventIndex
         self.partIndex = partIndex
@@ -97,6 +107,7 @@ public struct AgentRawEventPart: Codable, Equatable, Sendable {
 public struct AgentRawEventError: Codable, Equatable, Sendable {
     public let type = "agent-raw-event-error"
     public let requestId: String
+    public let source: String
     public let sessionId: String
     public let eventIndex: Int
     public let reason: String
@@ -104,13 +115,15 @@ public struct AgentRawEventError: Codable, Equatable, Sendable {
     public enum CodingKeys: String, CodingKey {
         case type = "t"
         case requestId = "rid"
+        case source = "src"
         case sessionId = "sid"
         case eventIndex = "ei"
         case reason = "r"
     }
 
-    public init(requestId: String, sessionId: String, eventIndex: Int, reason: String) {
+    public init(requestId: String, source: String, sessionId: String, eventIndex: Int, reason: String) {
         self.requestId = requestId
+        self.source = source
         self.sessionId = sessionId
         self.eventIndex = eventIndex
         self.reason = reason
@@ -121,6 +134,7 @@ public enum AgentRawEventFragmenter {
     public static func makeParts(
         data: Data,
         requestId: String,
+        source: String,
         sessionId: String,
         eventIndex: Int,
         transferId: String = UUID().uuidString
@@ -129,6 +143,7 @@ public enum AgentRawEventFragmenter {
         try forEachPart(
             data: data,
             requestId: requestId,
+            source: source,
             sessionId: sessionId,
             eventIndex: eventIndex,
             transferId: transferId
@@ -139,6 +154,7 @@ public enum AgentRawEventFragmenter {
     public static func forEachPart(
         data: Data,
         requestId: String,
+        source: String,
         sessionId: String,
         eventIndex: Int,
         transferId: String = UUID().uuidString,
@@ -154,6 +170,7 @@ public enum AgentRawEventFragmenter {
             try body(AgentRawEventPart(
                 transferId: transferId,
                 requestId: requestId,
+                source: source,
                 sessionId: sessionId,
                 eventIndex: eventIndex,
                 partIndex: partIndex,
@@ -183,6 +200,7 @@ public struct AgentRawEventReassembler: Sendable {
 
     private struct Transfer: Sendable {
         let requestId: String
+        let source: String
         let sessionId: String
         let eventIndex: Int
         let partCount: Int
@@ -203,6 +221,7 @@ public struct AgentRawEventReassembler: Sendable {
     public mutating func accept(_ part: AgentRawEventPart, now: Date = Date()) -> Outcome {
         let error = AgentRawEventError(
             requestId: part.requestId,
+            source: part.source,
             sessionId: part.sessionId,
             eventIndex: part.eventIndex,
             reason: "raw event transfer rejected"
@@ -234,6 +253,7 @@ public struct AgentRawEventReassembler: Sendable {
         var transfer: Transfer
         if let current = transfers[part.transferId] {
             guard current.requestId == part.requestId,
+                  current.source == part.source,
                   current.sessionId == part.sessionId,
                   current.eventIndex == part.eventIndex,
                   current.partCount == part.partCount,
@@ -252,6 +272,7 @@ public struct AgentRawEventReassembler: Sendable {
             }
             transfer = Transfer(
                 requestId: part.requestId,
+                source: part.source,
                 sessionId: part.sessionId,
                 eventIndex: part.eventIndex,
                 partCount: part.partCount,
@@ -277,6 +298,7 @@ public struct AgentRawEventReassembler: Sendable {
         }
         return .complete(AgentRawEventResponse(
             requestId: transfer.requestId,
+            source: transfer.source,
             sessionId: transfer.sessionId,
             eventIndex: transfer.eventIndex,
             text: text
@@ -291,6 +313,7 @@ public struct AgentRawEventReassembler: Sendable {
         return expired.values.map {
             AgentRawEventError(
                 requestId: $0.requestId,
+                source: $0.source,
                 sessionId: $0.sessionId,
                 eventIndex: $0.eventIndex,
                 reason: "raw event transfer expired"

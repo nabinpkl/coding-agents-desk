@@ -1,89 +1,52 @@
 /**
- * Fixture data for host-free development/verification.
+ * Host-free fixture for the WKWebView bridge.
  *
- * Call installFixture() before mounting the app when window.__agentFeedFixture
- * is true or the ?fixture query param is present. It wires a shim on
- * window.webkit so the WebkitHostBridge's outbound postMessage calls are
- * intercepted and canned inbound messages are injected in response.
- *
- * Delivery path:
- *   1. bridge.subscribeProjects -> posts "agent-projects-sub" outbound.
- *      Shim intercepts -> delivers FIXTURE_PROJECTS_MSG inbound.
- *   2. User taps a session -> bridge.subscribeSessionEvents -> posts
- *      "agent-thread-sub" outbound.
- *      Shim intercepts -> delivers seed chunk (isLive:false) then a live
- *      chunk (isLive:true).
+ * Every visibility watch echoes its generated subscription ID. This keeps the
+ * fixture on the same replacement-snapshot contract as the native host.
  */
 
-// Abbreviated wire keys, matching SharedTypes.swift (the host emits these and
-// the native client forwards them verbatim). See BridgeDataSource.ts wire layer.
-export const FIXTURE_PROJECTS_MSG = {
-  t: "agent-projects",
-  p: [
-    {
-      pp: "/Users/dev/projects/agent-desk",
-      dn: "AgentDesk",
-      ss: [
-        {
-          sid: "session-claude-001",
-          src: "claude" as const,
-          ttl: "Implement webview Vite bundle",
-          lea: Date.now() - 60_000,
-          lv: true,
-        },
-        {
-          sid: "session-codex-001",
-          src: "codex" as const,
-          ttl: "Fix TypeScript errors in BridgeDataSource",
-          lea: Date.now() - 300_000,
-          lv: false,
-        },
-      ],
-    },
-    {
-      pp: "/Users/dev/projects/agent-desk",
-      dn: "Agent Desk (iOS Client)",
-      ss: [
-        {
-          sid: "session-claude-002",
-          src: "claude" as const,
-          ttl: "Add phone webview app",
-          lea: Date.now() - 120_000,
-          lv: false,
-        },
-      ],
-    },
-    {
-      pp: "/Users/dev/projects/research-tool",
-      dn: "Research Tool",
-      ss: [
-        {
-          sid: "session-codex-002",
-          src: "codex" as const,
-          ttl: "Refactor data pipeline",
-          lea: Date.now() - 900_000,
-          lv: false,
-        },
-        {
-          sid: "session-codex-003",
-          src: "codex" as const,
-          ttl: "Add unit tests",
-          lea: Date.now() - 3_600_000,
-          lv: false,
-        },
-      ],
-    },
-  ],
-};
+type Source = "claude" | "codex";
 
-const FIXTURE_SESSION_IDS = new Set(
-  FIXTURE_PROJECTS_MSG.p.flatMap((p) => p.ss.map((s) => s.sid)),
-);
+const PROJECT_PATH = "/Users/dev/projects/agent-desk";
 
-/** Seed chunk for a session: historical events (isLive: false). */
-export function makeFixtureSeedChunk(sessionId: string) {
+export const FIXTURE_PROJECTS = [
+  {
+    pp: PROJECT_PATH,
+    dn: "AgentDesk",
+    sc: { cl: 1, co: 1 },
+    sn: 2,
+    lea: Date.now() - 60_000,
+  },
+  {
+    pp: "/Users/dev/projects/research-tool",
+    dn: "Research Tool",
+    sc: { cl: 0, co: 2 },
+    sn: 2,
+    lea: Date.now() - 900_000,
+  },
+];
+
+export const FIXTURE_SESSIONS = [
+  {
+    sid: "session-claude-001",
+    src: "claude" as const,
+    ttl: "Implement webview Vite bundle",
+    lea: Date.now() - 60_000,
+    ac: "live" as const,
+  },
+  {
+    sid: "session-codex-001",
+    src: "codex" as const,
+    ttl: "Fix TypeScript errors in BridgeDataSource",
+    lea: Date.now() - 300_000,
+    ac: "ready" as const,
+  },
+];
+
+function makeFixtureSeedChunk(source: Source, sessionId: string) {
   return {
     t: "agent-thread-chunk",
+    src: source,
     sid: sessionId,
     ev: [
       {
@@ -104,7 +67,7 @@ export function makeFixtureSeedChunk(sessionId: string) {
         b: [
           {
             k: "text" as const,
-            tx: "I'll set up the Vite toolchain and create the webview app. Starting with the config files.",
+            tx: "I’ll set up the Vite toolchain and create the webview app.",
           },
           {
             k: "tool_use" as const,
@@ -114,91 +77,89 @@ export function makeFixtureSeedChunk(sessionId: string) {
           },
         ],
       },
-      {
-        i: 2,
-        ts: Date.now() - 190_000,
-        tp: "user" as const,
-        b: [
-          {
-            k: "tool_result" as const,
-            ci: "call-001",
-            pv: "File written successfully.",
-          },
-        ],
-      },
     ],
     ws: 0,
-    tot: 4,
+    tot: 3,
     lv: false,
   };
 }
 
-/** Live event delivered after the seed chunk. */
-export function makeFixtureLiveChunk(sessionId: string) {
+function makeFixtureLiveChunk(source: Source, sessionId: string) {
   return {
     t: "agent-thread-chunk",
+    src: source,
     sid: sessionId,
     ev: [
       {
-        i: 3,
+        i: 2,
         ts: Date.now(),
         tp: "assistant" as const,
         b: [
           {
             k: "text" as const,
-            tx: "All files created. Running the build now to verify asset paths are relative.",
+            tx: "The layered webview contract is connected.",
           },
         ],
       },
     ],
     ws: 0,
-    tot: 4,
+    tot: 3,
     lv: true,
   };
 }
 
-/**
- * Install the fixture shim. Call once before mounting the app.
- *
- * Installs a window.webkit shim that intercepts outbound messages from the
- * WebkitHostBridge and delivers canned inbound messages via
- * window.__agentFeedDeliver.
- */
 export function installFixture(): void {
-  // Install a shim on window.webkit.messageHandlers.agentFeed so the
-  // WebkitHostBridge's postToHost calls are intercepted.
   (window as Window & {
     webkit: {
       messageHandlers: {
-        agentFeed: { postMessage: (msg: unknown) => void };
+        agentFeed: { postMessage: (message: unknown) => void };
       };
     };
   }).webkit = {
     messageHandlers: {
       agentFeed: {
-        postMessage: (msg: unknown) => {
-          const m = msg as { t?: string; sid?: string };
-          switch (m.t) {
-            case "agent-projects-sub":
-              // Deliver the project list after a short delay so the bridge's
-              // global __agentFeedDeliver function is installed first.
+        postMessage: (message: unknown) => {
+          const value = message as {
+            t?: string;
+            sub?: string;
+            pp?: string;
+            src?: Source;
+            sid?: string;
+          };
+          switch (value.t) {
+            case "agent-projects-watch":
+              if (!value.sub) return;
               setTimeout(() => {
-                window.__agentFeedDeliver?.(FIXTURE_PROJECTS_MSG);
+                window.__agentFeedDeliver?.({
+                  t: "agent-projects",
+                  sub: value.sub,
+                  p: FIXTURE_PROJECTS,
+                });
+              }, 30);
+              break;
+            case "agent-project-sessions-watch":
+              if (!value.sub || !value.pp) return;
+              setTimeout(() => {
+                window.__agentFeedDeliver?.({
+                  t: "agent-project-sessions",
+                  sub: value.sub,
+                  pp: value.pp,
+                  ss: value.pp === PROJECT_PATH ? FIXTURE_SESSIONS : [],
+                });
               }, 30);
               break;
             case "agent-thread-sub":
-              if (m.sid && FIXTURE_SESSION_IDS.has(m.sid)) {
-                const sid = m.sid;
+              if (!value.src || !value.sid) return;
+              setTimeout(() => {
+                window.__agentFeedDeliver?.(
+                  makeFixtureSeedChunk(value.src!, value.sid!),
+                );
                 setTimeout(() => {
-                  window.__agentFeedDeliver?.(makeFixtureSeedChunk(sid));
-                  setTimeout(() => {
-                    window.__agentFeedDeliver?.(makeFixtureLiveChunk(sid));
-                  }, 80);
-                }, 40);
-              }
-              break;
-            default:
-              // Other outbound messages (agent-thread-unsub, etc.) are ignored.
+                  window.__agentFeedDeliver?.(
+                    makeFixtureLiveChunk(value.src!, value.sid!),
+                  );
+                }, 80);
+              }, 40);
               break;
           }
         },

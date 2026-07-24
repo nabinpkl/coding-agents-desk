@@ -24,8 +24,18 @@ import { App } from "./AgentPanelApp";
 
 // Mock ActivityFeed so Milkdown/ProseMirror never loads in jsdom.
 vi.mock("../features/activity-feed/ActivityFeed", () => ({
-  ActivityFeed: ({ sessionId }: { sessionId: string }) => (
-    <div data-testid="activity-feed" data-session-id={sessionId}>
+  ActivityFeed: ({
+    source,
+    sessionId,
+  }: {
+    source: string;
+    sessionId: string;
+  }) => (
+    <div
+      data-testid="activity-feed"
+      data-source={source}
+      data-session-id={sessionId}
+    >
       Thread for {sessionId}
     </div>
   ),
@@ -52,39 +62,36 @@ vi.mock("../features/activity-feed/DiffBlock", () => ({
 const FIXTURE_PROJECT_A = {
   pp: "/projects/alpha",
   dn: "Alpha Project",
-  ss: [
-    {
-      sid: "sid-claude-01",
-      src: "claude" as const,
-      ttl: "Session Claude 01",
-      lea: Date.now() - 10_000,
-      lv: true,
-    },
-    {
-      sid: "sid-codex-01",
-      src: "codex" as const,
-      ttl: "Session Codex 01",
-      lea: Date.now() - 60_000,
-      lv: false,
-    },
-  ],
+  sc: { cl: 1, co: 1 },
+  sn: 2,
+  lea: Date.now() - 10_000,
 };
 
 const FIXTURE_PROJECT_B = {
   pp: "/projects/beta",
   dn: "Beta Project",
-  ss: [
-    {
-      sid: "sid-claude-02",
-      src: "claude" as const,
-      ttl: "Session Claude 02",
-      lea: Date.now() - 5_000,
-      lv: false,
-    },
-  ],
+  sc: { cl: 1, co: 0 },
+  sn: 1,
+  lea: Date.now() - 5_000,
 };
 
 const FIXTURE_PROJECTS = [FIXTURE_PROJECT_A, FIXTURE_PROJECT_B];
+const FIXTURE_SESSIONS = [
+  {
+    sid: "sid-claude-01",
+    src: "claude" as const,
+    ttl: "Session Claude 01",
+    lea: Date.now() - 10_000,
+    ac: "live" as const,
+  },
+  {
+    sid: "sid-codex-01",
+    src: "codex" as const,
+    ttl: "Session Codex 01",
+    lea: Date.now() - 60_000,
+    ac: "ready" as const,
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -92,18 +99,48 @@ const FIXTURE_PROJECTS = [FIXTURE_PROJECT_A, FIXTURE_PROJECT_B];
 
 function setup() {
   const fake = new FakeHostBridge();
+  let sequence = 0;
   const bridge = new BridgeDataSource(fake, {
-    terminalRequestIDFactory: () => "request-1",
+    requestIDFactory: (prefix) =>
+      prefix === "terminal" ? "request-1" : `${prefix}-${++sequence}`,
   });
   const { unmount } = render(<App bridge={bridge} />);
   return { fake, bridge, unmount };
 }
 
-function openClaudeThread(fake: FakeHostBridge) {
+function latestSubscription(fake: FakeHostBridge, type: string): string {
+  const message = [...fake.posted]
+    .reverse()
+    .find((candidate) => (candidate as { t?: string }).t === type) as
+    | { sub?: string }
+    | undefined;
+  if (!message?.sub) throw new Error(`missing ${type}`);
+  return message.sub;
+}
+
+function deliverProjects(fake: FakeHostBridge) {
+  const sub = latestSubscription(fake, "agent-projects-watch");
   act(() => {
-    fake.deliver({ t: "agent-projects", p: FIXTURE_PROJECTS });
+    fake.deliver({ t: "agent-projects", sub, p: FIXTURE_PROJECTS });
   });
+}
+
+function deliverSessions(fake: FakeHostBridge) {
+  const sub = latestSubscription(fake, "agent-project-sessions-watch");
+  act(() => {
+    fake.deliver({
+      t: "agent-project-sessions",
+      sub,
+      pp: FIXTURE_PROJECT_A.pp,
+      ss: FIXTURE_SESSIONS,
+    });
+  });
+}
+
+function openClaudeThread(fake: FakeHostBridge) {
+  deliverProjects(fake);
   fireEvent.click(screen.getByText("Alpha Project"));
+  deliverSessions(fake);
   fireEvent.click(screen.getByText("Session Claude 01"));
 }
 
@@ -126,21 +163,16 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("shows an empty state before any project data arrives", () => {
+  it("shows loading before the first project snapshot", () => {
     const { unmount } = setup();
-    expect(screen.getByText(/no projects yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/loading projects/i)).toBeInTheDocument();
     unmount();
   });
 
   it("renders fed projects with their source badges and session counts", () => {
     const { fake, unmount } = setup();
 
-    act(() => {
-      fake.deliver({
-        t: "agent-projects",
-        p: FIXTURE_PROJECTS,
-      });
-    });
+    deliverProjects(fake);
 
     // Project names
     expect(screen.getByText("Alpha Project")).toBeInTheDocument();
@@ -162,12 +194,11 @@ describe("App shell", () => {
   it("navigates to session list when a project is selected", () => {
     const { fake, unmount } = setup();
 
-    act(() => {
-      fake.deliver({ t: "agent-projects", p: FIXTURE_PROJECTS });
-    });
+    deliverProjects(fake);
 
     // Tap Alpha Project
     fireEvent.click(screen.getByText("Alpha Project"));
+    deliverSessions(fake);
 
     // Header should show the project name
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Alpha Project");
@@ -185,11 +216,10 @@ describe("App shell", () => {
   it("shows live dot for a live session in the session list", () => {
     const { fake, unmount } = setup();
 
-    act(() => {
-      fake.deliver({ t: "agent-projects", p: FIXTURE_PROJECTS });
-    });
+    deliverProjects(fake);
 
     fireEvent.click(screen.getByText("Alpha Project"));
+    deliverSessions(fake);
 
     // session-claude-01 is live; the live dot has aria-label="Live"
     const liveDots = screen.getAllByLabelText("Live");
@@ -201,11 +231,10 @@ describe("App shell", () => {
   it("mounts the thread view when a session is selected", () => {
     const { fake, unmount } = setup();
 
-    act(() => {
-      fake.deliver({ t: "agent-projects", p: FIXTURE_PROJECTS });
-    });
+    deliverProjects(fake);
 
     fireEvent.click(screen.getByText("Alpha Project"));
+    deliverSessions(fake);
     fireEvent.click(screen.getByText("Session Claude 01"));
 
     // ActivityFeed mock should be in the DOM with the correct sessionId.
@@ -219,13 +248,9 @@ describe("App shell", () => {
     // Session list items are no longer visible.
     expect(screen.queryByText("Session Codex 01")).not.toBeInTheDocument();
 
-    // The bridge received agent-projects-sub (the first outbound message from
-    // subscribeProjects). The thread-sub is posted by useSessionEventsStream
-    // which is mocked away via the ActivityFeed mock, so we do not assert it
-    // here -- the behavioral signal is that ActivityFeed received the correct
-    // sessionId prop.
+    expect(feed).toHaveAttribute("data-source", "claude");
     expect(fake.posted).toContainEqual(
-      expect.objectContaining({ t: "agent-projects-sub" }),
+      expect.objectContaining({ t: "agent-projects-watch" }),
     );
 
     unmount();
@@ -234,11 +259,10 @@ describe("App shell", () => {
   it("back from thread view returns to session list", () => {
     const { fake, unmount } = setup();
 
-    act(() => {
-      fake.deliver({ t: "agent-projects", p: FIXTURE_PROJECTS });
-    });
+    deliverProjects(fake);
 
     fireEvent.click(screen.getByText("Alpha Project"));
+    deliverSessions(fake);
     fireEvent.click(screen.getByText("Session Claude 01"));
 
     // Confirm we're in thread view
@@ -246,6 +270,7 @@ describe("App shell", () => {
 
     // Press back
     fireEvent.click(screen.getByLabelText("Go back"));
+    deliverSessions(fake);
 
     // Should be back on the session list for Alpha Project
     expect(screen.getByText("Session Claude 01")).toBeInTheDocument();
@@ -257,17 +282,17 @@ describe("App shell", () => {
   it("back from session list returns to project list", () => {
     const { fake, unmount } = setup();
 
-    act(() => {
-      fake.deliver({ t: "agent-projects", p: FIXTURE_PROJECTS });
-    });
+    deliverProjects(fake);
 
     fireEvent.click(screen.getByText("Alpha Project"));
+    deliverSessions(fake);
 
     // Confirm we're in session list
     expect(screen.getByText("Session Claude 01")).toBeInTheDocument();
 
     // Press back
     fireEvent.click(screen.getByLabelText("Go back"));
+    deliverProjects(fake);
 
     // Should be back on the project list
     expect(screen.getByText("Alpha Project")).toBeInTheDocument();
@@ -279,14 +304,61 @@ describe("App shell", () => {
   it("project list header is visible again after navigating back from sessions", () => {
     const { fake, unmount } = setup();
 
-    act(() => {
-      fake.deliver({ t: "agent-projects", p: FIXTURE_PROJECTS });
-    });
+    deliverProjects(fake);
 
     fireEvent.click(screen.getByText("Alpha Project"));
+    deliverSessions(fake);
     fireEvent.click(screen.getByLabelText("Go back"));
+    deliverProjects(fake);
 
     expect(screen.getByText("Agent Feed")).toBeInTheDocument();
+    unmount();
+  });
+
+  it("owns exactly one visibility watch and ignores a late parent snapshot", () => {
+    const { fake, unmount } = setup();
+    const projectsSub = latestSubscription(fake, "agent-projects-watch");
+    deliverProjects(fake);
+
+    fireEvent.click(screen.getByText("Alpha Project"));
+    const sessionsSub = latestSubscription(
+      fake,
+      "agent-project-sessions-watch",
+    );
+
+    expect(fake.posted).toContainEqual({
+      t: "agent-projects-unwatch",
+      sub: projectsSub,
+    });
+    expect(fake.posted).toContainEqual({
+      t: "agent-project-sessions-watch",
+      sub: sessionsSub,
+      pp: "/projects/alpha",
+    });
+
+    act(() => {
+      fake.deliver({
+        t: "agent-projects",
+        sub: projectsSub,
+        p: [
+          {
+            pp: "/projects/stale",
+            dn: "Stale Project",
+            sc: { cl: 1, co: 0 },
+            sn: 1,
+            lea: Date.now(),
+          },
+        ],
+      });
+    });
+    expect(screen.queryByText("Stale Project")).not.toBeInTheDocument();
+
+    deliverSessions(fake);
+    fireEvent.click(screen.getByText("Session Claude 01"));
+    expect(fake.posted).toContainEqual({
+      t: "agent-project-sessions-unwatch",
+      sub: sessionsSub,
+    });
     unmount();
   });
 
@@ -294,10 +366,9 @@ describe("App shell", () => {
     const { fake, unmount } = setup();
 
     expect(screen.queryByRole("button", { name: /open .* terminal/i })).not.toBeInTheDocument();
-    act(() => {
-      fake.deliver({ t: "agent-projects", p: FIXTURE_PROJECTS });
-    });
+    deliverProjects(fake);
     fireEvent.click(screen.getByText("Alpha Project"));
+    deliverSessions(fake);
     expect(screen.queryByRole("button", { name: /open .* terminal/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Session Claude 01"));
@@ -405,8 +476,10 @@ describe("App shell", () => {
       }
       originalPost(message);
     };
+    let sequence = 0;
     const bridge = new BridgeDataSource(fake, {
-      terminalRequestIDFactory: () => "request-1",
+      requestIDFactory: (prefix) =>
+        prefix === "terminal" ? "request-1" : `${prefix}-${++sequence}`,
     });
     const { unmount } = render(<App bridge={bridge} />);
     openClaudeThread(fake);
@@ -414,7 +487,13 @@ describe("App shell", () => {
 
     fireEvent.click(screen.getByLabelText("Go back"));
 
-    expect(fake.posted.slice(-2)).toEqual([
+    expect(
+      fake.posted.filter((message) =>
+        ["agent-terminal-close", "agent-terminal-context-ended"].includes(
+          (message as { t?: string }).t ?? "",
+        ),
+      ),
+    ).toEqual([
       {
         t: "agent-terminal-close",
         rid: "request-1",
@@ -434,13 +513,18 @@ describe("App shell", () => {
   it("ends the old request before opening a replacement session", () => {
     const ids = ["request-1", "request-2"];
     const fake = new FakeHostBridge();
+    let sequence = 0;
     const bridge = new BridgeDataSource(fake, {
-      terminalRequestIDFactory: () => ids.shift() ?? "unexpected",
+      requestIDFactory: (prefix) =>
+        prefix === "terminal"
+          ? ids.shift() ?? "unexpected"
+          : `${prefix}-${++sequence}`,
     });
     const { unmount } = render(<App bridge={bridge} />);
     openClaudeThread(fake);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
     fireEvent.click(screen.getByLabelText("Go back"));
+    deliverSessions(fake);
     fireEvent.click(screen.getByText("Session Codex 01"));
     fireEvent.click(screen.getByRole("button", { name: "Open Codex terminal" }));
 
@@ -463,13 +547,18 @@ describe("App shell", () => {
   it("ignores stale ready after navigation and session replacement", () => {
     const ids = ["request-1", "request-2"];
     const fake = new FakeHostBridge();
+    let sequence = 0;
     const bridge = new BridgeDataSource(fake, {
-      terminalRequestIDFactory: () => ids.shift() ?? "unexpected",
+      requestIDFactory: (prefix) =>
+        prefix === "terminal"
+          ? ids.shift() ?? "unexpected"
+          : `${prefix}-${++sequence}`,
     });
     const { unmount } = render(<App bridge={bridge} />);
     openClaudeThread(fake);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
     fireEvent.click(screen.getByLabelText("Go back"));
+    deliverSessions(fake);
     fireEvent.click(screen.getByText("Session Codex 01"));
     fireEvent.click(screen.getByRole("button", { name: "Open Codex terminal" }));
 

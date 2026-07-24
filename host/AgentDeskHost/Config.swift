@@ -917,7 +917,6 @@ enum Config {
     static let applicationSupportDirectory = FileManager.default
         .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent(bundleIdentifier, isDirectory: true)
-    static let agentFeedSidecarStateDirectory = applicationSupportDirectory
         .appendingPathComponent("AgentFeed", isDirectory: true)
     static let pairedDevicesURL = applicationSupportDirectory
         .appendingPathComponent("paired-devices.json", isDirectory: false)

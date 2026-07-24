@@ -24,47 +24,59 @@ public enum AgentPanelTerminalIntent: Equatable, Sendable {
 }
 
 public enum AgentPanelRequest: Equatable, Sendable {
-    case projectsSubscribe
-    case threadSubscribe(projectPath: String?, source: String?, sessionId: String?)
-    case threadLoadOlder(sessionId: String, beforeIndex: Int, limit: Int)
-    case threadUnsubscribe(sessionId: String)
-    case rawEvent(requestId: String, sessionId: String, eventIndex: Int)
+    case projectsWatch(subscriptionId: String)
+    case projectsUnwatch(subscriptionId: String)
+    case projectSessionsWatch(subscriptionId: String, projectPath: String)
+    case projectSessionsUnwatch(subscriptionId: String)
+    case threadSubscribe(source: String, sessionId: String)
+    case threadLoadOlder(source: String, sessionId: String, beforeIndex: Int, limit: Int)
+    case threadUnsubscribe(source: String, sessionId: String)
+    case rawEvent(requestId: String, source: String, sessionId: String, eventIndex: Int)
     case terminal(AgentPanelTerminalIntent)
 
     public static func decode(tag: String, body: [String: Any]) -> AgentPanelRequest? {
         switch tag {
-        case "agent-projects-sub":
-            return .projectsSubscribe
+        case "agent-projects-watch":
+            guard let subscriptionId = nonemptyString(body["sub"]) else { return nil }
+            return .projectsWatch(subscriptionId: subscriptionId)
+        case "agent-projects-unwatch":
+            guard let subscriptionId = nonemptyString(body["sub"]) else { return nil }
+            return .projectsUnwatch(subscriptionId: subscriptionId)
+        case "agent-project-sessions-watch":
+            guard let subscriptionId = nonemptyString(body["sub"]),
+                  let projectPath = nonemptyString(body["pp"]) else { return nil }
+            return .projectSessionsWatch(subscriptionId: subscriptionId, projectPath: projectPath)
+        case "agent-project-sessions-unwatch":
+            guard let subscriptionId = nonemptyString(body["sub"]) else { return nil }
+            return .projectSessionsUnwatch(subscriptionId: subscriptionId)
         case "agent-thread-sub":
-            let projectPath = body["pp"] as? String
-            let source = body["src"] as? String
-            let sessionId = body["sid"] as? String
-            guard projectPath != nil || sessionId != nil else {
-                return nil
-            }
-            return .threadSubscribe(projectPath: projectPath, source: source, sessionId: sessionId)
+            guard let source = agentSource(body["src"]),
+                  let sessionId = nonemptyString(body["sid"]) else { return nil }
+            return .threadSubscribe(source: source, sessionId: sessionId)
         case "agent-thread-older":
-            guard let sessionId = body["sid"] as? String,
+            guard let source = agentSource(body["src"]),
+                  let sessionId = nonemptyString(body["sid"]),
                   let beforeIndex = body["bi"] as? Int,
                   let limit = body["lim"] as? Int else {
                 return nil
             }
-            return .threadLoadOlder(sessionId: sessionId, beforeIndex: beforeIndex, limit: limit)
+            return .threadLoadOlder(source: source, sessionId: sessionId, beforeIndex: beforeIndex, limit: limit)
         case "agent-thread-unsub":
-            guard let sessionId = body["sid"] as? String else {
+            guard let source = agentSource(body["src"]),
+                  let sessionId = nonemptyString(body["sid"]) else {
                 return nil
             }
-            return .threadUnsubscribe(sessionId: sessionId)
+            return .threadUnsubscribe(source: source, sessionId: sessionId)
         case "agent-raw-event-get":
             guard let requestId = body["rid"] as? String,
                   !requestId.isEmpty,
-                  let sessionId = body["sid"] as? String,
-                  !sessionId.isEmpty,
+                  let source = agentSource(body["src"]),
+                  let sessionId = nonemptyString(body["sid"]),
                   let eventIndex = body["ei"] as? Int,
                   eventIndex >= 0 else {
                 return nil
             }
-            return .rawEvent(requestId: requestId, sessionId: sessionId, eventIndex: eventIndex)
+            return .rawEvent(requestId: requestId, source: source, sessionId: sessionId, eventIndex: eventIndex)
         case "agent-terminal-open":
             return decodeTerminalIntent(body: body, make: AgentPanelTerminalIntent.open)
         case "agent-terminal-close":
@@ -74,6 +86,18 @@ public enum AgentPanelRequest: Equatable, Sendable {
         default:
             return nil
         }
+    }
+
+    private static func nonemptyString(_ value: Any?) -> String? {
+        guard let value = value as? String, !value.isEmpty else { return nil }
+        return value
+    }
+
+    private static func agentSource(_ value: Any?) -> String? {
+        guard let value = nonemptyString(value), value == "claude" || value == "codex" else {
+            return nil
+        }
+        return value
     }
 
     private static func decodeTerminalIntent(

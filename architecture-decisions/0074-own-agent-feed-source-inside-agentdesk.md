@@ -2,6 +2,7 @@
 status: accepted
 date: 2026-07-24
 supersedes: ADR-0035
+superseded-by: ADR-0075
 ---
 
 # Own the agent feed source inside AgentDesk

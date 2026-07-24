@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDataSource } from "./data-source/AgentDataSourceContext";
 import { seedRange, olderRange } from "./data-source/eventPaging";
+import type { AgentSource } from "./data-source/AgentDataSource";
 
 export interface ActivityBlock {
   kind:
@@ -43,8 +44,15 @@ interface State {
   error: string | null;
 }
 
-export function useSessionEventsStream(sessionId: string) {
+export function useSessionEventsStream(
+  source: AgentSource,
+  sessionId: string,
+) {
   const ds = useDataSource();
+  const session = useMemo(
+    () => ({ source, sessionId }),
+    [source, sessionId],
+  );
 
   const [state, setState] = useState<State>({
     events: new Map(),
@@ -61,18 +69,39 @@ export function useSessionEventsStream(sessionId: string) {
   // Initial seed (last page) + SSE subscription. SSE never stops on scroll.
   useEffect(() => {
     let cancelled = false;
-    let unsubscribe: (() => void) | null = null;
+    const pendingLive = new Map<number, ActivityEvent>();
+    let seeded = false;
+    const unsubscribe = ds.subscribeSessionEvents(session, 0, {
+      onEvent: (event) => {
+        if (!seeded) {
+          pendingLive.set(event.index, event);
+          return;
+        }
+        setState((current) => {
+          if (current.events.has(event.index)) return current;
+          const events = new Map(current.events);
+          events.set(event.index, event);
+          return {
+            ...current,
+            events,
+            total: Math.max(current.total, event.index + 1),
+          };
+        });
+      },
+      onOpen: () => setConnected(true),
+      onError: () => setConnected(false),
+    });
 
     (async () => {
       try {
-        const probe = await ds.fetchEventsPage(sessionId, 0, 1);
+        const probe = await ds.fetchEventsPage(session, 0, 1);
         if (cancelled) return;
         const total = probe.total;
 
         const { offset, limit } = seedRange(total);
         let initial: ActivityEvent[] = [];
         if (limit > 0) {
-          const data = await ds.fetchEventsPage(sessionId, offset, limit);
+          const data = await ds.fetchEventsPage(session, offset, limit);
           if (cancelled) return;
           initial = data.events;
         }
@@ -80,19 +109,14 @@ export function useSessionEventsStream(sessionId: string) {
 
         const map = new Map<number, ActivityEvent>();
         for (const ev of initial) map.set(ev.index, ev);
-        setState({ events: map, total, windowStart: offset, loading: false, error: null });
-
-        unsubscribe = ds.subscribeSessionEvents(sessionId, total, {
-          onEvent: (ev) => {
-            setState((s) => {
-              if (s.events.has(ev.index)) return s;
-              const newMap = new Map(s.events);
-              newMap.set(ev.index, ev);
-              return { ...s, events: newMap, total: Math.max(s.total, ev.index + 1) };
-            });
-          },
-          onOpen: () => setConnected(true),
-          onError: () => setConnected(false),
+        for (const event of pendingLive.values()) map.set(event.index, event);
+        seeded = true;
+        setState({
+          events: map,
+          total: Math.max(total, ...Array.from(map.keys(), (index) => index + 1), 0),
+          windowStart: offset,
+          loading: false,
+          error: null,
         });
       } catch (e) {
         if (!cancelled) setState((s) => ({ ...s, error: String((e as Error).message ?? e), loading: false }));
@@ -101,9 +125,9 @@ export function useSessionEventsStream(sessionId: string) {
 
     return () => {
       cancelled = true;
-      if (unsubscribe) unsubscribe();
+      unsubscribe();
     };
-  }, [sessionId, ds]);
+  }, [session, ds]);
 
   const loadOlder = useCallback(async () => {
     if (loadingOlderRef.current) return;
@@ -112,7 +136,7 @@ export function useSessionEventsStream(sessionId: string) {
     loadingOlderRef.current = true;
     try {
       const { targetStart, limit } = olderRange(currentStart);
-      const data = await ds.fetchEventsPage(sessionId, targetStart, limit);
+      const data = await ds.fetchEventsPage(session, targetStart, limit);
       setState((s) => {
         const newMap = new Map(s.events);
         for (const ev of data.events) newMap.set(ev.index, ev);
@@ -121,7 +145,7 @@ export function useSessionEventsStream(sessionId: string) {
     } finally {
       loadingOlderRef.current = false;
     }
-  }, [sessionId, ds]);
+  }, [session, ds]);
 
   const events = useMemo(() => {
     const arr = Array.from(state.events.values());

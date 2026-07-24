@@ -187,8 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         return AgentFeedSidecarProcess(
             binaryURL: binaryURL,
-            port: Config.agentFeedSidecarPort,
-            stateDirectory: Config.agentFeedSidecarStateDirectory
+            port: Config.agentFeedSidecarPort
         )
     }()
     // Voice server sidecar: spawns `voice-server` on loopback for the
@@ -1188,8 +1187,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         agentFeedBridge = bridge
         server.agentRequestHandler = { [weak bridge] request in
             switch request {
-            case .projectsSubscribe:
-                bridge?.handleProjectsSubscribe()
+            case .projectsWatch(let request):
+                bridge?.handleProjectsWatch(request)
+            case .projectsUnwatch(let request):
+                bridge?.handleProjectsUnwatch(request)
+            case .projectSessionsWatch(let request):
+                bridge?.handleProjectSessionsWatch(request)
+            case .projectSessionsUnwatch(let request):
+                bridge?.handleProjectSessionsUnwatch(request)
             case .threadSubscribe(let msg):
                 bridge?.handleThreadSubscribe(msg)
             case .threadLoadOlder(let msg):

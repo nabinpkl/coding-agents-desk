@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import type { AgentSource } from "./data-source/AgentDataSource";
 import { useDataSource } from "./data-source/AgentDataSourceContext";
 import type { ActivityBlock } from "./useSessionEventsStream";
 
@@ -21,9 +22,11 @@ export function LabeledTextBlock({ block }: { block: ActivityBlock }) {
 }
 
 export function RawJsonBlock({
+  source,
   sessionId,
   eventIndex,
 }: {
+  source: AgentSource;
   sessionId: string;
   eventIndex: number;
 }) {
@@ -37,13 +40,13 @@ export function RawJsonBlock({
     setLoading(true);
     setError(null);
     try {
-      setRaw(await dataSource.fetchRawEvent(sessionId, eventIndex));
+      setRaw(await dataSource.fetchRawEvent({ source, sessionId }, eventIndex));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "raw event fetch failed");
     } finally {
       setLoading(false);
     }
-  }, [dataSource, eventIndex, loading, raw, sessionId]);
+  }, [dataSource, eventIndex, loading, raw, sessionId, source]);
 
   return (
     <details

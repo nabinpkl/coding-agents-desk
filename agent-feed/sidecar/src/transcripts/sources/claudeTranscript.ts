@@ -5,23 +5,14 @@
 //   - synthetic-user filter patterns (Caveat:, [Request interrupted, ...)
 //   - tool-name vocabulary (Read/Edit/Write/Bash/Grep/Glob/...)
 //
-// Discovery uses chokidar on PROJECTS_ROOT with depth: 1 (slug-dir/file).
-// Node's built-in fs.watch on macOS silently drops directory events under
-// FSEvents flakiness; chokidar wraps the platform watcher with error
-// recovery. As a second belt, watcher.ts calls `rescan` periodically to
-// pick up anything chokidar also dropped.
-
-import { open, readdir } from 'node:fs/promises';
-import { basename, join, resolve } from 'node:path';
-import chokidar, { type FSWatcher } from 'chokidar';
+import { open } from 'node:fs/promises';
+import { basename, resolve } from 'node:path';
 import { config } from '../../config.ts';
 import type {
   ActivityBlock,
-  DiscoveryHandle,
   Header,
   LineResult,
   ParsedLine,
-  Session,
   SourceAdapter,
 } from './transcriptTypes.ts';
 import {
@@ -34,8 +25,7 @@ import {
 } from './plainActivity.ts';
 
 const PROJECTS_ROOT = config.claudeProjectsDirectory;
-const HEAD_BYTES = 64 * 1024;
-const HEAD_SCAN_LINES = 10;
+const HEADER_EDGE_BYTES = 32 * 1024;
 
 // Bracketed strings the harness injects as user messages (interrupts,
 // caveats, etc). Not real user prose, so they are stripped from the rail
@@ -250,8 +240,7 @@ function normalizedLine(line: string): NormalizedClaudeLine | null {
   };
 
   // Claude harness writes (and rewrites) the session name as its own line
-  // type. Latest wins — the title getter assignment in the watcher takes
-  // care of overwriting.
+  // type. The bounded session probe keeps the latest observed title.
   if (t === 'ai-title') {
     const title = typeof ev.aiTitle === 'string' && ev.aiTitle.trim() ? ev.aiTitle.trim() : undefined;
     const rawBlocks = appendCommon(title
@@ -434,18 +423,37 @@ async function readHeader(filePath: string): Promise<Header | null> {
   let fh: Awaited<ReturnType<typeof open>>;
   try { fh = await open(filePath, 'r'); } catch { return null; }
   try {
-    const buf = Buffer.alloc(HEAD_BYTES);
-    const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
-    const lines = buf.toString('utf-8', 0, bytesRead).split('\n').slice(0, HEAD_SCAN_LINES);
+    const metadata = await fh.stat();
+    const ranges = metadata.size <= HEADER_EDGE_BYTES * 2
+      ? [{ start: 0, length: metadata.size }]
+      : [
+        { start: 0, length: HEADER_EDGE_BYTES },
+        { start: metadata.size - HEADER_EDGE_BYTES, length: HEADER_EDGE_BYTES },
+      ];
     const out: Header = {};
-    for (const line of lines) {
-      if (!line) continue;
-      let ev: { cwd?: string; gitBranch?: string; entrypoint?: string };
-      try { ev = JSON.parse(line); } catch { continue; }
-      if (!out.cwd && typeof ev.cwd === 'string') out.cwd = ev.cwd;
-      if (!out.gitBranch && typeof ev.gitBranch === 'string') out.gitBranch = ev.gitBranch;
-      if (!out.entrypoint && typeof ev.entrypoint === 'string') out.entrypoint = ev.entrypoint;
-      if (out.cwd) return out;
+    for (const range of ranges) {
+      const buf = Buffer.alloc(range.length);
+      const { bytesRead } = await fh.read(buf, 0, buf.length, range.start);
+      const lines = buf.toString('utf-8', 0, bytesRead).split('\n');
+      if (range.start > 0) lines.shift();
+      for (const line of lines) {
+        if (!line) continue;
+        let ev: {
+          cwd?: string;
+          gitBranch?: string;
+          entrypoint?: string;
+          aiTitle?: string;
+          customTitle?: string;
+        };
+        try { ev = JSON.parse(line); } catch { continue; }
+        if (typeof ev.cwd === 'string') out.cwd = ev.cwd;
+        if (typeof ev.gitBranch === 'string') out.gitBranch = ev.gitBranch;
+        if (typeof ev.entrypoint === 'string') out.entrypoint = ev.entrypoint;
+        if (typeof ev.aiTitle === 'string' && ev.aiTitle.trim()) out.title = ev.aiTitle.trim();
+        if (typeof ev.customTitle === 'string' && ev.customTitle.trim()) {
+          out.title = ev.customTitle.trim();
+        }
+      }
     }
     return out.cwd ? out : null;
   } finally {
@@ -463,89 +471,14 @@ function filePathToSessionId(p: string): string | null {
   return sid;
 }
 
-// Enumerate every session JSONL currently under PROJECTS_ROOT and call
-// `emit` for each. Shared by initialScan and the periodic rescan.
-async function enumerateSessionFiles(emit: (filePath: string) => void): Promise<void> {
-  let dirs: string[] = [];
-  try { dirs = await readdir(PROJECTS_ROOT); } catch { return; }
-  for (const dir of dirs) {
-    const dirPath = join(PROJECTS_ROOT, dir);
-    let entries: string[] = [];
-    try { entries = await readdir(dirPath); } catch { continue; }
-    for (const f of entries) {
-      if (!f.endsWith('.jsonl')) continue;
-      const sid = basename(f, '.jsonl');
-      if (sid.startsWith('_')) continue;
-      emit(join(dirPath, f));
-    }
-  }
-}
-
-function startDiscovery(onSessionFile: (path: string) => Promise<void> | void): DiscoveryHandle {
-  // Single chokidar watcher on PROJECTS_ROOT covers slug-dir creation and
-  // jsonl file creation in one subscription. depth: 1 = slug/session.jsonl.
-  // `ignoreInitial` lets initialScan own the boot enumeration so the sidecar
-  // can await every per-file drain before going live.
-  const watcher: FSWatcher = chokidar.watch(PROJECTS_ROOT, {
-    ignoreInitial: true,
-    depth: 1,
-    persistent: true,
-    awaitWriteFinish: false,
-  });
-
-  watcher.on('add', (p: string) => {
-    if (!p.endsWith('.jsonl')) return;
-    const sid = basename(p, '.jsonl');
-    if (sid.startsWith('_')) return;
-    void onSessionFile(p);
-  });
-
-  watcher.on('error', (err) => {
-    console.error('claude chokidar error:', err);
-  });
-
-  const initialScan = async (): Promise<void> => {
-    const promises: Array<Promise<void>> = [];
-    await enumerateSessionFiles((filePath) => {
-      promises.push(Promise.resolve(onSessionFile(filePath)).then(() => undefined));
-    });
-    await Promise.all(promises);
-  };
-
-  const rescan = async (): Promise<void> => {
-    await enumerateSessionFiles((filePath) => {
-      void onSessionFile(filePath);
-    });
-  };
-
-  const teardown = (): void => {
-    void watcher.close();
-  };
-
-  return { initialScan, rescan, teardown };
-}
-
-// Claude's harness records `entrypoint` in the session header. Interactive
-// surfaces use 'cli', 'claude-desktop', or 'claude-vscode'. Programmatic
-// invocations through the Claude Agent SDK record 'sdk-cli'; those are
-// short-lived one-shot queries that should not become a project's headline
-// on cross-project digests. Flag them so the project digest can skip them
-// by default (callers can opt in with primaryKind=any).
-const AUXILIARY_ENTRYPOINTS: ReadonlySet<string> = new Set(['sdk-cli']);
-
-function isAuxiliarySession(session: Session): boolean {
-  const entrypoint = session.entrypoint;
-  if (typeof entrypoint !== 'string' || entrypoint.length === 0) return false;
-  return AUXILIARY_ENTRYPOINTS.has(entrypoint);
-}
-
-export const claudeAdapter: SourceAdapter = {
+export const claudeAdapter = {
   id: 'claude',
-  startDiscovery,
   filePathToSessionId,
   readHeader,
   processLine,
   snippetFor,
-  isAuxiliarySession,
   extractBlockRaw,
+} satisfies SourceAdapter & {
+  filePathToSessionId(path: string): string | null;
+  readHeader(path: string): Promise<Header | null>;
 };

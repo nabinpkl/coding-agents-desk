@@ -10,7 +10,6 @@ function source(fetchRawEvent: AgentDataSource["fetchRawEvent"]): AgentDataSourc
   return {
     fetchEventsPage: async () => ({ events: [], total: 0 }),
     subscribeSessionEvents: () => () => {},
-    subscribeSessions: () => () => {},
     fetchRawEvent,
   };
 }
@@ -34,14 +33,19 @@ describe("complete activity blocks", () => {
     const fetchRawEvent = vi.fn(async () => exact);
     const { container } = render(
       <DataSourceProvider source={source(fetchRawEvent)}>
-        <RawJsonBlock sessionId="session" eventIndex={7} />
+        <RawJsonBlock source="claude" sessionId="session" eventIndex={7} />
       </DataSourceProvider>,
     );
 
     expect(container.querySelector("details")?.hasAttribute("open")).toBe(false);
     expect(fetchRawEvent).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Raw JSON"));
-    await waitFor(() => expect(fetchRawEvent).toHaveBeenCalledWith("session", 7));
+    await waitFor(() =>
+      expect(fetchRawEvent).toHaveBeenCalledWith(
+        { source: "claude", sessionId: "session" },
+        7,
+      ),
+    );
     expect(screen.getByText(exact)).toBeTruthy();
     expect(container.querySelector("b")).toBeNull();
   });

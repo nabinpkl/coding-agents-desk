@@ -11,6 +11,9 @@ declare global {
   interface Window {
     /** Set by the native container (or a test) to force host-free fixture mode. */
     __agentFeedFixture?: boolean;
+    __agentFeedBridge?: {
+      resumeAfterSessionReconnect(): void;
+    };
   }
 }
 
@@ -21,6 +24,9 @@ function isFixtureMode(): boolean {
 }
 
 const bridge = new BridgeDataSource(new WebkitHostBridge());
+window.__agentFeedBridge = {
+  resumeAfterSessionReconnect: () => bridge.resumeAfterSessionReconnect(),
+};
 
 if (isFixtureMode()) {
   // Install the fixture before mounting so the bridge's global deliver

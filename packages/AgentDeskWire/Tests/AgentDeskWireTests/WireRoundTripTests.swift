@@ -43,8 +43,8 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
 }
 
 @Test func wireProtocolClientScreenshotVersionIsPinned() {
-    #expect(WireProtocol.version == 14)
-    #expect(WireProtocol.minCompatibleVersion == 14)
+    #expect(WireProtocol.version == 15)
+    #expect(WireProtocol.minCompatibleVersion == 15)
 }
 
 @Test func clientScreenshotContractsRoundTrip() throws {

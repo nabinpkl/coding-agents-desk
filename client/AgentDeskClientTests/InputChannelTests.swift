@@ -1093,9 +1093,9 @@ struct InputChannelTests {
         #expect(decoded.cursorRevision == 8)
     }
 
-    @Test func protocolVersionIsFourteenForOnDemandClientScreenshots() {
-        #expect(Config.protocolVersion == 14)
-        #expect(Config.minCompatibleProtocolVersion == 14)
+    @Test func protocolVersionIsFifteenForLayeredAgentFeed() {
+        #expect(Config.protocolVersion == 15)
+        #expect(Config.minCompatibleProtocolVersion == 15)
     }
 
     @Test func eventFrameRoundTripPreservesKeyWithModifiers() throws {

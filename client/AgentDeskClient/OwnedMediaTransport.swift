@@ -202,8 +202,20 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
 
     // MARK: - Agent-feed subscription sends (mirrors sendDiagnostics* pattern)
 
-    func sendAgentProjectsSubscribe() async throws {
-        try await QuicSessionStreamIO.send(AgentProjectsSubscribe(), role: .input, on: inputStream)
+    func sendAgentProjectsWatch(_ request: AgentProjectsWatch) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
+    func sendAgentProjectsUnwatch(_ request: AgentProjectsUnwatch) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
+    func sendAgentProjectSessionsWatch(_ request: AgentProjectSessionsWatch) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
+    func sendAgentProjectSessionsUnwatch(_ request: AgentProjectSessionsUnwatch) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
     }
 
     func sendAgentThreadSubscribe(_ request: AgentThreadSubscribe) async throws {
@@ -441,7 +453,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             if let request = try? JSONDecoder().decode(ClientScreenshotRequest.self, from: data) {
                 screenshotContinuation.yield(.request(request))
             }
-        case "agent-projects":
+        case "agent-projects", "agent-projects-error",
+             "agent-project-sessions", "agent-project-sessions-error":
             logger.debug("input lane agent-projects received")
             deliverAgentPush(data)
         case "agent-thread-chunk":

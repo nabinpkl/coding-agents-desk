@@ -158,28 +158,17 @@ struct AgentSessionTerminalCoordinatorTests {
         let fixture = try Fixture()
         defer { fixture.removeTemporaryFiles() }
         let identity = try fixture.identity(source: "claude", sessionID: claudeSessionID)
-        let liveSession = AgentFeedSessionDigest(
+        let liveSession = AgentFeedSessionSummary(
             sessionId: claudeSessionID.uppercased(),
             source: "claude",
-            bin: "live",
-            lastEventAt: nil,
-            title: nil,
-            firstPrompt: nil,
-            lastUserPrompt: nil
+            title: "Live thread",
+            lastEventAt: 1,
+            activity: "live"
         )
-        let client = DigestSidecarClient(projects: [
-            AgentFeedProjectDigest(
-                project: fixture.project.path,
-                projectName: "project",
-                source: "claude",
-                sources: ["claude"],
-                lastEventAt: nil,
-                bin: "live",
-                primary: liveSession,
-                sessions: [],
-                otherSessions: []
-            ),
-        ])
+        let client = SessionsSidecarClient(snapshot: AgentFeedSessionsSnapshot(
+            projectPath: fixture.project.path,
+            sessions: [liveSession]
+        ))
         let checker = SidecarAgentSessionTerminalLivenessChecker(client: client)
 
         #expect(try await checker.isLive(identity))
@@ -970,18 +959,47 @@ private actor BlockingFirstCloseTerminalCoordinator: AgentSessionTerminalCoordin
     }
 }
 
-private struct DigestSidecarClient: SidecarClient, @unchecked Sendable {
-    let projects: [AgentFeedProjectDigest]
+private struct SessionsSidecarClient: SidecarClient, @unchecked Sendable {
+    let snapshot: AgentFeedSessionsSnapshot
 
-    func fetchDigest() async throws -> [AgentFeedProjectDigest] {
-        projects
+    func fetchProjects() async throws -> AgentFeedProjectsSnapshot {
+        AgentFeedProjectsSnapshot(projects: [])
     }
 
-    func fetchEventsPage(sessionId: String, offset: Int, limit: Int) async throws -> AgentFeedEventsPage {
+    func fetchSessions(projectPath: String) async throws -> AgentFeedSessionsSnapshot {
+        snapshot
+    }
+
+    func fetchEventsPage(
+        source: String,
+        sessionId: String,
+        offset: Int,
+        limit: Int
+    ) async throws -> AgentFeedEventsPage {
         AgentFeedEventsPage(events: [], total: 0)
     }
 
+    func fetchRawEvent(source: String, sessionId: String, eventIndex: Int) async throws -> String {
+        ""
+    }
+
+    func openProjectsStream(
+        onSnapshot: @escaping @Sendable (AgentFeedProjectsSnapshot) -> Void,
+        onError: @escaping @Sendable (Error) -> Void
+    ) -> SidecarStreamHandle {
+        SidecarStreamHandle(task: Task {})
+    }
+
+    func openSessionsStream(
+        projectPath: String,
+        onSnapshot: @escaping @Sendable (AgentFeedSessionsSnapshot) -> Void,
+        onError: @escaping @Sendable (Error) -> Void
+    ) -> SidecarStreamHandle {
+        SidecarStreamHandle(task: Task {})
+    }
+
     func openEventStream(
+        source: String,
         sessionId: String,
         after: Int,
         onEvent: @escaping @Sendable (AgentFeedActivityEvent) -> Void,

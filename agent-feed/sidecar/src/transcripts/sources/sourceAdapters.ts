@@ -1,7 +1,4 @@
-// Adapter registry. The watcher iterates `adapters` to drive per-source
-// discovery, watch attach, and tail processing. Callers resolve a specific
-// adapter via `adapterFor(session.source)` so a Codex session uses the Codex
-// parser without source-branching at the call site.
+// Parser registry used by on-demand event indexing and raw-event reads.
 import type { SourceAdapter, SourceId } from './transcriptTypes.ts';
 import { claudeAdapter } from './claudeTranscript.ts';
 import { codexAdapter } from './codexTranscript.ts';

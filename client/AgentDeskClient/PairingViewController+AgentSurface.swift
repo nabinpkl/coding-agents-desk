@@ -498,8 +498,14 @@ extension PairingViewController {
         Task {
             do {
                 switch request {
-                case .projectsSubscribe:
-                    try await channel.sendAgentProjectsSubscribe()
+                case .projectsWatch(let request):
+                    try await channel.sendAgentProjectsWatch(request)
+                case .projectsUnwatch(let request):
+                    try await channel.sendAgentProjectsUnwatch(request)
+                case .projectSessionsWatch(let request):
+                    try await channel.sendAgentProjectSessionsWatch(request)
+                case .projectSessionsUnwatch(let request):
+                    try await channel.sendAgentProjectSessionsUnwatch(request)
                 case .threadSubscribe(let sub):
                     try await channel.sendAgentThreadSubscribe(sub)
                 case .threadLoadOlder(let older):

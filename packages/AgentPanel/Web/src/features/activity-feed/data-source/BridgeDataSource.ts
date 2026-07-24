@@ -1,158 +1,100 @@
-/**
- * BridgeDataSource -- AgentDataSource implementation for the iPhone webview.
- *
- * The Swift host pushes messages over the QUIC input lane; the native WKWebView
- * container (wired in a later task) forwards each one by calling
- * `window.__agentFeedDeliver(msg)`. This class routes inbound messages to the
- * right per-session or global listeners, and posts outbound request messages
- * back to the host through the HostBridge.
- *
- * ## Pull / push impedance (fetchEventsPage)
- *
- * The `AgentDataSource` interface exposes a pull API (`fetchEventsPage`) that
- * the existing `useSessionEventsStream` hook calls twice at startup:
- *   1. Probe: (sessionId, 0, 1) -- learns total.
- *   2. Seed:  (sessionId, offset, limit) -- fetches the last page of events.
- *
- * The bridge is purely push: the host sends chunks after a subscription
- * request, not in response to a direct fetch. We bridge the gap with per-session
- * buffering:
- *
- *   - `subscribeSessionEvents` posts `agent-thread-sub` and the host immediately
- *     pushes a seed chunk (isLive: false) containing the tail window.
- *   - `fetchEventsPage` for a not-yet-seeded session posts its own internal
- *     `agent-thread-sub` and awaits the first chunk.
- *   - `fetchEventsPage` for an already-seeded session resolves synchronously
- *     from the buffer.
- *   - For an older page (offset < buffered windowStart), `fetchEventsPage`
- *     posts `agent-thread-older` and waits for the matching chunk
- *     (isLive: false). The wait is bounded by `olderPageTimeoutMs` (default
- *     10s) so a partial or missing older chunk rejects the promise instead of
- *     hanging, and an `agent-thread-error` mid-request rejects it too.
- *
- * Call `destroy()` on teardown (the native container does this on webview
- * re-create) to remove this instance's bridge callback and reject any pending
- * waiters, so the bridge's module-level callback set does not leak.
- *
- * The hook always awaits both fetchEventsPage calls before calling
- * subscribeSessionEvents, so the internal sub is gone (or reused) by the time
- * the live stream starts.
- *
- * ## tp -> type mapping
- *
- * WireActivityEvent uses `tp` instead of `type` to avoid shadowing the top-level
- * message discriminator `t`. This file maps `tp` -> `type` in every place that
- * converts a WireActivityEvent to an ActivityEvent.
- */
-
-import type { ActivityEvent, ActivityBlock } from "../useSessionEventsStream";
+import type { ActivityBlock, ActivityEvent } from "../useSessionEventsStream";
 import { normalizeActivityEvent } from "../activityNormalization";
 import type {
   AgentDataSource,
+  AgentSource,
   EventsPage,
   SessionEventsHandlers,
-  SessionsHandlers,
+  SessionReference,
 } from "./AgentDataSource";
 import type { HostBridge } from "./HostBridge";
 
-// ---------------------------------------------------------------------------
-// Wire types (mirror of SharedTypes.swift, bridge input)
-// ---------------------------------------------------------------------------
-
-// These mirror the Codable CodingKeys in host/AgentDeskHost/SharedTypes.swift,
-// which abbreviate every wire key for compactness (`pp`, `sid`, `tp`, ...). The
-// native client forwards the host's JSON verbatim into the webview, so this
-// layer must speak those exact abbreviated keys. The full-named app types
-// (ActivityEvent, BridgeProject, ...) are produced by the map* helpers below;
-// only this wire layer is abbreviated. Keep these in lockstep with the Swift
-// CodingKeys -- a drift here silently breaks every push (see the round-trip
-// contract test in BridgeDataSource.test.ts).
-
-/** Wire ActivityBlock (Swift `ActivityBlock`): k/lb/tx/tl/sm/pv/ci. */
 interface WireActivityBlock {
-  k: string; // kind
-  lb?: string; // label
-  tx?: string; // text
-  tl?: string; // tool
-  sm?: string; // summary
-  pv?: string; // preview
-  ci?: string; // callId
+  k: string;
+  lb?: string;
+  tx?: string;
+  tl?: string;
+  sm?: string;
+  pv?: string;
+  ci?: string;
 }
 
-/** Wire ActivityEvent (Swift `ActivityEvent`): i/ts/tp/b. `tp` is the event
- *  type, mapped to `type` on ActivityEvent. */
 interface WireActivityEvent {
-  i: number; // index
-  ts: number; // timestamp
-  tp: string; // type, normalized at runtime for forward compatibility
-  b: WireActivityBlock[]; // blocks
+  i: number;
+  ts: number;
+  tp: string;
+  b: WireActivityBlock[];
+}
+
+interface WireProjectSummary {
+  pp: string;
+  dn: string;
+  sc: { cl: number; co: number };
+  sn: number;
+  lea: number;
+}
+
+interface WireSessionSummary {
+  sid: string;
+  src: AgentSource;
+  ttl: string;
+  lea: number;
+  ac: SessionActivity;
+}
+
+interface WireProjectsPush {
+  t: "agent-projects";
+  sub: string;
+  p: WireProjectSummary[];
+}
+
+interface WireProjectsError {
+  t: "agent-projects-error";
+  sub: string;
+  r: string;
+}
+
+interface WireProjectSessionsPush {
+  t: "agent-project-sessions";
+  sub: string;
+  pp: string;
+  ss: WireSessionSummary[];
+}
+
+interface WireProjectSessionsError {
+  t: "agent-project-sessions-error";
+  sub: string;
+  pp: string;
+  r: string;
 }
 
 interface WireThreadChunk {
   t: "agent-thread-chunk";
-  sid: string; // sessionId
-  ev: WireActivityEvent[]; // events
-  ws: number; // windowStart
-  tot: number; // total
-  lv: boolean; // isLive
+  src: AgentSource;
+  sid: string;
+  ev: WireActivityEvent[];
+  ws: number;
+  tot: number;
+  lv: boolean;
 }
 
 interface WireThreadError {
   t: "agent-thread-error";
-  sid: string; // sessionId
-  r: string; // reason
-}
-
-interface WireProjectsMessage {
-  t: "agent-projects";
-  p: WireProjectDigest[]; // projects
-}
-
-interface WireProjectDigest {
-  pp: string; // projectPath
-  dn?: string; // displayName
-  ss: WireSessionSummary[]; // sessions
-}
-
-interface WireSessionSummary {
-  sid: string; // sessionId
-  src: "claude" | "codex"; // source
-  ttl?: string; // title
-  lea: number; // lastEventAt
-  lv: boolean; // isLive
+  src: AgentSource;
+  sid: string;
+  r: string;
 }
 
 interface WireAgentTerminalContext {
   pp: string;
-  src: "claude" | "codex";
+  src: AgentSource;
   sid: string;
-}
-
-interface WireAgentTerminalReady {
-  t: "agent-terminal-ready";
-  rid: string;
-  ctx: WireAgentTerminalContext;
-  psn: string;
-}
-
-interface WireAgentTerminalError {
-  t: "agent-terminal-error";
-  rid: string;
-  ctx: WireAgentTerminalContext;
-  c: string;
-}
-
-interface WireAgentTerminalEnded {
-  t: "agent-terminal-ended";
-  rid: string;
-  ctx: WireAgentTerminalContext;
-  psn: string;
-  xs?: number;
 }
 
 interface WireRawEvent {
   t: "agent-raw-event";
   rid: string;
+  src: AgentSource;
   sid: string;
   ei: number;
   tx: string;
@@ -161,43 +103,44 @@ interface WireRawEvent {
 interface WireRawEventError {
   t: "agent-raw-event-error";
   rid: string;
+  src: AgentSource;
   sid: string;
   ei: number;
   r: string;
 }
 
 type InboundMessage =
+  | WireProjectsPush
+  | WireProjectsError
+  | WireProjectSessionsPush
+  | WireProjectSessionsError
   | WireThreadChunk
   | WireThreadError
-  | WireProjectsMessage
-  | WireAgentTerminalReady
-  | WireAgentTerminalError
-  | WireAgentTerminalEnded
   | WireRawEvent
   | WireRawEventError
   | { t: string };
 
-// ---------------------------------------------------------------------------
-// Phone-specific public types (not on AgentDataSource)
-// ---------------------------------------------------------------------------
-
-export interface BridgeSessionSummary {
-  sessionId: string;
-  source: "claude" | "codex";
-  title?: string;
-  lastEventAt: number;
-  isLive: boolean;
-}
+export type SessionActivity = "live" | "ready" | "paused" | "cold";
 
 export interface BridgeProject {
   projectPath: string;
-  displayName?: string;
-  sessions: BridgeSessionSummary[];
+  displayName: string;
+  sourceCounts: { claude: number; codex: number };
+  sessionCount: number;
+  lastEventAt: number;
+}
+
+export interface BridgeSessionSummary {
+  sessionId: string;
+  source: AgentSource;
+  title: string;
+  lastEventAt: number;
+  activity: SessionActivity;
 }
 
 export interface AgentTerminalContext {
   projectPath: string;
-  source: "claude" | "codex";
+  source: AgentSource;
   sessionId: string;
 }
 
@@ -218,50 +161,48 @@ export type AgentTerminalStatus =
 interface BridgeDataSourceOptions {
   olderPageTimeoutMs?: number;
   rawEventTimeoutMs?: number;
-  terminalRequestIDFactory?: () => string;
-  rawRequestIDFactory?: () => string;
+  requestIDFactory?: (prefix: string) => string;
 }
 
-// ---------------------------------------------------------------------------
-// Internal per-session buffer
-// ---------------------------------------------------------------------------
-
 interface SessionBuffer {
-  /** Events received so far, keyed by index. */
   events: Map<number, ActivityEvent>;
-  /** Total event count reported by the host. */
   total: number;
-  /** Lowest index present in the buffer (from the first chunk's windowStart). */
   windowStart: number;
-  /** True once at least one chunk has been delivered for this session. */
   seeded: boolean;
 }
 
-/** A pending older-page request waiting for its matching chunk. */
+interface SeedWaiter {
+  resolve: (buffer: SessionBuffer) => void;
+  reject: (error: Error) => void;
+}
+
 interface OlderWaiter {
-  sessionId: string;
+  sessionKey: string;
   resolve: (chunk: WireThreadChunk) => void;
-  reject: (err: Error) => void;
-  /** Timeout handle; cleared when the chunk lands or the waiter is rejected. */
+  reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
 
 interface RawEventWaiter {
-  sessionId: string;
+  sessionKey: string;
   eventIndex: number;
   resolve: (text: string) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
 
-// ---------------------------------------------------------------------------
-// Helper: map WireActivityEvent -> ActivityEvent
-// ---------------------------------------------------------------------------
+interface ProjectWatch {
+  onSnapshot: (projects: BridgeProject[]) => void;
+  onError?: (reason: string) => void;
+}
+
+interface ProjectSessionsWatch {
+  projectPath: string;
+  onSnapshot: (sessions: BridgeSessionSummary[]) => void;
+  onError?: (reason: string) => void;
+}
 
 function mapBlock(wire: WireActivityBlock): ActivityBlock {
-  // Abbreviated wire keys -> full-named ActivityBlock. The wire omits the
-  // fields the sidecar does not send over the bridge (input, hiddenChars,
-  // hiddenLines); they stay undefined and the renderer tolerates that.
   return {
     kind: wire.k as ActivityBlock["kind"],
     label: wire.lb,
@@ -282,28 +223,30 @@ function mapEvent(wire: WireActivityEvent): ActivityEvent {
   });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+function sessionKey(session: SessionReference): string {
+  return `${session.source}:${session.sessionId}`;
 }
 
-let fallbackTerminalRequestSequence = 0;
+let fallbackRequestSequence = 0;
 
-function createTerminalRequestID(): string {
+function createRequestID(prefix: string): string {
   try {
     const crypto = globalThis.crypto;
     if (crypto && typeof crypto.getRandomValues === "function") {
       const bytes = crypto.getRandomValues(new Uint8Array(16));
-      const value = Array.from(bytes, (byte) =>
+      return `${prefix}-${Array.from(bytes, (byte) =>
         byte.toString(16).padStart(2, "0"),
-      ).join("");
-      return `terminal-${value}`;
+      ).join("")}`;
     }
   } catch {
-    // A custom-scheme webview may expose an unusable partial Crypto object.
+    // WKWebView can expose a partial Crypto object on custom schemes.
   }
+  fallbackRequestSequence += 1;
+  return `${prefix}-${Date.now().toString(36)}-${fallbackRequestSequence.toString(36)}`;
+}
 
-  fallbackTerminalRequestSequence += 1;
-  return `terminal-${Date.now().toString(36)}-${fallbackTerminalRequestSequence.toString(36)}`;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function mapTerminalContext(value: unknown): AgentTerminalContext | null {
@@ -343,504 +286,465 @@ function sameTerminalRequest(
   );
 }
 
-// ---------------------------------------------------------------------------
-// BridgeDataSource
-// ---------------------------------------------------------------------------
-
 export class BridgeDataSource implements AgentDataSource {
-  private readonly _bridge: HostBridge;
-
-  /** Per-session event buffer. */
-  private readonly _sessions = new Map<string, SessionBuffer>();
-
-  /** Live onEvent / onError listeners, keyed by sessionId. */
-  private readonly _liveListeners = new Map<
+  private readonly bridge: HostBridge;
+  private readonly olderPageTimeoutMs: number;
+  private readonly rawEventTimeoutMs: number;
+  private readonly requestIDFactory: (prefix: string) => string;
+  private readonly buffers = new Map<string, SessionBuffer>();
+  private readonly liveListeners = new Map<
     string,
-    Set<Pick<SessionEventsHandlers, "onEvent" | "onError">>
+    Set<SessionEventsHandlers>
   >();
-
-  /** Promises awaiting the first chunk for a session. */
-  private readonly _seedWaiters = new Map<
+  private readonly seedWaiters = new Map<string, SeedWaiter[]>();
+  private readonly olderWaiters = new Map<string, OlderWaiter[]>();
+  private readonly rawEventWaiters = new Map<string, RawEventWaiter>();
+  private readonly activeThreads = new Map<string, SessionReference>();
+  private readonly reconnectingThreads = new Set<string>();
+  private readonly projectWatches = new Map<string, ProjectWatch>();
+  private readonly projectSessionsWatches = new Map<
     string,
-    Array<(buf: SessionBuffer) => void>
+    ProjectSessionsWatch
   >();
-
-  /**
-   * Promises awaiting an older chunk for a session.
-   * Key: `${sessionId}:${beforeIndex}` (beforeIndex = offset+limit from the
-   * agent-thread-older request). Each waiter carries `sessionId` (so a
-   * thread-error or destroy can reject every waiter for a session without
-   * re-deriving keys) and a `timer` handle so the timeout can be cleared
-   * once the matching chunk arrives.
-   */
-  private readonly _olderWaiters = new Map<string, OlderWaiter[]>();
-  private readonly _rawEventWaiters = new Map<string, RawEventWaiter>();
-
-  /** Callbacks for agent-projects messages. */
-  private readonly _projectsListeners = new Set<
-    (projects: BridgeProject[]) => void
-  >();
-
-  private readonly _terminalStatusListeners = new Set<
+  private readonly terminalStatusListeners = new Set<
     (status: AgentTerminalStatus) => void
   >();
+  private activeTerminalRequest: AgentTerminalRequest | null = null;
+  private unsubscribeHostMessages: (() => void) | null;
+  private destroyed = false;
 
-  private readonly _terminalRequestIDFactory: () => string;
-  private readonly _rawRequestIDFactory: () => string;
-  private _activeTerminalRequest: AgentTerminalRequest | null = null;
-
-  private _unsubscribeHostMessages: (() => void) | null = null;
-  private _destroyed = false;
-
-  /** How long an older-page request waits for its chunk before rejecting. */
-  private readonly _olderPageTimeoutMs: number;
-  private readonly _rawEventTimeoutMs: number;
-
-  constructor(bridge: HostBridge, opts: BridgeDataSourceOptions = {}) {
-    this._bridge = bridge;
-    this._olderPageTimeoutMs = opts.olderPageTimeoutMs ?? 10_000;
-    this._rawEventTimeoutMs = opts.rawEventTimeoutMs ?? 35_000;
-    this._terminalRequestIDFactory =
-      opts.terminalRequestIDFactory ?? createTerminalRequestID;
-    this._rawRequestIDFactory =
-      opts.rawRequestIDFactory ?? createTerminalRequestID;
-    this._unsubscribeHostMessages = bridge.onHostMessage((raw) => {
-      this._handleInbound(raw as InboundMessage);
+  constructor(bridge: HostBridge, options: BridgeDataSourceOptions = {}) {
+    this.bridge = bridge;
+    this.olderPageTimeoutMs = options.olderPageTimeoutMs ?? 10_000;
+    this.rawEventTimeoutMs = options.rawEventTimeoutMs ?? 35_000;
+    this.requestIDFactory = options.requestIDFactory ?? createRequestID;
+    this.unsubscribeHostMessages = bridge.onHostMessage((message) => {
+      this.handleInbound(message as InboundMessage);
     });
   }
 
-  // -------------------------------------------------------------------------
-  // AgentDataSource: fetchEventsPage
-  // -------------------------------------------------------------------------
+  subscribeProjects(
+    onSnapshot: (projects: BridgeProject[]) => void,
+    onError?: (reason: string) => void,
+  ): () => void {
+    if (this.destroyed) return () => {};
+    const subscriptionId = this.requestIDFactory("projects");
+    this.projectWatches.set(subscriptionId, { onSnapshot, onError });
+    this.bridge.postToHost({
+      t: "agent-projects-watch",
+      sub: subscriptionId,
+    });
+    return () => {
+      if (!this.projectWatches.delete(subscriptionId)) return;
+      this.bridge.postToHost({
+        t: "agent-projects-unwatch",
+        sub: subscriptionId,
+      });
+    };
+  }
 
-  /**
-   * Pull adaptation over the push bridge.
-   *
-   * The hook calls this with (sessionId, 0, 1) as a probe, then again with
-   * the seed window. We handle three cases:
-   *
-   * 1. Already seeded from a prior subscribeSessionEvents call: resolve from
-   *    the buffer immediately.
-   * 2. Not yet seeded: post agent-thread-sub ourselves and await the first
-   *    chunk. The hook's subsequent subscribeSessionEvents call will find the
-   *    session already seeded and just register its live listener.
-   * 3. Older page (offset below buffered windowStart): post agent-thread-older
-   *    and await the matching chunk.
-   */
+  subscribeProjectSessions(
+    projectPath: string,
+    onSnapshot: (sessions: BridgeSessionSummary[]) => void,
+    onError?: (reason: string) => void,
+  ): () => void {
+    if (this.destroyed) return () => {};
+    const subscriptionId = this.requestIDFactory("project-sessions");
+    this.projectSessionsWatches.set(subscriptionId, {
+      projectPath,
+      onSnapshot,
+      onError,
+    });
+    this.bridge.postToHost({
+      t: "agent-project-sessions-watch",
+      sub: subscriptionId,
+      pp: projectPath,
+    });
+    return () => {
+      if (!this.projectSessionsWatches.delete(subscriptionId)) return;
+      this.bridge.postToHost({
+        t: "agent-project-sessions-unwatch",
+        sub: subscriptionId,
+      });
+    };
+  }
+
   fetchEventsPage(
-    sessionId: string,
+    session: SessionReference,
     offset: number,
     limit: number,
   ): Promise<EventsPage> {
-    const buf = this._sessions.get(sessionId);
-
-    // Case 3: request for events older than the current buffer window.
-    if (buf?.seeded && offset < buf.windowStart) {
-      const beforeIndex = offset + limit;
-      return this._fetchOlderPage(sessionId, beforeIndex, limit);
+    if (this.destroyed) {
+      return Promise.reject(new Error("BridgeDataSource destroyed"));
     }
-
-    // Case 1: already seeded -- resolve from buffer.
-    if (buf?.seeded) {
-      return Promise.resolve(this._pageFromBuffer(buf, offset, limit));
+    const key = sessionKey(session);
+    const buffer = this.buffers.get(key);
+    if (buffer?.seeded && offset < buffer.windowStart) {
+      return this.fetchOlderPage(session, offset + limit, limit);
     }
-
-    // Case 2: not yet seeded. Subscribe and await the first chunk.
-    if (!buf) {
-      // Create the buffer entry so duplicate internal subs are no-ops.
-      this._sessions.set(sessionId, {
-        events: new Map(),
-        total: 0,
-        windowStart: 0,
-        seeded: false,
+    if (buffer?.seeded) {
+      return Promise.resolve(this.pageFromBuffer(buffer, offset, limit));
+    }
+    this.ensureThreadSubscription(session);
+    return new Promise<EventsPage>((resolve, reject) => {
+      const waiters = this.seedWaiters.get(key) ?? [];
+      waiters.push({
+        resolve: (seeded) => resolve(this.pageFromBuffer(seeded, offset, limit)),
+        reject,
       });
-      // Post the subscription request to wake the host.
-      this._bridge.postToHost({ t: "agent-thread-sub", sid: sessionId });
-    }
-
-    return new Promise<EventsPage>((resolve) => {
-      const waiters = this._seedWaiters.get(sessionId) ?? [];
-      waiters.push((seededBuf) => {
-        resolve(this._pageFromBuffer(seededBuf, offset, limit));
-      });
-      this._seedWaiters.set(sessionId, waiters);
+      this.seedWaiters.set(key, waiters);
     });
   }
 
-  // -------------------------------------------------------------------------
-  // AgentDataSource: subscribeSessionEvents
-  // -------------------------------------------------------------------------
-
   subscribeSessionEvents(
-    sessionId: string,
+    session: SessionReference,
     _after: number,
     handlers: SessionEventsHandlers,
   ): () => void {
-    // Register the live listener.
-    if (!this._liveListeners.has(sessionId)) {
-      this._liveListeners.set(sessionId, new Set());
-    }
-    this._liveListeners.get(sessionId)!.add(handlers);
-
-    // Subscribe to the host only if we have not already done so internally.
-    const buf = this._sessions.get(sessionId);
-    if (!buf) {
-      this._sessions.set(sessionId, {
-        events: new Map(),
-        total: 0,
-        windowStart: 0,
-        seeded: false,
-      });
-      this._bridge.postToHost({ t: "agent-thread-sub", sid: sessionId });
-    }
-    // If buf exists but not seeded, the internal sub from fetchEventsPage
-    // already posted agent-thread-sub; no duplicate needed.
-
+    if (this.destroyed) return () => {};
+    const key = sessionKey(session);
+    const listeners = this.liveListeners.get(key) ?? new Set();
+    const firstListener = listeners.size === 0;
+    listeners.add(handlers);
+    this.liveListeners.set(key, listeners);
+    if (firstListener) this.ensureThreadSubscription(session);
     handlers.onOpen?.();
 
     return () => {
-      this._liveListeners.get(sessionId)?.delete(handlers);
-      this._bridge.postToHost({ t: "agent-thread-unsub", sid: sessionId });
+      const current = this.liveListeners.get(key);
+      current?.delete(handlers);
+      if (current && current.size > 0) return;
+      this.liveListeners.delete(key);
+      this.closeThreadSubscription(session);
+      this.rejectSessionWaiters(key, new Error("thread subscription closed"));
+      this.buffers.delete(key);
     };
   }
 
-  // -------------------------------------------------------------------------
-  // AgentDataSource: subscribeSessions
-  // -------------------------------------------------------------------------
-
-  /**
-   * The phone bridge does not support the desktop session rail. This method
-   * is a deliberate no-op: it immediately signals "live" with an empty list
-   * so callers that have already been wired to AgentDataSource do not hang.
-   * The phone-specific project list comes from `subscribeProjects` instead.
-   */
-  subscribeSessions(handlers: SessionsHandlers): () => void {
-    handlers.onLink("live");
-    handlers.onSessions([]);
-    return () => {
-      // nothing to tear down
-    };
-  }
-
-  fetchRawEvent(sessionId: string, eventIndex: number): Promise<string> {
-    if (this._destroyed) return Promise.reject(new Error("BridgeDataSource destroyed"));
-    const requestId = this._rawRequestIDFactory();
+  fetchRawEvent(
+    session: SessionReference,
+    eventIndex: number,
+  ): Promise<string> {
+    if (this.destroyed) {
+      return Promise.reject(new Error("BridgeDataSource destroyed"));
+    }
+    const requestId = this.requestIDFactory("raw");
+    const key = sessionKey(session);
     return new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
-        this._rawEventWaiters.delete(requestId);
-        reject(new Error(`raw event request timed out for ${sessionId} event ${eventIndex}`));
-      }, this._rawEventTimeoutMs);
-      this._rawEventWaiters.set(requestId, {
-        sessionId,
+        this.rawEventWaiters.delete(requestId);
+        reject(
+          new Error(
+            `raw event request timed out for ${key} event ${eventIndex}`,
+          ),
+        );
+      }, this.rawEventTimeoutMs);
+      this.rawEventWaiters.set(requestId, {
+        sessionKey: key,
         eventIndex,
         resolve,
         reject,
         timer,
       });
-      this._bridge.postToHost({
+      this.bridge.postToHost({
         t: "agent-raw-event-get",
         rid: requestId,
-        sid: sessionId,
+        src: session.source,
+        sid: session.sessionId,
         ei: eventIndex,
       });
     });
   }
 
-  // -------------------------------------------------------------------------
-  // Phone-specific: subscribeProjects
-  // -------------------------------------------------------------------------
-
-  /**
-   * Subscribe to the host's agent-projects feed. Posts `agent-projects-sub`
-   * once and calls `onProjects` whenever the host pushes an `agent-projects`
-   * message. Returns an unsubscribe function.
-   *
-   * This method is NOT on `AgentDataSource` -- it is phone-specific and must
-   * be called through the concrete `BridgeDataSource` type.
-   */
-  subscribeProjects(onProjects: (projects: BridgeProject[]) => void): () => void {
-    this._projectsListeners.add(onProjects);
-    // Always (re-)request on subscribe. The host answers every agent-projects-sub
-    // with a full snapshot, so re-posting is idempotent and lets a fresh mount
-    // recover an initial round-trip that was lost before the lane was attached.
-    this.requestProjects();
-    return () => {
-      this._projectsListeners.delete(onProjects);
+  createTerminalRequest(context: AgentTerminalContext): AgentTerminalRequest {
+    return {
+      requestId: this.requestIDFactory("terminal"),
+      context,
     };
   }
 
-  /**
-   * Post a fresh `agent-projects-sub` to the host. The host replies with a full
-   * `agent-projects` snapshot every time, so this is safe to call repeatedly --
-   * it is how a caller retries or manually refreshes after a lost initial
-   * subscribe (input lane not yet attached, or the host's reply arriving before
-   * the webview bridge was installed) without recreating the webview.
-   */
-  requestProjects(): void {
-    if (this._destroyed) return;
-    this._bridge.postToHost({ t: "agent-projects-sub" });
-  }
-
-  createTerminalRequest(context: AgentTerminalContext): AgentTerminalRequest {
-    return { requestId: this._terminalRequestIDFactory(), context };
-  }
-
   openTerminal(request: AgentTerminalRequest): void {
-    if (this._destroyed) return;
+    if (this.destroyed) return;
     if (
-      this._activeTerminalRequest &&
-      !sameTerminalRequest(this._activeTerminalRequest, request)
+      this.activeTerminalRequest &&
+      !sameTerminalRequest(this.activeTerminalRequest, request)
     ) {
-      this.endTerminalContext(this._activeTerminalRequest);
+      this.endTerminalContext(this.activeTerminalRequest);
     }
-    this._activeTerminalRequest = request;
-    this._postTerminalIntent("agent-terminal-open", request);
+    this.activeTerminalRequest = request;
+    this.postTerminalIntent("agent-terminal-open", request);
   }
 
   closeTerminal(request: AgentTerminalRequest): void {
-    if (this._destroyed) return;
-    this._postTerminalIntent("agent-terminal-close", request);
+    if (this.destroyed) return;
+    this.postTerminalIntent("agent-terminal-close", request);
   }
 
   endTerminalContext(request: AgentTerminalRequest): void {
-    if (this._destroyed) return;
-    this._postTerminalIntent("agent-terminal-context-ended", request);
+    if (this.destroyed) return;
+    this.postTerminalIntent("agent-terminal-context-ended", request);
     if (
-      this._activeTerminalRequest &&
-      sameTerminalRequest(this._activeTerminalRequest, request)
+      this.activeTerminalRequest &&
+      sameTerminalRequest(this.activeTerminalRequest, request)
     ) {
-      this._activeTerminalRequest = null;
+      this.activeTerminalRequest = null;
     }
   }
 
   endActiveTerminalContext(): void {
-    if (this._activeTerminalRequest) {
-      this.endTerminalContext(this._activeTerminalRequest);
+    if (this.activeTerminalRequest) {
+      this.endTerminalContext(this.activeTerminalRequest);
     }
   }
 
   subscribeTerminalStatus(
     listener: (status: AgentTerminalStatus) => void,
   ): () => void {
-    this._terminalStatusListeners.add(listener);
-    return () => this._terminalStatusListeners.delete(listener);
+    this.terminalStatusListeners.add(listener);
+    return () => this.terminalStatusListeners.delete(listener);
   }
 
-  private _postTerminalIntent(
-    tag:
+  resumeAfterSessionReconnect(): void {
+    if (this.destroyed) return;
+    for (const subscriptionId of this.projectWatches.keys()) {
+      this.bridge.postToHost({
+        t: "agent-projects-watch",
+        sub: subscriptionId,
+      });
+    }
+    for (const [subscriptionId, watch] of this.projectSessionsWatches) {
+      this.bridge.postToHost({
+        t: "agent-project-sessions-watch",
+        sub: subscriptionId,
+        pp: watch.projectPath,
+      });
+    }
+    for (const session of this.activeThreads.values()) {
+      this.reconnectingThreads.add(sessionKey(session));
+      this.bridge.postToHost({
+        t: "agent-thread-sub",
+        src: session.source,
+        sid: session.sessionId,
+      });
+    }
+  }
+
+  private ensureThreadSubscription(session: SessionReference): void {
+    const key = sessionKey(session);
+    if (this.activeThreads.has(key)) return;
+    this.activeThreads.set(key, session);
+    this.buffers.set(key, {
+      events: new Map(),
+      total: 0,
+      windowStart: 0,
+      seeded: false,
+    });
+    this.bridge.postToHost({
+      t: "agent-thread-sub",
+      src: session.source,
+      sid: session.sessionId,
+    });
+  }
+
+  private closeThreadSubscription(session: SessionReference): void {
+    const key = sessionKey(session);
+    if (!this.activeThreads.delete(key)) return;
+    this.reconnectingThreads.delete(key);
+    this.bridge.postToHost({
+      t: "agent-thread-unsub",
+      src: session.source,
+      sid: session.sessionId,
+    });
+  }
+
+  private postTerminalIntent(
+    type:
       | "agent-terminal-open"
       | "agent-terminal-close"
       | "agent-terminal-context-ended",
     request: AgentTerminalRequest,
   ): void {
-    this._bridge.postToHost({
-      t: tag,
+    this.bridge.postToHost({
+      t: type,
       rid: request.requestId,
       ctx: wireTerminalContext(request.context),
     });
   }
 
-  // -------------------------------------------------------------------------
-  // Inbound message routing
-  // -------------------------------------------------------------------------
-
-  private _handleInbound(msg: InboundMessage): void {
-    if (this._destroyed) return;
-    switch (msg.t) {
+  private handleInbound(message: InboundMessage): void {
+    if (this.destroyed) return;
+    switch (message.t) {
+      case "agent-projects":
+        this.handleProjects(message as WireProjectsPush);
+        break;
+      case "agent-projects-error":
+        this.handleProjectsError(message as WireProjectsError);
+        break;
+      case "agent-project-sessions":
+        this.handleProjectSessions(message as WireProjectSessionsPush);
+        break;
+      case "agent-project-sessions-error":
+        this.handleProjectSessionsError(
+          message as WireProjectSessionsError,
+        );
+        break;
       case "agent-thread-chunk":
-        this._handleChunk(msg as WireThreadChunk);
+        this.handleThreadChunk(message as WireThreadChunk);
         break;
       case "agent-thread-error":
-        this._handleThreadError(msg as WireThreadError);
+        this.handleThreadError(message as WireThreadError);
         break;
-      case "agent-projects":
-        this._handleProjects(msg as WireProjectsMessage);
+      case "agent-raw-event":
+      case "agent-raw-event-error":
+        this.handleRawEvent(message as WireRawEvent | WireRawEventError);
         break;
       case "agent-terminal-ready":
       case "agent-terminal-error":
       case "agent-terminal-ended":
-        this._handleTerminalStatus(msg);
-        break;
-      case "agent-raw-event":
-      case "agent-raw-event-error":
-        this._handleRawEvent(msg as WireRawEvent | WireRawEventError);
-        break;
-      default:
-        // Unknown message type; ignore.
+        this.handleTerminalStatus(message);
         break;
     }
   }
 
-  private _handleChunk(chunk: WireThreadChunk): void {
-    const {
-      sid: sessionId,
-      ev: wireEvents,
-      ws: windowStart,
-      tot: total,
-      lv: isLive,
-    } = chunk;
-
-    // Ensure buffer exists.
-    let buf = this._sessions.get(sessionId);
-    if (!buf) {
-      buf = { events: new Map(), total: 0, windowStart, seeded: false };
-      this._sessions.set(sessionId, buf);
-    }
-
-    // Convert and merge events.
-    const mapped: ActivityEvent[] = [];
-    for (const wire of wireEvents) {
-      const ev = mapEvent(wire);
-      buf.events.set(ev.index, ev);
-      mapped.push(ev);
-    }
-    buf.total = Math.max(buf.total, total);
-    if (!buf.seeded) {
-      buf.windowStart = windowStart;
-    } else {
-      buf.windowStart = Math.min(buf.windowStart, windowStart);
-    }
-
-    if (!isLive) {
-      // This is a historical (seed or older) chunk.
-      if (!buf.seeded) {
-        // Mark seeded and resolve all seed waiters.
-        buf.seeded = true;
-        const waiters = this._seedWaiters.get(sessionId);
-        if (waiters) {
-          this._seedWaiters.delete(sessionId);
-          for (const resolve of waiters) resolve(buf);
-        }
-      } else {
-        // Older page: resolve any waiting older-page promises.
-        // The key is `${sessionId}:${chunk.windowStart + chunk.events.length}`
-        // which equals beforeIndex (offset + limit) from the request.
-        const beforeIndex = windowStart + wireEvents.length;
-        const key = `${sessionId}:${beforeIndex}`;
-        const olderWaiters = this._olderWaiters.get(key);
-        if (olderWaiters) {
-          this._olderWaiters.delete(key);
-          for (const w of olderWaiters) {
-            clearTimeout(w.timer);
-            w.resolve(chunk);
-          }
-        }
-      }
-      return;
-    }
-
-    // isLive: true -- mark seeded (if not already) and deliver to live listeners.
-    if (!buf.seeded) {
-      buf.seeded = true;
-      const waiters = this._seedWaiters.get(sessionId);
-      if (waiters) {
-        this._seedWaiters.delete(sessionId);
-        for (const resolve of waiters) resolve(buf);
-      }
-    }
-
-    const listeners = this._liveListeners.get(sessionId);
-    if (listeners) {
-      for (const ev of mapped) {
-        for (const handler of listeners) {
-          handler.onEvent(ev);
-        }
-      }
-    }
-  }
-
-  private _handleThreadError(msg: WireThreadError): void {
-    const sessionId = msg.sid;
-    const listeners = this._liveListeners.get(sessionId);
-    if (listeners) {
-      for (const handler of listeners) {
-        handler.onError?.();
-      }
-    }
-    // Also reject any pending seed waiters so they don't hang.
-    // We resolve them with an empty page (the caller will see total:0 and
-    // treat it as an error or empty session).
-    const seedWaiters = this._seedWaiters.get(sessionId);
-    if (seedWaiters) {
-      this._seedWaiters.delete(sessionId);
-      const emptyBuf: SessionBuffer = {
-        events: new Map(),
-        total: 0,
-        windowStart: 0,
-        seeded: true,
-      };
-      for (const resolve of seedWaiters) resolve(emptyBuf);
-    }
-
-    // Reject any pending older-page waiters for this session so a thread error
-    // mid-request does not leave fetchEventsPage hanging. Older waiters are
-    // keyed by `${sessionId}:${beforeIndex}`, so match on the sessionId prefix.
-    this._rejectOlderWaiters(
-      (w) => w.sessionId === sessionId,
-      new Error(`agent-thread-error: ${msg.r}`),
+  private handleProjects(message: WireProjectsPush): void {
+    const watch = this.projectWatches.get(message.sub);
+    if (!watch) return;
+    watch.onSnapshot(
+      message.p.map((project) => ({
+        projectPath: project.pp,
+        displayName: project.dn,
+        sourceCounts: {
+          claude: project.sc.cl,
+          codex: project.sc.co,
+        },
+        sessionCount: project.sn,
+        lastEventAt: project.lea,
+      })),
     );
   }
 
-  /**
-   * Reject and remove every older-page waiter matching `predicate`, clearing
-   * its timeout. Used by thread-error handling and by destroy().
-   */
-  private _rejectOlderWaiters(
-    predicate: (w: OlderWaiter) => boolean,
-    err: Error,
+  private handleProjectsError(message: WireProjectsError): void {
+    this.projectWatches.get(message.sub)?.onError?.(message.r);
+  }
+
+  private handleProjectSessions(message: WireProjectSessionsPush): void {
+    const watch = this.projectSessionsWatches.get(message.sub);
+    if (!watch || watch.projectPath !== message.pp) return;
+    watch.onSnapshot(
+      message.ss.map((session) => ({
+        sessionId: session.sid,
+        source: session.src,
+        title: session.ttl,
+        lastEventAt: session.lea,
+        activity: session.ac,
+      })),
+    );
+  }
+
+  private handleProjectSessionsError(
+    message: WireProjectSessionsError,
   ): void {
-    for (const [key, waiters] of this._olderWaiters) {
-      const remaining: OlderWaiter[] = [];
-      for (const w of waiters) {
-        if (predicate(w)) {
-          clearTimeout(w.timer);
-          w.reject(err);
-        } else {
-          remaining.push(w);
+    const watch = this.projectSessionsWatches.get(message.sub);
+    if (!watch || watch.projectPath !== message.pp) return;
+    watch.onError?.(message.r);
+  }
+
+  private handleThreadChunk(chunk: WireThreadChunk): void {
+    const session: SessionReference = {
+      source: chunk.src,
+      sessionId: chunk.sid,
+    };
+    const key = sessionKey(session);
+    const buffer = this.buffers.get(key);
+    if (!buffer) return;
+
+    const previousTotal = buffer.total;
+    const events = chunk.ev.map(mapEvent);
+    for (const event of events) buffer.events.set(event.index, event);
+    buffer.total = Math.max(buffer.total, chunk.tot);
+    buffer.windowStart = buffer.seeded
+      ? Math.min(buffer.windowStart, chunk.ws)
+      : chunk.ws;
+
+    if (!chunk.lv) {
+      if (this.reconnectingThreads.has(key) && buffer.seeded) {
+        this.reconnectingThreads.delete(key);
+        for (const listener of this.liveListeners.get(key) ?? []) {
+          for (const event of events) {
+            if (event.index >= previousTotal) listener.onEvent(event);
+          }
+        }
+        return;
+      }
+      this.reconnectingThreads.delete(key);
+      if (!buffer.seeded) {
+        buffer.seeded = true;
+        const waiters = this.seedWaiters.get(key) ?? [];
+        this.seedWaiters.delete(key);
+        for (const waiter of waiters) waiter.resolve(buffer);
+      } else {
+        const beforeIndex = chunk.ws + chunk.ev.length;
+        const waiterKey = `${key}:${beforeIndex}`;
+        const waiters = this.olderWaiters.get(waiterKey) ?? [];
+        this.olderWaiters.delete(waiterKey);
+        for (const waiter of waiters) {
+          clearTimeout(waiter.timer);
+          waiter.resolve(chunk);
         }
       }
-      if (remaining.length === 0) {
-        this._olderWaiters.delete(key);
-      } else {
-        this._olderWaiters.set(key, remaining);
-      }
-    }
-  }
-
-  private _handleProjects(msg: WireProjectsMessage): void {
-    const projects: BridgeProject[] = msg.p.map((p) => ({
-      projectPath: p.pp,
-      displayName: p.dn,
-      sessions: p.ss.map((s) => ({
-        sessionId: s.sid,
-        source: s.src,
-        title: s.ttl,
-        lastEventAt: s.lea,
-        isLive: s.lv,
-      })),
-    }));
-    for (const cb of this._projectsListeners) {
-      cb(projects);
-    }
-  }
-
-  private _handleRawEvent(msg: WireRawEvent | WireRawEventError): void {
-    const waiter = this._rawEventWaiters.get(msg.rid);
-    if (!waiter) return;
-    if (waiter.sessionId !== msg.sid || waiter.eventIndex !== msg.ei) {
       return;
     }
-    this._rawEventWaiters.delete(msg.rid);
-    clearTimeout(waiter.timer);
-    if (msg.t === "agent-raw-event-error") {
-      waiter.reject(new Error(msg.r));
-    } else {
-      waiter.resolve(msg.tx);
+
+    if (!buffer.seeded) {
+      buffer.seeded = true;
+      const waiters = this.seedWaiters.get(key) ?? [];
+      this.seedWaiters.delete(key);
+      for (const waiter of waiters) waiter.resolve(buffer);
+    }
+    for (const listener of this.liveListeners.get(key) ?? []) {
+      for (const event of events) listener.onEvent(event);
     }
   }
 
-  private _handleTerminalStatus(msg: InboundMessage): void {
-    const value = msg as Record<string, unknown>;
+  private handleThreadError(message: WireThreadError): void {
+    const key = sessionKey({
+      source: message.src,
+      sessionId: message.sid,
+    });
+    this.reconnectingThreads.delete(key);
+    for (const listener of this.liveListeners.get(key) ?? []) {
+      listener.onError?.();
+    }
+    this.rejectSessionWaiters(
+      key,
+      new Error(`agent-thread-error: ${message.r}`),
+    );
+  }
+
+  private handleRawEvent(message: WireRawEvent | WireRawEventError): void {
+    const waiter = this.rawEventWaiters.get(message.rid);
+    if (!waiter) return;
+    const expected = {
+      source: message.src,
+      sessionId: message.sid,
+    };
+    if (
+      waiter.sessionKey !== sessionKey(expected) ||
+      waiter.eventIndex !== message.ei
+    ) {
+      return;
+    }
+    this.rawEventWaiters.delete(message.rid);
+    clearTimeout(waiter.timer);
+    if (message.t === "agent-raw-event-error") {
+      waiter.reject(new Error(message.r));
+    } else {
+      waiter.resolve(message.tx);
+    }
+  }
+
+  private handleTerminalStatus(message: InboundMessage): void {
+    const value = message as Record<string, unknown>;
     const requestId = value.rid;
     const context = mapTerminalContext(value.ctx);
     if (typeof requestId !== "string" || requestId.length === 0 || !context) {
@@ -872,65 +776,32 @@ export class BridgeDataSource implements AgentDataSource {
     } else {
       return;
     }
-
-    for (const listener of this._terminalStatusListeners) {
-      listener(status);
-    }
+    for (const listener of this.terminalStatusListeners) listener(status);
   }
 
-  // -------------------------------------------------------------------------
-  // Helpers
-  // -------------------------------------------------------------------------
-
-  private _pageFromBuffer(
-    buf: SessionBuffer,
-    offset: number,
-    limit: number,
-  ): EventsPage {
-    const all = Array.from(buf.events.values()).sort(
-      (a, b) => a.index - b.index,
-    );
-    const slice = all.filter(
-      (ev) => ev.index >= offset && ev.index < offset + limit,
-    );
-    return { events: slice, total: buf.total };
-  }
-
-  private _fetchOlderPage(
-    sessionId: string,
+  private fetchOlderPage(
+    session: SessionReference,
     beforeIndex: number,
     limit: number,
   ): Promise<EventsPage> {
-    this._bridge.postToHost({
+    const key = sessionKey(session);
+    this.bridge.postToHost({
       t: "agent-thread-older",
-      sid: sessionId,
+      src: session.source,
+      sid: session.sessionId,
       bi: beforeIndex,
       lim: limit,
     });
-
-    const key = `${sessionId}:${beforeIndex}`;
+    const waiterKey = `${key}:${beforeIndex}`;
     return new Promise<EventsPage>((resolve, reject) => {
-      // Bounded wait: a partial or missing older chunk (whose windowStart +
-      // length does not match beforeIndex) would otherwise never resolve this
-      // promise. After the timeout we reject and drop the waiter.
-      const timer = setTimeout(() => {
-        this._rejectOlderWaiters(
-          (cand) => cand === waiter,
-          new Error(
-            `agent-thread-older timed out for ${sessionId} (beforeIndex ${beforeIndex})`,
-          ),
-        );
-      }, this._olderPageTimeoutMs);
-
       const waiter: OlderWaiter = {
-        sessionId,
-        timer,
+        sessionKey: key,
         reject,
         resolve: (chunk) => {
-          const buf = this._sessions.get(sessionId);
+          const buffer = this.buffers.get(key);
           resolve(
-            this._pageFromBuffer(
-              buf ?? {
+            this.pageFromBuffer(
+              buffer ?? {
                 events: new Map(),
                 total: chunk.tot,
                 windowStart: chunk.ws,
@@ -941,63 +812,107 @@ export class BridgeDataSource implements AgentDataSource {
             ),
           );
         },
+        timer: setTimeout(() => {
+          this.rejectOlderWaiters(
+            (candidate) => candidate === waiter,
+            new Error(
+              `agent-thread-older timed out for ${key} before ${beforeIndex}`,
+            ),
+          );
+        }, this.olderPageTimeoutMs),
       };
-
-      const waiters = this._olderWaiters.get(key) ?? [];
+      const waiters = this.olderWaiters.get(waiterKey) ?? [];
       waiters.push(waiter);
-      this._olderWaiters.set(key, waiters);
+      this.olderWaiters.set(waiterKey, waiters);
     });
   }
 
-  // -------------------------------------------------------------------------
-  // Lifecycle
-  // -------------------------------------------------------------------------
+  private pageFromBuffer(
+    buffer: SessionBuffer,
+    offset: number,
+    limit: number,
+  ): EventsPage {
+    const events = Array.from(buffer.events.values())
+      .filter(
+        (event) =>
+          event.index >= offset && event.index < offset + limit,
+      )
+      .sort((left, right) => left.index - right.index);
+    return { events, total: buffer.total };
+  }
 
-  /**
-   * Tear down this data source. The native WKWebView container calls this on
-   * webview teardown so the bridge's module-level callback set does not leak
-   * across webview re-creates.
-   *
-   * - Removes this instance's host-message callback from the bridge.
-   * - Rejects every pending older-page waiter (clearing its timer).
-   * - Resolves pending seed waiters with an empty page so awaiters do not hang.
-   * - Clears all per-session state, live listeners, and projects listeners.
-   *
-   * After destroy() the instance ignores further inbound messages.
-   */
+  private rejectSessionWaiters(key: string, error: Error): void {
+    const seed = this.seedWaiters.get(key) ?? [];
+    this.seedWaiters.delete(key);
+    for (const waiter of seed) waiter.reject(error);
+    this.rejectOlderWaiters(
+      (waiter) => waiter.sessionKey === key,
+      error,
+    );
+  }
+
+  private rejectOlderWaiters(
+    predicate: (waiter: OlderWaiter) => boolean,
+    error: Error,
+  ): void {
+    for (const [key, waiters] of this.olderWaiters) {
+      const remaining: OlderWaiter[] = [];
+      for (const waiter of waiters) {
+        if (predicate(waiter)) {
+          clearTimeout(waiter.timer);
+          waiter.reject(error);
+        } else {
+          remaining.push(waiter);
+        }
+      }
+      if (remaining.length === 0) this.olderWaiters.delete(key);
+      else this.olderWaiters.set(key, remaining);
+    }
+  }
+
   destroy(): void {
-    if (this._destroyed) return;
-    this._destroyed = true;
+    if (this.destroyed) return;
 
-    this._unsubscribeHostMessages?.();
-    this._unsubscribeHostMessages = null;
+    for (const subscriptionId of this.projectWatches.keys()) {
+      this.bridge.postToHost({
+        t: "agent-projects-unwatch",
+        sub: subscriptionId,
+      });
+    }
+    for (const subscriptionId of this.projectSessionsWatches.keys()) {
+      this.bridge.postToHost({
+        t: "agent-project-sessions-unwatch",
+        sub: subscriptionId,
+      });
+    }
+    for (const session of this.activeThreads.values()) {
+      this.bridge.postToHost({
+        t: "agent-thread-unsub",
+        src: session.source,
+        sid: session.sessionId,
+      });
+    }
+    this.endActiveTerminalContext();
+    this.destroyed = true;
+    this.unsubscribeHostMessages?.();
+    this.unsubscribeHostMessages = null;
 
-    // Reject every pending older-page waiter.
-    this._rejectOlderWaiters(() => true, new Error("BridgeDataSource destroyed"));
-    this._olderWaiters.clear();
-
-    for (const waiter of this._rawEventWaiters.values()) {
+    const error = new Error("BridgeDataSource destroyed");
+    for (const key of this.seedWaiters.keys()) {
+      this.rejectSessionWaiters(key, error);
+    }
+    for (const waiter of this.rawEventWaiters.values()) {
       clearTimeout(waiter.timer);
-      waiter.reject(new Error("BridgeDataSource destroyed"));
+      waiter.reject(error);
     }
-    this._rawEventWaiters.clear();
-
-    // Resolve pending seed waiters with an empty page so callers unblock.
-    for (const [, waiters] of this._seedWaiters) {
-      const emptyBuf: SessionBuffer = {
-        events: new Map(),
-        total: 0,
-        windowStart: 0,
-        seeded: true,
-      };
-      for (const resolve of waiters) resolve(emptyBuf);
-    }
-    this._seedWaiters.clear();
-
-    this._sessions.clear();
-    this._liveListeners.clear();
-    this._projectsListeners.clear();
-    this._terminalStatusListeners.clear();
-    this._activeTerminalRequest = null;
+    this.rawEventWaiters.clear();
+    this.projectWatches.clear();
+    this.projectSessionsWatches.clear();
+    this.activeThreads.clear();
+    this.reconnectingThreads.clear();
+    this.buffers.clear();
+    this.liveListeners.clear();
+    this.terminalStatusListeners.clear();
+    this.activeTerminalRequest = null;
   }
 }

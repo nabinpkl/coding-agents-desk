@@ -77,7 +77,7 @@ struct AgentFeedSidecarProcessTests {
                 except Exception:
                     self.close_connection = True
             def do_GET(self):
-                body = json.dumps({"atcRoot": "/tmp", "staleThresholdMs": 7200000, "readyThresholdMs": 300000}).encode()
+                body = json.dumps({"watcherState": "live", "staleThresholdMs": 7200000, "readyThresholdMs": 300000}).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
@@ -126,8 +126,7 @@ struct AgentFeedSidecarProcessTests {
 
         let sidecar = AgentFeedSidecarProcess(
             binaryURL: stubURL,
-            port: port,
-            stateDirectory: FileManager.default.temporaryDirectory
+            port: port
         )
         // Defer teardown so the stub child is terminated before the test returns
         // even if an assertion below fails or a throw unwinds early.
@@ -156,8 +155,7 @@ struct AgentFeedSidecarProcessTests {
 
         let sidecar = AgentFeedSidecarProcess(
             binaryURL: stubURL,
-            port: port,
-            stateDirectory: FileManager.default.temporaryDirectory
+            port: port
         )
         defer { sidecar.stop() }
         sidecar.start()
@@ -180,8 +178,7 @@ struct AgentFeedSidecarProcessTests {
 
         let sidecar = AgentFeedSidecarProcess(
             binaryURL: stubURL,
-            port: port,
-            stateDirectory: FileManager.default.temporaryDirectory
+            port: port
         )
         // The mid-test stop() below is the subject under test; this defer is a
         // safety net for early-exit paths (stop() is idempotent).
@@ -234,8 +231,7 @@ struct AgentFeedSidecarProcessTests {
 
         let sidecar = AgentFeedSidecarProcess(
             binaryURL: stubURL,
-            port: port,
-            stateDirectory: FileManager.default.temporaryDirectory
+            port: port
         )
         // Defer teardown so the (possibly restarted) stub child is terminated
         // before the test returns on any path, including the early return below.

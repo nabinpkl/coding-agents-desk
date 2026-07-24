@@ -83,31 +83,14 @@ struct SidecarAgentSessionTerminalLivenessChecker: AgentSessionTerminalLivenessC
     let client: any SidecarClient
 
     func isLive(_ identity: AgentResumeTerminalIdentity) async throws -> Bool {
-        let projects = try await client.fetchDigest()
-        return projects.contains { project in
-            guard canonicalProjectPath(project.project) == identity.projectDirectory.path else {
-                return false
-            }
-            var sessions = project.sessions ?? []
-            sessions.append(contentsOf: project.otherSessions ?? [])
-            if let primary = project.primary {
-                sessions.append(primary)
-            }
-            return sessions.contains { session in
-                session.source == identity.source.rawValue
-                    && canonicalSessionID(session.sessionId) == identity.harnessSessionID
-                    && session.bin == "live"
-            }
+        let snapshot = try await client.fetchSessions(
+            projectPath: identity.projectDirectory.path
+        )
+        return snapshot.sessions.contains { session in
+            session.source == identity.source.rawValue
+                && canonicalSessionID(session.sessionId) == identity.harnessSessionID
+                && session.activity == "live"
         }
-    }
-
-    private func canonicalProjectPath(_ path: String) -> String? {
-        guard (path as NSString).isAbsolutePath else { return nil }
-        return URL(fileURLWithPath: path, isDirectory: true)
-            .standardizedFileURL
-            .resolvingSymlinksInPath()
-            .standardizedFileURL
-            .path
     }
 
     private func canonicalSessionID(_ rawValue: String) -> String? {

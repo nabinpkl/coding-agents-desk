@@ -126,6 +126,14 @@ the master descriptor.
 - D120. Cut the host, Xcode resource, Justfile, PRD, SPEC, and ADR ledger to the AgentDesk-owned
   components; remove sibling paths and compatibility names, then pass focused smoke plus `just check`.
 
+## Clean layered Agent feed
+
+- D121. Replace the copied cached digest with canonical-path project inventory, selected-project
+  session summaries, and selected source-scoped session events; make React navigation own visibility,
+  make Swift a subscription transport adapter, raise the outer wire protocol to `15`, delete cache
+  state and compatibility contracts, record source and snapshot timing, and pass the sidecar live-SSE
+  smoke plus `just check` without launching either app.
+
 ## Promotion log
 
 ```text
@@ -139,4 +147,5 @@ D110-113 2026-07-23  landed      vault-backed manager handover, rollback, and re
 D114-116 2026-07-23  landed      host coordinator, sequential recipes, and bounded update gate
 R117     2026-07-23  checkpoint  authorized real-host acceptance remains
 D118-120 2026-07-24 landed       AgentDesk-owned AgentPanel Vite source and transcript sidecar
+D121     2026-07-24  landed       layered no-cache Agent feed, live SSE, protocol 15, and timing gates
 ```

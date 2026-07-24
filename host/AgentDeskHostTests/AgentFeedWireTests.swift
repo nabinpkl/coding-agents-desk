@@ -5,408 +5,170 @@ import AgentDeskWire
 @testable import AgentDeskHost
 
 struct AgentFeedWireTests {
-
-    // MARK: - Supporting value types
-
-    @Test func activityBlockRoundTripsThroughCodable() throws {
-        let block = ActivityBlock(
-            kind: "tool_use",
-            text: nil,
-            tool: "Bash",
-            summary: "Run a shell command",
-            preview: "ls -la",
-            callId: "call-abc"
+    @Test func visibilityMessagesRoundTripWithSubscriptionIdentity() throws {
+        try roundTrip(
+            AgentProjectsWatch(subscriptionId: "projects-1"),
+            tag: "agent-projects-watch"
         )
-        let data = try JSONEncoder().encode(block)
-        let decoded = try JSONDecoder().decode(ActivityBlock.self, from: data)
-
-        #expect(decoded == block)
-        #expect(decoded.kind == "tool_use")
-        #expect(decoded.tool == "Bash")
-        #expect(decoded.text == nil)
-        #expect(decoded.callId == "call-abc")
-    }
-
-    @Test func activityBlockWithTextOnlyRoundTrips() throws {
-        let block = ActivityBlock(
-            kind: "text",
-            text: "Hello from the agent",
-            tool: nil,
-            summary: nil,
-            preview: nil,
-            callId: nil
+        try roundTrip(
+            AgentProjectsUnwatch(subscriptionId: "projects-1"),
+            tag: "agent-projects-unwatch"
         )
-        let data = try JSONEncoder().encode(block)
-        let decoded = try JSONDecoder().decode(ActivityBlock.self, from: data)
-
-        #expect(decoded == block)
-        #expect(decoded.kind == "text")
-        #expect(decoded.text == "Hello from the agent")
-    }
-
-    @Test func activityEventRoundTripsThroughCodable() throws {
-        let block = ActivityBlock(
-            kind: "reasoning",
-            text: "Thinking...",
-            tool: nil,
-            summary: nil,
-            preview: nil,
-            callId: nil
+        try roundTrip(
+            AgentProjectSessionsWatch(
+                subscriptionId: "sessions-1",
+                projectPath: "/project"
+            ),
+            tag: "agent-project-sessions-watch"
         )
-        let event = ActivityEvent(index: 3, ts: 1_700_000_000_000.0, type: "assistant", blocks: [block])
-        let data = try JSONEncoder().encode(event)
-        let decoded = try JSONDecoder().decode(ActivityEvent.self, from: data)
-
-        #expect(decoded == event)
-        #expect(decoded.index == 3)
-        #expect(decoded.ts == 1_700_000_000_000.0)
-        #expect(decoded.type == "assistant")
-        #expect(decoded.blocks.count == 1)
-    }
-
-    @Test func agentSessionSummaryRoundTripsThroughCodable() throws {
-        let summary = AgentSessionSummary(
-            sessionId: "sess-001",
-            source: "claude",
-            title: "Fix the login bug",
-            lastEventAt: 1_700_000_000_000.0,
-            isLive: true
+        try roundTrip(
+            AgentProjectSessionsUnwatch(subscriptionId: "sessions-1"),
+            tag: "agent-project-sessions-unwatch"
         )
-        let data = try JSONEncoder().encode(summary)
-        let decoded = try JSONDecoder().decode(AgentSessionSummary.self, from: data)
 
-        #expect(decoded == summary)
-        #expect(decoded.source == "claude")
-        #expect(decoded.isLive == true)
-        #expect(decoded.title == "Fix the login bug")
-    }
-
-    @Test func projectDigestRoundTripsThroughCodable() throws {
-        let session = AgentSessionSummary(
-            sessionId: "sess-002",
-            source: "codex",
-            title: nil,
-            lastEventAt: 1_700_000_001_000.0,
-            isLive: false
+        let projects = AgentProjectsPush(
+            subscriptionId: "projects-1",
+            projects: [
+                AgentProjectSummary(
+                    projectPath: "/project",
+                    displayName: "project",
+                    sourceCounts: AgentProjectSourceCounts(claude: 1, codex: 2),
+                    sessionCount: 3,
+                    lastEventAt: 100
+                ),
+            ]
         )
-        let digest = ProjectDigest(
-            projectPath: "/Users/dev/my-project",
-            displayName: "my-project",
-            sessions: [session]
+        let decodedProjects = try roundTrip(projects, tag: "agent-projects")
+        #expect(decodedProjects.subscriptionId == "projects-1")
+        #expect(decodedProjects.projects[0].sourceCounts.codex == 2)
+
+        let sessions = AgentProjectSessionsPush(
+            subscriptionId: "sessions-1",
+            projectPath: "/project",
+            sessions: [
+                AgentSessionSummary(
+                    sessionId: "same",
+                    source: "claude",
+                    title: "Claude",
+                    lastEventAt: 100,
+                    activity: "live"
+                ),
+                AgentSessionSummary(
+                    sessionId: "same",
+                    source: "codex",
+                    title: "Codex",
+                    lastEventAt: 90,
+                    activity: "cold"
+                ),
+            ]
         )
-        let data = try JSONEncoder().encode(digest)
-        let decoded = try JSONDecoder().decode(ProjectDigest.self, from: data)
-
-        #expect(decoded == digest)
-        #expect(decoded.projectPath == "/Users/dev/my-project")
-        #expect(decoded.sessions.count == 1)
-    }
-
-    @Test func projectDigestWithNilDisplayNameRoundTrips() throws {
-        let digest = ProjectDigest(projectPath: "/tmp/proj", displayName: nil, sessions: [])
-        let data = try JSONEncoder().encode(digest)
-        let decoded = try JSONDecoder().decode(ProjectDigest.self, from: data)
-
-        #expect(decoded == digest)
-        #expect(decoded.displayName == nil)
-        #expect(decoded.sessions.isEmpty)
-    }
-
-    // MARK: - Client-to-host request types
-
-    @Test func agentProjectsSubscribeRoundTripsThroughCodable() throws {
-        let msg = AgentProjectsSubscribe()
-        let data = try JSONEncoder().encode(msg)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        let decoded = try JSONDecoder().decode(AgentProjectsSubscribe.self, from: data)
-
-        #expect(decoded == msg)
-        #expect(json.contains("\"t\":\"agent-projects-sub\""))
-    }
-
-    @Test func agentThreadSubscribeRoundTripsThroughCodable() throws {
-        let msg = AgentThreadSubscribe(projectPath: "/proj/alpha", source: "claude", sessionId: "sess-x")
-        let data = try JSONEncoder().encode(msg)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        let decoded = try JSONDecoder().decode(AgentThreadSubscribe.self, from: data)
-
-        #expect(decoded == msg)
-        #expect(json.contains("\"t\":\"agent-thread-sub\""))
-        #expect(decoded.projectPath == "/proj/alpha")
-        #expect(decoded.source == "claude")
-        #expect(decoded.sessionId == "sess-x")
-    }
-
-    @Test func agentThreadSubscribeWithNilOptionalFieldsRoundTrips() throws {
-        let msg = AgentThreadSubscribe(projectPath: "/proj/beta")
-        let data = try JSONEncoder().encode(msg)
-        let decoded = try JSONDecoder().decode(AgentThreadSubscribe.self, from: data)
-
-        #expect(decoded == msg)
-        #expect(decoded.source == nil)
-        #expect(decoded.sessionId == nil)
-    }
-
-    @Test func agentThreadLoadOlderRoundTripsThroughCodable() throws {
-        let msg = AgentThreadLoadOlder(sessionId: "sess-y", beforeIndex: 50, limit: 25)
-        let data = try JSONEncoder().encode(msg)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        let decoded = try JSONDecoder().decode(AgentThreadLoadOlder.self, from: data)
-
-        #expect(decoded == msg)
-        #expect(json.contains("\"t\":\"agent-thread-older\""))
-        #expect(decoded.beforeIndex == 50)
-        #expect(decoded.limit == 25)
-    }
-
-    @Test func agentThreadUnsubscribeRoundTripsThroughCodable() throws {
-        let msg = AgentThreadUnsubscribe(sessionId: "sess-z")
-        let data = try JSONEncoder().encode(msg)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        let decoded = try JSONDecoder().decode(AgentThreadUnsubscribe.self, from: data)
-
-        #expect(decoded == msg)
-        #expect(json.contains("\"t\":\"agent-thread-unsub\""))
-        #expect(decoded.sessionId == "sess-z")
-    }
-
-    @available(macOS 26.0, *)
-    @Test func authenticatedInputFramesDispatchAllTerminalCommands() throws {
-        let context = AgentResumeTerminalContext(
-            projectPath: "/Users/dev/project",
-            source: "claude",
-            harnessSessionID: "a4cdd7b8-3f9a-4d80-bc72-5f4aab6f39e1"
+        let decodedSessions = try roundTrip(
+            sessions,
+            tag: "agent-project-sessions"
         )
-        let commands: [AgentTerminalClientMessage] = [
-            .open(AgentTerminalOpen(
-                requestID: "request-1",
-                context: context
-            )),
-            .attached(AgentTerminalAttachedAck(
-                requestID: "request-1",
-                context: context,
-                ptySessionName: "agent-resume-claude-a4cdd7b8-3f9a-4d80-bc72-5f4aab6f39e1"
-            )),
-            .close(AgentTerminalClose(
-                requestID: "request-1",
-                context: context,
-                ptySessionName: "agent-resume-claude-a4cdd7b8-3f9a-4d80-bc72-5f4aab6f39e1",
-                reason: "test-close"
-            )),
-        ]
-
-        for command in commands {
-            let payload = try JSONEncoder().encode(command)
-            let frame = try QuicSessionStreamFrame.decode(
-                QuicSessionStreamFrame.encode(role: .input, payload: payload)
-            )
-            var routed: AgentTerminalClientMessage?
-
-            let handled = InputChannelServer.dispatchAgentTerminal(
-                data: frame.payload,
-                handler: { request in
-                    guard case .terminal(let terminal) = request else { return }
-                    routed = terminal
-                }
-            )
-
-            #expect(frame.role == .input)
-            #expect(handled)
-            #expect(routed == command)
-        }
+        #expect(decodedSessions.subscriptionId == "sessions-1")
+        #expect(decodedSessions.sessions.map(\.source) == ["claude", "codex"])
     }
 
-    @Test func pushAgentTerminalEmitsDecodableOwnedAgentData() throws {
-        let pusher = RecordingAgentDataPusher()
-        let context = AgentResumeTerminalContext(
-            projectPath: "/Users/dev/project",
-            source: "codex",
-            harnessSessionID: "5315800f-fab6-42ed-a80f-a622f563b57a"
+    @Test func threadAndRawMessagesRequireSourceIdentity() throws {
+        let subscription = try roundTrip(
+            AgentThreadSubscribe(source: "claude", sessionId: "same"),
+            tag: "agent-thread-sub"
         )
-        let pushes: [AgentTerminalHostMessage] = [
-            .ready(AgentTerminalReady(
-                requestID: "request-1",
-                context: context,
-                ptySessionName: "agent-resume-codex-5315800f-fab6-42ed-a80f-a622f563b57a"
-            )),
-            .ended(AgentTerminalEnded(
-                requestID: "request-1",
-                context: context,
-                ptySessionName: "agent-resume-codex-5315800f-fab6-42ed-a80f-a622f563b57a",
-                exitStatus: 0
-            )),
-            .error(AgentTerminalError(
-                requestID: "request-1",
-                context: context,
-                code: .sessionEnded
-            )),
-        ]
+        #expect(subscription.source == "claude")
 
-        for push in pushes {
-            pusher.pushAgentTerminal(push)
-        }
+        let older = try roundTrip(
+            AgentThreadLoadOlder(
+                source: "codex",
+                sessionId: "same",
+                beforeIndex: 50,
+                limit: 25
+            ),
+            tag: "agent-thread-older"
+        )
+        #expect(older.source == "codex")
 
-        #expect(try pusher.payloads.map {
-            try JSONDecoder().decode(AgentTerminalHostMessage.self, from: $0)
-        } == pushes)
+        let chunk = try roundTrip(
+            AgentThreadChunk(
+                source: "codex",
+                sessionId: "same",
+                events: [
+                    ActivityEvent(
+                        index: 1,
+                        ts: 2,
+                        type: "assistant",
+                        blocks: [ActivityBlock(kind: "text", text: "hello")]
+                    ),
+                ],
+                windowStart: 1,
+                total: 2,
+                isLive: true
+            ),
+            tag: "agent-thread-chunk"
+        )
+        #expect(chunk.source == "codex")
+        #expect(chunk.events[0].type == "assistant")
+
+        let raw = try roundTrip(
+            AgentRawEventRequest(
+                requestId: "raw-1",
+                source: "claude",
+                sessionId: "same",
+                eventIndex: 7
+            ),
+            tag: "agent-raw-event-get"
+        )
+        #expect(raw.source == "claude")
     }
 
-    @Test func workspaceTerminalRoutesOnInputAndPushesTypedResponses() throws {
-        let workspaceID = "62193559-6f63-4b24-a53e-ea2f23c39d4a"
-        let command = WorkspaceTerminalClientMessage.open(WorkspaceTerminalOpen(
-            requestID: "workspace-request-1",
-            workspaceID: workspaceID,
-            preferredSessionName: nil,
-            columns: 100,
-            rows: 30
+    @Test func JavaScriptMirrorUsesTheCompactKeys() throws {
+        let projectJSON = try encodedString(AgentProjectsPush(
+            subscriptionId: "sub",
+            projects: [
+                AgentProjectSummary(
+                    projectPath: "/p",
+                    displayName: "p",
+                    sourceCounts: AgentProjectSourceCounts(claude: 1, codex: 0),
+                    sessionCount: 1,
+                    lastEventAt: 1
+                ),
+            ]
         ))
-        var routed: WorkspaceTerminalClientMessage?
+        for key in ["\"t\"", "\"sub\"", "\"p\"", "\"pp\"", "\"dn\"", "\"sc\"", "\"cl\"", "\"co\"", "\"sn\"", "\"lea\""] {
+            #expect(projectJSON.contains(key))
+        }
 
-        let handled = InputChannelServer.dispatchWorkspaceTerminal(
-            data: try JSONEncoder().encode(command),
-            handler: { routed = $0 }
-        )
-
-        #expect(handled)
-        #expect(routed == command)
-
-        let pusher = RecordingAgentDataPusher()
-        let response = WorkspaceTerminalHostMessage.ready(WorkspaceTerminalReady(
-            requestID: "workspace-request-1",
-            workspaceID: workspaceID,
-            ptySessionName: "workspace-62193559-6f63-4b24-a53e-ea2f23c39d4a-a1b2c3d4e5f6"
+        let sessionJSON = try encodedString(AgentProjectSessionsPush(
+            subscriptionId: "sub",
+            projectPath: "/p",
+            sessions: [
+                AgentSessionSummary(
+                    sessionId: "s",
+                    source: "claude",
+                    title: "title",
+                    lastEventAt: 1,
+                    activity: "ready"
+                ),
+            ]
         ))
-        pusher.pushWorkspaceTerminal(response)
-
-        #expect(try JSONDecoder().decode(
-            WorkspaceTerminalHostMessage.self,
-            from: #require(pusher.payloads.first)
-        ) == response)
-    }
-
-    // MARK: - Host-to-client push types
-
-    @Test func agentProjectsPushRoundTripsThroughCodable() throws {
-        let session = AgentSessionSummary(
-            sessionId: "s1",
-            source: "claude",
-            title: "Session A",
-            lastEventAt: 1_700_000_000_000.0,
-            isLive: false
-        )
-        let digest = ProjectDigest(projectPath: "/work/proj", displayName: "proj", sessions: [session])
-        let push = AgentProjectsPush(projects: [digest])
-        let data = try JSONEncoder().encode(push)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        let decoded = try JSONDecoder().decode(AgentProjectsPush.self, from: data)
-
-        #expect(decoded == push)
-        #expect(json.contains("\"t\":\"agent-projects\""))
-        #expect(decoded.projects.count == 1)
-    }
-
-    @Test func agentThreadChunkRoundTripsThroughCodable() throws {
-        let block = ActivityBlock(
-            kind: "tool_result",
-            text: "success",
-            tool: nil,
-            summary: nil,
-            preview: nil,
-            callId: "call-1"
-        )
-        let event = ActivityEvent(index: 0, ts: 1_700_000_000_000.0, type: "user", blocks: [block])
-        let chunk = AgentThreadChunk(
-            sessionId: "sess-abc",
-            events: [event],
-            windowStart: 0,
-            total: 42,
-            isLive: true
-        )
-        let data = try JSONEncoder().encode(chunk)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        let decoded = try JSONDecoder().decode(AgentThreadChunk.self, from: data)
-
-        #expect(decoded == chunk)
-        #expect(json.contains("\"t\":\"agent-thread-chunk\""))
-        #expect(decoded.sessionId == "sess-abc")
-        #expect(decoded.windowStart == 0)
-        #expect(decoded.total == 42)
-        #expect(decoded.isLive == true)
-        #expect(decoded.events.count == 1)
-    }
-
-    @Test func agentThreadErrorRoundTripsThroughCodable() throws {
-        let err = AgentThreadError(sessionId: "sess-dead", reason: "session-not-found")
-        let data = try JSONEncoder().encode(err)
-        let json = String(data: data, encoding: .utf8) ?? ""
-        let decoded = try JSONDecoder().decode(AgentThreadError.self, from: data)
-
-        #expect(decoded == err)
-        #expect(json.contains("\"t\":\"agent-thread-error\""))
-        #expect(decoded.sessionId == "sess-dead")
-        #expect(decoded.reason == "session-not-found")
-    }
-
-    // MARK: - Unknown t tag is ignored (forward-compatible)
-
-    @Test func unknownAgentFeedTagIsIgnoredByInputLaneDispatch() throws {
-        // Simulate what InputChannelServer.dispatch does: if the type tag is
-        // unknown it falls through to the default logger case without throwing.
-        // We verify that decoding an unknown type tag does not throw and that
-        // the existing types still decode correctly alongside unknown ones.
-        let unknownData = Data(#"{"t":"agent-future-feature","payload":{"x":1}}"#.utf8)
-        struct TypeTag: Decodable { let t: String? }
-        let tag = try JSONDecoder().decode(TypeTag.self, from: unknownData)
-
-        #expect(tag.t == "agent-future-feature")
-        // None of the known types should match, so a dispatch switch would hit default.
-        let isKnownType = ["agent-projects-sub", "agent-thread-sub", "agent-thread-older",
-                           "agent-thread-unsub", "agent-projects", "agent-thread-chunk",
-                           "agent-thread-error"].contains(tag.t ?? "")
-        #expect(!isKnownType)
-    }
-
-    // MARK: - Literal wire-key contract (anchors the JS BridgeDataSource mirror)
-
-    // The Swift<->Swift round-trip tests above pass even if a CodingKey raw value
-    // changes, because encode and decode move together. But the JS bridge
-    // (dashboard/.../BridgeDataSource.ts) mirrors these EXACT abbreviated keys by
-    // hand; a silent rename there breaks every push with no failing Swift test.
-    // This test pins the literal JSON keys so any change forces a deliberate
-    // update on both sides. Keep in lockstep with the WireProjectDigest /
-    // WireThreadChunk interfaces in BridgeDataSource.ts.
-    @Test func agentProjectsPushWireKeysAreStable() throws {
-        let session = AgentSessionSummary(
-            sessionId: "s1", source: "claude", title: "A", lastEventAt: 1.0, isLive: true
-        )
-        let digest = ProjectDigest(projectPath: "/p", displayName: "p", sessions: [session])
-        let json = String(decoding: try JSONEncoder().encode(AgentProjectsPush(projects: [digest])), as: UTF8.self)
-        // Push envelope + project digest + session summary keys.
-        for key in ["\"t\":\"agent-projects\"", "\"p\":", "\"pp\":", "\"dn\":", "\"ss\":",
-                    "\"sid\":", "\"src\":", "\"ttl\":", "\"lea\":", "\"lv\":"] {
-            #expect(json.contains(key), "AgentProjectsPush wire missing \(key); JS BridgeDataSource mirror will break")
+        for key in ["\"sub\"", "\"pp\"", "\"ss\"", "\"sid\"", "\"src\"", "\"ttl\"", "\"lea\"", "\"ac\""] {
+            #expect(sessionJSON.contains(key))
         }
     }
 
-    @Test func agentThreadChunkWireKeysAreStable() throws {
-        let block = ActivityBlock(
-            kind: "text", text: "hi", tool: nil, summary: nil, preview: nil, callId: nil
-        )
-        let event = ActivityEvent(index: 0, ts: 1.0, type: "user", blocks: [block])
-        let chunk = AgentThreadChunk(sessionId: "s", events: [event], windowStart: 0, total: 1, isLive: true)
-        let json = String(decoding: try JSONEncoder().encode(chunk), as: UTF8.self)
-        // Chunk + nested event + nested block keys.
-        for key in ["\"t\":\"agent-thread-chunk\"", "\"sid\":", "\"ev\":", "\"ws\":", "\"tot\":",
-                    "\"lv\":", "\"i\":", "\"ts\":", "\"tp\":", "\"b\":", "\"k\":", "\"tx\":"] {
-            #expect(json.contains(key), "AgentThreadChunk wire missing \(key); JS BridgeDataSource mirror will break")
-        }
+    private func roundTrip<Value: Codable & Equatable>(
+        _ value: Value,
+        tag: String
+    ) throws -> Value {
+        let data = try JSONEncoder().encode(value)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["t"] as? String == tag)
+        let decoded = try JSONDecoder().decode(Value.self, from: data)
+        #expect(decoded == value)
+        return decoded
     }
-}
 
-private final class RecordingAgentDataPusher: AgentDataPushing, @unchecked Sendable {
-    private(set) var payloads: [Data] = []
-
-    func pushAgentData(_ data: Data) {
-        payloads.append(data)
+    private func encodedString<Value: Encodable>(_ value: Value) throws -> String {
+        try #require(String(data: JSONEncoder().encode(value), encoding: .utf8))
     }
 }

@@ -11,14 +11,12 @@ import { state } from "./transcripts/transcriptState.ts";
 import {
   getSnapshot,
   getWatcherState,
-  startWatcher,
-  stopWatcher,
-} from "./transcripts/transcriptWatcher.ts";
+  startCatalog,
+  stopCatalog,
+} from "./transcripts/transcriptCatalog.ts";
 
 const routes: RouteHandler[] = [handleProjectRoutes, handleSessionRoutes];
 const SHUTDOWN_GRACE_MS = 500;
-
-await startWatcher();
 
 const server = Bun.serve<undefined>({
   hostname: config.host,
@@ -49,6 +47,11 @@ const server = Bun.serve<undefined>({
 });
 
 console.log(`agent feed sidecar listening on http://${config.host}:${server.port}`);
+void startCatalog().catch((error) => {
+  console.error("agent feed catalog startup failed", error);
+  server.stop(true);
+  process.exit(1);
+});
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
@@ -68,7 +71,7 @@ async function shutdown(signal: string): Promise<void> {
   }
   await Bun.sleep(SHUTDOWN_GRACE_MS);
   for (const stream of [...state.openStreams]) stream.teardown();
-  await stopWatcher();
+  await stopCatalog();
   server.stop(true);
   process.exit(0);
 }

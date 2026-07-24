@@ -17,7 +17,10 @@ enum ClientScreenshotChannelUpdate: Equatable, Sendable {
 
 // Agent request message routed to the caller via agentRequestHandler.
 enum AgentFeedRequest: Sendable {
-    case projectsSubscribe(AgentProjectsSubscribe)
+    case projectsWatch(AgentProjectsWatch)
+    case projectsUnwatch(AgentProjectsUnwatch)
+    case projectSessionsWatch(AgentProjectSessionsWatch)
+    case projectSessionsUnwatch(AgentProjectSessionsUnwatch)
     case threadSubscribe(AgentThreadSubscribe)
     case threadLoadOlder(AgentThreadLoadOlder)
     case threadUnsubscribe(AgentThreadUnsubscribe)
@@ -365,10 +368,21 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             } else {
                 logger.error("client-screenshot-error decode failed")
             }
-        case "agent-projects-sub":
-            logger.notice("input lane agent-projects-sub received fp=\(self.fingerprint.rawValue, privacy: .public)")
-            if let msg = try? JSONDecoder().decode(AgentProjectsSubscribe.self, from: data) {
-                agentRequestHandler?(.projectsSubscribe(msg))
+        case "agent-projects-watch":
+            if let msg = try? JSONDecoder().decode(AgentProjectsWatch.self, from: data) {
+                agentRequestHandler?(.projectsWatch(msg))
+            }
+        case "agent-projects-unwatch":
+            if let msg = try? JSONDecoder().decode(AgentProjectsUnwatch.self, from: data) {
+                agentRequestHandler?(.projectsUnwatch(msg))
+            }
+        case "agent-project-sessions-watch":
+            if let msg = try? JSONDecoder().decode(AgentProjectSessionsWatch.self, from: data) {
+                agentRequestHandler?(.projectSessionsWatch(msg))
+            }
+        case "agent-project-sessions-unwatch":
+            if let msg = try? JSONDecoder().decode(AgentProjectSessionsUnwatch.self, from: data) {
+                agentRequestHandler?(.projectSessionsUnwatch(msg))
             }
         case "agent-thread-sub":
             logger.debug("input lane agent-thread-sub received fp=\(self.fingerprint.rawValue, privacy: .public)")

@@ -47,20 +47,46 @@ function sameRequest(
 export function App({ bridge }: Props) {
   const [nav, setNav] = useState<NavState>({ view: "projects" });
   const [projects, setProjects] = useState<BridgeProject[]>([]);
+  const [sessions, setSessions] = useState<BridgeSessionSummary[]>([]);
+  const [loadingLayer, setLoadingLayer] = useState(true);
+  const [layerError, setLayerError] = useState<string | null>(null);
   const [terminal, setTerminal] = useState<TerminalState>({ kind: "idle" });
-  // Whether the host has answered the projects subscribe at least once. An empty
-  // projects[] AFTER a real response is a valid "zero projects" state; before the
-  // first response it means the round-trip has not completed yet. The retry below
-  // keys off this so it stops once the host replies, not once projects is empty.
-  const [received, setReceived] = useState(false);
 
   useEffect(() => {
-    const unsub = bridge.subscribeProjects((ps) => {
-      setProjects(ps);
-      setReceived(true);
-    });
-    return unsub;
-  }, [bridge]);
+    setLoadingLayer(true);
+    setLayerError(null);
+    if (nav.view === "projects") {
+      setSessions([]);
+      return bridge.subscribeProjects(
+        (snapshot) => {
+          setProjects(snapshot);
+          setLoadingLayer(false);
+        },
+        (reason) => {
+          setLayerError(reason);
+          setLoadingLayer(false);
+        },
+      );
+    }
+    if (nav.view === "sessions") {
+      setProjects([]);
+      return bridge.subscribeProjectSessions(
+        nav.project.projectPath,
+        (snapshot) => {
+          setSessions(snapshot);
+          setLoadingLayer(false);
+        },
+        (reason) => {
+          setLayerError(reason);
+          setLoadingLayer(false);
+        },
+      );
+    }
+    setProjects([]);
+    setSessions([]);
+    setLoadingLayer(false);
+    return undefined;
+  }, [bridge, nav]);
 
   useEffect(
     () =>
@@ -91,26 +117,6 @@ export function App({ bridge }: Props) {
       }),
     [bridge],
   );
-
-  // Recover a lost initial subscribe. The first agent-projects-sub can be dropped
-  // if it is sent before the input lane is attached, or if the host's reply
-  // arrives before the webview bridge is installed. There is otherwise no retry,
-  // so the feed would sit on "No projects yet" until the app is reopened. Re-post
-  // on an interval until the host responds once (bounded), then stop.
-  useEffect(() => {
-    if (received) return;
-    let attempts = 0;
-    const id = window.setInterval(() => {
-      attempts += 1;
-      bridge.requestProjects();
-      if (attempts >= 8) window.clearInterval(id);
-    }, 1500);
-    return () => window.clearInterval(id);
-  }, [bridge, received]);
-
-  const refreshProjects = useCallback(() => {
-    bridge.requestProjects();
-  }, [bridge]);
 
   const openProject = useCallback((project: BridgeProject) => {
     setNav({ view: "sessions", project });
@@ -223,13 +229,16 @@ export function App({ bridge }: Props) {
               <ProjectList
                 projects={projects}
                 onSelect={openProject}
-                onRefresh={refreshProjects}
+                loading={loadingLayer}
+                error={layerError}
               />
             </div>
           ) : nav.view === "sessions" ? (
             <div className="h-full overflow-y-auto pb-[env(safe-area-inset-bottom)]">
               <SessionList
-                project={nav.project}
+                sessions={sessions}
+                loading={loadingLayer}
+                error={layerError}
                 onSelect={(s) => openSession(nav.project, s)}
               />
             </div>
@@ -242,7 +251,10 @@ export function App({ bridge }: Props) {
             // prose and rows are not flush against the phone bezel. Padding the
             // wrapper keeps the shared component untouched.
             <div key={nav.session.sessionId} className="h-full px-4">
-              <ActivityFeed sessionId={nav.session.sessionId} />
+              <ActivityFeed
+                source={nav.session.source}
+                sessionId={nav.session.sessionId}
+              />
             </div>
           )}
         </main>
@@ -342,26 +354,34 @@ function TerminalBand({
 function ProjectList({
   projects,
   onSelect,
-  onRefresh,
+  loading,
+  error,
 }: {
   projects: BridgeProject[];
   onSelect: (p: BridgeProject) => void;
-  onRefresh: () => void;
+  loading: boolean;
+  error: string | null;
 }) {
+  if (loading) {
+    return (
+      <div role="status" className="flex h-full items-center justify-center p-8 text-muted-foreground">
+        Loading projects…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div role="alert" className="flex h-full items-center justify-center p-8 text-center text-destructive">
+        Projects unavailable: {error}
+      </div>
+    );
+  }
+
   if (projects.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
+      <div className="flex h-full flex-col items-center justify-center p-8 text-center">
         <p className="text-[15px] text-muted-foreground">No projects yet</p>
-        <p className="text-[13px] text-muted-foreground/60">
-          Waiting for the host to send project data...
-        </p>
-        <button
-          type="button"
-          onClick={onRefresh}
-          className="mt-1 rounded-lg border border-border px-4 py-2 text-[13px] font-medium text-foreground transition-colors hover:bg-muted active:bg-muted/80"
-        >
-          Retry
-        </button>
       </div>
     );
   }
@@ -371,10 +391,9 @@ function ProjectList({
       {projects.map((project) => {
         const name =
           project.displayName ?? project.projectPath.split("/").pop() ?? project.projectPath;
-        const sources = Array.from(
-          new Set(project.sessions.map((s) => s.source)),
-        );
-        const liveCount = project.sessions.filter((s) => s.isLive).length;
+        const sources: Array<"claude" | "codex"> = [];
+        if (project.sourceCounts.claude > 0) sources.push("claude");
+        if (project.sourceCounts.codex > 0) sources.push("codex");
 
         return (
           <li key={project.projectPath}>
@@ -388,20 +407,14 @@ function ProjectList({
                   <span className="truncate text-[15px] font-medium text-foreground">
                     {name}
                   </span>
-                  {liveCount > 0 ? (
-                    <span
-                      aria-label={`${liveCount} live`}
-                      className="h-2 w-2 shrink-0 rounded-full bg-green-500"
-                    />
-                  ) : null}
                 </div>
                 <div className="mt-1 flex items-center gap-2">
                   {sources.map((src) => (
                     <SourceBadge key={src} source={src} />
                   ))}
                   <span className="text-[13px] text-muted-foreground">
-                    {project.sessions.length}{" "}
-                    {project.sessions.length === 1 ? "session" : "sessions"}
+                    {project.sessionCount}{" "}
+                    {project.sessionCount === 1 ? "session" : "sessions"}
                   </span>
                 </div>
               </div>
@@ -419,13 +432,33 @@ function ProjectList({
 // ---------------------------------------------------------------------------
 
 function SessionList({
-  project,
+  sessions,
+  loading,
+  error,
   onSelect,
 }: {
-  project: BridgeProject;
+  sessions: BridgeSessionSummary[];
+  loading: boolean;
+  error: string | null;
   onSelect: (s: BridgeSessionSummary) => void;
 }) {
-  if (project.sessions.length === 0) {
+  if (loading) {
+    return (
+      <div role="status" className="flex h-full items-center justify-center p-8 text-muted-foreground">
+        Loading sessions…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div role="alert" className="flex h-full items-center justify-center p-8 text-center text-destructive">
+        Sessions unavailable: {error}
+      </div>
+    );
+  }
+
+  if (sessions.length === 0) {
     return (
       <div className="flex h-full items-center justify-center p-8">
         <p className="text-[15px] text-muted-foreground">No sessions in this project</p>
@@ -435,7 +468,7 @@ function SessionList({
 
   return (
     <ul className="divide-y divide-border" role="list" aria-label="Sessions">
-      {project.sessions.map((session) => {
+      {sessions.map((session) => {
         const title = session.title ?? session.sessionId;
         const time = new Date(session.lastEventAt).toLocaleTimeString([], {
           hour: "2-digit",
@@ -443,7 +476,7 @@ function SessionList({
         });
 
         return (
-          <li key={session.sessionId}>
+          <li key={`${session.source}:${session.sessionId}`}>
             <button
               type="button"
               onClick={() => onSelect(session)}
@@ -452,7 +485,7 @@ function SessionList({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <SourceBadge source={session.source} />
-                  {session.isLive ? (
+                  {session.activity === "live" ? (
                     <span
                       aria-label="Live"
                       className="h-2 w-2 shrink-0 rounded-full bg-green-500"

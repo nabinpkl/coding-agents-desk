@@ -14,11 +14,12 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
 
     private let binaryURL: URL
     private let port: UInt16
-    private let stateDirectory: URL
     private let logger: Logger
     private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).agent-feed-sidecar")
 
     private var process: Process?
+    private var outputPipe: Pipe?
+    private var outputBuffer = ""
     private var stopped = false
     private var restartBackoffSeconds: TimeInterval = 1
     // Collapses concurrent restart requests into one. A single induced exit can
@@ -36,10 +37,9 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     // Maximum backoff between restart attempts (seconds).
     private static let maxBackoffSeconds: TimeInterval = 16
 
-    init(binaryURL: URL, port: UInt16, stateDirectory: URL) {
+    init(binaryURL: URL, port: UInt16) {
         self.binaryURL = binaryURL
         self.port = port
-        self.stateDirectory = stateDirectory
         self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-sidecar")
     }
 
@@ -91,16 +91,24 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         proc.environment = ProcessInfo.processInfo.environment.merging([
             "AGENT_FEED_PORT": String(port),
             "AGENT_FEED_HOST": "127.0.0.1",
-            "AGENT_FEED_STATE_DIR": stateDirectory.path,
         ]) { _, new in new }
-        // Detach the child's stdio from the host's. The sidecar logs to its own
-        // stdout/stderr; inheriting the host's file handles would both pollute
-        // the host console and couple the child's lifetime to those handles (a
-        // closed/reset parent fd can fault the child). Send child stdio to
-        // /dev/null. The bridge task can add a capture pipe later if it wants
-        // sidecar logs.
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
+        // Keep catalog and snapshot timing observable in the host unified log
+        // without inheriting the host process's stdio descriptors.
+        let pipe = Pipe()
+        outputPipe = pipe
+        outputBuffer = ""
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            self?.queue.async { [weak self] in
+                self?.consumeOutput(data)
+            }
+        }
+        proc.standardOutput = pipe
+        proc.standardError = pipe
         // Dispatch onto our serial queue: Process invokes terminationHandler on
         // its own internal queue, but handleTermination reads+mutates stopped
         // and restartBackoffSeconds, which are owned by self.queue. Without this
@@ -132,7 +140,9 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
 
         while Date() < deadline {
             if stopped { return }
-            if let data = try? Data(contentsOf: candidate), !data.isEmpty {
+            if let data = try? Data(contentsOf: candidate),
+               let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               body["watcherState"] as? String == "live" {
                 reached = true
                 break
             }
@@ -156,6 +166,7 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         // The OS fired this for the live process; drop our reference to it so a
         // later teardown does not touch a dead Process.
         process = nil
+        closeOutputPipe()
         logger.notice("sidecar exited unexpectedly status=\(status, privacy: .public); scheduling restart")
         baseURL = nil
         scheduleRestart()
@@ -178,6 +189,7 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     }
 
     private func terminateCurrentProcess() {
+        closeOutputPipe()
         guard let proc = process else { return }
         process = nil
         // Detach the termination handler so a deliberate teardown (stop() or the
@@ -195,5 +207,21 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         if proc.isRunning {
             kill(proc.processIdentifier, SIGKILL)
         }
+    }
+
+    private func consumeOutput(_ data: Data) {
+        outputBuffer.append(String(decoding: data, as: UTF8.self))
+        let lines = outputBuffer.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.count > 1 else { return }
+        for line in lines.dropLast() where !line.isEmpty {
+            logger.notice("sidecar \(String(line), privacy: .public)")
+        }
+        outputBuffer = String(lines.last ?? "")
+    }
+
+    private func closeOutputPipe() {
+        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        outputPipe = nil
+        outputBuffer = ""
     }
 }

@@ -1,6 +1,6 @@
 // Adapter turn-boundary signals. Both adapters translate their own terminal
-// markers into the single `turnClosed` field on LineResult; the watcher folds
-// it into `session.lastTurnClosed` and digest.computeBin derives the 'live'
+// markers into the single `turnClosed` field on LineResult; the session probe folds
+// it into the selected-project activity probe, which derives the 'live'
 // bin from it at read time. These tests pin the per-line contract so a
 // harness transcript-format drift is caught at the adapter seam.
 

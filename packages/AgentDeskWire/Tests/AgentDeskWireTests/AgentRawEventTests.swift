@@ -18,6 +18,7 @@ import Testing
     let parts = try AgentRawEventFragmenter.makeParts(
         data: Data(text.utf8),
         requestId: "r1",
+        source: "codex",
         sessionId: "s1",
         eventIndex: 9,
         transferId: "x1"
@@ -28,7 +29,7 @@ import Testing
         #expect(reassembler.accept(part) == .pending)
     }
     #expect(reassembler.accept(parts.last!) == .complete(AgentRawEventResponse(
-        requestId: "r1", sessionId: "s1", eventIndex: 9, text: text
+        requestId: "r1", source: "codex", sessionId: "s1", eventIndex: 9, text: text
     )))
 
     var duplicate = AgentRawEventReassembler()
@@ -43,7 +44,7 @@ import Testing
     let start = Date(timeIntervalSince1970: 100)
     let part = try #require(AgentRawEventFragmenter.makeParts(
         data: Data(repeating: 1, count: AgentRawEventLimits.sourceFragmentBytes + 1),
-        requestId: "r", sessionId: "s", eventIndex: 1, transferId: "x"
+        requestId: "r", source: "codex", sessionId: "s", eventIndex: 1, transferId: "x"
     ).first)
     var reassembler = AgentRawEventReassembler()
     #expect(reassembler.accept(part, now: start) == .pending)
@@ -55,13 +56,14 @@ import Testing
 @Test func rawEventReassemblyRejectsInconsistentAndOversizedTransfers() throws {
     let parts = try AgentRawEventFragmenter.makeParts(
         data: Data(repeating: 1, count: AgentRawEventLimits.sourceFragmentBytes + 1),
-        requestId: "r", sessionId: "s", eventIndex: 1, transferId: "x"
+        requestId: "r", source: "codex", sessionId: "s", eventIndex: 1, transferId: "x"
     )
     var inconsistent = AgentRawEventReassembler()
     #expect(inconsistent.accept(parts[0]) == .pending)
     let mismatched = AgentRawEventPart(
         transferId: parts[1].transferId,
         requestId: parts[1].requestId,
+        source: parts[1].source,
         sessionId: "different-session",
         eventIndex: parts[1].eventIndex,
         partIndex: parts[1].partIndex,
@@ -77,6 +79,7 @@ import Testing
     let oversized = AgentRawEventPart(
         transferId: "oversized",
         requestId: "r",
+        source: "codex",
         sessionId: "s",
         eventIndex: 1,
         partIndex: 0,
@@ -97,6 +100,7 @@ import Testing
         try #require(AgentRawEventFragmenter.makeParts(
             data: data,
             requestId: "r\(index)",
+            source: "codex",
             sessionId: "s",
             eventIndex: index,
             transferId: "x\(index)"
@@ -119,6 +123,7 @@ import Testing
     try AgentRawEventFragmenter.forEachPart(
         data: source,
         requestId: "boundary",
+        source: "codex",
         sessionId: "session",
         eventIndex: 100,
         transferId: "boundary-transfer"

@@ -213,7 +213,17 @@ build-agent-feed-sidecar:
     mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"
 
 agent-feed-sidecar-check:
-    cd '{{agent_feed_sidecar_dir}}' && bun install --frozen-lockfile && bun run typecheck && bun run test
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd '{{agent_feed_sidecar_dir}}'
+    bun install --frozen-lockfile
+    bun run typecheck
+    bun run test
+    if rg -n --glob '!*.test.ts' \
+        'watcher-cache|AGENT_FEED_STATE_DIR|projects/digest|ProjectDigest' src; then
+        echo "agent-feed-sidecar-check: removed cache or digest contract returned" >&2
+        exit 1
+    fi
 
 # Build Agent Workspace IDE's Rust PTY manager into the host app bundle source
 # dir. The host launches this binary and bridges shared web terminal clients into its
@@ -230,39 +240,101 @@ build-pty-runtime:
     cp "$PTY/target/release/pty-vault" "$VAULT_OUT"
     chmod +x "$MANAGER_OUT" "$VAULT_OUT"
 
-# Build the real sidecar binary and run it directly, curling
-# /api/projects/digest on loopback to confirm the binary integrates end-to-end.
+# Build the real sidecar binary against isolated Claude/Codex fixtures. Verify
+# one-shot project/session APIs and replacement snapshots from both SSE layers.
 # This is for manual/coordinator verification; it is NOT part of `just check`.
 agent-feed-sidecar-smoke: build-agent-feed-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
     PORT=47998
     BINARY='{{agent_feed_sidecar_out}}'
-    STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agent-feed-state.XXXXXX")"
+    SMOKE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/agent-feed-smoke.XXXXXX")"
+    CLAUDE_ROOT="$SMOKE_ROOT/claude-projects"
+    CODEX_HOME="$SMOKE_ROOT/codex"
+    PROJECT_ONE="$SMOKE_ROOT/projects/one"
+    PROJECT_TWO="$SMOKE_ROOT/projects/two"
+    CLAUDE_SLUG="$CLAUDE_ROOT/discovery-only"
+    ROLLOUT_ROOT="$CODEX_HOME/sessions/2026/07/24"
+    LOG_FILE="$SMOKE_ROOT/sidecar.log"
+    PROJECT_STREAM="$SMOKE_ROOT/projects.sse"
+    SESSION_STREAM="$SMOKE_ROOT/sessions.sse"
+    PROJECTS_JSON="$SMOKE_ROOT/projects.json"
+    SESSIONS_JSON="$SMOKE_ROOT/sessions.json"
+    CLAUDE_ONE=11111111-1111-1111-1111-111111111111
+    CODEX_ONE=22222222-2222-2222-2222-222222222222
+    CLAUDE_TWO=33333333-3333-3333-3333-333333333333
+    CLAUDE_THREE=44444444-4444-4444-4444-444444444444
+    mkdir -p "$CLAUDE_SLUG" "$ROLLOUT_ROOT" "$PROJECT_ONE" "$PROJECT_TWO"
+    PROJECT_ONE="$(realpath "$PROJECT_ONE")"
+    PROJECT_TWO="$(realpath "$PROJECT_TWO")"
+    CLAUDE_FILE="$CLAUDE_SLUG/$CLAUDE_ONE.jsonl"
+    CODEX_FILE="$ROLLOUT_ROOT/rollout-2026-07-24T12-00-00-$CODEX_ONE.jsonl"
+    printf '{"type":"user","sessionId":"%s","cwd":"%s","gitBranch":"main","message":{"role":"user","content":"Claude smoke"}}\n' \
+        "$CLAUDE_ONE" "$PROJECT_ONE" > "$CLAUDE_FILE"
+    printf '{"timestamp":"2026-07-24T12:00:00.000Z","type":"session_meta","payload":{"id":"%s","cwd":"%s"}}\n' \
+        "$CODEX_ONE" "$PROJECT_ONE" > "$CODEX_FILE"
+    sqlite3 "$CODEX_HOME/state_5.sqlite" \
+        'CREATE TABLE threads (id TEXT PRIMARY KEY, cwd TEXT NOT NULL, title TEXT NOT NULL, rollout_path TEXT NOT NULL, archived INTEGER NOT NULL, created_at_ms INTEGER, updated_at_ms INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, git_sha TEXT, git_branch TEXT, git_origin_url TEXT);'
+    sqlite3 "$CODEX_HOME/state_5.sqlite" \
+        "INSERT INTO threads VALUES ('$CODEX_ONE', '$PROJECT_ONE', 'Codex smoke', '$CODEX_FILE', 0, 0, 0, 0, 0, NULL, 'main', NULL);"
     echo "agent-feed-sidecar-smoke: launching $BINARY on port $PORT"
-    AGENT_FEED_PORT=$PORT AGENT_FEED_HOST=127.0.0.1 AGENT_FEED_STATE_DIR="$STATE_DIR" "$BINARY" &
+    AGENT_FEED_PORT=$PORT \
+        AGENT_FEED_HOST=127.0.0.1 \
+        AGENT_FEED_CLAUDE_PROJECTS_DIR="$CLAUDE_ROOT" \
+        AGENT_FEED_CODEX_HOME="$CODEX_HOME" \
+        AGENT_FEED_DISCOVERY_RESCAN_MS=1000 \
+        "$BINARY" > "$LOG_FILE" 2>&1 &
     SPID=$!
-    trap "kill $SPID 2>/dev/null; wait $SPID 2>/dev/null; rm -rf '$STATE_DIR'" EXIT
-    # Poll for up to 10 seconds.
+    PROJECT_STREAM_PID=
+    SESSION_STREAM_PID=
+    cleanup() {
+        if [[ -n "$PROJECT_STREAM_PID" ]]; then kill "$PROJECT_STREAM_PID" 2>/dev/null || true; fi
+        if [[ -n "$SESSION_STREAM_PID" ]]; then kill "$SESSION_STREAM_PID" 2>/dev/null || true; fi
+        kill "$SPID" 2>/dev/null || true
+        wait "$SPID" 2>/dev/null || true
+        rm -rf "$SMOKE_ROOT"
+    }
+    trap cleanup EXIT
     for i in $(seq 1 100); do
-        if curl -sf http://127.0.0.1:$PORT/api/config > /dev/null 2>&1; then break; fi
+        if curl -sf http://127.0.0.1:$PORT/api/config 2>/dev/null | grep -q '"watcherState":"live"'; then break; fi
         sleep 0.1
     done
-    # Print a bounded, robust readout. Avoid piping the large digest through a
-    # pretty-printer whose blocking stdout write can fail (BlockingIOError) and
-    # mask a working integration. curl writes to a file, then we head-truncate.
     CFG=$(curl -sf "http://127.0.0.1:$PORT/api/config")
     echo "agent-feed-sidecar-smoke: /api/config -> ${CFG}"
-    DIGEST_FILE=$(mktemp)
-    trap "kill $SPID 2>/dev/null; wait $SPID 2>/dev/null; rm -f $DIGEST_FILE" EXIT
-    if ! curl -sf "http://127.0.0.1:$PORT/api/projects/digest" -o "$DIGEST_FILE"; then
-        echo "agent-feed-sidecar-smoke: FAIL - /api/projects/digest did not respond" >&2
-        exit 1
-    fi
-    BYTES=$(wc -c < "$DIGEST_FILE" | tr -d ' ')
-    echo "agent-feed-sidecar-smoke: /api/projects/digest -> ${BYTES} bytes, first 800:"
-    head -c 800 "$DIGEST_FILE"
-    echo ""
+    curl -sf "http://127.0.0.1:$PORT/api/projects" -o "$PROJECTS_JSON"
+    PROJECTS_FILE="$PROJECTS_JSON" EXPECTED_PATH="$PROJECT_ONE" bun -e \
+        'const body=await Bun.file(process.env.PROJECTS_FILE).json();if(body.projects.length!==1||body.projects[0].projectPath!==process.env.EXPECTED_PATH||body.projects[0].sourceCounts.claude!==1||body.projects[0].sourceCounts.codex!==1)throw new Error(JSON.stringify(body));'
+    curl -sfG "http://127.0.0.1:$PORT/api/sessions" \
+        --data-urlencode "projectPath=$PROJECT_ONE" -o "$SESSIONS_JSON"
+    SESSIONS_FILE="$SESSIONS_JSON" bun -e \
+        'const body=await Bun.file(process.env.SESSIONS_FILE).json();if(body.sessions.length!==2||!body.sessions.some((s)=>s.source==="claude")||!body.sessions.some((s)=>s.source==="codex"))throw new Error(JSON.stringify(body));'
+    test "$(curl -s -o /dev/null -w '%{http_code}' \
+        "http://127.0.0.1:$PORT/api/projects/digest")" = "404"
+    test "$(curl -sG -o /dev/null -w '%{http_code}' \
+        "http://127.0.0.1:$PORT/api/sessions/claude/$CLAUDE_ONE/events" \
+        --data-urlencode 'offset=invalid')" = "400"
+
+    curl -Ns --max-time 8 "http://127.0.0.1:$PORT/api/projects/stream" > "$PROJECT_STREAM" &
+    PROJECT_STREAM_PID=$!
+    curl -NsG --max-time 8 "http://127.0.0.1:$PORT/api/sessions/stream" \
+        --data-urlencode "projectPath=$PROJECT_ONE" > "$SESSION_STREAM" &
+    SESSION_STREAM_PID=$!
+    sleep 0.2
+    printf '{"type":"user","sessionId":"%s","cwd":"%s","message":{"role":"user","content":"new project"}}\n' \
+        "$CLAUDE_TWO" "$PROJECT_TWO" > "$CLAUDE_SLUG/$CLAUDE_TWO.jsonl"
+    printf '{"type":"user","sessionId":"%s","cwd":"%s","message":{"role":"user","content":"new session"}}\n' \
+        "$CLAUDE_THREE" "$PROJECT_ONE" > "$CLAUDE_SLUG/$CLAUDE_THREE.jsonl"
+    for i in $(seq 1 100); do
+        if grep -q "$PROJECT_TWO" "$PROJECT_STREAM" && grep -q "$CLAUDE_THREE" "$SESSION_STREAM"; then break; fi
+        sleep 0.05
+    done
+    grep -q "$PROJECT_TWO" "$PROJECT_STREAM"
+    grep -q "$CLAUDE_THREE" "$SESSION_STREAM"
+    PROJECT_BYTES=$(wc -c < "$PROJECTS_JSON" | tr -d ' ')
+    SESSION_BYTES=$(wc -c < "$SESSIONS_JSON" | tr -d ' ')
+    echo "agent-feed-sidecar-smoke: /api/projects -> ${PROJECT_BYTES} bytes"
+    echo "agent-feed-sidecar-smoke: /api/sessions -> ${SESSION_BYTES} bytes"
+    grep '"event":"agent-feed-' "$LOG_FILE"
     echo "agent-feed-sidecar-smoke: PASS"
 
 # Keep the legacy recipe name while builds migrate to AgentPanel resources. A

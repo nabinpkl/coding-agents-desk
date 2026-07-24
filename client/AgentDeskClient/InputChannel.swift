@@ -46,7 +46,10 @@ protocol InputChannel: AnyObject, Sendable {
     func sendScreenshotError(_ error: ClientScreenshotError) async throws
 
     // Agent requests encode shared t-tagged types on the authenticated input lane.
-    func sendAgentProjectsSubscribe() async throws
+    func sendAgentProjectsWatch(_ request: AgentProjectsWatch) async throws
+    func sendAgentProjectsUnwatch(_ request: AgentProjectsUnwatch) async throws
+    func sendAgentProjectSessionsWatch(_ request: AgentProjectSessionsWatch) async throws
+    func sendAgentProjectSessionsUnwatch(_ request: AgentProjectSessionsUnwatch) async throws
     func sendAgentThreadSubscribe(_ request: AgentThreadSubscribe) async throws
     func sendAgentThreadLoadOlder(_ request: AgentThreadLoadOlder) async throws
     func sendAgentThreadUnsubscribe(_ request: AgentThreadUnsubscribe) async throws

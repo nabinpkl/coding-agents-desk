@@ -45,16 +45,6 @@ if (readyThresholdMs >= staleThresholdMs) {
 export const config = {
   host: process.env.AGENT_FEED_HOST ?? "127.0.0.1",
   port: integerEnvironment("AGENT_FEED_PORT", 7682, 1, 65_535),
-  stateDirectory: directoryEnvironment(
-    "AGENT_FEED_STATE_DIR",
-    join(
-      userHomeDirectory,
-      "Library",
-      "Application Support",
-      "com.example.agentdesk.AgentDeskHost",
-      "AgentFeed",
-    ),
-  ),
   claudeProjectsDirectory: directoryEnvironment(
     "AGENT_FEED_CLAUDE_PROJECTS_DIR",
     join(userHomeDirectory, ".claude", "projects"),
@@ -62,6 +52,12 @@ export const config = {
   codexHomeDirectory: directoryEnvironment(
     "AGENT_FEED_CODEX_HOME",
     join(userHomeDirectory, ".codex"),
+  ),
+  discoveryRescanMs: integerEnvironment(
+    "AGENT_FEED_DISCOVERY_RESCAN_MS",
+    60_000,
+    1_000,
+    10 * 60_000,
   ),
   staleThresholdMs,
   readyThresholdMs,

@@ -1,13 +1,26 @@
+import chokidar from "chokidar";
 import {
+  acquireIndex,
+  discardIndexIfUnused,
   ensureIndexed,
   getEventCount,
   readEventRaw,
   readEvents,
   RawEventTooLargeError,
+  releaseIndex,
   subscribeEvents,
+  syncIndex,
   type ActivityEvent,
 } from "../transcripts/eventIndex.ts";
-import { getSnapshot } from "../transcripts/transcriptWatcher.ts";
+import {
+  canonicalProjectPath,
+  findSession,
+  getSnapshot,
+  getWatcherState,
+  sessionSummaries,
+  subscribeCatalog,
+} from "../transcripts/transcriptCatalog.ts";
+import type { SourceId } from "../transcripts/sources/transcriptTypes.ts";
 import {
   CORS_HEADERS,
   encodeServerSentEvent,
@@ -16,41 +29,137 @@ import {
 } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 
-const SESSION_ID_PATTERN = /^[a-f0-9-]{36}$/i;
-const RAW_EVENT_PATTERN =
-  /^\/api\/sessions\/([a-f0-9-]{36})\/events\/(\d+)\/raw$/i;
+const EVENT_ROUTE = /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/events$/i;
+const RAW_EVENT_ROUTE =
+  /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/events\/(\d+)\/raw$/i;
+const STREAM_ROUTE = /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/stream$/i;
 
-function findSession(sessionId: string) {
-  return getSnapshot().find((session) => session.sessionId === sessionId);
+function sourceId(value: string): SourceId {
+  return value.toLowerCase() as SourceId;
+}
+
+function integerQuery(
+  url: URL,
+  name: string,
+  defaultValue: number,
+  maximum?: number,
+): number | null {
+  const raw = url.searchParams.get(name);
+  if (raw === null) return defaultValue;
+  if (!/^\d+$/.test(raw)) return null;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) return null;
+  return maximum === undefined ? value : Math.min(value, maximum);
+}
+
+async function selectedProject(url: URL): Promise<
+  { projectPath: string } | { response: Response }
+> {
+  const requested = url.searchParams.get("projectPath");
+  if (!requested) return { response: jsonResponse({ error: "invalid projectPath" }, 400) };
+  const canonical = await canonicalProjectPath(requested);
+  if (!canonical || canonical !== requested) {
+    return { response: jsonResponse({ error: "invalid projectPath" }, 400) };
+  }
+  if (!getSnapshot().some((session) => session.project === canonical)) {
+    return { response: jsonResponse({ error: "project not found" }, 404) };
+  }
+  return { projectPath: canonical };
+}
+
+async function sessionSnapshotResponse(url: URL): Promise<Response> {
+  const selected = await selectedProject(url);
+  if ("response" in selected) return selected.response;
+  return jsonResponse({
+    projectPath: selected.projectPath,
+    sessions: await sessionSummaries(selected.projectPath),
+  });
+}
+
+async function sessionSnapshotStream(
+  request: Request,
+  url: URL,
+  server: Parameters<RouteHandler>[2],
+): Promise<Response> {
+  const selected = await selectedProject(url);
+  if ("response" in selected) return selected.response;
+  const projectPath = selected.projectPath;
+  return startServerSentEventStream(request, server, (write) => {
+    let generation = 0;
+    let fingerprint: string | null = null;
+    const push = (sessions = getSnapshot()): void => {
+      const nextFingerprint = JSON.stringify(
+        sessions
+          .filter((session) => session.project === projectPath)
+          .map((session) => [
+            session.source,
+            session.sessionId,
+            session.lastEventAt,
+            session.title,
+          ]),
+      );
+      if (nextFingerprint === fingerprint) return;
+      fingerprint = nextFingerprint;
+      const current = ++generation;
+      void sessionSummaries(projectPath).then((sessions) => {
+        if (current !== generation) return;
+        write(encodeServerSentEvent({ projectPath, sessions }));
+      }).catch((error) => {
+        write(encodeServerSentEvent({
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      });
+    };
+    push();
+    const unsubscribe = subscribeCatalog(push);
+    return () => {
+      generation += 1;
+      unsubscribe();
+    };
+  });
 }
 
 async function paginatedEvents(
+  source: SourceId,
   sessionId: string,
   offset: number,
   limit: number,
 ): Promise<Response> {
-  if (!SESSION_ID_PATTERN.test(sessionId)) {
-    return jsonResponse({ error: "invalid sessionId" }, 400);
+  const session = findSession(source, sessionId);
+  if (!session) return jsonResponse({ error: "session not found" }, 404);
+  acquireIndex(source, sessionId);
+  try {
+    const events = await readEvents(
+      source,
+      sessionId,
+      session.transcriptPath,
+      offset,
+      limit,
+    );
+    return jsonResponse({
+      events,
+      total: getEventCount(source, sessionId),
+    });
+  } finally {
+    releaseIndex(source, sessionId);
   }
-  const session = findSession(sessionId);
-  if (session === undefined) return jsonResponse({ error: "session not found" }, 404);
-  const events = await readEvents(
-    session.sessionId,
-    session.transcriptPath,
-    offset,
-    limit,
-  );
-  return jsonResponse({
-    events,
-    total: getEventCount(session.sessionId),
-  });
 }
 
-async function rawEvent(sessionId: string, eventIndex: number): Promise<Response> {
-  const session = findSession(sessionId);
-  if (session === undefined) return jsonResponse({ error: "session not found" }, 404);
+async function rawEvent(
+  source: SourceId,
+  sessionId: string,
+  eventIndex: number,
+): Promise<Response> {
+  const session = findSession(source, sessionId);
+  if (!session) return jsonResponse({ error: "session not found" }, 404);
+  acquireIndex(source, sessionId);
   try {
-    const raw = await readEventRaw(sessionId, eventIndex);
+    const raw = await readEventRaw(
+      source,
+      sessionId,
+      session.transcriptPath,
+      eventIndex,
+    );
     if (raw === null) return jsonResponse({ error: "event not found" }, 404);
     return new Response(raw, {
       headers: {
@@ -60,96 +169,132 @@ async function rawEvent(sessionId: string, eventIndex: number): Promise<Response
     });
   } catch (error) {
     if (error instanceof RawEventTooLargeError) {
-      return jsonResponse(
-        { error: error.message, byteCount: error.byteCount },
-        413,
-      );
+      return jsonResponse({ error: error.message, byteCount: error.byteCount }, 413);
     }
     throw error;
+  } finally {
+    releaseIndex(source, sessionId);
   }
 }
 
-export const handleSessionRoutes: RouteHandler = (request, url, server) => {
-  const path = url.pathname;
-  if (
-    request.method === "GET" &&
-    path.startsWith("/api/sessions/") &&
-    path.endsWith("/events")
-  ) {
-    const sessionId = path.slice(
-      "/api/sessions/".length,
-      -"/events".length,
-    );
-    const offset = Math.max(
-      0,
-      Number(url.searchParams.get("offset") ?? 0) | 0,
-    );
-    const limit = Math.max(
-      1,
-      Math.min(500, Number(url.searchParams.get("limit") ?? 100) | 0),
-    );
-    return paginatedEvents(sessionId, offset, limit);
-  }
-
-  const rawEventMatch = RAW_EVENT_PATTERN.exec(path);
-  if (request.method === "GET" && rawEventMatch !== null) {
-    return rawEvent(rawEventMatch[1]!, Number(rawEventMatch[2]!));
-  }
-
-  if (
-    request.method === "GET" &&
-    path.startsWith("/api/sessions/") &&
-    path.endsWith("/stream")
-  ) {
-    const sessionId = path.slice(
-      "/api/sessions/".length,
-      -"/stream".length,
-    );
-    if (!SESSION_ID_PATTERN.test(sessionId)) {
-      return jsonResponse({ error: "invalid sessionId" }, 400);
-    }
-    const session = findSession(sessionId);
-    if (session === undefined) return jsonResponse({ error: "session not found" }, 404);
-    const after = Math.max(
-      0,
-      Number(url.searchParams.get("after") ?? 0) | 0,
-    );
-    return startServerSentEventStream(request, server, (write) => {
-      let cancelled = false;
-      let unsubscribe: (() => void) | null = null;
-      void (async () => {
-        await ensureIndexed(session.sessionId, session.transcriptPath);
-        if (cancelled) return;
-        const total = getEventCount(session.sessionId);
-        if (after < total) {
-          const backfill = await readEvents(
-            session.sessionId,
-            session.transcriptPath,
-            after,
-            total - after,
-          );
-          for (const event of backfill) {
-            write(encodeServerSentEvent(event));
-          }
-        }
-        if (!cancelled) {
-          unsubscribe = subscribeEvents(
-            session.sessionId,
-            (event: ActivityEvent) => write(encodeServerSentEvent(event)),
-          );
-        }
-      })().catch((error: unknown) => {
-        console.error("agent feed stream failed", error);
+function eventStream(
+  request: Request,
+  server: Parameters<RouteHandler>[2],
+  source: SourceId,
+  sessionId: string,
+  after: number,
+): Response {
+  const session = findSession(source, sessionId);
+  if (!session) return jsonResponse({ error: "session not found" }, 404);
+  return startServerSentEventStream(request, server, (write) => {
+    let cancelled = false;
+    let unsubscribeEvents: (() => void) | null = null;
+    acquireIndex(source, sessionId);
+    const watcher = chokidar.watch(session.transcriptPath, {
+      ignoreInitial: true,
+      persistent: true,
+      awaitWriteFinish: false,
+    });
+    const sync = (): void => {
+      void syncIndex(source, sessionId, session.transcriptPath).catch((error) => {
         write(encodeServerSentEvent({
           error: error instanceof Error ? error.message : String(error),
         }));
       });
-      return () => {
-        cancelled = true;
-        unsubscribe?.();
-      };
+    };
+    watcher.on("add", sync);
+    watcher.on("change", sync);
+    watcher.on("error", (error) => {
+      write(encodeServerSentEvent({ error: String(error) }));
     });
+    void (async () => {
+      await ensureIndexed(source, sessionId, session.transcriptPath);
+      if (cancelled) {
+        discardIndexIfUnused(source, sessionId);
+        return;
+      }
+      const total = getEventCount(source, sessionId);
+      if (after < total) {
+        const backfill = await readEvents(
+          source,
+          sessionId,
+          session.transcriptPath,
+          after,
+          total - after,
+        );
+        if (cancelled) {
+          discardIndexIfUnused(source, sessionId);
+          return;
+        }
+        for (const event of backfill) write(encodeServerSentEvent(event));
+      }
+      unsubscribeEvents = subscribeEvents(
+        source,
+        sessionId,
+        (event: ActivityEvent) => write(encodeServerSentEvent(event)),
+      );
+      await syncIndex(source, sessionId, session.transcriptPath);
+      if (cancelled) discardIndexIfUnused(source, sessionId);
+    })().catch((error) => {
+      if (cancelled) {
+        discardIndexIfUnused(source, sessionId);
+        return;
+      }
+      write(encodeServerSentEvent({
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    });
+    return () => {
+      cancelled = true;
+      unsubscribeEvents?.();
+      void watcher.close();
+      releaseIndex(source, sessionId);
+    };
+  });
+}
+
+export const handleSessionRoutes: RouteHandler = (request, url, server) => {
+  if (request.method !== "GET") return undefined;
+  if (getWatcherState() !== "live") {
+    return jsonResponse({ error: "inventory-not-ready" }, 503);
+  }
+  if (url.pathname === "/api/sessions") return sessionSnapshotResponse(url);
+  if (url.pathname === "/api/sessions/stream") {
+    return sessionSnapshotStream(request, url, server);
   }
 
+  const eventMatch = EVENT_ROUTE.exec(url.pathname);
+  if (eventMatch) {
+    const offset = integerQuery(url, "offset", 0);
+    const limit = integerQuery(url, "limit", 100, 500);
+    if (offset === null || limit === null || limit < 1) {
+      return jsonResponse({ error: "invalid pagination" }, 400);
+    }
+    return paginatedEvents(sourceId(eventMatch[1]!), eventMatch[2]!, offset, limit);
+  }
+
+  const rawMatch = RAW_EVENT_ROUTE.exec(url.pathname);
+  if (rawMatch) {
+    return rawEvent(sourceId(rawMatch[1]!), rawMatch[2]!, Number(rawMatch[3]!));
+  }
+
+  const streamMatch = STREAM_ROUTE.exec(url.pathname);
+  if (streamMatch) {
+    const after = integerQuery(url, "after", 0);
+    if (after === null) {
+      return jsonResponse({ error: "invalid after" }, 400);
+    }
+    return eventStream(
+      request,
+      server,
+      sourceId(streamMatch[1]!),
+      streamMatch[2]!,
+      after,
+    );
+  }
+
+  if (url.pathname.startsWith("/api/sessions/")) {
+    return jsonResponse({ error: "invalid source or sessionId" }, 400);
+  }
   return undefined;
 };

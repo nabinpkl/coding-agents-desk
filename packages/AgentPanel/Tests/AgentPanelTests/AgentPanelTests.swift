@@ -3,16 +3,16 @@ import Testing
 @testable import AgentPanel
 
 struct AgentPanelTests {
-    @Test func packageFixtureResolvesForCleanBuilds() throws {
+    @Test func packageResourcesResolveThePreferredAvailablePanel() throws {
         let locator = AgentPanelResourceLocator()
 
         let root = try #require(locator.rootDirectory())
         let index = try #require(locator.indexURL())
         let requestURL = try #require(locator.requestURL())
 
-        #expect(root.lastPathComponent == "AgentPanelFixture")
+        #expect(["AgentPanelWebview", "AgentPanelFixture"].contains(root.lastPathComponent))
         #expect(index.lastPathComponent == "index.html")
-        #expect(String(decoding: try Data(contentsOf: index), as: UTF8.self).contains("AgentPanel fixture"))
+        #expect(!(try Data(contentsOf: index)).isEmpty)
         #expect(requestURL.absoluteString == "agentfeed://app/index.html")
     }
 
@@ -21,37 +21,63 @@ struct AgentPanelTests {
         let locator = AgentPanelResourceLocator(contract: contract)
 
         #expect(locator.requestURL()?.absoluteString == "agentpanel://local/index.html")
-        #expect(try #require(locator.rootDirectory(indexPath: contract.indexPath)).lastPathComponent == "AgentPanelFixture")
+        #expect(locator.rootDirectory(indexPath: contract.indexPath) == locator.rootDirectory())
     }
 
     @Test func requestDecoderPreservesCurrentAgentFeedContract() {
         #expect(
-            AgentPanelRequest.decode(tag: "agent-projects-sub", body: [:]) == .projectsSubscribe
+            AgentPanelRequest.decode(
+                tag: "agent-projects-watch",
+                body: ["sub": "projects-1"]
+            ) == .projectsWatch(subscriptionId: "projects-1")
+        )
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-project-sessions-watch",
+                body: ["sub": "sessions-1", "pp": "/project"]
+            ) == .projectSessionsWatch(
+                subscriptionId: "sessions-1",
+                projectPath: "/project"
+            )
         )
         #expect(
             AgentPanelRequest.decode(
                 tag: "agent-thread-sub",
                 body: ["sid": "session-1", "src": "codex"]
-            ) == .threadSubscribe(projectPath: nil, source: "codex", sessionId: "session-1")
+            ) == .threadSubscribe(source: "codex", sessionId: "session-1")
         )
         #expect(
             AgentPanelRequest.decode(
                 tag: "agent-thread-older",
-                body: ["sid": "session-1", "bi": 100, "lim": 25]
-            ) == .threadLoadOlder(sessionId: "session-1", beforeIndex: 100, limit: 25)
+                body: ["src": "claude", "sid": "session-1", "bi": 100, "lim": 25]
+            ) == .threadLoadOlder(
+                source: "claude",
+                sessionId: "session-1",
+                beforeIndex: 100,
+                limit: 25
+            )
         )
         #expect(AgentPanelRequest.decode(tag: "agent-thread-sub", body: [:]) == nil)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-thread-sub",
+            body: ["sid": "session-1"]
+        ) == nil)
         #expect(AgentPanelRequest.decode(tag: "future-message", body: [:]) == nil)
     }
 
     @Test func requestDecoderPreservesRawEventIdentity() {
         #expect(AgentPanelRequest.decode(
             tag: "agent-raw-event-get",
-            body: ["rid": "r1", "sid": "s1", "ei": 9]
-        ) == .rawEvent(requestId: "r1", sessionId: "s1", eventIndex: 9))
+            body: ["rid": "r1", "src": "codex", "sid": "s1", "ei": 9]
+        ) == .rawEvent(
+            requestId: "r1",
+            source: "codex",
+            sessionId: "s1",
+            eventIndex: 9
+        ))
         #expect(AgentPanelRequest.decode(
             tag: "agent-raw-event-get",
-            body: ["rid": "", "sid": "s1", "ei": 9]
+            body: ["rid": "", "src": "codex", "sid": "s1", "ei": 9]
         ) == nil)
     }
 

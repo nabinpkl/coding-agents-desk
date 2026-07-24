@@ -19,6 +19,7 @@ import {
   type DisplayRole,
 } from "./activityDisplayItems";
 import { LabeledTextBlock, RawJsonBlock } from "./ActivitySystemBlocks";
+import type { AgentSource } from "./data-source/AgentDataSource";
 
 interface PairedToolResult {
   block: ActivityBlock;
@@ -27,8 +28,15 @@ interface PairedToolResult {
   includesRawEvent: boolean;
 }
 
-export function ActivityFeed({ sessionId }: { sessionId: string }) {
-  const { events, loadOlder, windowStart, loading, error } = useSessionEventsStream(sessionId);
+export function ActivityFeed({
+  source,
+  sessionId,
+}: {
+  source: AgentSource;
+  sessionId: string;
+}) {
+  const { events, loadOlder, windowStart, loading, error } =
+    useSessionEventsStream(source, sessionId);
   const parentRef = useRef<HTMLDivElement>(null);
   const sizedRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLButtonElement>(null);
@@ -365,6 +373,7 @@ export function ActivityFeed({ sessionId }: { sessionId: string }) {
                   {it.kind === "user" ? (
                     <UserRow
                       ev={it.ev}
+                      source={source}
                       sessionId={sessionId}
                       isCollapsed={collapsed.has(it.ev.index)}
                       onToggle={() => toggleEvent(it.ev.index)}
@@ -374,10 +383,15 @@ export function ActivityFeed({ sessionId }: { sessionId: string }) {
                       pairedToolResults={pairedToolResults}
                     />
                   ) : it.kind === "compaction" ? (
-                    <CompactionRow ev={it.ev} sessionId={sessionId} />
+                    <CompactionRow
+                      ev={it.ev}
+                      source={source}
+                      sessionId={sessionId}
+                    />
                   ) : (
                     <SegmentEventRow
                       ev={it.ev}
+                      source={source}
                       sessionId={sessionId}
                       isFirst={it.isFirst}
                       isLast={it.isLast}
@@ -551,10 +565,11 @@ function StickyEventHeader({
 }
 
 function UserRow({
-  ev, sessionId, isCollapsed, onToggle, isHighlighted, expandedTools, onToggleTool,
+  ev, source, sessionId, isCollapsed, onToggle, isHighlighted, expandedTools, onToggleTool,
   pairedToolResults,
 }: {
   ev: ActivityEvent;
+  source: AgentSource;
   sessionId: string;
   isCollapsed: boolean;
   onToggle: () => void;
@@ -604,7 +619,7 @@ function UserRow({
         {!isCollapsed ? (
           <div className="space-y-[0.55em] pl-[1.65em] pt-[0.3em]">
             {ev.blocks.map((b, i) => (
-            <Block key={i} b={b} sessionId={sessionId} eventIndex={ev.index} blockIndex={i} eventType={ev.type} expandedTools={expandedTools} onToggleTool={onToggleTool} pairedToolResults={pairedToolResults} />
+            <Block key={i} b={b} source={source} sessionId={sessionId} eventIndex={ev.index} blockIndex={i} eventType={ev.type} expandedTools={expandedTools} onToggleTool={onToggleTool} pairedToolResults={pairedToolResults} />
           ))}
           </div>
         ) : null}
@@ -614,10 +629,11 @@ function UserRow({
 }
 
 function SegmentEventRow({
-  ev, sessionId, isFirst, isLast, isCollapsed, onToggle, isHighlighted, expandedTools, onToggleTool,
+  ev, source, sessionId, isFirst, isLast, isCollapsed, onToggle, isHighlighted, expandedTools, onToggleTool,
   pairedToolResults,
 }: {
   ev: ActivityEvent;
+  source: AgentSource;
   sessionId: string;
   isFirst: boolean;
   isLast: boolean;
@@ -671,7 +687,7 @@ function SegmentEventRow({
         {!isCollapsed ? (
           <div className="space-y-[0.55em] pl-[1.65em] pt-[0.3em]">
             {ev.blocks.map((b, i) => (
-            <Block key={i} b={b} sessionId={sessionId} eventIndex={ev.index} blockIndex={i} eventType={ev.type} expandedTools={expandedTools} onToggleTool={onToggleTool} pairedToolResults={pairedToolResults} />
+            <Block key={i} b={b} source={source} sessionId={sessionId} eventIndex={ev.index} blockIndex={i} eventType={ev.type} expandedTools={expandedTools} onToggleTool={onToggleTool} pairedToolResults={pairedToolResults} />
           ))}
           </div>
         ) : null}
@@ -726,9 +742,11 @@ function ToolResultBlock({
 
 function ToolResultContent({
   result,
+  source,
   sessionId,
 }: {
   result: PairedToolResult;
+  source: AgentSource;
   sessionId: string;
 }) {
   const content = result.block.preview ? (
@@ -745,17 +763,22 @@ function ToolResultContent({
     <div className="space-y-1.5">
       {content}
       {result.includesRawEvent ? (
-        <RawJsonBlock sessionId={sessionId} eventIndex={result.eventIndex} />
+        <RawJsonBlock
+          source={source}
+          sessionId={sessionId}
+          eventIndex={result.eventIndex}
+        />
       ) : null}
     </div>
   );
 }
 
 function Block({
-  b, sessionId, eventIndex, blockIndex, eventType, expandedTools, onToggleTool,
+  b, source, sessionId, eventIndex, blockIndex, eventType, expandedTools, onToggleTool,
   pairedToolResults,
 }: {
   b: ActivityBlock;
+  source: AgentSource;
   sessionId: string;
   eventIndex: number;
   blockIndex: number;
@@ -853,7 +876,11 @@ function Block({
               <Markdown content={b.input!.content as string} />
             ) : null}
             {pairedResult ? (
-              <ToolResultContent result={pairedResult} sessionId={sessionId} />
+              <ToolResultContent
+                result={pairedResult}
+                source={source}
+                sessionId={sessionId}
+              />
             ) : null}
           </>
         ) : null}
@@ -869,6 +896,7 @@ function Block({
           blockIndex,
           includesRawEvent: false,
         }}
+        source={source}
         sessionId={sessionId}
       />
     );
@@ -888,7 +916,13 @@ function Block({
     return <LabeledTextBlock block={b} />;
   }
   if (b.kind === "raw") {
-    return <RawJsonBlock sessionId={sessionId} eventIndex={eventIndex} />;
+    return (
+      <RawJsonBlock
+        source={source}
+        sessionId={sessionId}
+        eventIndex={eventIndex}
+      />
+    );
   }
   // Compaction blocks render as a full-row banner via CompactionRow, not
   // inline. Returning null here keeps any stray inline render path silent.
@@ -899,7 +933,15 @@ function Block({
 // model's context. Sits between turn clusters so the viewer can see the
 // reset point; the actual context-size drop is already visible in the
 // header token meter.
-function CompactionRow({ ev, sessionId }: { ev: ActivityEvent; sessionId: string }) {
+function CompactionRow({
+  ev,
+  source,
+  sessionId,
+}: {
+  ev: ActivityEvent;
+  source: AgentSource;
+  sessionId: string;
+}) {
   const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : "";
   return (
     <div
@@ -918,7 +960,11 @@ function CompactionRow({ ev, sessionId }: { ev: ActivityEvent; sessionId: string
         <span className="h-px flex-1 bg-border" aria-hidden />
       </div>
       <div className="mt-2">
-        <RawJsonBlock sessionId={sessionId} eventIndex={ev.index} />
+        <RawJsonBlock
+          source={source}
+          sessionId={sessionId}
+          eventIndex={ev.index}
+        />
       </div>
     </div>
   );

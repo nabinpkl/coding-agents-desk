@@ -324,7 +324,10 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
 /// package's `AgentPanelRequest`, whose webview-message decoding is authoritative and tested in the
 /// package (`requestDecoderPreservesCurrentAgentFeedContract`).
 enum AgentFeedRequest: Equatable {
-    case projectsSubscribe
+    case projectsWatch(AgentProjectsWatch)
+    case projectsUnwatch(AgentProjectsUnwatch)
+    case projectSessionsWatch(AgentProjectSessionsWatch)
+    case projectSessionsUnwatch(AgentProjectSessionsUnwatch)
     case threadSubscribe(AgentThreadSubscribe)
     case threadLoadOlder(AgentThreadLoadOlder)
     case threadUnsubscribe(AgentThreadUnsubscribe)
@@ -332,17 +335,32 @@ enum AgentFeedRequest: Equatable {
 
     init(_ request: AgentPanelRequest) {
         switch request {
-        case .projectsSubscribe:
-            self = .projectsSubscribe
-        case .threadSubscribe(let projectPath, let source, let sessionId):
-            self = .threadSubscribe(AgentThreadSubscribe(projectPath: projectPath, source: source, sessionId: sessionId))
-        case .threadLoadOlder(let sessionId, let beforeIndex, let limit):
-            self = .threadLoadOlder(AgentThreadLoadOlder(sessionId: sessionId, beforeIndex: beforeIndex, limit: limit))
-        case .threadUnsubscribe(let sessionId):
-            self = .threadUnsubscribe(AgentThreadUnsubscribe(sessionId: sessionId))
-        case .rawEvent(let requestId, let sessionId, let eventIndex):
+        case .projectsWatch(let subscriptionId):
+            self = .projectsWatch(AgentProjectsWatch(subscriptionId: subscriptionId))
+        case .projectsUnwatch(let subscriptionId):
+            self = .projectsUnwatch(AgentProjectsUnwatch(subscriptionId: subscriptionId))
+        case .projectSessionsWatch(let subscriptionId, let projectPath):
+            self = .projectSessionsWatch(AgentProjectSessionsWatch(
+                subscriptionId: subscriptionId,
+                projectPath: projectPath
+            ))
+        case .projectSessionsUnwatch(let subscriptionId):
+            self = .projectSessionsUnwatch(AgentProjectSessionsUnwatch(subscriptionId: subscriptionId))
+        case .threadSubscribe(let source, let sessionId):
+            self = .threadSubscribe(AgentThreadSubscribe(source: source, sessionId: sessionId))
+        case .threadLoadOlder(let source, let sessionId, let beforeIndex, let limit):
+            self = .threadLoadOlder(AgentThreadLoadOlder(
+                source: source,
+                sessionId: sessionId,
+                beforeIndex: beforeIndex,
+                limit: limit
+            ))
+        case .threadUnsubscribe(let source, let sessionId):
+            self = .threadUnsubscribe(AgentThreadUnsubscribe(source: source, sessionId: sessionId))
+        case .rawEvent(let requestId, let source, let sessionId, let eventIndex):
             self = .rawEvent(AgentRawEventRequest(
                 requestId: requestId,
+                source: source,
                 sessionId: sessionId,
                 eventIndex: eventIndex
             ))

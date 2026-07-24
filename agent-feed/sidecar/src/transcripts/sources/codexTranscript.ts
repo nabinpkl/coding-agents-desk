@@ -8,28 +8,13 @@
 // alongside state updates. Turn boundaries come from event_msg/task_started
 // (opens), /task_complete and /turn_aborted (close).
 //
-// Discovery uses chokidar on SESSIONS_ROOT with depth: 3 (year/month/day/file).
-// Node's built-in fs.watch on macOS is unreliable for directory watches: it
-// can silently stop firing under FSEvents flakiness or never deliver a
-// follow-up event when a watcher attached to a parent dir is supposed to
-// surface a child file. chokidar wraps the platform watcher with error
-// recovery and consistent add semantics across macOS/Linux. As a second
-// belt, watcher.ts calls `rescan` periodically to catch anything chokidar
-// also dropped.
-
-import { Database } from 'bun:sqlite';
-import { open, readdir } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
-import { existsSync, readdirSync } from 'node:fs';
-import chokidar, { type FSWatcher } from 'chokidar';
+import { basename, join } from 'node:path';
+import { readdirSync } from 'node:fs';
 import { config } from '../../config.ts';
 import type {
   ActivityBlock,
-  DiscoveryHandle,
-  Header,
   LineResult,
   ParsedLine,
-  Session,
   SourceAdapter,
 } from './transcriptTypes.ts';
 import {
@@ -42,12 +27,6 @@ import {
 } from './plainActivity.ts';
 
 const CODEX_HOME = config.codexHomeDirectory;
-const SESSIONS_ROOT = join(CODEX_HOME, 'sessions');
-
-// Codex Desktop creates scratch workspaces under ~/Documents/Codex/<date>/...
-// for its intro/preview flows. Filter so the rail stays project-focused.
-const SCRATCH_CWD_RE = /\/Documents\/Codex\//;
-const ROLLOUT_NAME_RE = /^rollout-[\d-]+T[\d-]+-([0-9a-f-]{36})\.jsonl$/;
 
 // Picks the highest-version state_<N>.sqlite. Codex migrates this DB and
 // bumps the suffix; globbing keeps the adapter working across version bumps
@@ -64,8 +43,6 @@ function resolveStateDbPath(): string | null {
   }
   return best?.path ?? null;
 }
-
-const STATE_DB_PATH = resolveStateDbPath();
 
 function tsMs(line: { timestamp?: string } | undefined): number {
   const t = line?.timestamp;
@@ -429,221 +406,11 @@ async function extractBlockRaw(line: string, blockIndex: number): Promise<string
   return normalizedLine(line)?.rawBlocks[blockIndex]?.raw ?? null;
 }
 
-interface SessionMetaPayload {
-  cwd?: string;
-}
-
-async function readHeader(filePath: string): Promise<Header | null> {
-  let fh: Awaited<ReturnType<typeof open>>;
-  try { fh = await open(filePath, 'r'); } catch { return null; }
-  try {
-    const buf = Buffer.alloc(64 * 1024);
-    const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
-    const first = buf.toString('utf-8', 0, bytesRead).split('\n')[0];
-    if (!first) return null;
-    let ev: { type?: string; payload?: SessionMetaPayload };
-    try { ev = JSON.parse(first); } catch { return null; }
-    if (ev.type !== 'session_meta') return null;
-    const cwd = ev.payload?.cwd;
-    if (typeof cwd !== 'string' || !cwd) return null;
-    if (SCRATCH_CWD_RE.test(cwd)) return null;
-    const gitBranch = await readGitBranch(cwd);
-    return gitBranch ? { cwd, gitBranch } : { cwd };
-  } finally {
-    await fh.close();
-  }
-}
-
-// Codex's session_meta does not carry a branch the way Claude's transcript
-// header does. Read it live with git so the rail tile shape matches across
-// adapters. Captured at header-read time (once per session), mirroring how
-// Claude's gitBranch is fixed at session start. Returns undefined when cwd
-// isn't a git repo or git is unavailable. Exported because the cache-load
-// backfill in watcher.ts uses the same shape to fill cached sessions that
-// were registered before this adapter started capturing the branch.
-export async function readGitBranch(cwd: string): Promise<string | undefined> {
-  try {
-    const proc = Bun.spawn(['git', '-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD'], {
-      stdout: 'pipe',
-      stderr: 'ignore',
-    });
-    const exit = await proc.exited;
-    if (exit !== 0) return undefined;
-    const out = (await new Response(proc.stdout).text()).trim();
-    return out && out !== 'HEAD' ? out : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function filePathToSessionId(p: string): string | null {
-  if (!p.startsWith(SESSIONS_ROOT)) return null;
-  const m = ROLLOUT_NAME_RE.exec(basename(p));
-  return m?.[1] ?? null;
-}
-
-// One-shot SQLite lookup for the human/auto title Codex assigns to a thread.
-// Returns null if the DB is missing, the row is absent, or the query throws
-// (schema drift). Watcher calls this on idle transitions so the notification
-// reflects any mid-run renames Codex performed.
-async function refreshTitle(sessionId: string): Promise<string | null> {
-  if (!STATE_DB_PATH || !existsSync(STATE_DB_PATH)) return null;
-  let db: Database;
-  try { db = new Database(STATE_DB_PATH, { readonly: true }); } catch { return null; }
-  try {
-    const row = db.prepare(
-      'SELECT title FROM threads WHERE id = ? LIMIT 1',
-    ).get(sessionId) as { title?: string } | undefined;
-    const t = row?.title;
-    return typeof t === 'string' && t.trim() ? t.trim() : null;
-  } catch {
-    return null;
-  } finally {
-    try { db.close(); } catch { /* ignore */ }
-  }
-}
-
-// SQLite discovery: returns active, non-scratch rollout paths newest-first.
-async function* listSessionFilesViaSqlite(): AsyncGenerator<string> {
-  if (!STATE_DB_PATH || !existsSync(STATE_DB_PATH)) return;
-  let db: Database;
-  try { db = new Database(STATE_DB_PATH, { readonly: true }); } catch { return; }
-  try {
-    const rows = db.prepare(`
-      SELECT rollout_path
-      FROM threads
-      WHERE archived = 0
-        AND cwd NOT LIKE '%/Documents/Codex/%'
-      ORDER BY updated_at DESC
-    `).all() as Array<{ rollout_path?: string }>;
-    for (const r of rows) {
-      const p = r.rollout_path;
-      if (typeof p === 'string' && p.endsWith('.jsonl')) yield p;
-    }
-  } catch {
-    // schema changed or query failed; caller falls back to fs walk
-  } finally {
-    try { db.close(); } catch { /* ignore */ }
-  }
-}
-
-// Enumerate every rollout file currently visible via SQLite + FS walk, calling
-// `emit` for each (with cross-source deduplication). Shared by `initialScan`
-// (drains every file on boot) and `rescan` (periodic re-enumeration as a
-// safety belt against missed chokidar `add` events).
-async function enumerateRolloutFiles(emit: (filePath: string) => void): Promise<void> {
-  const seen = new Set<string>();
-  const safeEmit = (filePath: string): void => {
-    if (seen.has(filePath)) return;
-    seen.add(filePath);
-    emit(filePath);
-  };
-
-  // Primary path: SQLite gives us active rollouts directly.
-  for await (const filePath of listSessionFilesViaSqlite()) {
-    safeEmit(filePath);
-  }
-
-  // FS walk: covers anything SQLite missed (legacy threads, rows the
-  // adapter's WHERE clause excludes, schema-drift errors that aborted the
-  // SQLite read).
-  let years: string[] = [];
-  try { years = await readdir(SESSIONS_ROOT); } catch { return; }
-  for (const y of years.sort()) {
-    const yPath = join(SESSIONS_ROOT, y);
-    let months: string[] = [];
-    try { months = await readdir(yPath); } catch { continue; }
-    for (const m of months.sort()) {
-      const mPath = join(yPath, m);
-      let days: string[] = [];
-      try { days = await readdir(mPath); } catch { continue; }
-      for (const d of days.sort()) {
-        const dPath = join(mPath, d);
-        let files: string[] = [];
-        try { files = await readdir(dPath); } catch { continue; }
-        for (const f of files) {
-          if (!ROLLOUT_NAME_RE.test(f)) continue;
-          safeEmit(join(dPath, f));
-        }
-      }
-    }
-  }
-}
-
-function startDiscovery(onSessionFile: (path: string) => Promise<void> | void): DiscoveryHandle {
-  // Single chokidar watcher on SESSIONS_ROOT covers year/month/day directories
-  // and rollout files in one subscription. `ignoreInitial` lets initialScan
-  // own the boot-time enumeration (so the sidecar can await every per-file
-  // drain before going live); chokidar then fires for net-new files only.
-  // depth: 3 = sessions/YYYY/MM/DD/file. usePolling stays off — chokidar's
-  // FSEvents backend is the reason we switched away from fs.watch.
-  const watcher: FSWatcher = chokidar.watch(SESSIONS_ROOT, {
-    ignoreInitial: true,
-    depth: 3,
-    persistent: true,
-    awaitWriteFinish: false,
-  });
-
-  watcher.on('add', (p: string) => {
-    if (!ROLLOUT_NAME_RE.test(basename(p))) return;
-    void onSessionFile(p);
-  });
-
-  // chokidar reports backend errors here instead of throwing into the
-  // callback. Logging is best-effort; the periodic `rescan` belt covers any
-  // files we miss while the watcher is degraded.
-  watcher.on('error', (err) => {
-    console.error('codex chokidar error:', err);
-  });
-
-  const initialScan = async (): Promise<void> => {
-    const promises: Array<Promise<void>> = [];
-    await enumerateRolloutFiles((filePath) => {
-      promises.push(Promise.resolve(onSessionFile(filePath)).then(() => undefined));
-    });
-    await Promise.all(promises);
-  };
-
-  // Periodic re-enumeration. Fire-and-forget per file: rescan returns once
-  // it has dispatched every callback, but does not wait on them (safetyScan
-  // runs on its own cadence and already drains anything that needs draining).
-  const rescan = async (): Promise<void> => {
-    await enumerateRolloutFiles((filePath) => {
-      void onSessionFile(filePath);
-    });
-  };
-
-  const teardown = (): void => {
-    void watcher.close();
-  };
-
-  return { initialScan, rescan, teardown };
-}
-
-// Codex's approval/review harness spawns sub-sessions whose first user turn
-// is a fixed prompt that audits another session's transcript. The harness
-// title-extracts from that first user turn, so the session's `title` starts
-// with this literal prefix. Match on it to flag the session as auxiliary;
-// digests skip it when picking a project's primary by default.
-const AUXILIARY_TITLE_PREFIX = 'The following is the Codex agent history';
-
-function isAuxiliarySession(session: Session): boolean {
-  const title = session.title;
-  if (typeof title !== 'string' || title.length === 0) return false;
-  return title.startsWith(AUXILIARY_TITLE_PREFIX);
-}
-
 export const codexAdapter: SourceAdapter = {
   id: 'codex',
-  startDiscovery,
-  filePathToSessionId,
-  readHeader,
   processLine,
   snippetFor,
-  refreshTitle,
-  isAuxiliarySession,
   extractBlockRaw,
 };
 
-// Exposed for ad-hoc inspection / debugging only.
-export { listSessionFilesViaSqlite, resolveStateDbPath };
+export { resolveStateDbPath };
