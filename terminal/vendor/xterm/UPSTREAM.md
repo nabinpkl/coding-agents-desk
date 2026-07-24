@@ -14,7 +14,9 @@ This fork prevents every renderer from forwarding parser-generated device,
 focus, color, and cursor replies to the PTY. The Rust headless terminal remains
 the only authority that answers those queries.
 
-Audit the three source changes and the generated module patch in
-`scripts/patch-built-module.mjs` whenever the upstream revision changes.
+Audit the three source changes and the generated-module rules in
+`scripts/built-module-patch.mjs` whenever the upstream revision changes. After
+updating the vendored build, run `scripts/update-built-module.mjs` explicitly.
+Normal builds run `scripts/check-built-module.mjs` and never modify vendor files.
 The vendored tree also removes one trailing blank line from
 `src/browser/TimeBasedDebouncer.ts` to satisfy the repository whitespace gate.

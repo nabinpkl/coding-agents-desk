@@ -63,8 +63,9 @@ can reach a PTY or platform service.
 
 ### Confirmation
 
-`just terminal-web-build` runs JavaScript and fork tests, rebuilds deterministic resources, and checks
-the generated bundle. Swift package tests cover workspace state, bridge validation, queue bounds, and
+`just terminal-web-check` runs JavaScript and fork tests, validates the audited xterm build, publishes
+only changed deterministic resources, and checks the generated bundle. Swift package tests cover
+workspace state, bridge validation, queue bounds, and
 resynchronization. Host and client compile against `PtyTerminalWebView`; a repository scan finds no
 SwiftTerm imports or linked products. `just terminal-replay-e2e` is the visible Mac acceptance path;
 the iOS visible pass remains behind the repository launch checkpoint.

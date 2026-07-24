@@ -25,3 +25,19 @@ if (!stylesheet.includes('container:terminal-workspace') || !stylesheet.includes
 if (!index.includes("default-src 'none'") || !index.includes('agentdesk-terminal://bundle/app.js')) {
   throw new Error('terminal resource shell is missing its CSP or private runtime URL');
 }
+
+for (const file of ['app.js.map', 'app.css.map']) {
+  const sourceMap = JSON.parse(await readFile(resolve(root, file), 'utf8'));
+  const allowedPrefixes = [
+    '../../../../Web/',
+    '../../../../../vendor/xterm/package/',
+  ];
+  if (
+    sourceMap.sources.length === 0
+    || sourceMap.sources.some(
+      source => !allowedPrefixes.some(prefix => source.startsWith(prefix)),
+    )
+  ) {
+    throw new Error(`${file}: source paths must be checkout-independent`);
+  }
+}

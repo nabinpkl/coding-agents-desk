@@ -1,8 +1,3 @@
-import { readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
-
-const targets = ['lib/xterm.mjs', 'lib/xterm.js'];
-
 const replacements = [
   {
     already: 'this.onUserData=this._onUserData.event',
@@ -21,16 +16,20 @@ const replacements = [
   },
 ];
 
-for (const target of targets) {
-  const path = resolve(import.meta.dirname, '..', 'package', target);
-  let source = await readFile(path, 'utf8');
+export const builtModuleTargets = ['lib/xterm.mjs', 'lib/xterm.js'];
+
+export function applyBuiltModulePatch(target, originalSource) {
+  let source = originalSource;
   for (const replacement of replacements) {
     if (source.includes(replacement.already)) continue;
     const occurrences = [...source.matchAll(new RegExp(replacement.pattern.source, 'g'))].length;
     if (occurrences !== 1) {
-      throw new Error(`${target}: expected one occurrence, found ${occurrences}`);
+      throw new Error(`${target}: expected one patch occurrence, found ${occurrences}`);
     }
     source = source.replace(replacement.pattern, replacement.replacement);
   }
-  await writeFile(path, source);
+  return {
+    source,
+    changed: source !== originalSource,
+  };
 }

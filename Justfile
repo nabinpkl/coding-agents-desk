@@ -590,14 +590,27 @@ terminal-replay-e2e:
     set -euo pipefail
     bash '{{justfile_directory()}}/tools/terminal-replay-e2e.sh' '{{justfile_directory()}}'
 
-# Build the deterministic shared terminal web runtime from the audited xterm fork.
-terminal-web-build:
+# Check and publish the deterministic shared terminal web runtime from the audited xterm fork.
+terminal-web-check:
     #!/usr/bin/env bash
     set -euo pipefail
-    cd '{{justfile_directory()}}/terminal/pty-client-swift/Web'
-    npm ci
+    ROOT='{{justfile_directory()}}'
+    WEB="$ROOT/terminal/pty-client-swift/Web"
+    OUTPUT="$ROOT/terminal/pty-client-swift/Sources/PtyTerminalWebView/Resources/Web"
+    STAGING="$(mktemp -d "${TMPDIR:-/tmp}/agentdesk-terminal-web.XXXXXX")"
+    cleanup() {
+      rm -rf "$STAGING"
+    }
+    trap cleanup EXIT
+    node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" terminal-web "$WEB" "$ROOT/.build/js-dependencies"
+    cd "$WEB"
     npm test
-    npm run build
+    node "$ROOT/terminal/vendor/xterm/scripts/check-built-module.mjs"
+    npm run build -- "$STAGING" "$OUTPUT"
+    node "$ROOT/tools/build-system/publish-generated-tree.mjs" \
+      "$STAGING" "$OUTPUT" \
+      --preserve index.html \
+      --preserve JetBrainsMonoNerdFontMono-Regular.ttf
     npm run check-generated
 
 # ADR-0044 Tier B autonomous gate: capture a REAL DOMSnapshot.captureSnapshot (piercing a CLOSED
@@ -678,7 +691,7 @@ dom-mirror-e2e: ext-stamp
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
 # everything with `just check-all`.
-check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar-check agent-panel-web-check build-tools-check ensure-pty-runtime-placeholder workspace-ide-fitness terminal-web-build
+check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar-check agent-panel-web-check build-tools-check ensure-pty-runtime-placeholder workspace-ide-fitness terminal-web-check
     #!/usr/bin/env bash
     set -euo pipefail
     sh tools/media-architecture-guard.sh
@@ -692,14 +705,13 @@ check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar
     (cd packages/WorkspaceKit && swift test)
     (cd packages/WorkspaceIDE && swift test)
     (cd terminal/pty-client-swift && swift test)
-    (cd terminal/emulator && swift build)
     (cd '{{pty_manager_dir}}' && cargo test)
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
         DD='{{derived_data}}'; EXTRA=()
     fi
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -derivedDataPath "$DD" ${EXTRA[@]+"${EXTRA[@]}"} -collect-test-diagnostics never test
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -destination 'platform=macOS,arch=arm64' -derivedDataPath "$DD" ${EXTRA[@]+"${EXTRA[@]}"} -collect-test-diagnostics never test
 
 # Real coordinator-to-pty-manager lifecycle smoke on an isolated temporary socket.
 # This builds the test daemon in place and never launches either app.
