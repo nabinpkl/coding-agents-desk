@@ -2,27 +2,27 @@ use std::collections::HashSet;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use prost::Message;
 
 use crate::error::{Result, TerminalError};
 use crate::fd_transfer::{receive_message, send_message};
+use crate::handover_common::{
+    checksum, configure_stream, expect_phase, send_phase, validate_same_euid_peer,
+};
 use crate::manager_handover_protocol::generated::{
     ManagerHandoverCommit, ManagerHandoverDescriptor, ManagerHandoverListener,
     ManagerHandoverManifest, ManagerSessionState,
 };
 use crate::manager_handover_protocol::MANAGER_HANDOVER_PROTOCOL_VERSION;
 use crate::protocol::validate_session_name;
-use crate::vault_protocol::generated::{handover_phase, HandoverPhase};
+use crate::runtime_config::pending_input_limits;
+use crate::vault_protocol::generated::handover_phase;
 
 pub(crate) struct ManagerSnapshot {
     pub(crate) sessions: Vec<ManagerSessionState>,
     pub(crate) descriptors: Vec<OwnedFd>,
 }
-
-const MAX_PENDING_INPUT_FRAMES: usize = 16;
-const MAX_PENDING_INPUT_BYTES: usize = 1024 * 1024;
 
 pub(crate) struct ReceivedManagerHandover {
     pub(crate) public_listener: UnixListener,
@@ -49,10 +49,8 @@ pub(crate) fn send_handover(
     manager_generation: u64,
     snapshot: ManagerSnapshot,
 ) -> Result<()> {
-    validate_peer(&control)?;
-    control.set_nonblocking(false)?;
-    control.set_read_timeout(Some(Duration::from_secs(5)))?;
-    control.set_write_timeout(Some(Duration::from_secs(5)))?;
+    validate_same_euid_peer(&control, "manager")?;
+    configure_stream(&control)?;
     let next_generation = manager_generation
         .checked_add(1)
         .ok_or_else(|| TerminalError::Protocol("manager generation overflow".to_owned()))?;
@@ -94,7 +92,7 @@ pub(crate) fn send_handover(
             Some(descriptor.as_raw_fd()),
         )?;
     }
-    expect_phase(&mut control, handover_phase::Phase::Ready)?;
+    expect_phase(&mut control, handover_phase::Phase::Ready, "manager")?;
     send_message(
         &mut control,
         &ManagerHandoverCommit {
@@ -103,7 +101,7 @@ pub(crate) fn send_handover(
         },
         None,
     )?;
-    expect_phase(&mut control, handover_phase::Phase::Active)
+    expect_phase(&mut control, handover_phase::Phase::Active, "manager")
 }
 
 pub(crate) fn receive_handover(
@@ -111,9 +109,7 @@ pub(crate) fn receive_handover(
     max_sessions: usize,
 ) -> Result<ReceivedManagerHandover> {
     let mut control = UnixStream::connect(manager_handover_socket_path(manager_socket_path))?;
-    control.set_nonblocking(false)?;
-    control.set_read_timeout(Some(Duration::from_secs(5)))?;
-    control.set_write_timeout(Some(Duration::from_secs(5)))?;
+    configure_stream(&control)?;
     let (manifest, public_descriptor) = receive_message::<ManagerHandoverManifest>(&mut control)?;
     validate_manifest(&manifest, max_sessions)?;
     let public_descriptor = public_descriptor.ok_or_else(|| {
@@ -183,6 +179,7 @@ pub(crate) fn manager_handover_socket_path(manager_socket_path: &Path) -> PathBu
 }
 
 fn validate_manifest(manifest: &ManagerHandoverManifest, max_sessions: usize) -> Result<()> {
+    let pending_input_limits = pending_input_limits()?;
     if manifest.protocol_version != MANAGER_HANDOVER_PROTOCOL_VERSION
         || manifest.manager_generation == 0
         || manifest.session_count as usize != manifest.sessions.len()
@@ -202,12 +199,12 @@ fn validate_manifest(manifest: &ManagerHandoverManifest, max_sessions: usize) ->
         if identity.generation == 0
             || session.columns < 2
             || session.rows < 2
-            || session.pending_input.len() > MAX_PENDING_INPUT_FRAMES
+            || session.pending_input.len() > pending_input_limits.frames
             || session
                 .pending_input
                 .iter()
                 .try_fold(0_usize, |total, frame| total.checked_add(frame.len()))
-                .is_none_or(|total| total > MAX_PENDING_INPUT_BYTES)
+                .is_none_or(|total| total > pending_input_limits.bytes)
             || !names.insert(identity.name.clone())
         {
             return Err(TerminalError::Protocol(
@@ -219,48 +216,10 @@ fn validate_manifest(manifest: &ManagerHandoverManifest, max_sessions: usize) ->
 }
 
 fn manager_checksum(generation: u64, sessions: &[ManagerSessionState]) -> u64 {
-    let mut hash = 0xcbf29ce484222325_u64;
-    for byte in generation
-        .to_be_bytes()
-        .into_iter()
-        .chain(sessions.iter().flat_map(Message::encode_to_vec))
-    {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
-}
-
-fn send_phase(stream: &mut UnixStream, phase: handover_phase::Phase) -> Result<()> {
-    send_message(
-        stream,
-        &HandoverPhase {
-            phase: phase as i32,
-        },
-        None,
+    checksum(
+        generation
+            .to_be_bytes()
+            .into_iter()
+            .chain(sessions.iter().flat_map(Message::encode_to_vec)),
     )
-}
-
-fn expect_phase(stream: &mut UnixStream, expected: handover_phase::Phase) -> Result<()> {
-    let (phase, descriptor) = receive_message::<HandoverPhase>(stream)?;
-    if descriptor.is_some() || phase.phase != expected as i32 {
-        return Err(TerminalError::Protocol(format!(
-            "expected manager handover phase {expected:?}"
-        )));
-    }
-    Ok(())
-}
-
-fn validate_peer(stream: &UnixStream) -> Result<()> {
-    let mut uid = 0;
-    let mut gid = 0;
-    if unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) } < 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    if uid != unsafe { libc::geteuid() } {
-        return Err(TerminalError::Protocol(
-            "manager handover peer uid mismatch".to_owned(),
-        ));
-    }
-    Ok(())
 }

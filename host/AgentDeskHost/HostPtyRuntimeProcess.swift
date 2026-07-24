@@ -226,7 +226,7 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
     private func waitForPeer(
         socketURL: URL,
         pid: pid_t,
-        timeout: TimeInterval = 5.0
+        timeout: TimeInterval = Config.ptyRuntimePeerTimeoutSeconds
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -290,7 +290,7 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
     private func waitForIdentity(
         socketURL: URL,
         expected: HostPtyRuntimeIdentity,
-        timeout: TimeInterval = 2.0
+        timeout: TimeInterval = Config.ptyRuntimeIdentityTimeoutSeconds
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {

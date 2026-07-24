@@ -883,6 +883,14 @@ enum Config {
         environmentKey: "AGENTDESK_PTY_LEASED_SESSION_GRACE_SECONDS",
         defaultValue: 30
     )
+    static let ptyRuntimePeerTimeoutSeconds = positiveDouble(
+        environmentKey: "AGENTDESK_PTY_RUNTIME_PEER_TIMEOUT_SECONDS",
+        defaultValue: 5
+    )
+    static let ptyRuntimeIdentityTimeoutSeconds = positiveDouble(
+        environmentKey: "AGENTDESK_PTY_RUNTIME_IDENTITY_TIMEOUT_SECONDS",
+        defaultValue: 2
+    )
     static let agentTerminalHandoffTimeoutSeconds = positiveInt(
         environmentKey: "AGENTDESK_AGENT_TERMINAL_HANDOFF_TIMEOUT_SECONDS",
         defaultValue: 10

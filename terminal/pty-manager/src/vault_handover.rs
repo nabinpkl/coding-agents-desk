@@ -1,4 +1,6 @@
 use super::*;
+use crate::handover_common::{checksum, configure_stream, expect_phase, send_phase};
+use crate::runtime_config::handover_timeout;
 
 struct VaultSnapshot {
     sessions: Vec<Session>,
@@ -10,8 +12,7 @@ struct VaultSnapshot {
 pub(super) fn perform_handover(runtime: &VaultRuntime, transfer_socket_path: &Path) -> Result<()> {
     let mut transfer = UnixStream::connect(transfer_socket_path)?;
     validate_peer(&transfer)?;
-    transfer.set_read_timeout(Some(Duration::from_secs(5)))?;
-    transfer.set_write_timeout(Some(Duration::from_secs(5)))?;
+    configure_stream(&transfer)?;
 
     let snapshot = snapshot_state(&runtime.state)?;
     let checksum = session_checksum(
@@ -47,7 +48,7 @@ pub(super) fn perform_handover(runtime: &VaultRuntime, transfer_socket_path: &Pa
             Some(descriptor.as_raw_fd()),
         )?;
     }
-    expect_handover_phase(&mut transfer, handover_phase::Phase::Ready)?;
+    expect_phase(&mut transfer, handover_phase::Phase::Ready, "vault")?;
 
     let commit_sessions = snapshot_metadata(&runtime.state)?;
     let commit_checksum = session_checksum(
@@ -64,7 +65,7 @@ pub(super) fn perform_handover(runtime: &VaultRuntime, transfer_socket_path: &Pa
         },
         None,
     )?;
-    expect_handover_phase(&mut transfer, handover_phase::Phase::Active)?;
+    expect_phase(&mut transfer, handover_phase::Phase::Active, "vault")?;
     Ok(())
 }
 
@@ -82,8 +83,7 @@ pub(super) fn receive_handover(options: &VaultOptions) -> Result<(Vault, UnixLis
 
     let request_id = unix_time_milliseconds().max(1);
     let mut control = UnixStream::connect(&options.socket_path)?;
-    control.set_read_timeout(Some(Duration::from_secs(5)))?;
-    control.set_write_timeout(Some(Duration::from_secs(5)))?;
+    configure_stream(&control)?;
     send_message(
         &mut control,
         &VaultRequest {
@@ -98,10 +98,8 @@ pub(super) fn receive_handover(options: &VaultOptions) -> Result<(Vault, UnixLis
         None,
     )?;
     let mut transfer = accept_transfer_or_error(&transfer_listener, &mut control, request_id)?;
-    transfer.set_nonblocking(false)?;
+    configure_stream(&transfer)?;
     validate_peer(&transfer)?;
-    transfer.set_read_timeout(Some(Duration::from_secs(5)))?;
-    transfer.set_write_timeout(Some(Duration::from_secs(5)))?;
 
     let (manifest, listener_descriptor) = receive_message::<VaultHandoverManifest>(&mut transfer)?;
     validate_manifest(&manifest, options.max_sessions)?;
@@ -137,7 +135,7 @@ pub(super) fn receive_handover(options: &VaultOptions) -> Result<(Vault, UnixLis
         vault_generation: manifest.vault_generation,
     }));
     register_exit_observers(&state)?;
-    send_handover_phase(&mut transfer, handover_phase::Phase::Ready)?;
+    send_phase(&mut transfer, handover_phase::Phase::Ready)?;
     let (commit, descriptor) = receive_message::<VaultHandoverCommit>(&mut transfer)?;
     if descriptor.is_some() {
         return Err(TerminalError::Protocol(
@@ -147,7 +145,7 @@ pub(super) fn receive_handover(options: &VaultOptions) -> Result<(Vault, UnixLis
     apply_handover_commit(&state, &manifest, commit)?;
     let listener = UnixListener::from(listener_descriptor);
     listener.set_nonblocking(true)?;
-    send_handover_phase(&mut transfer, handover_phase::Phase::Active)?;
+    send_phase(&mut transfer, handover_phase::Phase::Active)?;
     let (response, descriptor) = receive_message::<VaultResponse>(&mut control)?;
     if descriptor.is_some()
         || response.protocol_version != VAULT_PROTOCOL_VERSION
@@ -303,33 +301,13 @@ fn register_exit_observers(state: &Arc<Mutex<VaultState>>) -> Result<()> {
     Ok(())
 }
 
-fn send_handover_phase(stream: &mut UnixStream, phase: handover_phase::Phase) -> Result<()> {
-    send_message(
-        stream,
-        &HandoverPhase {
-            phase: phase as i32,
-        },
-        None,
-    )
-}
-
-fn expect_handover_phase(stream: &mut UnixStream, expected: handover_phase::Phase) -> Result<()> {
-    let (phase, descriptor) = receive_message::<HandoverPhase>(stream)?;
-    if descriptor.is_some() || phase.phase != expected as i32 {
-        return Err(TerminalError::Protocol(format!(
-            "expected vault handover phase {expected:?}"
-        )));
-    }
-    Ok(())
-}
-
 fn accept_transfer_or_error(
     listener: &UnixListener,
     control: &mut UnixStream,
     request_id: u64,
 ) -> Result<UnixStream> {
     listener.set_nonblocking(true)?;
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + handover_timeout()?;
     while Instant::now() < deadline {
         let mut descriptors = [
             libc::pollfd {
@@ -381,17 +359,13 @@ fn session_checksum(
     next_session_generation: u64,
     sessions: &[Session],
 ) -> u64 {
-    let mut hash = 0xcbf29ce484222325_u64;
-    for byte in vault_generation
-        .to_be_bytes()
-        .into_iter()
-        .chain(next_session_generation.to_be_bytes())
-        .chain(sessions.iter().flat_map(Message::encode_to_vec))
-    {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
+    checksum(
+        vault_generation
+            .to_be_bytes()
+            .into_iter()
+            .chain(next_session_generation.to_be_bytes())
+            .chain(sessions.iter().flat_map(Message::encode_to_vec)),
+    )
 }
 
 fn candidate_socket_path(stable_socket_path: &Path) -> PathBuf {

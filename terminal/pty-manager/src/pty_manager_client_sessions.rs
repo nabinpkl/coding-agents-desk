@@ -18,6 +18,7 @@ use crate::protocol::{
     TerminalCheckpointChunk, TerminalCheckpointEnd, TerminalViewerState, TerminalViewportStatus,
 };
 use crate::pty_session::{PtyEvent, PtySession};
+use crate::runtime_config::pending_input_limits;
 use crate::session_registry::SessionRegistry;
 use crate::session_viewport::{SessionViewport, ViewportDecision};
 use crate::vault_client::{VaultClient, VaultLaunch, VaultLease};
@@ -106,6 +107,7 @@ impl Default for PtyManagerLimits {
 
 impl PtyManagerLimits {
     pub fn validate(&self) -> Result<()> {
+        let pending_input_limits = pending_input_limits()?;
         if self.max_sessions == 0
             || self.max_clients_per_session == 0
             || self.max_columns == 0
@@ -123,6 +125,10 @@ impl PtyManagerLimits {
             || self.client_outbox_frames < 4
             || self.client_live_outbox_bytes == 0
             || self.max_input_bytes == 0
+            || self
+                .max_input_bytes
+                .checked_mul(pending_input_limits.frames)
+                .is_none_or(|bytes| bytes > pending_input_limits.bytes)
             || self.pty_event_frames == 0
         {
             return Err(TerminalError::Protocol(
@@ -432,10 +438,10 @@ impl PtyManagerState {
         let names = self
             .sessions
             .iter()
-            .filter_map(|(name, session)| {
-                (session.lifetime == SessionLifetime::Leased && session.clients.is_empty())
-                    .then(|| name.clone())
+            .filter(|(_, session)| {
+                session.lifetime == SessionLifetime::Leased && session.clients.is_empty()
             })
+            .map(|(name, _)| name.clone())
             .collect::<Vec<_>>();
         for name in names {
             self.schedule_reap(&name, scheduler);

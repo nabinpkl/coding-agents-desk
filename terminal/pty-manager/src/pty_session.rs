@@ -11,6 +11,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::error::{Result, TerminalError};
 use crate::fd_transfer::duplicate_descriptor;
+use crate::runtime_config::pending_input_limits;
 use crate::vault_client::{VaultClient, VaultLease};
 use crate::vault_protocol::generated::Session;
 
@@ -48,7 +49,7 @@ struct PtyIo {
     start: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     reader: Option<JoinHandle<Option<PtyEvent>>>,
-    writer: Option<JoinHandle<()>>,
+    writer: Option<JoinHandle<Vec<Vec<u8>>>>,
 }
 
 impl PtySession {
@@ -135,7 +136,9 @@ impl PtySession {
         io.stop.store(true, Ordering::Release);
         drop(io.input);
         if let Some(writer) = io.writer.take() {
-            let _ = writer.join();
+            if let Ok(pending) = writer.join() {
+                self.pending_input.extend(pending);
+            }
         }
         io.reader
             .take()
@@ -156,9 +159,12 @@ impl PtySession {
         }
         let reader = File::from(duplicate_descriptor(self.master.as_raw_fd())?);
         let writer = File::from(duplicate_descriptor(self.master.as_raw_fd())?);
-        let (input, input_rx) = mpsc::sync_channel::<Vec<u8>>(16);
+        let pending_input_limits = pending_input_limits()?;
+        let (input, input_rx) =
+            mpsc::sync_channel::<Vec<u8>>(pending_input_limits.frames.saturating_sub(1));
         let start = Arc::new(AtomicBool::new(false));
         let stop = Arc::new(AtomicBool::new(false));
+        let initial_input = std::mem::take(&mut self.pending_input);
         let reader_thread = spawn_reader(
             self.name.clone(),
             self.generation,
@@ -167,7 +173,8 @@ impl PtySession {
             start.clone(),
             stop.clone(),
         );
-        let writer_thread = spawn_writer(input_rx, writer, start.clone(), stop.clone());
+        let writer_thread =
+            spawn_writer(initial_input, input_rx, writer, start.clone(), stop.clone());
         self.io = Some(PtyIo {
             input,
             start,
@@ -175,17 +182,6 @@ impl PtySession {
             reader: Some(reader_thread),
             writer: Some(writer_thread),
         });
-        let pending = std::mem::take(&mut self.pending_input);
-        for data in pending {
-            self.io
-                .as_ref()
-                .expect("PTY I/O was just installed")
-                .input
-                .try_send(data)
-                .map_err(|error| {
-                    TerminalError::Pty(format!("pending PTY input restore failed: {error}"))
-                })?;
-        }
         Ok(())
     }
 
@@ -219,13 +215,12 @@ impl PtySession {
     }
 
     fn queue_pending_input(&mut self, data: Vec<u8>) -> Result<()> {
-        const MAX_PENDING_FRAMES: usize = 16;
-        const MAX_PENDING_BYTES: usize = 1024 * 1024;
+        let limits = pending_input_limits()?;
         let pending_bytes = self.pending_input.iter().map(Vec::len).sum::<usize>();
-        if self.pending_input.len() >= MAX_PENDING_FRAMES
+        if self.pending_input.len() >= limits.frames
             || pending_bytes
                 .checked_add(data.len())
-                .is_none_or(|total| total > MAX_PENDING_BYTES)
+                .is_none_or(|total| total > limits.bytes)
         {
             return Err(TerminalError::Pty(
                 "pending PTY input exceeds handover bound".to_owned(),
@@ -295,42 +290,70 @@ fn spawn_reader(
 }
 
 fn spawn_writer(
+    mut initial_input: VecDeque<Vec<u8>>,
     input_rx: mpsc::Receiver<Vec<u8>>,
     mut writer: File,
     start: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
-) -> JoinHandle<()> {
+) -> JoinHandle<Vec<Vec<u8>>> {
     thread::spawn(move || {
         while !start.load(Ordering::Acquire) {
             if stop.load(Ordering::Acquire) {
-                return;
+                return initial_input
+                    .into_iter()
+                    .chain(input_rx.try_iter())
+                    .collect();
             }
             thread::sleep(Duration::from_millis(1));
         }
-        while let Ok(data) = input_rx.recv() {
+        loop {
+            let data = match initial_input.pop_front() {
+                Some(data) => data,
+                None => match input_rx.recv_timeout(Duration::from_millis(50)) {
+                    Ok(data) => data,
+                    Err(mpsc::RecvTimeoutError::Timeout) if stop.load(Ordering::Acquire) => {
+                        return input_rx.try_iter().collect();
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => return Vec::new(),
+                },
+            };
             let mut remaining = data.as_slice();
             while !remaining.is_empty() {
-                if poll_descriptor_until_ready(writer.as_raw_fd(), libc::POLLOUT).is_err() {
-                    return;
+                match poll_descriptor(writer.as_raw_fd(), libc::POLLOUT, &stop) {
+                    Ok(true) => {}
+                    Ok(false) if stop.load(Ordering::Acquire) => {
+                        return pending_writer_input(remaining, initial_input, &input_rx);
+                    }
+                    Ok(false) => continue,
+                    Err(_) => return pending_writer_input(remaining, initial_input, &input_rx),
                 }
                 match writer.write(remaining) {
-                    Ok(0) => return,
+                    Ok(0) => return pending_writer_input(remaining, initial_input, &input_rx),
                     Ok(count) => remaining = &remaining[count..],
                     Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                    Err(_) => return,
+                    Err(_) => return pending_writer_input(remaining, initial_input, &input_rx),
                 }
             }
             if writer.flush().is_err() {
-                break;
+                return initial_input
+                    .into_iter()
+                    .chain(input_rx.try_iter())
+                    .collect();
             }
         }
     })
 }
 
-fn poll_descriptor_until_ready(descriptor: i32, events: i16) -> std::io::Result<()> {
-    let never_stop = AtomicBool::new(false);
-    while !poll_descriptor(descriptor, events, &never_stop)? {}
-    Ok(())
+fn pending_writer_input(
+    remaining: &[u8],
+    initial_input: VecDeque<Vec<u8>>,
+    input_rx: &mpsc::Receiver<Vec<u8>>,
+) -> Vec<Vec<u8>> {
+    std::iter::once(remaining.to_vec())
+        .chain(initial_input)
+        .chain(input_rx.try_iter())
+        .collect()
 }
 
 fn poll_descriptor(descriptor: i32, events: i16, stop: &AtomicBool) -> std::io::Result<bool> {
@@ -391,5 +414,124 @@ fn send_event(
             }
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => return None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::fd::{FromRawFd, OwnedFd};
+    use std::time::Instant;
+
+    use super::*;
+
+    #[test]
+    fn writer_quiesce_returns_backpressured_input_without_blocking() {
+        let (writer_descriptor, _reader_descriptor) = socket_pair();
+        fill_socket_send_buffer(writer_descriptor.as_raw_fd());
+        set_nonblocking(writer_descriptor.as_raw_fd(), false);
+
+        let limits = pending_input_limits().expect("pending input limits");
+        let (input, input_rx) = mpsc::sync_channel(limits.frames.saturating_sub(1));
+        let start = Arc::new(AtomicBool::new(true));
+        let stop = Arc::new(AtomicBool::new(false));
+        let writer = spawn_writer(
+            VecDeque::new(),
+            input_rx,
+            File::from(writer_descriptor),
+            start,
+            stop.clone(),
+        );
+        let frames = (0..limits.frames)
+            .map(|index| format!("preserve-{index}").into_bytes())
+            .collect::<Vec<_>>();
+        input
+            .send(frames[0].clone())
+            .expect("queue in-flight writer input");
+        thread::sleep(Duration::from_millis(75));
+        for frame in frames.iter().skip(1) {
+            input
+                .send(frame.clone())
+                .expect("fill pending writer queue");
+        }
+
+        let started = Instant::now();
+        stop.store(true, Ordering::Release);
+        drop(input);
+        let pending = writer.join().expect("join writer");
+
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(pending, frames);
+        assert!(pending.iter().map(Vec::len).sum::<usize>() <= limits.bytes);
+    }
+
+    #[test]
+    fn writer_preparation_accepts_full_handover_input_bound() {
+        let (writer_descriptor, _reader_descriptor) = socket_pair();
+        let limits = pending_input_limits().expect("pending input limits");
+        let initial_input = (0..limits.frames)
+            .map(|index| format!("restore-{index}").into_bytes())
+            .collect::<VecDeque<_>>();
+        let expected = initial_input.iter().cloned().collect::<Vec<_>>();
+        let (_input, input_rx) = mpsc::sync_channel(limits.frames.saturating_sub(1));
+        let start = Arc::new(AtomicBool::new(false));
+        let stop = Arc::new(AtomicBool::new(false));
+        let writer = spawn_writer(
+            initial_input,
+            input_rx,
+            File::from(writer_descriptor),
+            start,
+            stop.clone(),
+        );
+
+        stop.store(true, Ordering::Release);
+        assert_eq!(writer.join().expect("join prepared writer"), expected);
+    }
+
+    fn socket_pair() -> (OwnedFd, OwnedFd) {
+        let mut descriptors = [-1; 2];
+        let result = unsafe {
+            libc::socketpair(
+                libc::AF_UNIX,
+                libc::SOCK_STREAM,
+                0,
+                descriptors.as_mut_ptr(),
+            )
+        };
+        assert_eq!(result, 0, "create socket pair");
+        unsafe {
+            (
+                OwnedFd::from_raw_fd(descriptors[0]),
+                OwnedFd::from_raw_fd(descriptors[1]),
+            )
+        }
+    }
+
+    fn fill_socket_send_buffer(descriptor: i32) {
+        set_nonblocking(descriptor, true);
+        let buffer = [0_u8; 8_192];
+        loop {
+            let written = unsafe { libc::write(descriptor, buffer.as_ptr().cast(), buffer.len()) };
+            if written >= 0 {
+                continue;
+            }
+            let error = std::io::Error::last_os_error();
+            assert_eq!(error.kind(), std::io::ErrorKind::WouldBlock);
+            break;
+        }
+    }
+
+    fn set_nonblocking(descriptor: i32, enabled: bool) {
+        let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFL) };
+        assert!(flags >= 0, "read descriptor flags");
+        let flags = if enabled {
+            flags | libc::O_NONBLOCK
+        } else {
+            flags & !libc::O_NONBLOCK
+        };
+        assert_eq!(
+            unsafe { libc::fcntl(descriptor, libc::F_SETFL, flags) },
+            0,
+            "write descriptor flags"
+        );
     }
 }

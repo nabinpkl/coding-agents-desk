@@ -249,6 +249,88 @@ async fn manager_candidate_preserves_busy_ordinary_shell_identity_and_exit() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn manager_handover_does_not_reap_transferred_leased_session() {
+    let root = tempdir().expect("tempdir");
+    let socket_path = root.path().join("terminal.sock");
+    support::ensure_vault_for_manager(&socket_path);
+    let options = PtyManagerOptions {
+        socket_path: socket_path.clone(),
+        leased_session_grace: Duration::from_millis(100),
+    };
+    let old = PtyManager::new(options.clone());
+    let old_task = tokio::spawn(async move { old.run().await });
+    wait_for_socket(&socket_path).await;
+
+    let mut old_client = pty_manager::client::connect(&socket_path)
+        .await
+        .expect("connect old manager");
+    send_session_with_lifetime(
+        &mut old_client,
+        1,
+        "leased",
+        root.path(),
+        true,
+        SessionLifetime::Leased,
+    )
+    .await;
+    let before = read_attached(&mut old_client).await;
+    let _ = read_checkpoint(&mut old_client).await;
+    read_until_output(&mut old_client, "TUI:steady").await;
+
+    let candidate = PtyManager::new(options);
+    let candidate_task = tokio::spawn(async move { candidate.run_handover().await });
+    tokio::time::timeout(Duration::from_secs(5), old_task)
+        .await
+        .expect("old manager handover timed out")
+        .expect("old manager task failed")
+        .expect("old manager handover failed");
+    drop(old_client);
+
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let vault = VaultClient::new(socket_path.with_file_name("pty-vault.sock"));
+    let preserved = vault
+        .list()
+        .expect("list vault after leased grace")
+        .into_iter()
+        .find(|session| session.name == "leased")
+        .expect("handover must not reap transferred leased session");
+    assert_eq!(preserved.pid, before.pid);
+    assert!(process_exists(before.pid));
+
+    let mut new_client = pty_manager::client::connect(&socket_path)
+        .await
+        .expect("connect candidate manager");
+    send_session_with_lifetime(
+        &mut new_client,
+        2,
+        "leased",
+        root.path(),
+        false,
+        SessionLifetime::Leased,
+    )
+    .await;
+    assert_eq!(read_attached(&mut new_client).await.pid, before.pid);
+    let _ = read_checkpoint(&mut new_client).await;
+    send(
+        &mut new_client,
+        &protocol::envelope(
+            3,
+            "leased",
+            Payload::Input(Input {
+                data: b"quit\n".to_vec(),
+            }),
+        ),
+    )
+    .await
+    .expect("quit preserved leased session");
+    assert_eq!(read_exit(&mut new_client).await, 17);
+
+    candidate_task.abort();
+    let _ = candidate_task.await;
+    support::close_all_vault_sessions(&socket_path);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn failed_manager_candidate_resumes_old_reader_and_client() {
     let root = tempdir().expect("tempdir");
     let socket_path = root.path().join("terminal.sock");
@@ -517,12 +599,228 @@ async fn zero_session_manager_binary_handover_publishes_candidate_identity() {
     vault.wait().expect("wait test vault");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn sequential_live_update_gate_emits_session_evidence() {
+    let root = tempdir().expect("tempdir");
+    let socket_path = root.path().join("terminal.sock");
+    let vault_socket_path = root.path().join("pty-vault.sock");
+    let manager_identity_path = pty_manager::runtime_identity::identity_path(&socket_path);
+    let vault_identity_path = pty_manager::runtime_identity::identity_path(&vault_socket_path);
+    let old_manager_digest = "1".repeat(64);
+    let new_manager_digest = "2".repeat(64);
+    let old_vault_digest = "3".repeat(64);
+    let new_vault_digest = "4".repeat(64);
+
+    let mut old_vault = spawn_binary(
+        env!("CARGO_BIN_EXE_pty-vault"),
+        &vault_socket_path,
+        Some(&old_vault_digest),
+        false,
+    );
+    let old_vault_pid = old_vault.id();
+    wait_for_identity(&vault_identity_path, &mut old_vault, &old_vault_digest);
+    let mut old_manager = spawn_binary(
+        env!("CARGO_BIN_EXE_pty-manager"),
+        &socket_path,
+        Some(&old_manager_digest),
+        false,
+    );
+    let old_manager_pid = old_manager.id();
+    wait_for_identity(
+        &manager_identity_path,
+        &mut old_manager,
+        &old_manager_digest,
+    );
+
+    let mut client = pty_manager::client::connect(&socket_path)
+        .await
+        .expect("connect initial host client");
+    send_session(&mut client, 1, "live-update", root.path(), true).await;
+    let initial_attached = read_attached(&mut client).await;
+    let _ = read_checkpoint(&mut client).await;
+    read_until_output(&mut client, "TUI:steady").await;
+    read_until_output(&mut client, "TICK:").await;
+    send(
+        &mut client,
+        &protocol::envelope(
+            2,
+            "live-update",
+            Payload::RequestTerminalCheckpoint(RequestTerminalCheckpoint {
+                last_applied_revision: 0,
+            }),
+        ),
+    )
+    .await
+    .expect("request initial live-update checkpoint");
+    let (initial_revision, initial_checkpoint) = read_checkpoint(&mut client).await;
+    assert!(String::from_utf8_lossy(&initial_checkpoint).contains("TUI:steady"));
+    let vault_client = VaultClient::new(vault_socket_path.clone());
+    let initial_session = vault_client
+        .list()
+        .expect("list initial vault session")
+        .into_iter()
+        .find(|session| session.name == "live-update")
+        .expect("initial live-update session");
+
+    // A host-only update reconnects its manager client. The runtime authority
+    // and session must remain unchanged because neither Rust digest changed.
+    drop(client);
+    let mut host_reconnected = pty_manager::client::connect(&socket_path)
+        .await
+        .expect("reconnect host client");
+    send_session(&mut host_reconnected, 2, "live-update", root.path(), false).await;
+    let host_attached = read_attached(&mut host_reconnected).await;
+    let (host_revision, host_checkpoint) = read_checkpoint(&mut host_reconnected).await;
+    assert_eq!(host_attached.pid, initial_attached.pid);
+    assert!(host_revision >= initial_revision);
+    assert!(String::from_utf8_lossy(&host_checkpoint).contains("TUI:steady"));
+
+    let mut new_manager = spawn_binary(
+        env!("CARGO_BIN_EXE_pty-manager"),
+        &socket_path,
+        Some(&new_manager_digest),
+        true,
+    );
+    let new_manager_pid = new_manager.id();
+    wait_for_identity(
+        &manager_identity_path,
+        &mut new_manager,
+        &new_manager_digest,
+    );
+    wait_for_child_exit(
+        &mut old_manager,
+        "old manager did not exit after live-update handover",
+    );
+    drop(host_reconnected);
+
+    let mut manager_reconnected = pty_manager::client::connect(&socket_path)
+        .await
+        .expect("connect candidate manager");
+    send_session(
+        &mut manager_reconnected,
+        3,
+        "live-update",
+        root.path(),
+        false,
+    )
+    .await;
+    let manager_attached = read_attached(&mut manager_reconnected).await;
+    let (manager_revision, manager_checkpoint) = read_checkpoint(&mut manager_reconnected).await;
+    assert_eq!(manager_attached.pid, initial_attached.pid);
+    assert!(manager_revision >= host_revision);
+    assert!(String::from_utf8_lossy(&manager_checkpoint).contains("TUI:steady"));
+
+    let mut new_vault = spawn_binary(
+        env!("CARGO_BIN_EXE_pty-vault"),
+        &vault_socket_path,
+        Some(&new_vault_digest),
+        true,
+    );
+    let new_vault_pid = new_vault.id();
+    wait_for_identity(&vault_identity_path, &mut new_vault, &new_vault_digest);
+    wait_for_child_exit(
+        &mut old_vault,
+        "old vault did not exit after live-update handover",
+    );
+    let after_vault = vault_client
+        .list()
+        .expect("list session after vault handover")
+        .into_iter()
+        .find(|session| session.name == "live-update")
+        .expect("session after vault handover");
+    assert_eq!(after_vault.pid, initial_session.pid);
+    assert_eq!(after_vault.process_group, initial_session.process_group);
+    assert_eq!(after_vault.generation, initial_session.generation);
+
+    send(
+        &mut manager_reconnected,
+        &protocol::envelope(
+            4,
+            "live-update",
+            Payload::Input(Input {
+                data: b"after-all-updates\n".to_vec(),
+            }),
+        ),
+    )
+    .await
+    .expect("send input after all updates");
+    read_until_output(&mut manager_reconnected, "input:after-all-updates").await;
+    send(
+        &mut manager_reconnected,
+        &protocol::envelope(
+            5,
+            "live-update",
+            Payload::Input(Input {
+                data: b"quit\n".to_vec(),
+            }),
+        ),
+    )
+    .await
+    .expect("quit after all updates");
+    let exit_status = read_exit(&mut manager_reconnected).await;
+    assert_eq!(exit_status, 17);
+
+    println!(
+        concat!(
+            "{{\"gate\":\"pty-live-update-verify\",",
+            "\"host\":{{\"managerPidBefore\":{},\"managerPidAfter\":{},",
+            "\"vaultPidBefore\":{},\"vaultPidAfter\":{},\"preserved\":true}},",
+            "\"manager\":{{\"pidBefore\":{},\"pidAfter\":{},",
+            "\"generationBefore\":1,\"generationAfter\":2}},",
+            "\"vault\":{{\"pidBefore\":{},\"pidAfter\":{},",
+            "\"generationBefore\":1,\"generationAfter\":2}},",
+            "\"session\":{{\"pid\":{},\"processGroup\":{},\"generation\":{},",
+            "\"revisionBefore\":{},\"revisionAfterHost\":{},\"revisionAfterManager\":{},",
+            "\"marker\":\"TUI:steady\",\"exitStatus\":{}}},\"status\":\"passed\"}}"
+        ),
+        old_manager_pid,
+        old_manager_pid,
+        old_vault_pid,
+        old_vault_pid,
+        old_manager_pid,
+        new_manager_pid,
+        old_vault_pid,
+        new_vault_pid,
+        initial_session.pid,
+        initial_session.process_group,
+        initial_session.generation,
+        initial_revision,
+        host_revision,
+        manager_revision,
+        exit_status
+    );
+
+    new_manager.kill().expect("stop candidate manager");
+    new_manager.wait().expect("wait candidate manager");
+    new_vault.kill().expect("stop candidate vault");
+    new_vault.wait().expect("wait candidate vault");
+}
+
 async fn send_session(
     framed: &mut TerminalFramed,
     request_id: u64,
     session_name: &str,
     cwd: &Path,
     create_if_missing: bool,
+) {
+    send_session_with_lifetime(
+        framed,
+        request_id,
+        session_name,
+        cwd,
+        create_if_missing,
+        SessionLifetime::Persistent,
+    )
+    .await;
+}
+
+async fn send_session_with_lifetime(
+    framed: &mut TerminalFramed,
+    request_id: u64,
+    session_name: &str,
+    cwd: &Path,
+    create_if_missing: bool,
+    lifetime: SessionLifetime,
 ) {
     send(
         framed,
@@ -539,7 +837,7 @@ async fn send_session(
                             .to_owned(),
                     ],
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
+                lifetime: lifetime as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing,

@@ -990,15 +990,13 @@ pty-live-update-verify:
     #!/usr/bin/env bash
     set -euo pipefail
     cd '{{pty_manager_dir}}'
-    cargo test --test vault_tests zero_session_binary_handover_publishes_candidate_identity -- --exact --nocapture
-    cargo test --test vault_tests vault_candidate_inherits_listener_sessions_and_exact_exit -- --exact --nocapture
-    cargo test --test manager_handover_tests zero_session_manager_binary_handover_publishes_candidate_identity -- --exact --nocapture
-    cargo test --test manager_handover_tests manager_candidate_preserves_checkpoint_revision_pid_and_io -- --exact --nocapture
+    cargo test --test manager_handover_tests sequential_live_update_gate_emits_session_evidence -- --exact --nocapture
+    cargo test --lib pty_session::tests
+    cargo test --test manager_handover_tests manager_handover_does_not_reap_transferred_leased_session -- --exact
     cd '{{justfile_directory()}}'
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost \
         -derivedDataPath '{{derived_data}}' test CODE_SIGNING_ALLOWED=NO \
         -only-testing:AgentDeskHostTests/HostPtyRuntimeProcessTests >/dev/null
-    printf '%s\n' '{"gate":"pty-live-update-verify","vaultIdentity":"passed","vaultHandover":"passed","managerIdentity":"passed","managerHandover":"passed","hostCoordinator":"passed","status":"passed"}'
 
 # Build client Debug for the iPhone and install (does not launch).
 # variant: "stable" (default) or "dev" (the experimental side-by-side install:

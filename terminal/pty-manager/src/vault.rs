@@ -14,12 +14,12 @@ use prost::Message;
 
 use crate::error::{Result, TerminalError};
 use crate::fd_transfer::{duplicate_descriptor, receive_message, send_message};
+use crate::handover_common::validate_same_euid_peer;
 use crate::protocol::validate_session_name;
 use crate::vault_protocol::generated::{
     create_session, handover_phase, vault_request, vault_response, Acknowledged, CreateSession,
-    ExitStatus, HandoverPhase, ImportSession, Session, SessionLease, SessionList,
-    VaultHandoverCommit, VaultHandoverDescriptor, VaultHandoverManifest, VaultRequest,
-    VaultResponse,
+    ExitStatus, ImportSession, Session, SessionLease, SessionList, VaultHandoverCommit,
+    VaultHandoverDescriptor, VaultHandoverManifest, VaultRequest, VaultResponse,
 };
 use crate::vault_protocol::VAULT_PROTOCOL_VERSION;
 
@@ -406,17 +406,7 @@ fn handle_handover(
 }
 
 fn validate_peer(stream: &UnixStream) -> Result<()> {
-    let mut uid = 0;
-    let mut gid = 0;
-    if unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) } < 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    if uid != unsafe { libc::geteuid() } {
-        return Err(TerminalError::Protocol(
-            "vault peer uid mismatch".to_owned(),
-        ));
-    }
-    Ok(())
+    validate_same_euid_peer(stream, "vault")
 }
 
 fn prepare_socket(path: &Path) -> Result<()> {

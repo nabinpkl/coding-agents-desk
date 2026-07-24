@@ -125,7 +125,6 @@ impl PtyManager {
                 state.restore_handover_session(session, descriptor, self.events_tx.clone())?;
             }
             state.prepare_session_io()?;
-            state.schedule_unattached_leases(&self.reaper);
         }
         received.activate()?;
         self.state.lock().await.activate_session_io();

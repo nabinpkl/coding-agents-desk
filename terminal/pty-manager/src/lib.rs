@@ -1,6 +1,7 @@
 pub mod client;
 pub mod error;
 pub mod fd_transfer;
+mod handover_common;
 pub mod headless_terminal;
 pub mod manager;
 pub mod manager_handover_protocol;
@@ -9,6 +10,7 @@ pub mod process_observer;
 pub mod protocol;
 pub mod pty_client_footer;
 pub mod pty_session;
+mod runtime_config;
 pub mod runtime_identity;
 pub mod session_registry;
 pub mod transport;
