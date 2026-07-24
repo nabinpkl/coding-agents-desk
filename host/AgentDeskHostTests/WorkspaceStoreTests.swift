@@ -42,6 +42,18 @@ struct WorkspaceStoreTests {
         try data.write(to: url)
     }
 
+    @Test func applicationSupportRootRemainsBundleScoped() {
+        let expectedRoot = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(Config.bundleIdentifier, isDirectory: true)
+
+        #expect(Config.applicationSupportDirectory == expectedRoot)
+        #expect(
+            Config.workspaceStoreURL ==
+                expectedRoot.appendingPathComponent("workspaces.json", isDirectory: false)
+        )
+    }
+
     @Test func desktopAssignmentIdentityNeverFallsBackToDisplayAndOrdinal() {
         let assigned = WorkspaceDesktopAssignment(spaceID: 10, displayID: "D1", ordinal: 1)
 

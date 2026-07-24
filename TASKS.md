@@ -133,6 +133,9 @@ the master descriptor.
   make Swift a subscription transport adapter, raise the outer wire protocol to `15`, delete cache
   state and compatibility contracts, record source and snapshot timing, and pass the sidecar live-SSE
   smoke plus `just check` without launching either app.
+- D122. Restore the bundle-scoped Application Support root after deleting the obsolete Agent Feed
+  cache-directory setting, and pin the workspace-store path so future cleanup cannot silently reroute
+  workspace, pairing, identity, and PTY state into a feature subdirectory.
 
 ## Promotion log
 
@@ -148,4 +151,5 @@ D114-116 2026-07-23  landed      host coordinator, sequential recipes, and bound
 R117     2026-07-23  checkpoint  authorized real-host acceptance remains
 D118-120 2026-07-24 landed       AgentDesk-owned AgentPanel Vite source and transcript sidecar
 D121     2026-07-24  landed       layered no-cache Agent feed, live SSE, protocol 15, and timing gates
+D122     2026-07-24  landed       restored bundle-scoped host state after Agent Feed cache deletion
 ```
