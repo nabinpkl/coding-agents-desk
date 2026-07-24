@@ -578,16 +578,16 @@ struct AgentWindowTerminalControllerTests {
         try await waitUntil { status.messages.count == 1 }
         let connection = attacher.connections[ptyName(for: firstContext)]
 
-        let hideClose = controller.beginExplicitClose(reason: .windowHidden)
         let titlebarClose = controller.beginExplicitClose(reason: .windowShouldClose)
-        await hideClose?.value
+        let repeatedClose = controller.beginExplicitClose(reason: .windowShouldClose)
         await titlebarClose?.value
+        await repeatedClose?.value
 
         #expect(endpoint.closeMessages == [AgentTerminalClose(
             requestID: "request-lifecycle",
             context: wireContext(firstContext),
             ptySessionName: ptyName(for: firstContext),
-            reason: "window-hidden"
+            reason: "window-should-close"
         )])
         #expect(connection?.detachCount == 1)
         #expect(endpoint.terminalEnds.isEmpty)
@@ -687,21 +687,21 @@ struct AgentWindowTerminalControllerTests {
         #expect(controller.contentView.isBound == false)
     }
 
-    @Test func socketLossThenWindowHideConsumesExactCloseOnce() async throws {
+    @Test func socketLossThenWindowCloseConsumesExactCloseOnce() async throws {
         let (controller, endpoint, connection) = try await socketLostTerminal(
             requestID: "request-loss-hide"
         )
 
-        let hideClose = controller.beginExplicitClose(reason: .windowHidden)
+        let close = controller.beginExplicitClose(reason: .windowShouldClose)
         let repeatedSignal = controller.beginExplicitClose(reason: .windowShouldClose)
-        await hideClose?.value
+        await close?.value
         await repeatedSignal?.value
 
         #expect(endpoint.closeMessages == [AgentTerminalClose(
             requestID: "request-loss-hide",
             context: wireContext(firstContext),
             ptySessionName: ptyName(for: firstContext),
-            reason: "window-hidden"
+            reason: "window-should-close"
         )])
         #expect(endpoint.terminalEnds.isEmpty)
         #expect(connection.detachCount == 1)
@@ -776,12 +776,12 @@ struct AgentWindowTerminalControllerTests {
         try await Task.sleep(for: .milliseconds(30))
         #expect(status.messages.count == 2)
 
-        await controller.beginExplicitClose(reason: .windowHidden)?.value
+        await controller.beginExplicitClose(reason: .windowShouldClose)?.value
         #expect(endpoint.closeMessages == [AgentTerminalClose(
             requestID: "request-new",
             context: wireContext(firstContext),
             ptySessionName: ptyName(for: firstContext),
-            reason: "window-hidden"
+            reason: "window-should-close"
         )])
         #expect(oldConnection.detachCount == 1)
         #expect(controller.contentView.isBound == false)

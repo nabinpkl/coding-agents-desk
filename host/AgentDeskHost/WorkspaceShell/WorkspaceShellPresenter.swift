@@ -6,7 +6,7 @@ import os
 /// Presents the macOS workspace shell as the agent-workspace-ide reveal-on-hover chrome (ADR-0054): a
 /// left-edge sidebar (the donor workspace switcher, a divider, the active-workspace title header with
 /// text-zoom −/+ and a pin, the donor FilePane file tree, and a drag-resize handle) and a top bar
-/// (Agents on the left; PTY Manager, ＋ Terminal, and a pin on the right). Both are floating all-Spaces
+/// (IDE/browser tools on the left; PTY Manager, ＋ Agents, ＋ Terminal, and a pin on the right). Both are floating all-Spaces
 /// overlays that auto-hide like the Dock and slide in on an edge hover. A file opens into the donor
 /// FileViewer window centered in the slot (not inline), and switching the workspace switches the macOS
 /// Desktop — both driven by WorkspaceShellSession.
@@ -70,9 +70,9 @@ final class WorkspaceShellPresenter: NSObject {
     private let topBarPinButton = HoverButton(frame: .zero)
     private let resizeHandle = SidebarResizeHandle()
 
-    /// Invoked when the top-bar Agents command is tapped. AppDelegate wires this to toggle the macOS
-    /// Agents window, keeping the shell decoupled from the agent surface.
-    var onAgentsCommand: (() -> Void)?
+    /// Invoked when the top-bar "＋ Agents" command is tapped. The placement identifies the Desktop
+    /// and current shell slot where AppDelegate should create an independent Agents window.
+    var onOpenAgents: ((AgentWindowPlacement) -> Void)?
 
     /// Opens the separate retained shared Workspace IDE window.
     var onIDECommand: (() -> Void)?
@@ -140,15 +140,7 @@ final class WorkspaceShellPresenter: NSObject {
                     // Invoked on the main actor by the session; a pinned bar insets the slot by the
                     // live sidebar width so an editor/terminal window sits beside it, not under it.
                     MainActor.assumeIsolated {
-                        let screen = self?.currentScreen() ?? .zero
-                        guard let self else { return computeSlotLayout(screen: screen).slot }
-                        let pinned = self.effectivePinned()
-                        return computeSlotLayout(
-                            screen: screen,
-                            config: SlotLayoutConfig(sidebarWidth: self.sidebarWidth),
-                            sidebarPinned: pinned.contains(.sidebar),
-                            topBarPinned: pinned.contains(.topBar)
-                        ).slot
+                        self?.currentSlotFrame() ?? .zero
                     }
                 }
             )
@@ -279,6 +271,10 @@ final class WorkspaceShellPresenter: NSObject {
             ?? NSScreen.main?.visibleFrame
             ?? screens.first
             ?? .zero
+    }
+
+    private func currentSlotFrame() -> CGRect {
+        layout(for: currentScreen(), pinned: effectivePinned()).slot
     }
 
     private func updateConfiguration() {
@@ -550,12 +546,10 @@ final class WorkspaceShellPresenter: NSObject {
         }
     }
 
-    /// Top bar: Agents on the left; the terminal chips + top-bar pin ride the right edge, matching the
-    /// donor's trailing cluster [PTY Manager] [＋ Terminal] [pin]. A low-hugging spacer pushes the
-    /// chips to the right so they sit rightmost, next to the pin.
+    /// Top bar: workspace tools stay on the left; the window-spawning chips + top-bar pin ride the
+    /// right edge as [PTY Manager] [＋ Agents] [＋ Terminal] [pin]. A low-hugging spacer pushes the
+    /// chips to the right so they stay together beside the pin.
     private func buildTopBar() {
-        let agentsButton = NSButton(title: "Agents", target: self, action: #selector(agentsTapped))
-        agentsButton.setAccessibilityIdentifier("workspace-shell-agents")
         let ideButton = NSButton(title: "IDE", target: self, action: #selector(ideTapped))
         ideButton.setAccessibilityIdentifier("workspace-shell-ide")
         let browserButton = NSButton(title: "Browser", target: self, action: #selector(browserTapped))
@@ -564,6 +558,8 @@ final class WorkspaceShellPresenter: NSObject {
         gestureButton.setAccessibilityIdentifier("workspace-shell-gesture")
         let ptyManagerButton = NSButton(title: "PTY Manager", target: self, action: #selector(openPtyManagerTapped))
         ptyManagerButton.setAccessibilityIdentifier("open-pty-manager")
+        let agentsButton = NSButton(title: "＋ Agents", target: self, action: #selector(openAgentsTapped))
+        agentsButton.setAccessibilityIdentifier("open-agents")
         let terminalButton = NSButton(title: "＋ Terminal", target: self, action: #selector(openTerminalTapped))
         terminalButton.setAccessibilityIdentifier("open-terminal")
         configureIconButton(topBarPinButton, symbol: "pin", id: "toggle-topbar-pin", label: "Pin top bar", action: #selector(topBarPinTapped))
@@ -574,7 +570,7 @@ final class WorkspaceShellPresenter: NSObject {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let topBarStack = NSStackView(views: [agentsButton, ideButton, browserButton, gestureButton, spacer, ptyManagerButton, terminalButton, topBarPinButton])
+        let topBarStack = NSStackView(views: [ideButton, browserButton, gestureButton, spacer, ptyManagerButton, agentsButton, terminalButton, topBarPinButton])
         topBarStack.orientation = .horizontal
         topBarStack.alignment = .centerY
         topBarStack.spacing = 8
@@ -631,7 +627,13 @@ final class WorkspaceShellPresenter: NSObject {
 
     // MARK: - Actions
 
-    @objc private func agentsTapped() { onAgentsCommand?() }
+    @objc private func openAgentsTapped() {
+        let slot = currentSlotFrame()
+        onOpenAgents?(AgentWindowPlacement(
+            desktopSpaceID: desktopSwitcher.currentAssignment()?.spaceID,
+            frame: centeredRect(in: slot, size: CGSize(width: 480, height: 720))
+        ))
+    }
 
     @objc private func ideTapped() { onIDECommand?() }
 
@@ -739,7 +741,7 @@ final class WorkspaceShellPresenter: NSObject {
             .union(axIdentifiers(in: overlay.topBarContentView))
             .union(axIdentifiers(in: overlay.dockContentView))
         let expected = [
-            "workspace-shell-agents", "workspace-shell-ide", "open-terminal", "open-pty-manager",
+            "workspace-shell-ide", "open-agents", "open-terminal", "open-pty-manager",
             "workspace-switcher", "add-workspace", "workspace-shell-title",
             "activity-bar", "activity-explorer", "activity-source-control",
             "sidebar-zoom-out", "sidebar-zoom-in", "workspace-shell-file-tree",

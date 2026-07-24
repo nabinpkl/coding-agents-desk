@@ -772,7 +772,7 @@ The host verifies the manifest, exact aggregate size, chunk sequence, and SHA-25
 - PTY lifetime is independent of the QUIC session state. Persistent workspace PTYs survive client detach and remain manager-owned until explicit kill, natural exit, or manager replacement.
 - Agent Panel resume PTYs are leased. The manager schedules the configured final-lease grace only when detach, close-client, or socket loss removes the final attached client. The production target is 30 seconds through host central config; tests inject shorter values.
 - Reattach during PTY grace cancels reaping and preserves the PTY/PID. With Mac and iPhone attached, the first detach cannot schedule a reap; only loss of the final lease can do so.
-- Explicit terminal close, panel back/context change, session replacement, iOS switch away from Agent or teardown, macOS Agents-window hide or close, revoke, and app termination go through the host coordinator and kill the leased PTY immediately. They do not wait for grace.
+- Explicit terminal close, panel back/context change, session replacement, iOS switch away from Agent or teardown, macOS Agents-window close, revoke, and app termination go through the host coordinator and kill the leased PTY immediately. They do not wait for grace.
 - If the final lease is still absent when grace expires, `pty-manager` asks `pty-vault` to kill the harness and removes its PTY, clients, and registry state. Natural harness exit and explicit kill cancel pending reap work. Manager handover transfers leased sessions without applying shutdown policy.
 - An unexpected renderer failure, terminal socket loss, transport loss, or iOS suspension detaches rather than issuing explicit kill, preserving the bounded reattach path.
 

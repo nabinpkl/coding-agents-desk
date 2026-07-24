@@ -14,13 +14,13 @@ private final class AgentPanelWindow: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// The macOS Agents window (R24): one reusable Agent surface hosted directly on the Mac, backed by
-/// the host-owned transcript sidecar through `AgentPanel`. It composes the shared webview above an optional
+/// One macOS Agents window hosted directly on the Mac, backed by the host-owned transcript sidecar
+/// through `AgentPanel`. It composes the shared webview above an optional
 /// native web terminal pane and routes both through host-owned bridges. Feed requests flow webview ->
 /// `AgentPanelBridgeTransport` -> `AgentFeedBridge` -> sidecar. Terminal intent flows through the
 /// local Agent-session coordinator and attaches the deterministic leased PTY below the shrinking feed.
 @MainActor
-final class AgentWindowController: NSObject, NSWindowDelegate {
+final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowControlling {
     static let windowIdentifier = "agentdesk-agents-window"
     static let webViewAccessibilityIdentifier = "agents-webview"
     static let unavailableAccessibilityIdentifier = "agents-unavailable"
@@ -29,44 +29,40 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
     private let localTerminalEndpoint: AgentSessionTerminalEndpoint?
     private let terminalPtyClient: PtyClient?
     private let terminalControllerForTesting: (any AgentWindowTerminalControlling)?
+    private let initialFrame: CGRect?
     private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-window")
 
+    private var onClosed: (@MainActor () -> Void)?
     private var window: NSWindow?
     private var panelController: AgentPanelWebViewController?
     private var transport: AgentPanelBridgeTransport?
     private var bridge: AgentFeedBridge?
     private var splitView: AgentWindowSplitView?
     private var terminalController: (any AgentWindowTerminalControlling)?
-    private var hideTask: Task<Void, Never>?
     private var stopTask: Task<Void, Never>?
 
     init(
         sidecarClient: any SidecarClient,
         localTerminalEndpoint: AgentSessionTerminalEndpoint? = nil,
         terminalPtyClient: PtyClient? = nil,
-        terminalControllerForTesting: (any AgentWindowTerminalControlling)? = nil
+        terminalControllerForTesting: (any AgentWindowTerminalControlling)? = nil,
+        initialFrame: CGRect? = nil,
+        onClosed: (@MainActor () -> Void)? = nil
     ) {
         self.sidecarClient = sidecarClient
         self.localTerminalEndpoint = localTerminalEndpoint
         self.terminalPtyClient = terminalPtyClient
         self.terminalControllerForTesting = terminalControllerForTesting
+        self.initialFrame = initialFrame
+        self.onClosed = onClosed
         super.init()
     }
 
-    /// Test seam: the constructed window (nil until the first `show()`/`toggle()`, and after `stop()`).
+    /// Test seam: the constructed window (nil until `show()`, and after close or `stop()`).
     var windowForTesting: NSWindow? { window }
 
-    /// Shows the window if hidden, hides it if visible. Wired to the shell's top-bar "Agents"
-    /// command so the button toggles the surface.
-    func toggle() {
-        if let window, window.isVisible {
-            beginHide(window, reason: .windowHidden)
-        } else {
-            show()
-        }
-    }
-
     func show() {
+        guard stopTask == nil else { return }
         if window == nil {
             build()
         }
@@ -129,12 +125,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
         return task
     }
 
-    func stop() async {
-        await beginStop().value
-    }
-
     private func finishStop() {
-        hideTask = nil
         bridge?.reset()
         panelController?.teardown()
         window?.orderOut(nil)
@@ -145,28 +136,9 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
         splitView = nil
         terminalController = nil
         stopTask = nil
-    }
-
-    @discardableResult
-    private func beginHide(
-        _ window: NSWindow,
-        reason: AgentWindowTerminalExplicitCloseReason
-    ) -> Task<Void, Never>? {
-        if let hideTask { return hideTask }
-        guard let terminalClose = terminalController?.beginExplicitClose(reason: reason) else {
-            window.orderOut(nil)
-            return nil
-        }
-        let task = Task { @MainActor [weak self, weak window] in
-            await terminalClose.value
-            guard let self else { return }
-            if let window, self.window === window {
-                window.orderOut(nil)
-            }
-            self.hideTask = nil
-        }
-        hideTask = task
-        return task
+        let onClosed = onClosed
+        self.onClosed = nil
+        onClosed?()
     }
 
     private func build() {
@@ -254,17 +226,18 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
         let styleMask: NSWindow.StyleMask = Config.axAutomationEnabled
             ? [.titled, .closable, .resizable]
             : [.titled, .closable, .resizable, .nonactivatingPanel]
+        let contentRect = NSRect(x: 0, y: 0, width: 480, height: 720)
         let window: NSWindow
         if Config.axAutomationEnabled {
             window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 480, height: 720),
+                contentRect: contentRect,
                 styleMask: styleMask,
                 backing: .buffered,
                 defer: false
             )
         } else {
             window = AgentPanelWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 480, height: 720),
+                contentRect: contentRect,
                 styleMask: styleMask,
                 backing: .buffered,
                 defer: false
@@ -277,12 +250,13 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
         window.hidesOnDeactivate = false
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         window.setAccessibilityIdentifier(Self.windowIdentifier)
-        // Closing hides rather than destroys, so the toggle can re-show the same surface without
-        // re-fetching the whole feed.
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.setFrameAutosaveName("AgentDeskAgentsWindow")
-        window.center()
+        if let initialFrame {
+            window.setFrame(initialFrame, display: false)
+        } else {
+            window.center()
+        }
         return window
     }
 
@@ -308,8 +282,13 @@ final class AgentWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        // Hide instead of close so `isReleasedWhenClosed = false` keeps the surface alive.
-        beginHide(sender, reason: .windowShouldClose)
+        guard stopTask == nil else { return false }
+        let terminalClose = terminalController?.beginExplicitClose(reason: .windowShouldClose)
+        let task = Task { @MainActor [self] in
+            await terminalClose?.value
+            finishStop()
+        }
+        stopTask = task
         return false
     }
 }

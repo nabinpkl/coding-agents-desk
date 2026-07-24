@@ -57,7 +57,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 10. macOS host starts an auto-hiding workspace sidebar and top bar while remaining a menu-bar application with no Dock icon.
 11. Add project folders as persistent workspaces, browse their files, and open text, Markdown, HTML, and notebooks in the host-owned viewer/editor.
 12. Edit workspace files locally with atomic autosave and visible external-change conflicts.
-13. Open a macOS Agents window from the top bar and browse discovered Claude and Codex projects, sessions, history, and live activity.
+13. Open independent macOS Agents windows from the top-bar `＋ Agents` command on the current Desktop and browse discovered Claude and Codex projects, sessions, history, and live activity.
 14. On iPhone, browse the same registered workspace roots, preview files, edit UTF-8 text, and save only when the host revision still matches.
 15. On macOS, inspect running apps by Desktop in the bottom Dock-enrichment strip, focus an exact
     Desktop-scoped window without moving it, and transactionally swap the ordinary window contents of

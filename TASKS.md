@@ -137,6 +137,12 @@ the master descriptor.
   cache-directory setting, and pin the workspace-store path so future cleanup cannot silently reroute
   workspace, pairing, identity, and PTY state into a feature subdirectory.
 
+## Desktop-scoped Agents windows
+
+- D123. Replace the singleton Agents toggle with a trailing `＋ Agents` command that opens an
+  independent window on the current Desktop; isolate each window's feed and terminal endpoint, remove
+  it from the registry after close, and make app termination await every open window.
+
 ## Promotion log
 
 ```text
@@ -152,4 +158,5 @@ R117     2026-07-23  checkpoint  authorized real-host acceptance remains
 D118-120 2026-07-24 landed       AgentDesk-owned AgentPanel Vite source and transcript sidecar
 D121     2026-07-24  landed       layered no-cache Agent feed, live SSE, protocol 15, and timing gates
 D122     2026-07-24  landed       restored bundle-scoped host state after Agent Feed cache deletion
+D123     2026-07-24  landed       current-Desktop independent Agents windows beside Terminal
 ```

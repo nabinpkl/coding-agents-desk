@@ -145,15 +145,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var browserProjectionSession: BrowserProjectionSession?
     private var browserProjectionLane: BrowserProjectionLocalLane?
     private var browserProjectionViewportCoordinator: BrowserProjectionViewportCoordinator?
-    // R24: the macOS Agents window, toggled from the shell's top-bar "Agents" command. Backed by the
-    // host-owned transcript sidecar through AgentPanel, independent of the QUIC-lane agent feed.
-    private var agentWindowController: AgentWindowController?
+    // Independent macOS Agents windows, created from the shell's top-bar "＋ Agents" command. Each
+    // window owns its feed visibility subscription and local terminal endpoint.
+    private var agentWindowRegistry: AgentWindowRegistry?
     private var agentWindowTerminationTask: Task<Void, Never>?
     // The macOS gesture window: the shared InteractionPanel webview runs camera +
     // the TS swipe tracker and applies each Space step in-process. Opt-in via
     // AGENTDESK_GESTURE_WINDOW_ENABLED until a top-bar toggle is added.
     private var gestureWindowController: GestureWindowController?
-    private let agentWindowApplicationLifecycle = AgentWindowApplicationLifecycle()
     private var agentSayServer: AgentSayLocalServer?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
@@ -229,12 +228,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tombstoneLimit: Config.agentTerminalRequestTombstoneLimit
         )
     }
-    lazy var localAgentSessionTerminalEndpoint = AgentSessionTerminalEndpoint(
-        coordinator: agentSessionTerminalCoordinator,
-        platform: .macOS,
-        requestNamespace: "macos-local",
-        tombstoneLimit: Config.agentTerminalRequestTombstoneLimit
-    )
     private lazy var workspaceTerminalCoordinator = WorkspaceTerminalCoordinator(
         workspaceCoordinator: workspaceCoordinator,
         ptyClient: PtyClientAgentSessionTerminalAdapter(
@@ -385,15 +378,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let controller = agentWindowController else { return .terminateNow }
-        guard agentWindowTerminationTask == nil else { return .terminateLater }
-        let stopTask = agentWindowApplicationLifecycle.beginStop {
-            controller.beginStop()
+        guard let registry = agentWindowRegistry, registry.requiresTerminationWait else {
+            return .terminateNow
         }
+        guard agentWindowTerminationTask == nil else { return .terminateLater }
+        let stopTask = registry.beginStopAll()
         agentWindowTerminationTask = Task { @MainActor [weak self, weak sender] in
             await stopTask.value
-            if self?.agentWindowController === controller {
-                self?.agentWindowController = nil
+            if self?.agentWindowRegistry === registry {
+                self?.agentWindowRegistry = nil
             }
             sender?.reply(toApplicationShouldTerminate: true)
         }
@@ -430,12 +423,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         terminalWindowRegistry.prepareForHostTermination()
         // Normal termination waits for this in applicationShouldTerminate. This fallback still
         // establishes the close barrier if AppKit reaches willTerminate without that callback.
-        if let controller = agentWindowController {
-            agentWindowApplicationLifecycle.beginStop {
-                controller.beginStop()
-            }
-        }
-        agentWindowController = nil
+        agentWindowRegistry?.beginStopAll()
+        agentWindowRegistry = nil
         gestureWindowController?.stop()
         gestureWindowController = nil
         agentSayServer?.stop()
@@ -578,18 +567,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         workspaceShellPresenter = presenter
 
-        // R24: the Agents window shares the sidecar-backed AgentFeedBridge path with the phone feed;
-        // it resolves the sidecar base URL lazily per request, same as the QUIC-lane wiring, so a
-        // toggle that arrives while the sidecar is mid-restart fails transiently rather than for good.
-        // The controller remains unpresented until the top-bar command invokes toggle().
+        // Each top-bar command creates an independent Agents window on the current Desktop. Every
+        // window resolves the sidecar base URL lazily and owns a distinct terminal endpoint, so feed
+        // visibility and terminal pushes cannot overwrite another window's subscription.
         let sidecar = agentFeedSidecar
-        let agentWindow = AgentWindowController(
+        let agentWindows = AgentWindowRegistry(
             sidecarClient: HttpSidecarClient(baseURLProvider: { [weak sidecar] in sidecar?.baseURL }),
-            localTerminalEndpoint: localAgentSessionTerminalEndpoint,
-            terminalPtyClient: PtyManagerSocketClient.makeClient()
+            terminalCoordinator: agentSessionTerminalCoordinator,
+            terminalTombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
+            makeTerminalPtyClient: { PtyManagerSocketClient.makeClient() }
         )
-        agentWindowController = agentWindow
-        presenter.onAgentsCommand = { [weak agentWindow] in agentWindow?.toggle() }
+        agentWindowRegistry = agentWindows
+        presenter.onOpenAgents = { [weak agentWindows] placement in
+            agentWindows?.open(placement)
+        }
         presenter.onIDECommand = { [weak self] in self?.toggleWorkspaceIDE() }
         presenter.onBrowserCommand = { [weak self] in self?.toggleBrowserProjection() }
 
@@ -1337,7 +1328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func routeAgentSessionTerminalEvent(
         _ event: AgentSessionTerminalCoordinatorEvent
     ) async {
-        await localAgentSessionTerminalEndpoint.handleCoordinatorEvent(event)
+        await agentWindowRegistry?.handleCoordinatorEvent(event)
         for endpoint in agentSessionTerminalEndpoints.activeEndpoints {
             await endpoint.handleCoordinatorEvent(event)
         }

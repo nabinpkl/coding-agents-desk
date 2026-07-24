@@ -7,7 +7,6 @@ import PtyTerminalSession
 import PtyTerminalWebView
 
 enum AgentWindowTerminalExplicitCloseReason: String, Equatable {
-    case windowHidden = "window-hidden"
     case windowShouldClose = "window-should-close"
     case appTermination = "app-termination"
 }

@@ -38,7 +38,11 @@ struct AgentWindowControllerTests {
     }
 
     @Test func showBuildsAnAccessibilityIdentifiedAgentsWindow() throws {
-        let controller = AgentWindowController(sidecarClient: FakeSidecarClient())
+        let initialFrame = CGRect(x: 80, y: 120, width: 480, height: 720)
+        let controller = AgentWindowController(
+            sidecarClient: FakeSidecarClient(),
+            initialFrame: initialFrame
+        )
         #expect(controller.windowForTesting == nil)
 
         controller.show()
@@ -47,6 +51,8 @@ struct AgentWindowControllerTests {
         #expect(window.title == "Agents")
         #expect(window.identifier?.rawValue == AgentWindowController.windowIdentifier)
         #expect(window.accessibilityIdentifier() == AgentWindowController.windowIdentifier)
+        #expect(window.frame == initialFrame)
+        #expect(!window.collectionBehavior.contains(.canJoinAllSpaces))
 
         // The content surface is AX-reachable as either the live webview or the fallback label.
         let ids = axIdentifiers(in: window.contentView)
@@ -56,41 +62,14 @@ struct AgentWindowControllerTests {
         )
     }
 
-    @Test func toggleWaitsForCloseThenReusesFeedWithoutRestoringTerminal() async throws {
+    @Test func closeWaitsForTerminalThenDiscardsTheWindowAndNotifiesItsOwner() async throws {
         let terminal = FakeAgentWindowTerminalController()
         terminal.suspendClose = true
+        var closeCount = 0
         let controller = AgentWindowController(
             sidecarClient: FakeSidecarClient(),
-            terminalControllerForTesting: terminal
-        )
-        controller.show()
-        let first = try #require(controller.windowForTesting)
-
-        // A toggle hides-or-shows but must never construct a second window: the surface (and its
-        // in-flight feed) is preserved across visibility changes.
-        controller.toggle()
-        #expect(first.isVisible)
-        #expect(terminal.closeReasons == [.windowHidden])
-
-        #expect(controller.windowShouldClose(first) == false)
-        #expect(first.isVisible)
-        #expect(terminal.closeReasons == [.windowHidden])
-
-        terminal.resumeClose()
-        try await waitUntil { !first.isVisible }
-        controller.toggle()
-        #expect(controller.windowForTesting === first)
-        #expect(first.isVisible)
-        #expect(terminal.closeReasons == [.windowHidden])
-        #expect(terminal.handledIntents.isEmpty)
-    }
-
-    @Test func windowShouldCloseWaitsForCloseCommitBeforeHiding() async throws {
-        let terminal = FakeAgentWindowTerminalController()
-        terminal.suspendClose = true
-        let controller = AgentWindowController(
-            sidecarClient: FakeSidecarClient(),
-            terminalControllerForTesting: terminal
+            terminalControllerForTesting: terminal,
+            onClosed: { closeCount += 1 }
         )
         controller.show()
         let window = try #require(controller.windowForTesting)
@@ -98,11 +77,11 @@ struct AgentWindowControllerTests {
         #expect(controller.windowShouldClose(window) == false)
         #expect(window.isVisible)
         #expect(terminal.closeReasons == [.windowShouldClose])
-        #expect(controller.windowForTesting === window)
-
+        #expect(closeCount == 0)
         terminal.resumeClose()
-        try await waitUntil { !window.isVisible }
-        #expect(controller.windowForTesting === window)
+        try await waitUntil { controller.windowForTesting == nil }
+        #expect(!window.isVisible)
+        #expect(closeCount == 1)
     }
 
     @Test func stopAwaitsTerminalCloseAndTearsDownTheWindow() async {
@@ -310,36 +289,6 @@ struct AgentWindowControllerTests {
             try await waitForAccessibilityDOMIdentifier(projectID, in: window)
             try await waitForAccessibilityDOMIdentifier(sessionID, in: window)
         }
-    }
-
-    @Test func appTerminationWaitsUntilTheAgentWindowHasNoTerminal() async {
-        let terminal = FakeAgentWindowTerminalController()
-        terminal.suspendClose = true
-        let controller = AgentWindowController(
-            sidecarClient: FakeSidecarClient(),
-            terminalControllerForTesting: terminal
-        )
-        controller.show()
-        let lifecycle = AgentWindowApplicationLifecycle()
-        var stopCalls = 0
-
-        let termination = lifecycle.beginStop {
-            stopCalls += 1
-            return controller.beginStop()
-        }
-        let repeatedTermination = lifecycle.beginStop {
-            stopCalls += 1
-            return controller.beginStop()
-        }
-        #expect(terminal.closeReasons == [.appTermination])
-        #expect(stopCalls == 1)
-        #expect(controller.windowForTesting != nil)
-
-        terminal.resumeClose()
-        await termination.value
-        await repeatedTermination.value
-        #expect(stopCalls == 1)
-        #expect(controller.windowForTesting == nil)
     }
 
     private func waitUntil(

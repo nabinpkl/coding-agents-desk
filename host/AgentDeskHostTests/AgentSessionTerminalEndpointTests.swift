@@ -176,7 +176,7 @@ struct AgentSessionTerminalEndpointTests {
             requestID: newOpen.requestID,
             context: context,
             ptySessionName: oldReady.ptySessionName,
-            reason: "window-hidden"
+            reason: "window-should-close"
         )
         await endpoint.handle(.close(close))
         await endpoint.handle(.close(close))
