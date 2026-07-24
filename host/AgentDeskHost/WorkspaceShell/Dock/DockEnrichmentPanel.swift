@@ -655,6 +655,11 @@ private final class DockAppIconButton: NSView {
         true
     }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard super.hitTest(point) != nil else { return nil }
+        return self
+    }
+
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         guard !isMouseDownInside else { return }

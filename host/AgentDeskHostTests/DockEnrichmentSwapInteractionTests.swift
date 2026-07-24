@@ -209,14 +209,23 @@ struct DockEnrichmentSwapInteractionTests {
 
     @Test func oneWindowIconPrimaryActionDispatchesItsDesktopScopedTarget() {
         let panel = DockEnrichmentPanel()
+        panel.frame = NSRect(x: 0, y: 0, width: 800, height: 140)
         let snapshot = Self.focusSnapshot(windowCount: 1)
         var requests: [DockWindowFocusRequest] = []
         panel.onWindowFocus = { requests.append($0) }
         panel.render(snapshot, swapState: .idle)
+        panel.layoutSubtreeIfNeeded()
 
         let appButton = panel.descendant(identifier: "dock-app-44")
 
         #expect(appButton?.acceptsFirstMouse(for: nil) == true)
+        if let appButton, let superview = appButton.superview {
+            let iconCenter = appButton.convert(
+                NSPoint(x: appButton.bounds.midX, y: appButton.bounds.midY),
+                to: superview
+            )
+            #expect(appButton.hitTest(iconCenter) === appButton)
+        }
         #expect(appButton?.accessibilityPerformPress() == true)
         #expect(requests.count == 1)
         #expect(requests.first?.pid == 44)
