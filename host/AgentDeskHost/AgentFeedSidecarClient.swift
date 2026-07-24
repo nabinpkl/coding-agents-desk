@@ -150,6 +150,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
     }
 
     func fetchDigest() async throws -> [AgentFeedProjectDigest] {
+        let startedAt = DispatchTime.now().uptimeNanoseconds
         let url = try currentBaseURL().appendingPathComponent("/api/projects/digest")
         let (data, response) = try await session.data(from: url)
         try validateHTTP(response, url: url)
@@ -157,6 +158,10 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
             let projects: [AgentFeedProjectDigest]
         }
         let envelope = try JSONDecoder().decode(Envelope.self, from: data)
+        let durationMilliseconds = (DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+        logger.notice(
+            "agent-feed digest response durationMs=\(durationMilliseconds, privacy: .public) bytes=\(data.count, privacy: .public) projects=\(envelope.projects.count, privacy: .public)"
+        )
         return envelope.projects
     }
 

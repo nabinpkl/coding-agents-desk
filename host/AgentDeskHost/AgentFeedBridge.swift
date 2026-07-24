@@ -186,18 +186,25 @@ final class AgentFeedBridge: @unchecked Sendable {
     // MARK: - Private helpers
 
     private func fetchAndPushProjects() async {
+        let startedAt = DispatchTime.now().uptimeNanoseconds
         do {
             let digests = try await client.fetchDigest()
             guard !Task.isCancelled else { return }
             let wireProjects = digests.map { wireDigest(from: $0) }
             let push = AgentProjectsPush(projects: wireProjects)
             sendCodable(push)
-            logger.notice("agent-feed: projects push sent count=\(wireProjects.count, privacy: .public)")
+            let durationMilliseconds = (DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+            logger.notice(
+                "agent-feed: projects push sent count=\(wireProjects.count, privacy: .public) durationMs=\(durationMilliseconds, privacy: .public)"
+            )
         } catch is CancellationError {
             logger.debug("agent-feed: projects fetch cancelled")
         } catch {
             guard !Task.isCancelled else { return }
-            logger.error("agent-feed-bridge: projects fetch failed: \(String(describing: error), privacy: .public)")
+            let durationMilliseconds = (DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+            logger.error(
+                "agent-feed-bridge: projects fetch failed durationMs=\(durationMilliseconds, privacy: .public): \(String(describing: error), privacy: .public)"
+            )
             // Projects errors use an empty sessionId because this request is not
             // tied to one thread.
             let err = AgentThreadError(sessionId: "", reason: error.localizedDescription)
