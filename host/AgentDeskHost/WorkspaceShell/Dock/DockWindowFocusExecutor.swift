@@ -291,7 +291,7 @@ final class DockWindowFocusExecutor<AXAccess: DockAXWindowAccessing>: DockWindow
     ) throws -> DockCGWindowFacts {
         guard let target = cgWindows.windows().first(where: {
             $0.pid == request.pid && $0.windowID == windowID
-        }) else {
+        }), DockWindowMatcher.isOrdinary(target) else {
             throw DockWindowFocusError.staleWindow(windowID)
         }
         let titleMatches = !target.title.isEmpty &&

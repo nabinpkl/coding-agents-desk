@@ -651,6 +651,10 @@ private final class DockAppIconButton: NSView {
         onHover?(true)
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         guard !isMouseDownInside else { return }
@@ -1037,6 +1041,10 @@ final class DockWindowFocusButton: NSButton {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
     }
 
     override func accessibilityPerformPress() -> Bool {

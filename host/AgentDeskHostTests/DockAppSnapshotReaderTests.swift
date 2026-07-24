@@ -87,6 +87,95 @@ struct DockAppSnapshotReaderTests {
         #expect(snapshot.desktopGroups.first?.apps.map(\.name) == ["Editor"])
     }
 
+    @Test func nonzeroLayerControlWindowDoesNotDuplicateAppAcrossDesktopsOrWindowCount() {
+        let app = DockRunningApplicationFacts(
+            pid: 100,
+            name: "ChatGPT",
+            bundleIdentifier: "com.openai.chat",
+            bundleURL: nil,
+            isRegular: true
+        )
+        let ax = DockAXWindowFacts(
+            title: "ChatGPT",
+            role: "AXWindow",
+            subrole: "AXStandardWindow",
+            isFocused: true,
+            isMinimized: false,
+            bounds: bounds
+        )
+        let ordinary = DockCGWindowFacts(
+            pid: 100,
+            windowID: 42,
+            title: "ChatGPT",
+            layer: 0,
+            alpha: 1,
+            bounds: bounds
+        )
+        let allSpacesControl = DockCGWindowFacts(
+            pid: 100,
+            windowID: 43,
+            title: "Codex",
+            layer: 3,
+            alpha: 1,
+            bounds: bounds
+        )
+        let desktops = [
+            WorkspaceDesktop(
+                id: 1,
+                displayID: "display-1",
+                ordinal: 0,
+                missionControlOrdinal: 0,
+                isActive: true
+            ),
+            WorkspaceDesktop(
+                id: 2,
+                displayID: "display-1",
+                ordinal: 1,
+                missionControlOrdinal: 1,
+                isActive: false
+            ),
+        ]
+        let audit = StaticWorkspaceDesktopAudit(WorkspaceDesktopSnapshot(
+            activeSpaceID: 1,
+            desktops: desktops,
+            windows: [
+                WorkspaceDesktopWindow(
+                    windowID: 42,
+                    ownerName: "ChatGPT",
+                    title: "ChatGPT",
+                    spaceIDs: [1],
+                    layer: 0,
+                    bounds: bounds,
+                    expectation: .otherApp
+                ),
+                WorkspaceDesktopWindow(
+                    windowID: 43,
+                    ownerName: "ChatGPT",
+                    title: "Codex",
+                    spaceIDs: [1, 2],
+                    layer: 3,
+                    bounds: bounds,
+                    expectation: .otherApp
+                ),
+            ],
+            diagnostic: nil
+        ))
+        let reader = DockAppSnapshotReader(
+            applications: StubApps(apps: [app]),
+            axWindows: StubAX(byPID: [100: .windows([ax])]),
+            cgWindows: StubCG(list: [ordinary, allSpacesControl]),
+            desktopAudit: audit,
+            monitors: StaticDockDisplayMonitorReader(monitors: [])
+        )
+
+        let snapshot = reader.snapshot()
+        let firstDesktopApp = snapshot.desktopGroups.first { $0.spaceID == 1 }?.apps.first
+        let secondDesktopApps = snapshot.desktopGroups.first { $0.spaceID == 2 }?.apps ?? []
+
+        #expect(firstDesktopApp?.windows.map(\.windowID) == [42])
+        #expect(secondDesktopApps.isEmpty)
+    }
+
     @Test func monitorBadgeUsesDisplayRoleInsteadOfMissionControlOrdinal() {
         let primary = DockDesktopGroupSummary(
             spaceID: 1,

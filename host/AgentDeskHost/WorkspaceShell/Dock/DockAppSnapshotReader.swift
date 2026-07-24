@@ -116,6 +116,7 @@ public struct DockAppSnapshotReader: DockAppSnapshotReading {
             )
         }
         let cgOnly = cgWindows
+            .filter(DockWindowMatcher.isOrdinary)
             .filter { !usedCGWindowIDs.contains($0.windowID) }
             .filter { !$0.title.isEmpty && !isShellControlWindow(app: app, title: $0.title) }
             .map { cg in

@@ -12,7 +12,9 @@ enum DockWindowMatcher {
         in windows: [DockCGWindowFacts],
         excluding used: Set<UInt32>
     ) -> DockCGWindowFacts? {
-        let available = windows.filter { !used.contains($0.windowID) }
+        let available = windows.filter {
+            isOrdinary($0) && !used.contains($0.windowID)
+        }
         if let exactTitle = available.first(where: { !$0.title.isEmpty && $0.title == ax.title }) {
             return exactTitle
         }
@@ -21,6 +23,10 @@ enum DockWindowMatcher {
             return boundsMatch
         }
         return available.first { $0.layer == 0 }
+    }
+
+    static func isOrdinary(_ window: DockCGWindowFacts) -> Bool {
+        window.layer == 0
     }
 
     /// Resolves one live AX window to an exact CG target. Focus must never use the snapshot reader's

@@ -216,6 +216,7 @@ struct DockEnrichmentSwapInteractionTests {
 
         let appButton = panel.descendant(identifier: "dock-app-44")
 
+        #expect(appButton?.acceptsFirstMouse(for: nil) == true)
         #expect(appButton?.accessibilityPerformPress() == true)
         #expect(requests.count == 1)
         #expect(requests.first?.pid == 44)
@@ -291,6 +292,7 @@ struct DockEnrichmentSwapInteractionTests {
 
         #expect(button.accessibilityIdentifier() == "dock-window-focus-44-700")
         #expect(button.accessibilityLabel() == "Focus Window 1")
+        #expect(button.acceptsFirstMouse(for: nil))
         #expect(button.accessibilityPerformPress())
         #expect(received == request)
     }
