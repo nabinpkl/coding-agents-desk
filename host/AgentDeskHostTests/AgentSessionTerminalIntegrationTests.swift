@@ -86,6 +86,7 @@ struct AgentSessionTerminalIntegrationTests {
         let fixture = try RealAgentTerminalIntegrationFixture()
         defer { fixture.cleanup() }
         try await fixture.startManager()
+        let initialVaultPID = try #require(fixture.vaultPID)
 
         let ready = try await fixture.open(source: "codex")
         let connection = try await fixture.attach(to: ready, title: "r71-shutdown")
@@ -97,6 +98,7 @@ struct AgentSessionTerminalIntegrationTests {
         #expect(fixture.processExists(ready.pid))
 
         try await fixture.startManager()
+        #expect(fixture.vaultPID == initialVaultPID)
         try await fixture.expectRunning(sessionName: ready.ptySessionName, pid: ready.pid)
         let recovered = try await fixture.attach(to: ready, title: "r71-recovered")
         #expect(recovered.attachment.pid == ready.pid)
@@ -106,5 +108,8 @@ struct AgentSessionTerminalIntegrationTests {
         try await fixture.waitForSessionRemoval(ready.ptySessionName)
         try await fixture.waitForProcessExit(ready.pid)
         _ = connection
+
+        fixture.cleanup()
+        #expect(!fixture.processExists(initialVaultPID))
     }
 }

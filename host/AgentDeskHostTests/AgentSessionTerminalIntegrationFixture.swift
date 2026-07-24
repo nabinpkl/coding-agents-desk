@@ -19,6 +19,9 @@ final class RealAgentTerminalIntegrationFixture: @unchecked Sendable {
     let sandbox: URL
     let home: URL
     let project: URL
+    var vaultPID: UInt32? {
+        vaultProcess.map { UInt32($0.processIdentifier) }
+    }
 
     private let socketURL: URL
     private let outputDirectory: URL
@@ -92,20 +95,27 @@ final class RealAgentTerminalIntegrationFixture: @unchecked Sendable {
         let logHandle = try FileHandle(forWritingTo: logURL)
         managerLogHandle = logHandle
 
-        let vault = Process()
-        vault.executableURL = vaultBinaryURL
-        vault.arguments = HostPtyRuntimeProcess.vaultLaunchArguments(
-            socketURL: socketURL.deletingLastPathComponent()
-                .appendingPathComponent("pty-vault.sock", isDirectory: false)
-        )
         var environment = ProcessInfo.processInfo.environment
         environment["AGENTDESK_AGENT_TERMINAL_FIXTURE_OUTPUT_DIR"] = outputDirectory.path
         environment["RUST_LOG"] = "error"
-        vault.environment = environment
-        vault.standardOutput = logHandle
-        vault.standardError = logHandle
-        try vault.run()
-        vaultProcess = vault
+
+        if let vaultProcess {
+            guard vaultProcess.isRunning else {
+                throw IntegrationFixtureError("pty-vault exited before manager restart")
+            }
+        } else {
+            let vault = Process()
+            vault.executableURL = vaultBinaryURL
+            vault.arguments = HostPtyRuntimeProcess.vaultLaunchArguments(
+                socketURL: socketURL.deletingLastPathComponent()
+                    .appendingPathComponent("pty-vault.sock", isDirectory: false)
+            )
+            vault.environment = environment
+            vault.standardOutput = logHandle
+            vault.standardError = logHandle
+            try vault.run()
+            vaultProcess = vault
+        }
 
         let process = Process()
         process.executableURL = managerBinaryURL
