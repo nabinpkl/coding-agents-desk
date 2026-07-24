@@ -696,7 +696,7 @@ check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar
     else
         DD='{{derived_data}}'; EXTRA=()
     fi
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -derivedDataPath "$DD" ${EXTRA[@]+"${EXTRA[@]}"} build test
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -derivedDataPath "$DD" ${EXTRA[@]+"${EXTRA[@]}"} -collect-test-diagnostics never test
 
 # Real coordinator-to-pty-manager lifecycle smoke on an isolated temporary socket.
 # This builds the test daemon in place and never launches either app.
