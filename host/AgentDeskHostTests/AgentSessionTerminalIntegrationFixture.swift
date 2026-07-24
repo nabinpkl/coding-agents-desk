@@ -23,6 +23,7 @@ final class RealAgentTerminalIntegrationFixture: @unchecked Sendable {
     private let socketURL: URL
     private let outputDirectory: URL
     private let managerBinaryURL: URL
+    private let vaultBinaryURL: URL
     private let executables: AgentResumeLaunch.Executables
     private let client: PtyClient
     private let coordinator: AgentSessionTerminalCoordinator
@@ -31,6 +32,7 @@ final class RealAgentTerminalIntegrationFixture: @unchecked Sendable {
     private var knownChildPIDs: Set<UInt32> = []
     private var nextRequestNumber = 0
     private var managerProcess: Process?
+    private var vaultProcess: Process?
     private var managerLogHandle: FileHandle?
 
     init(handoffTimeout: Duration = .seconds(5)) throws {
@@ -59,6 +61,7 @@ final class RealAgentTerminalIntegrationFixture: @unchecked Sendable {
             )
 
             managerBinaryURL = try Self.resolveManagerBinary()
+            vaultBinaryURL = try Self.resolveRuntimeBinary(named: "pty-vault")
             let client = PtyClient(socketPath: socketURL.path)
             let handoffEvents = AgentTerminalHandoffEventRecorder()
             self.client = client
@@ -89,15 +92,27 @@ final class RealAgentTerminalIntegrationFixture: @unchecked Sendable {
         let logHandle = try FileHandle(forWritingTo: logURL)
         managerLogHandle = logHandle
 
-        let process = Process()
-        process.executableURL = managerBinaryURL
-        process.arguments = HostPtyManagerProcess.launchArguments(
-            socketURL: socketURL,
-            leasedSessionGraceSeconds: Self.leaseGraceSeconds
+        let vault = Process()
+        vault.executableURL = vaultBinaryURL
+        vault.arguments = HostPtyRuntimeProcess.vaultLaunchArguments(
+            socketURL: socketURL.deletingLastPathComponent()
+                .appendingPathComponent("pty-vault.sock", isDirectory: false)
         )
         var environment = ProcessInfo.processInfo.environment
         environment["AGENTDESK_AGENT_TERMINAL_FIXTURE_OUTPUT_DIR"] = outputDirectory.path
         environment["RUST_LOG"] = "error"
+        vault.environment = environment
+        vault.standardOutput = logHandle
+        vault.standardError = logHandle
+        try vault.run()
+        vaultProcess = vault
+
+        let process = Process()
+        process.executableURL = managerBinaryURL
+        process.arguments = HostPtyRuntimeProcess.managerLaunchArguments(
+            socketURL: socketURL,
+            leasedSessionGraceSeconds: Self.leaseGraceSeconds
+        )
         process.environment = environment
         process.standardOutput = logHandle
         process.standardError = logHandle
@@ -271,6 +286,7 @@ final class RealAgentTerminalIntegrationFixture: @unchecked Sendable {
 
     func cleanup() {
         stopManagerSynchronously()
+        stopVaultSynchronously()
         let childPIDs = childLock.withLock { Array(knownChildPIDs) }
         for pid in childPIDs where processExists(pid) {
             _ = Darwin.kill(pid_t(pid), SIGKILL)
@@ -327,22 +343,41 @@ final class RealAgentTerminalIntegrationFixture: @unchecked Sendable {
         managerProcess = nil
     }
 
+    private func stopVaultSynchronously() {
+        guard let process = vaultProcess else { return }
+        if process.isRunning {
+            _ = Darwin.kill(process.processIdentifier, SIGTERM)
+            for _ in 0..<200 where process.isRunning {
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            if process.isRunning {
+                _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            }
+        }
+        process.waitUntilExit()
+        vaultProcess = nil
+    }
+
     private func managerLog() -> String {
         let url = sandbox.appendingPathComponent("pty-manager.log", isDirectory: false)
         return (try? String(contentsOf: url, encoding: .utf8)) ?? "no manager log"
     }
 
     private static func resolveManagerBinary() throws -> URL {
+        try resolveRuntimeBinary(named: "pty-manager")
+    }
+
+    private static func resolveRuntimeBinary(named name: String) throws -> URL {
         let repository = URL(fileURLWithPath: #filePath, isDirectory: false)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let url = repository
             .appendingPathComponent("terminal/pty-manager/target/debug", isDirectory: true)
-            .appendingPathComponent("pty-manager", isDirectory: false)
+            .appendingPathComponent(name, isDirectory: false)
         guard FileManager.default.isExecutableFile(atPath: url.path) else {
             throw IntegrationFixtureError(
-                "pty-manager test binary is not executable at \(url.path); "
+                "\(name) test binary is not executable at \(url.path); "
                     + "run just agent-terminal-integration-test"
             )
         }

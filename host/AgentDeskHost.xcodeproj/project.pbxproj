@@ -71,6 +71,7 @@
 				PairingSignalingServer.swift,
 				PopoverViewController.swift,
 				"pty-manager",
+				"pty-vault",
 				QRCodeRenderer.swift,
 				ScreenCaptureKitFrameSource.swift,
 				TestPatternFrameSource.swift,

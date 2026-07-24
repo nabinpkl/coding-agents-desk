@@ -45,6 +45,12 @@ struct Args {
 
     #[arg(long, default_value_t = 512)]
     pty_event_frames: usize,
+
+    #[arg(long)]
+    handover: bool,
+
+    #[arg(long)]
+    runtime_digest: Option<String>,
 }
 
 #[tokio::main]
@@ -69,15 +75,27 @@ async fn main() -> anyhow::Result<()> {
         pty_event_frames: args.pty_event_frames,
     };
     limits.validate()?;
-    PtyManager::new_configured(
+    let socket_path = args.socket;
+    let identity_socket_path = socket_path.clone();
+    let runtime_digest = args.runtime_digest;
+    let publish_identity = move || {
+        if let Some(digest) = &runtime_digest {
+            pty_manager::runtime_identity::publish(&identity_socket_path, digest)?;
+        }
+        Ok(())
+    };
+    let manager = PtyManager::new_configured(
         PtyManagerOptions {
-            socket_path: args.socket,
+            socket_path,
             leased_session_grace: Duration::from_secs(args.leased_session_grace_seconds),
         }
         .with_limits(limits),
-    )
-    .run()
-    .await?;
+    );
+    if args.handover {
+        manager.run_handover_with_ready(publish_identity).await?;
+    } else {
+        manager.run_with_ready(publish_identity).await?;
+    }
     Ok(())
 }
 

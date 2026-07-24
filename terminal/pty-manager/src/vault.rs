@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
@@ -7,18 +7,28 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use prost::Message;
 
 use crate::error::{Result, TerminalError};
 use crate::fd_transfer::{duplicate_descriptor, receive_message, send_message};
 use crate::protocol::validate_session_name;
 use crate::vault_protocol::generated::{
-    create_session, vault_request, vault_response, Acknowledged, CreateSession, ExitStatus,
-    Session, SessionLease, SessionList, VaultRequest, VaultResponse,
+    create_session, handover_phase, vault_request, vault_response, Acknowledged, CreateSession,
+    ExitStatus, HandoverPhase, ImportSession, Session, SessionLease, SessionList,
+    VaultHandoverCommit, VaultHandoverDescriptor, VaultHandoverManifest, VaultRequest,
+    VaultResponse,
 };
 use crate::vault_protocol::VAULT_PROTOCOL_VERSION;
+
+#[path = "vault_handover.rs"]
+mod handover;
+#[path = "vault_sessions.rs"]
+mod sessions;
+
+use sessions::*;
 
 #[derive(Debug, Clone)]
 pub struct VaultOptions {
@@ -34,11 +44,21 @@ pub struct Vault {
 struct VaultState {
     sessions: HashMap<String, VaultSession>,
     next_generation: u64,
+    vault_generation: u64,
 }
 
 struct VaultSession {
     metadata: Session,
     master: OwnedFd,
+}
+
+struct VaultRuntime {
+    state: Arc<Mutex<VaultState>>,
+    listener: Arc<UnixListener>,
+    shutdown: Arc<AtomicBool>,
+    handover_in_progress: AtomicBool,
+    authority: Mutex<()>,
+    max_sessions: usize,
 }
 
 impl Vault {
@@ -53,6 +73,7 @@ impl Vault {
             state: Arc::new(Mutex::new(VaultState {
                 sessions: HashMap::new(),
                 next_generation: 1,
+                vault_generation: 1,
             })),
         })
     }
@@ -61,19 +82,71 @@ impl Vault {
         self.run_until(Arc::new(AtomicBool::new(false)))
     }
 
+    pub fn run_with_ready<F>(self, ready: F) -> Result<()>
+    where
+        F: FnOnce() -> Result<()>,
+    {
+        self.run_until_with_ready(Arc::new(AtomicBool::new(false)), ready)
+    }
+
     pub fn run_until(self, shutdown: Arc<AtomicBool>) -> Result<()> {
+        self.run_until_with_ready(shutdown, || Ok(()))
+    }
+
+    fn run_until_with_ready<F>(self, shutdown: Arc<AtomicBool>, ready: F) -> Result<()>
+    where
+        F: FnOnce() -> Result<()>,
+    {
         prepare_socket(&self.options.socket_path)?;
         let listener = UnixListener::bind(&self.options.socket_path)?;
         fs::set_permissions(&self.options.socket_path, fs::Permissions::from_mode(0o600))?;
+        self.run_with_listener(listener, shutdown, ready)
+    }
+
+    pub fn handover(options: VaultOptions) -> Result<()> {
+        Self::handover_until(options, Arc::new(AtomicBool::new(false)))
+    }
+
+    pub fn handover_with_ready<F>(options: VaultOptions, ready: F) -> Result<()>
+    where
+        F: FnOnce() -> Result<()>,
+    {
+        let (vault, listener) = handover::receive_handover(&options)?;
+        vault.run_with_listener(listener, Arc::new(AtomicBool::new(false)), ready)
+    }
+
+    pub fn handover_until(options: VaultOptions, shutdown: Arc<AtomicBool>) -> Result<()> {
+        let (vault, listener) = handover::receive_handover(&options)?;
+        vault.run_with_listener(listener, shutdown, || Ok(()))
+    }
+
+    fn run_with_listener<F>(
+        self,
+        listener: UnixListener,
+        shutdown: Arc<AtomicBool>,
+        ready: F,
+    ) -> Result<()>
+    where
+        F: FnOnce() -> Result<()>,
+    {
         listener.set_nonblocking(true)?;
+        let runtime = Arc::new(VaultRuntime {
+            state: self.state,
+            listener: Arc::new(listener),
+            shutdown: shutdown.clone(),
+            handover_in_progress: AtomicBool::new(false),
+            authority: Mutex::new(()),
+            max_sessions: self.options.max_sessions,
+        });
+        ready()?;
 
         while !shutdown.load(Ordering::Acquire) {
-            match listener.accept() {
+            match runtime.listener.accept() {
                 Ok((stream, _)) => {
-                    let state = self.state.clone();
-                    let max_sessions = self.options.max_sessions;
+                    stream.set_nonblocking(false)?;
+                    let runtime = runtime.clone();
                     thread::spawn(move || {
-                        if let Err(error) = handle_client(stream, state, max_sessions) {
+                        if let Err(error) = handle_client(stream, runtime) {
                             tracing::warn!(%error, "pty vault client failed");
                         }
                     });
@@ -88,25 +161,47 @@ impl Vault {
     }
 }
 
-fn handle_client(
-    mut stream: UnixStream,
-    state: Arc<Mutex<VaultState>>,
-    max_sessions: usize,
-) -> Result<()> {
+fn handle_client(mut stream: UnixStream, runtime: Arc<VaultRuntime>) -> Result<()> {
     validate_peer(&stream)?;
     let (request, descriptor) = receive_message::<VaultRequest>(&mut stream)?;
-    if descriptor.is_some() {
-        return Err(TerminalError::Protocol(
-            "vault request contained unexpected descriptor".to_owned(),
-        ));
-    }
     let request_id = request.request_id;
     let result = if request.protocol_version != VAULT_PROTOCOL_VERSION {
         Err(TerminalError::Protocol(
             "vault protocol version mismatch".to_owned(),
         ))
     } else {
-        handle_request(&state, max_sessions, request)
+        match request.payload {
+            Some(vault_request::Payload::BeginHandover(request)) => {
+                if descriptor.is_some() {
+                    Err(TerminalError::Protocol(
+                        "vault handover request contained a descriptor".to_owned(),
+                    ))
+                } else {
+                    handle_handover(&runtime, request.transfer_socket_path)
+                }
+            }
+            payload => {
+                if runtime.handover_in_progress.load(Ordering::Acquire) {
+                    Err(TerminalError::Protocol(
+                        "vault handover in progress".to_owned(),
+                    ))
+                } else {
+                    let _authority = runtime.authority.lock().map_err(lock_error)?;
+                    if runtime.handover_in_progress.load(Ordering::Acquire) {
+                        Err(TerminalError::Protocol(
+                            "vault handover in progress".to_owned(),
+                        ))
+                    } else {
+                        handle_request(
+                            &runtime.state,
+                            runtime.max_sessions,
+                            VaultRequest { payload, ..request },
+                            descriptor,
+                        )
+                    }
+                }
+            }
+        }
     };
     match result {
         Ok((payload, descriptor)) => {
@@ -139,8 +234,15 @@ fn handle_request(
     state: &Arc<Mutex<VaultState>>,
     max_sessions: usize,
     request: VaultRequest,
+    descriptor: Option<OwnedFd>,
 ) -> Result<(vault_response::Payload, Option<OwnedFd>)> {
-    match request.payload.ok_or(TerminalError::MissingPayload)? {
+    let payload = request.payload.ok_or(TerminalError::MissingPayload)?;
+    if descriptor.is_some() && !matches!(&payload, vault_request::Payload::ImportSession(_)) {
+        return Err(TerminalError::Protocol(
+            "vault request contained unexpected descriptor".to_owned(),
+        ));
+    }
+    match payload {
         vault_request::Payload::CreateSession(request) => {
             let lease = create_session(state, max_sessions, request)?;
             let payload = vault_response::Payload::SessionLease(SessionLease {
@@ -215,32 +317,53 @@ fn handle_request(
             }
             Ok((vault_response::Payload::ExitStatus(status), None))
         }
+        vault_request::Payload::BeginHandover(_) => Err(TerminalError::Protocol(
+            "nested vault handover request".to_owned(),
+        )),
+        vault_request::Payload::ImportSession(request) => {
+            import_session(
+                state,
+                max_sessions,
+                request,
+                descriptor.ok_or_else(|| {
+                    TerminalError::Protocol("vault import omitted PTY descriptor".to_owned())
+                })?,
+            )?;
+            Ok((vault_response::Payload::Acknowledged(Acknowledged {}), None))
+        }
     }
 }
 
-struct CreatedLease {
-    session: Session,
-    descriptor: OwnedFd,
-}
-
-fn create_session(
+fn import_session(
     state: &Arc<Mutex<VaultState>>,
     max_sessions: usize,
-    request: CreateSession,
-) -> Result<CreatedLease> {
-    validate_session_name(&request.name)?;
-    let columns = validate_dimension("columns", request.columns)?;
-    let rows = validate_dimension("rows", request.rows)?;
-    let (cwd, shell, mut command) = launch_command(
-        request
-            .launch
-            .ok_or_else(|| TerminalError::Protocol("vault launch is required".to_owned()))?,
-    )?;
+    request: ImportSession,
+    descriptor: OwnedFd,
+) -> Result<()> {
+    let metadata = request.session.ok_or_else(|| {
+        TerminalError::Protocol("vault import omitted session metadata".to_owned())
+    })?;
+    validate_session_name(&metadata.name)?;
+    if metadata.generation == 0 || metadata.pid == 0 || metadata.process_group <= 0 {
+        return Err(TerminalError::Protocol(
+            "vault import contained invalid process identity".to_owned(),
+        ));
+    }
+    let imported = VaultSession {
+        metadata: metadata.clone(),
+        master: descriptor,
+    };
+    validate_process_group(&imported)?;
     let mut locked = state.lock().map_err(lock_error)?;
-    if locked.sessions.contains_key(&request.name) {
+    if let Some(existing) = locked.sessions.get(&metadata.name) {
+        if existing.metadata.generation == metadata.generation
+            && existing.metadata.pid == metadata.pid
+        {
+            return Ok(());
+        }
         return Err(TerminalError::Protocol(format!(
-            "vault session already exists: {}",
-            request.name
+            "vault import conflicts with session {}",
+            metadata.name
         )));
     }
     if locked.sessions.len() >= max_sessions {
@@ -248,198 +371,38 @@ fn create_session(
             "vault session limit reached".to_owned(),
         ));
     }
-    let generation = locked.next_generation;
-    locked.next_generation = locked.next_generation.wrapping_add(1).max(1);
-
-    let pair = native_pty_system()
-        .openpty(PtySize {
-            rows,
-            cols: columns,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .map_err(|error| TerminalError::Pty(error.to_string()))?;
-    command.cwd(&cwd);
-    command.env("TERM", "xterm-256color");
-    command.env("COLORTERM", "truecolor");
-    command.env("TERM_PROGRAM", "agentdesk");
-    command.env("PTY_SESSION", &request.name);
-    let child = pair
-        .slave
-        .spawn_command(command)
-        .map_err(|error| TerminalError::Pty(error.to_string()))?;
-    let pid = child
-        .process_id()
-        .ok_or_else(|| TerminalError::Pty("vault child pid unavailable".to_owned()))?;
-    let process_group = pair
-        .master
-        .process_group_leader()
-        .ok_or_else(|| TerminalError::Pty("vault process group unavailable".to_owned()))?;
-    let master_raw = pair
-        .master
-        .as_raw_fd()
-        .ok_or_else(|| TerminalError::Pty("vault master descriptor unavailable".to_owned()))?;
-    let primary = duplicate_descriptor(master_raw)?;
-    let lease = duplicate_descriptor(master_raw)?;
-    let metadata = Session {
-        name: request.name.clone(),
-        cwd,
-        shell,
-        pid,
-        process_group,
-        generation,
-        started_at_unix_milliseconds: unix_time_milliseconds(),
-        columns: u32::from(columns),
-        rows: u32::from(rows),
-        lifetime: request.lifetime,
-        exited: false,
-        exit_status: 0,
-    };
-    locked.sessions.insert(
-        request.name.clone(),
-        VaultSession {
-            metadata: metadata.clone(),
-            master: primary,
-        },
-    );
+    locked.next_generation = locked
+        .next_generation
+        .max(metadata.generation.wrapping_add(1).max(1));
+    locked.sessions.insert(metadata.name.clone(), imported);
     drop(locked);
-    drop(child);
-    drop(pair);
-    spawn_exit_observer(state.clone(), request.name, generation, pid);
-    Ok(CreatedLease {
-        session: metadata,
-        descriptor: lease,
-    })
-}
-
-fn launch_command(launch: create_session::Launch) -> Result<(String, String, CommandBuilder)> {
-    match launch {
-        create_session::Launch::ShellLaunch(launch) => {
-            let mut command = CommandBuilder::new_default_prog();
-            command.env("SHELL", &launch.shell);
-            Ok((launch.cwd, launch.shell, command))
-        }
-        create_session::Launch::CommandLaunch(launch) => {
-            if launch.executable.is_empty() {
-                return Err(TerminalError::Protocol(
-                    "command executable must not be empty".to_owned(),
-                ));
-            }
-            let mut command = CommandBuilder::new(&launch.executable);
-            command.args(launch.arguments);
-            Ok((launch.cwd, launch.executable, command))
-        }
-    }
-}
-
-fn spawn_exit_observer(
-    state: Arc<Mutex<VaultState>>,
-    session_name: String,
-    generation: u64,
-    pid: u32,
-) {
-    thread::spawn(move || {
-        let status = match crate::process_observer::observe_exit_status(pid) {
-            Ok(status) => status,
-            Err(error) => {
-                tracing::warn!(%error, pid, session = %session_name, "vault exit observer failed");
-                -1
-            }
-        };
-        // Reap while this vault is still the spawning parent. After a vault
-        // handover this returns ECHILD, while kqueue still supplies the exact
-        // exit status.
-        let mut wait_status = 0;
-        unsafe {
-            libc::waitpid(pid as libc::pid_t, &mut wait_status, libc::WNOHANG);
-        }
-        let Ok(mut state) = state.lock() else {
-            return;
-        };
-        let Some(session) = state.sessions.get_mut(&session_name) else {
-            return;
-        };
-        if session.metadata.generation != generation {
-            return;
-        }
-        session.metadata.exited = true;
-        session.metadata.exit_status = status;
-    });
-}
-
-fn matching_session<'a>(
-    state: &'a VaultState,
-    name: &str,
-    generation: u64,
-) -> Result<&'a VaultSession> {
-    let session = state
-        .sessions
-        .get(name)
-        .ok_or_else(|| TerminalError::SessionNotFound(name.to_owned()))?;
-    if session.metadata.generation != generation {
-        return Err(TerminalError::Protocol(format!(
-            "stale vault session generation for {name}"
-        )));
-    }
-    Ok(session)
-}
-
-fn matching_session_mut<'a>(
-    state: &'a mut VaultState,
-    name: &str,
-    generation: u64,
-) -> Result<&'a mut VaultSession> {
-    let session = state
-        .sessions
-        .get_mut(name)
-        .ok_or_else(|| TerminalError::SessionNotFound(name.to_owned()))?;
-    if session.metadata.generation != generation {
-        return Err(TerminalError::Protocol(format!(
-            "stale vault session generation for {name}"
-        )));
-    }
-    Ok(session)
-}
-
-fn validate_dimension(label: &str, value: u32) -> Result<u16> {
-    if value < 2 || value > u16::MAX as u32 {
-        return Err(TerminalError::Protocol(format!(
-            "{label} must be between 2 and {}",
-            u16::MAX
-        )));
-    }
-    Ok(value as u16)
-}
-
-fn resize_descriptor(descriptor: RawFd, columns: u16, rows: u16) -> Result<()> {
-    let size = libc::winsize {
-        ws_row: rows,
-        ws_col: columns,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
-    if unsafe { libc::ioctl(descriptor, libc::TIOCSWINSZ, &size) } < 0 {
-        return Err(std::io::Error::last_os_error().into());
+    if !metadata.exited {
+        spawn_exit_observer(
+            state.clone(),
+            metadata.name,
+            metadata.generation,
+            metadata.pid,
+        );
     }
     Ok(())
 }
 
-fn validate_process_group(session: &VaultSession) -> Result<()> {
-    let current = unsafe { libc::tcgetpgrp(session.master.as_raw_fd()) };
-    if current <= 0 || current != session.metadata.process_group {
-        return Err(TerminalError::Protocol(format!(
-            "vault process identity changed for {}",
-            session.metadata.name
-        )));
+fn handle_handover(
+    runtime: &Arc<VaultRuntime>,
+    transfer_socket_path: String,
+) -> Result<(vault_response::Payload, Option<OwnedFd>)> {
+    let _authority = runtime.authority.lock().map_err(lock_error)?;
+    runtime
+        .handover_in_progress
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .map_err(|_| TerminalError::Protocol("vault handover already in progress".to_owned()))?;
+    let result = handover::perform_handover(runtime, Path::new(&transfer_socket_path));
+    if result.is_err() {
+        runtime.handover_in_progress.store(false, Ordering::Release);
     }
-    Ok(())
-}
-
-fn signal_process_group(process_group: i32, signal: i32) -> Result<()> {
-    if process_group <= 0 || unsafe { libc::kill(-process_group, signal) } < 0 {
-        return Err(std::io::Error::last_os_error().into());
-    }
-    Ok(())
+    result?;
+    runtime.shutdown.store(true, Ordering::Release);
+    Ok((vault_response::Payload::Acknowledged(Acknowledged {}), None))
 }
 
 fn validate_peer(stream: &UnixStream) -> Result<()> {

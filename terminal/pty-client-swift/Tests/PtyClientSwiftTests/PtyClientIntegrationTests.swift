@@ -6,10 +6,43 @@ final class PtyClientIntegrationTests: XCTestCase {
     func testSwiftClientReceivesRustManagerSessionSnapshot() async throws {
         let root = repoRoot()
         let manifest = root.appendingPathComponent("terminal/pty-manager/Cargo.toml").path
-        try run("/usr/bin/env", ["cargo", "build", "--manifest-path", manifest, "--bin", "pty-manager"])
+        try run("/usr/bin/env", [
+            "cargo", "build", "--manifest-path", manifest,
+            "--bin", "pty-manager", "--bin", "pty-vault",
+        ])
 
-        let socket = URL(fileURLWithPath: "/tmp/pty-swift-\(UUID().uuidString).sock")
-        try? FileManager.default.removeItem(at: socket)
+        let runtimeID = UUID().uuidString.prefix(8)
+        let runtimeDirectory = URL(
+            fileURLWithPath: "/tmp/pty-swift-\(runtimeID)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: runtimeDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: runtimeDirectory) }
+        let socket = runtimeDirectory.appendingPathComponent("pty-manager.sock", isDirectory: false)
+        let vaultSocket = runtimeDirectory.appendingPathComponent("pty-vault.sock", isDirectory: false)
+        let vault = Process()
+        vault.executableURL = root.appendingPathComponent("terminal/pty-manager/target/debug/pty-vault")
+        vault.arguments = ["--socket", vaultSocket.path]
+        vault.standardOutput = Pipe()
+        let vaultError = Pipe()
+        vault.standardError = vaultError
+        try vault.run()
+        defer {
+            if vault.isRunning {
+                vault.terminate()
+                vault.waitUntilExit()
+            }
+        }
+        try await waitForSocket(
+            vaultSocket.path,
+            process: vault,
+            component: "pty vault",
+            errorPipe: vaultError
+        )
+
         let manager = Process()
         manager.executableURL = root.appendingPathComponent("terminal/pty-manager/target/debug/pty-manager")
         manager.arguments = ["--socket", socket.path]
@@ -23,7 +56,12 @@ final class PtyClientIntegrationTests: XCTestCase {
                 manager.waitUntilExit()
             }
         }
-        try await waitForSocket(socket.path, manager: manager, errorPipe: managerError)
+        try await waitForSocket(
+            socket.path,
+            process: manager,
+            component: "pty manager",
+            errorPipe: managerError
+        )
 
         let client = PtyClient(socketPath: socket.path)
         var snapshots = client.sessionSnapshots().makeAsyncIterator()
@@ -89,7 +127,8 @@ final class PtyClientIntegrationTests: XCTestCase {
 
     private func waitForSocket(
         _ socketPath: String,
-        manager: Process,
+        process: Process,
+        component: String,
         errorPipe: Pipe
     ) async throws {
         for _ in 0..<100 {
@@ -97,15 +136,15 @@ final class PtyClientIntegrationTests: XCTestCase {
                 transport.close()
                 return
             }
-            if !manager.isRunning {
+            if !process.isRunning {
                 let error = String(
                     decoding: errorPipe.fileHandleForReading.readDataToEndOfFile(),
                     as: UTF8.self
                 )
                 throw NSError(
                     domain: "PtyClientIntegrationTests",
-                    code: Int(manager.terminationStatus),
-                    userInfo: [NSLocalizedDescriptionKey: "pty manager exited: \(error)"]
+                    code: Int(process.terminationStatus),
+                    userInfo: [NSLocalizedDescriptionKey: "\(component) exited: \(error)"]
                 )
             }
             try await Task.sleep(nanoseconds: 10_000_000)
@@ -113,7 +152,7 @@ final class PtyClientIntegrationTests: XCTestCase {
         throw NSError(
             domain: "PtyClientIntegrationTests",
             code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "pty manager did not create socket"]
+            userInfo: [NSLocalizedDescriptionKey: "\(component) did not create socket"]
         )
     }
 

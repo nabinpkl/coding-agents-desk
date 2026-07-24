@@ -1,6 +1,7 @@
 use std::fs;
 use std::future::Future;
-use std::os::unix::fs::FileTypeExt;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::UnixStream as StdUnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicUsize;
@@ -9,12 +10,15 @@ use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tracing::{error, info, warn};
 
 use crate::error::{Result, TerminalError};
+use crate::manager_handover::{
+    manager_handover_socket_path, receive_handover, send_handover, ManagerSnapshot,
+};
 use crate::protocol::{
     self, error_envelope, ClientDetached, CloseClient, Detach, Envelope, Input, KillSession,
     ListSessions, Output, Payload, RequestTerminalCheckpoint, SessionExited, SessionList,
@@ -57,6 +61,8 @@ pub struct PtyManager {
     reaper: ReapScheduler,
     reap_rx: mpsc::Receiver<ReapRequest>,
     client_tasks: JoinSet<()>,
+    handover_gate: Arc<RwLock<()>>,
+    manager_generation: u64,
 }
 
 static NEXT_CLIENT_ID: AtomicU64 = AtomicU64::new(1);
@@ -70,12 +76,7 @@ impl PtyManager {
         let (events_tx, events_rx) = mpsc::channel(options.limits.pty_event_frames);
         let (reap_tx, reap_rx) = mpsc::channel(64);
         let reaper = ReapScheduler::new(options.base.leased_session_grace, reap_tx);
-        let vault = VaultClient::new(
-            options
-                .base
-                .socket_path
-                .with_file_name("pty-vault.sock"),
-        );
+        let vault = VaultClient::new(options.base.socket_path.with_file_name("pty-vault.sock"));
         Self {
             options: options.base,
             state: Arc::new(Mutex::new(PtyManagerState::new(options.limits, vault))),
@@ -84,29 +85,137 @@ impl PtyManager {
             reaper,
             reap_rx,
             client_tasks: JoinSet::new(),
+            handover_gate: Arc::new(RwLock::new(())),
+            manager_generation: 1,
         }
     }
 
     pub async fn run(self) -> Result<()> {
-        self.run_until_shutdown(wait_for_shutdown_signal()).await
+        self.run_with_ready(|| Ok(())).await
     }
 
-    pub async fn run_until_shutdown<F>(mut self, shutdown: F) -> Result<()>
+    pub async fn run_with_ready<R>(self, ready: R) -> Result<()>
+    where
+        R: FnOnce() -> Result<()>,
+    {
+        self.run_until_shutdown_with_ready(wait_for_shutdown_signal(), ready)
+            .await
+    }
+
+    pub async fn run_handover(self) -> Result<()> {
+        self.run_handover_with_ready(|| Ok(())).await
+    }
+
+    pub async fn run_handover_with_ready<R>(mut self, ready: R) -> Result<()>
+    where
+        R: FnOnce() -> Result<()>,
+    {
+        let max_sessions = { self.state.lock().await.limits.max_sessions };
+        let mut received = tokio::task::spawn_blocking({
+            let socket_path = self.options.socket_path.clone();
+            move || receive_handover(&socket_path, max_sessions)
+        })
+        .await
+        .map_err(|error| TerminalError::Pty(format!("manager handover task failed: {error}")))??;
+        self.manager_generation = received.manager_generation;
+        let sessions = std::mem::take(&mut received.sessions);
+        {
+            let mut state = self.state.lock().await;
+            for (session, descriptor) in sessions {
+                state.restore_handover_session(session, descriptor, self.events_tx.clone())?;
+            }
+            state.prepare_session_io()?;
+            state.schedule_unattached_leases(&self.reaper);
+        }
+        received.activate()?;
+        self.state.lock().await.activate_session_io();
+        let (public_listener, handover_listener) = received.into_listeners();
+        let public_listener = UnixListener::from_std(public_listener)?;
+        let handover_listener = UnixListener::from_std(handover_listener)?;
+        self.run_with_listeners(
+            public_listener,
+            handover_listener,
+            wait_for_shutdown_signal(),
+            ready,
+        )
+        .await
+    }
+
+    pub async fn run_until_shutdown<F>(self, shutdown: F) -> Result<()>
     where
         F: Future<Output = ()>,
     {
+        self.run_until_shutdown_with_ready(shutdown, || Ok(()))
+            .await
+    }
+
+    async fn run_until_shutdown_with_ready<F, R>(self, shutdown: F, ready: R) -> Result<()>
+    where
+        F: Future<Output = ()>,
+        R: FnOnce() -> Result<()>,
+    {
         prepare_socket(&self.options.socket_path)?;
         let listener = UnixListener::bind(&self.options.socket_path)?;
+        let handover_socket_path = manager_handover_socket_path(&self.options.socket_path);
+        prepare_socket(&handover_socket_path)?;
+        let handover_listener = UnixListener::bind(&handover_socket_path)?;
+        fs::set_permissions(&handover_socket_path, fs::Permissions::from_mode(0o600))?;
+        wait_for_vault(&self.options.socket_path).await?;
+        {
+            let mut state = self.state.lock().await;
+            state.recover_vault_sessions(self.events_tx.clone())?;
+            state.schedule_unattached_leases(&self.reaper);
+        }
+        self.run_with_listeners(listener, handover_listener, shutdown, ready)
+            .await
+    }
+
+    async fn run_with_listeners<F, R>(
+        mut self,
+        listener: UnixListener,
+        handover_listener: UnixListener,
+        shutdown: F,
+        ready: R,
+    ) -> Result<()>
+    where
+        F: Future<Output = ()>,
+        R: FnOnce() -> Result<()>,
+    {
+        ready()?;
         info!(socket = %self.options.socket_path.display(), "pty manager listening");
         tokio::pin!(shutdown);
+        let mut handed_over = false;
 
         let mut resync_tick = tokio::time::interval(std::time::Duration::from_millis(50));
+        let mut vault_tick = tokio::time::interval(std::time::Duration::from_millis(250));
+        let mut vault_custody_healthy = true;
         let run_result = loop {
             tokio::select! {
                 accepted = listener.accept() => {
                     match accepted {
                         Ok((stream, _)) => self.spawn_client(stream),
                         Err(error) => break Err(error.into()),
+                    }
+                }
+                accepted = handover_listener.accept() => {
+                    match accepted {
+                        Ok((stream, _)) => {
+                            let _handover_guard = self.handover_gate.clone().write_owned().await;
+                            let result = self
+                                .attempt_handover(stream, &listener, &handover_listener)
+                                .await;
+                            match result {
+                                Ok(()) => {
+                                    handed_over = true;
+                                    break Ok(());
+                                }
+                                Err(error) => {
+                                    warn!(%error, "manager candidate handover rolled back");
+                                    self.state.lock().await.resume_session_io()?;
+                                }
+                            }
+                        }
+                        Err(error) => warn!(%error, "manager handover accept failed"),
                     }
                 }
                 Some(event) = self.events_rx.recv() => {
@@ -119,6 +228,20 @@ impl PtyManager {
                 }
                 _ = resync_tick.tick() => {
                     retry_pending_client_state(&self.state).await;
+                }
+                _ = vault_tick.tick() => {
+                    let result = self.state.lock().await.ensure_vault_custody();
+                    match (vault_custody_healthy, result) {
+                        (true, Err(error)) => {
+                            vault_custody_healthy = false;
+                            warn!(%error, "PTY vault custody unavailable; manager leases retain sessions");
+                        }
+                        (false, Ok(())) => {
+                            vault_custody_healthy = true;
+                            info!("PTY vault custody restored from manager leases");
+                        }
+                        _ => {}
+                    }
                 }
                 Some(result) = self.client_tasks.join_next(), if !self.client_tasks.is_empty() => {
                     if let Err(error) = result {
@@ -137,15 +260,70 @@ impl PtyManager {
                 }
             }
         }
+        if !handed_over {
+            info!("pty manager stopped without handover; vault retains live sessions");
+        }
         run_result
+    }
+
+    async fn attempt_handover(
+        &mut self,
+        stream: UnixStream,
+        public_listener: &UnixListener,
+        handover_listener: &UnixListener,
+    ) -> Result<()> {
+        let stream = stream.into_std()?;
+        let pending_events = {
+            let mut state = self.state.lock().await;
+            state
+                .sessions
+                .values_mut()
+                .flat_map(|session| session.pty.quiesce())
+                .collect::<Vec<_>>()
+        };
+        while let Ok(event) = self.events_rx.try_recv() {
+            self.handle_pty_event(event).await;
+        }
+        for event in pending_events {
+            self.handle_pty_event(event).await;
+        }
+        let snapshot = {
+            let mut state = self.state.lock().await;
+            let snapshot = state.quiesce_and_snapshot()?;
+            ManagerSnapshot {
+                sessions: snapshot
+                    .iter()
+                    .map(|(session, _)| session.clone())
+                    .collect(),
+                descriptors: snapshot
+                    .into_iter()
+                    .map(|(_, descriptor)| descriptor)
+                    .collect(),
+            }
+        };
+        let public_descriptor = public_listener.as_raw_fd();
+        let handover_descriptor = handover_listener.as_raw_fd();
+        let generation = self.manager_generation;
+        tokio::task::spawn_blocking(move || {
+            send_handover(
+                stream,
+                public_descriptor,
+                handover_descriptor,
+                generation,
+                snapshot,
+            )
+        })
+        .await
+        .map_err(|error| TerminalError::Pty(format!("manager handover task failed: {error}")))?
     }
 
     fn spawn_client(&mut self, stream: UnixStream) {
         let state = self.state.clone();
         let events = self.events_tx.clone();
         let reaper = self.reaper.clone();
+        let handover_gate = self.handover_gate.clone();
         self.client_tasks.spawn(async move {
-            if let Err(error) = handle_client(stream, state, events, reaper).await {
+            if let Err(error) = handle_client(stream, state, events, reaper, handover_gate).await {
                 warn!(%error, "client connection ended with error");
             }
         });
@@ -236,6 +414,7 @@ async fn handle_client(
     state: Arc<Mutex<PtyManagerState>>,
     events: mpsc::Sender<PtyEvent>,
     reaper: ReapScheduler,
+    handover_gate: Arc<RwLock<()>>,
 ) -> Result<()> {
     let client_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
     let framed = Framed::new(stream, LengthDelimitedCodec::new());
@@ -291,6 +470,7 @@ async fn handle_client(
             break;
         };
         let envelope = protocol::decode(&frame?)?;
+        let _handover_guard = handover_gate.read().await;
         let request_id = envelope.request_id;
         let session_name = envelope.session_name.clone();
         match protocol::payload(envelope)? {
@@ -447,6 +627,7 @@ async fn handle_client(
         }
     }
 
+    let _handover_guard = handover_gate.read().await;
     let detached = match detach_client(&state, &reaper, client_id).await {
         Ok(detached) => detached,
         Err(error) => {
@@ -494,6 +675,20 @@ async fn wait_for_shutdown_signal() {
     {
         let _ = tokio::signal::ctrl_c().await;
     }
+}
+
+async fn wait_for_vault(manager_socket_path: &Path) -> Result<()> {
+    let client = VaultClient::new(manager_socket_path.with_file_name("pty-vault.sock"));
+    let mut last_error = None;
+    for _ in 0..200 {
+        match client.list() {
+            Ok(_) => return Ok(()),
+            Err(error) => last_error = Some(error),
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    Err(last_error
+        .unwrap_or_else(|| TerminalError::Protocol("PTY vault did not become ready".to_owned())))
 }
 
 pub fn prepare_socket(path: &Path) -> Result<()> {

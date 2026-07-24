@@ -34,9 +34,10 @@ client/maestro/screenshots/
 host/AgentDeskHost/atc-sidecar
 
 # Agent Workspace IDE PTY manager binary. Never tracked: the real Rust binary is
-# produced by `just build-pty-manager`, and a placeholder is regenerated on demand
-# by `just ensure-pty-manager-placeholder` for host builds.
+# produced by `just build-pty-runtime`, and placeholders are regenerated on demand
+# by `just ensure-pty-runtime-placeholder` for host builds.
 host/AgentDeskHost/pty-manager
+host/AgentDeskHost/pty-vault
 
 # Voice sidecar inputs staged into the app bundle by `just build-voice-sidecar`
 # (run automatically by host-run): the `uv` binary and a read-only copy of the

@@ -117,7 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let textInputFocusProbeCoordinator = HostTextInputFocusProbeCoordinator()
     private var spaceAgentController: SpaceAgentController?
     private var dictationBarController: DictationBarController?
-    private var ptyManagerProcess: HostPtyManagerProcess?
+    private var ptyRuntimeProcess: HostPtyRuntimeProcess?
     private lazy var terminalWindowRegistry = TerminalWindowRegistry()
     private var terminalClientBridges: [ObjectIdentifier: TerminalClientBridge] = [:]
     // Protocol-v11 workspace lane. One responder serializes file writes against the workspace
@@ -851,12 +851,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startPtyManager() {
-        guard let binaryURL = Config.ptyManagerURL else {
-            signalingLogger.error("pty-manager binary not found in bundle")
+        guard let managerURL = Config.ptyManagerURL, let vaultURL = Config.ptyVaultURL else {
+            signalingLogger.error("PTY runtime binaries not found in bundle")
             return
         }
-        let process = HostPtyManagerProcess(binaryURL: binaryURL)
-        ptyManagerProcess = process
+        let process = HostPtyRuntimeProcess(
+            vaultBinaryURL: vaultURL,
+            managerBinaryURL: managerURL
+        )
+        ptyRuntimeProcess = process
         process.start()
         terminalWindowRegistry.startRestoration()
     }

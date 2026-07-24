@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -8,7 +9,9 @@ use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 
 use crate::error::{Result, TerminalError};
-use crate::headless_terminal::HeadlessTerminal;
+use crate::fd_transfer::duplicate_descriptor;
+use crate::headless_terminal::{HeadlessTerminal, TerminalCheckpointData};
+use crate::manager_handover_protocol::generated::ManagerSessionState;
 use crate::protocol::{
     self, create_or_attach, validate_session_name, Attached, ClientDetached, ClientSummary,
     CreateOrAttach, Envelope, Payload, SessionLifetime, SessionSnapshot, TerminalCheckpointBegin,
@@ -17,7 +20,7 @@ use crate::protocol::{
 use crate::pty_session::{PtyEvent, PtySession};
 use crate::session_registry::SessionRegistry;
 use crate::session_viewport::{SessionViewport, ViewportDecision};
-use crate::vault_client::{VaultClient, VaultLaunch};
+use crate::vault_client::{VaultClient, VaultLaunch, VaultLease};
 
 pub(crate) struct PtyManagerState {
     pub(crate) limits: PtyManagerLimits,
@@ -257,6 +260,216 @@ impl PtyManagerState {
             .retain(|_, sessions| !sessions.is_empty());
         Some(session)
     }
+
+    pub(crate) fn quiesce_and_snapshot(&mut self) -> Result<Vec<(ManagerSessionState, OwnedFd)>> {
+        for session in self.sessions.values_mut() {
+            session.pty.quiesce();
+        }
+        let vault_sessions = self
+            .vault
+            .list()?
+            .into_iter()
+            .map(|session| (session.name.clone(), session))
+            .collect::<HashMap<_, _>>();
+        let mut names = self.sessions.keys().cloned().collect::<Vec<_>>();
+        names.sort();
+        let mut snapshot = Vec::with_capacity(names.len());
+        for name in names {
+            let session = self
+                .sessions
+                .get(&name)
+                .ok_or_else(|| TerminalError::SessionNotFound(name.clone()))?;
+            let vault_session = vault_sessions.get(&name).ok_or_else(|| {
+                TerminalError::Protocol(format!("vault omitted manager session {name}"))
+            })?;
+            if vault_session.generation != session.generation
+                || vault_session.pid != session.pty.pid
+            {
+                return Err(TerminalError::Protocol(format!(
+                    "vault identity mismatch for manager session {name}"
+                )));
+            }
+            let checkpoint = session.headless.checkpoint()?;
+            snapshot.push((
+                ManagerSessionState {
+                    vault_session: Some(vault_session.clone()),
+                    checkpoint_ansi: checkpoint.ansi,
+                    revision: checkpoint.revision,
+                    columns: checkpoint.columns,
+                    rows: checkpoint.rows,
+                    history_truncated: checkpoint.history_truncated,
+                    ownership_epoch: session.viewport.ownership_epoch(),
+                    next_checkpoint_id: session.next_checkpoint_id,
+                    pending_input: session.pty.pending_input(),
+                },
+                duplicate_descriptor(session.pty.lease_descriptor().as_raw_fd())?,
+            ));
+        }
+        Ok(snapshot)
+    }
+
+    pub(crate) fn resume_session_io(&mut self) -> Result<()> {
+        for session in self.sessions.values_mut() {
+            session.pty.resume_io()?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn prepare_session_io(&mut self) -> Result<()> {
+        for session in self.sessions.values_mut() {
+            session.pty.prepare_io()?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn activate_session_io(&self) {
+        for session in self.sessions.values() {
+            session.pty.activate_io();
+        }
+    }
+
+    pub(crate) fn restore_handover_session(
+        &mut self,
+        session: ManagerSessionState,
+        descriptor: OwnedFd,
+        events: mpsc::Sender<PtyEvent>,
+    ) -> Result<()> {
+        let vault_session = session.vault_session.ok_or_else(|| {
+            TerminalError::Protocol("manager handover session omitted vault identity".to_owned())
+        })?;
+        let lifetime = explicit_lifetime(vault_session.lifetime)?;
+        let generation = vault_session.generation;
+        let pty = PtySession::from_vault_lease_quiesced(
+            VaultLease {
+                session: vault_session.clone(),
+                descriptor,
+            },
+            self.vault.clone(),
+            events,
+        )?;
+        let mut pty = pty;
+        pty.restore_pending_input(session.pending_input)?;
+        let headless = HeadlessTerminal::from_checkpoint(
+            TerminalCheckpointData {
+                revision: session.revision,
+                columns: session.columns,
+                rows: session.rows,
+                ansi: session.checkpoint_ansi,
+                history_truncated: session.history_truncated,
+            },
+            self.limits.scrollback_lines,
+            self.limits.max_checkpoint_bytes,
+        )?;
+        self.registry.ensure_running(
+            &vault_session.name,
+            vault_session.cwd,
+            vault_session.shell,
+            vault_session.pid,
+            lifetime,
+            vault_session.started_at_unix_milliseconds,
+        )?;
+        self.sessions.insert(
+            vault_session.name,
+            LiveSession {
+                pty,
+                headless,
+                lifetime,
+                generation,
+                clients: HashMap::new(),
+                viewport: SessionViewport::from_handover(session.ownership_epoch),
+                next_checkpoint_id: session.next_checkpoint_id.max(1),
+            },
+        );
+        Ok(())
+    }
+
+    pub(crate) fn recover_vault_sessions(&mut self, events: mpsc::Sender<PtyEvent>) -> Result<()> {
+        for vault_session in self.vault.list()? {
+            if vault_session.exited {
+                let _ = self
+                    .vault
+                    .exit_status(&vault_session.name, vault_session.generation, true);
+                continue;
+            }
+            let lifetime = explicit_lifetime(vault_session.lifetime)?;
+            let lease = self
+                .vault
+                .lease(&vault_session.name, vault_session.generation)?;
+            let pty = PtySession::from_vault_lease(lease, self.vault.clone(), events.clone())?;
+            let columns =
+                validate_dimension("columns", vault_session.columns, self.limits.max_columns)?;
+            let rows = validate_dimension("rows", vault_session.rows, self.limits.max_rows)?;
+            self.registry.ensure_running(
+                &vault_session.name,
+                vault_session.cwd,
+                vault_session.shell,
+                vault_session.pid,
+                lifetime,
+                vault_session.started_at_unix_milliseconds,
+            )?;
+            self.sessions.insert(
+                vault_session.name,
+                LiveSession {
+                    pty,
+                    headless: HeadlessTerminal::new(
+                        columns,
+                        rows,
+                        self.limits.scrollback_lines,
+                        self.limits.max_checkpoint_bytes,
+                    ),
+                    lifetime,
+                    generation: vault_session.generation,
+                    clients: HashMap::new(),
+                    viewport: SessionViewport::default(),
+                    next_checkpoint_id: 1,
+                },
+            );
+        }
+        Ok(())
+    }
+
+    pub(crate) fn schedule_unattached_leases(&mut self, scheduler: &ReapScheduler) {
+        let names = self
+            .sessions
+            .iter()
+            .filter_map(|(name, session)| {
+                (session.lifetime == SessionLifetime::Leased && session.clients.is_empty())
+                    .then(|| name.clone())
+            })
+            .collect::<Vec<_>>();
+        for name in names {
+            self.schedule_reap(&name, scheduler);
+        }
+    }
+
+    pub(crate) fn ensure_vault_custody(&self) -> Result<()> {
+        let existing = self
+            .vault
+            .list()?
+            .into_iter()
+            .map(|session| (session.name, (session.pid, session.generation)))
+            .collect::<HashMap<_, _>>();
+        for (name, session) in &self.sessions {
+            if existing.get(name) == Some(&(session.pty.pid, session.generation)) {
+                continue;
+            }
+            if existing.contains_key(name) {
+                return Err(TerminalError::Protocol(format!(
+                    "replacement vault conflicts with manager session {name}"
+                )));
+            }
+            let dimensions = session.headless.dimensions();
+            self.vault.import(
+                session.pty.vault_metadata(
+                    session.lifetime as i32,
+                    dimensions.columns as u32,
+                    dimensions.rows as u32,
+                ),
+                session.pty.lease_descriptor(),
+            )?;
+        }
+        Ok(())
+    }
 }
 
 impl ReapScheduler {
@@ -320,13 +533,9 @@ pub(crate) async fn create_or_attach(
                 }
             }
         };
-        let lease = state.vault.create(
-            session_name,
-            launch,
-            columns,
-            rows,
-            lifetime as i32,
-        )?;
+        let lease = state
+            .vault
+            .create(session_name, launch, columns, rows, lifetime as i32)?;
         let started_at_unix_milliseconds = lease.session.started_at_unix_milliseconds;
         let generation = lease.session.generation;
         let pty = PtySession::from_vault_lease(lease, state.vault.clone(), events.clone())?;

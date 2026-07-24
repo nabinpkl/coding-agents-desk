@@ -123,6 +123,7 @@ sidecar_out := justfile_directory() + "/host/AgentDeskHost/atc-sidecar"
 # The PTY manager binary is also placed alongside the host Swift sources so
 # Xcode bundles it as a resource. It is loaded via Config.ptyManagerURL.
 pty_manager_out := justfile_directory() + "/host/AgentDeskHost/pty-manager"
+pty_vault_out := justfile_directory() + "/host/AgentDeskHost/pty-vault"
 # The reusable AgentPanel package owns the generated webview resource for both
 # AppKit and UIKit consumers. The ATC dashboard remains the authored renderer;
 # its Vite output is copied here before the consuming app build.
@@ -165,12 +166,16 @@ ensure-sidecar-placeholder:
 # Ensure a minimal placeholder exists at the PTY manager output path. The real
 # Rust binary is gitignored, so a fresh checkout has nothing there; without a
 # placeholder, Xcode cannot discover the bundled resource path.
-ensure-pty-manager-placeholder:
+ensure-pty-runtime-placeholder:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ ! -e '{{pty_manager_out}}' ]; then
-        printf '#!/bin/sh\necho "pty-manager placeholder - run: just build-pty-manager" >&2\nexit 1\n' > '{{pty_manager_out}}'
+        printf '#!/bin/sh\necho "pty-manager placeholder - run: just build-pty-runtime" >&2\nexit 1\n' > '{{pty_manager_out}}'
         chmod +x '{{pty_manager_out}}'
+    fi
+    if [ ! -e '{{pty_vault_out}}' ]; then
+        printf '#!/bin/sh\necho "pty-vault placeholder - run: just build-pty-runtime" >&2\nexit 1\n' > '{{pty_vault_out}}'
+        chmod +x '{{pty_vault_out}}'
     fi
 
 # Build the ATC engine sidecar into the host app bundle source dir. The result
@@ -214,15 +219,17 @@ build-agent-sidecar:
 # Build Agent Workspace IDE's Rust PTY manager into the host app bundle source
 # dir. The host launches this binary and bridges shared web terminal clients into its
 # Unix-socket multiplexer.
-build-pty-manager:
+build-pty-runtime:
     #!/usr/bin/env bash
     set -euo pipefail
     PTY='{{pty_manager_dir}}'
-    OUT='{{pty_manager_out}}'
+    MANAGER_OUT='{{pty_manager_out}}'
+    VAULT_OUT='{{pty_vault_out}}'
     cd "$PTY"
-    cargo build --release --bin pty-manager
-    cp "$PTY/target/release/pty-manager" "$OUT"
-    chmod +x "$OUT"
+    cargo build --release --bin pty-manager --bin pty-vault
+    cp "$PTY/target/release/pty-manager" "$MANAGER_OUT"
+    cp "$PTY/target/release/pty-vault" "$VAULT_OUT"
+    chmod +x "$MANAGER_OUT" "$VAULT_OUT"
 
 # Build the real engine binary and run AgentEngineSidecar against it, curling
 # /api/projects/digest on loopback to confirm the binary integrates end-to-end.
@@ -595,7 +602,7 @@ dom-mirror-e2e: ext-stamp
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
 # everything with `just check-all`.
-check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholder workspace-ide-fitness terminal-web-build
+check variant="stable": ensure-sidecar-placeholder ensure-pty-runtime-placeholder workspace-ide-fitness terminal-web-build
     #!/usr/bin/env bash
     set -euo pipefail
     sh tools/media-architecture-guard.sh
@@ -609,7 +616,7 @@ check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholde
     (cd packages/WorkspaceIDE && swift test)
     (cd terminal/pty-client-swift && swift test)
     (cd terminal/emulator && swift build)
-    (cd '{{pty_manager_dir}}' && cargo build --bin pty-manager)
+    (cd '{{pty_manager_dir}}' && cargo test)
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
@@ -622,7 +629,7 @@ check variant="stable": ensure-sidecar-placeholder ensure-pty-manager-placeholde
 agent-terminal-integration-test:
     #!/usr/bin/env bash
     set -euo pipefail
-    (cd '{{pty_manager_dir}}' && cargo build --bin pty-manager)
+    (cd '{{pty_manager_dir}}' && cargo build --bin pty-manager --bin pty-vault)
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost \
         -derivedDataPath '{{derived_data}}' test \
         -only-testing:AgentDeskHostTests/AgentSessionTerminalIntegrationTests
@@ -699,6 +706,45 @@ iphone-log-collect variant="stable":
 # variant: "stable" (default) or "dev" (the experimental side-by-side host:
 # bundle id {{host_dev_bundle_id}}, DEV-badged icon, separate derived-data dir,
 # tier-derived ports). The dev host runs concurrently with the stable one.
+prepare-pty-runtime variant="stable": build-pty-runtime
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{variant}}" = "dev" ]; then
+        SUPPORT='{{host_dev_support_dir}}'
+    else
+        SUPPORT='{{host_support_dir}}'
+    fi
+    MANAGER_SOCKET="$SUPPORT/pty-manager.sock"
+    VAULT_SOCKET="$SUPPORT/pty-vault.sock"
+    # One-time clean cutover from the pre-vault architecture. Once a live vault
+    # exists, no runtime recipe terminates a PTY process; updates use
+    # candidate handover and failures leave the old generation authoritative.
+    VAULT_PIDS="$(
+        ps -axo pid=,command= |
+            awk -v socket="$VAULT_SOCKET" \
+                'index($0, "pty-vault --socket") && index($0, socket) { print $1 }'
+    )"
+    if [ -z "$VAULT_PIDS" ] && [ ! -S "$MANAGER_SOCKET.handover" ]; then
+        LEGACY_PIDS="$(
+            ps -axo pid=,command= |
+                awk -v socket="$MANAGER_SOCKET" \
+                    'index($0, "pty-manager --socket") && index($0, socket) { print $1 }'
+        )"
+        if [ -n "$LEGACY_PIDS" ]; then
+            echo "one-time pre-vault PTY cutover for {{variant}}; existing sessions will restart"
+            kill $LEGACY_PIDS 2>/dev/null || true
+            for _ in $(seq 1 40); do
+                LIVE="$(ps -p $LEGACY_PIDS -o pid= 2>/dev/null || true)"
+                [ -z "$LIVE" ] && break
+                sleep 0.05
+            done
+            LIVE="$(ps -p $LEGACY_PIDS -o pid= 2>/dev/null || true)"
+            [ -z "$LIVE" ] || kill -9 $LIVE 2>/dev/null || true
+            rm -f "$MANAGER_SOCKET" "$MANAGER_SOCKET.handover" \
+                "$MANAGER_SOCKET.identity" "$VAULT_SOCKET" "$VAULT_SOCKET.identity"
+        fi
+    fi
+
 host-run-dev variant="stable" install_live_bridge="true": build-agent-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
@@ -711,32 +757,27 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-sidecar bu
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; APP='{{host_dev_app}}'; SIGPORT=41988
         PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
+        PTY_VAULT_SOCKET='{{host_dev_support_dir}}/pty-vault.sock'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
         DD='{{derived_data}}'; APP='{{host_app}}'; SIGPORT=41888
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
+        PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
         EXTRA=()
     fi
     if [ "${AGENTDESK_AX_AUTOMATION_ENABLED:-0}" != "0" ]; then
         EXTRA+=(INFOPLIST_KEY_LSUIElement=NO)
     fi
-    kill_pty_managers_for_socket() {
-        SOCKET_PIDS=$(find_pty_manager_pids)
-        [ -n "$SOCKET_PIDS" ] && kill $SOCKET_PIDS 2>/dev/null || true
-    }
     find_pty_manager_pids() {
-        ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { print $1 }'
+        ps -axo pid=,command= | awk -v manager="$PTY_SOCKET" -v vault="$PTY_VAULT_SOCKET" \
+            '(index($0, "pty-manager --socket") && index($0, manager)) || (index($0, "pty-vault --socket") && index($0, vault)) { print $1 }'
     }
-    # If the manager binary is unchanged, do not let an older running host execute
-    # its old applicationWillTerminate hook, because that hook killed pty-manager.
+    # Do not let an older running host execute its old applicationWillTerminate
+    # hook, because pre-ADR-0072 hosts killed their PTY child processes.
     kill_host_pids() {
         local pid child children preserve
         preserve="$(find_pty_manager_pids | tr '\n' ' ')"
         for pid in "$@"; do
-            if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
-                kill "$pid" 2>/dev/null || true
-                continue
-            fi
             children="$(pgrep -P "$pid" 2>/dev/null || true)"
             kill -9 "$pid" 2>/dev/null || true
             for child in $children; do
@@ -747,52 +788,12 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-sidecar bu
             done
         done
     }
-    build_pty_manager_if_changed() {
-        local before after running_hashes
-        PTY='{{pty_manager_dir}}'
-        OUT='{{pty_manager_out}}'
-        before=""
-        if [ -f "$OUT" ]; then
-            before="$(shasum -a 256 "$OUT" | awk '{ print $1 }')"
-        fi
-        (cd "$PTY" && cargo build --release --bin pty-manager)
-        after="$(shasum -a 256 "$PTY/target/release/pty-manager" | awk '{ print $1 }')"
-        running_hashes="$(
-            ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { sub(/^[[:space:]]*[0-9]+[[:space:]]+/, ""); sub(/[[:space:]]+--socket.*/, ""); print }' |
-                while IFS= read -r bin; do
-                    if [ -f "$bin" ]; then
-                        shasum -a 256 "$bin" | awk '{ print $1 }'
-                    else
-                        printf 'unreadable:%s\n' "$bin"
-                    fi
-                done |
-                sort -u
-        )"
-        if [ "$before" != "$after" ]; then
-            cp "$PTY/target/release/pty-manager" "$OUT"
-            chmod +x "$OUT"
-        fi
-        if [ -z "$running_hashes" ]; then
-            PTY_MANAGER_CHANGED=0
-            echo "no running pty-manager for {{variant}}; no manager restart needed"
-        elif [ "$running_hashes" != "$after" ]; then
-            PTY_MANAGER_CHANGED=1
-            echo "running pty-manager binary differs; restarting manager for {{variant}}"
-        else
-            PTY_MANAGER_CHANGED=0
-            echo "running pty-manager binary unchanged; preserving manager for {{variant}}"
-        fi
-    }
-    build_pty_manager_if_changed
+    just prepare-pty-runtime "{{variant}}"
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     # Kill only THIS variant's exact host executable. A bundle-prefix match also
     # selects its atc-sidecar and pty-manager, defeating manager preservation.
     HOST_PIDS=$(sh tools/exact-executable-pids.sh "$APP/Contents/MacOS/AgentDeskHost")
     [ -n "$HOST_PIDS" ] && kill_host_pids $HOST_PIDS
-    if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
-        pkill -f "$APP/Contents/Resources/pty-manager" 2>/dev/null || true
-        kill_pty_managers_for_socket
-    fi
     # Backstop: a host from a DIFFERENT checkout has the same bundle id but a
     # different derived-data path, so the pkill above misses it and the two stacks
     # collide on the signaling port. Also kill whoever holds THIS variant's port.
@@ -812,9 +813,6 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-sidecar bu
             fi
         done
         [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill_host_pids "${SAFE_PIDS[@]}"
-    fi
-    if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
-        kill_pty_managers_for_socket
     fi
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
@@ -850,32 +848,27 @@ host-run variant="stable": build-agent-sidecar build-agent-webview build-gesture
     if [ "{{variant}}" = "dev" ]; then
         DD='{{host_dev_derived_data}}'; APP='{{host_dev_app_release}}'; SIGPORT=41988
         PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
+        PTY_VAULT_SOCKET='{{host_dev_support_dir}}/pty-vault.sock'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
         DD='{{derived_data}}'; APP='{{host_app_release}}'; SIGPORT=41888
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
+        PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
         EXTRA=()
     fi
     if [ "${AGENTDESK_AX_AUTOMATION_ENABLED:-0}" != "0" ]; then
         EXTRA+=(INFOPLIST_KEY_LSUIElement=NO)
     fi
-    kill_pty_managers_for_socket() {
-        SOCKET_PIDS=$(find_pty_manager_pids)
-        [ -n "$SOCKET_PIDS" ] && kill $SOCKET_PIDS 2>/dev/null || true
-    }
     find_pty_manager_pids() {
-        ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { print $1 }'
+        ps -axo pid=,command= | awk -v manager="$PTY_SOCKET" -v vault="$PTY_VAULT_SOCKET" \
+            '(index($0, "pty-manager --socket") && index($0, manager)) || (index($0, "pty-vault --socket") && index($0, vault)) { print $1 }'
     }
-    # If the manager binary is unchanged, do not let an older running host execute
-    # its old applicationWillTerminate hook, because that hook killed pty-manager.
+    # Do not let an older running host execute its old applicationWillTerminate
+    # hook, because pre-ADR-0072 hosts killed their PTY child processes.
     kill_host_pids() {
         local pid child children preserve
         preserve="$(find_pty_manager_pids | tr '\n' ' ')"
         for pid in "$@"; do
-            if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
-                kill "$pid" 2>/dev/null || true
-                continue
-            fi
             children="$(pgrep -P "$pid" 2>/dev/null || true)"
             kill -9 "$pid" 2>/dev/null || true
             for child in $children; do
@@ -886,52 +879,12 @@ host-run variant="stable": build-agent-sidecar build-agent-webview build-gesture
             done
         done
     }
-    build_pty_manager_if_changed() {
-        local before after running_hashes
-        PTY='{{pty_manager_dir}}'
-        OUT='{{pty_manager_out}}'
-        before=""
-        if [ -f "$OUT" ]; then
-            before="$(shasum -a 256 "$OUT" | awk '{ print $1 }')"
-        fi
-        (cd "$PTY" && cargo build --release --bin pty-manager)
-        after="$(shasum -a 256 "$PTY/target/release/pty-manager" | awk '{ print $1 }')"
-        running_hashes="$(
-            ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { sub(/^[[:space:]]*[0-9]+[[:space:]]+/, ""); sub(/[[:space:]]+--socket.*/, ""); print }' |
-                while IFS= read -r bin; do
-                    if [ -f "$bin" ]; then
-                        shasum -a 256 "$bin" | awk '{ print $1 }'
-                    else
-                        printf 'unreadable:%s\n' "$bin"
-                    fi
-                done |
-                sort -u
-        )"
-        if [ "$before" != "$after" ]; then
-            cp "$PTY/target/release/pty-manager" "$OUT"
-            chmod +x "$OUT"
-        fi
-        if [ -z "$running_hashes" ]; then
-            PTY_MANAGER_CHANGED=0
-            echo "no running pty-manager for {{variant}}; no manager restart needed"
-        elif [ "$running_hashes" != "$after" ]; then
-            PTY_MANAGER_CHANGED=1
-            echo "running pty-manager binary differs; restarting manager for {{variant}}"
-        else
-            PTY_MANAGER_CHANGED=0
-            echo "running pty-manager binary unchanged; preserving manager for {{variant}}"
-        fi
-    }
-    build_pty_manager_if_changed
+    just prepare-pty-runtime "{{variant}}"
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     # Kill only THIS variant's exact host executable. A bundle-prefix match also
     # selects its atc-sidecar and pty-manager, defeating manager preservation.
     HOST_PIDS=$(sh tools/exact-executable-pids.sh "$APP/Contents/MacOS/AgentDeskHost")
     [ -n "$HOST_PIDS" ] && kill_host_pids $HOST_PIDS
-    if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
-        pkill -f "$APP/Contents/Resources/pty-manager" 2>/dev/null || true
-        kill_pty_managers_for_socket
-    fi
     # Backstop: kill a same-bundle-id host from a different checkout that holds this
     # variant's signaling port (the path-scoped pkill misses it). Port-scoped, so the
     # sibling variant on its own tier-derived port is untouched.
@@ -950,9 +903,6 @@ host-run variant="stable": build-agent-sidecar build-agent-webview build-gesture
         done
         [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill_host_pids "${SAFE_PIDS[@]}"
     fi
-    if [ "$PTY_MANAGER_CHANGED" = "1" ]; then
-        kill_pty_managers_for_socket
-    fi
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     if [ "${AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS:-0}" != "0" ]; then
@@ -966,36 +916,89 @@ host-run variant="stable": build-agent-sidecar build-agent-webview build-gesture
     # DOM bridge first-class: wire this variant's native-messaging manifest on every launch.
     just dom-bridge-reinstall {{variant}} || echo "WARN: dom-bridge wiring failed; browser mode will not mirror until 'just dom-bridge-reinstall {{variant}}' succeeds"
 
-restart-pty-manager variant="stable": build-pty-manager
+restart-pty-runtime variant="stable": build-pty-runtime
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{variant}}" = "dev" ]; then
-        PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
+        SUPPORT='{{host_dev_support_dir}}'
     else
-        PTY_SOCKET='{{host_pty_manager_socket_path}}'
+        SUPPORT='{{host_support_dir}}'
     fi
-    PTY_BIN='{{pty_manager_out}}'
-    find_pty_manager_pids() {
-        ps -axo pid=,command= | awk -v socket="$PTY_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { print $1 }'
+    MANAGER_SOCKET="$SUPPORT/pty-manager.sock"
+    VAULT_SOCKET="$SUPPORT/pty-vault.sock"
+    MANAGER_DIGEST="$(shasum -a 256 '{{pty_manager_out}}' | awk '{ print $1 }')"
+    VAULT_DIGEST="$(shasum -a 256 '{{pty_vault_out}}' | awk '{ print $1 }')"
+    OLD_VAULT_PIDS="$(ps -axo pid=,command= | awk -v socket="$VAULT_SOCKET" 'index($0, "pty-vault --socket") && index($0, socket) { print $1 }' | tr '\n' ' ')"
+    OLD_MANAGER_PIDS="$(ps -axo pid=,command= | awk -v socket="$MANAGER_SOCKET" 'index($0, "pty-manager --socket") && index($0, socket) { print $1 }' | tr '\n' ' ')"
+    wait_for_identity() {
+        local identity="$1" digest="$2" label="$3" old_pids="$4" identity_pid
+        for _ in $(seq 1 200); do
+            if [ -f "$identity" ] && grep -Fq "\"digest\":\"$digest\"" "$identity"; then
+                identity_pid="$(sed -n 's/.*"pid":\([0-9][0-9]*\).*/\1/p' "$identity")"
+                case " $old_pids " in
+                    *" $identity_pid "*) ;;
+                    *) [ -n "$identity_pid" ] && return 0 ;;
+                esac
+            fi
+            sleep 0.025
+        done
+        echo "ERROR: $label candidate did not publish authority identity; old generation remains authoritative" >&2
+        return 1
     }
-    PIDS="$(find_pty_manager_pids)"
+    if [ ! -S "$VAULT_SOCKET" ] || [ ! -S "$MANAGER_SOCKET.handover" ]; then
+        echo "ERROR: durable PTY runtime is not active; use 'just reset-pty-runtime {{variant}}' only if losing sessions is intentional" >&2
+        exit 1
+    fi
+    nohup '{{pty_vault_out}}' --socket "$VAULT_SOCKET" --handover \
+        --runtime-digest "$VAULT_DIGEST" >/dev/null 2>&1 &
+    wait_for_identity "$VAULT_SOCKET.identity" "$VAULT_DIGEST" "pty-vault" "$OLD_VAULT_PIDS"
+    nohup '{{pty_manager_out}}' --socket "$MANAGER_SOCKET" --handover \
+        --runtime-digest "$MANAGER_DIGEST" >/dev/null 2>&1 &
+    wait_for_identity "$MANAGER_SOCKET.identity" "$MANAGER_DIGEST" "pty-manager" "$OLD_MANAGER_PIDS"
+    pgrep -lf "pty-vault --socket $VAULT_SOCKET" || true
+    pgrep -lf "pty-manager --socket $MANAGER_SOCKET" || true
+
+reset-pty-runtime variant="stable": build-pty-runtime
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{variant}}" = "dev" ]; then
+        SUPPORT='{{host_dev_support_dir}}'
+    else
+        SUPPORT='{{host_support_dir}}'
+    fi
+    MANAGER_SOCKET="$SUPPORT/pty-manager.sock"
+    VAULT_SOCKET="$SUPPORT/pty-vault.sock"
+    PIDS="$(
+        ps -axo pid=,command= | awk -v manager="$MANAGER_SOCKET" -v vault="$VAULT_SOCKET" \
+            '(index($0, "pty-manager --socket") && index($0, manager)) || (index($0, "pty-vault --socket") && index($0, vault)) { print $1 }'
+    )"
     if [ -n "$PIDS" ]; then
         kill $PIDS 2>/dev/null || true
         for _ in $(seq 1 40); do
-            PIDS="$(find_pty_manager_pids)"
-            [ -z "$PIDS" ] && break
+            LIVE="$(ps -p $PIDS -o pid= 2>/dev/null || true)"
+            [ -z "$LIVE" ] && break
             sleep 0.05
         done
-        PIDS="$(find_pty_manager_pids)"
-        [ -n "$PIDS" ] && kill -9 $PIDS 2>/dev/null || true
+        LIVE="$(ps -p $PIDS -o pid= 2>/dev/null || true)"
+        [ -z "$LIVE" ] || kill -9 $LIVE 2>/dev/null || true
     fi
-    if [ -S "$PTY_SOCKET" ]; then
-        rm -f "$PTY_SOCKET"
-    fi
-    mkdir -p "$(dirname "$PTY_SOCKET")"
-    nohup "$PTY_BIN" --socket "$PTY_SOCKET" >/dev/null 2>&1 &
-    sleep 0.2
-    pgrep -lf "pty-manager --socket $PTY_SOCKET" || true
+    rm -f "$MANAGER_SOCKET" "$MANAGER_SOCKET.handover" "$MANAGER_SOCKET.identity" \
+        "$VAULT_SOCKET" "$VAULT_SOCKET.identity"
+    echo "PTY runtime reset for {{variant}}; prior sessions are not recoverable; the next host launch starts a fresh runtime"
+
+pty-live-update-verify:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd '{{pty_manager_dir}}'
+    cargo test --test vault_tests zero_session_binary_handover_publishes_candidate_identity -- --exact --nocapture
+    cargo test --test vault_tests vault_candidate_inherits_listener_sessions_and_exact_exit -- --exact --nocapture
+    cargo test --test manager_handover_tests zero_session_manager_binary_handover_publishes_candidate_identity -- --exact --nocapture
+    cargo test --test manager_handover_tests manager_candidate_preserves_checkpoint_revision_pid_and_io -- --exact --nocapture
+    cd '{{justfile_directory()}}'
+    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost \
+        -derivedDataPath '{{derived_data}}' test CODE_SIGNING_ALLOWED=NO \
+        -only-testing:AgentDeskHostTests/HostPtyRuntimeProcessTests >/dev/null
+    printf '%s\n' '{"gate":"pty-live-update-verify","vaultIdentity":"passed","vaultHandover":"passed","managerIdentity":"passed","managerHandover":"passed","hostCoordinator":"passed","status":"passed"}'
 
 # Build client Debug for the iPhone and install (does not launch).
 # variant: "stable" (default) or "dev" (the experimental side-by-side install:

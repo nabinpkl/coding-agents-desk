@@ -9,6 +9,8 @@ use std::time::Duration;
 use pty_manager::vault::{Vault, VaultOptions};
 use pty_manager::vault_client::VaultClient;
 
+static VAULTS: OnceLock<Mutex<Vec<RunningVault>>> = OnceLock::new();
+
 pub struct RunningVault {
     socket_path: PathBuf,
     shutdown: Arc<AtomicBool>,
@@ -40,7 +42,6 @@ impl RunningVault {
         }
         panic!("vault socket did not become ready");
     }
-
 }
 
 impl Drop for RunningVault {
@@ -53,7 +54,6 @@ impl Drop for RunningVault {
 }
 
 pub fn ensure_vault_for_manager(manager_socket_path: &Path) {
-    static VAULTS: OnceLock<Mutex<Vec<RunningVault>>> = OnceLock::new();
     let socket_path = manager_socket_path.with_file_name("pty-vault.sock");
     let vaults = VAULTS.get_or_init(|| Mutex::new(Vec::new()));
     let mut vaults = vaults.lock().expect("lock test vaults");
@@ -61,6 +61,27 @@ pub fn ensure_vault_for_manager(manager_socket_path: &Path) {
         return;
     }
     vaults.push(RunningVault::start(socket_path, 64));
+}
+
+#[allow(dead_code)]
+pub fn restart_vault_for_manager(manager_socket_path: &Path) {
+    let socket_path = manager_socket_path.with_file_name("pty-vault.sock");
+    let vaults = VAULTS.get_or_init(|| Mutex::new(Vec::new()));
+    let old = {
+        let mut vaults = vaults.lock().expect("lock test vaults");
+        vaults
+            .iter()
+            .position(|vault| vault.socket_path == socket_path)
+            .map(|index| vaults.remove(index))
+    };
+    drop(old);
+    let replacement = RunningVault::start(socket_path, 64);
+    VAULTS
+        .get()
+        .expect("test vault registry")
+        .lock()
+        .expect("lock test vaults")
+        .push(replacement);
 }
 
 #[allow(dead_code)]

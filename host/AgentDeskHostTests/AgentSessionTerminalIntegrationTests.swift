@@ -82,7 +82,7 @@ struct AgentSessionTerminalIntegrationTests {
         }
     }
 
-    @Test func realManagerShutdownReapsCoordinatorOwnedLeasedChild() async throws {
+    @Test func realManagerRestartRecoversCoordinatorOwnedLeasedChild() async throws {
         let fixture = try RealAgentTerminalIntegrationFixture()
         defer { fixture.cleanup() }
         try await fixture.startManager()
@@ -94,8 +94,17 @@ struct AgentSessionTerminalIntegrationTests {
         #expect(fixture.processExists(ready.pid))
 
         try await fixture.stopManagerGracefully()
+        #expect(fixture.processExists(ready.pid))
+
+        try await fixture.startManager()
+        try await fixture.expectRunning(sessionName: ready.ptySessionName, pid: ready.pid)
+        let recovered = try await fixture.attach(to: ready, title: "r71-recovered")
+        #expect(recovered.attachment.pid == ready.pid)
+
+        try await recovered.detach()
+        await fixture.close(ready)
+        try await fixture.waitForSessionRemoval(ready.ptySessionName)
         try await fixture.waitForProcessExit(ready.pid)
-        #expect(!fixture.processExists(ready.pid))
         _ = connection
     }
 }

@@ -878,6 +878,7 @@ enum Config {
         )
     }
     static let ptyManagerResourceName = "pty-manager"
+    static let ptyVaultResourceName = "pty-vault"
     static let ptyLeasedSessionGraceSeconds = positiveInt(
         environmentKey: "AGENTDESK_PTY_LEASED_SESSION_GRACE_SECONDS",
         defaultValue: 30
@@ -900,6 +901,9 @@ enum Config {
         ?? "/bin/zsh"
     static var ptyManagerURL: URL? {
         Bundle.main.url(forResource: ptyManagerResourceName, withExtension: nil)
+    }
+    static var ptyVaultURL: URL? {
+        Bundle.main.url(forResource: ptyVaultResourceName, withExtension: nil)
     }
 
     // Identity root. Every per-install anchor (log subsystem, launchd label,
@@ -929,6 +933,8 @@ enum Config {
         .appendingPathComponent("ad.sock", isDirectory: false)
     static let ptyManagerSocketURL = applicationSupportDirectory
         .appendingPathComponent("pty-manager.sock", isDirectory: false)
+    static let ptyVaultSocketURL = applicationSupportDirectory
+        .appendingPathComponent("pty-vault.sock", isDirectory: false)
     static let adTokenURL = applicationSupportDirectory
         .appendingPathComponent("ad-token", isDirectory: false)
     // R16/R17 workspace consolidation. `workspaceStoreURL` is AgentDesk's authoritative,

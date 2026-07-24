@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package pty.manager.handover.v1;
+
+import "vault.proto";
+
+message ManagerHandoverManifest {
+  uint32 protocol_version = 1;
+  uint64 manager_generation = 2;
+  uint32 session_count = 3;
+  uint64 checksum = 4;
+  repeated ManagerSessionState sessions = 5;
+}
+
+message ManagerHandoverListener {
+  uint32 protocol_version = 1;
+}
+
+message ManagerHandoverDescriptor {
+  uint32 index = 1;
+  string session_name = 2;
+  uint64 session_generation = 3;
+}
+
+message ManagerSessionState {
+  pty.vault.v1.Session vault_session = 1;
+  bytes checkpoint_ansi = 2;
+  uint64 revision = 3;
+  uint32 columns = 4;
+  uint32 rows = 5;
+  bool history_truncated = 6;
+  uint64 ownership_epoch = 7;
+  uint64 next_checkpoint_id = 8;
+  repeated bytes pending_input = 9;
+}
+
+message ManagerHandoverCommit {
+  uint64 manager_generation = 1;
+  uint64 checksum = 2;
+}

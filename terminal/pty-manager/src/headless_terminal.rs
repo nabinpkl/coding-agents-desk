@@ -87,6 +87,35 @@ impl HeadlessTerminal {
         }
     }
 
+    pub fn from_checkpoint(
+        checkpoint: TerminalCheckpointData,
+        scrollback_lines: usize,
+        checkpoint_bytes: usize,
+    ) -> Result<Self> {
+        let columns = u16::try_from(checkpoint.columns)
+            .ok()
+            .filter(|value| *value >= 2)
+            .ok_or_else(|| {
+                TerminalError::Protocol("invalid handover checkpoint columns".to_owned())
+            })?;
+        let rows = u16::try_from(checkpoint.rows)
+            .ok()
+            .filter(|value| *value >= 2)
+            .ok_or_else(|| {
+                TerminalError::Protocol("invalid handover checkpoint rows".to_owned())
+            })?;
+        if checkpoint.revision == 0 || checkpoint.ansi.len() > checkpoint_bytes {
+            return Err(TerminalError::Protocol(
+                "invalid handover checkpoint bounds".to_owned(),
+            ));
+        }
+        let mut terminal = Self::new(columns, rows, scrollback_lines, checkpoint_bytes);
+        terminal.apply_output(&checkpoint.ansi)?;
+        terminal.revision = checkpoint.revision;
+        terminal.history_truncated = checkpoint.history_truncated;
+        Ok(terminal)
+    }
+
     pub fn revision(&self) -> u64 {
         self.revision
     }

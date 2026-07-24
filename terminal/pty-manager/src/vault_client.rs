@@ -1,4 +1,4 @@
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -8,8 +8,8 @@ use crate::error::{Result, TerminalError};
 use crate::fd_transfer::{receive_message, send_message};
 use crate::vault_protocol::generated::{
     create_session, vault_request, vault_response, Acknowledged, CommandLaunch, CreateSession,
-    ExitStatus, KillSession, LeaseSession, ListSessions, QueryExitStatus, ResizeSession, Session,
-    ShellLaunch, VaultRequest, VaultResponse,
+    ExitStatus, ImportSession, KillSession, LeaseSession, ListSessions, QueryExitStatus,
+    ResizeSession, Session, ShellLaunch, VaultRequest, VaultResponse,
 };
 use crate::vault_protocol::VAULT_PROTOCOL_VERSION;
 
@@ -152,7 +152,25 @@ impl VaultClient {
         Ok(status.exited.then_some(status.status))
     }
 
+    pub fn import(&self, session: Session, descriptor: &OwnedFd) -> Result<()> {
+        let (response, returned_descriptor) = self.request_with_descriptor(
+            vault_request::Payload::ImportSession(ImportSession {
+                session: Some(session),
+            }),
+            Some(descriptor.as_raw_fd()),
+        )?;
+        acknowledged_response(response, returned_descriptor)
+    }
+
     fn request(&self, payload: vault_request::Payload) -> Result<(VaultResponse, Option<OwnedFd>)> {
+        self.request_with_descriptor(payload, None)
+    }
+
+    fn request_with_descriptor(
+        &self,
+        payload: vault_request::Payload,
+        descriptor: Option<i32>,
+    ) -> Result<(VaultResponse, Option<OwnedFd>)> {
         let request_id = self.inner.next_request_id.fetch_add(1, Ordering::Relaxed);
         let request = VaultRequest {
             protocol_version: VAULT_PROTOCOL_VERSION,
@@ -160,7 +178,7 @@ impl VaultClient {
             payload: Some(payload),
         };
         let mut stream = UnixStream::connect(&self.inner.socket_path)?;
-        send_message(&mut stream, &request, None)?;
+        send_message(&mut stream, &request, descriptor)?;
         let (response, descriptor) = receive_message::<VaultResponse>(&mut stream)?;
         if response.protocol_version != VAULT_PROTOCOL_VERSION {
             return Err(TerminalError::Protocol(

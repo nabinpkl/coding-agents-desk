@@ -27,6 +27,13 @@ pub(crate) struct SessionViewport {
 }
 
 impl SessionViewport {
+    pub(crate) fn from_handover(ownership_epoch: u64) -> Self {
+        Self {
+            ownership_epoch,
+            ..Self::default()
+        }
+    }
+
     pub(crate) fn register(&mut self, client_id: u64, columns: u16, rows: u16) {
         self.viewers.insert(
             client_id,

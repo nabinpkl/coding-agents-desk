@@ -13,6 +13,8 @@ message VaultRequest {
     ResizeSession resize_session = 13;
     KillSession kill_session = 14;
     QueryExitStatus query_exit_status = 15;
+    BeginHandover begin_handover = 16;
+    ImportSession import_session = 17;
   }
 }
 
@@ -77,6 +79,14 @@ message QueryExitStatus {
   bool acknowledge = 3;
 }
 
+message BeginHandover {
+  string transfer_socket_path = 1;
+}
+
+message ImportSession {
+  Session session = 1;
+}
+
 message SessionLease {
   Session session = 1;
 }
@@ -105,4 +115,34 @@ message Acknowledged {}
 message ExitStatus {
   bool exited = 1;
   int32 status = 2;
+}
+
+message VaultHandoverManifest {
+  uint32 protocol_version = 1;
+  uint64 vault_generation = 2;
+  uint64 next_session_generation = 3;
+  uint32 session_count = 4;
+  uint64 checksum = 5;
+  repeated Session sessions = 6;
+}
+
+message VaultHandoverDescriptor {
+  uint32 index = 1;
+  string session_name = 2;
+  uint64 session_generation = 3;
+}
+
+message VaultHandoverCommit {
+  uint64 vault_generation = 1;
+  uint64 checksum = 2;
+  repeated Session sessions = 3;
+}
+
+message HandoverPhase {
+  enum Phase {
+    UNSPECIFIED = 0;
+    READY = 1;
+    ACTIVE = 3;
+  }
+  Phase phase = 1;
 }
