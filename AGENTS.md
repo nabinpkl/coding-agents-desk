@@ -1,14 +1,3 @@
-# Load these first
-
-**At session start, and again after any context compaction, read these files if they are not already in context. Do not skip. Do not assume they are loaded.**
-
-1. `/Users/dev/projects/atc/taste/library/universal-AGENTS.md` cross-cutting worker rules. Authoritative for voice, scope discipline, output format, coding rules, and how to write for other agents.
-2. `/Users/dev/projects/atc/taste/library/iteration/TASKS-MD-Guidelines.md` the shape of `TASKS.md` for any iteration that opens.
-
-These files do not live in this repo. They are referenced by absolute path from the canonical location. If a path no longer resolves, stop and surface the failure instead of inventing rules.
-
-After loading, acknowledge to the user that you loaded them.
-
 # What this file is for
 
 `AGENTS.md` carries **how to operate inside this repo**: conventions, where things live, how decisions get recorded, how work is broken down. It does **not** carry product intent or implementation shape. Those have their own homes:
@@ -21,14 +10,13 @@ Before doing project work, read `PRD.md` and `SPEC.md` once. They are short on p
 
 # Repository layout
 
-- `CLAUDE.md` session-load entry point. Points at this file.
 - `AGENTS.md` this file. Operating rules.
 - `PRD.md` product intent.
 - `SPEC.md` technical shape for v0.
 - `README.md` external-facing one-pager. Points at `PRD.md`.
 - `architecture-decisions/` one ADR per decision. `TEMPLATE.md` is the starting shape; `README.md` documents the index and lifecycle.
 - `mock-design/` Claude Design HTML/CSS/JS handoff bundle. **Reference for visual feel, not a v0 implementation target.** The mocked agent-native UX (per-agent carousel, reasoning ticker) is v1+, not v0.
-- `TASKS.md` (created when the first iteration opens) the iteration ledger, following the guidelines file linked in the load-first section.
+- `TASKS.md` (created when the first iteration opens) the iteration ledger, following the guidelines file linked in the load-first section. Then retire old tasks when complete in tasks folder as archive before starting new arcs.
 
 # How decisions get recorded
 
@@ -37,78 +25,32 @@ Before doing project work, read `PRD.md` and `SPEC.md` once. They are short on p
 - **Per-iteration plan and progress** go in `TASKS.md`. Do not duplicate ADR or PRD content there.
 - **Anything inferable from reading the code** does not need a doc. Skip the ADR.
 
-# How work is done
+# Subagents Work Mode(Opt in Otherwise normal chat and implementation as usual)
 
-Subagents and workers mode are opt-in. Do not spawn, start, or delegate to any subagent, worker,
-reviewer, planner, or parallel agent unless the user explicitly consents for the current task. Consent
-is task-scoped and does not carry forward. Do not infer consent from task size, complexity, an R-task,
-or guidance to delegate proactively. Without explicit consent, the active thread plans, implements,
-reviews, and verifies the work itself.
+Subagents and workers mode are opt-in. Do not spawn, start, or delegate to any subagent, worker, reviewer, planner, or parallel agent unless the user explicitly consents for the current task. Consent is task-scoped and does not carry forward. Do not infer consent from task size, complexity, an R-task, or guidance to delegate proactively. Without explicit consent, the active thread plans, implements, reviews, and verifies the work itself.
 
-When workers mode is active, major features run through Codex native threads, not a generic subagent
-flow. The four standing roles are **Co-ordinator**, **Implementor**, **Reviewer**, and **Small Tasks
-Doer**.
+When workers mode is active, major features run through Codex native threads, not a generic subagent flow. The four standing roles are **Co-ordinator**, **Implementor**, **Reviewer**, and **Small Tasks Doer**.
 
-- **Co-ordinator** is the main control thread and the only integration owner. It owns the live plan,
-  keeps `TASKS.md` current, partitions each coherent phase into ownership lanes, assigns one standing
-  Implementor-Reviewer pair to each lane, coordinates contracts and ordering between lanes, verifies
-  the integrated tree, and decides when a task cluster is ready to commit and push.
-- **Implementor** owns one coherent phase or lane for its duration. It takes that lane's R-tasks in
-  sequence, modifies code and tests inside the assigned ownership boundary, runs the stated gates,
-  self-reviews the complete diff, and reports exact files changed, verification results, and remaining
-  risks. It does not promote the ledger, commit, or push.
-- **Reviewer** is the standing independent, read-only reviewer for one phase or lane. It retains the
-  lane's context across task reviews and correction rounds, and reviews requirements and complete diffs
-  for correctness, regressions, security, lifecycle cleanup, and missing tests. Findings lead the
-  response, ordered by severity, with file and line references. It does not patch its own findings.
-- **Small Tasks Doer** handles narrow, low-risk chores that do not need decomposition: spelling fixes,
-  small doc updates, targeted test additions, mechanical renames, and one-file bug fixes. It does not
-  absorb broad feature work or architecture changes.
+- **Co-ordinator** is the main control thread and the only integration owner. It owns the live plan, keeps `TASKS.md` current, partitions each coherent phase into ownership lanes, assigns one standing Implementor-Reviewer pair to each lane, coordinates contracts and ordering between lanes, verifies the integrated tree, and decides when a task cluster is ready to commit and push.
+- **Implementor** owns one coherent phase or lane for its duration. It takes that lane's R-tasks in sequence, modifies code and tests inside the assigned ownership boundary, runs the stated gates, self-reviews the complete diff, and reports exact files changed, verification results, and remaining risks. It does not promote the ledger, commit, or push.
+- **Reviewer** is the standing independent, read-only reviewer for one phase or lane. It retains the lane's context across task reviews and correction rounds, and reviews requirements and complete diffs for correctness, regressions, security, lifecycle cleanup, and missing tests. Findings lead the response, ordered by severity, with file and line references. It does not patch its own findings.
+- **Small Tasks Doer** handles narrow, low-risk chores that do not need decomposition: spelling fixes, small doc updates, targeted test additions, mechanical renames, and one-file bug fixes. It does not absorb broad feature work or architecture changes.
 
 ## Phase-lane implementor-reviewer loop
 
-When workers mode is active, every R-task that changes behavior uses this loop, but thread ownership
-persists across the coherent phase or lane. Do not spawn a fresh Implementor or Reviewer for each
-R-task. The Co-ordinator mediates all handoffs so task scope, review disposition, cross-lane contracts,
-and repository state have one owner.
+When workers mode is active, every R-task that changes behavior uses this loop, but thread ownership persists across the coherent phase or lane. Do not spawn a fresh Implementor or Reviewer for each R-task. The Co-ordinator mediates all handoffs so task scope, review disposition, cross-lane contracts, and repository state have one owner.
 
-1. **Partition.** Before implementation, the Co-ordinator divides the phase only where work has
-   independent ownership boundaries and can progress without concurrent edits to the same files or
-   contracts. It records each lane's ordered R-tasks, dependencies, owned surface, and standing
-   Implementor-Reviewer pair in the live plan. Sequential tasks in the same subsystem stay in one lane
-   so their pair retains context.
-2. **Brief.** The Co-ordinator gives the lane's existing Implementor its next R-task or named sub-task
-   with the exact acceptance criteria, allowed surface, relevant paths, required tests, and known
-   unrelated dirty files. The brief names dependencies that must already be green and states that scope
+1. **Partition.** Before implementation, the Co-ordinator divides the phase only where work has independent ownership boundaries and can progress without concurrent edits to the same files or contracts. It records each lane's ordered R-tasks, dependencies, owned surface, and standing Implementor-Reviewer pair in the live plan. Sequential tasks in the same subsystem stay in one lane so their pair retains context.
+2. **Brief.** The Co-ordinator gives the lane's existing Implementor its next R-task or named sub-task with the exact acceptance criteria, allowed surface, relevant paths, required tests, and known unrelated dirty files. The brief names dependencies that must already be green and states that scope
    changes return to the Co-ordinator rather than being assumed.
-3. **Implement.** The Implementor reads the current files, writes tests and code, runs the task gates,
-   then performs the final self-review below. It hands back the commit-ready diff without committing,
-   including exact commands and outcomes. A failing or unrun gate is reported plainly.
-4. **Review.** The Co-ordinator sends the same task contract and current diff to the lane's standing
-   Reviewer. The Reviewer reads the implementation in repository and accumulated lane context, not only
-   the patch. No findings means it says so explicitly and records residual test gaps; approval is never
-   inferred from silence.
-5. **Correct.** The Co-ordinator sends every actionable finding and open question back to the same
-   Implementor. The Implementor either fixes it and reruns affected gates, or returns a concrete
-   technical disagreement with evidence. It does not silently dismiss or defer findings.
-6. **Re-review.** The same Reviewer checks the corrections and the complete task diff again. Steps 5-6
-   repeat until no actionable findings remain. The Co-ordinator resolves disagreements; a disputed
-   correctness, security, data-loss, or lifecycle finding blocks promotion until resolved or escalated
-   to the human.
-7. **Integrate the task.** The Co-ordinator checks the actual worktree, runs the task-level gates from
-   `TASKS.md` (including `just check`), performs its own final integration review, and only then flips
-   the task from R to D. The task code, tests, and ledger transition land in the same commit and are
-   pushed immediately under the repo's commit policy.
-8. **Continue or close the lane.** The same pair receives the lane's next R-task without re-onboarding.
-   After its final task, the Reviewer performs one aggregate phase/lane review against the landed tree,
-   and the Co-ordinator runs the phase-level gates and cross-lane integration checks before releasing
-   the pair.
+3. **Implement.** The Implementor reads the current files, writes tests and code, runs the task gates, then performs the final self-review below. It hands back the commit-ready diff without committing, including exact commands and outcomes. A failing or unrun gate is reported plainly.
+4. **Review.** The Co-ordinator sends the same task contract and current diff to the lane's standing Reviewer. The Reviewer reads the implementation in repository and accumulated lane context, not only the patch. No findings means it says so explicitly and records residual test gaps; approval is never inferred from silence.
+5. **Correct.** The Co-ordinator sends every actionable finding and open question back to the same Implementor. The Implementor either fixes it and reruns affected gates, or returns a concrete technical disagreement with evidence. It does not silently dismiss or defer findings.
+6. **Re-review.** The same Reviewer checks the corrections and the complete task diff again. Steps 5-6 repeat until no actionable findings remain. The Co-ordinator resolves disagreements; a disputed correctness, security, data-loss, or lifecycle finding blocks promotion until resolved or escalated to the human.
+7. **Integrate the task.** The Co-ordinator checks the actual worktree, runs the task-level gates from `TASKS.md` (including `just check`), performs its own final integration review, and only then flips the task from R to D. The task code, tests, and ledger transition land in the same commit and are pushed immediately under the repo's commit policy.
+8. **Continue or close the lane.** The same pair receives the lane's next R-task without re-onboarding. After its final task, the Reviewer performs one aggregate phase/lane review against the landed tree, and the Co-ordinator runs the phase-level gates and cross-lane integration checks before releasing the pair.
 
-Parallel lanes are created and scheduled only by the Co-ordinator. Contract-producing lanes land before
-dependent lanes consume them; the Co-ordinator relays contract changes and blocks stale consumers until
-they refresh. Do not run Implementor and Reviewer edits concurrently on the same lane. Replace a standing
-thread only when it is unavailable, near its context limit, or demonstrably stale, and give the
-replacement the full lane contract, landed task history, current diff, review disposition, and next task.
+Parallel lanes are created and scheduled only by the Co-ordinator. Contract-producing lanes land before dependent lanes consume them; the Co-ordinator relays contract changes and blocks stale consumers until they refresh. Do not run Implementor and Reviewer edits concurrently on the same lane. Replace a standing thread only when it is unavailable, near its context limit, or demonstrably stale, and give the replacement the full lane contract, landed task history, current diff, review disposition, and next task.
 
 ## Final self-review before handoff
 
@@ -193,13 +135,6 @@ The Mac host has the same dev/stable split as the client, and the two hosts run 
 - Reading the host log (subsystem `com.example.agentdesk.AgentDeskHost`, category `owned-media`): `acceptedBy=damage` with `commands=2` and a small payload is a copyRect scroll frame (copyRect plus exposed strip); `acceptedBy=damage-tiles` is a small non-scroll change; `acceptedBy=damage-fullframe-tiles` is a whole-surface resend (multi-MB) and is the bandwidth signal to watch.
 - Policy: run the simulator drive and the physical-device run ONLY when the user explicitly asks. Do not fire a manual simulator drive or a physical launch for every small change. Default to `just check` for correctness. Reach for the simulator or physical feel runs only on explicit request, or for a media, scroll, decode, or gesture regression that unit tests cannot judge.
 
-## ADRs
-
-- Filename: `NNNN-kebab-case-title.md`. Numbers never reuse.
-- YAML frontmatter carries `status` (`proposed`, `accepted`, `deprecated`, `superseded by ADR-NNNN`).
-- Accepted ADRs are immutable. To change a decision, write a new ADR that supersedes it and cross-link both.
-- Reference ADRs by `ADR-NNNN` in `TASKS.md`, `SPEC.md`, and code comments. Never by path.
-
 ## Commits and PRs
 
 - Small, scoped commits. One slice per PR where possible.
@@ -209,13 +144,9 @@ The Mac host has the same dev/stable split as the client, and the two hosts run 
 
 # Open questions agents should escalate, not invent
 
-- Bundle IDs and signing identity (HITL, lives in S0). The experimental client variant's bundle id (`com.example.agentdesk.AgentDeskClient.dev`) and its own App Store Connect record (a bundle id maps to exactly one record, required for the dev variant's TestFlight track) are HITL provisioning. Direct-install of the dev variant needs only the App ID, which Automatic signing can register under team `TEAMID0000`.
-- Apple Developer Program account details (HITL).
 - Any ambiguites that are not clear from the user prompt.
-- When `request_user_input` returns no answers, the question is still unanswered. Ask it again and
-  stop; do not infer a recommended default or continue planning or implementation until the user
-  responds.
-If you find yourself about to pick/assume on the user's behalf, stop and surface it instead.
+- When `request_user_input` returns no answers, the question is still unanswered. Ask it again and stop; do not infer a recommended default or continue planning or implementation until the user responds.
+- If you find yourself about to pick/assume on the user's behalf, stop and surface it instead.
 
 
 # Need to revisit
