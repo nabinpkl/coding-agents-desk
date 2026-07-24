@@ -1,7 +1,8 @@
 ---
-status: proposed
+status: superseded by ADR-0073
 date: 2026-06-26
 refines: ADR-0027
+superseded-by: ADR-0073
 ---
 
 # Selective packet resend (NACK) and bounded keyframe recovery for lossy links

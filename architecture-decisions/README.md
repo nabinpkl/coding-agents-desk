@@ -70,7 +70,7 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0025 | Mixed-mode renderer: hardware HEVC video for motion, retained tiles for rest | accepted | 2026-06-25 |
 | ADR-0026 | Video-primary owned media: retire the reliable channel | proposed | 2026-06-26 |
 | ADR-0027 | Congestion-adaptive video for constrained links | accepted | 2026-06-26 |
-| ADR-0028 | Selective packet resend (NACK) and bounded keyframe recovery | proposed | 2026-06-26 |
+| ADR-0028 | Selective packet resend (NACK) and bounded keyframe recovery | superseded by ADR-0073 | 2026-06-26 |
 | ADR-0029 | Capacity survival rung: trade frame rate and bitrate for a slow link | proposed | 2026-06-26 |
 | ADR-0030 | Single QUIC session transport for v0 | accepted | 2026-06-27 |
 | ADR-0031 | Selected display projection on the client | accepted | 2026-06-27 |
@@ -111,3 +111,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0070 | Capture paired-client screenshots on demand | accepted | 2026-07-22 |
 | ADR-0071 | Reconcile workspace assignments after Mission Control | accepted | 2026-07-23 |
 | ADR-0072 | Centralize PTY descriptor custody with live handover | accepted | 2026-07-23 |
+| ADR-0073 | Freshness-first owned media drops obsolete frames instead of waiting for ACKs | accepted | 2026-07-23 |
