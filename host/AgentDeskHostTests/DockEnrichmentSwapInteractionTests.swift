@@ -9,12 +9,14 @@ struct DockEnrichmentSwapInteractionTests {
         let snapshot = Self.snapshot()
         let renderer = RecordingDockRenderer()
         let executor = RecordingDockSwapExecutor()
+        let focusExecutor = RecordingDockFocusExecutor()
         let timer = ManualDockUndoTimer()
         let presenter = DockEnrichmentPresenter(
             reader: StaticDockSnapshotReader(snapshot: snapshot),
             renderer: renderer,
             snapshotScheduler: ImmediateDockSnapshotScheduler(),
             swapExecutor: executor,
+            focusExecutor: focusExecutor,
             undoTimer: timer
         )
         var held: [Bool] = []
@@ -46,12 +48,14 @@ struct DockEnrichmentSwapInteractionTests {
     @Test func undoTimerExpiryAndCancellationAreOwnedByPresenter() async {
         let renderer = RecordingDockRenderer()
         let executor = RecordingDockSwapExecutor()
+        let focusExecutor = RecordingDockFocusExecutor()
         let timer = ManualDockUndoTimer()
         let presenter = DockEnrichmentPresenter(
             reader: StaticDockSnapshotReader(snapshot: Self.snapshot()),
             renderer: renderer,
             snapshotScheduler: ImmediateDockSnapshotScheduler(),
             swapExecutor: executor,
+            focusExecutor: focusExecutor,
             undoTimer: timer
         )
 
@@ -203,6 +207,167 @@ struct DockEnrichmentSwapInteractionTests {
         )
     }
 
+    @Test func oneWindowIconPrimaryActionDispatchesItsDesktopScopedTarget() {
+        let panel = DockEnrichmentPanel()
+        let snapshot = Self.focusSnapshot(windowCount: 1)
+        var requests: [DockWindowFocusRequest] = []
+        panel.onWindowFocus = { requests.append($0) }
+        panel.render(snapshot, swapState: .idle)
+
+        let appButton = panel.descendant(identifier: "dock-app-44")
+
+        #expect(appButton?.accessibilityPerformPress() == true)
+        #expect(requests.count == 1)
+        #expect(requests.first?.pid == 44)
+        #expect(requests.first?.windowID == 700)
+        #expect(requests.first?.targetSpaceID == 100)
+        #expect(requests.first?.targetDisplayID == "primary")
+    }
+
+    @Test func multipleDesktopScopedWindowsRequireChooserInsteadOfDirectFocus() {
+        let group = Self.focusSnapshot(windowCount: 2).desktopGroups[0]
+
+        #expect(DockWindowFocusRequest.onlyWindow(in: group.apps, group: group) == nil)
+    }
+
+    @Test func directFocusDoesNotAggregateMatchingAppsFromOtherDesktopCards() {
+        let firstGroup = Self.focusSnapshot(windowCount: 1).desktopGroups[0]
+        let secondApp = DockAppInstanceSummary(
+            pid: 45,
+            name: "Editor",
+            bundleIdentifier: "dev.test.editor",
+            bundleURL: nil,
+            duplicateIndex: 2,
+            axErrorCode: nil,
+            windows: [
+                DockAppWindowSummary(
+                    windowID: 701,
+                    title: "Other Desktop Window",
+                    role: "AXWindow",
+                    subrole: "AXStandardWindow",
+                    isFocused: false,
+                    isMinimized: false,
+                    isOnScreen: true,
+                    layer: 0,
+                    alpha: 1,
+                    bounds: CGRect(x: 20, y: 20, width: 300, height: 200),
+                    spaceIDs: [200]
+                ),
+            ]
+        )
+        let secondGroup = DockDesktopGroupSummary(
+            spaceID: 200,
+            displayID: "primary",
+            missionControlOrdinal: 1,
+            monitorName: "Primary",
+            monitorFrame: nil,
+            isActive: false,
+            isMainDisplay: true,
+            diagnostic: nil,
+            apps: [secondApp]
+        )
+        let panel = DockEnrichmentPanel()
+        var requests: [DockWindowFocusRequest] = []
+        panel.onWindowFocus = { requests.append($0) }
+        panel.render(
+            DockAppSnapshot(desktopGroups: [firstGroup, secondGroup]),
+            swapState: .idle
+        )
+
+        #expect(panel.descendant(identifier: "dock-app-44")?.accessibilityPerformPress() == true)
+        #expect(requests.map(\.windowID) == [700])
+        #expect(requests.map(\.targetSpaceID) == [100])
+    }
+
+    @Test func popoverWindowButtonPreservesExactFocusIdentityAndAccessibility() {
+        let group = Self.focusSnapshot(windowCount: 1).desktopGroups[0]
+        let request = DockWindowFocusRequest(
+            app: group.apps[0],
+            window: group.apps[0].windows[0],
+            group: group
+        )
+        var received: DockWindowFocusRequest?
+        let button = DockWindowFocusButton(request: request) { received = $0 }
+
+        #expect(button.accessibilityIdentifier() == "dock-window-focus-44-700")
+        #expect(button.accessibilityLabel() == "Focus Window 1")
+        #expect(button.accessibilityPerformPress())
+        #expect(received == request)
+    }
+
+    @Test func newerWindowFocusCancelsThePreviousPresenterRequest() async {
+        let renderer = RecordingDockRenderer()
+        let focusExecutor = CancellableDockFocusExecutor()
+        let presenter = DockEnrichmentPresenter(
+            reader: StaticDockSnapshotReader(snapshot: Self.focusSnapshot(windowCount: 1)),
+            renderer: renderer,
+            snapshotScheduler: ImmediateDockSnapshotScheduler(),
+            swapExecutor: RecordingDockSwapExecutor(),
+            focusExecutor: focusExecutor,
+            undoTimer: ManualDockUndoTimer()
+        )
+        let group = Self.focusSnapshot(windowCount: 1).desktopGroups[0]
+        let first = DockWindowFocusRequest(
+            app: group.apps[0],
+            window: group.apps[0].windows[0],
+            group: group
+        )
+        let second = DockWindowFocusRequest(
+            app: group.apps[0],
+            window: DockAppWindowSummary(
+                windowID: 701,
+                title: "Window 2",
+                role: "AXWindow",
+                subrole: "AXStandardWindow",
+                isFocused: false,
+                isMinimized: false,
+                isOnScreen: true,
+                layer: 0,
+                alpha: 1,
+                bounds: CGRect(x: 20, y: 20, width: 300, height: 200),
+                spaceIDs: [100]
+            ),
+            group: group
+        )
+
+        presenter.focusWindow(first)
+        await Task.yield()
+        presenter.focusWindow(second)
+        await Self.yieldUntil { focusExecutor.cancelledWindowIDs.contains(700) }
+
+        #expect(focusExecutor.requestedWindowIDs == [700, 701])
+        #expect(focusExecutor.cancelledWindowIDs.contains(700))
+        presenter.stop()
+    }
+
+    @Test func presenterSurfacesWindowFocusFailureWithoutReportingSuccess() async {
+        let renderer = RecordingDockRenderer()
+        let focusExecutor = FailingDockFocusExecutor()
+        let presenter = DockEnrichmentPresenter(
+            reader: StaticDockSnapshotReader(snapshot: Self.focusSnapshot(windowCount: 1)),
+            renderer: renderer,
+            snapshotScheduler: ImmediateDockSnapshotScheduler(),
+            swapExecutor: RecordingDockSwapExecutor(),
+            focusExecutor: focusExecutor,
+            undoTimer: ManualDockUndoTimer()
+        )
+        let group = Self.focusSnapshot(windowCount: 1).desktopGroups[0]
+        let request = DockWindowFocusRequest(
+            app: group.apps[0],
+            window: group.apps[0].windows[0],
+            group: group
+        )
+
+        presenter.focusWindow(request)
+        await Self.yieldUntil { renderer.windowFocusFailure != nil }
+
+        #expect(
+            renderer.windowFocusFailure ==
+                DockWindowFocusError.accessibilityPermissionRequired.localizedDescription
+        )
+        presenter.stop()
+    }
+
     private static func selection(id: UInt64, desktop: String, monitor: String) -> DockDesktopSwapSelection {
         DockDesktopSwapSelection(spaceID: id, desktopLabel: desktop, monitorBadgeLabel: monitor)
     }
@@ -248,6 +413,51 @@ struct DockEnrichmentSwapInteractionTests {
         )
     }
 
+    private static func focusSnapshot(windowCount: Int) -> DockAppSnapshot {
+        var windows: [DockAppWindowSummary] = []
+        for offset in 0..<windowCount {
+            let windowID = UInt32(700 + offset)
+            let title = "Window \(offset + 1)"
+            let x = CGFloat(10 + offset * 20)
+            let window = DockAppWindowSummary(
+                windowID: windowID,
+                title: title,
+                role: "AXWindow",
+                subrole: "AXStandardWindow",
+                isFocused: offset == 0,
+                isMinimized: false,
+                isOnScreen: true,
+                layer: 0,
+                alpha: 1,
+                bounds: CGRect(x: x, y: 10, width: 300, height: 200),
+                spaceIDs: [100]
+            )
+            windows.append(window)
+        }
+        let app = DockAppInstanceSummary(
+            pid: 44,
+            name: "Editor",
+            bundleIdentifier: "dev.test.editor",
+            bundleURL: nil,
+            duplicateIndex: nil,
+            axErrorCode: nil,
+            windows: windows
+        )
+        return DockAppSnapshot(desktopGroups: [
+            DockDesktopGroupSummary(
+                spaceID: 100,
+                displayID: "primary",
+                missionControlOrdinal: 0,
+                monitorName: "Primary",
+                monitorFrame: nil,
+                isActive: true,
+                isMainDisplay: true,
+                diagnostic: nil,
+                apps: [app]
+            ),
+        ])
+    }
+
     private static func yieldUntil(
         _ condition: @escaping @MainActor () async -> Bool
     ) async {
@@ -275,10 +485,48 @@ private struct ImmediateDockSnapshotScheduler: DockSnapshotScheduling {
 private final class RecordingDockRenderer: DockEnrichmentRendering {
     private(set) var snapshot = DockAppSnapshot(desktopGroups: [])
     private(set) var state: DockDesktopSwapState = .idle
+    private(set) var windowFocusFailure: String?
 
     func render(_ snapshot: DockAppSnapshot, swapState: DockDesktopSwapState) {
         self.snapshot = snapshot
         state = swapState
+    }
+
+    func renderWindowFocusFailure(_ message: String?) {
+        windowFocusFailure = message
+    }
+}
+
+@MainActor
+private final class RecordingDockFocusExecutor: DockWindowFocusExecuting {
+    private(set) var requests: [DockWindowFocusRequest] = []
+
+    func focus(_ request: DockWindowFocusRequest) async throws {
+        requests.append(request)
+    }
+}
+
+@MainActor
+private final class CancellableDockFocusExecutor: DockWindowFocusExecuting {
+    private(set) var requestedWindowIDs: [UInt32] = []
+    private(set) var cancelledWindowIDs: [UInt32] = []
+
+    func focus(_ request: DockWindowFocusRequest) async throws {
+        let windowID = request.windowID ?? 0
+        requestedWindowIDs.append(windowID)
+        do {
+            try await Task.sleep(for: .seconds(60))
+        } catch {
+            cancelledWindowIDs.append(windowID)
+            throw error
+        }
+    }
+}
+
+@MainActor
+private final class FailingDockFocusExecutor: DockWindowFocusExecuting {
+    func focus(_ request: DockWindowFocusRequest) async throws {
+        throw DockWindowFocusError.accessibilityPermissionRequired
     }
 }
 

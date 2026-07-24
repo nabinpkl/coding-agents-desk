@@ -11,23 +11,39 @@ public struct WorkspaceMonitorPresentation: Equatable {
     }
 }
 
+enum WorkspaceDesktopSwitchConfirmation: Equatable {
+    case reached
+    case rejected
+    case timedOut
+}
+
 /// Switches the macOS Desktop (Space) to a workspace's assigned Desktop through AgentDesk's existing
 /// Dock-gesture control (ADR-0054). Workspace assignments identify an exact display and Space; the
 /// switcher reads that display's own current Space and computes the relative gesture within it.
 @MainActor
 final class WorkspaceDesktopSwitcher {
     private let state: () -> DesktopState?
-    private let currentSpaceID: (_ displayID: String) -> UInt64?
+    private let currentSpaceIDProvider: (_ displayID: String) -> UInt64?
     private let commit: (_ delta: Int, _ displayID: String) -> Bool
+    private let waitForCurrentSpace: (_ spaceID: UInt64, _ displayID: String) async throws -> Bool
 
     init(
         state: @escaping () -> DesktopState?,
         currentSpaceID: @escaping (_ displayID: String) -> UInt64?,
-        commit: @escaping (_ delta: Int, _ displayID: String) -> Bool
+        commit: @escaping (_ delta: Int, _ displayID: String) -> Bool,
+        waitForCurrentSpace: ((_ spaceID: UInt64, _ displayID: String) async throws -> Bool)? = nil
     ) {
         self.state = state
-        self.currentSpaceID = currentSpaceID
+        currentSpaceIDProvider = currentSpaceID
         self.commit = commit
+        self.waitForCurrentSpace = waitForCurrentSpace ?? { targetSpaceID, displayID in
+            for _ in 0..<60 {
+                try Task.checkCancellation()
+                if currentSpaceID(displayID) == targetSpaceID { return true }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            return currentSpaceID(displayID) == targetSpaceID
+        }
     }
 
     /// Convenience for production wiring over the host's SpacesProvider.
@@ -118,20 +134,45 @@ final class WorkspaceDesktopSwitcher {
         currentAssignment().map { assignment.matches($0) } ?? false
     }
 
+    func currentSpaceID(on displayID: String) -> UInt64? {
+        currentSpaceIDProvider(displayID)
+    }
+
     /// Switch to the assignment's exact display and Space through Dock's gesture state machine.
     /// Returns false when the target or that display's current user Desktop cannot be resolved.
     @discardableResult
     func switchToDesktop(_ assignment: WorkspaceDesktopAssignment) -> Bool {
+        switchToDesktop(spaceID: assignment.spaceID, displayID: assignment.displayID)
+    }
+
+    /// Switch to one stable Space id without constructing workspace presentation metadata.
+    @discardableResult
+    func switchToDesktop(spaceID: UInt64, displayID: String) -> Bool {
         guard let state = state(),
-              let currentSpaceID = currentSpaceID(assignment.displayID)
+              let currentSpaceID = currentSpaceIDProvider(displayID)
         else { return false }
-        let userSpaces = userSpaces(on: assignment.displayID, in: state)
+        let userSpaces = userSpaces(on: displayID, in: state)
         guard let currentIndex = userSpaces.firstIndex(where: { $0.id == currentSpaceID }),
-              let targetIndex = userSpaces.firstIndex(where: { $0.id == assignment.spaceID })
+              let targetIndex = userSpaces.firstIndex(where: { $0.id == spaceID })
         else { return false }
         let delta = targetIndex - currentIndex
         guard delta != 0 else { return true }
-        return commit(delta, assignment.displayID)
+        return commit(delta, displayID)
+    }
+
+    /// Starts the existing Dock-driven transition and returns only after the target display reports
+    /// the requested stable Space id. A queued gesture is not treated as completed focus navigation.
+    func switchToDesktopAndWait(
+        spaceID: UInt64,
+        displayID: String
+    ) async throws -> WorkspaceDesktopSwitchConfirmation {
+        if currentSpaceIDProvider(displayID) == spaceID {
+            return .reached
+        }
+        guard switchToDesktop(spaceID: spaceID, displayID: displayID) else {
+            return .rejected
+        }
+        return try await waitForCurrentSpace(spaceID, displayID) ? .reached : .timedOut
     }
 
     private func userSpaces(on displayId: String, in state: DesktopState) -> [SpaceMetadata] {

@@ -2,7 +2,7 @@ import ApplicationServices
 import CoreGraphics
 
 struct AXDockWindowReader: DockAXWindowReading {
-    private static let messagingTimeout: Float = 0.15
+    static let messagingTimeout: Float = 0.15
 
     func windows(for pid: pid_t) -> DockAXWindowResult {
         let app = AXUIElementCreateApplication(pid)
@@ -15,7 +15,7 @@ struct AXDockWindowReader: DockAXWindowReading {
         return .windows(windows.map(Self.windowFacts))
     }
 
-    private static func windowFacts(_ window: AXUIElement) -> DockAXWindowFacts {
+    static func windowFacts(_ window: AXUIElement) -> DockAXWindowFacts {
         AXUIElementSetMessagingTimeout(window, messagingTimeout)
         return DockAXWindowFacts(
             title: stringAttribute(window, kAXTitleAttribute),

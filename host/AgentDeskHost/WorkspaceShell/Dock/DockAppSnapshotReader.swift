@@ -95,7 +95,11 @@ public struct DockAppSnapshotReader: DockAppSnapshotReading {
         var usedCGWindowIDs = Set<UInt32>()
         var summaries = axWindows.compactMap { ax -> DockAppWindowSummary? in
             guard !isShellControlWindow(app: app, title: ax.title) else { return nil }
-            let cg = bestCGWindow(for: ax, in: cgWindows, excluding: usedCGWindowIDs)
+            let cg = DockWindowMatcher.bestCGWindow(
+                for: ax,
+                in: cgWindows,
+                excluding: usedCGWindowIDs
+            )
             if let cg { usedCGWindowIDs.insert(cg.windowID) }
             return DockAppWindowSummary(
                 windowID: cg?.windowID,
@@ -134,29 +138,6 @@ public struct DockAppSnapshotReader: DockAppSnapshotReading {
             if lhs.isFocused != rhs.isFocused { return lhs.isFocused && !rhs.isFocused }
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
-    }
-
-    private static func bestCGWindow(
-        for ax: DockAXWindowFacts,
-        in windows: [DockCGWindowFacts],
-        excluding used: Set<UInt32>
-    ) -> DockCGWindowFacts? {
-        let available = windows.filter { !used.contains($0.windowID) }
-        if let exactTitle = available.first(where: { !$0.title.isEmpty && $0.title == ax.title }) {
-            return exactTitle
-        }
-        if let axBounds = ax.bounds,
-           let boundsMatch = available.first(where: { close($0.bounds, to: axBounds) }) {
-            return boundsMatch
-        }
-        return available.first { $0.layer == 0 }
-    }
-
-    private static func close(_ lhs: CGRect, to rhs: CGRect) -> Bool {
-        abs(lhs.minX - rhs.minX) < 2 &&
-            abs(lhs.minY - rhs.minY) < 2 &&
-            abs(lhs.width - rhs.width) < 2 &&
-            abs(lhs.height - rhs.height) < 2
     }
 
     private static func displayTitle(_ title: String) -> String {

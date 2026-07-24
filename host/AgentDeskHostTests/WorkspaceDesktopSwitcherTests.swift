@@ -98,6 +98,50 @@ struct WorkspaceDesktopSwitcherTests {
         #expect(committedDisplayID == "D2")
     }
 
+    @Test func confirmedSwitchWaitsForTheExactStableSpaceId() async throws {
+        var currentSpaceID: UInt64 = 10
+        var waitCalls: [(UInt64, String)] = []
+        let switcher = WorkspaceDesktopSwitcher(
+            state: { self.desktopState(active: currentSpaceID, spaces: [(10, 0), (20, 1)]) },
+            currentSpaceID: { _ in currentSpaceID },
+            commit: { _, _ in true },
+            waitForCurrentSpace: { targetSpaceID, displayID in
+                waitCalls.append((targetSpaceID, displayID))
+                currentSpaceID = targetSpaceID
+                return true
+            }
+        )
+
+        let result = try await switcher.switchToDesktopAndWait(spaceID: 20, displayID: "D1")
+
+        #expect(result == .reached)
+        #expect(waitCalls.count == 1)
+        #expect(waitCalls.first?.0 == 20)
+        #expect(waitCalls.first?.1 == "D1")
+    }
+
+    @Test func confirmedSwitchDistinguishesRejectionAndTimeout() async throws {
+        let rejected = WorkspaceDesktopSwitcher(
+            state: { self.desktopState(active: 10, spaces: [(10, 0), (20, 1)]) },
+            currentSpaceID: { _ in 10 },
+            commit: { _, _ in false },
+            waitForCurrentSpace: { _, _ in true }
+        )
+        let timedOut = WorkspaceDesktopSwitcher(
+            state: { self.desktopState(active: 10, spaces: [(10, 0), (20, 1)]) },
+            currentSpaceID: { _ in 10 },
+            commit: { _, _ in true },
+            waitForCurrentSpace: { _, _ in false }
+        )
+
+        #expect(
+            try await rejected.switchToDesktopAndWait(spaceID: 20, displayID: "D1") == .rejected
+        )
+        #expect(
+            try await timedOut.switchToDesktopAndWait(spaceID: 20, displayID: "D1") == .timedOut
+        )
+    }
+
     @Test func desktopsEnumeratesUserSpacesWithTheActiveFlag() {
         let switcher = WorkspaceDesktopSwitcher(
             state: { self.desktopState(active: 20, spaces: [(10, 0), (20, 1)]) },

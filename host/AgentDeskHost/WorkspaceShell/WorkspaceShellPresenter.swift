@@ -19,6 +19,7 @@ final class WorkspaceShellPresenter: NSObject {
     private let workspaceCoordinator: WorkspaceCoordinator
     private let observationCoordinator: WorkspaceObservationCoordinator
     private let spacesProvider: SpacesProvider
+    private lazy var desktopSwitcher = WorkspaceDesktopSwitcher(spaces: spacesProvider)
     private let terminalWindowRegistry: TerminalWindowRegistry
     private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-shell")
 
@@ -127,14 +128,13 @@ final class WorkspaceShellPresenter: NSObject {
             guard let self else { return }
             let store = await self.loadInitialStore()
             guard !Task.isCancelled else { return }
-            let desktopSwitcher = WorkspaceDesktopSwitcher(spaces: self.spacesProvider)
             let session = WorkspaceShellSession(
                 store: store,
                 workspaceCoordinator: self.workspaceCoordinator,
                 observationCoordinator: self.observationCoordinator,
                 filePane: self.filePane,
                 viewer: self.viewer,
-                desktopSwitcher: desktopSwitcher,
+                desktopSwitcher: self.desktopSwitcher,
                 terminalWindowRegistry: self.terminalWindowRegistry,
                 slotFrame: { [weak self] in
                     // Invoked on the main actor by the session; a pinned bar insets the slot by the
@@ -388,9 +388,18 @@ final class WorkspaceShellPresenter: NSObject {
             dockPanel.bottomAnchor.constraint(equalTo: content.bottomAnchor),
         ])
         dockPanel.workspaceLabelProvider = { [weak self] spaceID in self?.workspaceName(forSpaceID: spaceID) }
-        let presenter = DockEnrichmentPresenter(reader: DockAppSnapshotReader(), renderer: dockPanel)
+        let focusExecutor = DockWindowFocusExecutor(
+            desktopSwitcher: desktopSwitcher,
+            axAccess: AXDockWindowAccess()
+        )
+        let presenter = DockEnrichmentPresenter(
+            reader: DockAppSnapshotReader(),
+            renderer: dockPanel,
+            focusExecutor: focusExecutor
+        )
         dockPanel.onSwapToggle = { [weak presenter] in presenter?.toggleSwap() }
         dockPanel.onDesktopSelection = { [weak presenter] selection in presenter?.selectDesktop(selection) }
+        dockPanel.onWindowFocus = { [weak presenter] request in presenter?.focusWindow(request) }
         dockPanel.onUndo = { [weak presenter] in presenter?.undo() }
         dockPanel.onCancel = { [weak presenter] in presenter?.cancelInteraction() }
         presenter.onInteractionHeldChange = { [weak self] held in

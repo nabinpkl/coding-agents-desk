@@ -17,11 +17,12 @@ final class DockDesktopSwapStatusView: NSVisualEffectView {
         fatalError("init(coder:) is not supported")
     }
 
-    func render(_ state: DockDesktopSwapState) {
-        statusLabel.stringValue = state.instruction ?? ""
-        statusLabel.setAccessibilityLabel(state.instruction ?? "")
-        isHidden = state.instruction == nil
-        if case .undoAvailable = state {
+    func render(_ state: DockDesktopSwapState, windowFocusFailure: String? = nil) {
+        let instruction = state.instruction ?? windowFocusFailure
+        statusLabel.stringValue = instruction ?? ""
+        statusLabel.setAccessibilityLabel(instruction ?? "")
+        isHidden = instruction == nil
+        if case .undoAvailable = state, windowFocusFailure == nil {
             undoButton.isHidden = false
         } else {
             undoButton.isHidden = true

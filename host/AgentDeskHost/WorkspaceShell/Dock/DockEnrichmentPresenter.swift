@@ -4,6 +4,7 @@ import os
 @MainActor
 protocol DockEnrichmentRendering: AnyObject {
     func render(_ snapshot: DockAppSnapshot, swapState: DockDesktopSwapState)
+    func renderWindowFocusFailure(_ message: String?)
 }
 
 protocol DockSnapshotScheduling: Sendable {
@@ -61,8 +62,10 @@ final class DockEnrichmentPresenter {
     private weak var renderer: DockEnrichmentRendering?
     private let snapshotScheduler: DockSnapshotScheduling
     private let swapExecutor: any DockDesktopSwapExecuting
+    private let focusExecutor: any DockWindowFocusExecuting
     private let undoTimer: any DockUndoTiming
-    private let logger = Logger(subsystem: Config.logSubsystem, category: "dock-desktop-swap")
+    private let swapLogger = Logger(subsystem: Config.logSubsystem, category: "dock-desktop-swap")
+    private let focusLogger = Logger(subsystem: Config.logSubsystem, category: "dock-window-focus")
     private(set) var isVisible = false
     private(set) var swapState = DockDesktopSwapState.idle
     private var machine = DockDesktopSwapStateMachine()
@@ -71,6 +74,8 @@ final class DockEnrichmentPresenter {
     private var isSnapshotRunning = false
     private var pendingRefresh = false
     private var operationTask: Task<Void, Never>?
+    private var focusTask: Task<Void, Never>?
+    private var focusGeneration = 0
     private var publishedHeld = false
 
     var onInteractionHeldChange: ((Bool) -> Void)?
@@ -82,12 +87,14 @@ final class DockEnrichmentPresenter {
             queue: DispatchQueue.global(qos: .utility)
         ),
         swapExecutor: any DockDesktopSwapExecuting = DockDesktopSwapExecutor(),
+        focusExecutor: any DockWindowFocusExecuting,
         undoTimer: any DockUndoTiming = TaskDockUndoTimer()
     ) {
         self.reader = reader
         self.renderer = renderer
         self.snapshotScheduler = snapshotScheduler
         self.swapExecutor = swapExecutor
+        self.focusExecutor = focusExecutor
         self.undoTimer = undoTimer
     }
 
@@ -106,6 +113,7 @@ final class DockEnrichmentPresenter {
     func stop() {
         operationTask?.cancel()
         operationTask = nil
+        cancelWindowFocus()
         undoTimer.cancel()
         isVisible = false
         generation += 1
@@ -120,7 +128,39 @@ final class DockEnrichmentPresenter {
     }
 
     func toggleSwap() {
+        cancelWindowFocus()
+        renderer?.renderWindowFocusFailure(nil)
         apply(.toggle)
+    }
+
+    func focusWindow(_ request: DockWindowFocusRequest) {
+        guard !swapState.holdsDock else { return }
+        cancelWindowFocus()
+        renderer?.renderWindowFocusFailure(nil)
+        focusGeneration += 1
+        let token = focusGeneration
+        focusTask = Task { [weak self, focusExecutor, focusLogger] in
+            do {
+                try await focusExecutor.focus(request)
+                guard !Task.isCancelled, let self, token == self.focusGeneration else { return }
+                focusLogger.notice(
+                    "dock window focus succeeded pid=\(request.pid) window=\(request.windowID ?? 0) targetSpace=\(request.targetSpaceID ?? 0)"
+                )
+                self.renderer?.renderWindowFocusFailure(nil)
+                self.focusTask = nil
+                self.refreshIfVisible()
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, let self, token == self.focusGeneration else { return }
+                focusLogger.error(
+                    "dock window focus failed pid=\(request.pid) window=\(request.windowID ?? 0) targetSpace=\(request.targetSpaceID ?? 0) error=\(String(describing: error), privacy: .public)"
+                )
+                self.renderer?.renderWindowFocusFailure(error.localizedDescription)
+                self.focusTask = nil
+                self.refreshIfVisible()
+            }
+        }
     }
 
     func selectDesktop(_ selection: DockDesktopSwapSelection) {
@@ -157,7 +197,7 @@ final class DockEnrichmentPresenter {
 
     private func execute(_ effect: DockDesktopSwapEffect) {
         operationTask?.cancel()
-        operationTask = Task { [weak self, swapExecutor, logger] in
+        operationTask = Task { [weak self, swapExecutor, swapLogger] in
             do {
                 switch effect {
                 case .swap(let sourceSpaceID, let destinationSpaceID):
@@ -166,14 +206,14 @@ final class DockEnrichmentPresenter {
                         destinationSpaceID: destinationSpaceID
                     )
                     guard !Task.isCancelled else { return }
-                    logger.notice(
+                    swapLogger.notice(
                         "dock desktop swap succeeded source=\(sourceSpaceID) destination=\(destinationSpaceID) sourceWindows=\(receipt.sourceWindowIDs.count) destinationWindows=\(receipt.destinationWindowIDs.count)"
                     )
                     self?.apply(.swapSucceeded(receipt))
                 case .undo(let receipt):
                     let result = try await swapExecutor.undo(receipt)
                     guard !Task.isCancelled else { return }
-                    logger.notice(
+                    swapLogger.notice(
                         "dock desktop undo succeeded restored=\(result.restoredWindowIDs.count) skipped=\(result.skippedWindowIDs.count)"
                     )
                     self?.apply(.undoSucceeded)
@@ -181,7 +221,7 @@ final class DockEnrichmentPresenter {
                 self?.refreshIfVisible()
             } catch {
                 guard !Task.isCancelled else { return }
-                logger.error("dock desktop operation failed: \(String(describing: error), privacy: .public)")
+                swapLogger.error("dock desktop operation failed: \(String(describing: error), privacy: .public)")
                 self?.apply(.operationFailed(error.localizedDescription))
             }
         }
@@ -229,6 +269,12 @@ final class DockEnrichmentPresenter {
         }
         pendingRefresh = false
         requestRefresh()
+    }
+
+    private func cancelWindowFocus() {
+        focusTask?.cancel()
+        focusTask = nil
+        focusGeneration += 1
     }
 }
 

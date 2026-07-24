@@ -73,7 +73,12 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 20. **SpaceAgent.** Host-local overlay under `host/AgentDeskHost/SpaceAgent/`, showing the draggable spaceship and active-display Spaces strip.
 21. **DictationBar.** Host-local push-to-talk overlay under `host/AgentDeskHost/DictationBar/`, independent of the iPhone media and input channels.
 22. **WorkspaceCoordinator.** Sole runtime mutation owner above the persisted workspace repository. Existing reveal chrome, file service, terminal coordination, observation, and IDE adapters consume immutable snapshots and submit typed mutations instead of retaining writable copies.
-23. **WorkspaceShell.** AppKit sidebar and top bar composed at host launch. It uses AgentDesk Spaces, PTY, terminal launcher, and ATC ownership instead of donor implementations.
+23. **WorkspaceShell.** AppKit sidebar and top bar composed at host launch. It uses AgentDesk Spaces,
+    PTY, terminal launcher, and ATC ownership instead of donor implementations. Its Dock window-focus
+    executor treats each icon as Desktop-scoped: one window focuses directly, multiple windows open
+    the scoped chooser, an off-Space target waits for the exact stable Space id before reacquiring and
+    raising its AX window, and an all-Spaces target focuses in place. It never moves the target window
+    or falls back to a different window when identity is stale or ambiguous.
 24. **DockDesktopSwapExecutor.** Host-only yabai adapter (ADR-0059). It accepts stable Space IDs, resolves current indices at transaction time, captures eligible windows, verifies every move, rolls back partial failure, and returns a conservative in-memory Undo receipt. It invokes the configured executable directly without a shell and does not reorder or create Spaces.
 25. **WorkspaceFiles.** Walks workspace-relative path components from an open registered-root descriptor with `openat` and no-follow semantics, rejects traversal and symlinks, reads bounded UTF-8 content or read-only DOCX bytes, and performs atomic revision-checked text writes.
 26. **WorkspaceLane.** Owns the host `.files` stream as a typed workspace lane. It serializes correlated file and Git requests with IDE subscriptions, idempotent shared-state operations, and unsolicited change/state pushes. Native document bytes retain the existing binary codec and frame bound. It never runs workspace I/O on the input or media lanes.

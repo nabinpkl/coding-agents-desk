@@ -40,10 +40,12 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
     private var appPopover: NSPopover?
     private var popoverDelegate: DockAppPopoverDelegate?
     private var swapState = DockDesktopSwapState.idle
+    private var windowFocusFailure: String?
     private var escapeMonitor: Any?
 
     var onSwapToggle: (() -> Void)?
     var onDesktopSelection: ((DockDesktopSwapSelection) -> Void)?
+    var onWindowFocus: ((DockWindowFocusRequest) -> Void)?
     var onUndo: (() -> Void)? {
         didSet { statusView.onUndo = onUndo }
     }
@@ -102,6 +104,9 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
                     onDesktopSelection: { [weak self] selection in
                         self?.onDesktopSelection?(selection)
                     },
+                    onAppPrimaryAction: { [weak self] button, app in
+                        self?.performPrimaryAction(for: app, in: group, anchoredTo: button)
+                    },
                     onAppContextMenu: { [weak self] button, app in
                         self?.showAppPopover(for: app, in: group, anchoredTo: button)
                     },
@@ -119,6 +124,11 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
 
         needsLayout = true
         needsDisplay = true
+    }
+
+    func renderWindowFocusFailure(_ message: String?) {
+        windowFocusFailure = message
+        statusView.render(swapState, windowFocusFailure: message)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -235,7 +245,7 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
         applySwapButtonStyle(state)
         swapButton.setAccessibilityValue(state.holdsDock ? "active" : "inactive")
 
-        statusView.render(state)
+        statusView.render(state, windowFocusFailure: windowFocusFailure)
         updateEscapeMonitor(for: state)
     }
 
@@ -315,7 +325,10 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
         popover.contentViewController?.view = DockAppInstancesPopoverView(
             app: app,
             group: group,
-            instances: instances(matching: app, in: group)
+            instances: instances(matching: app, in: group),
+            onWindowFocus: { [weak self] request in
+                self?.focusWindow(request)
+            }
         )
 
         let delegate = DockAppPopoverDelegate { [weak self] in
@@ -325,6 +338,28 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
         popoverDelegate = delegate
         appPopover = popover
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
+    }
+
+    private func performPrimaryAction(
+        for app: DockAppInstanceSummary,
+        in group: DockDesktopGroupSummary,
+        anchoredTo button: DockAppIconButton
+    ) {
+        let scopedInstances = instances(matching: app, in: group)
+        guard let request = DockWindowFocusRequest.onlyWindow(
+            in: scopedInstances,
+            group: group
+        ) else {
+            showAppPopover(for: app, in: group, anchoredTo: button)
+            return
+        }
+        focusWindow(request)
+    }
+
+    private func focusWindow(_ request: DockWindowFocusRequest) {
+        closeAppPopover()
+        hideTooltip()
+        onWindowFocus?(request)
     }
 
     private func closeAppPopover() {
@@ -369,6 +404,7 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
 
 private final class DockDesktopPillView: NSView {
     private let group: DockDesktopGroupSummary
+    private let onAppPrimaryAction: (DockAppIconButton, DockAppInstanceSummary) -> Void
     private let onAppContextMenu: (DockAppIconButton, DockAppInstanceSummary) -> Void
     private let onAppHover: (DockAppIconButton, DockAppInstanceSummary) -> Void
     private let onAppHoverEnd: () -> Void
@@ -379,6 +415,7 @@ private final class DockDesktopPillView: NSView {
         group: DockDesktopGroupSummary,
         swapState: DockDesktopSwapState,
         onDesktopSelection: @escaping (DockDesktopSwapSelection) -> Void,
+        onAppPrimaryAction: @escaping (DockAppIconButton, DockAppInstanceSummary) -> Void,
         onAppContextMenu: @escaping (DockAppIconButton, DockAppInstanceSummary) -> Void,
         onAppHover: @escaping (DockAppIconButton, DockAppInstanceSummary) -> Void,
         onAppHoverEnd: @escaping () -> Void
@@ -386,6 +423,7 @@ private final class DockDesktopPillView: NSView {
         self.group = group
         self.swapState = swapState
         self.onDesktopSelection = onDesktopSelection
+        self.onAppPrimaryAction = onAppPrimaryAction
         self.onAppContextMenu = onAppContextMenu
         self.onAppHover = onAppHover
         self.onAppHoverEnd = onAppHoverEnd
@@ -425,6 +463,10 @@ private final class DockDesktopPillView: NSView {
 
         for app in group.apps.prefix(DockEnrichmentMetrics.maxVisibleAppsPerDesktop) {
             let button = DockAppIconButton(app: app)
+            button.onPrimaryAction = { [weak self, weak button] in
+                guard let self, let button else { return }
+                self.onAppPrimaryAction(button, app)
+            }
             button.onContextMenu = { [weak self, weak button] in
                 guard let self, let button else { return }
                 self.onAppContextMenu(button, app)
@@ -561,6 +603,7 @@ private final class DockMonitorBadgeView: NSView {
 }
 
 private final class DockAppIconButton: NSView {
+    var onPrimaryAction: (() -> Void)?
     var onContextMenu: (() -> Void)?
     var onHover: ((Bool) -> Void)?
     var isSelectedForPopover = false {
@@ -627,6 +670,7 @@ private final class DockAppIconButton: NSView {
         if bounds.insetBy(dx: -2, dy: -2).contains(point) {
             isHovered = true
             onHover?(true)
+            onPrimaryAction?()
         } else {
             isHovered = false
             onHover?(false)
@@ -639,6 +683,12 @@ private final class DockAppIconButton: NSView {
         onHover?(true)
         onContextMenu?()
         isMouseDownInside = false
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let onPrimaryAction else { return false }
+        onPrimaryAction()
+        return true
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -780,11 +830,18 @@ private final class DockAppInstancesPopoverView: NSView {
     private let app: DockAppInstanceSummary
     private let group: DockDesktopGroupSummary
     private let instances: [DockAppInstanceSummary]
+    private let onWindowFocus: (DockWindowFocusRequest) -> Void
 
-    init(app: DockAppInstanceSummary, group: DockDesktopGroupSummary, instances: [DockAppInstanceSummary]) {
+    init(
+        app: DockAppInstanceSummary,
+        group: DockDesktopGroupSummary,
+        instances: [DockAppInstanceSummary],
+        onWindowFocus: @escaping (DockWindowFocusRequest) -> Void
+    ) {
         self.app = app
         self.group = group
         self.instances = instances
+        self.onWindowFocus = onWindowFocus
         super.init(frame: .zero)
         configure()
     }
@@ -830,7 +887,13 @@ private final class DockAppInstancesPopoverView: NSView {
         rows.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(rows)
         for instance in instances {
-            rows.addArrangedSubview(DockAppInstanceRowView(app: instance))
+            rows.addArrangedSubview(
+                DockAppInstanceRowView(
+                    app: instance,
+                    group: group,
+                    onWindowFocus: onWindowFocus
+                )
+            )
         }
 
         stack.addArrangedSubview(scroll)
@@ -864,9 +927,17 @@ private final class FlippedDockPopoverDocumentView: NSView {
 
 private final class DockAppInstanceRowView: NSView {
     private let app: DockAppInstanceSummary
+    private let group: DockDesktopGroupSummary
+    private let onWindowFocus: (DockWindowFocusRequest) -> Void
 
-    init(app: DockAppInstanceSummary) {
+    init(
+        app: DockAppInstanceSummary,
+        group: DockDesktopGroupSummary,
+        onWindowFocus: @escaping (DockWindowFocusRequest) -> Void
+    ) {
         self.app = app
+        self.group = group
+        self.onWindowFocus = onWindowFocus
         super.init(frame: .zero)
         configure()
     }
@@ -912,7 +983,12 @@ private final class DockAppInstanceRowView: NSView {
             text.addArrangedSubview(label("No windows", size: 10, weight: .regular, color: .tertiaryLabelColor))
         } else {
             for window in app.windows.prefix(6) {
-                text.addArrangedSubview(windowLabel(window))
+                text.addArrangedSubview(
+                    DockWindowFocusButton(
+                        request: DockWindowFocusRequest(app: app, window: window, group: group),
+                        onFocus: onWindowFocus
+                    )
+                )
             }
         }
 
@@ -925,6 +1001,52 @@ private final class DockAppInstanceRowView: NSView {
             icon.widthAnchor.constraint(equalToConstant: 36),
             icon.heightAnchor.constraint(equalToConstant: 36),
         ])
+    }
+}
+
+final class DockWindowFocusButton: NSButton {
+    private let request: DockWindowFocusRequest
+    private let onFocus: (DockWindowFocusRequest) -> Void
+
+    init(
+        request: DockWindowFocusRequest,
+        onFocus: @escaping (DockWindowFocusRequest) -> Void
+    ) {
+        self.request = request
+        self.onFocus = onFocus
+        super.init(frame: .zero)
+        let prefix = request.isFocused ? "* " : ""
+        let suffix = request.isMinimized ? " minimized" : ""
+        title = "\(prefix)\(request.title)\(suffix)"
+        font = .systemFont(ofSize: 10, weight: .regular)
+        alignment = .left
+        lineBreakMode = .byTruncatingTail
+        isBordered = false
+        bezelStyle = .inline
+        target = self
+        action = #selector(focusWindow)
+        toolTip = "Focus \(request.title)"
+        setAccessibilityIdentifier(
+            "dock-window-focus-\(request.pid)-\(request.windowID.map(String.init) ?? "unknown")"
+        )
+        setAccessibilityLabel("Focus \(request.title)")
+        translatesAutoresizingMaskIntoConstraints = false
+        setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        focusWindow()
+        return true
+    }
+
+    @objc private func focusWindow() {
+        onFocus(request)
     }
 }
 
@@ -956,13 +1078,6 @@ private func iconImage(_ app: DockAppInstanceSummary) -> NSImage {
     }
     image.size = NSSize(width: 36, height: 36)
     return image
-}
-
-@MainActor
-private func windowLabel(_ window: DockAppWindowSummary) -> NSTextField {
-    let prefix = window.isFocused ? "* " : ""
-    let suffix = window.isMinimized ? " minimized" : ""
-    return label("\(prefix)\(window.title)\(suffix)", size: 10, weight: .regular, color: .labelColor)
 }
 
 @MainActor

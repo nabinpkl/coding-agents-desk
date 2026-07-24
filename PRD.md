@@ -59,7 +59,9 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 12. Edit workspace files locally with atomic autosave and visible external-change conflicts.
 13. Open a macOS Agents window from the top bar and browse all ATC projects, sessions, history, and live activity.
 14. On iPhone, browse the same registered workspace roots, preview files, edit UTF-8 text, and save only when the host revision still matches.
-15. On macOS, inspect running apps by Desktop in the bottom Dock-enrichment strip and transactionally swap the ordinary window contents of two existing Desktops, with a short conservative Undo.
+15. On macOS, inspect running apps by Desktop in the bottom Dock-enrichment strip, focus an exact
+    Desktop-scoped window without moving it, and transactionally swap the ordinary window contents of
+    two existing Desktops with a short conservative Undo.
 16. Open a separate Workspace IDE on macOS or iPhone with the same Explorer, read-only Source Control, shared open tabs, file editor/viewer, and shared web terminal rooted at the selected workspace. Tab membership and expanded folders synchronize through the host while each device keeps its own active tab, selected workspace, pane layout, drafts, and cursor positions.
 17. Open the Browser Projection on macOS or iPhone showing every normal Chrome window, the selected window's ordered tabs, and one reconstructed active page. AgentDesk may select a projected window without raising Chrome and may activate a tab without focusing its Chrome window. The last active Browser viewer controls the real tab's responsive source viewport, with Desktop, Mobile, custom dimensions, viewer-linked sizing, and projection-only zoom in the shared shell. Hiding the final viewer restores native Chrome behavior. Both platforms share one extension recorder.
 18. For visual debugging, explicitly opt in on the iPhone and let the paired Mac request one bounded
