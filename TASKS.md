@@ -1,171 +1,108 @@
-# TASKS: v8 centralized PTY live handover
+# TASKS: v15 pronunciation gap finder
 
 `R<N>` = remaining. Flip to `D<N>` only after the complete slice has landed and its tests are green.
-This ledger continues from R100 in
-`tasks/archive/2026-07-23-v7-browser-projection-and-v8-terminal-workspace.md`.
+This ledger starts after R127, the highest task ID in the retained task ledgers. Archived checkpoints
+remain incomplete unless their own ledgers record otherwise.
 
 ## Position
 
-This iteration separates kernel PTY custody from terminal policy so code updates do not replace a
-running shell or TUI. One bundle-variant-scoped `pty-vault` holds the primary master descriptor for
-every live session. The restartable `pty-manager` leases those descriptors and retains readers,
-writers, headless parsing, bounded replay, clients, viewport authority, and lifecycle policy.
+The landed iOS 26 Voice surface is a speech-recognition context probe, not a pronunciation analyzer.
+It captures one microphone take as PCM, converts it to the format requested by `SpeechAnalyzer`, and
+transcribes the same buffers twice: once normally and once with the target phrase supplied as
+recognition vocabulary bias. The synthesized reference is playback only.
 
-The descriptor seam and Darwin capability gates land first because the rest of the design depends on
-descriptor transfer and exact exit reporting working after the spawning process exits. The common
-vault lands next, followed by stateful manager handover, host lifecycle cutover, and an authorized live
-acceptance run. Vault and manager updates are sequential so at least one process always holds every
-live master descriptor.
+The first physical result produced `think` in both passes with `thank` as an unaided alternative. That
+proves microphone capture, conversion, on-device transcription, and alternative reporting work. It
+does not show that target-context bias adds useful information, and it says nothing about which phone
+was produced, pronunciation quality, reference similarity, speaker identity, or improvement over
+time.
 
-The acceptance invariant covers more than child-process survival. After changing host, manager, or
-vault code and performing an authorized relaunch, each session retains its identity, child PID and
-process group, visible TUI state, revision, input, resize behavior, and exit notification. A
-simultaneous vault-and-manager crash is outside the guarantee because no process would remain to hold
-the master descriptor.
+Evidence persistence comes first because every later model and scoring decision needs replayable
+takes rather than recollection from a transient screen. Phoneme evidence precedes GOP because a score
+without inspectable phone posteriors and timing cannot explain a gap. Reference comparison follows
+only after its speaker-identity confound has an explicit evaluation gate. History is last because its
+schema must store stable, interpretable signals rather than freeze an exploratory verdict.
 
-## v8 Phase 0: decision and Darwin capability gates
+These are candidate vertical slices, not accepted model or product decisions. Each slice must retain
+the raw evidence, state what it measures, and reject itself when its acceptance signal fails.
 
-- D101. Draft and explicitly accept ADR-0072 before implementation, recording the common-vault
-  choice, dual descriptor custody, manager-owned terminal semantics, sequential updates, atomic
-  rollback, exact exit status, stable/dev isolation, and the simultaneous-holder-loss boundary; leave
-  accepted ADR-0066 immutable, cross-reference it from ADR-0072, and update `SPEC.md` only after the
-  superseding decision is accepted.
-- D102. Add a Darwin-only integration harness that opens a real PTY, runs a continuously changing TUI
-  marker, transfers the master and listening Unix-socket descriptors with `SCM_RIGHTS`, exits the
-  original owner, and proves the same child PID, process group, screen marker, input, resize, EOF, and
-  cleanup survive in the replacement; exercise `EVFILT_PROC` with `NOTE_EXIT` and `NOTE_EXITSTATUS`
-  after parent replacement and stop if exact exit status cannot be preserved.
-- D103. Audit `portable-pty` at the production call sites in
-  `terminal/pty-manager/src/pty_session.rs` and choose the smallest Darwin descriptor seam; prove that
-  a transferred descriptor drives the existing reader, writer, resize, and signal paths without
-  moving terminal policy into the vault, and record any unavoidable dependency or raw-FD adapter in
-  ADR-0072 before changing the session model.
+## Current signal inventory
 
-## v8 Phase 1: PTY transport seam
+| Signal | Current source | What it can show | What it cannot show | Failure shape |
+|---|---|---|---|---|
+| Unaided transcription | Apple `SpeechTranscriber` | The recognizer's top text, alternatives, and confidence | Which sound caused a word choice or whether pronunciation was correct | Accent-robust ASR can recover the intended word while hiding useful pronunciation differences |
+| Target-biased transcription | `AnalysisContext.contextualStrings` | Whether vocabulary bias changes recognition of the same audio | Natural conversational context, phoneme correctness, or human intelligibility | The hint may merely force the expected word or may add no observable information |
+| Synthesized reference | `AVSpeechSynthesizer` playback | A phrase the learner can hear | Any comparison with the learner's recording | Playback can be mistaken for an analyzed reference even though no samples are retained |
 
-- D104. Refactor `terminal/pty-manager/src/pty_session.rs` and
-  `terminal/pty-manager/src/pty_manager_client_sessions.rs` so `LiveSession` consumes a narrow PTY I/O
-  lease instead of directly owning `portable_pty::MasterPty` and `Child`; keep session naming,
-  lifetime, headless terminal, replay, clients, generations, and viewport authority in `pty-manager`,
-  and retain the current in-process lease adapter until the vault path is green.
-- D105. Pin the seam with existing protocol tests plus focused real-PTY tests for byte ordering,
-  backpressure, resize, signal, close, session exit status, and one-reader ownership; leave the current
-  host launch behavior unchanged throughout this refactor.
+## v15 Phase 0: retain evidence and decide the context probe
 
-## v8 Phase 2: common descriptor vault
+- D128. Land the iOS 26 speech-context playground with safe off-main microphone callbacks, complete
+  capture teardown, one buffered take replayed through unaided and target-biased transcription,
+  alternatives, confidence, TTS playback, focused tests, and physical verification through Stop and
+  both analyzer passes.
+- R129. Persist each take in app-owned storage with lossless audio, target phrase, locale, duration,
+  timestamp, build identity, analyzer format, both top transcripts, ordered alternatives,
+  confidences, and context verdict; add explicit retention and deletion controls, replay the same take
+  without using the microphone, rename `Heard instead` to `Other recognition candidates`, distinguish
+  top-result from alternative-only matches, and run a saved minimal-pair matrix that decides whether
+  the target-biased pass remains a product signal or is removed while ordinary STT stays.
 
-- D106. Add `terminal/pty-vault` as a small executable with a variant-scoped `0600` Unix socket and a
-  bounded session table; keep its ownership to immutable session identity, PID/process group identity,
-  descriptor custody, launch and close primitives, peer and protocol validation, and handover
-  generation, with getters, viewport logic, replay, parsing, client fan-out, and UI outside it.
-- D107. Implement vault create, enumerate, lease, release, signal, and close operations; duplicate each
-  manager lease with `SCM_RIGHTS`, never read terminal bytes in the vault, and protect control
-  operations with session generation and process identity so PID reuse or a stale manager cannot
-  resize, signal, or close a replacement process.
-- D108. Implement candidate-vault handover with the existing listener descriptor, a checksummed
-  complete manifest, every primary master descriptor, and a prepare/validate/commit protocol; on a
-  timeout, missing descriptor, count mismatch, peer death, or rejected protocol version, close the
-  candidate duplicates and resume the old vault without changing authority.
-- D109. Add failure-injection tests for zero, one, and many sessions, output during transfer, candidate
-  death before and after readiness, partial descriptor delivery, stale generations, PID reuse, exact
-  exit during transfer, and stable/dev cross-connection rejection; assert after every failure that at
-  least one valid holder owns every live master descriptor.
+## v15 Phase 1: phoneme-level gap evidence
 
-## v8 Phase 3: stateful manager handover
+- R130. Spike and select an on-device phoneme model and target grapheme-to-phoneme source, then produce
+  inspectable phone hypotheses, time ranges, and competing phones for saved takes; prove on a bounded
+  labeled set that contrasts such as `/θ/` to `/t/` or `/s/` are localized without relying on the STT
+  transcript, and reject checkpoints that normalize those differences away.
 
-- D110. Move production session creation and attachment in `pty-manager` onto vault leases while
-  retaining the current protocol and client behavior; let a live manager reseed a replacement vault
-  from its leases after a vault crash, and let the vault enumerate authoritative sessions and issue
-  leases to a candidate after a manager crash.
-- D111. Add manager-to-manager prepare/commit handover that quiesces each old reader at a byte boundary,
-  drains already-read bytes into the headless terminal, transfers the manager listener and PTY leases,
-  and sends a bounded reconstruction envelope containing session metadata, headless ANSI checkpoint,
-  revision and generation, grid size, lifetime, and viewport authority; start candidate readers only
-  after the complete set validates and the old manager closes its leases and client sockets.
-- D112. Make a failed manager update non-destructive by resuming the old manager readers and clients
-  when the candidate cannot restore every session; after a forced old-manager crash, retain the child
-  in the vault and let a replacement attach, trigger a same-size redraw, and continue input and output
-  without spawning a new shell, while treating lost bounded replay as an explicit crash-only limit.
-- D113. Add integration tests that replace manager and vault generations independently while a
-  full-screen TUI and ordinary shell are busy; assert unchanged child PID and process group, session
-  identity, visible marker and checkpoint, revision continuity, ordered output, input, owner resize,
-  close, and exact exit status, including rollback at every prepare/commit boundary.
+## v15 Phase 2: calibrated pronunciation score
 
-## v8 Phase 4: host lifecycle cutover
+- R131. Derive a GOP or equivalent per-phone margin from R130's posterior evidence, preserve the
+  underlying target and competing-phone values beside every score, and calibrate any learner-facing
+  scale against labeled non-native speech before displaying it; do not ship an arbitrary distance
+  transformed into a percentage.
 
-- D114. Replace the incompatible-peer kill in
-  `host/AgentDeskHost/HostPtyManagerProcess.swift` with a variant-aware PTY runtime coordinator that
-  starts or connects to the vault, updates vault and manager one component at a time, waits for a
-  committed handover, and exposes a usable manager socket to the host; keep the previous runtime active
-  and report the exact blocker when an update is rejected.
-- D115. Update the `Justfile` host-run, host-run-dev, restart, bundle, and hash checks to build both
-  executables and request live handover when either hash changes; remove changed-binary `pkill`
-  behavior, prohibit concurrent vault and manager updates, preserve stable/dev isolation, and add an
-  explicit destructive reset recipe for the human-only case that intentionally closes sessions.
-- D116. Add a bounded `just pty-live-update-verify` gate that starts test-owned sessions, replaces
-  host-only code, manager code, and vault code in sequence, and emits machine-readable before/after
-  PIDs, generations, revisions, screen markers, and exit results; clean only its own sockets and
-  processes and never launch an installed AgentDesk host.
+## v15 Phase 3: analyzable reference audio
 
-## v8 Phase 5: authorized live acceptance
+- R132. Replace playback-only reference handling with a first-class reference source that can retain
+  synthesized audio or an explicitly chosen real recording in the same analysis format as learner
+  takes; show provenance in the UI and keep listening independent from scoring so playing the
+  reference can never contaminate a live recording.
 
-- R117. After `just check` and `just pty-live-update-verify` are green, stop at the repository launch
-  checkpoint and state the exact host command; after explicit user approval, relaunch the selected host
-  variant with a real workspace TUI running and verify matching build identity plus unchanged session
-  PID, visible state, revision, input, resize, and close behavior across host, manager, and vault
-  updates.
+## v15 Phase 4: speaker-reduced reference comparison
 
-## Concurrent agent-feed ownership extraction
+- R133. Evaluate acoustic embeddings, normalization, and layer selection on saved reference/learner
+  pairs before adopting DTW; require the representation to separate deliberate pronunciation changes
+  more strongly than different correct speakers, then add time-aligned embedding comparison and
+  surface divergent regions without presenting distance-to-one-speaker as pronunciation correctness.
 
-- D118. Copy and organize the AgentPanel Vite renderer under `packages/AgentPanel/Web`, remove the
-  dashboard HTTP datasource and ATC names, and make its focused typecheck, tests, and production build
-  green.
-- D119. Copy and organize Claude/Codex discovery, parsing, byte indexing, digest, and live tailing
-  under `agent-feed/sidecar`; expose only the host-consumed routes, isolate stable/dev cache state,
-  and keep the parser/index/watcher test suite green.
-- D120. Cut the host, Xcode resource, Justfile, PRD, SPEC, and ADR ledger to the AgentDesk-owned
-  components; remove sibling paths and compatibility names, then pass focused smoke plus `just check`.
+## v15 Phase 5: baselines and improvement history
 
-## Clean layered Agent feed
+- R134. Build phrase-keyed attempt history over the stable signals from R129-R133: replayable learner
+  audio, reference provenance, unaided STT, alternatives, phone evidence, calibrated pronunciation
+  scores, and aligned reference deviations; let the learner choose a baseline, compare attempts, and
+  delete recordings and derived results together.
 
-- D121. Replace the copied cached digest with canonical-path project inventory, selected-project
-  session summaries, and selected source-scoped session events; make React navigation own visibility,
-  make Swift a subscription transport adapter, raise the outer wire protocol to `15`, delete cache
-  state and compatibility contracts, record source and snapshot timing, and pass the sidecar live-SSE
-  smoke plus `just check` without launching either app.
-- D122. Restore the bundle-scoped Application Support root after deleting the obsolete Agent Feed
-  cache-directory setting, and pin the workspace-store path so future cleanup cannot silently reroute
-  workspace, pairing, identity, and PTY state into a feature subdirectory.
+## v15 Phase 6: integrated coaching loop
 
-## Desktop-scoped Agents windows
-
-- D123. Replace the singleton Agents toggle with a trailing `＋ Agents` command that opens an
-  independent window on the current Desktop; isolate each window's feed and terminal endpoint, remove
-  it from the registry after close, and make app termination await every open window.
-
-## Deterministic generated-artifact build pipeline
-
-- D124. Replace unconditional JavaScript dependency installation and mtime-churning generated-resource
-  writes with tested dependency-state and content-aware publication modules; make normal terminal
-  builds validate rather than mutate vendored xterm, remove duplicate TerminalEmulator compilation
-  from the fast gate, migrate the remaining generated web artifacts, and keep a warm serial
-  `just check` below 60 seconds without weakening test coverage or parallelizing PTY lifecycle tests.
+- R135. Combine the retained signals into one explainable result that separately answers what words
+  were recognized, which phones were confusable, how the take differed from the selected reference,
+  and whether the learner improved; validate the loop with saved correct and deliberately altered
+  takes before any claim that the app measures pronunciation quality.
+- R136. Run focused client tests and `just check`, self-review the integrated task diff, then stop at
+  the device checkpoint; after explicit approval, reinstall the current client and verify recording,
+  replay, deletion, phoneme evidence, reference comparison, and history on the physical iPhone with
+  matching build identity.
 
 ## Promotion log
 
 ```text
-D101     2026-07-23  landed      accepted centralized PTY custody and handover decision
-D103     2026-07-23  landed      Darwin descriptor transfer and post-parent exit gates
-D104-105 2026-07-23 landed       manager PTY lease seam and lifecycle behavior gates
-D106-107 2026-07-23 landed       common vault custody, validated control, and descriptor leases
-D102     2026-07-23  landed      Darwin PTY owner exit and continuous TUI handover gates
-D108-109 2026-07-23  landed      transactional vault handover and failure matrix
-D110-113 2026-07-23  landed      vault-backed manager handover, rollback, and recovery
-D114-116 2026-07-23  landed      host coordinator, sequential recipes, and bounded update gate
-R117     2026-07-23  checkpoint  authorized real-host acceptance remains
-D118-120 2026-07-24 landed       AgentDesk-owned AgentPanel Vite source and transcript sidecar
-D121     2026-07-24  landed       layered no-cache Agent feed, live SSE, protocol 15, and timing gates
-D122     2026-07-24  landed       restored bundle-scoped host state after Agent Feed cache deletion
-D123     2026-07-24  landed       current-Desktop independent Agents windows beside Terminal
-D124     2026-07-24  landed       deterministic generated artifacts and 36-second warm serial check
+D128  2026-07-25  landed     safe raw-audio capture and dual Apple recognition-context probe
+R129  candidate   remaining  saved evidence and context-signal decision
+R130  candidate   remaining  phoneme-level hypotheses and timing
+R131  candidate   remaining  calibrated GOP or equivalent phone score
+R132  candidate   remaining  retained synthesized or real reference audio
+R133  candidate   remaining  speaker-reduced embeddings and DTW comparison
+R134  candidate   remaining  baselines and longitudinal attempt history
+R135  candidate   remaining  integrated explainable pronunciation gap loop
+R136  checkpoint  remaining  authorized physical-device acceptance
 ```
