@@ -271,7 +271,7 @@ final class DockWindowFocusExecutor<AXAccess: DockAXWindowAccessing>: DockWindow
         }
 
         let currentSpaceID = desktopSwitcher.currentSpaceID(on: targetDisplayID)
-        if currentSpaceID.map({ !liveMembership.contains($0) }) ?? true {
+        if currentSpaceID.map({ $0 != targetSpaceID }) ?? true {
             logStage("switch-space", request: request)
             let result = try await desktopSwitcher.switchToDesktopAndWait(
                 spaceID: targetSpaceID,

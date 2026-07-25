@@ -66,17 +66,18 @@ struct DockWindowFocusExecutorTests {
         #expect(ax.actions == ["main:2:true", "focused:2:true", "raise:2", "activate:100"])
     }
 
-    @Test func allSpacesTargetFocusesInPlaceWithoutSwitching() async throws {
-        var commits = 0
+    @Test func allSpacesTargetSwitchesToClickedDesktopBeforeFocusing() async throws {
+        var currentSpaceID: UInt64 = 10
+        var commits: [(Int, String)] = []
         let switcher = makeSwitcher(
-            currentSpaceID: { 10 },
-            commit: { _, _ in
-                commits += 1
+            currentSpaceID: { currentSpaceID },
+            commit: { delta, displayID in
+                commits.append((delta, displayID))
                 return true
             },
-            wait: { _, _ in
-                Issue.record("all-Spaces focus must not wait for another Space")
-                return false
+            wait: { target, _ in
+                currentSpaceID = target
+                return true
             }
         )
         let ax = RecordingDockAXAccess(candidates: [
@@ -90,7 +91,7 @@ struct DockWindowFocusExecutorTests {
 
         try await executor.focus(request(spaceIDs: [10, 20], targetSpaceID: 20))
 
-        #expect(commits == 0)
+        #expect(commits == [(1, "D1")])
         #expect(ax.actions.last == "activate:100")
     }
 
