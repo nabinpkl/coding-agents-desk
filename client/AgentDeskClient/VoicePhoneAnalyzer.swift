@@ -513,7 +513,7 @@ actor VoicePhoneAnalyzer {
         try analysisLog.record(
             .vocabularyLoaded,
             residentMemoryBytes: Self.residentMemoryBytes(),
-            details: ["tokenCount": String(vocabulary.tokensByID.count)]
+            details: ["vocabularyEntryCount": String(vocabulary.tokensByID.count)]
         )
         let modelURL = try VoicePhoneModelAssets.loadModelURL(bundle: bundle)
         let configuration = MLModelConfiguration()

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import gzip
 import importlib.util
 import json
 import tempfile
@@ -227,6 +228,90 @@ class VoicePhoneEvidenceSummaryTests(unittest.TestCase):
                 "00000000-0000-0000-0000-000000000001/phone-evidence.json",
             ],
         )
+
+    def test_remote_diagnostics_summarize_crash_surviving_analyzer_stages(
+        self,
+    ) -> None:
+        diagnostics = self.root / "diagnostics"
+        diagnostics.mkdir()
+        payload = diagnostics / "run-previous.ndjson.gz"
+        events = [
+            {
+                "ts": 1_753_480_000,
+                "runId": "previous",
+                "type": "runStarted",
+                "fields": {},
+            },
+            {
+                "ts": 1_753_480_001,
+                "runId": "previous",
+                "type": "voicePhoneAnalysisStage",
+                "fields": {
+                    "attemptID": "00000000-0000-0000-0000-000000000006",
+                    "stage": "analysisStarted",
+                    "modelHash": "selected-model",
+                    "eventTimestamp": "2026-07-25T23:18:00Z",
+                    "residentMemoryBytes": "1000",
+                },
+            },
+            {
+                "ts": 1_753_480_002,
+                "runId": "previous",
+                "type": "voicePhoneAnalysisStage",
+                "fields": {
+                    "attemptID": "00000000-0000-0000-0000-000000000006",
+                    "stage": "inferenceStarted",
+                    "modelHash": "selected-model",
+                    "eventTimestamp": "2026-07-25T23:18:01Z",
+                    "residentMemoryBytes": "2000",
+                    "detail.computeUnits": "all",
+                },
+            },
+        ]
+        with gzip.open(payload, mode="wt", encoding="utf-8") as output:
+            for event in events:
+                output.write(json.dumps(event))
+                output.write("\n")
+
+        summary = "\n".join(SUMMARY.summarize_diagnostics(diagnostics))
+
+        self.assertIn("eventCount=2", summary)
+        self.assertIn("attemptCount=1", summary)
+        self.assertIn(
+            'eventCount=2 lastStage="inferenceStarted" '
+            'modelHash="selected-model"',
+            summary,
+        )
+        self.assertIn(
+            'stage="inferenceStarted" residentBytes=2000 '
+            'details="computeUnits=all"',
+            summary,
+        )
+
+    def test_remote_diagnostics_without_analyzer_events_is_explicit(self) -> None:
+        diagnostics = self.root / "diagnostics"
+        diagnostics.mkdir()
+        with gzip.open(
+            diagnostics / "run-current.ndjson.gz",
+            mode="wt",
+            encoding="utf-8",
+        ) as output:
+            output.write(
+                json.dumps(
+                    {
+                        "ts": 1_753_480_000,
+                        "runId": "current",
+                        "type": "runStarted",
+                        "fields": {},
+                    }
+                )
+            )
+            output.write("\n")
+
+        summary = "\n".join(SUMMARY.summarize_diagnostics(diagnostics))
+
+        self.assertIn("eventCount=0", summary)
+        self.assertIn("attemptCount=0", summary)
 
 
 if __name__ == "__main__":

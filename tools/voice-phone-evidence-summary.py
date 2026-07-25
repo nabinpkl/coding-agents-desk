@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import re
 import sys
@@ -18,6 +19,7 @@ class SummaryError(Exception):
 EVIDENCE_RELATIVE_PATH = re.compile(
     r"^[0-9A-Fa-f-]{36}/(?:metadata|phone-evidence|phone-analysis-log)\.json$"
 )
+DIAGNOSTICS_EVENT_TYPE = "voicePhoneAnalysisStage"
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -313,19 +315,151 @@ def inventory_copy_paths(inventory_path: Path) -> list[str]:
     return sorted(paths)
 
 
+def diagnostics_events(diagnostics_directory: Path) -> list[dict[str, Any]]:
+    if not diagnostics_directory.is_dir():
+        raise SummaryError(
+            f"diagnostics directory does not exist: {diagnostics_directory}"
+        )
+
+    events: list[dict[str, Any]] = []
+    for payload_path in sorted(diagnostics_directory.glob("*.ndjson.gz")):
+        try:
+            with gzip.open(payload_path, mode="rt", encoding="utf-8") as payload:
+                for line_number, line in enumerate(payload, start=1):
+                    if not line.strip():
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError as error:
+                        raise SummaryError(
+                            f"{payload_path}:{line_number} is invalid NDJSON: {error}"
+                        ) from error
+                    if not isinstance(event, dict):
+                        raise SummaryError(
+                            f"{payload_path}:{line_number} must contain an object"
+                        )
+                    if event.get("type") != DIAGNOSTICS_EVENT_TYPE:
+                        continue
+                    fields = event.get("fields")
+                    if not isinstance(fields, dict) or not all(
+                        isinstance(key, str) and isinstance(value, str)
+                        for key, value in fields.items()
+                    ):
+                        raise SummaryError(
+                            f"{payload_path}:{line_number} analyzer fields "
+                            "must be string pairs"
+                        )
+                    attempt_id = fields.get("attemptID")
+                    stage = fields.get("stage")
+                    model_hash = fields.get("modelHash")
+                    if not attempt_id or not stage or not model_hash:
+                        raise SummaryError(
+                            f"{payload_path}:{line_number} analyzer event is "
+                            "missing attemptID, stage, or modelHash"
+                        )
+                    timestamp = event.get("ts")
+                    if (
+                        not isinstance(timestamp, int)
+                        or isinstance(timestamp, bool)
+                        or timestamp < 0
+                    ):
+                        raise SummaryError(
+                            f"{payload_path}:{line_number} analyzer event has "
+                            "an invalid timestamp"
+                        )
+                    events.append(
+                        {
+                            "timestamp": timestamp,
+                            "payload": payload_path.name,
+                            "lineNumber": line_number,
+                            "fields": fields,
+                        }
+                    )
+        except (OSError, UnicodeError) as error:
+            raise SummaryError(f"cannot read {payload_path}: {error}") from error
+
+    return sorted(
+        events,
+        key=lambda event: (
+            event["timestamp"],
+            event["payload"],
+            event["lineNumber"],
+        ),
+    )
+
+
+def summarize_diagnostics(diagnostics_directory: Path) -> list[str]:
+    events = diagnostics_events(diagnostics_directory)
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for event in events:
+        fields = event["fields"]
+        grouped.setdefault(fields["attemptID"], []).append(event)
+
+    lines = [
+        "Voice phone analyzer diagnostics",
+        f"diagnosticsDirectory={diagnostics_directory}",
+        f"eventCount={len(events)}",
+        f"attemptCount={len(grouped)}",
+    ]
+    for attempt_id, attempt_events in grouped.items():
+        final_fields = attempt_events[-1]["fields"]
+        lines.append(
+            f"attempt id={attempt_id} "
+            f"eventCount={len(attempt_events)} "
+            f"lastStage={quoted(final_fields['stage'])} "
+            f"modelHash={quoted(final_fields['modelHash'])}"
+        )
+        for event in attempt_events:
+            fields = event["fields"]
+            details = ", ".join(
+                f"{key.removeprefix('detail.')}={value}"
+                for key, value in sorted(fields.items())
+                if key.startswith("detail.")
+            )
+            lines.append(
+                "  log "
+                f"timestampUnix={event['timestamp']} "
+                f"eventTimestamp={quoted(fields.get('eventTimestamp'))} "
+                f"stage={quoted(fields['stage'])} "
+                f"residentBytes={fields.get('residentMemoryBytes', '?')} "
+                f"details={quoted(details)}"
+            )
+    return lines
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("attempts_directory", nargs="?", type=Path)
     parser.add_argument("--model-manifest", type=Path)
     parser.add_argument("--inventory-copy-paths", type=Path)
+    parser.add_argument("--diagnostics-directory", type=Path)
     arguments = parser.parse_args()
     try:
         if arguments.inventory_copy_paths is not None:
-            if arguments.attempts_directory is not None or arguments.model_manifest is not None:
+            if (
+                arguments.attempts_directory is not None
+                or arguments.model_manifest is not None
+                or arguments.diagnostics_directory is not None
+            ):
                 raise SummaryError(
                     "--inventory-copy-paths cannot be combined with summary arguments"
                 )
             print("\n".join(inventory_copy_paths(arguments.inventory_copy_paths)))
+            return 0
+        if arguments.diagnostics_directory is not None:
+            if (
+                arguments.attempts_directory is not None
+                or arguments.model_manifest is not None
+            ):
+                raise SummaryError(
+                    "--diagnostics-directory cannot be combined with evidence "
+                    "summary arguments"
+                )
+            print(
+                "\n".join(
+                    summarize_diagnostics(arguments.diagnostics_directory)
+                )
+            )
             return 0
         if arguments.attempts_directory is None:
             raise SummaryError("attempts_directory is required")

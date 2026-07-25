@@ -200,13 +200,16 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   observed phones, three competitors, log posteriors, margins, timing, hashes, and inference
   metrics inside saved-take analysis. It deliberately emits no pronunciation percentage and has no
   STT field in its analyzer request.
-- `just voice-phone-evidence-pull` now reads the physical app container on demand without requiring
-  a live host session, copies only the file inventory plus `metadata.json`,
-  `phone-analysis-log.json`, and `phone-evidence.json` (never `audio.caf`), and prints missing,
-  failed, stale, or completed per-take evidence with aligned phones. The analyzer atomically
-  replaces the bounded stage log before model loading, tensor allocation, inference, logit copying,
-  and alignment, with resident-memory snapshots, so a TestFlight crash or memory kill leaves the
-  last entered stage available to the same pull command even when no final phone evidence exists.
+- The analyzer mirrors every bounded stage into the client's durable diagnostics NDJSON before
+  entering the stage and atomically replaces each take's `phone-analysis-log.json`. Both files
+  exclude audio and contain attempt/model identity, timestamps, resident-memory snapshots, and
+  bounded stage details. `just voice-phone-logs-pull` retrieves current and prior unclean-run stages
+  through the authenticated active-session or foreground tailnet path, so it works over mobile data
+  after the killed app is reopened. `just voice-phone-evidence-pull` remains the local CoreDevice
+  route: it does not require a live host session and copies only the file inventory plus
+  `metadata.json`, `phone-analysis-log.json`, and `phone-evidence.json` (never `audio.caf`). It
+  prints missing, failed, stale, or completed per-take evidence with aligned phones. Together these
+  routes leave the last entered stage available even when no final phone evidence exists.
   The device-container inspection that motivated the command found two retained `think` takes on
   2026-07-25 with completed recognition metadata and no `phone-evidence.json`, proving phone
   analysis had not produced output for either take rather than the UI merely hiding a completed
@@ -218,7 +221,7 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   reverse lookup keys exact Unicode scalar sequences, so all 392 model logits retain their original
   token IDs; the generator pins the transformed resource hash and the regression test covers that
   exact pair.
-- Software gates are green: the generated-asset check, Python reproduction-script compile, all 397
+- Software gates are green: the generated-asset check, Python reproduction-script compile, all 398
   client simulator tests across 42 suites, and repository-wide `just check` (579 host tests across
   74 suites plus its package, web, and build gates).
 - Remaining before D130: use `just voice-phone-device-run` after the device checkpoint, collect and

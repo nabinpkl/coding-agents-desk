@@ -1315,6 +1315,27 @@ client-diagnostics variant="stable":
     python3 -c 'import json,sys; data=json.load(open(sys.argv[1], "r", encoding="utf-8")); print(json.dumps(data, indent=2, sort_keys=True)); sys.exit(0 if data.get("status") == "ok" else 1)' "$RESULT_PATH"
     echo "Diagnostics directory: $OUT_DIR"
 
+# Pull the phoneme analyzer's durable stage log through the authenticated
+# diagnostics channel. The active session works directly; the fallback reaches
+# a foreground paired client over tailnet, including on mobile data. Because
+# prior unclean runs are included, reopen the app after a crash or memory kill
+# and run this command. The payload contains bounded stage metadata, never audio.
+voice-phone-logs-pull variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    umask 077
+    TS="$(date +%Y%m%d-%H%M%S)"
+    OUT_DIR="${AGENTDESK_VOICE_PHONE_LOGS_OUTPUT:-/tmp/agentdesk-voice-phone-logs-$TS}"
+    test ! -e "$OUT_DIR" || {
+      echo "voice phone logs output already exists: $OUT_DIR" >&2
+      exit 1
+    }
+    AGENTDESK_CLIENT_DIAGNOSTICS_OUTPUT="$OUT_DIR" just client-diagnostics {{variant}}
+    /usr/bin/python3 tools/voice-phone-evidence-summary.py \
+      --diagnostics-directory "$OUT_DIR" \
+      | tee "$OUT_DIR/phone-analysis-summary.txt"
+    echo "Voice phone logs directory: $OUT_DIR"
+
 # Pull saved Voice analysis metadata directly from a physical iPhone app
 # container. This path does not require the app to be foregrounded or connected
 # to the host, copies crash-surviving analyzer stage logs, and deliberately

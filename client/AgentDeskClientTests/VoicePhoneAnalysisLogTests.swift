@@ -81,6 +81,68 @@ struct VoicePhoneAnalysisLogTests {
     }
 
     @Test
+    func analyzerStagesRemainInRemoteDiagnosticsAfterAnUncleanRelaunch() throws {
+        let root = temporaryRoot(name: "remote-diagnostics")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let diagnosticsDirectory = root.appendingPathComponent(
+            "Diagnostics",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: diagnosticsDirectory,
+            withIntermediateDirectories: true
+        )
+        let configuration = diagnosticsConfiguration(
+            directory: diagnosticsDirectory
+        )
+        let diagnostics = ClientDiagnosticsStore(configuration: configuration)
+        diagnostics.bootstrap()
+
+        let attemptID = UUID()
+        var writer = try VoicePhoneAnalysisLogWriter(
+            attemptID: attemptID,
+            audioURL: root.appendingPathComponent("audio.caf"),
+            modelWeightSHA256: "model-hash",
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            residentMemoryBytes: 1_000,
+            diagnostics: diagnostics
+        )
+        try writer.record(
+            .vocabularyLoaded,
+            residentMemoryBytes: 2_000,
+            details: ["vocabularyEntryCount": "392"],
+            timestamp: Date(timeIntervalSince1970: 1_700_000_001)
+        )
+
+        let relaunchedDiagnostics = ClientDiagnosticsStore(
+            configuration: configuration
+        )
+        relaunchedDiagnostics.bootstrap()
+        let archivedRun = try #require(
+            FileManager.default.contentsOfDirectory(
+                at: diagnosticsDirectory,
+                includingPropertiesForKeys: nil
+            ).first {
+                $0.lastPathComponent.hasPrefix("run-")
+                    && $0.pathExtension == "ndjson"
+            }
+        )
+        let events = try diagnosticEvents(at: archivedRun).filter {
+            $0.type == VoicePhoneAnalysisLogWriter.diagnosticsEventType
+        }
+
+        #expect(events.count == 2)
+        #expect(events.map { $0.fields["stage"] } == [
+            VoicePhoneAnalysisStage.analysisStarted.rawValue,
+            VoicePhoneAnalysisStage.vocabularyLoaded.rawValue
+        ])
+        #expect(events[1].fields["attemptID"] == attemptID.uuidString.lowercased())
+        #expect(events[1].fields["modelHash"] == "model-hash")
+        #expect(events[1].fields["residentMemoryBytes"] == "2000")
+        #expect(events[1].fields["detail.vocabularyEntryCount"] == "392")
+    }
+
+    @Test
     func newRunReplacesThePreviousAttemptLog() throws {
         let root = temporaryRoot(name: "replacement")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -127,5 +189,40 @@ struct VoicePhoneAnalysisLogTests {
             "voice-phone-analysis-log-\(name)-\(UUID().uuidString)",
             isDirectory: true
         )
+    }
+
+    private func diagnosticsConfiguration(
+        directory: URL
+    ) -> ClientDiagnosticsStoreConfiguration {
+        ClientDiagnosticsStoreConfiguration(
+            diagnosticsDirectory: directory,
+            manifestURL: directory.appendingPathComponent(
+                "manifest.json",
+                isDirectory: false
+            ),
+            currentRunURL: directory.appendingPathComponent(
+                "current.ndjson",
+                isDirectory: false
+            ),
+            maxEventBytes: 8 * 1024,
+            maxRunBytes: 2 * 1024 * 1024,
+            maxTotalBytes: 6 * 1024 * 1024,
+            maxRuns: 3,
+            maxResponseBytes: 768 * 1024,
+            maxChunkEncodedBytes: 48 * 1024,
+            authMaxSkewSeconds: 60
+        )
+    }
+
+    private func diagnosticEvents(at url: URL) throws -> [DiagnosticEvent] {
+        let decoder = JSONDecoder()
+        return try Data(contentsOf: url)
+            .split(separator: 0x0A)
+            .map { try decoder.decode(DiagnosticEvent.self, from: $0) }
+    }
+
+    private struct DiagnosticEvent: Decodable {
+        let type: String
+        let fields: [String: String]
     }
 }
