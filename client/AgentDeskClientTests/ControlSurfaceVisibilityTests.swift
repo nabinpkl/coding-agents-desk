@@ -8,6 +8,7 @@ struct ControlSurfaceVisibilityTests {
     @Test func controlShowsChromeHidesOtherSurfaces() {
         let v = visibility(for: .control)
         #expect(!v.hostContentHidden)
+        #expect(!v.controlRailHidden)
         #expect(v.agentHidden)
         #expect(v.browserHidden)
         #expect(v.terminalHidden)
@@ -81,6 +82,7 @@ struct ControlSurfaceVisibilityTests {
     @Test func voiceShowsProbeAndHidesEveryOtherSurface() {
         let v = visibility(for: .voice)
         #expect(v.hostContentHidden)
+        #expect(v.controlRailHidden)
         #expect(!v.voiceHidden)
         #expect(v.ideHidden)
         #expect(v.workspaceHidden)
@@ -100,8 +102,30 @@ struct ControlSurfaceVisibilityTests {
 
         for surface in hostSurfaces {
             #expect(!visibility(for: surface).hostContentHidden)
+            #expect(!visibility(for: surface).controlRailHidden)
         }
         #expect(visibility(for: .voice).hostContentHidden)
+        #expect(visibility(for: .voice).controlRailHidden)
+    }
+}
+
+@MainActor
+struct VoicePlaygroundNavigationTests {
+    @Test func backToVideoControlEmitsExit() throws {
+        guard #available(iOS 26.0, *) else { return }
+        let surface = VoicePlaygroundSurface()
+        let button = try #require(
+            surface.control(identifier: "voice-back-to-video") as? UIButton
+        )
+        var exitCount = 0
+        surface.onBackToVideo = {
+            exitCount += 1
+        }
+
+        #expect(button.configuration?.title == "Back to Video")
+        surface.backToVideo()
+
+        #expect(exitCount == 1)
     }
 }
 
@@ -148,5 +172,12 @@ struct SurfaceSwitcherTests {
             #expect(ControlSurface(switcherAccessibilityLabel: surface.switcherAccessibilityLabel) == surface)
         }
         #expect(ControlSurface(switcherAccessibilityLabel: "Nonexistent") == nil)
+    }
+}
+
+private extension UIView {
+    func control(identifier: String) -> UIControl? {
+        if accessibilityIdentifier == identifier { return self as? UIControl }
+        return subviews.lazy.compactMap { $0.control(identifier: identifier) }.first
     }
 }

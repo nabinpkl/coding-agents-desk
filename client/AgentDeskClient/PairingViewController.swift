@@ -815,12 +815,13 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     /// Voice replaces the pairing or connected UI rather than sitting on top
-    /// of it. The host root is hidden as one unit, while the local surface and
-    /// always-present rail remain sibling views.
+    /// of it. The host root and control rail are hidden as units, leaving the
+    /// local surface as the sole visible root until its Back action exits.
     func applyVoiceRootPresentation() {
         let voiceIsActive = activeControlSurface == .voice
         let visibility = visibility(for: activeControlSurface)
         hostContentView.isHidden = visibility.hostContentHidden
+        surfaceControlRail.isHidden = visibility.controlRailHidden
         surfaceControlRail.setUtilityButton(
             voiceToggleButton,
             selected: voiceIsActive
@@ -838,7 +839,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         if let voiceSurface {
             view.bringSubviewToFront(voiceSurface)
         }
-        view.bringSubviewToFront(surfaceControlRail)
     }
 
     private func unpairedStatusText() -> String {

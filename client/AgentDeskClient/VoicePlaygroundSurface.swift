@@ -14,8 +14,11 @@ import UIKit
 final class VoicePlaygroundSurface: UIView {
     private static let retentionDefaultsKey = "VoiceProbeRetainsAttempts"
 
+    var onBackToVideo: (() -> Void)?
+
     private let scrollView = UIScrollView()
     private let stack = UIStackView()
+    private let backToVideoButton = UIButton(type: .system)
     private let targetField = UITextField()
     private let statusLabel = UILabel()
     private let recordButton = UIButton(type: .system)
@@ -75,10 +78,13 @@ final class VoicePlaygroundSurface: UIView {
 
     // MARK: - Layout
 
+    @objc func backToVideo() {
+        endEditing(true)
+        onBackToVideo?()
+    }
+
     private func configure() {
         backgroundColor = .systemBackground
-        layer.cornerRadius = 12
-        clipsToBounds = true
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scrollView)
@@ -90,10 +96,10 @@ final class VoicePlaygroundSurface: UIView {
         scrollView.addSubview(stack)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
             stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 16),
             stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 16),
             stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -16),
@@ -101,6 +107,20 @@ final class VoicePlaygroundSurface: UIView {
             stack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -32)
         ])
 
+        var backConfiguration = UIButton.Configuration.plain()
+        backConfiguration.title = "Back to Video"
+        backConfiguration.image = UIImage(systemName: "chevron.backward")
+        backConfiguration.imagePadding = 6
+        backConfiguration.contentInsets = .zero
+        backToVideoButton.configuration = backConfiguration
+        backToVideoButton.contentHorizontalAlignment = .leading
+        backToVideoButton.accessibilityIdentifier = "voice-back-to-video"
+        backToVideoButton.addTarget(
+            self,
+            action: #selector(backToVideo),
+            for: .touchUpInside
+        )
+        stack.addArrangedSubview(backToVideoButton)
         stack.addArrangedSubview(heading("Speech context probe"))
 
         targetField.text = "think"

@@ -14,13 +14,15 @@ enum ControlSurface {
     case voice // VoicePlaygroundSurface: fully on-device, no session lane
 }
 
-// Pure surface -> visibility mapping. `controlChromeHidden` covers the
+// Pure surface -> visibility mapping. `controlRailHidden` controls the
+// root navigation rail, while `controlChromeHidden` covers the
 // interactive control surfaces (trackpad, hints, scroll strip, button row,
 // display rail); `keyboardInteractive` gates the keyboard helper's
 // first-responder handling. The concrete UIKit wiring (applySurface) just
 // applies these flags.
 struct SurfaceVisibility: Equatable {
     let hostContentHidden: Bool
+    let controlRailHidden: Bool
     let agentHidden: Bool
     let browserHidden: Bool
     let terminalHidden: Bool
@@ -91,6 +93,7 @@ func visibility(for surface: ControlSurface) -> SurfaceVisibility {
     case .control:
         return SurfaceVisibility(
             hostContentHidden: false,
+            controlRailHidden: false,
             agentHidden: true, browserHidden: true,
             terminalHidden: true, workspaceHidden: true,
             ideHidden: true, voiceHidden: true,
@@ -98,6 +101,7 @@ func visibility(for surface: ControlSurface) -> SurfaceVisibility {
     case .agent:
         return SurfaceVisibility(
             hostContentHidden: false,
+            controlRailHidden: false,
             agentHidden: false, browserHidden: true,
             terminalHidden: true, workspaceHidden: true,
             ideHidden: true, voiceHidden: true,
@@ -105,6 +109,7 @@ func visibility(for surface: ControlSurface) -> SurfaceVisibility {
     case .browser:
         return SurfaceVisibility(
             hostContentHidden: false,
+            controlRailHidden: false,
             agentHidden: true, browserHidden: false,
             terminalHidden: true, workspaceHidden: true,
             ideHidden: true, voiceHidden: true,
@@ -112,6 +117,7 @@ func visibility(for surface: ControlSurface) -> SurfaceVisibility {
     case .terminal:
         return SurfaceVisibility(
             hostContentHidden: false,
+            controlRailHidden: false,
             agentHidden: true, browserHidden: true,
             terminalHidden: false, workspaceHidden: true,
             ideHidden: true, voiceHidden: true,
@@ -119,6 +125,7 @@ func visibility(for surface: ControlSurface) -> SurfaceVisibility {
     case .workspace:
         return SurfaceVisibility(
             hostContentHidden: false,
+            controlRailHidden: false,
             agentHidden: true, browserHidden: true,
             terminalHidden: true, workspaceHidden: false,
             ideHidden: true, voiceHidden: true,
@@ -126,6 +133,7 @@ func visibility(for surface: ControlSurface) -> SurfaceVisibility {
     case .ide:
         return SurfaceVisibility(
             hostContentHidden: false,
+            controlRailHidden: false,
             agentHidden: true, browserHidden: true,
             terminalHidden: true, workspaceHidden: true,
             ideHidden: false, voiceHidden: true,
@@ -133,6 +141,7 @@ func visibility(for surface: ControlSurface) -> SurfaceVisibility {
     case .voice:
         return SurfaceVisibility(
             hostContentHidden: true,
+            controlRailHidden: true,
             agentHidden: true, browserHidden: true,
             terminalHidden: true, workspaceHidden: true,
             ideHidden: true, voiceHidden: false,

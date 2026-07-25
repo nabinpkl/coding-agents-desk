@@ -22,9 +22,16 @@ extension PairingViewController {
         let surface = VoicePlaygroundSurface()
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = activeControlSurface != .voice
+        surface.onBackToVideo = { [weak self] in
+            self?.leaveVoiceSurface()
+        }
         view.addSubview(surface)
-        constrainSurfaceBesideControlRail(surface, bottomAnchor: view.bottomAnchor)
-        view.bringSubviewToFront(surfaceControlRail)
+        NSLayoutConstraint.activate([
+            surface.topAnchor.constraint(equalTo: view.topAnchor),
+            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
         objc_setAssociatedObject(
             self,
             &VoiceKeys.surface,
@@ -35,10 +42,7 @@ extension PairingViewController {
 
     @objc func toggleVoiceSurface() {
         if activeControlSurface == .voice {
-            suspendVoiceSurfaceIfNeeded()
-            activeControlSurface = .control
-            render()
-            triggerSessionIfPaired()
+            leaveVoiceSurface()
             return
         }
 
@@ -58,6 +62,14 @@ extension PairingViewController {
         surfaceControlRail.select(.voice)
         ensureVoiceSurface()
         render()
+    }
+
+    func leaveVoiceSurface() {
+        guard activeControlSurface == .voice else { return }
+        suspendVoiceSurfaceIfNeeded()
+        activeControlSurface = .control
+        render()
+        triggerSessionIfPaired()
     }
 
     func teardownVoiceSurface() {
