@@ -9,6 +9,7 @@ enum VoicePhoneAnalyzerError: LocalizedError {
     case invalidManifest(String)
     case invalidVocabulary(String)
     case invalidModelOutput(String)
+    case analysisLogWriteFailed(String)
     case emptyRecording
     case recordingTooLong(TimeInterval)
     case audioBufferAllocationFailed
@@ -23,6 +24,8 @@ enum VoicePhoneAnalyzerError: LocalizedError {
             return "The phone model vocabulary is invalid: \(detail)"
         case .invalidModelOutput(let detail):
             return "The phone model returned an unexpected tensor: \(detail)"
+        case .analysisLogWriteFailed(let detail):
+            return "Phone analysis could not persist its diagnostic log: \(detail)"
         case .emptyRecording:
             return "The saved recording contains no audio."
         case .recordingTooLong(let duration):
@@ -215,15 +218,82 @@ actor VoicePhoneAnalyzer {
 
     func analyze(_ request: Request) throws -> VoicePhoneEvidence {
         let residentBefore = Self.residentMemoryBytes()
+        var analysisLog = try VoicePhoneAnalysisLogWriter(
+            attemptID: request.attemptID,
+            audioURL: request.audioURL,
+            modelWeightSHA256: request.modelManifest.modelWeightSHA256,
+            residentMemoryBytes: residentBefore
+        )
+        do {
+            return try analyze(
+                request,
+                residentBefore: residentBefore,
+                analysisLog: &analysisLog
+            )
+        } catch {
+            let analysisError = error
+            do {
+                try analysisLog.record(
+                    .analysisFailed,
+                    residentMemoryBytes: Self.residentMemoryBytes(),
+                    details: [
+                        "errorType": String(reflecting: type(of: analysisError)),
+                        "message": String(analysisError.localizedDescription.prefix(1_000))
+                    ]
+                )
+            } catch {
+                throw VoicePhoneAnalyzerError.analysisLogWriteFailed(
+                    "analysis error: \(analysisError.localizedDescription); "
+                        + "log error: \(error.localizedDescription)"
+                )
+            }
+            throw analysisError
+        }
+    }
+
+    private func analyze(
+        _ request: Request,
+        residentBefore: UInt64?,
+        analysisLog: inout VoicePhoneAnalysisLogWriter
+    ) throws -> VoicePhoneEvidence {
         let preprocessingStart = CFAbsoluteTimeGetCurrent()
+        try analysisLog.record(
+            .audioReadStarted,
+            residentMemoryBytes: Self.residentMemoryBytes()
+        )
         let audioData = try Data(contentsOf: request.audioURL, options: .mappedIfSafe)
+        try analysisLog.record(
+            .audioReadCompleted,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: ["sourceBytes": String(audioData.count)]
+        )
         let audioSHA256 = SHA256.hash(data: audioData).hexString
+        try analysisLog.record(
+            .audioPreparationStarted,
+            residentMemoryBytes: Self.residentMemoryBytes()
+        )
         let audio = try prepareAudio(url: request.audioURL, manifest: request.modelManifest)
+        try analysisLog.record(
+            .audioPrepared,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: [
+                "analyzedSamples": String(audio.samples.count),
+                "sourceDurationMilliseconds":
+                    String(Int((audio.sourceDurationSeconds * 1_000).rounded()))
+            ]
+        )
         let preprocessingMilliseconds =
             (CFAbsoluteTimeGetCurrent() - preprocessingStart) * 1_000
 
         let loadStart = CFAbsoluteTimeGetCurrent()
-        let (assets, didLoad) = try assets(for: request.modelManifest)
+        try analysisLog.record(
+            .assetsLoadStarted,
+            residentMemoryBytes: Self.residentMemoryBytes()
+        )
+        let (assets, didLoad) = try assets(
+            for: request.modelManifest,
+            analysisLog: &analysisLog
+        )
         let modelLoadMilliseconds = didLoad
             ? (CFAbsoluteTimeGetCurrent() - loadStart) * 1_000
             : 0
@@ -237,6 +307,11 @@ actor VoicePhoneAnalyzer {
             return tokenID
         }
 
+        try analysisLog.record(
+            .inputAllocationStarted,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: ["sampleCount": String(request.modelManifest.sampleCount)]
+        )
         let input = try MLMultiArray(
             shape: [1, NSNumber(value: request.modelManifest.sampleCount)],
             dataType: .float32
@@ -247,20 +322,50 @@ actor VoicePhoneAnalyzer {
         let provider = try MLDictionaryFeatureProvider(dictionary: [
             "input_values": MLFeatureValue(multiArray: input)
         ])
+        try analysisLog.record(
+            .inputPrepared,
+            residentMemoryBytes: Self.residentMemoryBytes()
+        )
 
         let inferenceStart = CFAbsoluteTimeGetCurrent()
+        try analysisLog.record(
+            .inferenceStarted,
+            residentMemoryBytes: Self.residentMemoryBytes()
+        )
         let prediction = try assets.model.prediction(from: provider)
         let inferenceMilliseconds =
             (CFAbsoluteTimeGetCurrent() - inferenceStart) * 1_000
+        try analysisLog.record(
+            .inferenceCompleted,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: [
+                "elapsedMilliseconds":
+                    String(Int(inferenceMilliseconds.rounded()))
+            ]
+        )
         guard let output = prediction.featureValue(for: "logits")?.multiArrayValue else {
             throw VoicePhoneAnalyzerError.invalidModelOutput("missing logits")
         }
+        try analysisLog.record(
+            .logitsCopyStarted,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: ["shape": output.shape.map(\.stringValue).joined(separator: "x")]
+        )
         let logits = try Self.copyLogits(
             output,
             frameCount: request.modelManifest.frameCount,
             vocabularySize: request.modelManifest.vocabularySize
         )
+        try analysisLog.record(
+            .logitsCopied,
+            residentMemoryBytes: Self.residentMemoryBytes()
+        )
         let logPosteriors = try VoiceCTCAlignment.logPosteriors(logits: logits)
+        try analysisLog.record(
+            .alignmentStarted,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: ["targetPhoneCount": String(targetTokenIDs.count)]
+        )
         let alignment = try VoiceCTCAlignment.align(
             logPosteriors: logPosteriors,
             targetTokenIDs: targetTokenIDs,
@@ -328,12 +433,20 @@ actor VoicePhoneAnalyzer {
                     - strongestCompetitor.logPosterior
             )
         }
+        try analysisLog.record(
+            .alignmentCompleted,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: [
+                "alignedPhoneCount": String(alignedPhones.count),
+                "frameCount": String(frames.count)
+            ]
+        )
 
         let residentAfter = Self.residentMemoryBytes()
         let residentDelta = residentBefore.flatMap { before in
             residentAfter.map { after in after > before ? after - before : 0 }
         }
-        return VoicePhoneEvidence(
+        let evidence = VoicePhoneEvidence(
             schemaVersion: VoicePhoneEvidence.currentSchemaVersion,
             attemptID: request.attemptID,
             createdAt: Date(),
@@ -353,10 +466,22 @@ actor VoicePhoneAnalyzer {
                 observedResidentMemoryDeltaBytes: residentDelta
             )
         )
+        try analysisLog.record(
+            .analysisCompleted,
+            residentMemoryBytes: residentAfter,
+            details: [
+                "modelLoadMilliseconds":
+                    String(Int(modelLoadMilliseconds.rounded())),
+                "inferenceMilliseconds":
+                    String(Int(inferenceMilliseconds.rounded()))
+            ]
+        )
+        return evidence
     }
 
     private func assets(
-        for manifest: VoicePhoneModelManifest
+        for manifest: VoicePhoneModelManifest,
+        analysisLog: inout VoicePhoneAnalysisLogWriter
     ) throws -> (LoadedAssets, Bool) {
         if let loadedAssets {
             guard loadedAssets.manifest == manifest else {
@@ -364,10 +489,18 @@ actor VoicePhoneAnalyzer {
                     "the request differs from the loaded model"
                 )
             }
+            try analysisLog.record(
+                .assetsCacheHit,
+                residentMemoryBytes: Self.residentMemoryBytes()
+            )
             return (loadedAssets, false)
         }
 
         let bundledManifest = try VoicePhoneModelAssets.loadManifest(bundle: bundle)
+        try analysisLog.record(
+            .bundledManifestLoaded,
+            residentMemoryBytes: Self.residentMemoryBytes()
+        )
         guard bundledManifest == manifest else {
             throw VoicePhoneAnalyzerError.invalidManifest(
                 "the request differs from the bundled model"
@@ -377,10 +510,24 @@ actor VoicePhoneAnalyzer {
             manifest: manifest,
             bundle: bundle
         )
+        try analysisLog.record(
+            .vocabularyLoaded,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: ["tokenCount": String(vocabulary.tokensByID.count)]
+        )
         let modelURL = try VoicePhoneModelAssets.loadModelURL(bundle: bundle)
         let configuration = MLModelConfiguration()
         configuration.computeUnits = .all
+        try analysisLog.record(
+            .modelLoadStarted,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: ["computeUnits": "all"]
+        )
         let model = try MLModel(contentsOf: modelURL, configuration: configuration)
+        try analysisLog.record(
+            .modelLoaded,
+            residentMemoryBytes: Self.residentMemoryBytes()
+        )
         let assets = LoadedAssets(
             manifest: manifest,
             vocabulary: vocabulary,

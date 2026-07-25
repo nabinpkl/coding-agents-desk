@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize pulled iPhone voice metadata and bounded phone evidence."""
+"""Summarize pulled iPhone voice metadata and bounded phone analyzer evidence."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ class SummaryError(Exception):
 
 
 EVIDENCE_RELATIVE_PATH = re.compile(
-    r"^[0-9A-Fa-f-]{36}/(?:metadata|phone-evidence)\.json$"
+    r"^[0-9A-Fa-f-]{36}/(?:metadata|phone-evidence|phone-analysis-log)\.json$"
 )
 
 
@@ -47,6 +47,79 @@ def number(value: Any, digits: int = 2) -> str:
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         return f"{value:.{digits}f}"
     return "?"
+
+
+def summarize_analysis_log(
+    attempt_directory: Path,
+    attempt_id: str,
+) -> list[str]:
+    log_path = attempt_directory / "phone-analysis-log.json"
+    if not log_path.exists():
+        return ["  phone-log status=missing"]
+
+    analysis_log = load_json(log_path)
+    if analysis_log.get("schemaVersion") != 1:
+        raise SummaryError(
+            f"{log_path} schemaVersion {analysis_log.get('schemaVersion')!r} "
+            "is unsupported"
+        )
+    if analysis_log.get("attemptID") != attempt_id:
+        raise SummaryError(
+            f"{log_path} attemptID {analysis_log.get('attemptID')!r} "
+            "does not match metadata"
+        )
+    model_hash = analysis_log.get("modelWeightSHA256")
+    if not isinstance(model_hash, str) or not model_hash:
+        raise SummaryError(f"{log_path} modelWeightSHA256 must be a non-empty string")
+    events = analysis_log.get("events")
+    if not isinstance(events, list) or not events:
+        raise SummaryError(f"{log_path} events must be a non-empty array")
+
+    validated_events: list[dict[str, Any]] = []
+    for index, event in enumerate(events):
+        if not isinstance(event, dict):
+            raise SummaryError(f"{log_path} event {index} must be an object")
+        if not isinstance(event.get("timestamp"), str) or not event["timestamp"]:
+            raise SummaryError(f"{log_path} event {index} has no timestamp")
+        if not isinstance(event.get("stage"), str) or not event["stage"]:
+            raise SummaryError(f"{log_path} event {index} has no stage")
+        details = event.get("details")
+        if not isinstance(details, dict) or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in details.items()
+        ):
+            raise SummaryError(
+                f"{log_path} event {index} details must be string pairs"
+            )
+        resident_memory = event.get("residentMemoryBytes")
+        if resident_memory is not None and (
+            not isinstance(resident_memory, int)
+            or isinstance(resident_memory, bool)
+            or resident_memory < 0
+        ):
+            raise SummaryError(
+                f"{log_path} event {index} residentMemoryBytes must be non-negative"
+            )
+        validated_events.append(event)
+
+    lines = [
+        "  phone-log status=present "
+        f"eventCount={len(validated_events)} "
+        f"lastStage={quoted(validated_events[-1]['stage'])} "
+        f"modelHash={quoted(model_hash)}"
+    ]
+    for event in validated_events:
+        details = ", ".join(
+            f"{key}={value}" for key, value in sorted(event["details"].items())
+        )
+        lines.append(
+            "    log "
+            f"timestamp={quoted(event['timestamp'])} "
+            f"stage={quoted(event['stage'])} "
+            f"residentBytes={event.get('residentMemoryBytes', '?')} "
+            f"details={quoted(details)}"
+        )
+    return lines
 
 
 def summarize_attempt(
@@ -89,6 +162,8 @@ def summarize_attempt(
         )
     else:
         lines.append("  recognition status=pending")
+
+    lines.extend(summarize_analysis_log(attempt_directory, attempt_id))
 
     phone_path = attempt_directory / "phone-evidence.json"
     if not phone_path.exists():

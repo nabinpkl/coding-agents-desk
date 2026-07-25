@@ -1317,7 +1317,8 @@ client-diagnostics variant="stable":
 
 # Pull saved Voice analysis metadata directly from a physical iPhone app
 # container. This path does not require the app to be foregrounded or connected
-# to the host, and deliberately excludes raw audio.caf recordings.
+# to the host, copies crash-surviving analyzer stage logs, and deliberately
+# excludes raw audio.caf recordings.
 voice-phone-evidence-pull variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail

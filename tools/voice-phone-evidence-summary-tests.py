@@ -61,8 +61,49 @@ class VoicePhoneEvidenceSummaryTests(unittest.TestCase):
 
         self.assertIn("attemptCount=1", output)
         self.assertIn('unaided="tink" targetBiased="think"', output)
+        self.assertIn("phone-log status=missing", output)
         self.assertIn("phone status=missing", output)
         self.assertIn("Analyze raw audio has not produced phone-evidence.json", output)
+
+    def test_crash_log_is_printed_when_phone_evidence_is_missing(self) -> None:
+        attempt_id = "00000000-0000-0000-0000-000000000005"
+        attempt = self.add_attempt(attempt_id)
+        self.write_json(
+            attempt / "phone-analysis-log.json",
+            {
+                "schemaVersion": 1,
+                "attemptID": attempt_id,
+                "modelWeightSHA256": "selected-model",
+                "startedAt": "2026-07-25T23:18:00Z",
+                "events": [
+                    {
+                        "timestamp": "2026-07-25T23:18:00Z",
+                        "stage": "analysisStarted",
+                        "residentMemoryBytes": 1000,
+                        "details": {},
+                    },
+                    {
+                        "timestamp": "2026-07-25T23:18:01Z",
+                        "stage": "inferenceStarted",
+                        "residentMemoryBytes": 2000,
+                        "details": {"computeUnits": "all"},
+                    },
+                ],
+            },
+        )
+
+        output = "\n".join(SUMMARY.summarize(self.root, self.manifest))
+
+        self.assertIn(
+            'phone-log status=present eventCount=2 lastStage="inferenceStarted"',
+            output,
+        )
+        self.assertIn(
+            'stage="inferenceStarted" residentBytes=2000 '
+            'details="computeUnits=all"',
+            output,
+        )
+        self.assertIn("phone status=missing", output)
 
     def test_completed_evidence_prints_aligned_phones_and_metrics(self) -> None:
         attempt_id = "00000000-0000-0000-0000-000000000002"
@@ -163,6 +204,11 @@ class VoicePhoneEvidenceSummaryTests(unittest.TestCase):
                         },
                         {
                             "relativePath":
+                                "00000000-0000-0000-0000-000000000001/"
+                                "phone-analysis-log.json"
+                        },
+                        {
+                            "relativePath":
                                 "00000000-0000-0000-0000-000000000001/audio.caf"
                         },
                         {"relativePath": "../../metadata.json"},
@@ -177,6 +223,7 @@ class VoicePhoneEvidenceSummaryTests(unittest.TestCase):
             paths,
             [
                 "00000000-0000-0000-0000-000000000001/metadata.json",
+                "00000000-0000-0000-0000-000000000001/phone-analysis-log.json",
                 "00000000-0000-0000-0000-000000000001/phone-evidence.json",
             ],
         )
