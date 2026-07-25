@@ -50,12 +50,11 @@ extension PairingViewController {
         ])
 
         // R23: outer scroll constraints (position + extent in the
-        // controller view) are orientation-variant. Captured here into
-        // the portrait array; the matching landscape entries (which need
-        // the thumbnailStripView reference for the scroll's bottom edge) are
-        // appended in showTrackpad before applyOrientationConstraints
-        // fires. Full layout gets its own portrait constraints because the
-        // normal portrait height is fixed at 55%.
+        // controller view) are orientation-variant. Capture the independent
+        // portrait edges here; the shell-and-sink constraints are installed
+        // once both sides exist, regardless of which mounts first. Full
+        // layout gets its own portrait constraints because the normal
+        // portrait height is fixed at 55%.
         portraitConstraints.append(contentsOf: [
             scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -77,6 +76,11 @@ extension PairingViewController {
         videoDoubleTapZoomRecognizer = doubleTap
 
         sinkScrollView = scroll
+        if trackpadView.superview != nil {
+            installSinkDependentSessionConstraintsIfNeeded()
+            applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
+            attachVideoTouchRecognizers()
+        }
 
         let dot = CursorPointerView()
         dot.isHidden = true
@@ -130,6 +134,9 @@ extension PairingViewController {
 
     func showTrackpad() {
         if trackpadView.superview != nil {
+            installSinkDependentSessionConstraintsIfNeeded()
+            applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
+            attachVideoTouchRecognizers()
             restartSessionSurfaceObservations()
             return
         }
@@ -278,95 +285,9 @@ extension PairingViewController {
 
             scrollStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12)
         ])
-        if let scroll = sinkScrollView {
-            let safe = view.safeAreaLayoutGuide
-            fullPortraitConstraints.append(contentsOf: [
-                scroll.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
-
-                buttonRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-                buttonRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-
-                displayRailView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-                displayRailView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-                fullBandTopAtVideoBottom,
-
-                thumbnailStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-                thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-                thumbnailStripView.topAnchor.constraint(equalTo: displayRailView.bottomAnchor, constant: 4),
-
-                keyboardSurface.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-                keyboardSurface.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
-
-                trackpadView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-                trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
-                trackpadView.topAnchor.constraint(equalTo: thumbnailStripView.bottomAnchor, constant: 4),
-                trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
-
-                scrollStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12)
-            ])
-        }
-
-        // Landscape layout. Video scroll occupies the left ~62% of the
-        // safe area at full height; strip pins below it on the left
-        // column. Trackpad + scroll strip + buttons live in the right
-        // column.
-        if let scroll = sinkScrollView {
-            let safe = view.safeAreaLayoutGuide
-            landscapeConstraints.append(contentsOf: [
-                scroll.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
-                scroll.topAnchor.constraint(equalTo: safe.topAnchor),
-                scroll.widthAnchor.constraint(equalTo: safe.widthAnchor, multiplier: 0.62),
-                scroll.bottomAnchor.constraint(equalTo: displayRailView.topAnchor, constant: -8),
-
-                displayRailView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-                displayRailView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
-                displayRailView.bottomAnchor.constraint(equalTo: thumbnailStripView.topAnchor, constant: -4),
-
-                thumbnailStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-                thumbnailStripView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
-                thumbnailStripView.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
-
-                trackpadView.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 12),
-                trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
-                trackpadView.topAnchor.constraint(equalTo: safe.topAnchor),
-                trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
-
-                scrollStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
-
-                buttonRow.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 12),
-                buttonRow.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
-
-                keyboardSurface.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 12),
-                keyboardSurface.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8)
-            ])
-            fullLandscapeConstraints.append(contentsOf: [
-                scroll.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
-                scroll.topAnchor.constraint(equalTo: safe.topAnchor),
-                scroll.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
-                scroll.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
-
-                displayRailView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-                displayRailView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
-                displayRailView.bottomAnchor.constraint(equalTo: thumbnailStripView.topAnchor, constant: -4),
-
-                thumbnailStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-                thumbnailStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
-                thumbnailStripView.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
-
-                trackpadView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-                trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
-                trackpadView.topAnchor.constraint(equalTo: safe.topAnchor),
-                trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
-
-                scrollStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
-
-                buttonRow.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-                buttonRow.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
-
-                keyboardSurface.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-                keyboardSurface.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12)
-            ])
-        }
+        installSinkDependentSessionConstraintsIfNeeded(
+            fullBandTopAtVideoBottom: fullBandTopAtVideoBottom
+        )
 
         applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
 
@@ -383,6 +304,113 @@ extension PairingViewController {
         attachVideoTouchRecognizers()
 
         restartSessionSurfaceObservations()
+    }
+
+    private func installSinkDependentSessionConstraintsIfNeeded(
+        fullBandTopAtVideoBottom: NSLayoutConstraint? = nil
+    ) {
+        guard deferredMediaLayoutInstallation.beginIfReady(
+            shellMounted: trackpadView.superview != nil,
+            sinkMounted: sinkScrollView != nil
+        ),
+              let scroll = sinkScrollView
+        else { return }
+
+        let safe = view.safeAreaLayoutGuide
+        let fullBandTop = fullBandTopAtVideoBottom ?? NSLayoutConstraint(
+            item: displayRailView,
+            attribute: .top,
+            relatedBy: .equal,
+            toItem: view,
+            attribute: .bottom,
+            multiplier: 0.55,
+            constant: 0
+        )
+        fullPortraitConstraints.append(contentsOf: [
+            scroll.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
+
+            buttonRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            buttonRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+
+            displayRailView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            displayRailView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            fullBandTop,
+
+            thumbnailStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            thumbnailStripView.topAnchor.constraint(equalTo: displayRailView.bottomAnchor, constant: 4),
+
+            keyboardSurface.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+            keyboardSurface.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
+
+            trackpadView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+            trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
+            trackpadView.topAnchor.constraint(equalTo: thumbnailStripView.bottomAnchor, constant: 4),
+            trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
+
+            scrollStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12)
+        ])
+
+        // Landscape layout. Video scroll occupies the left ~62% of the
+        // safe area at full height; strip pins below it on the left
+        // column. Trackpad + scroll strip + buttons live in the right
+        // column.
+        landscapeConstraints.append(contentsOf: [
+            scroll.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            scroll.topAnchor.constraint(equalTo: safe.topAnchor),
+            scroll.widthAnchor.constraint(equalTo: safe.widthAnchor, multiplier: 0.62),
+            scroll.bottomAnchor.constraint(equalTo: displayRailView.topAnchor, constant: -8),
+
+            displayRailView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+            displayRailView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
+            displayRailView.bottomAnchor.constraint(equalTo: thumbnailStripView.topAnchor, constant: -4),
+
+            thumbnailStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+            thumbnailStripView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
+            thumbnailStripView.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
+
+            trackpadView.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 12),
+            trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
+            trackpadView.topAnchor.constraint(equalTo: safe.topAnchor),
+            trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
+
+            scrollStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
+
+            buttonRow.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 12),
+            buttonRow.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
+
+            keyboardSurface.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 12),
+            keyboardSurface.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8)
+        ])
+        fullLandscapeConstraints.append(contentsOf: [
+            scroll.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            scroll.topAnchor.constraint(equalTo: safe.topAnchor),
+            scroll.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
+
+            displayRailView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+            displayRailView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
+            displayRailView.bottomAnchor.constraint(equalTo: thumbnailStripView.topAnchor, constant: -4),
+
+            thumbnailStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+            thumbnailStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
+            thumbnailStripView.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
+
+            trackpadView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+            trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
+            trackpadView.topAnchor.constraint(equalTo: safe.topAnchor),
+            trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
+
+            scrollStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
+
+            buttonRow.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+            buttonRow.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
+
+            keyboardSurface.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+            keyboardSurface.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12)
+        ])
+        currentIsLandscape = nil
+        currentUsesFullLayout = nil
     }
 
     func restartSessionSurfaceObservations() {
@@ -452,6 +480,7 @@ extension PairingViewController {
         landscapeConstraints.removeAll()
         fullPortraitConstraints.removeAll()
         fullLandscapeConstraints.removeAll()
+        deferredMediaLayoutInstallation.reset()
         currentIsLandscape = nil
         currentUsesFullLayout = nil
     }

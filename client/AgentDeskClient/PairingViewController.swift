@@ -203,6 +203,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var fullPortraitConstraints: [NSLayoutConstraint] = []
     var fullLandscapeConstraints: [NSLayoutConstraint] = []
     var currentUsesFullLayout: Bool?
+    var deferredMediaLayoutInstallation = DeferredMediaLayoutInstallation()
     // CGEvent posts at the userspace layer don't actually trigger macOS
     // pointer accel (that lives in IOKit, below CGEvent), so we apply
     // our own approximation client-side. The .mac curve keeps the

@@ -3,6 +3,21 @@ import UIKit
 
 @MainActor
 struct SurfaceControlRailTests {
+    @Test func deferredMediaLayoutInstallsWhenSinkFollowsPreVideoShell() {
+        var installation = DeferredMediaLayoutInstallation()
+
+        let beforeSink = installation.beginIfReady(shellMounted: true, sinkMounted: false)
+        let afterSink = installation.beginIfReady(shellMounted: true, sinkMounted: true)
+        let duplicate = installation.beginIfReady(shellMounted: true, sinkMounted: true)
+        #expect(!beforeSink)
+        #expect(afterSink)
+        #expect(!duplicate)
+
+        installation.reset()
+        let afterReset = installation.beginIfReady(shellMounted: true, sinkMounted: true)
+        #expect(afterReset)
+    }
+
     @Test func preVideoRailHasVisibleBackdropAndUsableUtilities() throws {
         let gesture = utilityButton(label: "Gesture", identifier: "gesture-toggle")
         let orientation = utilityButton(label: "Rotate", identifier: "orientation-toggle")

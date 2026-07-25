@@ -14,6 +14,20 @@ enum ControlSurface {
     case voice // VoicePlaygroundSurface: fully on-device, no session lane
 }
 
+struct DeferredMediaLayoutInstallation {
+    private(set) var isInstalled = false
+
+    mutating func beginIfReady(shellMounted: Bool, sinkMounted: Bool) -> Bool {
+        guard !isInstalled, shellMounted, sinkMounted else { return false }
+        isInstalled = true
+        return true
+    }
+
+    mutating func reset() {
+        isInstalled = false
+    }
+}
+
 // Pure surface -> visibility mapping. `controlRailHidden` controls the
 // root navigation rail, while `controlChromeHidden` covers the
 // interactive control surfaces (trackpad, hints, scroll strip, button row,
