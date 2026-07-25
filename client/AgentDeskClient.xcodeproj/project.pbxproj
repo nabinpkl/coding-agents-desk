@@ -61,6 +61,7 @@
 				"PairingViewController+Keyboard.swift",
 				"PairingViewController+Layout.swift",
 				"PairingViewController+VideoTouch.swift",
+				"PairingViewController+Voice.swift",
 				SceneDelegate.swift,
 				SettingsViewController.swift,
 			);

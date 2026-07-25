@@ -1,0 +1,19 @@
+# Drives the Voice speech-context probe far enough to exercise the audio capture
+# path: select the surface, start a take, let the tap run, stop it.
+#
+# The simulator has no meaningful speech input, so the transcription result is
+# expected to be empty. That is not what this flow checks. It checks that the
+# AVAudioEngine tap, the buffer conversion, and the two analyzer passes complete
+# without terminating the app — the device failure this was written to chase.
+appId: com.example.agentdesk.AgentDeskClient
+---
+- assertVisible: "Voice"
+- tapOn: "Voice"
+- assertVisible: "Record"
+- tapOn: "Record"
+# Long enough for several tap callbacks to land and convert.
+- extendedWaitUntil:
+    visible: "Stop"
+    timeout: 10000
+- tapOn: "Stop"
+- takeScreenshot: voice-probe-after-stop

@@ -309,6 +309,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         agentSayTask?.cancel()
         agentSayTask = nil
         stopAgentSayForegroundPresentation()
+        suspendVoiceSurfaceIfNeeded()
         suspendMediaTransportForBackground()
         // The offer listener only makes sense in the foreground; iOS would tear
         // the NWListener down on suspend anyway, so stop it explicitly.

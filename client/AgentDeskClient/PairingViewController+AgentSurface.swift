@@ -177,6 +177,7 @@ extension PairingViewController {
         teardownDomMirrorSurface()
         teardownWorkspaceSurface()
         teardownIDESurface()
+        teardownVoiceSurface()
 
         surfaceControlRail.clearSurfaces()
         return terminalCloseTask
@@ -307,6 +308,11 @@ extension PairingViewController {
             ensureWorkspaceSurface()
         case .ide:
             ensureIDESurface()
+        case .voice:
+            ensureVoiceSurface()
+        }
+        if surface != .voice {
+            suspendVoiceSurfaceIfNeeded()
         }
         applySurface(surface)
 
@@ -338,6 +344,9 @@ extension PairingViewController {
             ensureWorkspaceSurface()
         case .ide:
             ensureIDESurface()
+        case .voice:
+            // Nothing to rebind: the probe holds no session lane.
+            ensureVoiceSurface()
         }
         domMirrorSurface?.setPaused(activeControlSurface != .browser)
     }
@@ -412,6 +421,7 @@ extension PairingViewController {
         workspaceSurface?.setViewportPresented(!v.workspaceHidden)
         ideSurface?.isHidden = v.ideHidden
         ideSurface?.setViewportPresented(!v.ideHidden)
+        voiceSurface?.isHidden = v.voiceHidden
 
         Self.logger.debug("active surface: \(String(describing: surface))")
     }

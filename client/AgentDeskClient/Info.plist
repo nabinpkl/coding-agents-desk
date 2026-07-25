@@ -49,6 +49,10 @@
 			</array>
 		</dict>
 	</dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>AgentDesk records a short utterance for an on-device speech transcription experiment.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>AgentDesk compares two on-device transcriptions of the same recording.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>AgentDesk scans the Mac pairing QR code.</string>
 	<key>NSLocalNetworkUsageDescription</key>

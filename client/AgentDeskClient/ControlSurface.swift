@@ -11,6 +11,7 @@ enum ControlSurface {
     case terminal  // native web terminal PTY client over the dedicated terminal lane
     case workspace // WorkspaceWorkbenchSurface over the dedicated .files lane
     case ide // shared responsive Workspace IDE over its own workspace lane
+    case voice // VoicePlaygroundSurface: fully on-device, no session lane
 }
 
 // Pure surface -> visibility mapping. `controlChromeHidden` covers the
@@ -24,6 +25,7 @@ struct SurfaceVisibility: Equatable {
     let terminalHidden: Bool
     let workspaceHidden: Bool
     let ideHidden: Bool
+    let voiceHidden: Bool
     let controlChromeHidden: Bool
     let keyboardInteractive: Bool
 }
@@ -41,6 +43,7 @@ extension ControlSurface {
         case .browser: return "globe"
         case .workspace: return "rectangle.split.3x1"
         case .ide: return "chevron.left.forwardslash.chevron.right"
+        case .voice: return "waveform"
         }
     }
 
@@ -55,13 +58,14 @@ extension ControlSurface {
         case .browser: return "Browser"
         case .workspace: return "Workspace"
         case .ide: return "IDE"
+        case .voice: return "Voice"
         }
     }
 
     /// Resolves a surface from its switcher accessibility label (the inverse of the property above),
     /// or nil for an unknown label so callers fall back to `.control` safely.
     init?(switcherAccessibilityLabel label: String) {
-        guard let match = [ControlSurface.control, .agent, .terminal, .browser, .workspace, .ide]
+        guard let match = [ControlSurface.control, .agent, .terminal, .browser, .workspace, .ide, .voice]
             .first(where: { $0.switcherAccessibilityLabel == label }) else { return nil }
         self = match
     }
@@ -77,6 +81,7 @@ func availableControlSurfaces(browserAvailable: Bool) -> [ControlSurface] {
     }
     surfaces.append(.workspace)
     surfaces.append(.ide)
+    surfaces.append(.voice)
     return surfaces
 }
 
@@ -86,37 +91,43 @@ func visibility(for surface: ControlSurface) -> SurfaceVisibility {
         return SurfaceVisibility(
             agentHidden: true, browserHidden: true,
             terminalHidden: true, workspaceHidden: true,
-            ideHidden: true,
+            ideHidden: true, voiceHidden: true,
             controlChromeHidden: false, keyboardInteractive: true)
     case .agent:
         return SurfaceVisibility(
             agentHidden: false, browserHidden: true,
             terminalHidden: true, workspaceHidden: true,
-            ideHidden: true,
+            ideHidden: true, voiceHidden: true,
             controlChromeHidden: true, keyboardInteractive: false)
     case .browser:
         return SurfaceVisibility(
             agentHidden: true, browserHidden: false,
             terminalHidden: true, workspaceHidden: true,
-            ideHidden: true,
+            ideHidden: true, voiceHidden: true,
             controlChromeHidden: true, keyboardInteractive: false)
     case .terminal:
         return SurfaceVisibility(
             agentHidden: true, browserHidden: true,
             terminalHidden: false, workspaceHidden: true,
-            ideHidden: true,
+            ideHidden: true, voiceHidden: true,
             controlChromeHidden: true, keyboardInteractive: false)
     case .workspace:
         return SurfaceVisibility(
             agentHidden: true, browserHidden: true,
             terminalHidden: true, workspaceHidden: false,
-            ideHidden: true,
+            ideHidden: true, voiceHidden: true,
             controlChromeHidden: true, keyboardInteractive: false)
     case .ide:
         return SurfaceVisibility(
             agentHidden: true, browserHidden: true,
             terminalHidden: true, workspaceHidden: true,
-            ideHidden: false,
+            ideHidden: false, voiceHidden: true,
+            controlChromeHidden: true, keyboardInteractive: false)
+    case .voice:
+        return SurfaceVisibility(
+            agentHidden: true, browserHidden: true,
+            terminalHidden: true, workspaceHidden: true,
+            ideHidden: true, voiceHidden: false,
             controlChromeHidden: true, keyboardInteractive: false)
     }
 }
