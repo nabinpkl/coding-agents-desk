@@ -145,7 +145,7 @@ the master descriptor.
 
 ## Deterministic generated-artifact build pipeline
 
-- R124. Replace unconditional JavaScript dependency installation and mtime-churning generated-resource
+- D124. Replace unconditional JavaScript dependency installation and mtime-churning generated-resource
   writes with tested dependency-state and content-aware publication modules; make normal terminal
   builds validate rather than mutate vendored xterm, remove duplicate TerminalEmulator compilation
   from the fast gate, migrate the remaining generated web artifacts, and keep a warm serial
@@ -167,5 +167,5 @@ D118-120 2026-07-24 landed       AgentDesk-owned AgentPanel Vite source and tran
 D121     2026-07-24  landed       layered no-cache Agent feed, live SSE, protocol 15, and timing gates
 D122     2026-07-24  landed       restored bundle-scoped host state after Agent Feed cache deletion
 D123     2026-07-24  landed       current-Desktop independent Agents windows beside Terminal
-R124     2026-07-24  active       deterministic generated artifacts and sub-60-second warm check
+D124     2026-07-24  landed       deterministic generated artifacts and 36-second warm serial check
 ```

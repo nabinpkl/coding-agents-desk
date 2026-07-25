@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Bundled cross-platform workspace IDE and retained single-file viewer.",
   "scripts": {
-    "build": "rm -rf ../Sources/WorkspaceFileViewer/Resources/viewer/dist ../Sources/WorkspaceIDE/Resources/ide/dist && mkdir -p ../Sources/WorkspaceFileViewer/Resources/viewer/dist ../Sources/WorkspaceIDE/Resources/ide/dist && cp index.html viewer.css ../Sources/WorkspaceFileViewer/Resources/viewer/ && cp ide.html ../Sources/WorkspaceIDE/Resources/ide/index.html && cp ide.css viewer.css ../Sources/WorkspaceIDE/Resources/ide/ && esbuild src/viewerBootstrap.mjs --bundle --splitting --format=esm --minify --outdir=../Sources/WorkspaceFileViewer/Resources/viewer/dist --entry-names=viewer && esbuild src/ide.mjs --bundle --splitting --format=esm --minify --outdir=../Sources/WorkspaceIDE/Resources/ide/dist --entry-names=ide && node scripts/normalizeDist.mjs",
+    "build": "node scripts/build-generated.mjs",
     "test": "node --test test/*.mjs"
   },
   "dependencies": {

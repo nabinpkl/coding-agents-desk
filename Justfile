@@ -132,7 +132,7 @@ webview_out := justfile_directory() + "/packages/AgentPanel/Sources/AgentPanel/R
 gesture_web_dir := env_var_or_default("AGENTDESK_GESTURE_WEB_DIR", justfile_directory() + "/gesture-agent/web")
 # The reusable InteractionPanel package owns the generated gesture webview
 # resource for both AppKit and UIKit consumers. The gesture-agent embed build
-# output is copied here before the consuming app build.
+# output is published here before the consuming app build.
 gesture_webview_out := justfile_directory() + "/packages/InteractionPanel/Sources/InteractionPanel/Resources/InteractionPanelWebview"
 # Root of the in-repo gesture-agent tree (holds pyproject.toml + src for the
 # voice sidecar). SSOT for its location; override via env for an out-of-tree checkout.
@@ -193,6 +193,8 @@ build-agent-feed-sidecar:
         echo "build-agent-feed-sidecar: source unchanged, skipping"
         exit 0
     fi
+    node '{{justfile_directory()}}/tools/build-system/ensure-js-dependencies.mjs' \
+      agent-feed-sidecar "$SIDECAR" '{{justfile_directory()}}/.build/js-dependencies'
     TEMP_ROOT="${TMPDIR:-/tmp}"
     BUILD_DIR="$(mktemp -d "${TEMP_ROOT%/}/agentdesk-bun-build.XXXXXX")"
     cleanup() {
@@ -215,8 +217,10 @@ build-agent-feed-sidecar:
 agent-feed-sidecar-check:
     #!/usr/bin/env bash
     set -euo pipefail
-    cd '{{agent_feed_sidecar_dir}}'
-    bun install --frozen-lockfile
+    ROOT='{{justfile_directory()}}'
+    SIDECAR='{{agent_feed_sidecar_dir}}'
+    node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-feed-sidecar "$SIDECAR" "$ROOT/.build/js-dependencies"
+    cd "$SIDECAR"
     bun run typecheck
     bun run test
     if rg -n --glob '!*.test.ts' \
@@ -351,10 +355,20 @@ ensure-webview-placeholder:
 workspace-ide-web:
     #!/usr/bin/env bash
     set -euo pipefail
-    WEB='{{justfile_directory()}}/packages/WorkspaceIDE/Web'
-    npm ci --prefix "$WEB"
+    ROOT='{{justfile_directory()}}'
+    WEB="$ROOT/packages/WorkspaceIDE/Web"
+    VIEWER_OUT="$ROOT/packages/WorkspaceIDE/Sources/WorkspaceFileViewer/Resources/viewer"
+    IDE_OUT="$ROOT/packages/WorkspaceIDE/Sources/WorkspaceIDE/Resources/ide"
+    STAGING="$(mktemp -d "${TMPDIR:-/tmp}/agentdesk-workspace-ide.XXXXXX")"
+    cleanup() {
+      rm -rf "$STAGING"
+    }
+    trap cleanup EXIT
+    node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" workspace-ide "$WEB" "$ROOT/.build/js-dependencies"
     npm test --prefix "$WEB"
-    npm run build --prefix "$WEB"
+    npm run build --prefix "$WEB" -- "$STAGING"
+    node "$ROOT/tools/build-system/publish-generated-tree.mjs" "$STAGING/viewer" "$VIEWER_OUT"
+    node "$ROOT/tools/build-system/publish-generated-tree.mjs" "$STAGING/ide" "$IDE_OUT"
     just workspace-ide-fitness
 
 # Package-move fitness: no stale package tree or generated dependency tree may enter Swift resources.
@@ -388,28 +402,31 @@ build-agent-webview:
         exit 0
     fi
     echo "build-agent-webview: building AgentPanel Web"
-    cd "$WEB" && bun install --frozen-lockfile && bun run build
-    echo "build-agent-webview: copying dist/ -> $OUT"
-    rm -rf "$OUT"
-    mkdir -p "$OUT"
-    cp -R "$WEB/dist/." "$OUT/"
-    # Re-create the tracked .gitkeep that the rm -rf above removed. It keeps the
-    # directory tracked by git so the Xcode folder reference resolves on a fresh
-    # checkout; a build must not leave it deleted in git status.
-    touch "$OUT/.gitkeep"
+    node '{{justfile_directory()}}/tools/build-system/ensure-js-dependencies.mjs' \
+      agent-panel "$WEB" '{{justfile_directory()}}/.build/js-dependencies'
+    cd "$WEB" && bun run build
+    node '{{justfile_directory()}}/tools/build-system/publish-generated-tree.mjs' \
+      "$WEB/dist" "$OUT" --preserve .gitkeep
     mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"
     echo "build-agent-webview: DONE"
 
 agent-panel-web-check:
-    cd '{{agent_panel_web_dir}}' && bun install --frozen-lockfile && bun run typecheck && bun run test
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ROOT='{{justfile_directory()}}'
+    WEB='{{agent_panel_web_dir}}'
+    node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies"
+    cd "$WEB"
+    bun run typecheck
+    bun run test
 
 build-tools-check:
     node --test tools/build-system/*.test.mjs
 
 # Build the gesture/voice interaction webview bundle into InteractionPanel's
 # package resources. The gesture-agent web app is the authored renderer; its
-# Vite embed output is copied here before the consuming app build. Requires
-# pnpm on PATH and replaces any prior ignored output in place.
+# Vite embed output is content-published before the consuming app build.
+# Requires pnpm on PATH.
 build-gesture-webview:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -422,14 +439,11 @@ build-gesture-webview:
         exit 0
     fi
     echo "build-gesture-webview: running pnpm build:embed in $WEB"
+    node '{{justfile_directory()}}/tools/build-system/ensure-js-dependencies.mjs' \
+      gesture-webview "$WEB" '{{justfile_directory()}}/.build/js-dependencies'
     cd "$WEB" && pnpm build:embed
-    echo "build-gesture-webview: copying gesture-webview-dist/ -> $OUT"
-    rm -rf "$OUT"
-    mkdir -p "$OUT"
-    cp -R "$WEB/gesture-webview-dist/." "$OUT/"
-    # Re-create the tracked .gitkeep that the rm -rf above removed, so the Xcode
-    # folder reference resolves on a fresh checkout.
-    touch "$OUT/.gitkeep"
+    node '{{justfile_directory()}}/tools/build-system/publish-generated-tree.mjs' \
+      "$WEB/gesture-webview-dist" "$OUT" --preserve .gitkeep
     mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"
     echo "build-gesture-webview: DONE"
 
