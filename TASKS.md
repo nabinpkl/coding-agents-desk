@@ -67,6 +67,107 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   labeled set that contrasts such as `/θ/` to `/t/` or `/s/` are localized without relying on the STT
   transcript, and reject checkpoints that normalize those differences away.
 
+### July 2026 decision baseline
+
+- Apple `SpeechTranscriber` remains the word-recognition path, not the phone analyzer. Its public
+  iOS 26+ surface provides transcriptions, alternatives, confidence, and audio time ranges, but no
+  documented phone posterior or phone-lattice output. R130 may display STT beside phone evidence for
+  comparison, but the phone analyzer must not read `VoiceAttemptAnalysis`, either transcript, or any
+  recognition alternative.
+- Prefer Core ML for the selected shipping runtime because it is the platform-owned on-device
+  inference path and supports flexible tensor shapes and compressed ML Program weights. The first
+  acoustic reference is Meta's Apache-2.0 `wav2vec2-lv-60-espeak-cv-ft`: the reproducible Sadda fp16
+  ONNX export accepts normalized mono 16 kHz PCM and emits 392 unconstrained CTC phone logits at
+  50 frames per second. It is a fidelity reference, not a shipping asset: the file is about 635 MB
+  and has no adoption history.
+- Compare the fp16 reference against the ONNX Community Q4F16 export, about 197 MB, and a Core ML
+  conversion with 8-bit and 4-bit weight compression. A compressed candidate is rejected if it
+  changes the key-phone winner or erases a contrast, even if its aggregate transcription still looks
+  correct. The 94M-parameter LJSpeech/Gruut wav2vec2 checkpoint is only a compact fallback candidate;
+  its single-speaker training and 2024 maintenance state make it unsuitable without stronger evidence.
+- Use a pinned CMUdict revision as the bounded US-English target-pronunciation source, plus an explicit
+  stressed-ARPABET to model-token mapping. Every emitted token must exist in the selected model
+  vocabulary, alternate dictionary pronunciations stay explicit, and an unknown word fails visibly.
+  Do not link eSpeak NG into the app: its phone inventory matches the acoustic model, but the engine is
+  GPL-3.0-or-later. Flite is not the fallback because its last release and iOS posture are stale.
+- Current sources checked on 2026-07-25: [Apple SpeechTranscriber](https://developer.apple.com/documentation/speech/speechtranscriber?changes=_1),
+  [Apple Core ML](https://developer.apple.com/documentation/CoreML),
+  [Core ML flexible inputs](https://apple.github.io/coremltools/docs-guides/source/flexible-inputs.html),
+  [Core ML compression](https://apple.github.io/coremltools/docs-guides/source/opt-whats-new.html),
+  [Sadda fp16 model card](https://huggingface.co/sadda-speech/wav2vec2-espeak-ctc),
+  [ONNX Community model card](https://huggingface.co/onnx-community/wav2vec2-lv-60-espeak-cv-ft-ONNX),
+  [CMUdict](https://github.com/cmusphinx/cmudict), and
+  [eSpeak NG licensing](https://github.com/espeak-ng/espeak-ng#license-information). The Apple and
+  Core ML guide pages expose no publication date; their current documentation was inspected rather
+  than treating older API examples as authority.
+
+### R130 execution plan
+
+1. **Freeze an evidence contract before integrating a runtime.**
+   - Add a small `VoicePhoneAnalyzer` boundary whose request contains only the saved audio URL,
+     target pronunciation, locale, and pinned model manifest.
+   - Return a versioned `VoicePhoneEvidence`: attempt ID, audio SHA-256, model/revision/conversion and
+     vocabulary hashes, 20 ms top-five phone hypotheses with log posteriors, target-aligned phone
+     ranges, target posterior, strongest competing phone, posterior margin, and inference metrics.
+   - Keep PCM normalization, model invocation, CTC blank handling, forced alignment, and phone-token
+     mapping behind this boundary. Do not derive or display a pronunciation percentage in Phase 1.
+
+2. **Build the bounded evidence set from the recording seam that already exists.**
+   - Reuse R129's two retained takes for each of `think/sink`, `rice/lice`, `very/wary`, and
+     `ship/sheep`, collected across two sessions, then add two deliberate `tink` recordings labeled
+     as `/t/` substitutions for `think`.
+   - For every take, manually mark only the contrasted phone interval and actual phone. Keep the
+     recordings in app-owned/local evaluation storage, not in git; commit a manifest template,
+     expected phone sequences, labels, and SHA-256 values only when the recordings are explicitly
+     approved as fixtures.
+   - Evaluate each minimal-pair recording both against its own pronunciation and against its paired
+     target. This makes the same raw audio prove whether the unconstrained phone evidence follows the
+     sound rather than the expected word.
+
+3. **Run the model and conversion bake-off before app integration.**
+   - Pin every downloaded checkpoint and vocabulary by repository revision and SHA-256. Keep model
+     binaries out of git while spiking.
+   - Establish the fp16 result first, then run Q4F16, Core ML 8-bit, and Core ML 4-bit over the exact
+     same normalized samples. Record file size, cold-load time, inference time, peak resident-memory
+     delta, phone winners, posterior margins, and aligned boundaries.
+   - Prefer Core ML if conversion is supported and its evidence passes. Add ONNX Runtime to the iOS
+     project only if Core ML fails fidelity or device performance. Before either conversion tooling or
+     ONNX Runtime is pinned as a dependency, re-run dependency maintenance and supply-chain checks;
+     their current release cadence does not silently clear the repo's dependency-vetting bar.
+
+4. **Select by contrast evidence and device cost, not by model-card accuracy.**
+   - On the 16 minimal-pair takes, the actual contrasted phone must beat the paired competitor within
+     the labeled interval in at least 14 takes. Both `tink` takes must rank `/t/` above `/θ/`.
+   - Median boundary error against the manual interval must be at most 40 ms and the 90th percentile
+     at most 100 ms. A compressed candidate must preserve the fp16 key-phone winner on at least 17 of
+     18 takes and move aligned boundaries by no more than 40 ms at the 90th percentile.
+   - On the physical iPhone used for acceptance, record the hardware and build identity, require a
+     model asset no larger than 220 MiB, peak resident-memory growth no larger than 400 MiB, cold load
+     no longer than 3 seconds, and analysis of a five-second take no longer than five seconds.
+   - Reject a candidate if its target inventory collapses a required contrast, it exposes only a
+     forced target path without competing-phone logits, its result changes when STT metadata is
+     withheld, its license/provenance is incomplete, or any resource gate fails.
+
+5. **Integrate the selected analyzer with saved attempts without bloating metadata.**
+   - Store bounded derived output as an atomically replaced `phone-evidence.json` beside
+     `audio.caf` and `metadata.json`, keyed by the audio and model hashes. Do not store all 392 logits
+     for every frame and do not copy raw audio.
+   - Reanalysis replaces stale evidence when either hash changes. Missing assets, unknown target
+     words, mapping mismatches, and inference failures remain visible errors. Existing directory
+     deletion removes audio, metadata, and phone evidence together.
+   - Extend saved-take Review to show the target phones, observed top phone, two or three competitors,
+     posterior values, and start/end times. Label this as raw model evidence, not a correctness score.
+
+6. **Verify and promote.**
+   - Unit-test pronunciation lookup, vocabulary coverage, CTC collapse/alignment, top-K retention,
+     evidence encoding, stale-hash replacement, deletion, and the invariant that phone analysis has
+     no STT input.
+   - Run the offline fixture bake-off, focused client tests, and `just check`; self-review the complete
+     cross-file diff. Then stop at the device checkpoint and state the exact authorized run needed for
+     the resource and physical evidence gates.
+   - Flip R130 to D130 only when one pinned model/runtime/pronunciation-source combination passes every
+     evidence, provenance, size, memory, latency, persistence, and physical-device gate above.
+
 ## v15 Phase 2: calibrated pronunciation score
 
 - R131. Derive a GOP or equivalent per-phone margin from R130's posterior evidence, preserve the
