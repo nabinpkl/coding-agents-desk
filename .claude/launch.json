@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "agent-panel-web",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--cwd", "packages/AgentPanel/Web", "vite", "--port", "5183"],
+      "port": 5183
+    }
+  ]
+}
