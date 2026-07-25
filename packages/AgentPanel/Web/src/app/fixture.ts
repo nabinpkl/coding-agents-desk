@@ -77,9 +77,34 @@ function makeFixtureSeedChunk(source: Source, sessionId: string) {
           },
         ],
       },
+      // A shell call carrying the state metadata the adapters append to nearly
+      // every assistant line. Exercises the Raw drawer and the command code
+      // block: the summary is deliberately wider than a phone row, and `input`
+      // is absent here exactly as the iOS wire delivers it.
+      {
+        i: 2,
+        ts: Date.now() - 190_000,
+        tp: "assistant" as const,
+        b: [
+          {
+            k: "tool_use" as const,
+            tl: "Bash",
+            ci: "call-002",
+            sm: 'ls && echo "---TASKS---" && ls tasks 2>/dev/null | head -30 && git log --oneline --decorate | head -40',
+          },
+          { k: "metadata" as const, lb: "Token Usage", tx: "68,272 tokens" },
+          { k: "metadata" as const, lb: "Stop Reason", tx: "tool_use" },
+          {
+            k: "metadata" as const,
+            lb: "Working Directory",
+            tx: "/Users/dev/projects/agent-desk",
+          },
+          { k: "raw" as const },
+        ],
+      },
     ],
     ws: 0,
-    tot: 3,
+    tot: 4,
     lv: false,
   };
 }
@@ -91,7 +116,7 @@ function makeFixtureLiveChunk(source: Source, sessionId: string) {
     sid: sessionId,
     ev: [
       {
-        i: 2,
+        i: 3,
         ts: Date.now(),
         tp: "assistant" as const,
         b: [
@@ -103,10 +128,20 @@ function makeFixtureLiveChunk(source: Source, sessionId: string) {
       },
     ],
     ws: 0,
-    tot: 3,
+    tot: 4,
     lv: true,
   };
 }
+
+const FIXTURE_RAW_LINE = JSON.stringify({
+  type: "assistant",
+  cwd: "/Users/dev/projects/agent-desk",
+  message: {
+    stop_reason: "tool_use",
+    usage: { input_tokens: 68_272, output_tokens: 412 },
+    content: [{ type: "tool_use", id: "call-002", name: "Bash" }],
+  },
+});
 
 export function installFixture(): void {
   (window as Window & {
@@ -125,6 +160,8 @@ export function installFixture(): void {
             pp?: string;
             src?: Source;
             sid?: string;
+            rid?: string;
+            ei?: number;
           };
           switch (value.t) {
             case "agent-projects-watch":
@@ -160,6 +197,19 @@ export function installFixture(): void {
                   );
                 }, 80);
               }, 40);
+              break;
+            case "agent-raw-event-get":
+              if (!value.rid || !value.src || !value.sid) return;
+              setTimeout(() => {
+                window.__agentFeedDeliver?.({
+                  t: "agent-raw-event",
+                  rid: value.rid,
+                  src: value.src,
+                  sid: value.sid,
+                  ei: value.ei ?? 0,
+                  tx: FIXTURE_RAW_LINE,
+                });
+              }, 30);
               break;
           }
         },

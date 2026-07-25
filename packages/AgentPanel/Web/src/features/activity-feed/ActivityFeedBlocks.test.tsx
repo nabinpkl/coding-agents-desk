@@ -2,8 +2,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DataSourceProvider } from "./data-source/AgentDataSourceContext";
 import type { AgentDataSource } from "./data-source/AgentDataSource";
-import { buildActivityDisplayItems } from "./activityDisplayItems";
-import { LabeledTextBlock, RawJsonBlock } from "./ActivitySystemBlocks";
+import {
+  buildActivityDisplayItems,
+  partitionEventBlocks,
+  shellCommand,
+} from "./activityDisplayItems";
+import { LabeledTextBlock, RawDetails, RawJsonBlock } from "./ActivitySystemBlocks";
 import type { ActivityEvent } from "./useSessionEventsStream";
 
 function source(fetchRawEvent: AgentDataSource["fetchRawEvent"]): AgentDataSource {
@@ -67,5 +71,143 @@ describe("complete activity blocks", () => {
     ];
 
     expect(buildActivityDisplayItems(events).map((item) => item.ev.index)).toEqual([10, 11]);
+  });
+});
+
+describe("event block partition", () => {
+  it("folds metadata and the raw line away from an event that has content", () => {
+    const layout = partitionEventBlocks({
+      index: 12,
+      ts: 1,
+      type: "assistant",
+      blocks: [
+        { kind: "tool_use", tool: "Bash", summary: "ls", callId: "call-1" },
+        { kind: "metadata", label: "Token Usage", text: "1,234 tokens" },
+        { kind: "metadata", label: "Stop Reason", text: "tool_use" },
+        { kind: "metadata", label: "Working Directory", text: "/repo" },
+        { kind: "raw" },
+      ],
+    });
+
+    expect(layout.inline.map(({ block }) => block.kind)).toEqual(["tool_use"]);
+    expect(layout.folded.map((block) => block.label)).toEqual([
+      "Token Usage",
+      "Stop Reason",
+      "Working Directory",
+    ]);
+    expect(layout.hasRawJson).toBe(true);
+  });
+
+  it("keeps metadata inline when it is the event's only content", () => {
+    const layout = partitionEventBlocks({
+      index: 13,
+      ts: 1,
+      type: "system",
+      blocks: [
+        { kind: "metadata", label: "Agent Message", text: "finished indexing" },
+        { kind: "raw" },
+      ],
+    });
+
+    expect(layout.inline.map(({ block }) => block.label)).toEqual(["Agent Message"]);
+    expect(layout.folded).toEqual([]);
+    expect(layout.hasRawJson).toBe(true);
+  });
+
+  it("keeps each inline block's original index so tool keys stay stable", () => {
+    const layout = partitionEventBlocks({
+      index: 14,
+      ts: 1,
+      type: "assistant",
+      blocks: [
+        { kind: "text", text: "running it" },
+        { kind: "metadata", label: "Working Directory", text: "/repo" },
+        { kind: "tool_use", tool: "Bash", summary: "ls" },
+        { kind: "raw" },
+      ],
+    });
+
+    expect(layout.inline.map(({ index }) => index)).toEqual([0, 2]);
+  });
+});
+
+describe("shell command extraction", () => {
+  it("prefers the raw input the macOS panel receives", () => {
+    expect(
+      shellCommand({
+        kind: "tool_use",
+        tool: "Bash",
+        summary: "git log --oneline",
+        input: { command: "git log --oneline --graph --decorate --all" },
+      }),
+    ).toBe("git log --oneline --graph --decorate --all");
+  });
+
+  it("falls back to the summary when the wire dropped the input", () => {
+    expect(shellCommand({ kind: "tool_use", tool: "shell", summary: "ls -la" })).toBe("ls -la");
+    // Codex `shell` can carry argv rather than a command string.
+    expect(
+      shellCommand({
+        kind: "tool_use",
+        tool: "shell",
+        summary: "ls -la",
+        input: { command: ["bash", "-lc", "ls -la"] },
+      }),
+    ).toBe("ls -la");
+  });
+
+  it("returns null for tools that do not run a shell command", () => {
+    expect(shellCommand({ kind: "tool_use", tool: "Read", summary: "Read App.tsx" })).toBeNull();
+    expect(shellCommand({ kind: "text", text: "prose" })).toBeNull();
+  });
+});
+
+describe("raw drawer", () => {
+  it("holds the metadata and only fetches the raw line from the nested disclosure", async () => {
+    const exact = '{"type":"assistant"}';
+    const fetchRawEvent = vi.fn(async () => exact);
+    const { container } = render(
+      <DataSourceProvider source={source(fetchRawEvent)}>
+        <RawDetails
+          metadata={[
+            { kind: "metadata", label: "Token Usage", text: "1,234 tokens" },
+            { kind: "metadata", label: "Working Directory", text: "/repo" },
+          ]}
+          source="claude"
+          sessionId="session"
+          eventIndex={12}
+          includesRawJson
+        />
+      </DataSourceProvider>,
+    );
+
+    const drawers = container.querySelectorAll("details");
+    expect(drawers.length).toBe(2);
+    expect(drawers[0]?.hasAttribute("open")).toBe(false);
+    expect(screen.getByText("Token Usage")).toBeTruthy();
+    expect(screen.getByText("Working Directory")).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Raw"));
+    expect(fetchRawEvent).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Raw JSON"));
+    await waitFor(() => expect(fetchRawEvent).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(exact)).toBeTruthy();
+  });
+
+  it("renders nothing when the event has no metadata and no raw line", () => {
+    const { container } = render(
+      <DataSourceProvider source={source(async () => "")}>
+        <RawDetails
+          metadata={[]}
+          source="claude"
+          sessionId="session"
+          eventIndex={12}
+          includesRawJson={false}
+        />
+      </DataSourceProvider>,
+    );
+
+    expect(container.querySelector("details")).toBeNull();
   });
 });

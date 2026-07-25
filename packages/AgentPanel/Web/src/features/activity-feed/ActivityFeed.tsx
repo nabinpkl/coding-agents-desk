@@ -15,10 +15,13 @@ import { useStickToBottom } from "./useStickToBottom";
 import {
   buildActivityDisplayItems,
   displayRole,
+  partitionEventBlocks,
+  shellCommand,
   type DisplayItem,
   type DisplayRole,
 } from "./activityDisplayItems";
-import { LabeledTextBlock, RawJsonBlock } from "./ActivitySystemBlocks";
+import { LabeledTextBlock, RawDetails, RawJsonBlock } from "./ActivitySystemBlocks";
+import { CodeBlock } from "./markdown/CodeBlock";
 import type { AgentSource } from "./data-source/AgentDataSource";
 
 interface PairedToolResult {
@@ -617,13 +620,56 @@ function UserRow({
           </span>
         </button>
         {!isCollapsed ? (
-          <div className="space-y-[0.55em] pl-[1.65em] pt-[0.3em]">
-            {ev.blocks.map((b, i) => (
-            <Block key={i} b={b} source={source} sessionId={sessionId} eventIndex={ev.index} blockIndex={i} eventType={ev.type} expandedTools={expandedTools} onToggleTool={onToggleTool} pairedToolResults={pairedToolResults} />
-          ))}
-          </div>
+          <EventBody
+            ev={ev}
+            source={source}
+            sessionId={sessionId}
+            expandedTools={expandedTools}
+            onToggleTool={onToggleTool}
+            pairedToolResults={pairedToolResults}
+          />
         ) : null}
       </div>
+    </div>
+  );
+}
+
+// The expanded body of one event: its content blocks, then the single Raw
+// drawer holding the metadata and the raw transcript line.
+function EventBody({
+  ev, source, sessionId, expandedTools, onToggleTool, pairedToolResults,
+}: {
+  ev: ActivityEvent;
+  source: AgentSource;
+  sessionId: string;
+  expandedTools: Set<string>;
+  onToggleTool: (key: string) => void;
+  pairedToolResults: ReadonlyMap<string, PairedToolResult>;
+}) {
+  const { inline, folded, hasRawJson } = partitionEventBlocks(ev);
+  return (
+    <div className="space-y-[0.55em] pl-[1.65em] pt-[0.3em]">
+      {inline.map(({ block, index }) => (
+        <Block
+          key={index}
+          b={block}
+          source={source}
+          sessionId={sessionId}
+          eventIndex={ev.index}
+          blockIndex={index}
+          eventType={ev.type}
+          expandedTools={expandedTools}
+          onToggleTool={onToggleTool}
+          pairedToolResults={pairedToolResults}
+        />
+      ))}
+      <RawDetails
+        metadata={folded}
+        source={source}
+        sessionId={sessionId}
+        eventIndex={ev.index}
+        includesRawJson={hasRawJson}
+      />
     </div>
   );
 }
@@ -685,11 +731,14 @@ function SegmentEventRow({
           </span>
         </button>
         {!isCollapsed ? (
-          <div className="space-y-[0.55em] pl-[1.65em] pt-[0.3em]">
-            {ev.blocks.map((b, i) => (
-            <Block key={i} b={b} source={source} sessionId={sessionId} eventIndex={ev.index} blockIndex={i} eventType={ev.type} expandedTools={expandedTools} onToggleTool={onToggleTool} pairedToolResults={pairedToolResults} />
-          ))}
-          </div>
+          <EventBody
+            ev={ev}
+            source={source}
+            sessionId={sessionId}
+            expandedTools={expandedTools}
+            onToggleTool={onToggleTool}
+            pairedToolResults={pairedToolResults}
+          />
         ) : null}
       </div>
     </div>
@@ -827,7 +876,11 @@ function Block({
     const isMarkdownWrite =
       b.tool === "Write" && isMarkdownPath(b.input?.file_path) && typeof b.input?.content === "string";
     const isFileBody = isEditDiff || isMarkdownWrite;
-    const hasBody = isFileBody || pairedResult !== undefined;
+    // The header truncates the command to one line. Expanding shows it as a
+    // shell code block, which highlights it and scrolls horizontally rather
+    // than cutting it off at the row's width.
+    const command = shellCommand(b);
+    const hasBody = isFileBody || command !== null || pairedResult !== undefined;
     const headerLabel = isFileBody
       ? (typeof b.input?.file_path === "string" ? b.input.file_path.split("/").pop() ?? "" : "")
       : (b.summary || "");
@@ -865,6 +918,7 @@ function Block({
         </button>
         {isExpanded ? (
           <>
+            {command !== null ? <CodeBlock code={command} lang="bash" /> : null}
             {isEditDiff ? (
               <DiffBlock
                 filePath={b.input!.file_path as string}
@@ -915,17 +969,9 @@ function Block({
   if (b.kind === "metadata" || b.kind === "plain") {
     return <LabeledTextBlock block={b} />;
   }
-  if (b.kind === "raw") {
-    return (
-      <RawJsonBlock
-        source={source}
-        sessionId={sessionId}
-        eventIndex={eventIndex}
-      />
-    );
-  }
-  // Compaction blocks render as a full-row banner via CompactionRow, not
-  // inline. Returning null here keeps any stray inline render path silent.
+  // Raw blocks never reach here: partitionEventBlocks routes every one of them
+  // into the event's Raw drawer. Compaction blocks render as a full-row banner
+  // via CompactionRow, not inline. Returning null keeps both paths silent.
   return null;
 }
 
