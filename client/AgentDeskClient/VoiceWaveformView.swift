@@ -7,6 +7,7 @@ import UIKit
 /// not FFT bins.
 final class VoiceWaveformView: UIView {
     static let sampleCapacity = 48
+    static let preferredHeight: CGFloat = 112
 
     private(set) var levels = Array(
         repeating: Float.zero,
@@ -16,6 +17,13 @@ final class VoiceWaveformView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         configure()
+    }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(
+            width: UIView.noIntrinsicMetric,
+            height: Self.preferredHeight
+        )
     }
 
     @available(*, unavailable)
@@ -77,7 +85,7 @@ final class VoiceWaveformView: UIView {
         let count = CGFloat(levels.count)
         let gap = min(2, max(0, (bounds.width / count) * 0.35))
         let barWidth = max(0, (bounds.width - (gap * (count - 1))) / count)
-        let minimumHeight = min(3, bounds.height)
+        let minimumHeight = min(2, bounds.height)
         let availableHeight = max(bounds.height - minimumHeight, 0)
 
         return levels.enumerated().map { index, level in

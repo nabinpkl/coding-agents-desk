@@ -160,8 +160,6 @@ final class VoicePlaygroundSurface: UIView {
         recordingWaveformLabel.text = "Live microphone waveform"
         recordingWaveformStack.addArrangedSubview(recordingWaveformLabel)
         recordingWaveformView.tintColor = .systemRed
-        recordingWaveformView.translatesAutoresizingMaskIntoConstraints = false
-        recordingWaveformView.heightAnchor.constraint(equalToConstant: 72).isActive = true
         recordingWaveformView.accessibilityIdentifier = "voice-recording-waveform"
         recordingWaveformStack.addArrangedSubview(recordingWaveformView)
         stack.addArrangedSubview(recordingWaveformStack)
@@ -697,8 +695,6 @@ final class VoicePlaygroundSurface: UIView {
 
             let replayWaveformView = VoiceWaveformView()
             replayWaveformView.tintColor = .systemBlue
-            replayWaveformView.translatesAutoresizingMaskIntoConstraints = false
-            replayWaveformView.heightAnchor.constraint(equalToConstant: 72).isActive = true
             replayWaveformView.accessibilityIdentifier =
                 "voice-replay-waveform-\(attempt.id.uuidString)"
             replayWaveformContainer.addArrangedSubview(replayWaveformView)
@@ -951,7 +947,7 @@ final class VoicePlaygroundSurface: UIView {
             return
         }
 
-        let response: Float = measuredLevel >= displayedLevel ? 0.65 : 0.18
+        let response: Float = measuredLevel >= displayedLevel ? 0.85 : 0.12
         displayedLevel += (measuredLevel - displayedLevel) * response
         activeWaveformView?.append(level: displayedLevel)
     }

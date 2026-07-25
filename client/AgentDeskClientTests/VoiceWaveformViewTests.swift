@@ -37,6 +37,8 @@ struct VoiceWaveformViewTests {
         #expect(frames[1].height < frames[2].height)
         #expect(abs(frames[2].height - bounds.height) < 0.0001)
         #expect(frames.allSatisfy { bounds.contains($0) })
+        #expect(VoiceWaveformView.preferredHeight == 112)
+        #expect(VoiceWaveformView().intrinsicContentSize.height == 112)
 
         let narrowBounds = CGRect(x: 0, y: 0, width: 12, height: 20)
         let narrowFrames = VoiceWaveformView.barFrames(

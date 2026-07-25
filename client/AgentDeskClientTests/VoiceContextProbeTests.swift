@@ -51,9 +51,15 @@ struct VoiceContextProbeTests {
     func audioLevelMapsSilenceAndSpeechAmplitude() {
         guard #available(iOS 26.0, *) else { return }
         #expect(VoiceAudioLevel.normalized(decibels: -.infinity) == 0)
-        #expect(VoiceAudioLevel.normalized(decibels: -60) == 0)
-        #expect(VoiceAudioLevel.normalized(decibels: -30) == 0.5)
+        #expect(VoiceAudioLevel.normalized(decibels: -50) == 0)
+        #expect(VoiceAudioLevel.normalized(decibels: -18) == 1)
         #expect(VoiceAudioLevel.normalized(decibels: 6) == 1)
+
+        let roomTone = VoiceAudioLevel.normalized(decibels: -42)
+        let ordinarySpeech = VoiceAudioLevel.normalized(decibels: -24)
+        #expect(roomTone < 0.2)
+        #expect(ordinarySpeech > 0.7)
+        #expect(ordinarySpeech > roomTone * 4)
 
         let format = AVAudioFormat(
             standardFormatWithSampleRate: 48_000,
@@ -69,8 +75,7 @@ struct VoiceContextProbeTests {
         }
 
         let level = VoiceAudioLevel.normalized(buffer: buffer)
-        #expect(level > 0.89)
-        #expect(level < 0.91)
+        #expect(level == 1)
 
         let sink = CaptureSink(outputFormat: format)
         sink.accept(buffer)

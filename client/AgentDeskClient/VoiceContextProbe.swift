@@ -105,23 +105,28 @@ final class CaptureSink: @unchecked Sendable {
     }
 }
 
-/// Maps PCM amplitude or AVAudioPlayer power onto the same 0...1 visual range.
+/// Maps PCM amplitude or AVAudioPlayer power onto the same 0...1 speech display range.
 ///
-/// -60 dB is treated as silence for the compact UI meter. This is presentation
-/// scaling only; the captured PCM remains untouched for later analysis.
+/// The display curve gates very quiet room tone and reaches full visual height
+/// around ordinary close-mic speech. This is presentation scaling only; the
+/// captured PCM remains untouched for later analysis.
 @available(iOS 26.0, *)
 enum VoiceAudioLevel {
-    private static let silenceFloorDecibels: Float = -60
+    private static let noiseFloorDecibels: Float = -50
+    private static let speechPeakDecibels: Float = -18
+    private static let displayExponent: Float = 1.35
 
     static func normalized(decibels: Float) -> Float {
         guard decibels.isFinite else { return 0 }
-        return min(
+        let linearLevel = min(
             max(
-                (decibels - silenceFloorDecibels) / -silenceFloorDecibels,
+                (decibels - noiseFloorDecibels)
+                    / (speechPeakDecibels - noiseFloorDecibels),
                 0
             ),
             1
         )
+        return pow(linearLevel, displayExponent)
     }
 
     static func normalized(buffer: AVAudioPCMBuffer) -> Float {
