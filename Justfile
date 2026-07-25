@@ -667,8 +667,8 @@ dom-mirror-e2e: ext-stamp
     open "{{host_app}}"; sleep 3
     pgrep -lf '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}' >/dev/null || { echo "host did not start"; exit 1; }
 
-    echo "== build + install sim client =="
-    just client-sim-reinstall >/dev/null
+    echo "== build + update sim client =="
+    just client-sim-install >/dev/null
 
     echo "== pair + launch sim client with DOM mirror on (console tee) =="
     xcrun simctl bootstatus "$UDID" -b >/dev/null
@@ -711,6 +711,7 @@ check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar
     sh tools/media-architecture-guard.sh
     sh tools/exact-executable-pids-tests.sh
     sh tools/host-run-lifecycle-tests.sh
+    sh tools/client-install-lifecycle-tests.sh
     sh tools/launch-env-tests.sh
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
     sh tools/testflight-upload-tests.sh
@@ -1238,15 +1239,11 @@ client-install variant="stable": voice-phone-model-check
         xcrun devicectl device install app --device {{ios_device}} '{{client_app}}'
     fi
 
-# Uninstall + clean install. iOS caches device-family and other bundle
-# metadata for an installed bundle id; rebuilding alone does not flush
-# that cache. Use this after changes to TARGETED_DEVICE_FAMILY,
-# UIRequires*, or anything else iOS reads at install time.
+# Historical recipe name retained for callers. This now performs an in-place
+# build + install/update so the existing app container and saved recordings
+# survive. Use an explicit devicectl uninstall manually only when data loss is
+# intentionally required for install-time metadata testing.
 client-reinstall variant="stable":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; else BID='{{client_bundle_id}}'; fi
-    xcrun devicectl device uninstall app --device {{ios_device}} "$BID" 2>/dev/null || true
     just client-install {{variant}}
 
 # Release-configuration client build for the iPhone + install (stable only; the
@@ -1257,10 +1254,9 @@ client-install-release: voice-phone-model-check
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     xcrun devicectl device install app --device {{ios_device}} '{{client_app_release}}'
 
-# Uninstall + clean Release install on the iPhone (stable). Mirrors client-reinstall
-# but for the Release build; the uninstall flushes install-time bundle metadata.
+# Historical recipe name retained for callers. Updates the stable Release app
+# in place and preserves its app container.
 client-reinstall-release:
-    xcrun devicectl device uninstall app --device {{ios_device}} '{{client_bundle_id}}' 2>/dev/null || true
     just client-install-release
 
 # Trigger pairing without scanning the QR. Sends SIGUSR1 to the running host
@@ -1389,13 +1385,13 @@ iphone-console-run variant="stable":
     echo "URL: <redacted; delivered to client>"
     URL="$(cat "$PAIR_URL")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; env DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
-# R130 physical acceptance path. Reinstalls the Release client and launches it
+# R130 physical acceptance path. Updates the Release client in place and launches it
 # with an attached console without starting, pairing, or waiting for the host.
 # The first-run Voice entry is intentionally the surface under test.
 voice-phone-device-run: voice-phone-model-check
     #!/usr/bin/env bash
     set -euo pipefail
-    just client-reinstall-release
+    just client-install-release
     rm -f "{{iphone_console_log}}"
     xcrun devicectl device process launch \
         --device {{ios_device}} \
@@ -1450,7 +1446,7 @@ dom-bridge-uninstall channel="chrome":
     node dom-bridge/install.mjs --remove --channel {{channel}}
 
 # Uninstall + fresh install of the dom-bridge manifest, so each run starts from a clean
-# bridge (mirrors client-install -> client-reinstall). The fresh sim composites call this
+# bridge. The fresh sim composites call this
 # so a stale manifest (e.g. pointing at the other variant's host socket from a previous
 # run) never lingers. variant: dev (default) | stable; channel: chrome (default).
 dom-bridge-reinstall variant="dev" channel="chrome":
@@ -1464,7 +1460,7 @@ dom-bridge-reinstall variant="dev" channel="chrome":
 #                             process (launch-env.sh set -> open -> unset; nothing lingers in launchd)
 #   2. dom-bridge-reinstall dev -- (re)point the extension native-messaging manifest at the DEV
 #                             host's socket, from clean, so a stale manifest never lingers
-#   3. client-sim-reinstall dev -- rebuild + reinstall the DEV sim client
+#   3. client-sim-install dev -- rebuild + update the DEV sim client in place
 #   4. pair-sim dev        -- pair + launch the DEV sim client with the DOM mirror on
 # Rebuilds host + client every run, so it always reflects the latest code. Leaves everything
 # running and RETURNS (does not attach a console): then load/reload the extension in Chrome
@@ -1475,7 +1471,7 @@ dom-bridge-reinstall variant="dev" channel="chrome":
 dom-mirror-sim channel="chrome":
     just host-run-dev dev
     just dom-bridge-reinstall dev {{channel}}
-    just client-sim-reinstall dev
+    just client-sim-install dev
     just pair-sim dev
 
 # ADR-0038..0041 physical-device run of the Chrome DOM mirror -- the one human checkpoint. Builds
@@ -1490,7 +1486,7 @@ dom-mirror-device-run:
     launchctl setenv AGENTDESK_DOM_MIRROR_ENABLED 1
     trap 'launchctl unsetenv AGENTDESK_DOM_MIRROR_ENABLED 2>/dev/null || true' EXIT
     just host-run
-    just client-reinstall-release
+    just client-install-release
     HOST_PID="$(pgrep -f '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}' | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running"; exit 1; }
     BID='{{client_bundle_id}}'
@@ -1505,7 +1501,7 @@ dom-mirror-device-run:
       xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
 # Dev-variant twin of dom-mirror-device-run. The dev client side-by-side install has no
-# Release build path (client-reinstall-release is stable-only), so this stays Debug on
+# Release build path (client-install-release is stable-only), so this stays Debug on
 # both host and client -- same shape as fresh-install-dev vs fresh-install. Runs against
 # the AgentDesk Dev app/host, pairing URL under the dev host's own Application Support
 # tree. Installs on / launches the PHYSICAL iPhone -- a STOP-and-wait checkpoint.
@@ -1515,7 +1511,7 @@ dom-mirror-device-run-dev:
     launchctl setenv AGENTDESK_DOM_MIRROR_ENABLED 1
     trap 'launchctl unsetenv AGENTDESK_DOM_MIRROR_ENABLED 2>/dev/null || true' EXIT
     just host-run-dev dev
-    just client-reinstall dev
+    just client-install dev
     HOST_PID="$(pgrep -f '{{host_dev_derived_data}}/Build/Products/.*/{{host_process_suffix}}' | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running"; exit 1; }
     BID='{{client_dev_bundle_id}}'
@@ -1530,8 +1526,8 @@ dom-mirror-device-run-dev:
       xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
 # Physical-device feel/diagnostic runs. Two launch modes x two client variants. All
-# rebuild and relaunch the host and reinstall the client (the "fresh" prefix is the
-# reinstall). They differ in how the client is launched and in build configuration:
+# rebuild and relaunch the host and update the client in place, preserving its app
+# container. They differ in how the client is launched and in build configuration:
 #   fresh-install                  Release host + client, no console, returns ("just use it")
 #   fresh-release-diagnostic-run   Release host + client, console attached, blocks and tees the log
 # The stable pair builds -configuration Release so a feel or media-diagnosis read
@@ -1550,7 +1546,7 @@ dom-mirror-device-run-dev:
 # surface serves real projects/threads, not a build placeholder.
 fresh-install:
     just host-run
-    just client-reinstall-release
+    just client-install-release
     just pair-iphone stable
 
 # Like fresh-install, but delivers the client over the air via TestFlight instead of a cabled USB
@@ -1565,21 +1561,21 @@ testflight-fresh:
 
 fresh-install-dev:
     just host-run-dev dev
-    just client-reinstall dev
+    just client-install dev
     just pair-iphone dev
 
 fresh-release-diagnostic-run:
     just host-run
-    just client-reinstall-release
+    just client-install-release
     just iphone-console-run stable
 
 fresh-diagnostic-run-dev:
     just host-run-dev dev
-    just client-reinstall dev
+    just client-install dev
     just iphone-console-run dev
 
 # One-shot, deterministic motion-carrier device verification (ADR-0025). Rebuilds
-# and reinstalls host + client, launches both with the motion flag on, records
+# the host and updates the client in place, launches both with the motion flag on, records
 # every leg of the round-trip to its own durable /tmp file, holds a fixed window
 # for you to scroll, then tears the capture down. No live stream to babysit and no
 # launchctl: the host GUI app gets its env and stdio straight from
@@ -1596,7 +1592,7 @@ fresh-diagnostic-run-dev:
 #   {{motion_host_oslog}}   host os_log (owned-media diagnostics)
 #   {{motion_host_stdio}}   host stdout + stderr (prints, crashes)
 #   {{motion_client_log}}   attached client console (stderr traces)
-# One-shot motion-carrier device verification: rebuild+reinstall both ends, scroll, durable /tmp logs.
+# One-shot motion-carrier device verification: rebuild host + update client, scroll, durable /tmp logs.
 motion-verify variant="dev" video="1" seconds="60" fixed_profile="180,1,0.5":
     #!/usr/bin/env bash
     set -uo pipefail
@@ -1720,18 +1716,13 @@ client-sim-install variant="stable": voice-phone-model-check
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath "$DD" -sdk iphonesimulator -destination "platform=iOS Simulator,id=$SIM" AGENTDESK_GIT_SHA="$GIT_SHA" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
     xcrun simctl install "$SIM" "$APP"
 
-# Uninstall + clean install on the simulator. Same reasoning as
-# `client-reinstall`: install-time bundle metadata (UILaunchScreen,
-# TARGETED_DEVICE_FAMILY) is cached by the simulator and not flushed
-# by a plain rebuild. variant: stable (default) | dev.
+# Historical recipe name retained for callers. This now performs an in-place
+# simulator build + install/update so app state survives. variant: stable
+# (default) | dev.
 client-sim-reinstall variant="stable":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ "{{variant}}" = "dev" ]; then SIM='{{ios_sim_udid_dev}}'; BID='{{client_dev_bundle_id}}'; else SIM='{{ios_sim_udid}}'; BID='{{client_bundle_id}}'; fi
-    xcrun simctl uninstall "$SIM" "$BID" 2>/dev/null || true
     just client-sim-install {{variant}}
 
-# Release-configuration twins of client-sim-install / client-sim-reinstall, used by
+# Release-configuration twins of client-sim-install / the historical update alias, used by
 # the sim-fresh-install feel-test composite. No signing concerns on the simulator.
 client-sim-install-release: voice-phone-model-check
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
@@ -1739,13 +1730,12 @@ client-sim-install-release: voice-phone-model-check
     xcrun simctl install {{ios_sim_udid}} "{{client_sim_app_release}}"
 
 client-sim-reinstall-release:
-    -xcrun simctl uninstall {{ios_sim_udid}} com.example.agentdesk.AgentDeskClient 2>/dev/null || true
     just client-sim-install-release
 
 # Simulator equivalent of `pair-iphone`. RELAUNCH + RE-PAIR ONLY: this does
 # NOT build or install -- it re-pairs and `simctl launch`es whatever client
 # binary is ALREADY installed on the sim. To test a CODE change you must build
-# + install first (client-sim-reinstall), or use a full bring-up
+# + install first (client-sim-install), or use a full bring-up
 # (sim-fresh-install / agent-feed-sim[-pair]). Running pair-sim alone after
 # editing code silently exercises the stale installed binary.
 # Asks the running host to mint a fresh pair URL (SIGUSR1 -> writes to
@@ -1810,23 +1800,23 @@ sim-console-run variant="stable":
 # agent-feed-sim[-pair]) calls host-run, which kills + rebuilds + relaunches the
 # host and would clobber the one you launched, so this one deliberately omits it.
 # Requires a host process to already be running (pair-sim SIGUSR1s it to mint the
-# pair URL); only the client is rebuilt and reinstalled.
-# Reinstall the simulator client and pair it to the already-running host (no host rebuild).
+# pair URL); only the client is rebuilt and updated in place.
+# Update the simulator client and pair it to the already-running host (no host rebuild).
 sim-reinstall-pair:
-    just client-sim-reinstall
+    just client-sim-install
     just pair-sim
 
-# Rebuild and relaunch the Mac host and uninstall/reinstall the simulator app in
+# Rebuild and relaunch the Mac host and update the simulator app in place in
 # Release (-configuration Release, host and client), then pair-launch with stdout/stderr
 # attached (owned-media traces -> {{sim_console_log}}). This is the default simulator
 # feel-test path; Release so it reflects shipped performance (a Debug -Onone host pegs a
-# core in the crisp tile codec). The uninstall wipes UserDefaults so pairing is always
-# re-done. For a non-blocking paired launch (e.g. to drive a Maestro flow while the app
-# stays open), run the Release leaves host-run, client-sim-reinstall-release,
-# pair-sim (or the Debug leaves host-run-dev, client-sim-reinstall, pair-sim for fast iteration).
+# core in the crisp tile codec). Existing UserDefaults and saved app data survive; pairing
+# is refreshed by the launch step. For a non-blocking paired launch (e.g. to drive a Maestro
+# flow while the app stays open), run the Release leaves host-run, client-sim-install-release,
+# pair-sim (or the Debug leaves host-run-dev, client-sim-install, pair-sim for fast iteration).
 sim-fresh-install:
     just host-run
-    just client-sim-reinstall-release
+    just client-sim-install-release
     just dom-bridge-reinstall stable
     just sim-console-run
 
@@ -1839,23 +1829,23 @@ sim-fresh-install:
 #
 # Full agent-feed end-to-end simulator bring-up, blocking (attached console). It
 # kills+rebuilds+relaunches the host (host-run-dev builds the real Bun sidecar +
-# agent/gesture/voice webviews first), uninstalls+rebuilds+installs the client,
+# agent/gesture/voice webviews first), rebuilds+updates the client in place,
 # pairs, and tails the client console to {{sim_console_log}}. Blocks. Use
 # agent-feed-sim-pair for the non-blocking variant driven by Maestro (just
 # ui-flow agent-feed-smoke).
 agent-feed-sim:
     just host-run-dev
-    just client-sim-reinstall
+    just client-sim-install
     just dom-bridge-reinstall stable
     just sim-console-run
 
-# Non-blocking twin of agent-feed-sim: rebuilds and reinstalls host + client
+# Non-blocking twin of agent-feed-sim: rebuilds the host and updates the client in place
 # (host-run-dev builds the real artifacts first), then does a non-blocking paired
 # launch (pair-sim) so the app stays open for `just ui-flow <flow>` (e.g.
 # agent-feed-smoke) to drive it and capture screenshots.
 agent-feed-sim-pair:
     just host-run-dev
-    just client-sim-reinstall
+    just client-sim-install
     just dom-bridge-reinstall stable
     just pair-sim
 
@@ -1869,13 +1859,13 @@ agent-feed-sim-pair:
 # RETURNS so you can drive the app with `just ui-flow <flow>`.
 agent-feed-sim-dev:
     just host-run-dev dev
-    just client-sim-reinstall dev
+    just client-sim-install dev
     just dom-bridge-reinstall dev
     just sim-console-run dev
 
 agent-feed-sim-pair-dev:
     just host-run-dev dev
-    just client-sim-reinstall dev
+    just client-sim-install dev
     just dom-bridge-reinstall dev
     just pair-sim dev
 

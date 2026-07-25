@@ -245,7 +245,7 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   and whether the learner improved; validate the loop with saved correct and deliberately altered
   takes before any claim that the app measures pronunciation quality.
 - R136. Run focused client tests and `just check`, self-review the integrated task diff, then stop at
-  the device checkpoint; after explicit approval, reinstall the current client and verify recording,
+  the device checkpoint; after explicit approval, update the current client in place and verify recording,
   replay, deletion, phoneme evidence, reference comparison, and history on the physical iPhone with
   matching build identity.
 

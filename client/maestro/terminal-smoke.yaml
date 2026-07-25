@@ -1,6 +1,6 @@
 appId: com.example.agentdesk.AgentDeskClient
 ---
-# `just terminal-smoke` rebuilds, reinstalls, pairs, then runs this flow.
+# `just terminal-smoke` rebuilds, updates in place, pairs, then runs this flow.
 - extendedWaitUntil:
     visible: "Terminal"
     timeout: 30000
