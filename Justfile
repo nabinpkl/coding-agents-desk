@@ -716,6 +716,7 @@ check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar
     sh tools/client-install-lifecycle-tests.sh
     sh tools/launch-env-tests.sh
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
+    /usr/bin/python3 tools/voice-phone-evidence-summary-tests.py
     sh tools/testflight-upload-tests.sh
     (cd packages/AgentDeskWire && swift test)
     (cd packages/BrowserProjection && swift test)
@@ -1313,6 +1314,70 @@ client-diagnostics variant="stable":
     test -s "$RESULT_PATH" || { echo "host did not write diagnostics result"; exit 1; }
     python3 -c 'import json,sys; data=json.load(open(sys.argv[1], "r", encoding="utf-8")); print(json.dumps(data, indent=2, sort_keys=True)); sys.exit(0 if data.get("status") == "ok" else 1)' "$RESULT_PATH"
     echo "Diagnostics directory: $OUT_DIR"
+
+# Pull saved Voice analysis metadata directly from a physical iPhone app
+# container. This path does not require the app to be foregrounded or connected
+# to the host, and deliberately excludes raw audio.caf recordings.
+voice-phone-evidence-pull variant="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    umask 077
+    case "{{variant}}" in
+      stable) BID='{{client_bundle_id}}' ;;
+      dev) BID='{{client_dev_bundle_id}}' ;;
+      *) echo "variant must be stable or dev"; exit 2 ;;
+    esac
+    TS="$(date +%Y%m%d-%H%M%S)"
+    OUT_DIR="${AGENTDESK_VOICE_PHONE_EVIDENCE_OUTPUT:-/tmp/agentdesk-voice-phone-evidence-$TS}"
+    test ! -e "$OUT_DIR" || {
+      echo "voice phone evidence output already exists: $OUT_DIR" >&2
+      exit 1
+    }
+    mkdir -p "$OUT_DIR"
+    INVENTORY="$OUT_DIR/device-files.json"
+    SOURCE_ROOT='Library/Application Support/AgentDesk/VoiceAttempts'
+    run_devicectl() {
+      local attempt=1
+      while true; do
+        if "$@"; then
+          return 0
+        fi
+        if [ "$attempt" -ge 2 ]; then
+          return 1
+        fi
+        echo "devicectl tunnel interrupted; retrying once..." >&2
+        attempt=$((attempt + 1))
+        sleep 1
+      done
+    }
+    run_devicectl xcrun devicectl device info files \
+      --device {{ios_device}} \
+      --domain-type appDataContainer \
+      --domain-identifier "$BID" \
+      --subdirectory "$SOURCE_ROOT" \
+      --recurse \
+      --timeout 120 \
+      --json-output "$INVENTORY" \
+      >/dev/null
+    /usr/bin/python3 tools/voice-phone-evidence-summary.py \
+      --inventory-copy-paths "$INVENTORY" \
+      | while IFS= read -r relative; do
+      destination="$OUT_DIR/$relative"
+      mkdir -p "$(dirname "$destination")"
+      run_devicectl xcrun devicectl device copy from \
+        --device {{ios_device}} \
+        --domain-type appDataContainer \
+        --domain-identifier "$BID" \
+        --source "$SOURCE_ROOT/$relative" \
+        --destination "$destination" \
+        --timeout 120 \
+        >/dev/null
+    done
+    /usr/bin/python3 tools/voice-phone-evidence-summary.py \
+      "$OUT_DIR" \
+      --model-manifest client/AgentDeskClient/VoicePhoneModelManifest.json \
+      | tee "$OUT_DIR/summary.txt"
+    echo "Voice phone evidence directory: $OUT_DIR"
 
 # Capture the foreground AgentDesk client window on demand. The iOS setting
 # "Allow paired Mac screenshots" must be enabled. This uses an active session

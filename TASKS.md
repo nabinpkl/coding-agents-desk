@@ -200,6 +200,13 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   observed phones, three competitors, log posteriors, margins, timing, hashes, and inference
   metrics inside saved-take analysis. It deliberately emits no pronunciation percentage and has no
   STT field in its analyzer request.
+- `just voice-phone-evidence-pull` now reads the physical app container on demand without requiring
+  a live host session, copies only the file inventory plus `metadata.json` and
+  `phone-evidence.json` (never `audio.caf`), and prints missing, failed, stale, or completed
+  per-take evidence with aligned phones. The device-container inspection that motivated the command
+  found two retained `think` takes on 2026-07-25 with completed recognition metadata and no
+  `phone-evidence.json`, proving phone analysis had not produced output for either take rather than
+  the UI merely hiding a completed result.
 - Software gates are green: the generated-asset check, Python reproduction-script compile, all 393
   client simulator tests across 40 suites, and repository-wide `just check` (579 host tests across
   74 suites plus its package, web, and build gates).
