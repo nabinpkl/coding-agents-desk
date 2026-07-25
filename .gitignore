@@ -53,6 +53,12 @@ host/AgentDeskHost/voice-src/
 # the folder reference, so a .gitkeep is committed; the contents are ignored.
 client/AgentDeskClient/AgentFeedWebview/*
 !client/AgentDeskClient/AgentFeedWebview/.gitkeep
+# R130 phoneme model resources. Reproduced by `just voice-phone-model`; the
+# generated 160 MB Core ML package and its coupled manifest/vocabulary never
+# belong in git.
+client/AgentDeskClient/VoicePhoneModel.mlpackage/
+client/AgentDeskClient/VoicePhoneModelManifest.json
+client/AgentDeskClient/VoicePhoneVocabulary.json
 packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelWebview/*
 !packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelWebview/.gitkeep
 packages/InteractionPanel/Sources/InteractionPanel/Resources/InteractionPanelWebview/*

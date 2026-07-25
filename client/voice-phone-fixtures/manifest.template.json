@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 1,
+  "approvedForRepositoryEvaluation": false,
+  "notes": [
+    "Copy this file to a local evaluation directory; recordings remain out of git.",
+    "Set audioSHA256 and contrastedIntervalSeconds only after manually checking each retained take.",
+    "The two tink takes use think as the prompted target and label the deliberate /t/ substitution."
+  ],
+  "takes": [
+    {
+      "id": "session-a-think",
+      "targetWord": "think",
+      "actualPhones": ["θ", "ɪ", "ŋ", "k"],
+      "contrast": ["θ", "s"],
+      "audioPath": "session-a/think.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-b-think",
+      "targetWord": "think",
+      "actualPhones": ["θ", "ɪ", "ŋ", "k"],
+      "contrast": ["θ", "s"],
+      "audioPath": "session-b/think.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-a-sink",
+      "targetWord": "sink",
+      "actualPhones": ["s", "ɪ", "ŋ", "k"],
+      "contrast": ["s", "θ"],
+      "audioPath": "session-a/sink.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-b-sink",
+      "targetWord": "sink",
+      "actualPhones": ["s", "ɪ", "ŋ", "k"],
+      "contrast": ["s", "θ"],
+      "audioPath": "session-b/sink.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-a-rice",
+      "targetWord": "rice",
+      "actualPhones": ["ɹ", "aɪ", "s"],
+      "contrast": ["ɹ", "l"],
+      "audioPath": "session-a/rice.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-b-rice",
+      "targetWord": "rice",
+      "actualPhones": ["ɹ", "aɪ", "s"],
+      "contrast": ["ɹ", "l"],
+      "audioPath": "session-b/rice.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-a-lice",
+      "targetWord": "lice",
+      "actualPhones": ["l", "aɪ", "s"],
+      "contrast": ["l", "ɹ"],
+      "audioPath": "session-a/lice.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-b-lice",
+      "targetWord": "lice",
+      "actualPhones": ["l", "aɪ", "s"],
+      "contrast": ["l", "ɹ"],
+      "audioPath": "session-b/lice.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-a-very",
+      "targetWord": "very",
+      "actualPhones": ["v", "ɛ", "ɹ", "iː"],
+      "contrast": ["v", "w"],
+      "audioPath": "session-a/very.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-b-very",
+      "targetWord": "very",
+      "actualPhones": ["v", "ɛ", "ɹ", "iː"],
+      "contrast": ["v", "w"],
+      "audioPath": "session-b/very.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-a-wary",
+      "targetWord": "wary",
+      "actualPhones": ["w", "ɛ", "ɹ", "iː"],
+      "contrast": ["w", "v"],
+      "audioPath": "session-a/wary.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-b-wary",
+      "targetWord": "wary",
+      "actualPhones": ["w", "ɛ", "ɹ", "iː"],
+      "contrast": ["w", "v"],
+      "audioPath": "session-b/wary.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-a-ship",
+      "targetWord": "ship",
+      "actualPhones": ["ʃ", "ɪ", "p"],
+      "contrast": ["ɪ", "iː"],
+      "audioPath": "session-a/ship.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-b-ship",
+      "targetWord": "ship",
+      "actualPhones": ["ʃ", "ɪ", "p"],
+      "contrast": ["ɪ", "iː"],
+      "audioPath": "session-b/ship.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-a-sheep",
+      "targetWord": "sheep",
+      "actualPhones": ["ʃ", "iː", "p"],
+      "contrast": ["iː", "ɪ"],
+      "audioPath": "session-a/sheep.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-b-sheep",
+      "targetWord": "sheep",
+      "actualPhones": ["ʃ", "iː", "p"],
+      "contrast": ["iː", "ɪ"],
+      "audioPath": "session-b/sheep.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-a-think-as-tink",
+      "targetWord": "think",
+      "actualPhones": ["t", "ɪ", "ŋ", "k"],
+      "contrast": ["t", "θ"],
+      "audioPath": "session-a/think-as-tink.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    },
+    {
+      "id": "session-b-think-as-tink",
+      "targetWord": "think",
+      "actualPhones": ["t", "ɪ", "ŋ", "k"],
+      "contrast": ["t", "θ"],
+      "audioPath": "session-b/think-as-tink.caf",
+      "audioSHA256": null,
+      "contrastedIntervalSeconds": null
+    }
+  ]
+}

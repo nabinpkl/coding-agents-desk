@@ -1,4 +1,5 @@
 import AVFoundation
+import CryptoKit
 import Foundation
 
 struct VoiceAnalyzerFormatMetadata: Codable, Equatable {
@@ -90,8 +91,10 @@ final class VoiceAttemptStore {
     enum StoreError: LocalizedError {
         case unsupportedAudioFormat(String)
         case unsupportedSchema(Int)
+        case unsupportedPhoneAnalysisSchema(Int)
         case missingAttempt(UUID)
         case invalidAttempt(UUID)
+        case invalidPhoneAnalysis(UUID)
 
         var errorDescription: String? {
             switch self {
@@ -99,15 +102,20 @@ final class VoiceAttemptStore {
                 return "Cannot retain analyzer audio in unsupported format \(format)."
             case .unsupportedSchema(let version):
                 return "Saved voice attempt schema \(version) is unsupported."
+            case .unsupportedPhoneAnalysisSchema(let version):
+                return "Saved phone analysis schema \(version) is unsupported."
             case .missingAttempt(let id):
                 return "Saved voice attempt \(id.uuidString) no longer exists."
             case .invalidAttempt(let id):
                 return "Saved voice attempt \(id.uuidString) is incomplete."
+            case .invalidPhoneAnalysis(let id):
+                return "Saved phone analysis for \(id.uuidString) is incomplete."
             }
         }
     }
 
     private static let metadataFileName = "metadata.json"
+    private static let phoneAnalysisFileName = "phone-evidence.json"
 
     private let rootDirectory: URL
     private let fileManager: FileManager
@@ -262,6 +270,62 @@ final class VoiceAttemptStore {
         return url
     }
 
+    func audioSHA256(for attempt: VoiceSavedAttempt) throws -> String {
+        let data = try Data(contentsOf: audioURL(for: attempt), options: .mappedIfSafe)
+        return SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    func phoneAnalysis(
+        for attempt: VoiceSavedAttempt
+    ) throws -> VoiceStoredPhoneAnalysis? {
+        let url = phoneAnalysisURL(for: attempt.id)
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        let analysis = try decoder.decode(
+            VoiceStoredPhoneAnalysis.self,
+            from: Data(contentsOf: url)
+        )
+        guard analysis.schemaVersion == VoiceStoredPhoneAnalysis.currentSchemaVersion else {
+            throw StoreError.unsupportedPhoneAnalysisSchema(analysis.schemaVersion)
+        }
+        guard analysis.attemptID == attempt.id, analysis.isWellFormed else {
+            throw StoreError.invalidPhoneAnalysis(attempt.id)
+        }
+        return analysis
+    }
+
+    func savePhoneEvidence(
+        _ evidence: VoicePhoneEvidence
+    ) throws -> VoiceStoredPhoneAnalysis {
+        let attempt = try load(attemptID: evidence.attemptID)
+        let currentAudioSHA256 = try audioSHA256(for: attempt)
+        guard evidence.schemaVersion == VoicePhoneEvidence.currentSchemaVersion,
+              evidence.audioSHA256 == currentAudioSHA256
+        else {
+            throw StoreError.invalidPhoneAnalysis(evidence.attemptID)
+        }
+        let analysis = VoiceStoredPhoneAnalysis.completed(evidence)
+        try writePhoneAnalysis(analysis)
+        return analysis
+    }
+
+    func recordPhoneAnalysisFailure(
+        attemptID: UUID,
+        message: String,
+        modelWeightSHA256: String?
+    ) throws -> VoiceStoredPhoneAnalysis {
+        let attempt = try load(attemptID: attemptID)
+        let analysis = VoiceStoredPhoneAnalysis.failed(
+            attemptID: attemptID,
+            audioSHA256: try audioSHA256(for: attempt),
+            modelWeightSHA256: modelWeightSHA256,
+            message: message
+        )
+        try writePhoneAnalysis(analysis)
+        return analysis
+    }
+
     func delete(attemptID: UUID) throws {
         let directory = attemptDirectory(for: attemptID)
         guard fileManager.fileExists(atPath: directory.path) else {
@@ -298,9 +362,25 @@ final class VoiceAttemptStore {
         try data.write(to: metadataURL(for: attempt.id), options: .atomic)
     }
 
+    private func writePhoneAnalysis(_ analysis: VoiceStoredPhoneAnalysis) throws {
+        guard analysis.isWellFormed else {
+            throw StoreError.invalidPhoneAnalysis(analysis.attemptID)
+        }
+        let data = try encoder.encode(analysis)
+        try data.write(
+            to: phoneAnalysisURL(for: analysis.attemptID),
+            options: .atomic
+        )
+    }
+
     private func metadataURL(for attemptID: UUID) -> URL {
         attemptDirectory(for: attemptID)
             .appendingPathComponent(Self.metadataFileName, isDirectory: false)
+    }
+
+    private func phoneAnalysisURL(for attemptID: UUID) -> URL {
+        attemptDirectory(for: attemptID)
+            .appendingPathComponent(Self.phoneAnalysisFileName, isDirectory: false)
     }
 
     private func attemptDirectory(for attemptID: UUID) -> URL {

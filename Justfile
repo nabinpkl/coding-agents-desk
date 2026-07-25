@@ -744,11 +744,34 @@ wire-test:
 
 # Client simulator tests. Boots the iPhone simulator and is the slow leg split
 # out of `check`. Run before committing client-side changes.
-sim-test: ensure-webview-placeholder
+sim-test: ensure-webview-placeholder voice-phone-model-check
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
 
 # Full gate: the fast host-side check plus the client simulator tests.
 check-all: check sim-test
+
+# Reproduce the pinned R130 Core ML phone model and stage its coupled manifest
+# and vocabulary under the client synchronized resource root. The large source
+# and generated package stay in .build / gitignored client resources.
+voice-phone-model:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VENV='{{justfile_directory()}}/.build/voice-phone-model/venv'
+    if [ ! -x "$VENV/bin/python" ]; then
+        uv venv --python 3.12 "$VENV"
+    fi
+    uv pip install --python "$VENV/bin/python" \
+        'coremltools==9.0' \
+        'scikit-learn==1.5.1'
+    "$VENV/bin/python" tools/prepare-voice-phone-model.py
+
+voice-phone-model-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/python3 tools/prepare-voice-phone-model.py --check-only || {
+        echo "R130 phone model is missing or stale; run: just voice-phone-model"
+        exit 1
+    }
 
 dev:
     open host/AgentDeskHost.xcodeproj
@@ -1203,7 +1226,7 @@ pty-live-update-verify:
 # variant: "stable" (default) or "dev" (the experimental side-by-side install:
 # bundle id {{client_dev_bundle_id}}, DEV icon, "AgentDesk Dev" name, separate
 # build dir). The dev variant overrides the three identity build settings inline.
-client-install variant="stable":
+client-install variant="stable": voice-phone-model-check
     #!/usr/bin/env bash
     set -euo pipefail
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
@@ -1230,7 +1253,7 @@ client-reinstall variant="stable":
 # experimental dev side-by-side variant stays Debug). Device install uses the same
 # automatic development signing as the Debug path, so no distribution provisioning
 # is needed. Used by the fresh-install feel-test composite.
-client-install-release:
+client-install-release: voice-phone-model-check
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     xcrun devicectl device install app --device {{ios_device}} '{{client_app_release}}'
 
@@ -1365,6 +1388,20 @@ iphone-console-run variant="stable":
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
     URL="$(cat "$PAIR_URL")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; env DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
+
+# R130 physical acceptance path. Reinstalls the Release client and launches it
+# with an attached console without starting, pairing, or waiting for the host.
+# The first-run Voice entry is intentionally the surface under test.
+voice-phone-device-run: voice-phone-model-check
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just client-reinstall-release
+    rm -f "{{iphone_console_log}}"
+    xcrun devicectl device process launch \
+        --device {{ios_device}} \
+        --console \
+        --terminate-existing \
+        '{{client_bundle_id}}' 2>&1 | tee "{{iphone_console_log}}"
 
 # Install the native-messaging manifest that lets the loaded Chrome extension spawn the dom-bridge
 # shim and reach the running host (ADR-0039). Required ONCE per real Chrome profile before any
@@ -1668,7 +1705,7 @@ motion-verify variant="dev" video="1" seconds="60" fixed_profile="180,1,0.5":
 # variant: stable (default) | dev. The dev variant builds the dev-bundle-id client
 # (DEV icon, separate derived-data) onto the dev simulator ({{ios_sim_udid_dev}}),
 # so a full dev stack (dev host + dev client) runs beside the stable stack.
-client-sim-install variant="stable":
+client-sim-install variant="stable": voice-phone-model-check
     #!/usr/bin/env bash
     set -euo pipefail
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
@@ -1696,7 +1733,7 @@ client-sim-reinstall variant="stable":
 
 # Release-configuration twins of client-sim-install / client-sim-reinstall, used by
 # the sim-fresh-install feel-test composite. No signing concerns on the simulator.
-client-sim-install-release:
+client-sim-install-release: voice-phone-model-check
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     xcrun simctl install {{ios_sim_udid}} "{{client_sim_app_release}}"
@@ -1902,7 +1939,7 @@ client-build-number:
 # Build a signed iOS Release archive for TestFlight export/upload.
 # variant: "stable" (default) or "dev" (the experimental record, bundle id
 # {{client_dev_bundle_id}}, separate archive path; identity overridden inline).
-client-archive-release variant="stable":
+client-archive-release variant="stable": voice-phone-model-check
     #!/usr/bin/env bash
     # Override per upload: AGENTDESK_CLIENT_VERSION=1.0 AGENTDESK_CLIENT_BUILD=20260621173045 just client-archive-release
     set -euo pipefail

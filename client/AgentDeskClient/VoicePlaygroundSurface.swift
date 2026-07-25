@@ -37,10 +37,17 @@ final class VoicePlaygroundSurface: UIView {
 
     private let probe = VoiceContextProbe()
     private let attemptStore = VoiceAttemptStore()
+    private let phoneAnalyzer = VoicePhoneAnalyzer()
     private let synthesizer = AVSpeechSynthesizer()
     private var audioPlayer: AVAudioPlayer?
     private var replayingAttemptID: UUID?
     private var savedAttempts: [VoiceSavedAttempt] = []
+    private var savedPhoneAnalyses: [UUID: VoiceStoredPhoneAnalysis] = [:]
+    private var savedAudioHashes: [UUID: String] = [:]
+    private var savedPhoneAnalysisReadFailures: [UUID: String] = [:]
+    private var expandedAttemptIDs = Set<UUID>()
+    private var analyzingAttemptID: UUID?
+    private var activePhoneAnalysisToken: UUID?
     private var activeTarget: String?
     private var activeAttemptID: UUID?
     private var activeShouldRetain = true
@@ -48,6 +55,7 @@ final class VoicePlaygroundSurface: UIView {
     private var preparationTask: Task<Void, Never>?
     private var recordingTask: Task<Void, Never>?
     private var readingsTask: Task<Void, Never>?
+    private var phoneAnalysisTask: Task<Void, Never>?
     private var referenceSessionActive = false
     private var waveformTask: Task<Void, Never>?
     private var waveformSource: WaveformSource?
@@ -308,7 +316,7 @@ final class VoicePlaygroundSurface: UIView {
         guard !savedAttempts.isEmpty else { return }
         let alert = UIAlertController(
             title: "Delete all saved takes?",
-            message: "This removes every retained recording and its recognition metadata.",
+            message: "This removes every retained recording, its recognition metadata, and its raw phone evidence.",
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
@@ -570,11 +578,30 @@ final class VoicePlaygroundSurface: UIView {
     private func refreshSavedAttempts() {
         do {
             savedAttempts = try attemptStore.attempts()
+            savedPhoneAnalyses.removeAll()
+            savedAudioHashes.removeAll()
+            savedPhoneAnalysisReadFailures.removeAll()
+            for attempt in savedAttempts {
+                do {
+                    savedAudioHashes[attempt.id] = try attemptStore.audioSHA256(
+                        for: attempt
+                    )
+                    savedPhoneAnalyses[attempt.id] = try attemptStore.phoneAnalysis(
+                        for: attempt
+                    )
+                } catch {
+                    savedPhoneAnalysisReadFailures[attempt.id] =
+                        error.localizedDescription
+                }
+            }
             rebuildSavedAttempts()
             updateMatrix()
             deleteAllButton.isEnabled = !savedAttempts.isEmpty
         } catch {
             savedAttempts = []
+            savedPhoneAnalyses = [:]
+            savedAudioHashes = [:]
+            savedPhoneAnalysisReadFailures = [:]
             rebuildSavedAttempts()
             matrixLabel.text = "Saved evidence could not be read: \(error.localizedDescription)"
             deleteAllButton.isEnabled = false
@@ -630,29 +657,75 @@ final class VoicePlaygroundSurface: UIView {
             analysisContainer.backgroundColor = .tertiarySystemBackground
             analysisContainer.accessibilityIdentifier =
                 "voice-saved-analysis-\(attempt.id.uuidString)"
-            analysisContainer.isHidden = true
-            analysisContainer.addArrangedSubview(caption("Stored analysis"))
+            analysisContainer.isHidden = !expandedAttemptIDs.contains(attempt.id)
+            analysisContainer.addArrangedSubview(caption("Stored recognition evidence"))
 
             let analysisLabel = UILabel()
             analysisLabel.font = .preferredFont(forTextStyle: .footnote)
             analysisLabel.numberOfLines = 0
             analysisLabel.text = Self.savedAttemptAnalysisText(attempt)
             analysisContainer.addArrangedSubview(analysisLabel)
+            analysisContainer.addArrangedSubview(separator())
+            analysisContainer.addArrangedSubview(caption("Raw acoustic phone evidence"))
+
+            let phoneAnalysisLabel = UILabel()
+            phoneAnalysisLabel.font = .monospacedSystemFont(
+                ofSize: 12,
+                weight: .regular
+            )
+            phoneAnalysisLabel.numberOfLines = 0
+            phoneAnalysisLabel.accessibilityIdentifier =
+                "voice-phone-analysis-\(attempt.id.uuidString)"
+            phoneAnalysisLabel.text = Self.savedPhoneAnalysisText(
+                analysis: savedPhoneAnalyses[attempt.id],
+                audioSHA256: savedAudioHashes[attempt.id],
+                readFailure: savedPhoneAnalysisReadFailures[attempt.id]
+            )
+            analysisContainer.addArrangedSubview(phoneAnalysisLabel)
+
+            let analyzePhones = UIButton(type: .system)
+            let hasPriorPhoneAnalysis =
+                savedPhoneAnalyses[attempt.id] != nil
+                    || savedPhoneAnalysisReadFailures[attempt.id] != nil
+            analyzePhones.setTitle(
+                analyzingAttemptID == attempt.id
+                    ? "Analyzing saved audio…"
+                    : hasPriorPhoneAnalysis
+                        ? "Reanalyze raw audio"
+                        : "Analyze raw audio",
+                for: .normal
+            )
+            analyzePhones.isEnabled = phoneAnalysisTask == nil
+            analyzePhones.accessibilityIdentifier =
+                "voice-analyze-phones-\(attempt.id.uuidString)"
+            analyzePhones.addAction(UIAction { [weak self] _ in
+                self?.analyzeSavedAttempt(id: attempt.id)
+            }, for: .touchUpInside)
+            analysisContainer.addArrangedSubview(analyzePhones)
 
             let viewAnalysis = UIButton(type: .system)
-            viewAnalysis.setTitle("View analysis", for: .normal)
+            let isExpanded = expandedAttemptIDs.contains(attempt.id)
+            viewAnalysis.setTitle(
+                isExpanded ? "Hide analysis" : "View analysis",
+                for: .normal
+            )
             viewAnalysis.titleLabel?.numberOfLines = 2
             viewAnalysis.titleLabel?.textAlignment = .center
             viewAnalysis.accessibilityIdentifier =
                 "voice-view-analysis-\(attempt.id.uuidString)"
-            viewAnalysis.accessibilityValue = "Collapsed"
+            viewAnalysis.accessibilityValue = isExpanded ? "Expanded" : "Collapsed"
             viewAnalysis.addAction(UIAction { [weak self, weak viewAnalysis, weak analysisContainer] _ in
                 guard let self, let viewAnalysis, let analysisContainer else { return }
                 let isRevealing = Self.toggleSavedAttemptAnalysis(
                     analysisContainer,
                     button: viewAnalysis
                 )
-                guard isRevealing else { return }
+                if isRevealing {
+                    self.expandedAttemptIDs.insert(attempt.id)
+                } else {
+                    self.expandedAttemptIDs.remove(attempt.id)
+                    return
+                }
 
                 self.layoutIfNeeded()
                 let visibleRect = analysisContainer.convert(
@@ -790,6 +863,174 @@ final class VoicePlaygroundSurface: UIView {
         }
     }
 
+    static func savedPhoneAnalysisText(
+        analysis: VoiceStoredPhoneAnalysis?,
+        audioSHA256: String?,
+        readFailure: String?
+    ) -> String {
+        if let readFailure {
+            return """
+            Phone evidence could not be read.
+
+            \(readFailure)
+            """
+        }
+        guard let analysis else {
+            return """
+            Not analyzed.
+
+            This pass reads audio.caf directly. It does not receive either speech transcript.
+            """
+        }
+        guard analysis.audioSHA256 == audioSHA256 else {
+            return """
+            Stored phone evidence is stale.
+
+            The saved audio changed. Reanalyze to replace it.
+            """
+        }
+        if let failure = analysis.failure {
+            return """
+            Phone analysis failed for this retained recording.
+
+            \(failure)
+            """
+        }
+        guard analysis.modelWeightSHA256
+                == VoicePhoneModelManifest.selectedWeightSHA256,
+              analysis.evidence?.model.modelSpecificationSHA256
+                == VoicePhoneModelManifest.selectedSpecificationSHA256
+        else {
+            return """
+            Stored phone evidence is stale.
+
+            The selected model hashes changed. Reanalyze to replace it.
+            """
+        }
+        guard let evidence = analysis.evidence else {
+            return "Phone evidence is incomplete."
+        }
+
+        let target = evidence.pronunciation.phones.joined(separator: " ")
+        let aligned = evidence.alignedPhones.map { phone in
+            let competitors = phone.competingPhones.prefix(3).map {
+                "\($0.phone) \(String(format: "%.2f", $0.logPosterior))"
+            }
+            .joined(separator: ", ")
+            return """
+            \(phone.targetPhone) \(String(format: "%.2f–%.2fs", phone.startSeconds, phone.endSeconds))
+              target \(String(format: "%.2f", phone.targetLogPosterior)) · observed \(phone.observedPhone.phone) \(String(format: "%.2f", phone.observedPhone.logPosterior))
+              competitors \(competitors) · margin \(String(format: "%+.2f", phone.posteriorMargin))
+            """
+        }
+        .joined(separator: "\n")
+
+        let memory: String
+        if let bytes = evidence.metrics.observedResidentMemoryDeltaBytes {
+            memory = String(format: "%.1f MiB observed RSS delta", Double(bytes) / 1_048_576)
+        } else {
+            memory = "RSS delta unavailable"
+        }
+        let analyzedEnd = evidence.metrics.analyzedOffsetSeconds
+            + evidence.metrics.analyzedDurationSeconds
+        let window = String(
+            format: "window %.2f–%.2fs of %.2fs source",
+            evidence.metrics.analyzedOffsetSeconds,
+            analyzedEnd,
+            evidence.metrics.sourceDurationSeconds
+        )
+        return """
+        Raw model evidence, not a pronunciation score.
+        Target / \(target) /
+
+        \(aligned)
+
+        model \(evidence.model.identifier)
+        model \(evidence.model.modelWeightSHA256.prefix(12)) · audio \(evidence.audioSHA256.prefix(12))
+        \(window)
+        load \(String(format: "%.0fms", evidence.metrics.modelLoadMilliseconds)) · inference \(String(format: "%.0fms", evidence.metrics.inferenceMilliseconds)) · \(memory)
+        """
+    }
+
+    private func analyzeSavedAttempt(id: UUID) {
+        guard phoneAnalysisTask == nil else {
+            statusLabel.text = "Wait for the current phone analysis to finish."
+            return
+        }
+        guard let attempt = savedAttempts.first(where: { $0.id == id }) else {
+            statusLabel.text = "The saved take no longer exists."
+            return
+        }
+
+        expandedAttemptIDs.insert(id)
+        analyzingAttemptID = id
+        let analysisToken = UUID()
+        activePhoneAnalysisToken = analysisToken
+        statusLabel.text = "Analyzing saved audio without STT context…"
+        rebuildSavedAttempts()
+        phoneAnalysisTask = Task { [weak self] in
+            guard let self else { return }
+            var requestedModelHash: String?
+            do {
+                let manifest = try VoicePhoneModelAssets.loadManifest()
+                requestedModelHash = manifest.modelWeightSHA256
+                let pronunciations = try VoicePronunciationLexicon.pronunciations(
+                    for: attempt.targetPhrase,
+                    localeIdentifier: attempt.localeIdentifier
+                )
+                guard let pronunciation = pronunciations.first else {
+                    throw VoicePronunciationLexiconError.unsupportedPhrase(
+                        attempt.targetPhrase
+                    )
+                }
+                let evidence = try await phoneAnalyzer.analyze(
+                    VoicePhoneAnalyzer.Request(
+                        attemptID: attempt.id,
+                        audioURL: attemptStore.audioURL(for: attempt),
+                        pronunciation: pronunciation,
+                        localeIdentifier: attempt.localeIdentifier,
+                        modelManifest: manifest
+                    )
+                )
+                guard !Task.isCancelled else {
+                    return
+                }
+                _ = try attemptStore.savePhoneEvidence(evidence)
+                if activePhoneAnalysisToken == analysisToken {
+                    statusLabel.text =
+                        "Raw phone evidence saved below with phones and timing."
+                }
+            } catch {
+                guard !Task.isCancelled else {
+                    return
+                }
+                do {
+                    _ = try attemptStore.recordPhoneAnalysisFailure(
+                        attemptID: attempt.id,
+                        message: error.localizedDescription,
+                        modelWeightSHA256: requestedModelHash
+                    )
+                    if activePhoneAnalysisToken == analysisToken {
+                        statusLabel.text =
+                            "Phone analysis failed: \(error.localizedDescription)"
+                    }
+                } catch let persistenceError {
+                    if activePhoneAnalysisToken == analysisToken {
+                        statusLabel.text = """
+                        Phone analysis failed: \(error.localizedDescription)
+                        Failure metadata could not be saved: \(persistenceError.localizedDescription)
+                        """
+                    }
+                }
+            }
+            guard activePhoneAnalysisToken == analysisToken else { return }
+            activePhoneAnalysisToken = nil
+            analyzingAttemptID = nil
+            phoneAnalysisTask = nil
+            refreshSavedAttempts()
+        }
+    }
+
     private func replaySavedAttempt(id: UUID) {
         guard !probe.isRecording else {
             statusLabel.text = "Stop recording before replaying a saved take."
@@ -837,6 +1078,7 @@ final class VoicePlaygroundSurface: UIView {
         }
         do {
             try attemptStore.delete(attemptID: id)
+            expandedAttemptIDs.remove(id)
             statusLabel.text = "Saved take deleted."
             refreshSavedAttempts()
         } catch {
@@ -849,6 +1091,7 @@ final class VoicePlaygroundSurface: UIView {
         deactivateReferenceAudioSession()
         do {
             try attemptStore.deleteAll()
+            expandedAttemptIDs.removeAll()
             statusLabel.text = "All saved takes deleted."
             refreshSavedAttempts()
         } catch {
@@ -1004,6 +1247,10 @@ final class VoicePlaygroundSurface: UIView {
         recordingTask = nil
         readingsTask?.cancel()
         readingsTask = nil
+        phoneAnalysisTask?.cancel()
+        phoneAnalysisTask = nil
+        activePhoneAnalysisToken = nil
+        analyzingAttemptID = nil
         let wasRecording = probe.isRecording
         probe.stopRecording()
         if wasRecording {
