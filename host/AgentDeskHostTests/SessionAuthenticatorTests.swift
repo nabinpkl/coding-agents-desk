@@ -466,6 +466,7 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     private let diagnosticsContinuation: AsyncStream<DiagnosticsChannelUpdate>.Continuation
     private(set) var closed = false
     var configHandler: ((ClientConfig) -> Void)?
+    var runtimeCheckpointHandler: ((ClientRuntimeCheckpoint) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
     var workspaceTerminalRequestHandler: ((WorkspaceTerminalClientMessage) -> Void)?
     var onClosed: (() -> Void)?

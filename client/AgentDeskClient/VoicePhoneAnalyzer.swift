@@ -218,6 +218,18 @@ actor VoicePhoneAnalyzer {
 
     func analyze(_ request: Request) throws -> VoicePhoneEvidence {
         let residentBefore = Self.residentMemoryBytes()
+        defer {
+            // The model is large and Voice mode can coexist with a live video
+            // transport. Do not retain its compiled resources after one spike.
+            loadedAssets = nil
+            ClientDiagnostics.shared.record(
+                type: "voicePhoneModelReleased",
+                fields: [
+                    "residentMemoryBytes": Self.residentMemoryBytes().map(String.init) ?? "unavailable"
+                ],
+                level: .info
+            )
+        }
         var analysisLog = try VoicePhoneAnalysisLogWriter(
             attemptID: request.attemptID,
             audioURL: request.audioURL,
@@ -332,7 +344,9 @@ actor VoicePhoneAnalyzer {
             .inferenceStarted,
             residentMemoryBytes: Self.residentMemoryBytes()
         )
-        let prediction = try assets.model.prediction(from: provider)
+        let prediction = try autoreleasepool {
+            try assets.model.prediction(from: provider)
+        }
         let inferenceMilliseconds =
             (CFAbsoluteTimeGetCurrent() - inferenceStart) * 1_000
         try analysisLog.record(
@@ -517,11 +531,14 @@ actor VoicePhoneAnalyzer {
         )
         let modelURL = try VoicePhoneModelAssets.loadModelURL(bundle: bundle)
         let configuration = MLModelConfiguration()
-        configuration.computeUnits = .all
+        // Voice can run while the video stack still owns GPU-backed decode and
+        // presentation resources. Keep inference on CPU/Neural Engine so Core ML
+        // cannot add a second large GPU working set.
+        configuration.computeUnits = .cpuAndNeuralEngine
         try analysisLog.record(
             .modelLoadStarted,
             residentMemoryBytes: Self.residentMemoryBytes(),
-            details: ["computeUnits": "all"]
+            details: ["computeUnits": "cpuAndNeuralEngine"]
         )
         let model = try MLModel(contentsOf: modelURL, configuration: configuration)
         try analysisLog.record(

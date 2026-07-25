@@ -54,6 +54,7 @@ final class SessionRegistry {
     private var resumeTimers: [DeviceFingerprint: Task<Void, Never>] = [:]
     private var inputTasks: [DeviceFingerprint: Task<Void, Never>] = [:]
     private var inputChannelServers: [DeviceFingerprint: any InputChannelServing] = [:]
+    private var diagnosticsBrokers: [DeviceFingerprint: any ClientDiagnosticsCollecting] = [:]
     private var transports: [DeviceFingerprint: MediaTransport] = [:]
 
     init(
@@ -112,6 +113,8 @@ final class SessionRegistry {
         inputTasks.removeValue(forKey: fingerprint)
         inputChannelServers[fingerprint]?.close()
         inputChannelServers.removeValue(forKey: fingerprint)
+        diagnosticsBrokers[fingerprint]?.cancel()
+        diagnosticsBrokers.removeValue(forKey: fingerprint)
         transports[fingerprint]?.stop()
         transports.removeValue(forKey: fingerprint)
     }
@@ -239,6 +242,8 @@ final class SessionRegistry {
         inputTasks.removeValue(forKey: fingerprint)
         inputChannelServers[fingerprint]?.close()
         inputChannelServers.removeValue(forKey: fingerprint)
+        diagnosticsBrokers[fingerprint]?.cancel()
+        diagnosticsBrokers.removeValue(forKey: fingerprint)
         transports[fingerprint]?.stop()
         transports.removeValue(forKey: fingerprint)
         return true
@@ -262,6 +267,14 @@ final class SessionRegistry {
         inputChannelServers[fingerprint] = server
     }
 
+    func attachDiagnosticsBroker(
+        _ broker: any ClientDiagnosticsCollecting,
+        for fingerprint: DeviceFingerprint
+    ) {
+        diagnosticsBrokers[fingerprint]?.cancel()
+        diagnosticsBrokers[fingerprint] = broker
+    }
+
     func isActive(_ fingerprint: DeviceFingerprint) -> Bool {
         records[fingerprint]?.state == .connected
     }
@@ -274,12 +287,24 @@ final class SessionRegistry {
         records[fingerprint]?.state
     }
 
+    func sessionId(for fingerprint: DeviceFingerprint) -> String? {
+        records[fingerprint]?.session.sessionId
+    }
+
     func allInputChannelServers() -> [any InputChannelServing] {
         Array(inputChannelServers.values)
     }
 
     func allInputChannelServersByFingerprint() -> [(DeviceFingerprint, any InputChannelServing)] {
         inputChannelServers.map { ($0.key, $0.value) }
+    }
+
+    func allDiagnosticsBrokers() -> [any ClientDiagnosticsCollecting] {
+        Array(diagnosticsBrokers.values)
+    }
+
+    func diagnosticsBroker(for fingerprint: DeviceFingerprint) -> (any ClientDiagnosticsCollecting)? {
+        diagnosticsBrokers[fingerprint]
     }
 
     func makeResumeReady(for fingerprint: DeviceFingerprint) throws -> SessionReady {

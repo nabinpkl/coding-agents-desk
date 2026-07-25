@@ -608,6 +608,39 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     try roundTrip(SessionRejected(reason: .signingKeyUnavailable))
 }
 
+@Test func clientRuntimeCheckpointRoundTripsBoundedPresentationState() throws {
+    let checkpoint = ClientRuntimeCheckpoint(
+        clientRunId: "run-1",
+        sequence: 7,
+        timestamp: 1_800_000_000,
+        marketingVersion: "1.11.0",
+        buildNumber: "900",
+        gitSHA: "abc1234",
+        scenePhase: .foreground,
+        pairingState: .connected,
+        activeSurface: .terminal,
+        railConfigured: true,
+        railHidden: false,
+        railLayoutReady: true,
+        hostSurfaceCount: 5,
+        mediaState: .started,
+        videoMilestone: .presentationAttempted
+    )
+
+    try roundTrip(checkpoint)
+    let encoded = try JSONEncoder().encode(checkpoint)
+    #expect(encoded.count <= 512)
+    let object = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    #expect(object?["t"] as? String == "client-runtime-checkpoint")
+    #expect(object?["vm"] as? String == "presentation-attempted")
+    #expect(object?["rl"] as? Bool == true)
+    #expect(object?["hc"] as? Int == 5)
+    #expect(Set(object?.keys.map { $0 } ?? []) == [
+        "t", "v", "rid", "s", "ts", "mv", "bn", "sha",
+        "sp", "ps", "as", "rc", "rh", "rl", "hc", "ms", "vm"
+    ])
+}
+
 @Test func ownedGraphicsFrameAckUsesCanonicalInitOrder() throws {
     // Drift: the two copies declared the memberwise init in different orders. The
     // canonical order is (surfaceGeneration, frameId, compositorMs, ...); the wire

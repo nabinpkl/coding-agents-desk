@@ -55,6 +55,7 @@ protocol InputChannelServing: AgentDataPushing {
     var diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate> { get }
     var screenshotUpdates: AsyncStream<ClientScreenshotChannelUpdate> { get }
     var configHandler: ((ClientConfig) -> Void)? { get set }
+    var runtimeCheckpointHandler: ((ClientRuntimeCheckpoint) -> Void)? { get set }
     // Called on each decoded agent-feed request from the client.
     var agentRequestHandler: ((AgentFeedRequest) -> Void)? { get set }
     var workspaceTerminalRequestHandler: ((WorkspaceTerminalClientMessage) -> Void)? { get set }
@@ -111,6 +112,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
     let screenshotUpdates: AsyncStream<ClientScreenshotChannelUpdate>
     var configHandler: ((ClientConfig) -> Void)?
+    var runtimeCheckpointHandler: ((ClientRuntimeCheckpoint) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
     var workspaceTerminalRequestHandler: ((WorkspaceTerminalClientMessage) -> Void)?
     var onClosed: (() -> Void)?
@@ -154,6 +156,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         screenshotContinuation?.finish()
         screenshotContinuation = nil
         configHandler = nil
+        runtimeCheckpointHandler = nil
         agentRequestHandler = nil
         workspaceTerminalRequestHandler = nil
         onClosed = nil
@@ -349,6 +352,12 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
                 diagnosticsContinuation?.yield(.error(frame))
             } else {
                 logger.error("diagnostics-error decode failed")
+            }
+        case "client-runtime-checkpoint":
+            if let checkpoint = try? JSONDecoder().decode(ClientRuntimeCheckpoint.self, from: data) {
+                runtimeCheckpointHandler?(checkpoint)
+            } else {
+                logger.error("client-runtime-checkpoint decode failed")
             }
         case "client-screenshot-manifest":
             if let frame = try? JSONDecoder().decode(ClientScreenshotManifest.self, from: data) {

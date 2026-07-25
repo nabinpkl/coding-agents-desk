@@ -12,6 +12,8 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     private let source: VideoFrameSource
     private let datagrams: QUIC.Datagrams<QUICDatagram>
     private let mediaKey: SymmetricKey
+    private let onFirstFrameSent: @Sendable (UInt64) -> Void
+    private let onFirstFrameAcknowledged: @Sendable (UInt64) -> Void
     private let encoder = VideoToolboxOwnedMediaEncoder(
         codec: .hevc,
         configuration: .fromConfig()
@@ -96,11 +98,15 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     init(
         source: VideoFrameSource,
         datagrams: QUIC.Datagrams<QUICDatagram>,
-        mediaKey: SymmetricKey
+        mediaKey: SymmetricKey,
+        onFirstFrameSent: @escaping @Sendable (UInt64) -> Void = { _ in },
+        onFirstFrameAcknowledged: @escaping @Sendable (UInt64) -> Void = { _ in }
     ) {
         self.source = source
         self.datagrams = datagrams
         self.mediaKey = mediaKey
+        self.onFirstFrameSent = onFirstFrameSent
+        self.onFirstFrameAcknowledged = onFirstFrameAcknowledged
         var stateCont: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { stateCont = $0 }
         stateContinuation = stateCont
@@ -632,6 +638,14 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         }
         let sent = await sendScheduler.sendLive(packets)
         guard sent else { return }
+        let shouldRecordFirstSent = encodeGate.withLock { state in
+            guard !state.recordedFirstFrameSent else { return false }
+            state.recordedFirstFrameSent = true
+            return true
+        }
+        if shouldRecordFirstSent {
+            onFirstFrameSent(envelope.header.frameId)
+        }
         let liveTargets = encodeGate.withLock { state in
             let summary = state.productionDiagnostics.noteSent(
                 bytes: payload.count,
@@ -691,8 +705,14 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     private func handleFrameAck(_ frameId: UInt64) {
-        encodeGate.withLock { state in
+        let shouldRecordFirstAck = encodeGate.withLock { state in
             _ = state.mediaState.noteAck(frameId: frameId)
+            guard !state.recordedFirstFrameAcknowledged else { return false }
+            state.recordedFirstFrameAcknowledged = true
+            return true
+        }
+        if shouldRecordFirstAck {
+            onFirstFrameAcknowledged(frameId)
         }
         startDrainIfNeeded()
     }
@@ -837,6 +857,8 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     private struct EncodeState {
+        var recordedFirstFrameSent = false
+        var recordedFirstFrameAcknowledged = false
         var latest: CapturedVideoFrame?
         var encoding = false
         var retryScheduled = false

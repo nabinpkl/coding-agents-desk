@@ -169,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         pairing: pairing,
         tailnetDiscovery: tailnetDiscovery
     )
+    private lazy var clientTelemetryStore = HostClientTelemetryStore()
     private lazy var screenshotRequester = ClientScreenshotRequester(
         sessions: sessions,
         pairing: pairing,
@@ -740,10 +741,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         datagrams: QUIC.Datagrams<QUICDatagram>,
         mediaKey: SymmetricKey
     ) {
+        let fingerprint = active.deviceFingerprint
+        let sessionId = active.sessionId
         let transport = QuicSessionHostMediaTransport(
             source: frameSource,
             datagrams: datagrams,
-            mediaKey: mediaKey
+            mediaKey: mediaKey,
+            onFirstFrameSent: { [weak self] frameId in
+                Task { @MainActor [weak self] in
+                    self?.clientTelemetryStore.record(
+                        .firstFrameSent,
+                        fingerprint: fingerprint,
+                        sessionId: sessionId,
+                        frameId: frameId
+                    )
+                }
+            },
+            onFirstFrameAcknowledged: { [weak self] frameId in
+                Task { @MainActor [weak self] in
+                    self?.clientTelemetryStore.record(
+                        .firstFrameAcknowledged,
+                        fingerprint: fingerprint,
+                        sessionId: sessionId,
+                        frameId: frameId
+                    )
+                }
+            }
         )
         let transition = sessions.noteReady(active, ready: ready, transport: transport)
         if case .replaced(let previousSessionID) = transition {
@@ -752,6 +775,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             signalingLogger.notice("retired terminal endpoint for replaced session fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public) previous=\(previousSessionID, privacy: .public) current=\(active.sessionId, privacy: .public)")
         }
         signalingLogger.notice("session ready fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public) session=\(active.sessionId, privacy: .public)")
+        clientTelemetryStore.record(
+            .sessionReady,
+            fingerprint: active.deviceFingerprint,
+            sessionId: active.sessionId
+        )
         updateHostAvailability(.active, reason: "session-ready")
         startMediaTransport(transport, for: active)
         refreshConnectedState()
@@ -1086,8 +1114,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // because the dispatcher owns its serial queue, so CGEvent.post never
     // serialises behind UI work.
     private func handleInputLaneReady(_ fingerprint: DeviceFingerprint, server: InputChannelServer) {
+        let sessionId = sessions.sessionId(for: fingerprint)
         signalingLogger.notice("input lane ready fp=\(fingerprint.rawValue, privacy: .public)")
         sessions.attachInputChannelServer(server, for: fingerprint)
+        clientTelemetryStore.record(
+            .inputLaneReady,
+            fingerprint: fingerprint,
+            sessionId: sessionId
+        )
+        server.runtimeCheckpointHandler = { [weak self] checkpoint in
+            self?.clientTelemetryStore.recordCheckpoint(checkpoint, fingerprint: fingerprint)
+        }
+        let diagnosticsBroker = ClientDiagnosticsBroker(
+            server: server,
+            announcementHandler: { [weak self] summary in
+                self?.handleClientDiagnosticsAnnouncement(
+                    summary,
+                    fingerprint: fingerprint
+                )
+            }
+        )
+        sessions.attachDiagnosticsBroker(diagnosticsBroker, for: fingerprint)
+        diagnosticsBroker.start()
         server.pushHostAvailability(HostAvailabilityPush(
             availability: hostAvailability.availability,
             reason: hostAvailability.reason
@@ -1127,6 +1175,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         server.onClosed = { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
+                self.clientTelemetryStore.record(
+                    .inputLaneClosed,
+                    fingerprint: fingerprint,
+                    sessionId: sessionId,
+                    errorCode: "input-lane-ended"
+                )
                 await terminalPushBindingTask.value
                 if let terminalEndpoint = await terminalEndpointTask.value {
                     await terminalEndpoint.unbindPush(id: terminalPushBindingID)
@@ -1323,6 +1377,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             for: fingerprint
         )
+    }
+
+    private func handleClientDiagnosticsAnnouncement(
+        _ summary: DiagnosticsSummary,
+        fingerprint: DeviceFingerprint
+    ) {
+        guard clientTelemetryStore.needsIngest(summary, fingerprint: fingerprint),
+              let broker = sessions.diagnosticsBroker(for: fingerprint) else {
+            return
+        }
+        let runId = summary.runs.last?.runId
+        clientTelemetryStore.record(
+            .automaticIngestStarted,
+            fingerprint: fingerprint,
+            clientRunId: runId
+        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let collected = try await broker.collect(DiagnosticsRequest(
+                    requestId: "auto-\(UUID().uuidString.lowercased())",
+                    sinceRunId: nil,
+                    includePreviousRuns: true,
+                    maxBytes: 768 * 1_024
+                ))
+                try self.clientTelemetryStore.store(collected, fingerprint: fingerprint)
+                self.clientTelemetryStore.record(
+                    .automaticIngestCompleted,
+                    fingerprint: fingerprint,
+                    clientRunId: collected.summary.runs.last?.runId
+                )
+            } catch {
+                self.clientTelemetryStore.record(
+                    .automaticIngestFailed,
+                    fingerprint: fingerprint,
+                    clientRunId: runId,
+                    errorCode: String(describing: type(of: error))
+                )
+                self.signalingLogger.error(
+                    "automatic client diagnostics ingest failed fp=\(fingerprint.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+            }
+        }
     }
 
     private func routeAgentSessionTerminalEvent(

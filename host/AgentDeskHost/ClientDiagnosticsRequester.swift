@@ -4,32 +4,6 @@ import Network
 import os
 import AgentDeskWire
 
-enum ClientDiagnosticsRequesterError: Error, LocalizedError {
-    case noActiveSession
-    case timedOut
-    case unavailable
-    case unauthorized
-    case malformedResponse
-    case remote(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .noActiveSession:
-            return "no active client session"
-        case .timedOut:
-            return "diagnostics request timed out"
-        case .unavailable:
-            return "client diagnostics unavailable"
-        case .unauthorized:
-            return "client rejected diagnostics authentication"
-        case .malformedResponse:
-            return "client returned a malformed diagnostics response"
-        case .remote(let reason):
-            return reason
-        }
-    }
-}
-
 @MainActor
 final class ClientDiagnosticsRequester: ClientDiagnosticsRequesting {
     private let sessions: SessionRegistry
@@ -48,61 +22,14 @@ final class ClientDiagnosticsRequester: ClientDiagnosticsRequesting {
     }
 
     func collect(request: DiagnosticsRequest) async throws -> CollectedClientDiagnostics {
-        if let active = sessions.allInputChannelServers().first {
+        if let broker = sessions.allDiagnosticsBrokers().first {
             do {
-                return try await collectViaSession(server: active, request: request)
+                return try await broker.collect(request)
             } catch {
                 logger.notice("session diagnostics request failed, falling back to tailnet: \(String(describing: error), privacy: .public)")
             }
         }
         return try await collectViaTailnet(request: request)
-    }
-
-    private func collectViaSession(server: any InputChannelServing, request: DiagnosticsRequest) async throws -> CollectedClientDiagnostics {
-        let task = Task {
-            try await self.waitForDiagnostics(on: server, requestId: request.requestId)
-        }
-        server.pushDiagnosticsRequest(request)
-        return try await awaitTask(task, timeoutSeconds: Config.diagnosticsRequestTimeoutSeconds)
-    }
-
-    private func waitForDiagnostics(on server: any InputChannelServing, requestId: String) async throws -> CollectedClientDiagnostics {
-        var summary: DiagnosticsSummary?
-        var payloads: [String: Data] = [:]
-        for await update in server.diagnosticsUpdates {
-            switch update {
-            case .summary(let incoming):
-                guard incoming.requestId == requestId else { continue }
-                summary = incoming
-                if incoming.runs.isEmpty {
-                    return CollectedClientDiagnostics(summary: incoming, runPayloads: [:])
-                }
-            case .chunk(let chunk):
-                guard chunk.requestId == requestId else { continue }
-                let decoded: Data
-                if chunk.payloadBase64.isEmpty {
-                    decoded = Data()
-                } else if let payload = Data(base64Encoded: chunk.payloadBase64) {
-                    decoded = payload
-                } else {
-                    throw ClientDiagnosticsRequesterError.malformedResponse
-                }
-                payloads[chunk.runId, default: Data()].append(decoded)
-                if chunk.isFinal {
-                    guard let summary else {
-                        throw ClientDiagnosticsRequesterError.malformedResponse
-                    }
-                    return CollectedClientDiagnostics(summary: summary, runPayloads: payloads)
-                }
-            case .error(let error):
-                guard error.requestId == requestId else { continue }
-                if error.reason == "unauthorized" {
-                    throw ClientDiagnosticsRequesterError.unauthorized
-                }
-                throw ClientDiagnosticsRequesterError.remote(error.reason)
-            }
-        }
-        throw ClientDiagnosticsRequesterError.unavailable
     }
 
     private func collectViaTailnet(request: DiagnosticsRequest) async throws -> CollectedClientDiagnostics {
@@ -171,18 +98,6 @@ final class ClientDiagnosticsRequester: ClientDiagnosticsRequesting {
         }
     }
 
-    private func awaitTask<T>(_ task: Task<T, Error>, timeoutSeconds: TimeInterval) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await task.value }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
-                throw ClientDiagnosticsRequesterError.timedOut
-            }
-            let value = try await group.next()!
-            group.cancelAll()
-            return value
-        }
-    }
 }
 
 private final class TailnetDiagnosticsProbe: @unchecked Sendable {

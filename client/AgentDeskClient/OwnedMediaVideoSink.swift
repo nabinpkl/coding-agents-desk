@@ -447,9 +447,11 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         let result = videoDecoder.decodeAndEnqueue(envelope, presentation: presentation)
         switch result {
         case .enqueued:
+            ClientRuntimeTelemetry.shared.advanceVideoMilestone(.decoderEnqueued)
             lastVideoEnqueueUptimeNs = nowNs
             switch presentation {
             case .display:
+                ClientRuntimeTelemetry.shared.advanceVideoMilestone(.presentationAttempted)
                 if let snapshot = videoStatusTracker.noteEnqueuedFrame(
                     bytes: frame.frameBytes,
                     width: envelope.header.width,

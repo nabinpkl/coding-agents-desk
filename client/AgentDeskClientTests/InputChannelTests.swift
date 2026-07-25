@@ -1483,8 +1483,10 @@ struct InputChannelTests {
         let reopenLines = try Self.readNDJSONLines(at: uncleanHarness.configuration.currentRunURL)
         #expect(reopenLines.contains { $0.contains("\"type\":\"previousRunUncleanExit\"") })
         let reconnectSummary = reopenedStore.reconnectAnnouncementSummary()
-        #expect(reconnectSummary?.runs.count == 1)
+        #expect(reconnectSummary?.runs.count == 2)
         #expect(reconnectSummary?.runs.first?.cleanShutdown == false)
+        #expect(reconnectSummary?.runs.last?.cleanShutdown == false)
+        #expect(reconnectSummary?.runs.last?.endedAt == nil)
 
         let cleanHarness = try Self.makeDiagnosticsHarness(name: "\(#function)-clean")
         defer { cleanHarness.cleanup() }
@@ -1507,7 +1509,11 @@ struct InputChannelTests {
 
         let cleanLines = try Self.readNDJSONLines(at: cleanHarness.configuration.currentRunURL)
         #expect(!cleanLines.contains { $0.contains("\"type\":\"previousRunUncleanExit\"") })
-        #expect(cleanReopenedStore.reconnectAnnouncementSummary() == nil)
+        let cleanReconnectSummary = cleanReopenedStore.reconnectAnnouncementSummary()
+        #expect(cleanReconnectSummary?.runs.count == 2)
+        #expect(cleanReconnectSummary?.runs.first?.cleanShutdown == true)
+        #expect(cleanReconnectSummary?.runs.first?.endedAt != nil)
+        #expect(cleanReconnectSummary?.runs.last?.endedAt == nil)
     }
 
     @Test func clientDiagnosticsStoreRetainsCurrentPlusTwoPreviousRuns() throws {
@@ -1545,6 +1551,38 @@ struct InputChannelTests {
         let oldestArchivePath = harness.configuration.diagnosticsDirectory
             .appendingPathComponent("run-\(manifest.archives.first!.runId).ndjson")
         #expect(FileManager.default.fileExists(atPath: oldestArchivePath.path))
+    }
+
+    @Test func clientDiagnosticsStoreAnnouncesCurrentRunOverLiveInputLane() async throws {
+        let harness = try Self.makeDiagnosticsHarness(name: #function)
+        defer { harness.cleanup() }
+
+        let counter = Counter(value: 450)
+        let store = ClientDiagnosticsStore(
+            configuration: harness.configuration,
+            nowProvider: { counter.next() }
+        )
+        let recorder = DiagnosticsSummaryRecorder()
+        store.bootstrap()
+        store.setLiveAnnouncementSender { summary in
+            recorder.append(summary)
+        }
+        store.record(
+            type: "phoneAnalysisFailed",
+            fields: ["stage": "prediction"],
+            level: .error
+        )
+        store.announceCurrentRun()
+
+        for _ in 0..<20 where recorder.count < 1 {
+            await Task.yield()
+        }
+
+        let summaries = recorder.values
+        #expect(summaries.count == 1)
+        #expect(summaries[0].requestId.hasPrefix("announce-"))
+        #expect(summaries[0].runs.last?.runId == store.currentRunId())
+        #expect(summaries[0].runs.last?.eventCount == 2)
     }
 
     @Test func clientDiagnosticsPrepareResponseFailsWhenRunFileIsUnreadable() throws {
@@ -1600,6 +1638,56 @@ struct InputChannelTests {
             #expect(prepared.chunks[0].runId == prepared.summary.runs[0].runId)
             #expect(prepared.chunks[0].payloadBase64.isEmpty == false)
         }
+    }
+
+    @Test func runtimeCheckpointDeduplicatesSnapshotsAndResetsVideoPerSession() async throws {
+        let harness = try Self.makeDiagnosticsHarness(name: #function)
+        defer { harness.cleanup() }
+        let store = ClientDiagnosticsStore(configuration: harness.configuration, nowProvider: { 700 })
+        store.bootstrap()
+        let recorder = CheckpointRecorder()
+        let telemetry = ClientRuntimeTelemetry(
+            diagnostics: store,
+            now: { 701 },
+            buildIdentity: { ("1.2.3", "456", "abcdef0") }
+        )
+        telemetry.setSender { checkpoint in
+            recorder.append(checkpoint)
+        }
+        telemetry.updateUI(
+            scenePhase: .foreground,
+            pairingState: .connected,
+            activeSurface: .terminal,
+            railConfigured: true,
+            railHidden: false,
+            railLayoutReady: true,
+            hostSurfaceCount: 4
+        )
+        telemetry.updateUI(
+            scenePhase: .foreground,
+            pairingState: .connected,
+            activeSurface: .terminal,
+            railConfigured: true,
+            railHidden: false,
+            railLayoutReady: true,
+            hostSurfaceCount: 4
+        )
+        telemetry.advanceVideoMilestone(.presentationAttempted)
+        telemetry.resetVideoMilestone()
+
+        for _ in 0..<20 where recorder.count < 4 {
+            await Task.yield()
+        }
+        let checkpoints = recorder.values
+        #expect(checkpoints.count == 4)
+        #expect(checkpoints[1].activeSurface == .terminal)
+        #expect(checkpoints[1].railLayoutReady)
+        #expect(checkpoints[2].videoMilestone == .presentationAttempted)
+        #expect(checkpoints[3].videoMilestone == .none)
+        let encoded = String(decoding: try JSONEncoder().encode(checkpoints[1]), as: UTF8.self)
+        #expect(!encoded.contains("audio"))
+        #expect(!encoded.contains("transcript"))
+        #expect(!encoded.contains("url"))
     }
 
     // A minimal HEVC video envelope. The decoder cannot present it (no real bitstream),
@@ -1775,5 +1863,43 @@ struct InputChannelTests {
 
     private static func readManifest(at url: URL) throws -> DiagnosticsManifestSnapshot {
         try JSONDecoder().decode(DiagnosticsManifestSnapshot.self, from: Data(contentsOf: url))
+    }
+}
+
+private final class CheckpointRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var checkpoints: [ClientRuntimeCheckpoint] = []
+
+    var count: Int {
+        lock.withLock { checkpoints.count }
+    }
+
+    var values: [ClientRuntimeCheckpoint] {
+        lock.withLock { checkpoints }
+    }
+
+    func append(_ checkpoint: ClientRuntimeCheckpoint) {
+        lock.withLock {
+            checkpoints.append(checkpoint)
+        }
+    }
+}
+
+private final class DiagnosticsSummaryRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var summaries: [DiagnosticsSummary] = []
+
+    var count: Int {
+        lock.withLock { summaries.count }
+    }
+
+    var values: [DiagnosticsSummary] {
+        lock.withLock { summaries }
+    }
+
+    func append(_ summary: DiagnosticsSummary) {
+        lock.withLock {
+            summaries.append(summary)
+        }
     }
 }

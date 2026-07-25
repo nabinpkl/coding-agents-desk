@@ -1065,6 +1065,10 @@ enum Config {
         .appendingPathComponent(".client-debug-request.json", isDirectory: false)
     static let devClientDebugResultPath = applicationSupportDirectory
         .appendingPathComponent(".client-debug-result.json", isDirectory: false)
+    static let clientTelemetryDirectory = applicationSupportDirectory
+        .appendingPathComponent("ClientTelemetry", isDirectory: true)
+    static let clientTelemetryMaxRunsPerDevice = 8
+    static let clientTelemetryMaxBytesPerDevice = 16 * 1_024 * 1_024
     static let diagnosticsRequestTimeoutSeconds: TimeInterval = 20
     static let screenshotRequestTimeoutSeconds: TimeInterval = 20
     static let screenshotMaxPixelDimension = 2_048

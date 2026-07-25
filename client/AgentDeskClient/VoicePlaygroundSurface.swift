@@ -1023,6 +1023,7 @@ final class VoicePlaygroundSurface: UIView {
                     }
                 }
             }
+            ClientDiagnostics.shared.announceCurrentRun()
             guard activePhoneAnalysisToken == analysisToken else { return }
             activePhoneAnalysisToken = nil
             analyzingAttemptID = nil

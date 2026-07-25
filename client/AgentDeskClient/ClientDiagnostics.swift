@@ -45,6 +45,8 @@ enum ClientDiagnosticsSendResult {
 }
 
 final class ClientDiagnosticsStore: @unchecked Sendable {
+    typealias AnnouncementSender = @Sendable (DiagnosticsSummary) async throws -> Void
+
     static let shared = ClientDiagnosticsStore()
 
     private struct Manifest: Codable {
@@ -90,6 +92,7 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
     )
     private var bootstrapped = false
     private var seenFallbackNonces: [String: Int] = [:]
+    private var announcementSender: AnnouncementSender?
 
     init(
         configuration: ClientDiagnosticsStoreConfiguration = .live,
@@ -235,16 +238,50 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
                 return nil
             }
             let pending = manifest.archives
-                .filter { !$0.cleanShutdown && $0.retrievedAt == nil }
+                .filter { $0.retrievedAt == nil }
                 .sorted { $0.startedAt < $1.startedAt }
-            guard !pending.isEmpty else { return nil }
             return DiagnosticsSummary(
                 requestId: "announce-\(currentRun.runId)",
-                runs: pending.map(makeRunSummary),
+                runs: (pending + [currentRun]).map(makeRunSummary),
                 droppedEvents: manifest.droppedEvents,
                 droppedBytes: manifest.droppedBytes,
                 latestMetricKitPayloadAt: manifest.latestMetricKitPayloadAt
             )
+        }
+    }
+
+    func currentRunId() -> String? {
+        queue.sync {
+            guard bootstrapped else { return nil }
+            return manifest.current?.runId
+        }
+    }
+
+    func setLiveAnnouncementSender(_ sender: AnnouncementSender?) {
+        queue.sync {
+            announcementSender = sender
+        }
+    }
+
+    func announceCurrentRun() {
+        guard let summary = reconnectAnnouncementSummary(),
+              let sender = queue.sync(execute: { announcementSender })
+        else {
+            return
+        }
+        Task {
+            do {
+                try await sender(summary)
+            } catch {
+                record(
+                    type: "diagnosticsAnnouncementSendFailed",
+                    fields: [
+                        "requestId": summary.requestId,
+                        "error": error.localizedDescription
+                    ],
+                    level: .error
+                )
+            }
         }
     }
 
@@ -362,6 +399,20 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
                     "appLaunchCount": String(payload.appLaunchDiagnostics?.count ?? 0)
                 ]
                 recordLocked(type: "metricKitDiagnostics", fields: fields, level: .default)
+                for (index, crash) in (payload.crashDiagnostics ?? []).enumerated() {
+                    recordLocked(
+                        type: "metricKitCrash",
+                        fields: [
+                            "index": String(index),
+                            "applicationVersion": String(crash.applicationVersion.prefix(80)),
+                            "terminationReason": String((crash.terminationReason ?? "unavailable").prefix(500)),
+                            "exceptionType": crash.exceptionType?.stringValue ?? "unavailable",
+                            "exceptionCode": crash.exceptionCode?.stringValue ?? "unavailable",
+                            "signal": crash.signal?.stringValue ?? "unavailable"
+                        ],
+                        level: .error
+                    )
+                }
             }
             saveManifest()
         }

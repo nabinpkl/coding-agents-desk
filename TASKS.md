@@ -321,6 +321,22 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
      presentation attempt was observed; clean background; unclean exit; and telemetry itself ended
      before the decisive boundary.
 
+### R137 implementation status
+
+- Implemented the fixed, content-free runtime checkpoint contract and client persistence/send path;
+  the control rail lays out before media startup, and video receive, decoder enqueue, and presentation
+  attempt transitions are retained independently.
+- Implemented one diagnostics broker per authenticated input lane, automatic current/archive run
+  ingestion, secure bounded host storage, the durable correlation timeline, and
+  `just host-client-telemetry <variant>`.
+- A caught phoneme-analysis result now advances the live host cache immediately. An OOM or other hard
+  termination remains uncatchable in-process; the next launch records the prior unclean run and
+  MetricKit crash metadata, then announces both after reconnect.
+- Green gates: 41 wire tests, 31 client XCTest cases, 401 client Swift Testing cases, 583 host tests,
+  the exporter fixture, and `just check`.
+- Remaining before D137: the explicitly authorized physical-device normal lifecycle and killed
+  phoneme-analysis verification in step 6.
+
 ## v15 Phase 2: calibrated pronunciation score
 
 - R131. Derive a GOP or equivalent per-phone margin from R130's posterior evidence, preserve the
@@ -372,5 +388,5 @@ R133  candidate   remaining  speaker-reduced embeddings and DTW comparison
 R134  candidate   remaining  baselines and longitudinal attempt history
 R135  candidate   remaining  integrated explainable pronunciation gap loop
 R136  checkpoint  remaining  authorized physical-device acceptance
-R137  planned     remaining  host-retained client telemetry and incident export
+R137  implemented remaining  physical normal-cycle and killed-analysis host-bundle proof
 ```

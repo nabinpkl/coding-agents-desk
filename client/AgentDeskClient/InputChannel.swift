@@ -41,6 +41,7 @@ protocol InputChannel: AnyObject, Sendable {
     func sendDiagnosticsSummary(_ summary: DiagnosticsSummary) async throws
     func sendDiagnosticsChunk(_ chunk: DiagnosticsChunk) async throws
     func sendDiagnosticsError(_ error: DiagnosticsError) async throws
+    func sendRuntimeCheckpoint(_ checkpoint: ClientRuntimeCheckpoint) async throws
     func sendScreenshotManifest(_ manifest: ClientScreenshotManifest) async throws
     func sendScreenshotChunk(_ chunk: ClientScreenshotChunk) async throws
     func sendScreenshotError(_ error: ClientScreenshotError) async throws

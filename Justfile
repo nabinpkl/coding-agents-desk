@@ -716,6 +716,7 @@ check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar
     sh tools/client-install-lifecycle-tests.sh
     sh tools/launch-env-tests.sh
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
+    sh tools/host-client-telemetry-tests.sh
     /usr/bin/python3 tools/voice-phone-evidence-summary-tests.py
     sh tools/testflight-upload-tests.sh
     (cd packages/AgentDeskWire && swift test)
@@ -1335,6 +1336,12 @@ voice-phone-logs-pull variant="stable":
       --diagnostics-directory "$OUT_DIR" \
       | tee "$OUT_DIR/phone-analysis-summary.txt"
     echo "Voice phone logs directory: $OUT_DIR"
+
+# Export the newest host-retained client checkpoint timeline, automatically
+# cached durable diagnostics, and the matching bounded host unified-log window.
+# This is host-only and never installs, launches, or contacts the iPhone.
+host-client-telemetry variant="stable":
+    tools/host-client-telemetry.sh {{variant}}
 
 # Pull saved Voice analysis metadata directly from a physical iPhone app
 # container. This path does not require the app to be foregrounded or connected

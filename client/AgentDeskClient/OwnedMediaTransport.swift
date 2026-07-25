@@ -188,6 +188,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         try await QuicSessionStreamIO.send(error, role: .input, on: inputStream)
     }
 
+    func sendRuntimeCheckpoint(_ checkpoint: ClientRuntimeCheckpoint) async throws {
+        try await QuicSessionStreamIO.send(checkpoint, role: .input, on: inputStream)
+    }
+
     func sendScreenshotManifest(_ manifest: ClientScreenshotManifest) async throws {
         try await QuicSessionStreamIO.send(manifest, role: .input, on: inputStream)
     }
@@ -588,6 +592,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                   let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else {
                 continue
             }
+            ClientRuntimeTelemetry.shared.advanceVideoMilestone(.frameCompleted)
             Task { @MainActor [weak self] in
                 self?.sink?.renderOwnedVideoFrame(envelope, frameBytes: completed.data.count)
             }

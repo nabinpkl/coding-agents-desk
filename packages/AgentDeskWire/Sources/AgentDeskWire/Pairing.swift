@@ -321,6 +321,125 @@ public struct DiagnosticsError: Codable, Equatable, Error, Sendable {
         self.reason = reason
     }
 }
+
+public enum ClientRuntimeScenePhase: String, Codable, Equatable, Sendable {
+    case foreground
+    case background
+}
+
+public enum ClientRuntimePairingState: String, Codable, Equatable, Sendable {
+    case unpaired
+    case pairedDisconnected = "paired-disconnected"
+    case connecting
+    case connected
+    case failed
+}
+
+public enum ClientRuntimeSurface: String, Codable, Equatable, Sendable {
+    case control
+    case agent
+    case terminal
+    case browser
+    case workspace
+    case ide
+    case voice
+}
+
+public enum ClientRuntimeMediaState: String, Codable, Equatable, Sendable {
+    case idle
+    case scheduled
+    case started
+    case stopped
+    case failed
+}
+
+public enum ClientRuntimeVideoMilestone: String, Codable, Equatable, Sendable {
+    case none
+    case frameCompleted = "frame-completed"
+    case decoderEnqueued = "decoder-enqueued"
+    case presentationAttempted = "presentation-attempted"
+}
+
+/// Bounded, content-free client state sent over the authenticated input lane.
+/// This reports presentation checkpoints the host cannot infer from media ACKs.
+public struct ClientRuntimeCheckpoint: Codable, Equatable, Sendable {
+    public static let currentSchemaVersion = 1
+
+    public let type: String
+    public let schemaVersion: Int
+    public let clientRunId: String
+    public let sequence: UInt64
+    public let timestamp: Int
+    public let marketingVersion: String
+    public let buildNumber: String
+    public let gitSHA: String
+    public let scenePhase: ClientRuntimeScenePhase
+    public let pairingState: ClientRuntimePairingState
+    public let activeSurface: ClientRuntimeSurface
+    public let railConfigured: Bool
+    public let railHidden: Bool
+    public let railLayoutReady: Bool
+    public let hostSurfaceCount: Int
+    public let mediaState: ClientRuntimeMediaState
+    public let videoMilestone: ClientRuntimeVideoMilestone
+
+    public enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case schemaVersion = "v"
+        case clientRunId = "rid"
+        case sequence = "s"
+        case timestamp = "ts"
+        case marketingVersion = "mv"
+        case buildNumber = "bn"
+        case gitSHA = "sha"
+        case scenePhase = "sp"
+        case pairingState = "ps"
+        case activeSurface = "as"
+        case railConfigured = "rc"
+        case railHidden = "rh"
+        case railLayoutReady = "rl"
+        case hostSurfaceCount = "hc"
+        case mediaState = "ms"
+        case videoMilestone = "vm"
+    }
+
+    public init(
+        clientRunId: String,
+        sequence: UInt64,
+        timestamp: Int,
+        marketingVersion: String,
+        buildNumber: String,
+        gitSHA: String,
+        scenePhase: ClientRuntimeScenePhase,
+        pairingState: ClientRuntimePairingState,
+        activeSurface: ClientRuntimeSurface,
+        railConfigured: Bool,
+        railHidden: Bool,
+        railLayoutReady: Bool,
+        hostSurfaceCount: Int,
+        mediaState: ClientRuntimeMediaState,
+        videoMilestone: ClientRuntimeVideoMilestone
+    ) {
+        self.type = "client-runtime-checkpoint"
+        self.schemaVersion = Self.currentSchemaVersion
+        self.clientRunId = clientRunId
+        self.sequence = sequence
+        self.timestamp = timestamp
+        self.marketingVersion = marketingVersion
+        self.buildNumber = buildNumber
+        self.gitSHA = gitSHA
+        self.scenePhase = scenePhase
+        self.pairingState = pairingState
+        self.activeSurface = activeSurface
+        self.railConfigured = railConfigured
+        self.railHidden = railHidden
+        self.railLayoutReady = railLayoutReady
+        self.hostSurfaceCount = hostSurfaceCount
+        self.mediaState = mediaState
+        self.videoMilestone = videoMilestone
+    }
+}
+
 public struct SignedDiagnosticsRequest: Codable, Equatable, Sendable {
     public let type: String
     public let requestId: String

@@ -22,6 +22,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // ADR-0019: listens for a Mac-pushed pairing offer while unpaired and
     // foregrounded. Started/stopped from render() and the background hook.
     var pairingOfferListener: PairingOfferListener?
+    var isClientForeground = true
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
     private let forgetButton = UIButton(type: .system)
@@ -262,7 +263,17 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         triggerSessionIfPaired()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        recordRuntimeUICheckpoint(
+            layoutReady: surfaceControlRail.bounds.width > 0
+                && surfaceControlRail.bounds.height > 0
+        )
+    }
+
     @objc func applicationWillEnterForeground() {
+        isClientForeground = true
+        ClientRuntimeTelemetry.shared.updateScenePhase(.foreground)
         ClientDiagnostics.shared.record(type: "applicationWillEnterForeground", fields: [:], level: .info)
         triggerSessionIfPaired()
     }
@@ -275,6 +286,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // input and no video. Closing here forces state to .pairedDisconnected so
     // the next foreground reliably re-attempts.
     @objc func applicationDidEnterBackground() {
+        isClientForeground = false
+        ClientRuntimeTelemetry.shared.updateScenePhase(.background)
         ClientDiagnostics.shared.record(type: "applicationDidEnterBackground", fields: [:], level: .info)
         if case .connected = pairingClient.state {
             preservesSuspendedSessionSurfaces = true
@@ -321,6 +334,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // The offer listener only makes sense in the foreground; iOS would tear
         // the NWListener down on suspend anyway, so stop it explicitly.
         stopOfferListener()
+        ClientRuntimeTelemetry.shared.setSender(nil)
+        ClientDiagnostics.shared.setLiveAnnouncementSender(nil)
         // Closes the active QUIC session transport and flips state
         // .connected -> .pairedDisconnected. Idempotent for other
         // states.
@@ -359,6 +374,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                     _ = try await self.pairingClient.attemptSession()
                     guard self.sessionAttemptGeneration == generation else { return }
                     if let channel = self.pairingClient.activeInputChannel {
+                        ClientRuntimeTelemetry.shared.setSender { checkpoint in
+                            try await channel.sendRuntimeCheckpoint(checkpoint)
+                        }
+                        ClientDiagnostics.shared.setLiveAnnouncementSender { summary in
+                            try await channel.sendDiagnosticsSummary(summary)
+                        }
                         self.startDiagnosticsHandlingIfNeeded(channel: channel)
                         self.startScreenshotHandlingIfNeeded(channel: channel)
                         self.sendReconnectDiagnosticsAnnouncementIfNeeded(channel: channel)
@@ -391,6 +412,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     deinit {
+        ClientDiagnostics.shared.setLiveAnnouncementSender(nil)
         handshakeTask?.cancel()
         sessionTask?.cancel()
         mediaStateTask?.cancel()
@@ -449,12 +471,16 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 videoSink: sink
             )
         }
+        ClientRuntimeTelemetry.shared.updateMediaState(.started)
         ClientDiagnostics.shared.record(type: "mediaTransportStarted", fields: [:], level: .default)
     }
 
     /// Let the connected control shell finish its first layout pass before
     /// constructing the media sink. The rail remains usable while video starts.
     func scheduleMediaTransportStartIfNeeded() {
+        guard mediaTransport == nil else { return }
+        ClientRuntimeTelemetry.shared.resetVideoMilestone()
+        ClientRuntimeTelemetry.shared.updateMediaState(.scheduled)
         DispatchQueue.main.async { [weak self] in
             guard let self,
                   self.activeControlSurface != .voice,
@@ -493,6 +519,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 }
             }
         case .failed(let rejection):
+            ClientRuntimeTelemetry.shared.updateMediaState(.failed)
             iceGraceTask?.cancel()
             iceGraceTask = nil
             if let rejection {
@@ -536,6 +563,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         agentTerminalLifecycleRouter.route(.background, to: agentSurface)
         mediaTransport?.stop()
         mediaTransport = nil
+        ClientRuntimeTelemetry.shared.updateMediaState(.stopped)
         mediaDiagnosticsLabel?.text = "media suspended"
         if #available(iOS 26.0, *) {
             terminalSurface?.detach()
@@ -551,6 +579,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         }
         mediaTransport?.stop()
         mediaTransport = nil
+        ClientRuntimeTelemetry.shared.updateMediaState(.stopped)
         videoSink?.view.removeFromSuperview()
         videoSink = nil
         sinkScrollView?.removeFromSuperview()
@@ -808,20 +837,42 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             }
             scheduleMediaTransportStartIfNeeded()
         } else if preservesSuspendedSessionSurfaces {
+            ClientDiagnostics.shared.setLiveAnnouncementSender(nil)
             statusLabel.isHidden = true
             actionButton.isHidden = true
             forgetButton.isHidden = true
             showSurfaceToggleIfNeeded()
             applySurface(activeControlSurface)
         } else {
+            ClientDiagnostics.shared.setLiveAnnouncementSender(nil)
             // Host-backed surfaces follow the session lifecycle. The local
             // Voice surface is deliberately preserved across this teardown.
             teardownAgentSurface()
         }
 
         applyVoiceRootPresentation()
-        startOfferListenerIfNeeded()
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        recordRuntimeUICheckpoint(
+            layoutReady: surfaceControlRail.bounds.width > 0
+                && surfaceControlRail.bounds.height > 0
+        )
+        if isClientForeground {
+            startOfferListenerIfNeeded()
+        }
         configureOfferListener()
+    }
+
+    private func recordRuntimeUICheckpoint(layoutReady: Bool) {
+        ClientRuntimeTelemetry.shared.updateUI(
+            scenePhase: isClientForeground ? .foreground : .background,
+            pairingState: pairingClient.state.runtimeCheckpointState,
+            activeSurface: activeControlSurface.runtimeCheckpointSurface,
+            railConfigured: surfaceControlRail.superview != nil,
+            railHidden: surfaceControlRail.isHidden,
+            railLayoutReady: layoutReady,
+            hostSurfaceCount: surfaceControlRail.surfaceButtons.count
+        )
     }
 
     /// Voice replaces the pairing or connected UI rather than sitting on top
@@ -882,7 +933,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // pairing URL lets handleIncomingPairingURL drive the unchanged handshake,
     // which the host auto-approves because it pre-approved this nonce.
     func startOfferListenerIfNeeded() {
-        guard pairingOfferListener == nil else { return }
+        guard isClientForeground, pairingOfferListener == nil else { return }
         let listener = PairingOfferListener()
         pairingOfferListener = listener
         configureOfferListener()
@@ -960,8 +1011,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             try? await channel.sendDiagnosticsError(error)
         case .success(let prepared):
             switch await sendPreparedDiagnosticsResponse(prepared, on: channel) {
-            case .delivered(let delivered):
-                ClientDiagnostics.shared.completeResponse(delivered)
+            case .delivered:
+                // The input lane has no durable-receipt frame yet. Keep archives
+                // pending so reconnect announcements continue until the host can
+                // prove it has atomically cached their payloads.
+                break
             case .failed:
                 ClientDiagnostics.shared.record(
                     type: "diagnosticsResponseSendFailed",
