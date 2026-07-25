@@ -14,6 +14,11 @@ import AgentDeskWire
 final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate {
     private let sessionLogger = Logger(subsystem: Config.logSubsystem, category: "session-quic")
     let pairingClient = PairingClient()
+    // One replaceable root for the pairing flow and every host-backed
+    // descendant. Voice is its sibling, so selecting Voice removes this
+    // complete tree from rendering, accessibility, and hit testing
+    // without tearing down the live host transport.
+    let hostContentView = UIView()
     // ADR-0019: listens for a Mac-pushed pairing offer while unpaired and
     // foregrounded. Started/stopped from render() and the background hook.
     var pairingOfferListener: PairingOfferListener?
@@ -610,6 +615,16 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     private func configureViews() {
+        hostContentView.translatesAutoresizingMaskIntoConstraints = false
+        hostContentView.accessibilityIdentifier = "host-content-root"
+        view.addSubview(hostContentView)
+        NSLayoutConstraint.activate([
+            hostContentView.topAnchor.constraint(equalTo: view.topAnchor),
+            hostContentView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hostContentView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hostContentView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+
         statusLabel.font = .preferredFont(forTextStyle: .headline)
         statusLabel.textAlignment = .center
         statusLabel.numberOfLines = 0
@@ -639,10 +654,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         agentSayBanner.textAlignment = .left
         agentSayBanner.accessibilityIdentifier = "agent-say-banner"
 
-        view.addSubview(statusLabel)
-        view.addSubview(actionButton)
-        view.addSubview(forgetButton)
-        view.addSubview(agentSayBanner)
+        hostContentView.addSubview(statusLabel)
+        hostContentView.addSubview(actionButton)
+        hostContentView.addSubview(forgetButton)
+        hostContentView.addSubview(agentSayBanner)
 
         NSLayoutConstraint.activate([
             statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
@@ -800,10 +815,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     /// Voice replaces the pairing or connected UI rather than sitting on top
-    /// of an initialized video path. The local surface is brought above every
-    /// session-owned view, with only the always-present rail left in front.
-    private func applyVoiceRootPresentation() {
+    /// of it. The host root is hidden as one unit, while the local surface and
+    /// always-present rail remain sibling views.
+    func applyVoiceRootPresentation() {
         let voiceIsActive = activeControlSurface == .voice
+        let visibility = visibility(for: activeControlSurface)
+        hostContentView.isHidden = visibility.hostContentHidden
         surfaceControlRail.setUtilityButton(
             voiceToggleButton,
             selected: voiceIsActive
@@ -1047,7 +1064,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         label.accessibilityIdentifier = "client-screenshot-shared-status"
         label.accessibilityLabel = "Screenshot shared with paired Mac"
         label.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(label)
+        hostContentView.addSubview(label)
         screenshotToastLabel = label
         NSLayoutConstraint.activate([
             label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -1139,8 +1156,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
         let preview = AVCaptureVideoPreviewLayer(session: session)
         preview.videoGravity = .resizeAspectFill
-        preview.frame = view.bounds
-        view.layer.insertSublayer(preview, at: 0)
+        preview.frame = hostContentView.bounds
+        hostContentView.layer.insertSublayer(preview, at: 0)
         captureSession = session
         previewLayer = preview
         session.startRunning()

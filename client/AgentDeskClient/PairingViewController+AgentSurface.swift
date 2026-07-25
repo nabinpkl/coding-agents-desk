@@ -236,7 +236,7 @@ extension PairingViewController {
         let surface = AgentFeedSurface(closeDelivery: agentTerminalLifecycleRouter.closeDelivery)
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = true
-        view.addSubview(surface)
+        hostContentView.addSubview(surface)
         constrainSurfaceBesideControlRail(surface, bottomAnchor: view.bottomAnchor)
         agentSurface = surface
         let transport = pairingClient.activeSessionTransport
@@ -407,6 +407,7 @@ extension PairingViewController {
 
     func applySurface(_ surface: ControlSurface) {
         let v = visibility(for: surface)
+        hostContentView.isHidden = v.hostContentHidden
         if !v.keyboardInteractive {
             applyKeyboardPresentationIntent(.hide)
         }
@@ -466,7 +467,7 @@ extension PairingViewController {
                 )
                 surface.translatesAutoresizingMaskIntoConstraints = false
                 surface.isHidden = self.activeControlSurface != .workspace
-                self.view.addSubview(surface)
+                self.hostContentView.addSubview(surface)
                 self.constrainSurfaceBesideControlRail(
                     surface,
                     bottomAnchor: self.view.bottomAnchor
@@ -504,7 +505,7 @@ extension PairingViewController {
         let surface = TerminalSurface()
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = true
-        view.addSubview(surface)
+        hostContentView.addSubview(surface)
         constrainSurfaceBesideControlRail(
             surface,
             bottomAnchor: view.keyboardLayoutGuide.topAnchor

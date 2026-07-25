@@ -36,7 +36,7 @@ extension PairingViewController {
 
         sinkView.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(sinkView)
-        view.insertSubview(scroll, at: 0)
+        hostContentView.insertSubview(scroll, at: 0)
 
         // Inner constraints (sink view inside the scroll) are
         // orientation-invariant; activate immediately.
@@ -80,10 +80,10 @@ extension PairingViewController {
 
         let dot = CursorPointerView()
         dot.isHidden = true
-        view.addSubview(dot)
+        hostContentView.addSubview(dot)
         cursorDotView = dot
 
-        // Diagnostics readout as fixed chrome on the root view (not the zoomable sink), so
+        // Diagnostics readout as fixed chrome in the host root (not the zoomable sink), so
         // pinch-zoom/pan leave it pinned top-left. Styling matches the old in-sink label;
         // text is seeded to the connecting state and driven by onOwnedMediaStatusChange.
         let diag = UILabel()
@@ -95,7 +95,7 @@ extension PairingViewController {
         diag.layer.cornerRadius = 6
         diag.layer.masksToBounds = true
         diag.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(diag)
+        hostContentView.addSubview(diag)
         NSLayoutConstraint.activate([
             diag.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
             diag.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
@@ -104,7 +104,7 @@ extension PairingViewController {
                 constant: -8
             )
         ])
-        view.bringSubviewToFront(diag)
+        hostContentView.bringSubviewToFront(diag)
         mediaDiagnosticsLabel = diag
 
         let availability = UILabel()
@@ -117,14 +117,14 @@ extension PairingViewController {
         availability.layer.masksToBounds = true
         availability.isHidden = true
         availability.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(availability)
+        hostContentView.addSubview(availability)
         NSLayoutConstraint.activate([
             availability.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
             availability.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
             availability.leadingAnchor.constraint(greaterThanOrEqualTo: scroll.leadingAnchor, constant: 24),
             availability.trailingAnchor.constraint(lessThanOrEqualTo: scroll.trailingAnchor, constant: -24)
         ])
-        view.bringSubviewToFront(availability)
+        hostContentView.bringSubviewToFront(availability)
         hostAvailabilityLabel = availability
     }
 
@@ -143,7 +143,7 @@ extension PairingViewController {
         trackpadView.layer.borderColor = UIColor.separator.cgColor
         trackpadView.layer.borderWidth = 0.5
         trackpadView.isUserInteractionEnabled = true
-        view.addSubview(trackpadView)
+        hostContentView.addSubview(trackpadView)
 
         trackpadHint.text = "Trackpad"
         trackpadHint.textColor = .secondaryLabel
@@ -158,7 +158,7 @@ extension PairingViewController {
         scrollStripView.layer.borderColor = UIColor.separator.cgColor
         scrollStripView.layer.borderWidth = 0.5
         scrollStripView.isUserInteractionEnabled = true
-        view.addSubview(scrollStripView)
+        hostContentView.addSubview(scrollStripView)
 
         scrollStripHint.image = UIImage(systemName: "arrow.up.arrow.down")
         scrollStripHint.tintColor = .secondaryLabel
@@ -170,7 +170,7 @@ extension PairingViewController {
         buttonRow.spacing = 12
         buttonRow.distribution = .fillEqually
         buttonRow.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(buttonRow)
+        hostContentView.addSubview(buttonRow)
 
         styleActionButton(rightClickButton, title: "Right-click")
         rightClickButton.addTarget(self, action: #selector(rightClickTapped), for: .touchUpInside)
@@ -188,12 +188,12 @@ extension PairingViewController {
         displayRailView.translatesAutoresizingMaskIntoConstraints = false
         displayRailView.delegate = self
         displayRailView.isHidden = true
-        view.addSubview(displayRailView)
+        hostContentView.addSubview(displayRailView)
 
         thumbnailStripView.translatesAutoresizingMaskIntoConstraints = false
         thumbnailStripView.delegate = self
         thumbnailStripView.isHidden = true
-        view.addSubview(thumbnailStripView)
+        hostContentView.addSubview(thumbnailStripView)
 
         let bottomConstraint = buttonRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
         buttonRowBottomConstraint = bottomConstraint

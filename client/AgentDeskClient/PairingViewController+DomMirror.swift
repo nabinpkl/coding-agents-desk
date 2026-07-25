@@ -33,7 +33,7 @@ extension PairingViewController {
             created.translatesAutoresizingMaskIntoConstraints = false
             // Hidden at creation; applySurface(.browser) reveals it on select.
             created.isHidden = true
-            view.addSubview(created)
+            hostContentView.addSubview(created)
             constrainSurfaceBesideControlRail(created, bottomAnchor: view.bottomAnchor)
             domMirrorSurface = created
             surface = created

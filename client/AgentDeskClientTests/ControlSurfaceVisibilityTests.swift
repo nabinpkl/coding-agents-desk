@@ -7,6 +7,7 @@ import UIKit
 struct ControlSurfaceVisibilityTests {
     @Test func controlShowsChromeHidesOtherSurfaces() {
         let v = visibility(for: .control)
+        #expect(!v.hostContentHidden)
         #expect(v.agentHidden)
         #expect(v.browserHidden)
         #expect(v.terminalHidden)
@@ -79,6 +80,7 @@ struct ControlSurfaceVisibilityTests {
 
     @Test func voiceShowsProbeAndHidesEveryOtherSurface() {
         let v = visibility(for: .voice)
+        #expect(v.hostContentHidden)
         #expect(!v.voiceHidden)
         #expect(v.ideHidden)
         #expect(v.workspaceHidden)
@@ -89,6 +91,17 @@ struct ControlSurfaceVisibilityTests {
         // The probe's own text field is a local first responder; the host
         // keyboard helper must stay disabled so keys are not forwarded to the Mac.
         #expect(!v.keyboardInteractive)
+    }
+
+    @Test func onlyVoiceReplacesTheHostContentRoot() {
+        let hostSurfaces: [ControlSurface] = [
+            .control, .agent, .browser, .terminal, .workspace, .ide
+        ]
+
+        for surface in hostSurfaces {
+            #expect(!visibility(for: surface).hostContentHidden)
+        }
+        #expect(visibility(for: .voice).hostContentHidden)
     }
 }
 

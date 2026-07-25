@@ -189,12 +189,12 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         case .locked:
             label.text = "Mac locked\nKeyboard input stays available"
             label.isHidden = false
-            view.bringSubviewToFront(label)
+            hostContentView.bringSubviewToFront(label)
             view.bringSubviewToFront(surfaceControlRail)
         case .captureUnavailable:
             label.text = "Mac display unavailable\nInput stays connected"
             label.isHidden = false
-            view.bringSubviewToFront(label)
+            hostContentView.bringSubviewToFront(label)
             view.bringSubviewToFront(surfaceControlRail)
         case .disconnected:
             label.isHidden = true
@@ -252,7 +252,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         agentSayHideTask?.cancel()
         agentSayBanner.text = text.isEmpty ? " " : text
         agentSayBanner.isHidden = false
-        view.bringSubviewToFront(agentSayBanner)
+        hostContentView.bringSubviewToFront(agentSayBanner)
         UIView.animate(withDuration: 0.12) {
             self.agentSayBanner.alpha = 1
         }

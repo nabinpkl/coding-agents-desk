@@ -20,6 +20,7 @@ enum ControlSurface {
 // first-responder handling. The concrete UIKit wiring (applySurface) just
 // applies these flags.
 struct SurfaceVisibility: Equatable {
+    let hostContentHidden: Bool
     let agentHidden: Bool
     let browserHidden: Bool
     let terminalHidden: Bool
@@ -89,42 +90,49 @@ func visibility(for surface: ControlSurface) -> SurfaceVisibility {
     switch surface {
     case .control:
         return SurfaceVisibility(
+            hostContentHidden: false,
             agentHidden: true, browserHidden: true,
             terminalHidden: true, workspaceHidden: true,
             ideHidden: true, voiceHidden: true,
             controlChromeHidden: false, keyboardInteractive: true)
     case .agent:
         return SurfaceVisibility(
+            hostContentHidden: false,
             agentHidden: false, browserHidden: true,
             terminalHidden: true, workspaceHidden: true,
             ideHidden: true, voiceHidden: true,
             controlChromeHidden: true, keyboardInteractive: false)
     case .browser:
         return SurfaceVisibility(
+            hostContentHidden: false,
             agentHidden: true, browserHidden: false,
             terminalHidden: true, workspaceHidden: true,
             ideHidden: true, voiceHidden: true,
             controlChromeHidden: true, keyboardInteractive: false)
     case .terminal:
         return SurfaceVisibility(
+            hostContentHidden: false,
             agentHidden: true, browserHidden: true,
             terminalHidden: false, workspaceHidden: true,
             ideHidden: true, voiceHidden: true,
             controlChromeHidden: true, keyboardInteractive: false)
     case .workspace:
         return SurfaceVisibility(
+            hostContentHidden: false,
             agentHidden: true, browserHidden: true,
             terminalHidden: true, workspaceHidden: false,
             ideHidden: true, voiceHidden: true,
             controlChromeHidden: true, keyboardInteractive: false)
     case .ide:
         return SurfaceVisibility(
+            hostContentHidden: false,
             agentHidden: true, browserHidden: true,
             terminalHidden: true, workspaceHidden: true,
             ideHidden: false, voiceHidden: true,
             controlChromeHidden: true, keyboardInteractive: false)
     case .voice:
         return SurfaceVisibility(
+            hostContentHidden: true,
             agentHidden: true, browserHidden: true,
             terminalHidden: true, workspaceHidden: true,
             ideHidden: true, voiceHidden: false,

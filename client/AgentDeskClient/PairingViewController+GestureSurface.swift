@@ -26,7 +26,7 @@ extension PairingViewController {
         let show = surface.isHidden
         surface.isHidden = !show
         if show {
-            view.bringSubviewToFront(surface)
+            hostContentView.bringSubviewToFront(surface)
         }
         surfaceControlRail.setUtilityButton(gestureToggleButton, selected: show)
         view.bringSubviewToFront(surfaceControlRail)
@@ -45,7 +45,7 @@ extension PairingViewController {
         surface.onSpaceStep = { [weak self] delta in
             self?.sendInput(.switchSpaceStep(delta: delta))
         }
-        view.addSubview(surface)
+        hostContentView.addSubview(surface)
         NSLayoutConstraint.activate([
             // Bottom half of the screen; the video stays visible above it.
             surface.topAnchor.constraint(equalTo: view.centerYAnchor),
