@@ -452,6 +452,18 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         ClientDiagnostics.shared.record(type: "mediaTransportStarted", fields: [:], level: .default)
     }
 
+    /// Let the connected control shell finish its first layout pass before
+    /// constructing the media sink. The rail remains usable while video starts.
+    func scheduleMediaTransportStartIfNeeded() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.activeControlSurface != .voice,
+                  case .connected = self.pairingClient.state
+            else { return }
+            self.startMediaTransportIfNeeded()
+        }
+    }
+
     private func activeSessionForMedia() -> ActiveSession? {
         if case .connected(let active) = pairingClient.state {
             return active
@@ -766,9 +778,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             statusLabel.isHidden = true
             actionButton.isHidden = true
             stopCamera()
-            if activeControlSurface != .voice {
-                startMediaTransportIfNeeded()
-            }
         case .revoked:
             statusLabel.text = "Revoked by host"
             actionButton.isHidden = false
@@ -797,6 +806,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             if #available(iOS 26.0, *) {
                 terminalSurface?.connect(using: pairingClient.activeSessionTransport)
             }
+            scheduleMediaTransportStartIfNeeded()
         } else if preservesSuspendedSessionSurfaces {
             statusLabel.isHidden = true
             actionButton.isHidden = true

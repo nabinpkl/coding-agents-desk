@@ -323,7 +323,7 @@ extension PairingViewController {
             // skips media startup, so the first host-backed selection owns
             // starting it instead.
             if case .connected = pairingClient.state {
-                startMediaTransportIfNeeded()
+                scheduleMediaTransportStartIfNeeded()
             }
         }
         applySurface(surface)

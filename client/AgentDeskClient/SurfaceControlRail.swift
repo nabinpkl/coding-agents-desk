@@ -112,7 +112,10 @@ final class SurfaceControlRail: UIView {
         accessibilityIdentifier = "surface-control-rail"
         isAccessibilityElement = false
         isOpaque = false
-        backgroundColor = .clear
+        backgroundColor = UIColor.black.withAlphaComponent(0.56)
+        layer.cornerRadius = 18
+        layer.borderWidth = 0.5
+        layer.borderColor = UIColor.white.withAlphaComponent(0.18).cgColor
         clipsToBounds = false
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false

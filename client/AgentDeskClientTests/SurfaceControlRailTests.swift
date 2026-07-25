@@ -3,6 +3,29 @@ import UIKit
 
 @MainActor
 struct SurfaceControlRailTests {
+    @Test func preVideoRailHasVisibleBackdropAndUsableUtilities() throws {
+        let gesture = utilityButton(label: "Gesture", identifier: "gesture-toggle")
+        let orientation = utilityButton(label: "Rotate", identifier: "orientation-toggle")
+        let voice = utilityButton(label: "Voice", identifier: "voice-toggle")
+        let settings = utilityButton(label: "Settings", identifier: "settings-button")
+        let rail = SurfaceControlRail(
+            gestureButton: gesture,
+            orientationButton: orientation,
+            voiceButton: voice,
+            settingsButton: settings
+        )
+
+        let backgroundColor = try #require(rail.backgroundColor)
+        var white: CGFloat = 0
+        var alpha: CGFloat = 0
+        #expect(backgroundColor.getWhite(&white, alpha: &alpha))
+        #expect(alpha > 0)
+        #expect(rail.surfaceButtons.isEmpty)
+        #expect(rail.utilityButtons.allSatisfy {
+            !$0.isHidden && $0.alpha == 1 && $0.isUserInteractionEnabled
+        })
+    }
+
     @Test func presentsSurfaceAndUtilityButtonsInOneVerticalRail() throws {
         let gesture = utilityButton(label: "Gesture", identifier: "gesture-toggle")
         let orientation = utilityButton(label: "Rotate", identifier: "orientation-toggle")
@@ -23,7 +46,7 @@ struct SurfaceControlRailTests {
 
         #expect(rail.accessibilityIdentifier == "surface-control-rail")
         #expect(rail.axis == .vertical)
-        #expect(rail.backgroundColor == .clear)
+        #expect(rail.backgroundColor != .clear)
         #expect(!rail.isOpaque)
         #expect(rail.collapseButton.accessibilityIdentifier == "surface-control-collapse")
         #expect(rail.collapseButton.accessibilityLabel == "Collapse controls")
