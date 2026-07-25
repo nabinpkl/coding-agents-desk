@@ -332,7 +332,11 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
 - A caught phoneme-analysis result now advances the live host cache immediately. An OOM or other hard
   termination remains uncatchable in-process; the next launch records the prior unclean run and
   MetricKit crash metadata, then announces both after reconnect.
-- Green gates: 41 wire tests, 31 client XCTest cases, 401 client Swift Testing cases, 583 host tests,
+- Manual iOS 26.5 simulator verification at `5f5f986b` observed all six rail controls, including the
+  terminal button, before the first video frame. The deterministic test pattern and real
+  ScreenCaptureKit source then both rendered visibly. This run also caught and fixed the rail-first
+  late-mount regression that had left the video sink at zero extent while frames still decoded.
+- Green gates: 41 wire tests, 31 client XCTest cases, 402 client Swift Testing cases, 583 host tests,
   the exporter fixture, and `just check`.
 - Remaining before D137: the explicitly authorized physical-device normal lifecycle and killed
   phoneme-analysis verification in step 6.
