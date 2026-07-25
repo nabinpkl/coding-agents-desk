@@ -24,11 +24,12 @@ struct ClientScreenshotCapturerTests {
     }
 
     @Test func renderScalePreservesNativeScaleUntilLongEdgeLimit() {
-        #expect(ClientScreenshotCapturer.renderScale(
+        let constrainedScale = ClientScreenshotCapturer.renderScale(
             bounds: CGRect(x: 0, y: 0, width: 390, height: 844),
             screenScale: 3,
             maxPixelDimension: 2_048
-        ) == 2_048.0 / 844.0)
+        )
+        #expect(abs(constrainedScale - (2_048.0 / 844.0)) < 1e-12)
         #expect(ClientScreenshotCapturer.renderScale(
             bounds: CGRect(x: 0, y: 0, width: 390, height: 844),
             screenScale: 2,

@@ -8,6 +8,7 @@ import UIKit
 
 @testable import AgentDeskClient
 
+@Suite(.serialized)
 @MainActor
 struct AgentFeedTerminalTests {
     private let panelContext = AgentPanelTerminalContext(
@@ -708,8 +709,13 @@ struct AgentFeedTerminalTests {
         defer { window.isHidden = true }
         try await openAndAttach(harness)
 
-        harness.surface.terminalContent.focus()
-        try await waitUntil { firstResponder(in: harness.surface.terminalContent) != nil }
+        try await waitUntil {
+            if firstResponder(in: harness.surface.terminalContent) != nil {
+                return true
+            }
+            harness.surface.terminalContent.focus()
+            return false
+        }
 
         harness.surface.abandonTerminal(.surfaceSwitched)
 
@@ -726,8 +732,13 @@ struct AgentFeedTerminalTests {
         defer { window.isHidden = true }
         try await openAndAttach(harness)
 
-        harness.surface.terminalContent.focus()
-        try await waitUntil { firstResponder(in: harness.surface.terminalContent) != nil }
+        try await waitUntil {
+            if firstResponder(in: harness.surface.terminalContent) != nil {
+                return true
+            }
+            harness.surface.terminalContent.focus()
+            return false
+        }
 
         #expect(
             harness.surface.terminalKeyboardDismissButton.actions(
@@ -1200,12 +1211,14 @@ struct AgentFeedTerminalTests {
     }
 
     private func waitUntil(
-        attempts: Int = 500,
+        timeout: Duration = .seconds(15),
         _ condition: @MainActor () -> Bool
     ) async throws {
-        for _ in 0..<attempts {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
             if condition() { return }
-            await Task.yield()
+            try await Task.sleep(for: .milliseconds(10))
         }
         Issue.record("condition did not become true")
     }
