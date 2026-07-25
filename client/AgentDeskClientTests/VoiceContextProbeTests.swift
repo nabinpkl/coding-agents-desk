@@ -46,4 +46,34 @@ struct VoiceContextProbeTests {
 
         #expect(sink.snapshot().count == 1)
     }
+
+    @Test
+    func audioLevelMapsSilenceAndSpeechAmplitude() {
+        guard #available(iOS 26.0, *) else { return }
+        #expect(VoiceAudioLevel.normalized(decibels: -.infinity) == 0)
+        #expect(VoiceAudioLevel.normalized(decibels: -60) == 0)
+        #expect(VoiceAudioLevel.normalized(decibels: -30) == 0.5)
+        #expect(VoiceAudioLevel.normalized(decibels: 6) == 1)
+
+        let format = AVAudioFormat(
+            standardFormatWithSampleRate: 48_000,
+            channels: 1
+        )!
+        let buffer = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: 256
+        )!
+        buffer.frameLength = 256
+        for frame in 0..<Int(buffer.frameLength) {
+            buffer.floatChannelData![0][frame] = 0.5
+        }
+
+        let level = VoiceAudioLevel.normalized(buffer: buffer)
+        #expect(level > 0.89)
+        #expect(level < 0.91)
+
+        let sink = CaptureSink(outputFormat: format)
+        sink.accept(buffer)
+        #expect(sink.currentLevel == level)
+    }
 }

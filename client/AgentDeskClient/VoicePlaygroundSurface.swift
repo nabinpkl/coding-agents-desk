@@ -20,6 +20,9 @@ final class VoicePlaygroundSurface: UIView {
     private let statusLabel = UILabel()
     private let recordButton = UIButton(type: .system)
     private let speakButton = UIButton(type: .system)
+    private let levelMeterStack = UIStackView()
+    private let levelMeterLabel = UILabel()
+    private let levelMeter = UIProgressView(progressViewStyle: .bar)
     private let verdictLabel = UILabel()
     private let unaidedLabel = UILabel()
     private let aidedLabel = UILabel()
@@ -43,6 +46,14 @@ final class VoicePlaygroundSurface: UIView {
     private var recordingTask: Task<Void, Never>?
     private var readingsTask: Task<Void, Never>?
     private var referenceSessionActive = false
+    private var levelMeterTask: Task<Void, Never>?
+    private var levelMeterSource: LevelMeterSource?
+    private var displayedLevel: Float = 0
+
+    private enum LevelMeterSource {
+        case recording
+        case replay
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -112,6 +123,23 @@ final class VoicePlaygroundSurface: UIView {
         recordButton.addTarget(self, action: #selector(toggleRecording), for: .touchUpInside)
         recordButton.accessibilityLabel = "Record"
         stack.addArrangedSubview(recordButton)
+
+        levelMeterStack.axis = .vertical
+        levelMeterStack.spacing = 6
+        levelMeterStack.isHidden = true
+        levelMeterLabel.font = .preferredFont(forTextStyle: .caption1)
+        levelMeterLabel.textColor = .secondaryLabel
+        levelMeterStack.addArrangedSubview(levelMeterLabel)
+        levelMeter.progressTintColor = .systemBlue
+        levelMeter.trackTintColor = .tertiarySystemFill
+        levelMeter.layer.cornerRadius = 4
+        levelMeter.clipsToBounds = true
+        levelMeter.translatesAutoresizingMaskIntoConstraints = false
+        levelMeter.heightAnchor.constraint(equalToConstant: 8).isActive = true
+        levelMeter.accessibilityLabel = "Audio level"
+        levelMeter.accessibilityIdentifier = "voice-live-level"
+        levelMeterStack.addArrangedSubview(levelMeter)
+        stack.addArrangedSubview(levelMeterStack)
 
         statusLabel.font = .preferredFont(forTextStyle: .footnote)
         statusLabel.textColor = .secondaryLabel
@@ -296,6 +324,7 @@ final class VoicePlaygroundSurface: UIView {
         if probe.isRecording {
             recordingTask?.cancel()
             recordingTask = nil
+            stopLevelMeter(source: .recording)
             probe.stopRecording()
             recordButton.setTitle("Record", for: .normal)
             if activeShouldRetain {
@@ -377,6 +406,7 @@ final class VoicePlaygroundSurface: UIView {
             recordButton.setTitle("Stop", for: .normal)
             retentionSwitch.isEnabled = false
             statusLabel.text = "Recording. Tap Stop when finished."
+            startLevelMeter(source: .recording)
         } catch {
             guard !Task.isCancelled else { return }
             activeTarget = nil
@@ -658,12 +688,14 @@ final class VoicePlaygroundSurface: UIView {
 
             let player = try AVAudioPlayer(contentsOf: attemptStore.audioURL(for: attempt))
             player.delegate = self
+            player.isMeteringEnabled = true
             guard player.prepareToPlay(), player.play() else {
                 throw VoiceAttemptStore.StoreError.invalidAttempt(attempt.id)
             }
             audioPlayer = player
             replayingAttemptID = attempt.id
             statusLabel.text = "Replaying saved take \(attempt.id.uuidString.prefix(8))."
+            startLevelMeter(source: .replay)
         } catch {
             stopSavedTakePlayback()
             deactivateReferenceAudioSession()
@@ -698,6 +730,7 @@ final class VoicePlaygroundSurface: UIView {
     }
 
     private func retainInterruptedCapture(message: String) {
+        stopLevelMeter(source: .recording)
         recordButton.setTitle("Record", for: .normal)
         retentionSwitch.isEnabled = true
         defer {
@@ -730,6 +763,68 @@ final class VoicePlaygroundSurface: UIView {
         audioPlayer?.stop()
         audioPlayer = nil
         replayingAttemptID = nil
+        stopLevelMeter(source: .replay)
+    }
+
+    private func startLevelMeter(source: LevelMeterSource) {
+        stopLevelMeter()
+        levelMeterSource = source
+        displayedLevel = 0
+        levelMeter.progress = 0
+        levelMeterLabel.text = source == .recording
+            ? "Live microphone level"
+            : "Saved take level"
+        levelMeter.progressTintColor = source == .recording ? .systemRed : .systemBlue
+        levelMeterStack.isHidden = false
+        updateLevelMeter()
+
+        levelMeterTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .milliseconds(50))
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                guard self != nil else { return }
+                self?.updateLevelMeter()
+            }
+        }
+    }
+
+    private func updateLevelMeter() {
+        let measuredLevel: Float
+        switch levelMeterSource {
+        case .recording:
+            measuredLevel = probe.currentAudioLevel
+        case .replay:
+            guard let audioPlayer, audioPlayer.isPlaying else {
+                measuredLevel = 0
+                break
+            }
+            audioPlayer.updateMeters()
+            measuredLevel = (0..<audioPlayer.numberOfChannels)
+                .map { VoiceAudioLevel.normalized(decibels: audioPlayer.averagePower(forChannel: $0)) }
+                .max() ?? 0
+        case nil:
+            return
+        }
+
+        let response: Float = measuredLevel >= displayedLevel ? 0.65 : 0.18
+        displayedLevel += (measuredLevel - displayedLevel) * response
+        levelMeter.setProgress(displayedLevel, animated: false)
+        levelMeter.accessibilityValue = "\(Int((displayedLevel * 100).rounded())) percent"
+    }
+
+    private func stopLevelMeter(source: LevelMeterSource? = nil) {
+        guard source == nil || source == levelMeterSource else { return }
+        levelMeterTask?.cancel()
+        levelMeterTask = nil
+        levelMeterSource = nil
+        displayedLevel = 0
+        levelMeter.progress = 0
+        levelMeter.accessibilityValue = "0 percent"
+        levelMeterStack.isHidden = true
     }
 
     private static func savedAttemptSummary(_ attempt: VoiceSavedAttempt) -> String {
@@ -779,6 +874,7 @@ final class VoicePlaygroundSurface: UIView {
         }
         synthesizer.stopSpeaking(at: .immediate)
         stopSavedTakePlayback()
+        stopLevelMeter()
         deactivateReferenceAudioSession()
         recordButton.isEnabled = true
         retentionSwitch.isEnabled = true

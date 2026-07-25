@@ -51,7 +51,8 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
     and confidence, match rank is explicit, and the matrix applies a tested keep/remove rule across
     `think/sink`, `rice/lice`, `very/wary`, and `ship/sheep`. Voice is an always-present local toggle
     beside Settings: it replaces pairing or session UI immediately, works on first launch, and does
-    not initiate a host session or media path until the user returns to a host-backed surface.
+    not initiate a host session or media path until the user returns to a host-backed surface. A
+    shared live level bar shows microphone power while recording and saved-audio power during replay.
   - Remaining acceptance: on the physical iPhone, collect two completed retained takes for each of
     the eight prompts, verify replay and deletion against the matching build identity, and accept the
     resulting keep/remove recommendation. R129 stays open until this observed evidence exists.

@@ -65,6 +65,7 @@ final class CaptureSink: @unchecked Sendable {
     private let outputFormat: AVAudioFormat
     private var buffers: [AVAudioPCMBuffer] = []
     private var failures = 0
+    private var level: Float = 0
 
     init(outputFormat: AVAudioFormat) {
         self.outputFormat = outputFormat
@@ -82,7 +83,10 @@ final class CaptureSink: @unchecked Sendable {
         defer { lock.unlock() }
         do {
             let converted = try converter.convert(buffer, to: outputFormat)
-            if converted.frameLength > 0 { buffers.append(converted) }
+            if converted.frameLength > 0 {
+                level = VoiceAudioLevel.normalized(buffer: buffer)
+                buffers.append(converted)
+            }
         } catch {
             failures += 1
         }
@@ -94,6 +98,127 @@ final class CaptureSink: @unchecked Sendable {
 
     var failureCount: Int {
         lock.withLock { failures }
+    }
+
+    var currentLevel: Float {
+        lock.withLock { level }
+    }
+}
+
+/// Maps PCM amplitude or AVAudioPlayer power onto the same 0...1 visual range.
+///
+/// -60 dB is treated as silence for the compact UI meter. This is presentation
+/// scaling only; the captured PCM remains untouched for later analysis.
+@available(iOS 26.0, *)
+enum VoiceAudioLevel {
+    private static let silenceFloorDecibels: Float = -60
+
+    static func normalized(decibels: Float) -> Float {
+        guard decibels.isFinite else { return 0 }
+        return min(
+            max(
+                (decibels - silenceFloorDecibels) / -silenceFloorDecibels,
+                0
+            ),
+            1
+        )
+    }
+
+    static func normalized(buffer: AVAudioPCMBuffer) -> Float {
+        let frameCount = Int(buffer.frameLength)
+        let channelCount = Int(buffer.format.channelCount)
+        guard frameCount > 0, channelCount > 0 else { return 0 }
+
+        let sampleCount = frameCount * channelCount
+        let sumOfSquares: Double
+
+        switch buffer.format.commonFormat {
+        case .pcmFormatFloat32:
+            guard let channels = buffer.floatChannelData else { return 0 }
+            sumOfSquares = sumSquares(
+                channels: channels,
+                frameCount: frameCount,
+                channelCount: channelCount,
+                isInterleaved: buffer.format.isInterleaved,
+                scale: 1
+            )
+        case .pcmFormatFloat64:
+            return 0
+        case .pcmFormatInt16:
+            guard let channels = buffer.int16ChannelData else { return 0 }
+            sumOfSquares = sumSquares(
+                channels: channels,
+                frameCount: frameCount,
+                channelCount: channelCount,
+                isInterleaved: buffer.format.isInterleaved,
+                scale: 1 / Double(Int16.max)
+            )
+        case .pcmFormatInt32:
+            guard let channels = buffer.int32ChannelData else { return 0 }
+            sumOfSquares = sumSquares(
+                channels: channels,
+                frameCount: frameCount,
+                channelCount: channelCount,
+                isInterleaved: buffer.format.isInterleaved,
+                scale: 1 / Double(Int32.max)
+            )
+        case .otherFormat:
+            return 0
+        @unknown default:
+            return 0
+        }
+
+        let rootMeanSquare = sqrt(sumOfSquares / Double(sampleCount))
+        guard rootMeanSquare > 0 else { return 0 }
+        return normalized(decibels: Float(20 * log10(rootMeanSquare)))
+    }
+
+    private static func sumSquares<Sample: BinaryInteger>(
+        channels: UnsafePointer<UnsafeMutablePointer<Sample>>,
+        frameCount: Int,
+        channelCount: Int,
+        isInterleaved: Bool,
+        scale: Double
+    ) -> Double {
+        var sum = 0.0
+        if isInterleaved {
+            for index in 0..<(frameCount * channelCount) {
+                let scaled = Double(channels[0][index]) * scale
+                sum += scaled * scaled
+            }
+        } else {
+            for channel in 0..<channelCount {
+                for frame in 0..<frameCount {
+                    let scaled = Double(channels[channel][frame]) * scale
+                    sum += scaled * scaled
+                }
+            }
+        }
+        return sum
+    }
+
+    private static func sumSquares(
+        channels: UnsafePointer<UnsafeMutablePointer<Float>>,
+        frameCount: Int,
+        channelCount: Int,
+        isInterleaved: Bool,
+        scale: Double
+    ) -> Double {
+        var sum = 0.0
+        if isInterleaved {
+            for index in 0..<(frameCount * channelCount) {
+                let scaled = Double(channels[0][index]) * scale
+                sum += scaled * scaled
+            }
+        } else {
+            for channel in 0..<channelCount {
+                for frame in 0..<frameCount {
+                    let scaled = Double(channels[channel][frame]) * scale
+                    sum += scaled * scaled
+                }
+            }
+        }
+        return sum
     }
 }
 
@@ -161,6 +286,7 @@ final class VoiceContextProbe {
 
     private(set) var isRecording = false
     var analysisLocale: Locale { resolvedLocale ?? requestedLocale }
+    var currentAudioLevel: Float { sink?.currentLevel ?? 0 }
     var onCaptureInterrupted: (@MainActor @Sendable (String) -> Void)?
 
     init(locale: Locale = Locale(identifier: "en-US")) {
