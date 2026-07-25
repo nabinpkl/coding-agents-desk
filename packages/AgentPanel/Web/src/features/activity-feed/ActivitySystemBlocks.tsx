@@ -22,10 +22,13 @@ export function LabeledTextBlock({ block }: { block: ActivityBlock }) {
 }
 
 /**
- * One collapsed drawer per event holding everything that is not the event's
- * content: its metadata blocks and, nested one level deeper, the exact raw
- * transcript line. Nesting keeps Raw JSON's lazy fetch intact -- opening this
- * drawer costs nothing until the inner disclosure is opened too.
+ * One collapsed drawer per transcript line holding everything that is not the
+ * line's content: its metadata blocks and, nested one level deeper, the exact
+ * raw line. Nesting keeps Raw JSON's lazy fetch intact -- opening this drawer
+ * costs nothing until the inner disclosure is opened too.
+ *
+ * A tool call that absorbed its result shows two of these, one per source
+ * line, so `label` distinguishes them.
  */
 export function RawDetails({
   metadata,
@@ -33,18 +36,20 @@ export function RawDetails({
   sessionId,
   eventIndex,
   includesRawJson,
+  label = "Raw",
 }: {
   metadata: ActivityBlock[];
   source: AgentSource;
   sessionId: string;
   eventIndex: number;
   includesRawJson: boolean;
+  label?: string;
 }) {
   if (metadata.length === 0 && !includesRawJson) return null;
   return (
     <details className="rounded-sm border border-border/50 bg-muted/20">
       <summary className="cursor-pointer px-2 py-1 font-mono text-foreground/65">
-        Raw
+        {label}
       </summary>
       <div className="space-y-1.5 border-t border-border/50 p-1.5">
         {metadata.map((block, index) => (

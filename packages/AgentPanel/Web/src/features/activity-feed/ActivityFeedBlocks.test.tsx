@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DataSourceProvider } from "./data-source/AgentDataSourceContext";
 import type { AgentDataSource } from "./data-source/AgentDataSource";
 import {
-  buildActivityDisplayItems,
+  buildFeedLayout,
   partitionEventBlocks,
   shellCommand,
 } from "./activityDisplayItems";
@@ -54,23 +54,123 @@ describe("complete activity blocks", () => {
     expect(container.querySelector("b")).toBeNull();
   });
 
-  it("keeps paired tool calls and results as separate source-line rows", () => {
+});
+
+// The Claude adapter appends a Working Directory block to nearly every line,
+// which is what defeated both "is this event only X?" predicates below.
+const CWD = { kind: "metadata", label: "Working Directory", text: "/repo" } as const;
+
+describe("feed layout", () => {
+  it("pairs a result into its call even when the line carries metadata", () => {
     const events: ActivityEvent[] = [
       {
         index: 10,
         ts: 1,
         type: "assistant",
-        blocks: [{ kind: "tool_use", tool: "Read", callId: "call-1" }, { kind: "raw" }],
+        blocks: [{ kind: "tool_use", tool: "Read", callId: "call-1" }, CWD, { kind: "raw" }],
       },
       {
         index: 11,
         ts: 2,
         type: "user",
-        blocks: [{ kind: "tool_result", preview: "result", callId: "call-1" }, { kind: "raw" }],
+        blocks: [
+          { kind: "tool_result", preview: "result", callId: "call-1" },
+          CWD,
+          { kind: "raw" },
+        ],
       },
     ];
 
-    expect(buildActivityDisplayItems(events).map((item) => item.ev.index)).toEqual([10, 11]);
+    const layout = buildFeedLayout(events);
+    expect(layout.items.map((item) => item.ev.index)).toEqual([10]);
+    expect(layout.allEventIds).toEqual([10]);
+
+    // The result event surrendered its row, so its metadata and raw line ride
+    // into the tool call rather than disappearing.
+    const paired = layout.pairedToolResults.get("call-1");
+    expect(paired?.eventIndex).toBe(11);
+    expect(paired?.includesRawEvent).toBe(true);
+    expect(paired?.metadata.map((block) => block.label)).toEqual(["Working Directory"]);
+  });
+
+  it("gives only the first result of an event the raw line and metadata", () => {
+    const layout = buildFeedLayout([
+      {
+        index: 20,
+        ts: 1,
+        type: "assistant",
+        blocks: [
+          { kind: "tool_use", tool: "Read", callId: "call-1" },
+          { kind: "tool_use", tool: "Read", callId: "call-2" },
+        ],
+      },
+      {
+        index: 21,
+        ts: 2,
+        type: "user",
+        blocks: [
+          { kind: "tool_result", preview: "first", callId: "call-1" },
+          { kind: "tool_result", preview: "second", callId: "call-2" },
+          CWD,
+          { kind: "raw" },
+        ],
+      },
+    ]);
+
+    expect(layout.pairedToolResults.get("call-1")?.includesRawEvent).toBe(true);
+    expect(layout.pairedToolResults.get("call-1")?.metadata).toHaveLength(1);
+    expect(layout.pairedToolResults.get("call-2")?.includesRawEvent).toBe(false);
+    expect(layout.pairedToolResults.get("call-2")?.metadata).toEqual([]);
+  });
+
+  it("keeps an event holding more than results as its own row", () => {
+    const layout = buildFeedLayout([
+      {
+        index: 30,
+        ts: 1,
+        type: "assistant",
+        blocks: [{ kind: "tool_use", tool: "Read", callId: "call-1" }],
+      },
+      {
+        index: 31,
+        ts: 2,
+        type: "user",
+        blocks: [
+          { kind: "tool_result", preview: "result", callId: "call-1" },
+          { kind: "text", text: "and one more thing" },
+        ],
+      },
+    ]);
+
+    expect(layout.items.map((item) => item.ev.index)).toEqual([30, 31]);
+    expect(layout.pairedToolResults.size).toBe(0);
+  });
+
+  it("keeps a result with no matching call as its own row", () => {
+    const layout = buildFeedLayout([
+      {
+        index: 40,
+        ts: 1,
+        type: "user",
+        blocks: [{ kind: "tool_result", preview: "orphan", callId: "call-missing" }, CWD],
+      },
+    ]);
+
+    expect(layout.items.map((item) => item.ev.index)).toEqual([40]);
+    expect(layout.pairedToolResults.size).toBe(0);
+  });
+
+  it("renders a compaction banner even when the line carries metadata", () => {
+    const layout = buildFeedLayout([
+      {
+        index: 50,
+        ts: 1,
+        type: "system",
+        blocks: [{ kind: "compaction" }, CWD, { kind: "raw" }],
+      },
+    ]);
+
+    expect(layout.items.map((item) => item.kind)).toEqual(["compaction"]);
   });
 });
 
@@ -193,6 +293,24 @@ describe("raw drawer", () => {
     fireEvent.click(screen.getByText("Raw JSON"));
     await waitFor(() => expect(fetchRawEvent).toHaveBeenCalledTimes(1));
     expect(screen.getByText(exact)).toBeTruthy();
+  });
+
+  it("takes a label so a paired call's two source lines stay distinguishable", () => {
+    render(
+      <DataSourceProvider source={source(async () => "")}>
+        <RawDetails
+          metadata={[]}
+          source="claude"
+          sessionId="session"
+          eventIndex={12}
+          includesRawJson
+          label="Raw result"
+        />
+      </DataSourceProvider>,
+    );
+
+    expect(screen.getByText("Raw result")).toBeTruthy();
+    expect(screen.queryByText("Raw")).toBeNull();
   });
 
   it("renders nothing when the event has no metadata and no raw line", () => {

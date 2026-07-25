@@ -13,9 +13,18 @@ export type DisplayRole =
   | "reasoning"
   | "system";
 
+// Metadata never disqualifies an event from its shape: the adapters append a
+// Working Directory block to nearly every Claude line, so demanding blocks be
+// *only* compaction plus raw meant no Claude compaction ever rendered as a
+// banner. Same trap as isResultOnly in ActivityFeed.
 function isCompactionEvent(ev: ActivityEvent): boolean {
   return ev.blocks.some((block) => block.kind === "compaction") &&
-    ev.blocks.every((block) => block.kind === "compaction" || block.kind === "raw");
+    ev.blocks.every(
+      (block) =>
+        block.kind === "compaction" ||
+        block.kind === "raw" ||
+        block.kind === "metadata",
+    );
 }
 
 export function displayRole(ev: ActivityEvent): DisplayRole {
@@ -66,6 +75,85 @@ export function buildActivityDisplayItems(events: ActivityEvent[]): DisplayItem[
   }
   flush();
   return items;
+}
+
+/** A tool_result that renders inside the tool call it answers. */
+export interface PairedToolResult {
+  block: ActivityBlock;
+  eventIndex: number;
+  blockIndex: number;
+  includesRawEvent: boolean;
+  /** The result event's own metadata, which travels into the tool call's
+   *  Raw drawer because the event no longer gets a row of its own. */
+  metadata: ActivityBlock[];
+}
+
+/** Everything the feed needs to render one window of events. */
+export interface FeedLayout {
+  items: DisplayItem[];
+  /** Indices of the rows that own a collapse toggle. */
+  allEventIds: number[];
+  /** Keyed by callId. */
+  pairedToolResults: Map<string, PairedToolResult>;
+}
+
+// Pair result-only events with their matching tool calls, so a call and its
+// output read as one row. Mixed events stay independent: user prose or an
+// unmatched result must never be hidden inside someone else's row.
+export function buildFeedLayout(events: ActivityEvent[]): FeedLayout {
+  const toolCallIds = new Set(
+    events.flatMap((event) =>
+      event.blocks.flatMap((block) =>
+        block.kind === "tool_use" && block.callId ? [block.callId] : [],
+      ),
+    ),
+  );
+  const pairedToolResults = new Map<string, PairedToolResult>();
+  const pairedResultEventIds = new Set<number>();
+
+  for (const event of events) {
+    const resultBlocks = event.blocks
+      .map((block, blockIndex) => ({ block, blockIndex }))
+      .filter(({ block }) => block.kind === "tool_result");
+    // Metadata does not make an event more than its result: the adapters
+    // append Working Directory to nearly every Claude line, and excluding it
+    // here left every Claude result stranded in its own row instead of nesting
+    // under the call that produced it. Same trap as isCompactionEvent.
+    const isResultOnly = event.blocks.every(
+      (block) =>
+        block.kind === "tool_result" ||
+        block.kind === "raw" ||
+        block.kind === "metadata",
+    );
+    const canPairEveryResult = resultBlocks.every(
+      ({ block }) => block.callId && toolCallIds.has(block.callId),
+    );
+    if (!isResultOnly || resultBlocks.length === 0 || !canPairEveryResult) continue;
+
+    pairedResultEventIds.add(event.index);
+    const { folded, hasRawJson } = partitionEventBlocks(event);
+    resultBlocks.forEach(({ block, blockIndex }, resultIndex) => {
+      // Only the first result of an event carries the event-level raw line and
+      // metadata; the rest would just repeat them.
+      const isFirst = resultIndex === 0;
+      pairedToolResults.set(block.callId!, {
+        block,
+        eventIndex: event.index,
+        blockIndex,
+        includesRawEvent: hasRawJson && isFirst,
+        metadata: isFirst ? folded : [],
+      });
+    });
+  }
+
+  const displayEvents = events.filter(
+    (event) => !pairedResultEventIds.has(event.index),
+  );
+  return {
+    items: buildActivityDisplayItems(displayEvents),
+    allEventIds: displayEvents.map((event) => event.index),
+    pairedToolResults,
+  };
 }
 
 /** How one event's blocks split between its visible body and its Raw drawer. */

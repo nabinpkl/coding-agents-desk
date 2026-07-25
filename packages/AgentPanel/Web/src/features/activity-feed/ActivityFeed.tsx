@@ -13,23 +13,17 @@ import { Markdown } from "./markdown/Markdown";
 import { useDataSource } from "./data-source/AgentDataSourceContext";
 import { useStickToBottom } from "./useStickToBottom";
 import {
-  buildActivityDisplayItems,
+  buildFeedLayout,
   displayRole,
   partitionEventBlocks,
   shellCommand,
   type DisplayItem,
   type DisplayRole,
+  type PairedToolResult,
 } from "./activityDisplayItems";
 import { LabeledTextBlock, RawDetails, RawJsonBlock } from "./ActivitySystemBlocks";
 import { CodeBlock } from "./markdown/CodeBlock";
 import type { AgentSource } from "./data-source/AgentDataSource";
-
-interface PairedToolResult {
-  block: ActivityBlock;
-  eventIndex: number;
-  blockIndex: number;
-  includesRawEvent: boolean;
-}
 
 export function ActivityFeed({
   source,
@@ -117,50 +111,10 @@ export function ActivityFeed({
   }, []);
 
 
-  // Pair result-only events with their matching tool calls. Mixed events stay
-  // independent so user prose or unmatched results are never hidden.
-  const { items, allEventIds, pairedToolResults } = useMemo(() => {
-    const toolCallIds = new Set(
-      events.flatMap((event) =>
-        event.blocks.flatMap((block) =>
-          block.kind === "tool_use" && block.callId ? [block.callId] : [],
-        ),
-      ),
-    );
-    const pairedResults = new Map<string, PairedToolResult>();
-    const pairedResultEventIds = new Set<number>();
-
-    for (const event of events) {
-      const resultBlocks = event.blocks
-        .map((block, blockIndex) => ({ block, blockIndex }))
-        .filter(({ block }) => block.kind === "tool_result");
-      const isResultOnly = event.blocks.every(
-        (block) => block.kind === "tool_result" || block.kind === "raw",
-      );
-      const canPairEveryResult = resultBlocks.every(
-        ({ block }) => block.callId && toolCallIds.has(block.callId),
-      );
-      if (!isResultOnly || resultBlocks.length === 0 || !canPairEveryResult) continue;
-
-      pairedResultEventIds.add(event.index);
-      const includesRawEvent = event.blocks.some((block) => block.kind === "raw");
-      resultBlocks.forEach(({ block, blockIndex }, resultIndex) => {
-        pairedResults.set(block.callId!, {
-          block,
-          eventIndex: event.index,
-          blockIndex,
-          includesRawEvent: includesRawEvent && resultIndex === 0,
-        });
-      });
-    }
-
-    const displayEvents = events.filter((event) => !pairedResultEventIds.has(event.index));
-    return {
-      items: buildActivityDisplayItems(displayEvents),
-      allEventIds: displayEvents.map((event) => event.index),
-      pairedToolResults: pairedResults,
-    };
-  }, [events]);
+  const { items, allEventIds, pairedToolResults } = useMemo(
+    () => buildFeedLayout(events),
+    [events],
+  );
 
   const allCollapsed = allEventIds.length > 0 && allEventIds.every((id) => collapsed.has(id));
 
@@ -811,13 +765,16 @@ function ToolResultContent({
   return (
     <div className="space-y-1.5">
       {content}
-      {result.includesRawEvent ? (
-        <RawJsonBlock
-          source={source}
-          sessionId={sessionId}
-          eventIndex={result.eventIndex}
-        />
-      ) : null}
+      {/* Named apart from the call's own drawer: this one is the result's
+          source line, which sits in the same row once the two are paired. */}
+      <RawDetails
+        metadata={result.metadata}
+        source={source}
+        sessionId={sessionId}
+        eventIndex={result.eventIndex}
+        includesRawJson={result.includesRawEvent}
+        label="Raw result"
+      />
     </div>
   );
 }
@@ -944,11 +901,14 @@ function Block({
   if (b.kind === "tool_result") {
     return (
       <ToolResultContent
+        // An unpaired result renders inside its own event row, whose EventBody
+        // already owns that event's Raw drawer.
         result={{
           block: b,
           eventIndex,
           blockIndex,
           includesRawEvent: false,
+          metadata: [],
         }}
         source={source}
         sessionId={sessionId}
@@ -989,6 +949,7 @@ function CompactionRow({
   sessionId: string;
 }) {
   const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : "";
+  const { folded, hasRawJson } = partitionEventBlocks(ev);
   return (
     <div
       className="px-[0.85em] py-[0.85em]"
@@ -1006,10 +967,12 @@ function CompactionRow({
         <span className="h-px flex-1 bg-border" aria-hidden />
       </div>
       <div className="mt-2">
-        <RawJsonBlock
+        <RawDetails
+          metadata={folded}
           source={source}
           sessionId={sessionId}
           eventIndex={ev.index}
+          includesRawJson={hasRawJson}
         />
       </div>
     </div>

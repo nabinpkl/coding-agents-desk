@@ -102,9 +102,45 @@ function makeFixtureSeedChunk(source: Source, sessionId: string) {
           { k: "raw" as const },
         ],
       },
+      // Claude delivers a tool result as its own user line, again with the
+      // appended metadata. It pairs into the call above rather than taking a
+      // row of its own.
+      {
+        i: 3,
+        ts: Date.now() - 188_000,
+        tp: "user" as const,
+        b: [
+          {
+            k: "tool_result" as const,
+            ci: "call-002",
+            pv: "AGENTS.md\nPRD.md\nSPEC.md\n---TASKS---\n2026-07-18-v12-complete-jsonl-activity-feed.md",
+          },
+          {
+            k: "metadata" as const,
+            lb: "Working Directory",
+            tx: "/Users/dev/projects/agent-desk",
+          },
+          { k: "raw" as const },
+        ],
+      },
+      // Context compaction, carrying the same appended metadata.
+      {
+        i: 4,
+        ts: Date.now() - 120_000,
+        tp: "system" as const,
+        b: [
+          { k: "compaction" as const },
+          {
+            k: "metadata" as const,
+            lb: "Working Directory",
+            tx: "/Users/dev/projects/agent-desk",
+          },
+          { k: "raw" as const },
+        ],
+      },
     ],
     ws: 0,
-    tot: 4,
+    tot: 6,
     lv: false,
   };
 }
@@ -116,7 +152,7 @@ function makeFixtureLiveChunk(source: Source, sessionId: string) {
     sid: sessionId,
     ev: [
       {
-        i: 3,
+        i: 5,
         ts: Date.now(),
         tp: "assistant" as const,
         b: [
@@ -128,7 +164,7 @@ function makeFixtureLiveChunk(source: Source, sessionId: string) {
       },
     ],
     ws: 0,
-    tot: 4,
+    tot: 6,
     lv: true,
   };
 }
