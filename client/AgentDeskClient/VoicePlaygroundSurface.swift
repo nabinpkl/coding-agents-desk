@@ -23,9 +23,9 @@ final class VoicePlaygroundSurface: UIView {
     private let statusLabel = UILabel()
     private let recordButton = UIButton(type: .system)
     private let speakButton = UIButton(type: .system)
-    private let levelMeterStack = UIStackView()
-    private let levelMeterLabel = UILabel()
-    private let levelMeter = UIProgressView(progressViewStyle: .bar)
+    private let recordingWaveformStack = UIStackView()
+    private let recordingWaveformLabel = UILabel()
+    private let recordingWaveformView = VoiceWaveformView()
     private let verdictLabel = UILabel()
     private let unaidedLabel = UILabel()
     private let aidedLabel = UILabel()
@@ -49,13 +49,21 @@ final class VoicePlaygroundSurface: UIView {
     private var recordingTask: Task<Void, Never>?
     private var readingsTask: Task<Void, Never>?
     private var referenceSessionActive = false
-    private var levelMeterTask: Task<Void, Never>?
-    private var levelMeterSource: LevelMeterSource?
+    private var waveformTask: Task<Void, Never>?
+    private var waveformSource: WaveformSource?
+    private var activeWaveformView: VoiceWaveformView?
+    private weak var activeWaveformContainer: UIView?
+    private var savedAttemptWaveforms: [UUID: SavedAttemptWaveform] = [:]
     private var displayedLevel: Float = 0
 
-    private enum LevelMeterSource {
+    private enum WaveformSource {
         case recording
         case replay
+    }
+
+    private struct SavedAttemptWaveform {
+        let container: UIStackView
+        let view: VoiceWaveformView
     }
 
     override init(frame: CGRect) {
@@ -144,22 +152,19 @@ final class VoicePlaygroundSurface: UIView {
         recordButton.accessibilityLabel = "Record"
         stack.addArrangedSubview(recordButton)
 
-        levelMeterStack.axis = .vertical
-        levelMeterStack.spacing = 6
-        levelMeterStack.isHidden = true
-        levelMeterLabel.font = .preferredFont(forTextStyle: .caption1)
-        levelMeterLabel.textColor = .secondaryLabel
-        levelMeterStack.addArrangedSubview(levelMeterLabel)
-        levelMeter.progressTintColor = .systemBlue
-        levelMeter.trackTintColor = .tertiarySystemFill
-        levelMeter.layer.cornerRadius = 4
-        levelMeter.clipsToBounds = true
-        levelMeter.translatesAutoresizingMaskIntoConstraints = false
-        levelMeter.heightAnchor.constraint(equalToConstant: 8).isActive = true
-        levelMeter.accessibilityLabel = "Audio level"
-        levelMeter.accessibilityIdentifier = "voice-live-level"
-        levelMeterStack.addArrangedSubview(levelMeter)
-        stack.addArrangedSubview(levelMeterStack)
+        recordingWaveformStack.axis = .vertical
+        recordingWaveformStack.spacing = 6
+        recordingWaveformStack.isHidden = true
+        recordingWaveformLabel.font = .preferredFont(forTextStyle: .caption1)
+        recordingWaveformLabel.textColor = .secondaryLabel
+        recordingWaveformLabel.text = "Live microphone waveform"
+        recordingWaveformStack.addArrangedSubview(recordingWaveformLabel)
+        recordingWaveformView.tintColor = .systemRed
+        recordingWaveformView.translatesAutoresizingMaskIntoConstraints = false
+        recordingWaveformView.heightAnchor.constraint(equalToConstant: 72).isActive = true
+        recordingWaveformView.accessibilityIdentifier = "voice-recording-waveform"
+        recordingWaveformStack.addArrangedSubview(recordingWaveformView)
+        stack.addArrangedSubview(recordingWaveformStack)
 
         statusLabel.font = .preferredFont(forTextStyle: .footnote)
         statusLabel.textColor = .secondaryLabel
@@ -344,7 +349,7 @@ final class VoicePlaygroundSurface: UIView {
         if probe.isRecording {
             recordingTask?.cancel()
             recordingTask = nil
-            stopLevelMeter(source: .recording)
+            stopWaveform(source: .recording)
             probe.stopRecording()
             recordButton.setTitle("Record", for: .normal)
             if activeShouldRetain {
@@ -426,7 +431,11 @@ final class VoicePlaygroundSurface: UIView {
             recordButton.setTitle("Stop", for: .normal)
             retentionSwitch.isEnabled = false
             statusLabel.text = "Recording. Tap Stop when finished."
-            startLevelMeter(source: .recording)
+            startWaveform(
+                source: .recording,
+                container: recordingWaveformStack,
+                view: recordingWaveformView
+            )
         } catch {
             guard !Task.isCancelled else { return }
             activeTarget = nil
@@ -575,6 +584,11 @@ final class VoicePlaygroundSurface: UIView {
     }
 
     private func rebuildSavedAttempts() {
+        if waveformSource == .replay {
+            stopSavedTakePlayback()
+            deactivateReferenceAudioSession()
+        }
+        savedAttemptWaveforms.removeAll()
         for view in savedAttemptsStack.arrangedSubviews {
             savedAttemptsStack.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -670,7 +684,31 @@ final class VoicePlaygroundSurface: UIView {
             }, for: .touchUpInside)
             controls.addArrangedSubview(delete)
 
+            let replayWaveformContainer = UIStackView()
+            replayWaveformContainer.axis = .vertical
+            replayWaveformContainer.spacing = 6
+            replayWaveformContainer.isHidden = true
+
+            let replayWaveformLabel = UILabel()
+            replayWaveformLabel.font = .preferredFont(forTextStyle: .caption1)
+            replayWaveformLabel.textColor = .secondaryLabel
+            replayWaveformLabel.text = "Saved take waveform"
+            replayWaveformContainer.addArrangedSubview(replayWaveformLabel)
+
+            let replayWaveformView = VoiceWaveformView()
+            replayWaveformView.tintColor = .systemBlue
+            replayWaveformView.translatesAutoresizingMaskIntoConstraints = false
+            replayWaveformView.heightAnchor.constraint(equalToConstant: 72).isActive = true
+            replayWaveformView.accessibilityIdentifier =
+                "voice-replay-waveform-\(attempt.id.uuidString)"
+            replayWaveformContainer.addArrangedSubview(replayWaveformView)
+            savedAttemptWaveforms[attempt.id] = SavedAttemptWaveform(
+                container: replayWaveformContainer,
+                view: replayWaveformView
+            )
+
             card.addArrangedSubview(controls)
+            card.addArrangedSubview(replayWaveformContainer)
             card.addArrangedSubview(analysisContainer)
             savedAttemptsStack.addArrangedSubview(card)
         }
@@ -762,6 +800,10 @@ final class VoicePlaygroundSurface: UIView {
             return
         }
         guard let attempt = savedAttempts.first(where: { $0.id == id }) else { return }
+        guard let replayWaveform = savedAttemptWaveforms[id] else {
+            statusLabel.text = "Saved take waveform is unavailable."
+            return
+        }
         synthesizer.stopSpeaking(at: .immediate)
         deactivateReferenceAudioSession()
         stopSavedTakePlayback()
@@ -780,7 +822,11 @@ final class VoicePlaygroundSurface: UIView {
             audioPlayer = player
             replayingAttemptID = attempt.id
             statusLabel.text = "Replaying saved take \(attempt.id.uuidString.prefix(8))."
-            startLevelMeter(source: .replay)
+            startWaveform(
+                source: .replay,
+                container: replayWaveform.container,
+                view: replayWaveform.view
+            )
         } catch {
             stopSavedTakePlayback()
             deactivateReferenceAudioSession()
@@ -815,7 +861,7 @@ final class VoicePlaygroundSurface: UIView {
     }
 
     private func retainInterruptedCapture(message: String) {
-        stopLevelMeter(source: .recording)
+        stopWaveform(source: .recording)
         recordButton.setTitle("Record", for: .normal)
         retentionSwitch.isEnabled = true
         defer {
@@ -848,22 +894,32 @@ final class VoicePlaygroundSurface: UIView {
         audioPlayer?.stop()
         audioPlayer = nil
         replayingAttemptID = nil
-        stopLevelMeter(source: .replay)
+        stopWaveform(source: .replay)
     }
 
-    private func startLevelMeter(source: LevelMeterSource) {
-        stopLevelMeter()
-        levelMeterSource = source
+    private func startWaveform(
+        source: WaveformSource,
+        container: UIStackView,
+        view: VoiceWaveformView
+    ) {
+        stopWaveform()
+        waveformSource = source
+        activeWaveformContainer = container
+        activeWaveformView = view
         displayedLevel = 0
-        levelMeter.progress = 0
-        levelMeterLabel.text = source == .recording
-            ? "Live microphone level"
-            : "Saved take level"
-        levelMeter.progressTintColor = source == .recording ? .systemRed : .systemBlue
-        levelMeterStack.isHidden = false
-        updateLevelMeter()
+        view.reset()
+        container.isHidden = false
+        if source == .replay {
+            layoutIfNeeded()
+            let visibleRect = container.convert(container.bounds, to: scrollView)
+            scrollView.scrollRectToVisible(
+                visibleRect.insetBy(dx: 0, dy: -12),
+                animated: true
+            )
+        }
+        updateWaveform()
 
-        levelMeterTask = Task { @MainActor [weak self] in
+        waveformTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .milliseconds(50))
@@ -872,14 +928,14 @@ final class VoicePlaygroundSurface: UIView {
                 }
                 guard !Task.isCancelled else { return }
                 guard self != nil else { return }
-                self?.updateLevelMeter()
+                self?.updateWaveform()
             }
         }
     }
 
-    private func updateLevelMeter() {
+    private func updateWaveform() {
         let measuredLevel: Float
-        switch levelMeterSource {
+        switch waveformSource {
         case .recording:
             measuredLevel = probe.currentAudioLevel
         case .replay:
@@ -897,19 +953,19 @@ final class VoicePlaygroundSurface: UIView {
 
         let response: Float = measuredLevel >= displayedLevel ? 0.65 : 0.18
         displayedLevel += (measuredLevel - displayedLevel) * response
-        levelMeter.setProgress(displayedLevel, animated: false)
-        levelMeter.accessibilityValue = "\(Int((displayedLevel * 100).rounded())) percent"
+        activeWaveformView?.append(level: displayedLevel)
     }
 
-    private func stopLevelMeter(source: LevelMeterSource? = nil) {
-        guard source == nil || source == levelMeterSource else { return }
-        levelMeterTask?.cancel()
-        levelMeterTask = nil
-        levelMeterSource = nil
+    private func stopWaveform(source: WaveformSource? = nil) {
+        guard source == nil || source == waveformSource else { return }
+        waveformTask?.cancel()
+        waveformTask = nil
+        waveformSource = nil
         displayedLevel = 0
-        levelMeter.progress = 0
-        levelMeter.accessibilityValue = "0 percent"
-        levelMeterStack.isHidden = true
+        activeWaveformView?.reset()
+        activeWaveformContainer?.isHidden = true
+        activeWaveformView = nil
+        activeWaveformContainer = nil
     }
 
     private static func savedAttemptSummary(_ attempt: VoiceSavedAttempt) -> String {
@@ -959,7 +1015,7 @@ final class VoicePlaygroundSurface: UIView {
         }
         synthesizer.stopSpeaking(at: .immediate)
         stopSavedTakePlayback()
-        stopLevelMeter()
+        stopWaveform()
         deactivateReferenceAudioSession()
         recordButton.isEnabled = true
         retentionSwitch.isEnabled = true

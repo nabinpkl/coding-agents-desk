@@ -53,7 +53,8 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
     always-present local toggle
     beside Settings: it replaces pairing or session UI immediately, works on first launch, and does
     not initiate a host session or media path until the user returns to a host-backed surface. A
-    shared live level bar shows microphone power while recording and saved-audio power during replay.
+    rolling amplitude waveform shows microphone power below the recorder while recording and
+    saved-audio power inline within the active saved-take card during replay.
   - Remaining acceptance: on the physical iPhone, collect two completed retained takes for each of
     the eight prompts, verify replay and deletion against the matching build identity, and accept the
     resulting keep/remove recommendation. R129 stays open until this observed evidence exists.
