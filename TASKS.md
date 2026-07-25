@@ -46,6 +46,13 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   without using the microphone, rename `Heard instead` to `Other recognition candidates`, distinguish
   top-result from alternative-only matches, and run a saved minimal-pair matrix that decides whether
   the target-biased pass remains a product signal or is removed while ordinary STT stays.
+  - Implementation landed: every retained take is a versioned `audio.caf` plus `metadata.json`,
+    review/replay/delete and retain/discard controls are present, recognition candidates retain order
+    and confidence, match rank is explicit, and the matrix applies a tested keep/remove rule across
+    `think/sink`, `rice/lice`, `very/wary`, and `ship/sheep`.
+  - Remaining acceptance: on the physical iPhone, collect two completed retained takes for each of
+    the eight prompts, verify replay and deletion against the matching build identity, and accept the
+    resulting keep/remove recommendation. R129 stays open until this observed evidence exists.
 
 ## v15 Phase 1: phoneme-level gap evidence
 
@@ -97,7 +104,7 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
 
 ```text
 D128  2026-07-25  landed     safe raw-audio capture and dual Apple recognition-context probe
-R129  candidate   remaining  saved evidence and context-signal decision
+R129  implemented remaining  physical 16-take context-signal decision
 R130  candidate   remaining  phoneme-level hypotheses and timing
 R131  candidate   remaining  calibrated GOP or equivalent phone score
 R132  candidate   remaining  retained synthesized or real reference audio

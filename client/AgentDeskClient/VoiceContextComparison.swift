@@ -13,18 +13,31 @@ import Foundation
 // tests production code via dual target membership, not @testable linkage
 // (see ControlSurface.swift).
 
-/// One transcription pass over a recorded utterance.
-struct VoiceReading: Equatable {
-    /// The recognizer's best transcription.
+/// One recognition candidate, preserving the confidence attached to that
+/// candidate rather than keeping a parallel array that can drift out of order.
+struct VoiceRecognitionCandidate: Codable, Equatable {
     let text: String
-    /// N-best alternatives, best-first. Empty when the recognizer offered none.
-    let alternatives: [String]
-    /// Mean per-token confidence, or nil when the pass did not report it.
+    /// Mean per-token confidence, or nil when the candidate did not report it.
     let confidence: Double?
 }
 
+/// One transcription pass over a recorded utterance.
+struct VoiceReading: Codable, Equatable {
+    /// The recognizer's best transcription.
+    let top: VoiceRecognitionCandidate
+    /// N-best alternatives, best-first. Empty when the recognizer offered none.
+    let alternatives: [VoiceRecognitionCandidate]
+}
+
+/// Where the intended target appeared in a recognition pass.
+enum VoiceTargetMatch: String, Codable, Equatable {
+    case absent
+    case topResult
+    case alternative
+}
+
 /// How the two readings relate to the target phrase.
-enum VoiceGapVerdict: Equatable {
+enum VoiceGapVerdict: String, Codable, Equatable {
     /// The target appeared in both recognition passes.
     case clear
     /// The target appeared only in the context-biased recognition pass.
@@ -71,13 +84,19 @@ enum VoiceContextComparison {
         return false
     }
 
-    /// True when any of the reading's transcriptions carries the target. The
-    /// best transcription is checked first, then the alternatives: a target
-    /// sitting in second place is still a recognizer match and is materially
-    /// different from the target being absent from the whole N-best result.
-    static func anyMatches(_ reading: VoiceReading, target: String) -> Bool {
-        if matches(reading.text, target: target) { return true }
-        return reading.alternatives.contains { matches($0, target: target) }
+    /// Reports where the target appears in the reading. The best transcription
+    /// is checked first, then the alternatives: a target sitting in second place
+    /// is materially different from the target being absent from the whole
+    /// N-best result.
+    static func matchLocation(
+        in reading: VoiceReading,
+        target: String
+    ) -> VoiceTargetMatch {
+        if matches(reading.top.text, target: target) { return .topResult }
+        if reading.alternatives.contains(where: { matches($0.text, target: target) }) {
+            return .alternative
+        }
+        return .absent
     }
 
     static func verdict(
@@ -85,8 +104,8 @@ enum VoiceContextComparison {
         withoutContext: VoiceReading,
         withContext: VoiceReading
     ) -> VoiceGapVerdict {
-        let unaided = anyMatches(withoutContext, target: target)
-        let aided = anyMatches(withContext, target: target)
+        let unaided = matchLocation(in: withoutContext, target: target) != .absent
+        let aided = matchLocation(in: withContext, target: target) != .absent
         switch (unaided, aided) {
         case (true, true): return .clear
         case (false, true): return .contextRescued
@@ -103,7 +122,7 @@ enum VoiceContextComparison {
     /// (best-first) and duplicates are dropped.
     static func confusions(target: String, reading: VoiceReading) -> [String] {
         var seen = Set<String>()
-        return ([reading.text] + reading.alternatives).filter { candidate in
+        return ([reading.top] + reading.alternatives).map(\.text).filter { candidate in
             let normalized = normalize(candidate)
             guard !normalized.isEmpty,
                   !matches(candidate, target: target),

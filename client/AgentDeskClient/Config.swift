@@ -67,6 +67,8 @@ enum Config {
         .appendingPathComponent("Diagnostics", isDirectory: true)
     static let workspaceIDEDraftsDirectory = applicationSupportDirectory
         .appendingPathComponent("WorkspaceIDE/Drafts", isDirectory: true)
+    static let voiceAttemptsDirectory = applicationSupportDirectory
+        .appendingPathComponent("VoiceAttempts", isDirectory: true)
     static let diagnosticsManifestURL = diagnosticsDirectory
         .appendingPathComponent("manifest.json", isDirectory: false)
     static let diagnosticsCurrentRunURL = diagnosticsDirectory

@@ -31,15 +31,36 @@ struct VoiceContextComparisonTests {
         #expect(!VoiceContextComparison.matches("think about it", target: "think it"))
     }
 
-    @Test func anyMatchesAcceptsTargetInAnAlternative() {
-        let reading = VoiceReading(text: "sink", alternatives: ["think"], confidence: nil)
-        #expect(VoiceContextComparison.anyMatches(reading, target: "think"))
-        #expect(!VoiceContextComparison.matches(reading.text, target: "think"))
+    @Test func matchLocationAcceptsTargetInAnAlternative() {
+        let reading = reading("sink", alternatives: ["think"])
+        #expect(VoiceContextComparison.matchLocation(in: reading, target: "think") == .alternative)
+        #expect(!VoiceContextComparison.matches(reading.top.text, target: "think"))
+    }
+
+    @Test func matchLocationDistinguishesTopAlternativeAndAbsent() {
+        #expect(
+            VoiceContextComparison.matchLocation(
+                in: reading("think", alternatives: ["sink"]),
+                target: "think"
+            ) == .topResult
+        )
+        #expect(
+            VoiceContextComparison.matchLocation(
+                in: reading("sink", alternatives: ["think"]),
+                target: "think"
+            ) == .alternative
+        )
+        #expect(
+            VoiceContextComparison.matchLocation(
+                in: reading("sink", alternatives: ["zinc"]),
+                target: "think"
+            ) == .absent
+        )
     }
 
     // The four verdicts are the whole point of running two passes.
     @Test func verdictIsClearWhenBothPassesRecognizeTheTarget() {
-        let reading = VoiceReading(text: "think", alternatives: [], confidence: nil)
+        let reading = reading("think")
         #expect(
             VoiceContextComparison.verdict(
                 target: "think",
@@ -53,8 +74,8 @@ struct VoiceContextComparisonTests {
         #expect(
             VoiceContextComparison.verdict(
                 target: "think",
-                withoutContext: VoiceReading(text: "sink", alternatives: [], confidence: nil),
-                withContext: VoiceReading(text: "think", alternatives: [], confidence: nil)
+                withoutContext: reading("sink"),
+                withContext: reading("think")
             ) == .contextRescued
         )
     }
@@ -63,12 +84,8 @@ struct VoiceContextComparisonTests {
         #expect(
             VoiceContextComparison.verdict(
                 target: "think",
-                withoutContext: VoiceReading(
-                    text: "sink",
-                    alternatives: ["think"],
-                    confidence: nil
-                ),
-                withContext: VoiceReading(text: "think", alternatives: [], confidence: nil)
+                withoutContext: reading("sink", alternatives: ["think"]),
+                withContext: reading("think")
             ) == .clear
         )
     }
@@ -77,18 +94,14 @@ struct VoiceContextComparisonTests {
         #expect(
             VoiceContextComparison.verdict(
                 target: "think",
-                withoutContext: VoiceReading(text: "sink", alternatives: [], confidence: nil),
-                withContext: VoiceReading(
-                    text: "sink",
-                    alternatives: ["think"],
-                    confidence: nil
-                )
+                withoutContext: reading("sink"),
+                withContext: reading("sink", alternatives: ["think"])
             ) == .contextRescued
         )
     }
 
     @Test func verdictIsMissedWhenNeitherPassRecognizes() {
-        let reading = VoiceReading(text: "sink", alternatives: [], confidence: nil)
+        let reading = reading("sink")
         #expect(
             VoiceContextComparison.verdict(
                 target: "think",
@@ -105,25 +118,33 @@ struct VoiceContextComparisonTests {
         #expect(
             VoiceContextComparison.verdict(
                 target: "think",
-                withoutContext: VoiceReading(text: "think", alternatives: [], confidence: nil),
-                withContext: VoiceReading(text: "sink", alternatives: [], confidence: nil)
+                withoutContext: reading("think"),
+                withContext: reading("sink")
             ) == .inconsistent
         )
     }
 
     @Test func confusionsListWhatTheUtteranceWasHeardAsInstead() {
-        let reading = VoiceReading(
-            text: "sink",
-            alternatives: ["think", "zinc", "Sink."],
-            confidence: nil
-        )
+        let reading = reading("sink", alternatives: ["think", "zinc", "Sink."])
         // The target is excluded, and "Sink." dedupes against "sink" after
         // normalization so the learner is not shown the same word twice.
         #expect(VoiceContextComparison.confusions(target: "think", reading: reading) == ["sink", "zinc"])
     }
 
     @Test func confusionsAreEmptyWhenOnlyTheTargetWasHeard() {
-        let reading = VoiceReading(text: "think", alternatives: ["I think"], confidence: nil)
+        let reading = reading("think", alternatives: ["I think"])
         #expect(VoiceContextComparison.confusions(target: "think", reading: reading).isEmpty)
+    }
+
+    private func reading(
+        _ top: String,
+        alternatives: [String] = []
+    ) -> VoiceReading {
+        VoiceReading(
+            top: VoiceRecognitionCandidate(text: top, confidence: nil),
+            alternatives: alternatives.map {
+                VoiceRecognitionCandidate(text: $0, confidence: nil)
+            }
+        )
     }
 }

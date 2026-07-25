@@ -1,20 +1,18 @@
 import AVFoundation
 import UIKit
 
-// Playground surface for an experimental recognition-context comparison.
+// Evidence-retaining surface for an experimental recognition-context comparison.
 //
 // One take of audio, two transcription passes, and the difference between them
-// shown side by side. This exists to answer one question before any model work
-// is committed: does seeding `AnalysisContext.contextualStrings` produce an
-// observable context-sensitivity signal on real speech?
+// shown side by side. The exact analyzer-format audio and a versioned metadata
+// record are retained together so later model work can replay the evidence
+// instead of relying on a transient label or the user's recollection.
 //
-// It is deliberately a probe, not a product surface. No persistence, no scoring
-// model, no reference comparison.
+// It remains a recognition probe, not a pronunciation score or reference
+// comparison.
 @available(iOS 26.0, *)
 final class VoicePlaygroundSurface: UIView {
-    // Short contrasting words make context-induced recognition differences easy
-    // to inspect without implying that the recognizer evaluated the speaker.
-    private static let presets = ["think", "sink", "rice", "very", "ship", "sheep"]
+    private static let retentionDefaultsKey = "VoiceProbeRetainsAttempts"
 
     private let scrollView = UIScrollView()
     private let stack = UIStackView()
@@ -26,9 +24,20 @@ final class VoicePlaygroundSurface: UIView {
     private let unaidedLabel = UILabel()
     private let aidedLabel = UILabel()
     private let confusionsLabel = UILabel()
+    private let retentionSwitch = UISwitch()
+    private let deleteAllButton = UIButton(type: .system)
+    private let matrixLabel = UILabel()
+    private let savedAttemptsStack = UIStackView()
 
     private let probe = VoiceContextProbe()
+    private let attemptStore = VoiceAttemptStore()
     private let synthesizer = AVSpeechSynthesizer()
+    private var audioPlayer: AVAudioPlayer?
+    private var replayingAttemptID: UUID?
+    private var savedAttempts: [VoiceSavedAttempt] = []
+    private var activeTarget: String?
+    private var activeAttemptID: UUID?
+    private var activeShouldRetain = true
     private var isPrepared = false
     private var preparationTask: Task<Void, Never>?
     private var recordingTask: Task<Void, Never>?
@@ -40,9 +49,9 @@ final class VoicePlaygroundSurface: UIView {
         configure()
         synthesizer.delegate = self
         probe.onCaptureInterrupted = { [weak self] message in
-            self?.recordButton.setTitle("Record", for: .normal)
-            self?.statusLabel.text = message
+            self?.retainInterruptedCapture(message: message)
         }
+        refreshSavedAttempts()
         preparationTask = Task { [weak self] in
             await self?.prepareModel()
         }
@@ -92,7 +101,7 @@ final class VoicePlaygroundSurface: UIView {
         targetField.accessibilityLabel = "Target phrase"
         stack.addArrangedSubview(caption("Target phrase"))
         stack.addArrangedSubview(targetField)
-        stack.addArrangedSubview(presetRow())
+        stack.addArrangedSubview(presetGrid())
 
         speakButton.setTitle("Hear reference", for: .normal)
         speakButton.addTarget(self, action: #selector(speakTarget), for: .touchUpInside)
@@ -121,13 +130,59 @@ final class VoicePlaygroundSurface: UIView {
         for (caption, label) in [
             ("No context", unaidedLabel),
             ("With target as context", aidedLabel),
-            ("Heard instead", confusionsLabel)
+            ("Other recognition candidates", confusionsLabel)
         ] {
             label.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
             label.numberOfLines = 0
             stack.addArrangedSubview(self.caption(caption))
             stack.addArrangedSubview(label)
         }
+
+        stack.addArrangedSubview(separator())
+        stack.addArrangedSubview(heading("Saved evidence"))
+
+        let retentionRow = UIStackView()
+        retentionRow.axis = .horizontal
+        retentionRow.alignment = .center
+        retentionRow.spacing = 12
+        let retentionText = caption(
+            "Keep new takes on this iPhone until you delete them"
+        )
+        retentionText.numberOfLines = 0
+        retentionRow.addArrangedSubview(retentionText)
+        retentionRow.addArrangedSubview(retentionSwitch)
+        retentionSwitch.setContentHuggingPriority(.required, for: .horizontal)
+        let defaults = UserDefaults.standard
+        retentionSwitch.isOn = defaults.object(forKey: Self.retentionDefaultsKey) == nil
+            ? true
+            : defaults.bool(forKey: Self.retentionDefaultsKey)
+        retentionSwitch.addTarget(
+            self,
+            action: #selector(retentionChanged),
+            for: .valueChanged
+        )
+        retentionSwitch.accessibilityLabel = "Keep new voice recordings"
+        stack.addArrangedSubview(retentionRow)
+
+        deleteAllButton.setTitle("Delete all saved takes", for: .normal)
+        deleteAllButton.setTitleColor(.systemRed, for: .normal)
+        deleteAllButton.addTarget(
+            self,
+            action: #selector(confirmDeleteAll),
+            for: .touchUpInside
+        )
+        stack.addArrangedSubview(deleteAllButton)
+
+        matrixLabel.font = .preferredFont(forTextStyle: .footnote)
+        matrixLabel.numberOfLines = 0
+        matrixLabel.accessibilityIdentifier = "voice-context-matrix"
+        stack.addArrangedSubview(caption("Saved minimal-pair matrix"))
+        stack.addArrangedSubview(matrixLabel)
+
+        savedAttemptsStack.axis = .vertical
+        savedAttemptsStack.spacing = 10
+        stack.addArrangedSubview(caption("Saved takes"))
+        stack.addArrangedSubview(savedAttemptsStack)
     }
 
     private func heading(_ text: String) -> UILabel {
@@ -153,19 +208,29 @@ final class VoicePlaygroundSurface: UIView {
         return view
     }
 
-    private func presetRow() -> UIView {
-        let row = UIStackView()
-        row.axis = .horizontal
-        row.spacing = 8
-        row.distribution = .fillEqually
-        for word in Self.presets {
-            let button = UIButton(type: .system)
-            button.setTitle(word, for: .normal)
-            button.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
-            button.addTarget(self, action: #selector(presetTapped(_:)), for: .touchUpInside)
-            row.addArrangedSubview(button)
+    private func presetGrid() -> UIView {
+        let grid = UIStackView()
+        grid.axis = .vertical
+        grid.spacing = 6
+        for pair in VoiceContextMatrix.minimalPairs {
+            let row = UIStackView()
+            row.axis = .horizontal
+            row.spacing = 8
+            row.distribution = .fillEqually
+            for word in pair.prompts {
+                let button = UIButton(type: .system)
+                button.setTitle(word, for: .normal)
+                button.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
+                button.addTarget(
+                    self,
+                    action: #selector(presetTapped(_:)),
+                    for: .touchUpInside
+                )
+                row.addArrangedSubview(button)
+            }
+            grid.addArrangedSubview(row)
         }
-        return row
+        return grid
     }
 
     // MARK: - Actions
@@ -178,6 +243,31 @@ final class VoicePlaygroundSurface: UIView {
         targetField.text = sender.title(for: .normal)
     }
 
+    @objc private func retentionChanged() {
+        UserDefaults.standard.set(
+            retentionSwitch.isOn,
+            forKey: Self.retentionDefaultsKey
+        )
+        statusLabel.text = retentionSwitch.isOn
+            ? "New takes will be saved until you delete them."
+            : "New takes will be analyzed in memory and discarded."
+    }
+
+    @objc private func confirmDeleteAll() {
+        guard !savedAttempts.isEmpty else { return }
+        let alert = UIAlertController(
+            title: "Delete all saved takes?",
+            message: "This removes every retained recording and its recognition metadata.",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: "Delete all", style: .destructive) {
+            [weak self] _ in
+            self?.deleteAllSavedAttempts()
+        })
+        enclosingViewController?.present(alert, animated: true)
+    }
+
     @objc private func speakTarget() {
         guard let target = targetField.text, !target.isEmpty else { return }
         // Playing the reference mid-take would put the synthesized voice into the
@@ -186,6 +276,7 @@ final class VoicePlaygroundSurface: UIView {
             statusLabel.text = "Stop recording before playing the reference."
             return
         }
+        stopSavedTakePlayback()
         do {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .spokenAudio)
@@ -207,14 +298,39 @@ final class VoicePlaygroundSurface: UIView {
             recordingTask = nil
             probe.stopRecording()
             recordButton.setTitle("Record", for: .normal)
-            statusLabel.text = "Transcribing both passes…"
+            if activeShouldRetain {
+                do {
+                    let capture = try probe.capturedTake()
+                    let saved = try attemptStore.save(
+                        capture: capture,
+                        targetPhrase: activeTarget ?? targetField.text ?? "",
+                        locale: probe.analysisLocale
+                    )
+                    activeAttemptID = saved.id
+                    statusLabel.text = "Recording saved. Transcribing both passes…"
+                    refreshSavedAttempts()
+                } catch {
+                    activeAttemptID = nil
+                    statusLabel.text = "Save failed; transcribing unsaved take: \(error.localizedDescription)"
+                }
+            } else {
+                activeAttemptID = nil
+                statusLabel.text = "Transcribing both passes without retaining this take…"
+            }
+            let target = activeTarget ?? targetField.text ?? ""
+            let attemptID = activeAttemptID
+            activeTarget = nil
+            activeAttemptID = nil
+            recordButton.isEnabled = false
+            retentionSwitch.isEnabled = false
             readingsTask?.cancel()
             readingsTask = Task { [weak self] in
-                await self?.runReadings()
+                await self?.runReadings(target: target, attemptID: attemptID)
             }
         } else {
             synthesizer.stopSpeaking(at: .immediate)
             deactivateReferenceAudioSession()
+            stopSavedTakePlayback()
             recordingTask?.cancel()
             recordingTask = Task { [weak self] in
                 await self?.beginRecording()
@@ -243,22 +359,39 @@ final class VoicePlaygroundSurface: UIView {
             statusLabel.text = "Still preparing the speech model."
             return
         }
+        let target = (targetField.text ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !target.isEmpty else {
+            statusLabel.text = "Enter a target phrase before recording."
+            return
+        }
         do {
             try await probe.startRecording()
             guard !Task.isCancelled else {
                 probe.stopRecording()
                 return
             }
+            activeTarget = target
+            activeAttemptID = nil
+            activeShouldRetain = retentionSwitch.isOn
             recordButton.setTitle("Stop", for: .normal)
+            retentionSwitch.isEnabled = false
             statusLabel.text = "Recording. Tap Stop when finished."
         } catch {
             guard !Task.isCancelled else { return }
+            activeTarget = nil
+            activeAttemptID = nil
+            retentionSwitch.isEnabled = true
             statusLabel.text = "Record failed: \(error.localizedDescription)"
         }
     }
 
-    private func runReadings() async {
-        let target = targetField.text ?? ""
+    private func runReadings(target: String, attemptID: UUID?) async {
+        defer {
+            readingsTask = nil
+            recordButton.isEnabled = true
+            retentionSwitch.isEnabled = true
+        }
         do {
             let (unaided, aided) = try await probe.readings(target: target)
             let verdict = VoiceContextComparison.verdict(
@@ -267,24 +400,88 @@ final class VoicePlaygroundSurface: UIView {
                 withContext: aided
             )
             let confusions = VoiceContextComparison.confusions(target: target, reading: unaided)
+            let unaidedMatch = VoiceContextComparison.matchLocation(
+                in: unaided,
+                target: target
+            )
+            let aidedMatch = VoiceContextComparison.matchLocation(
+                in: aided,
+                target: target
+            )
 
-            verdictLabel.text = Self.describe(verdict)
+            verdictLabel.text = Self.describe(
+                verdict,
+                withoutContextMatch: unaidedMatch,
+                withContextMatch: aidedMatch
+            )
             unaidedLabel.text = Self.describe(reading: unaided)
             aidedLabel.text = Self.describe(reading: aided)
             confusionsLabel.text = confusions.isEmpty ? "—" : confusions.joined(separator: ", ")
-            statusLabel.text = "Done."
+            if let attemptID {
+                do {
+                    _ = try attemptStore.finishAnalysis(
+                        attemptID: attemptID,
+                        withoutContext: unaided,
+                        withContext: aided
+                    )
+                    statusLabel.text = "Done. Recording and recognition metadata saved."
+                    refreshSavedAttempts()
+                } catch {
+                    statusLabel.text = "Analyzed, but metadata update failed: \(error.localizedDescription)"
+                }
+            } else {
+                statusLabel.text = "Done. This take was not retained."
+            }
         } catch {
-            guard !Task.isCancelled else { return }
+            if Task.isCancelled {
+                if let attemptID {
+                    do {
+                        _ = try attemptStore.recordAnalysisFailure(
+                            attemptID: attemptID,
+                            message: "Analysis stopped when the Voice surface closed."
+                        )
+                        refreshSavedAttempts()
+                    } catch {
+                        VoiceProbeTrace.emit(
+                            "failed to record canceled analysis for \(attemptID): \(error)"
+                        )
+                    }
+                }
+                return
+            }
+            if let attemptID {
+                do {
+                    _ = try attemptStore.recordAnalysisFailure(
+                        attemptID: attemptID,
+                        message: error.localizedDescription
+                    )
+                    refreshSavedAttempts()
+                } catch {
+                    VoiceProbeTrace.emit(
+                        "failed to record analysis error for \(attemptID): \(error)"
+                    )
+                }
+            }
             statusLabel.text = "Transcribe failed: \(error.localizedDescription)"
         }
     }
 
-    private static func describe(_ verdict: VoiceGapVerdict) -> String {
+    private static func describe(
+        _ verdict: VoiceGapVerdict,
+        withoutContextMatch: VoiceTargetMatch,
+        withContextMatch: VoiceTargetMatch
+    ) -> String {
         switch verdict {
         case .clear:
-            return "Unaided match: the target appeared without contextual bias."
+            if withoutContextMatch == .topResult {
+                return "Unaided top-result match: context was not needed."
+            }
+            return "Unaided alternative-only match: the target was not the recognizer’s top result."
         case .contextRescued:
-            return "Context-sensitive: the target appeared only with contextual bias."
+            if withContextMatch == .topResult {
+                return "Context promoted the target from absent to the top result."
+            }
+            return "Context added the target only as an alternative candidate."
         case .missed:
             return "No match: the target did not appear in either transcription."
         case .inconsistent:
@@ -293,14 +490,281 @@ final class VoicePlaygroundSurface: UIView {
     }
 
     private static func describe(reading: VoiceReading) -> String {
-        var lines = [reading.text.isEmpty ? "(nothing)" : reading.text]
-        if let confidence = reading.confidence {
+        var lines = [reading.top.text.isEmpty ? "(nothing)" : reading.top.text]
+        if let confidence = reading.top.confidence {
             lines.append(String(format: "confidence %.3f", confidence))
         }
         if !reading.alternatives.isEmpty {
-            lines.append("alts: " + reading.alternatives.joined(separator: " | "))
+            lines.append(
+                "alts: " + reading.alternatives.map { candidate in
+                    guard let confidence = candidate.confidence else {
+                        return candidate.text
+                    }
+                    return "\(candidate.text) (\(String(format: "%.3f", confidence)))"
+                }
+                .joined(separator: " | ")
+            )
         }
         return lines.joined(separator: "\n")
+    }
+
+    // MARK: - Saved attempts
+
+    private func refreshSavedAttempts() {
+        do {
+            savedAttempts = try attemptStore.attempts()
+            rebuildSavedAttempts()
+            updateMatrix()
+            deleteAllButton.isEnabled = !savedAttempts.isEmpty
+        } catch {
+            savedAttempts = []
+            rebuildSavedAttempts()
+            matrixLabel.text = "Saved evidence could not be read: \(error.localizedDescription)"
+            deleteAllButton.isEnabled = false
+        }
+    }
+
+    private func rebuildSavedAttempts() {
+        for view in savedAttemptsStack.arrangedSubviews {
+            savedAttemptsStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        guard !savedAttempts.isEmpty else {
+            savedAttemptsStack.addArrangedSubview(caption("No saved takes yet."))
+            return
+        }
+
+        for attempt in savedAttempts {
+            let card = UIStackView()
+            card.axis = .vertical
+            card.spacing = 6
+            card.isLayoutMarginsRelativeArrangement = true
+            card.layoutMargins = UIEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
+            card.layer.cornerRadius = 8
+            card.backgroundColor = .secondarySystemBackground
+
+            let summary = UILabel()
+            summary.font = .preferredFont(forTextStyle: .footnote)
+            summary.numberOfLines = 0
+            summary.text = Self.savedAttemptSummary(attempt)
+            card.addArrangedSubview(summary)
+
+            let controls = UIStackView()
+            controls.axis = .horizontal
+            controls.spacing = 8
+            controls.distribution = .fillEqually
+
+            let review = UIButton(type: .system)
+            review.setTitle("Review", for: .normal)
+            review.addAction(UIAction { [weak self] _ in
+                self?.reviewSavedAttempt(id: attempt.id)
+            }, for: .touchUpInside)
+            controls.addArrangedSubview(review)
+
+            let replay = UIButton(type: .system)
+            replay.setTitle("Replay", for: .normal)
+            replay.accessibilityIdentifier = "voice-replay-\(attempt.id.uuidString)"
+            replay.addAction(UIAction { [weak self] _ in
+                self?.replaySavedAttempt(id: attempt.id)
+            }, for: .touchUpInside)
+            controls.addArrangedSubview(replay)
+
+            let delete = UIButton(type: .system)
+            delete.setTitle("Delete", for: .normal)
+            delete.setTitleColor(.systemRed, for: .normal)
+            delete.addAction(UIAction { [weak self] _ in
+                self?.deleteSavedAttempt(id: attempt.id)
+            }, for: .touchUpInside)
+            controls.addArrangedSubview(delete)
+
+            card.addArrangedSubview(controls)
+            savedAttemptsStack.addArrangedSubview(card)
+        }
+    }
+
+    private func updateMatrix() {
+        let report = VoiceContextMatrix.evaluate(savedAttempts)
+        let progress = VoiceContextMatrix.minimalPairs.map { pair in
+            pair.prompts.map {
+                "\($0) \(report.promptCounts[$0, default: 0])/\(VoiceContextMatrix.requiredTakesPerPrompt)"
+            }
+            .joined(separator: ", ")
+        }
+        .joined(separator: "\n")
+
+        let decision: String
+        switch report.recommendation {
+        case .collectMore:
+            decision = "Collect more evidence before deciding."
+        case .keepContextPass:
+            decision = "KEEP context pass as an experimental recognition signal."
+        case .removeContextPass:
+            decision = "REMOVE context pass; ordinary unaided STT remains."
+        }
+        matrixLabel.text = """
+        \(decision)
+        \(progress)
+        Completed \(report.completedTakes)/\(report.requiredTakes); rank improvements \(report.rankImprovements), top-result promotions \(report.topResultPromotions), regressions \(report.regressions), improved pairs \(report.improvedPairCount)/\(VoiceContextMatrix.minimalPairs.count).
+        Keep gate after full coverage: at least 4 top-result promotions across at least 2 pairs, with at most 1 regression.
+        """
+    }
+
+    private func reviewSavedAttempt(id: UUID) {
+        guard let attempt = savedAttempts.first(where: { $0.id == id }) else { return }
+        targetField.text = attempt.targetPhrase
+        if let analysis = attempt.analysis {
+            verdictLabel.text = Self.describe(
+                analysis.verdict,
+                withoutContextMatch: analysis.withoutContextTargetMatch,
+                withContextMatch: analysis.withContextTargetMatch
+            )
+            unaidedLabel.text = Self.describe(reading: analysis.withoutContext)
+            aidedLabel.text = Self.describe(reading: analysis.withContext)
+            let candidates = VoiceContextComparison.confusions(
+                target: attempt.targetPhrase,
+                reading: analysis.withoutContext
+            )
+            confusionsLabel.text = candidates.isEmpty ? "—" : candidates.joined(separator: ", ")
+            statusLabel.text = "Loaded saved take \(attempt.id.uuidString.prefix(8))."
+        } else if let failure = attempt.analysisFailure {
+            verdictLabel.text = "Analysis failed for this retained recording."
+            unaidedLabel.text = "—"
+            aidedLabel.text = "—"
+            confusionsLabel.text = "—"
+            statusLabel.text = failure
+        } else {
+            verdictLabel.text = "Recognition metadata is still pending."
+            unaidedLabel.text = "—"
+            aidedLabel.text = "—"
+            confusionsLabel.text = "—"
+            statusLabel.text = "Recording retained before analysis completed."
+        }
+    }
+
+    private func replaySavedAttempt(id: UUID) {
+        guard !probe.isRecording else {
+            statusLabel.text = "Stop recording before replaying a saved take."
+            return
+        }
+        guard let attempt = savedAttempts.first(where: { $0.id == id }) else { return }
+        synthesizer.stopSpeaking(at: .immediate)
+        deactivateReferenceAudioSession()
+        stopSavedTakePlayback()
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .spokenAudio)
+            try session.setActive(true)
+            referenceSessionActive = true
+
+            let player = try AVAudioPlayer(contentsOf: attemptStore.audioURL(for: attempt))
+            player.delegate = self
+            guard player.prepareToPlay(), player.play() else {
+                throw VoiceAttemptStore.StoreError.invalidAttempt(attempt.id)
+            }
+            audioPlayer = player
+            replayingAttemptID = attempt.id
+            statusLabel.text = "Replaying saved take \(attempt.id.uuidString.prefix(8))."
+        } catch {
+            stopSavedTakePlayback()
+            deactivateReferenceAudioSession()
+            statusLabel.text = "Replay failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func deleteSavedAttempt(id: UUID) {
+        if replayingAttemptID == id {
+            stopSavedTakePlayback()
+            deactivateReferenceAudioSession()
+        }
+        do {
+            try attemptStore.delete(attemptID: id)
+            statusLabel.text = "Saved take deleted."
+            refreshSavedAttempts()
+        } catch {
+            statusLabel.text = "Delete failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func deleteAllSavedAttempts() {
+        stopSavedTakePlayback()
+        deactivateReferenceAudioSession()
+        do {
+            try attemptStore.deleteAll()
+            statusLabel.text = "All saved takes deleted."
+            refreshSavedAttempts()
+        } catch {
+            statusLabel.text = "Delete failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func retainInterruptedCapture(message: String) {
+        recordButton.setTitle("Record", for: .normal)
+        retentionSwitch.isEnabled = true
+        defer {
+            activeTarget = nil
+            activeAttemptID = nil
+        }
+        guard activeShouldRetain else {
+            statusLabel.text = message
+            return
+        }
+        do {
+            let capture = try probe.capturedTake()
+            let saved = try attemptStore.save(
+                capture: capture,
+                targetPhrase: activeTarget ?? targetField.text ?? "",
+                locale: probe.analysisLocale
+            )
+            _ = try attemptStore.recordAnalysisFailure(
+                attemptID: saved.id,
+                message: message
+            )
+            statusLabel.text = "\(message) Partial recording retained."
+            refreshSavedAttempts()
+        } catch {
+            statusLabel.text = "\(message) Partial recording could not be saved: \(error.localizedDescription)"
+        }
+    }
+
+    private func stopSavedTakePlayback() {
+        audioPlayer?.stop()
+        audioPlayer = nil
+        replayingAttemptID = nil
+    }
+
+    private static func savedAttemptSummary(_ attempt: VoiceSavedAttempt) -> String {
+        let state: String
+        if let analysis = attempt.analysis {
+            state = "\(matchDescription(analysis.withoutContextTargetMatch)) → \(matchDescription(analysis.withContextTargetMatch))"
+        } else if attempt.analysisFailure != nil {
+            state = "analysis failed"
+        } else {
+            state = "analysis pending"
+        }
+        return """
+        \(attempt.targetPhrase) · \(attempt.createdAt.formatted(date: .abbreviated, time: .standard))
+        \(String(format: "%.2fs", attempt.durationSeconds)) · \(Int(attempt.analyzerFormat.sampleRate)) Hz · \(state)
+        build \(attempt.build.marketingVersion) (\(attempt.build.buildNumber)) \(attempt.build.gitSHA)
+        """
+    }
+
+    private static func matchDescription(_ match: VoiceTargetMatch) -> String {
+        switch match {
+        case .absent: "absent"
+        case .topResult: "top result"
+        case .alternative: "alternative only"
+        }
+    }
+
+    private var enclosingViewController: UIViewController? {
+        var responder: UIResponder? = next
+        while let current = responder {
+            if let viewController = current as? UIViewController {
+                return viewController
+            }
+            responder = current.next
+        }
+        return nil
     }
 
     func suspend() {
@@ -310,12 +774,16 @@ final class VoicePlaygroundSurface: UIView {
         readingsTask = nil
         let wasRecording = probe.isRecording
         probe.stopRecording()
-        synthesizer.stopSpeaking(at: .immediate)
-        deactivateReferenceAudioSession()
         if wasRecording {
-            recordButton.setTitle("Record", for: .normal)
-            statusLabel.text = "Recording stopped."
+            retainInterruptedCapture(message: "Recording stopped when the Voice surface closed.")
         }
+        synthesizer.stopSpeaking(at: .immediate)
+        stopSavedTakePlayback()
+        deactivateReferenceAudioSession()
+        recordButton.isEnabled = true
+        retentionSwitch.isEnabled = true
+        activeTarget = nil
+        activeAttemptID = nil
     }
 
     func teardown() {
@@ -340,7 +808,31 @@ final class VoicePlaygroundSurface: UIView {
 }
 
 @available(iOS 26.0, *)
-extension VoicePlaygroundSurface: AVSpeechSynthesizerDelegate {
+extension VoicePlaygroundSurface: AVAudioPlayerDelegate, AVSpeechSynthesizerDelegate {
+    nonisolated func audioPlayerDidFinishPlaying(
+        _ player: AVAudioPlayer,
+        successfully flag: Bool
+    ) {
+        Task { @MainActor [weak self] in
+            self?.stopSavedTakePlayback()
+            self?.deactivateReferenceAudioSession()
+            self?.statusLabel.text = flag
+                ? "Saved take replay finished."
+                : "Saved take replay stopped before completion."
+        }
+    }
+
+    nonisolated func audioPlayerDecodeErrorDidOccur(
+        _ player: AVAudioPlayer,
+        error: (any Error)?
+    ) {
+        Task { @MainActor [weak self] in
+            self?.stopSavedTakePlayback()
+            self?.deactivateReferenceAudioSession()
+            self?.statusLabel.text = "Replay failed: \(error?.localizedDescription ?? "decode error")"
+        }
+    }
+
     nonisolated func speechSynthesizer(
         _ synthesizer: AVSpeechSynthesizer,
         didFinish utterance: AVSpeechUtterance

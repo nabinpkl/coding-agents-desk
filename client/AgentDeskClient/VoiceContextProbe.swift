@@ -37,6 +37,21 @@ enum VoiceProbeTrace {
     }
 }
 
+@available(iOS 26.0, *)
+struct VoiceCapturedTake {
+    let startedAt: Date
+    let format: AVAudioFormat
+    let buffers: [AVAudioPCMBuffer]
+
+    var frameCount: AVAudioFramePosition {
+        buffers.reduce(0) { $0 + AVAudioFramePosition($1.frameLength) }
+    }
+
+    var durationSeconds: TimeInterval {
+        Double(frameCount) / format.sampleRate
+    }
+}
+
 /// Audio-thread side of capture: owns the resampler and the accumulating
 /// buffers.
 ///
@@ -140,10 +155,12 @@ final class VoiceContextProbe {
     private var sink: CaptureSink?
     private var resolvedLocale: Locale?
     private var analyzerFormat: AVAudioFormat?
+    private var recordingStartedAt: Date?
     private var tapInstalled = false
     private var sessionActivated = false
 
     private(set) var isRecording = false
+    var analysisLocale: Locale { resolvedLocale ?? requestedLocale }
     var onCaptureInterrupted: (@MainActor @Sendable (String) -> Void)?
 
     init(locale: Locale = Locale(identifier: "en-US")) {
@@ -252,6 +269,7 @@ final class VoiceContextProbe {
             VoiceProbeTrace.emit("tap installed, starting engine")
             engine.prepare()
             try engine.start()
+            recordingStartedAt = Date()
             isRecording = true
             VoiceProbeTrace.emit("engine running")
         } catch {
@@ -262,6 +280,18 @@ final class VoiceContextProbe {
 
     func stopRecording() {
         cleanupCapture(clearCapturedAudio: false)
+    }
+
+    func capturedTake() throws -> VoiceCapturedTake {
+        guard let analyzerFormat else { throw ProbeError.audioFormatUnavailable }
+        let buffers = sink?.snapshot() ?? []
+        guard !buffers.isEmpty else { throw ProbeError.noAudioCaptured }
+        guard let recordingStartedAt else { throw ProbeError.noAudioCaptured }
+        return VoiceCapturedTake(
+            startedAt: recordingStartedAt,
+            format: analyzerFormat,
+            buffers: buffers
+        )
     }
 
     private func cleanupCapture(clearCapturedAudio: Bool) {
@@ -290,6 +320,7 @@ final class VoiceContextProbe {
         }
         if clearCapturedAudio {
             sink = nil
+            recordingStartedAt = nil
         }
 
         if sessionActivated {
@@ -337,7 +368,7 @@ final class VoiceContextProbe {
             contextualStrings: []
         )
         VoiceProbeTrace.emit(
-            "pass 1 complete: text=\(!unaided.text.isEmpty) alts=\(unaided.alternatives.count)"
+            "pass 1 complete: text=\(!unaided.top.text.isEmpty) alts=\(unaided.alternatives.count)"
         )
         let aided = try await Self.transcribe(
             locale: locale,
@@ -345,7 +376,7 @@ final class VoiceContextProbe {
             contextualStrings: [target]
         )
         VoiceProbeTrace.emit(
-            "pass 2 complete: text=\(!aided.text.isEmpty) alts=\(aided.alternatives.count)"
+            "pass 2 complete: text=\(!aided.top.text.isEmpty) alts=\(aided.alternatives.count)"
         )
         return (unaided, aided)
     }
@@ -378,11 +409,16 @@ final class VoiceContextProbe {
         // nobody listening and the reading comes back empty.
         let collector = Task {
             var text = ""
-            var alternatives: [String] = []
+            var alternatives: [VoiceRecognitionCandidate] = []
             var confidences: [Double] = []
             for try await result in transcriber.results {
                 text += String(result.text.characters)
-                alternatives += result.alternatives.map { String($0.characters) }
+                alternatives += result.alternatives.map {
+                    VoiceRecognitionCandidate(
+                        text: String($0.characters),
+                        confidence: meanConfidence(in: $0)
+                    )
+                }
                 for run in result.text.runs {
                     if let value = run.transcriptionConfidence { confidences.append(value) }
                 }
@@ -404,10 +440,18 @@ final class VoiceContextProbe {
 
         let (text, alternatives, confidence) = try await collector.value
         return VoiceReading(
-            text: text.trimmingCharacters(in: .whitespacesAndNewlines),
-            alternatives: alternatives,
-            confidence: confidence
+            top: VoiceRecognitionCandidate(
+                text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                confidence: confidence
+            ),
+            alternatives: alternatives
         )
+    }
+
+    private static func meanConfidence(in text: AttributedString) -> Double? {
+        let values = text.runs.compactMap(\.transcriptionConfidence)
+        guard !values.isEmpty else { return nil }
+        return values.reduce(0, +) / Double(values.count)
     }
 
     /// A route change mid-take invalidates the running graph. Stop immediately
