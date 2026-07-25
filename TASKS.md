@@ -231,6 +231,96 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   physical iPhone. The in-app observed RSS delta is a checkpoint sample, not a claim about peak
   memory; physical peak acceptance still needs the device measurement.
 
+## v15 Phase 1.1: host-retained client telemetry
+
+- R137. Make the Mac retain enough authenticated client evidence during and immediately after a
+  session to diagnose a missing rail, missing video, or client crash without `devicectl`, an attached
+  console, Wi-Fi, or a later manual pull while the iPhone remains foregrounded.
+
+### R137 evidence boundary
+
+- Host observations remain authoritative for session authentication, lane readiness, capture,
+  encoding, datagram sends, frame acknowledgements, and disconnect timing. The existing unified-log
+  categories remain the high-rate media record; do not duplicate every frame or quality window into
+  a second store.
+- The host cannot infer UIKit presentation from a frame acknowledgement. The client must explicitly
+  report bounded state transitions for scene phase, pairing state, active surface, rail visibility
+  and configured host-backed buttons, media startup, first complete frame, first decoder enqueue,
+  and first presentation attempt. A missing checkpoint means "not observed," never "did not happen."
+- Telemetry is operational metadata only. It must not contain raw audio, transcripts, target phrases,
+  terminal or editor content, keystrokes, screenshots, pairing material, URLs, model logits, or
+  arbitrary caller-supplied fields. Use fixed enums, booleans, counters, build identity, run/session
+  identifiers, and bounded error codes.
+- Client durable diagnostics remain the client-side source of truth. Host retention is an
+  authenticated cache of client-produced evidence plus a correlation index, not a second mutable
+  client history.
+
+### R137 execution plan
+
+1. **Add a bounded client runtime checkpoint contract.**
+   - Add an additive `client-runtime-checkpoint` frame in `AgentDeskWire` with schema version,
+     client run ID, monotonic sequence, client timestamp, marketing version, build number, git SHA,
+     scene phase, pairing state, active surface, rail configured/hidden/layout-ready state,
+     host-backed surface count, media state, and the latest video milestone.
+   - Emit checkpoints only on state transitions and deduplicate identical snapshots. Record the same
+     checkpoint into `ClientDiagnosticsStore` before enqueueing its best-effort send so a transport
+     failure cannot erase the local evidence.
+   - Take the UI checkpoint after `render()` and after the first completed layout pass. Add media
+     milestones at transport scheduled/started, first complete frame, first decoder enqueue, and
+     first presentation attempt. Keep these hooks observational; telemetry failure cannot change
+     session, UI, or media behavior.
+
+2. **Give diagnostics traffic one host-side consumer and request router.**
+   - Replace ad hoc iteration over `InputChannelServer.diagnosticsUpdates` with one per-session
+     diagnostics broker. It alone consumes the stream, routes matching request IDs to pending manual
+     or automatic collectors, and handles unsolicited `announce-*` summaries.
+   - Preserve concurrent manual `just client-diagnostics` requests without letting an automatic
+     announcement consumer steal their summary or chunks. Cancel pending continuations when the lane
+     closes and fail them with the actual closure reason.
+
+3. **Automatically ingest client runs while the app is already foregrounded.**
+   - On every authenticated input-lane attachment, have the client announce the current run and any
+     not-yet-confirmed archive summaries, not only prior unclean runs.
+   - Compare run ID, byte count, and event count with the host cache. Immediately request only new or
+     advanced bounded tails through the live session, before the user can background the app.
+   - Atomically store received summaries and compressed NDJSON under the bundle-scoped host
+     Application Support directory, partitioned by device fingerprint and run ID, with `0700`
+     directories, `0600` files, bounded total size, and oldest-run rotation. Mark an archive
+     delivered only after the host has durably replaced its cached copy.
+
+4. **Persist a low-rate host correlation index.**
+   - Add a bounded host session index containing host receive time, device fingerprint, session ID,
+     client run/build identity, lane-ready/closed markers, first frame sent/acknowledged markers,
+     client checkpoint transitions, automatic-ingest status, and the final disconnect reason.
+   - Route existing lifecycle seams into this index rather than parsing prose logs at write time.
+     Keep high-rate encoder, repair, and quality telemetry in unified logging and retain timestamps
+     that let the exporter select the matching window.
+
+5. **Export one self-contained incident bundle.**
+   - Add `just host-client-telemetry <variant>` that performs no device operation. It exports the
+     newest or requested client run to `/tmp/agentdesk-host-client-telemetry-<timestamp>/` with a
+     machine-readable timeline, cached client NDJSON, client/build identity, and the bounded matching
+     host unified-log window.
+   - Summarize the decisive milestones explicitly: session ready, rail checkpoint, media started,
+     first frame sent, first frame acknowledged, first frame completed, first frame enqueued,
+     presentation attempted, scene backgrounded, lane closed, and prior-run clean/unclean status.
+     Preserve raw artifacts beside the summary so the command never substitutes an inference for
+     evidence.
+
+6. **Verify failure and non-failure paths.**
+   - Unit-test wire round trips and size bounds, checkpoint deduplication, privacy field allowlisting,
+     diagnostics broker routing under overlapping automatic/manual requests, lane-close cancellation,
+     cache atomicity/deduplication/rotation/permissions, and incident timeline classification.
+   - Run focused client, host, and wire tests plus `just check`, then stop at the physical-device
+     checkpoint. After explicit approval, verify a normal foreground/background cycle and one killed
+     phoneme-analysis run. Reopen the app once, leave it foregrounded only long enough to reconnect,
+     then prove `just host-client-telemetry stable` still returns both runs after the phone is
+     backgrounded.
+   - R137 is complete only when the host bundle can distinguish: transport never connected; rail was
+     configured but hidden; frame reached the client but was not enqueued; frame was enqueued but no
+     presentation attempt was observed; clean background; unclean exit; and telemetry itself ended
+     before the decisive boundary.
+
 ## v15 Phase 2: calibrated pronunciation score
 
 - R131. Derive a GOP or equivalent per-phone margin from R130's posterior evidence, preserve the
@@ -282,4 +372,5 @@ R133  candidate   remaining  speaker-reduced embeddings and DTW comparison
 R134  candidate   remaining  baselines and longitudinal attempt history
 R135  candidate   remaining  integrated explainable pronunciation gap loop
 R136  checkpoint  remaining  authorized physical-device acceptance
+R137  planned     remaining  host-retained client telemetry and incident export
 ```
