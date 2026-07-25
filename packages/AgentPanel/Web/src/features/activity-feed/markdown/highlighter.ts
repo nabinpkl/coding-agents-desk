@@ -21,7 +21,7 @@ import type { HighlighterCore } from "shiki/core";
 import { useEffect, useState } from "react";
 
 // Emitted by codeToHtml as `--shiki-light` / `--shiki-dark` CSS variables on
-// each token; markdown.css selects between them off the `.dark` ancestor.
+// each token; markdown.css selects between them from the system theme.
 export const SHIKI_THEMES = { light: "github-light", dark: "github-dark" } as const;
 
 // Common fence aliases the engine doesn't know by their short name.
