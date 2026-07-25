@@ -1,6 +1,23 @@
 import Foundation
 import os
 
+private final class AgentFeedReadinessProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var live = false
+
+    func finish(live: Bool) {
+        lock.lock()
+        self.live = live
+        lock.unlock()
+    }
+
+    var isLive: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return live
+    }
+}
+
 // AgentFeedSidecarProcess spawns the bundled transcript sidecar, polls until it
 // answers /api/config on loopback, supervises the child (restarting on
 // unexpected exit with a small backoff), and tears down cleanly on stop.
@@ -21,6 +38,8 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     private var outputPipe: Pipe?
     private var outputBuffer = ""
     private var stopped = false
+    private let stopLock = NSLock()
+    private var stopRequested = false
     private var restartBackoffSeconds: TimeInterval = 1
     // Collapses concurrent restart requests into one. A single induced exit can
     // reach scheduleRestart from both handleTermination and a ready-timeout
@@ -34,6 +53,9 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
 
     // Maximum time (seconds) to wait for the sidecar to answer /api/config.
     private static let readyTimeoutSeconds: TimeInterval = 5
+    // A stale listener can accept a connection without responding. Keep each
+    // readiness attempt short so stop() can always reach the supervisor queue.
+    private static let readinessProbeTimeoutSeconds: TimeInterval = 0.25
     // Maximum backoff between restart attempts (seconds).
     private static let maxBackoffSeconds: TimeInterval = 16
 
@@ -49,6 +71,7 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         // drain, so a
         // queued async would never fire. terminateCurrentProcess is safe to
         // call directly because no other queue work can race a deallocating self.
+        requestStop()
         stopped = true
         terminateCurrentProcess()
     }
@@ -60,8 +83,8 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     }
 
     func stop() {
-        queue.async { [weak self] in
-            guard let self else { return }
+        requestStop()
+        queue.sync {
             self.stopped = true
             self.terminateCurrentProcess()
         }
@@ -139,10 +162,8 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         var reached = false
 
         while Date() < deadline {
-            if stopped { return }
-            if let data = try? Data(contentsOf: candidate),
-               let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               body["watcherState"] as? String == "live" {
+            if stopped || isStopRequested { return }
+            if isReady(candidate) {
                 reached = true
                 break
             }
@@ -159,6 +180,44 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
             terminateCurrentProcess()
             scheduleRestart()
         }
+    }
+
+    private func isReady(_ url: URL) -> Bool {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = Self.readinessProbeTimeoutSeconds
+        let probe = AgentFeedReadinessProbe()
+        let completion = DispatchSemaphore(value: 0)
+        let task = URLSession.shared.dataTask(with: request) { data, response, _ in
+            let live: Bool
+            if let http = response as? HTTPURLResponse,
+               (200..<300).contains(http.statusCode),
+               let data,
+               let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                live = body["watcherState"] as? String == "live"
+            } else {
+                live = false
+            }
+            probe.finish(live: live)
+            completion.signal()
+        }
+        task.resume()
+        guard completion.wait(timeout: .now() + Self.readinessProbeTimeoutSeconds) == .success else {
+            task.cancel()
+            return false
+        }
+        return probe.isLive
+    }
+
+    private var isStopRequested: Bool {
+        stopLock.lock()
+        defer { stopLock.unlock() }
+        return stopRequested
+    }
+
+    private func requestStop() {
+        stopLock.lock()
+        stopRequested = true
+        stopLock.unlock()
     }
 
     private func handleTermination(status: Int32) {

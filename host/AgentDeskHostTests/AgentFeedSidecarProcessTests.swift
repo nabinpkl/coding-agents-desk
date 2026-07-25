@@ -107,6 +107,32 @@ struct AgentFeedSidecarProcessTests {
         return tmp
     }
 
+    private func makeUnresponsiveListenerBinary(port: UInt16, readyFile: URL) throws -> URL {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-feed-unresponsive-listener-\(port)-\(UUID().uuidString)")
+        let script = """
+        #!/usr/bin/env python3
+        import os, signal, socket, sys, time
+
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(("127.0.0.1", \(port)))
+        listener.listen()
+        open('\(readyFile.path)', 'w').write(str(os.getpid()))
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+        while True:
+            connection, _ = listener.accept()
+            connection.recv(4096)
+            time.sleep(60)
+        """
+        try script.write(to: tmp, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: tmp.path
+        )
+        return tmp
+    }
+
     // MARK: - Child inherits the parent environment (PATH not stripped)
 
     @Test func spawnedChildInheritsPath() async throws {
@@ -207,6 +233,39 @@ struct AgentFeedSidecarProcessTests {
             }
         }
         #expect(!portStillOpen, "port should stop answering after stop()")
+    }
+
+    @Test func stopReturnsPromptlyWhenExistingListenerNeverResponds() async throws {
+        let port = try freePort()
+        let readyFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-feed-unresponsive-listener-ready-\(port)-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: readyFile) }
+        let listenerURL = try makeUnresponsiveListenerBinary(port: port, readyFile: readyFile)
+        defer { try? FileManager.default.removeItem(at: listenerURL) }
+
+        let listener = Process()
+        listener.executableURL = listenerURL
+        try listener.run()
+        defer {
+            if listener.isRunning { listener.terminate() }
+        }
+
+        let readyDeadline = Date().addingTimeInterval(2)
+        while !FileManager.default.fileExists(atPath: readyFile.path), Date() < readyDeadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        #expect(FileManager.default.fileExists(atPath: readyFile.path), "listener must bind before the probe")
+
+        let sidecarURL = try makeStubBinary(port: port)
+        defer { try? FileManager.default.removeItem(at: sidecarURL) }
+        let sidecar = AgentFeedSidecarProcess(binaryURL: sidecarURL, port: port)
+        defer { sidecar.stop() }
+        sidecar.start()
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        let started = Date()
+        sidecar.stop()
+        #expect(Date().timeIntervalSince(started) < 1, "stop must not wait on an unresponsive listener")
     }
 
     // MARK: - Induced child exit triggers exactly one restart

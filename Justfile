@@ -858,12 +858,12 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
     # host's own code default carries it (single source of truth). The native-messaging
     # bridge is wired at the end of this recipe so browser mode works out of the box.
     if [ "{{variant}}" = "dev" ]; then
-        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app}}'; SIGPORT=41988
+        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app}}'; SIGPORT=41988; FEEDPORT=7782
         PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_dev_support_dir}}/pty-vault.sock'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
-        DD='{{derived_data}}'; APP='{{host_app}}'; SIGPORT=41888
+        DD='{{derived_data}}'; APP='{{host_app}}'; SIGPORT=41888; FEEDPORT=7682
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
         EXTRA=()
@@ -874,6 +874,32 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
     find_pty_manager_pids() {
         ps -axo pid=,command= | awk -v manager="$PTY_SOCKET" -v vault="$PTY_VAULT_SOCKET" \
             '(index($0, "pty-manager --socket") && index($0, manager)) || (index($0, "pty-vault --socket") && index($0, vault)) { print $1 }'
+    }
+    cleanup_agent_feed_sidecar() {
+        local pids pid cmd live
+        pids="$(lsof -nP -iTCP:"$FEEDPORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+        [ -z "$pids" ] && return 0
+        for pid in $pids; do
+            cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+            if [[ "$cmd" != *"/AgentDeskHost.app/Contents/Resources/agent-feed-sidecar"* ]]; then
+                echo "ERROR: agent-feed sidecar port $FEEDPORT is held by a non-AgentDesk process: pid=$pid cmd=$cmd" >&2
+                return 1
+            fi
+        done
+        kill $pids 2>/dev/null || true
+        for _ in $(seq 1 40); do
+            live="$(lsof -nP -iTCP:"$FEEDPORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+            [ -z "$live" ] && return 0
+            sleep 0.05
+        done
+        kill -9 $live 2>/dev/null || true
+        for _ in $(seq 1 40); do
+            live="$(lsof -nP -iTCP:"$FEEDPORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+            [ -z "$live" ] && return 0
+            sleep 0.05
+        done
+        echo "ERROR: agent-feed sidecar port $FEEDPORT did not close" >&2
+        return 1
     }
     # Do not let an older running host execute its old applicationWillTerminate
     # hook, because pre-ADR-0072 hosts killed their PTY child processes.
@@ -929,6 +955,8 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
         done
         [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill_host_pids "${SAFE_PIDS[@]}"
     fi
+    FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
+    cleanup_agent_feed_sidecar
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     if [ "${AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS:-0}" != "0" ]; then
@@ -970,12 +998,12 @@ host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-ge
     set -euo pipefail
     # DOM mirror is baked on by default (see host-run-dev); no enable override injected here.
     if [ "{{variant}}" = "dev" ]; then
-        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app_release}}'; SIGPORT=41988
+        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app_release}}'; SIGPORT=41988; FEEDPORT=7782
         PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_dev_support_dir}}/pty-vault.sock'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
-        DD='{{derived_data}}'; APP='{{host_app_release}}'; SIGPORT=41888
+        DD='{{derived_data}}'; APP='{{host_app_release}}'; SIGPORT=41888; FEEDPORT=7682
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
         EXTRA=()
@@ -986,6 +1014,32 @@ host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-ge
     find_pty_manager_pids() {
         ps -axo pid=,command= | awk -v manager="$PTY_SOCKET" -v vault="$PTY_VAULT_SOCKET" \
             '(index($0, "pty-manager --socket") && index($0, manager)) || (index($0, "pty-vault --socket") && index($0, vault)) { print $1 }'
+    }
+    cleanup_agent_feed_sidecar() {
+        local pids pid cmd live
+        pids="$(lsof -nP -iTCP:"$FEEDPORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+        [ -z "$pids" ] && return 0
+        for pid in $pids; do
+            cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+            if [[ "$cmd" != *"/AgentDeskHost.app/Contents/Resources/agent-feed-sidecar"* ]]; then
+                echo "ERROR: agent-feed sidecar port $FEEDPORT is held by a non-AgentDesk process: pid=$pid cmd=$cmd" >&2
+                return 1
+            fi
+        done
+        kill $pids 2>/dev/null || true
+        for _ in $(seq 1 40); do
+            live="$(lsof -nP -iTCP:"$FEEDPORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+            [ -z "$live" ] && return 0
+            sleep 0.05
+        done
+        kill -9 $live 2>/dev/null || true
+        for _ in $(seq 1 40); do
+            live="$(lsof -nP -iTCP:"$FEEDPORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+            [ -z "$live" ] && return 0
+            sleep 0.05
+        done
+        echo "ERROR: agent-feed sidecar port $FEEDPORT did not close" >&2
+        return 1
     }
     # Do not let an older running host execute its old applicationWillTerminate
     # hook, because pre-ADR-0072 hosts killed their PTY child processes.
@@ -1039,6 +1093,8 @@ host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-ge
         done
         [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill_host_pids "${SAFE_PIDS[@]}"
     fi
+    FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
+    cleanup_agent_feed_sidecar
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     if [ "${AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS:-0}" != "0" ]; then
