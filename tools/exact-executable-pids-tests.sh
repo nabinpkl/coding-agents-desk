@@ -26,10 +26,25 @@ other_host_executable="$other_app/Contents/MacOS/AgentDeskHost"
 
 mkdir -p "$(dirname "$host_executable")" "$(dirname "$sidecar_executable")" \
     "$(dirname "$other_host_executable")"
-cp /bin/sleep "$host_executable"
-cp /bin/sleep "$sidecar_executable"
-cp /bin/sleep "$manager_executable"
-cp /bin/sleep "$other_host_executable"
+
+# Build the placeholder process rather than copying /bin/sleep. Apple's system
+# binaries carry a launch constraint binding them to their own path on the
+# sealed system volume, so a copy is SIGKILLed by AMFI before main ("Launch
+# Constraint Violation") and the selector then has no process to find.
+cat > "$tmpdir/placeholder.c" <<'PLACEHOLDER'
+#include <stdlib.h>
+#include <unistd.h>
+
+int main(int argc, char **argv) {
+    sleep(argc > 1 ? (unsigned int)atoi(argv[1]) : 30u);
+    return 0;
+}
+PLACEHOLDER
+cc -o "$tmpdir/placeholder" "$tmpdir/placeholder.c"
+cp "$tmpdir/placeholder" "$host_executable"
+cp "$tmpdir/placeholder" "$sidecar_executable"
+cp "$tmpdir/placeholder" "$manager_executable"
+cp "$tmpdir/placeholder" "$other_host_executable"
 
 "$host_executable" 30 &
 host_pid=$!
