@@ -30,7 +30,9 @@ struct DockWindowFocusExecutorTests {
             DockDesktopActivationRequest(spaceID: 20, displayID: "D1", desktopLabel: "Desktop 2")
         )
 
-        #expect(commits == [(1, "D1")])
+        #expect(commits.count == 1)
+        #expect(commits.first?.0 == 1)
+        #expect(commits.first?.1 == "D1")
         #expect(ax.actions.isEmpty)
     }
 
@@ -91,7 +93,9 @@ struct DockWindowFocusExecutorTests {
 
         try await executor.focus(request(spaceIDs: [10, 20], targetSpaceID: 20))
 
-        #expect(commits == [(1, "D1")])
+        #expect(commits.count == 1)
+        #expect(commits.first?.0 == 1)
+        #expect(commits.first?.1 == "D1")
         #expect(ax.actions.last == "activate:100")
     }
 
