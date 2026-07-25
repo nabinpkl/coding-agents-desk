@@ -46,6 +46,49 @@ struct VoicePronunciationLexiconTests {
     }
 }
 
+struct VoicePhoneVocabularyTests {
+    @Test
+    func idOrderedVocabularyPreservesCanonicallyEquivalentTokens() throws {
+        let decomposed = "u\u{0303}"
+        let precomposed = "\u{0169}"
+        #expect(decomposed == precomposed)
+
+        let tokens = ["<pad>", decomposed, precomposed]
+        let vocabulary = try VoicePhoneModelAssets.decodeVocabulary(
+            data: JSONEncoder().encode(tokens),
+            manifest: manifest(vocabularySize: tokens.count)
+        )
+
+        #expect(vocabulary.tokensByID.count == 3)
+        #expect(vocabulary.tokenID(for: decomposed) == 1)
+        #expect(vocabulary.tokenID(for: precomposed) == 2)
+    }
+
+    private func manifest(vocabularySize: Int) -> VoicePhoneModelManifest {
+        VoicePhoneModelManifest(
+            schemaVersion: 1,
+            identifier: "test-model",
+            upstreamModel: "upstream",
+            upstreamLicense: "Apache-2.0",
+            conversionRepository: "conversion",
+            conversionRevision: "revision",
+            conversionID: "conversion-id",
+            sourceWeightSHA256: "source",
+            modelWeightSHA256: VoicePhoneModelManifest.selectedWeightSHA256,
+            modelSpecificationSHA256:
+                VoicePhoneModelManifest.selectedSpecificationSHA256,
+            vocabularySHA256: "vocabulary",
+            modelBytes: 100,
+            minimumIOSVersion: 26,
+            sampleRate: 16_000,
+            sampleCount: 64_000,
+            frameCount: 199,
+            vocabularySize: vocabularySize,
+            blankTokenID: 0
+        )
+    }
+}
+
 struct VoiceCTCAlignmentTests {
     @Test
     func collapsesBlanksAndRepeatedTokens() throws {

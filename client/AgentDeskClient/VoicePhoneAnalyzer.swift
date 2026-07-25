@@ -36,6 +36,40 @@ enum VoicePhoneAnalyzerError: LocalizedError {
     }
 }
 
+struct VoicePhoneTokenKey: Hashable, Sendable {
+    private let unicodeScalars: [UInt32]
+
+    init(_ token: String) {
+        unicodeScalars = token.unicodeScalars.map(\.value)
+    }
+}
+
+struct VoicePhoneVocabulary {
+    let tokensByID: [Int: String]
+    private let tokenIDs: [VoicePhoneTokenKey: Int]
+
+    init(tokens: [String]) throws {
+        var tokensByID: [Int: String] = [:]
+        var tokenIDs: [VoicePhoneTokenKey: Int] = [:]
+        for (tokenID, token) in tokens.enumerated() {
+            let key = VoicePhoneTokenKey(token)
+            guard tokenIDs[key] == nil else {
+                throw VoicePhoneAnalyzerError.invalidVocabulary(
+                    "token \(token) has a duplicated Unicode scalar sequence"
+                )
+            }
+            tokensByID[tokenID] = token
+            tokenIDs[key] = tokenID
+        }
+        self.tokensByID = tokensByID
+        self.tokenIDs = tokenIDs
+    }
+
+    func tokenID(for token: String) -> Int? {
+        tokenIDs[VoicePhoneTokenKey(token)]
+    }
+}
+
 enum VoicePhoneModelAssets {
     static func loadManifest(bundle: Bundle = .main) throws -> VoicePhoneModelManifest {
         let url = try resourceURL(
@@ -78,7 +112,7 @@ enum VoicePhoneModelAssets {
     static func loadVocabulary(
         manifest: VoicePhoneModelManifest,
         bundle: Bundle = .main
-    ) throws -> [Int: String] {
+    ) throws -> VoicePhoneVocabulary {
         let url = try resourceURL(
             named: "VoicePhoneVocabulary",
             extension: "json",
@@ -91,22 +125,28 @@ enum VoicePhoneModelAssets {
                 "SHA-256 does not match the pinned manifest"
             )
         }
-        let tokenIDs = try JSONDecoder().decode([String: Int].self, from: data)
-        guard tokenIDs.count == manifest.vocabularySize else {
+        return try decodeVocabulary(data: data, manifest: manifest)
+    }
+
+    static func decodeVocabulary(
+        data: Data,
+        manifest: VoicePhoneModelManifest
+    ) throws -> VoicePhoneVocabulary {
+        let tokens: [String]
+        do {
+            tokens = try JSONDecoder().decode([String].self, from: data)
+        } catch {
             throw VoicePhoneAnalyzerError.invalidVocabulary(
-                "expected \(manifest.vocabularySize) tokens, found \(tokenIDs.count)"
+                "expected an ID-ordered token array"
             )
         }
-        var vocabulary: [Int: String] = [:]
-        for (token, tokenID) in tokenIDs {
-            guard vocabulary[tokenID] == nil else {
-                throw VoicePhoneAnalyzerError.invalidVocabulary(
-                    "token ID \(tokenID) is duplicated"
-                )
-            }
-            vocabulary[tokenID] = token
+        guard tokens.count == manifest.vocabularySize else {
+            throw VoicePhoneAnalyzerError.invalidVocabulary(
+                "expected \(manifest.vocabularySize) tokens, found \(tokens.count)"
+            )
         }
-        guard vocabulary[manifest.blankTokenID] == "<pad>" else {
+        let vocabulary = try VoicePhoneVocabulary(tokens: tokens)
+        guard vocabulary.tokensByID[manifest.blankTokenID] == "<pad>" else {
             throw VoicePhoneAnalyzerError.invalidVocabulary(
                 "the CTC blank is not <pad>"
             )
@@ -155,8 +195,7 @@ actor VoicePhoneAnalyzer {
 
     private struct LoadedAssets {
         let manifest: VoicePhoneModelManifest
-        let vocabulary: [Int: String]
-        let tokenIDs: [String: Int]
+        let vocabulary: VoicePhoneVocabulary
         let model: MLModel
     }
 
@@ -190,7 +229,7 @@ actor VoicePhoneAnalyzer {
             : 0
 
         let targetTokenIDs = try request.pronunciation.phones.map { phone in
-            guard let tokenID = assets.tokenIDs[phone] else {
+            guard let tokenID = assets.vocabulary.tokenID(for: phone) else {
                 throw VoicePhoneAnalyzerError.invalidVocabulary(
                     "target phone \(phone) is absent"
                 )
@@ -241,7 +280,7 @@ actor VoicePhoneAnalyzer {
                     + Double(frameIndex + 1) * frameDuration,
                 hypotheses: VoiceCTCAlignment.topHypotheses(
                     frame: logPosteriors[frameIndex],
-                    vocabulary: assets.vocabulary,
+                    vocabulary: assets.vocabulary.tokensByID,
                     limit: 5,
                     excludingTokenIDs: excludedTokens
                 )
@@ -256,7 +295,7 @@ actor VoicePhoneAnalyzer {
             )
             guard let observed = VoiceCTCAlignment.topHypotheses(
                 frame: averaged,
-                vocabulary: assets.vocabulary,
+                vocabulary: assets.vocabulary.tokensByID,
                 limit: 1,
                 excludingTokenIDs: excludedTokens
             ).first else {
@@ -266,7 +305,7 @@ actor VoicePhoneAnalyzer {
             }
             let competitors = VoiceCTCAlignment.topHypotheses(
                 frame: averaged,
-                vocabulary: assets.vocabulary,
+                vocabulary: assets.vocabulary.tokensByID,
                 limit: 3,
                 excludingTokenIDs: excludedTokens.union([targetTokenID])
             )
@@ -345,9 +384,6 @@ actor VoicePhoneAnalyzer {
         let assets = LoadedAssets(
             manifest: manifest,
             vocabulary: vocabulary,
-            tokenIDs: Dictionary(
-                uniqueKeysWithValues: vocabulary.map { ($0.value, $0.key) }
-            ),
             model: model
         )
         loadedAssets = assets

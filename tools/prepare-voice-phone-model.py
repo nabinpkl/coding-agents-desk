@@ -33,7 +33,12 @@ SOURCE_FILES = {
     ),
 }
 VOCABULARY_REMOTE_PATH = "vocab.json"
-VOCABULARY_SHA256 = "d732ab2456c0c017930001dc9af0b41b3b93d25b2eb9740bf9d925508d7d87d0"
+SOURCE_VOCABULARY_SHA256 = (
+    "d732ab2456c0c017930001dc9af0b41b3b93d25b2eb9740bf9d925508d7d87d0"
+)
+EXPECTED_OUTPUT_VOCABULARY_SHA256 = (
+    "202ef6b52161221d96496b4d189ab009b5a7b066a0a277822d9190a196fc6f69"
+)
 CONVERSION_ID = "coremltools-9.0-lut4-kmeans-per-grouped-channel-16-ios26"
 EXPECTED_OUTPUT_WEIGHT_SHA256 = (
     "8c093d09a94c89898670734440b18432f3229e7a9e5174f1fe3c159898fa172c"
@@ -111,17 +116,61 @@ def output_paths(repo_root: Path, output: str) -> tuple[Path, Path, Path]:
     )
 
 
-def validate_vocabulary(path: Path) -> None:
-    vocabulary = json.loads(path.read_text(encoding="utf-8"))
-    if len(vocabulary) != 392:
+def ordered_source_vocabulary(path: Path) -> list[str]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise RuntimeError("Source vocabulary must be a token-to-ID object")
+    if len(value) != 392:
         raise RuntimeError(
-            f"Vocabulary has {len(vocabulary)} entries; expected 392"
+            f"Source vocabulary has {len(value)} entries; expected 392"
         )
-    missing = REQUIRED_PHASE_ONE_PHONES.difference(vocabulary)
+    if any(
+        not isinstance(token, str)
+        or not isinstance(token_id, int)
+        or isinstance(token_id, bool)
+        for token, token_id in value.items()
+    ):
+        raise RuntimeError("Source vocabulary entries must map strings to integer IDs")
+    token_ids = set(value.values())
+    expected_token_ids = set(range(392))
+    if token_ids != expected_token_ids:
+        raise RuntimeError(
+            "Source vocabulary IDs must be unique and contiguous from 0 through 391"
+        )
+    missing = REQUIRED_PHASE_ONE_PHONES.difference(value)
     if missing:
         raise RuntimeError(
-            f"Vocabulary is missing phase-one phones: {sorted(missing)}"
+            f"Source vocabulary is missing phase-one phones: {sorted(missing)}"
         )
+    ordered = [""] * 392
+    for token, token_id in value.items():
+        ordered[token_id] = token
+    return ordered
+
+
+def validate_installed_vocabulary(path: Path) -> list[str]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, list) or not all(
+        isinstance(token, str) for token in value
+    ):
+        raise RuntimeError("Installed vocabulary must be an ID-ordered token array")
+    if len(value) != 392:
+        raise RuntimeError(
+            f"Installed vocabulary has {len(value)} entries; expected 392"
+        )
+    missing = REQUIRED_PHASE_ONE_PHONES.difference(value)
+    if missing:
+        raise RuntimeError(
+            f"Installed vocabulary is missing phase-one phones: {sorted(missing)}"
+        )
+    return value
+
+
+def write_installed_vocabulary(path: Path, vocabulary: list[str]) -> None:
+    path.write_text(
+        json.dumps(vocabulary, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def check_generated(repo_root: Path, output: str) -> None:
@@ -169,7 +218,7 @@ def check_generated(repo_root: Path, output: str) -> None:
         ][1],
         "modelWeightSHA256": EXPECTED_OUTPUT_WEIGHT_SHA256,
         "modelSpecificationSHA256": EXPECTED_OUTPUT_SPECIFICATION_SHA256,
-        "vocabularySHA256": VOCABULARY_SHA256,
+        "vocabularySHA256": EXPECTED_OUTPUT_VOCABULARY_SHA256,
         "modelBytes": actual_size,
         "minimumIOSVersion": 26,
         "sampleRate": 16000,
@@ -196,17 +245,17 @@ def check_generated(repo_root: Path, output: str) -> None:
             f"{EXPECTED_OUTPUT_SPECIFICATION_SHA256}, got "
             f"{actual_specification_hash}"
         )
-    if actual_vocabulary_hash != VOCABULARY_SHA256:
+    if actual_vocabulary_hash != EXPECTED_OUTPUT_VOCABULARY_SHA256:
         raise RuntimeError(
             "Generated vocabulary SHA-256 mismatch: expected "
-            f"{VOCABULARY_SHA256}, got {actual_vocabulary_hash}"
+            f"{EXPECTED_OUTPUT_VOCABULARY_SHA256}, got {actual_vocabulary_hash}"
         )
     if actual_size > MAX_MODEL_BYTES:
         raise RuntimeError(
             f"Generated model is {actual_size} bytes, over the "
             f"{MAX_MODEL_BYTES}-byte gate"
         )
-    validate_vocabulary(installed_vocabulary)
+    validate_installed_vocabulary(installed_vocabulary)
 
 
 def prepare(args: argparse.Namespace) -> None:
@@ -224,8 +273,8 @@ def prepare(args: argparse.Namespace) -> None:
 
     for local_path, (remote_path, expected_hash) in SOURCE_FILES.items():
         fetch(remote_path, source_package / local_path, expected_hash)
-    fetch(VOCABULARY_REMOTE_PATH, vocabulary, VOCABULARY_SHA256)
-    validate_vocabulary(vocabulary)
+    fetch(VOCABULARY_REMOTE_PATH, vocabulary, SOURCE_VOCABULARY_SHA256)
+    vocabulary_tokens = ordered_source_vocabulary(vocabulary)
 
     with tempfile.TemporaryDirectory(
         prefix="voice-phone-model-",
@@ -308,7 +357,7 @@ def prepare(args: argparse.Namespace) -> None:
             ][1],
             "modelWeightSHA256": output_hash,
             "modelSpecificationSHA256": output_specification_hash,
-            "vocabularySHA256": VOCABULARY_SHA256,
+            "vocabularySHA256": EXPECTED_OUTPUT_VOCABULARY_SHA256,
             "modelBytes": size,
             "minimumIOSVersion": 26,
             "sampleRate": 16000,
@@ -322,7 +371,7 @@ def prepare(args: argparse.Namespace) -> None:
         if installed_model.exists():
             shutil.rmtree(installed_model)
         os.replace(output_path, installed_model)
-        shutil.copy2(vocabulary, installed_vocabulary)
+        write_installed_vocabulary(installed_vocabulary, vocabulary_tokens)
         manifest_path.write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",

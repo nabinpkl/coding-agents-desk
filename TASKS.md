@@ -207,8 +207,15 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   found two retained `think` takes on 2026-07-25 with completed recognition metadata and no
   `phone-evidence.json`, proving phone analysis had not produced output for either take rather than
   the UI merely hiding a completed result.
-- Software gates are green: the generated-asset check, Python reproduction-script compile, all 393
-  client simulator tests across 40 suites, and repository-wide `just check` (579 host tests across
+- The first physical raw-audio analysis then failed before inference because the upstream JSON
+  vocabulary contains both decomposed `u` plus combining tilde at token 191 and precomposed `ũ` at
+  token 374. Swift `String` dictionary keys canonically equated them and collapsed the 392-token
+  model contract to 391 entries. Generated client vocabulary is now an ID-ordered array, while
+  reverse lookup keys exact Unicode scalar sequences, so all 392 model logits retain their original
+  token IDs; the generator pins the transformed resource hash and the regression test covers that
+  exact pair.
+- Software gates are green: the generated-asset check, Python reproduction-script compile, all 394
+  client simulator tests across 41 suites, and repository-wide `just check` (579 host tests across
   74 suites plus its package, web, and build gates).
 - Remaining before D130: use `just voice-phone-device-run` after the device checkpoint, collect and
   manually interval-label the 16 retained minimal-pair takes plus two deliberate `tink` takes from
