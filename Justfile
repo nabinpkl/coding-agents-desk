@@ -4,7 +4,9 @@
 set dotenv-load := true
 
 ios_test_destination := env_var_or_default("AGENTDESK_IOS_TEST_DESTINATION", "platform=iOS Simulator,name=iPhone 17,OS=latest")
-ios_device := env_var_or_default("AGENTDESK_IOS_DEVICE", "93DF5649-FC7B-5460-A6B4-74D2C1CEAB07")
+# Use the hardware UDID: Xcode requires it as the destination id, and
+# devicectl accepts the same value for install, launch, and diagnostics.
+ios_device := env_var_or_default("AGENTDESK_IOS_DEVICE", "00000000-0000000000000000")
 # UDID of the iPhone simulator used for Maestro UI flows. Override via env.
 ios_sim_udid := env_var_or_default("AGENTDESK_IOS_SIM_UDID", "00000000-0000-4000-8000-000000000022")
 # Second simulator for the dev client, so a full dev stack (dev host + dev client)
