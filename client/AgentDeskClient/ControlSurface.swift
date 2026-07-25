@@ -31,7 +31,7 @@ struct SurfaceVisibility: Equatable {
 }
 
 extension ControlSurface {
-    /// SF Symbol name for the control rail. Icons keep all six surfaces legible across supported
+    /// SF Symbol name for the control rail. Icons keep the surfaces legible across supported
     /// iPhone heights where text labels would crowd or truncate. Pure (a name string) so it stays in
     /// this UIKit-free, test-compiled file;
     /// the UIKit layer resolves it via `UIImage(systemName:)`.
@@ -71,9 +71,10 @@ extension ControlSurface {
     }
 }
 
-/// The ordered surfaces the switcher offers. Browser is present only when the session opened a `.dom`
-/// lane; the rest are always available. Pure so the ordering + availability is unit-tested without
-/// UIKit.
+/// The ordered host-backed surfaces the session switcher offers. Browser is
+/// present only when the session opened a `.dom` lane. Voice deliberately is
+/// not in this list: it is a local utility beside Settings and exists before
+/// pairing or media initialization.
 func availableControlSurfaces(browserAvailable: Bool) -> [ControlSurface] {
     var surfaces: [ControlSurface] = [.control, .agent, .terminal]
     if browserAvailable {
@@ -81,7 +82,6 @@ func availableControlSurfaces(browserAvailable: Bool) -> [ControlSurface] {
     }
     surfaces.append(.workspace)
     surfaces.append(.ide)
-    surfaces.append(.voice)
     return surfaces
 }
 

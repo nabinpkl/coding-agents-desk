@@ -96,6 +96,21 @@ struct PairingClientTests {
         #expect(rejectingClient.state == .rejected("signature-mismatch"))
     }
 
+    @Test func cancelScanningReturnsToFirstRunWithoutTouchingPairing() throws {
+        let store = InMemorySessionTokenStore()
+        let client = PairingClient(
+            tokenStore: store,
+            deviceKeyProvider: InMemoryDeviceSigningKeyProvider(),
+            resolver: StaticResolver()
+        )
+
+        try client.startScanning()
+        client.cancelScanning()
+
+        #expect(client.state == .unpaired)
+        #expect(try store.load() == nil)
+    }
+
     @Test func mediaSessionRevokedFailureClearsStoredCredentials() throws {
         let hostKey = P256.Signing.PrivateKey()
         let token = try signedToken(hostKey: hostKey, deviceFingerprint: DeviceFingerprint("device"))

@@ -1,11 +1,10 @@
 import UIKit
 
-// Wiring for the on-device speech-context comparison probe.
+// Always-present local mode for the on-device speech-context comparison probe.
 //
-// Unlike every other surface, Voice opens no session lane and needs no active
-// pairing: capture and recognition are entirely local to the phone. That is why
-// `ensureVoiceSurface()` is synchronous and has no transport, generation, or
-// reconnect-rebind machinery — there is nothing to rebind.
+// Voice opens no session lane and needs no active pairing: capture and
+// recognition are entirely local to the phone. Its utility toggle lives beside
+// Settings from first launch, while this file owns its local lifecycle.
 extension PairingViewController {
     private enum VoiceKeys {
         nonisolated(unsafe) static var surface: UInt8 = 0
@@ -32,6 +31,33 @@ extension PairingViewController {
             surface,
             .OBJC_ASSOCIATION_RETAIN_NONATOMIC
         )
+    }
+
+    @objc func toggleVoiceSurface() {
+        if activeControlSurface == .voice {
+            suspendVoiceSurfaceIfNeeded()
+            activeControlSurface = .control
+            render()
+            triggerSessionIfPaired()
+            return
+        }
+
+        if activeControlSurface == .agent {
+            agentTerminalLifecycleRouter.route(.switchAway, to: agentSurface)
+        }
+        if case .scanning = pairingClient.state {
+            stopCamera()
+            pairingClient.cancelScanning()
+        }
+        // A pending reconnect exists only to reach host-backed surfaces. Voice
+        // must become usable immediately even when that host is unavailable.
+        if sessionTask != nil {
+            cancelSessionAttempt()
+        }
+        activeControlSurface = .voice
+        surfaceControlRail.select(.voice)
+        ensureVoiceSurface()
+        render()
     }
 
     func teardownVoiceSurface() {

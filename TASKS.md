@@ -49,7 +49,9 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   - Implementation landed: every retained take is a versioned `audio.caf` plus `metadata.json`,
     review/replay/delete and retain/discard controls are present, recognition candidates retain order
     and confidence, match rank is explicit, and the matrix applies a tested keep/remove rule across
-    `think/sink`, `rice/lice`, `very/wary`, and `ship/sheep`.
+    `think/sink`, `rice/lice`, `very/wary`, and `ship/sheep`. Voice is an always-present local toggle
+    beside Settings: it replaces pairing or session UI immediately, works on first launch, and does
+    not initiate a host session or media path until the user returns to a host-backed surface.
   - Remaining acceptance: on the physical iPhone, collect two completed retained takes for each of
     the eight prompts, verify replay and deletion against the matching build identity, and accept the
     resulting keep/remove recommendation. R129 stays open until this observed evidence exists.

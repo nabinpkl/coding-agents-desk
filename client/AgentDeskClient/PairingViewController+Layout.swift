@@ -486,6 +486,17 @@ extension PairingViewController {
         settingsButton.accessibilityIdentifier = "settings-button"
         settingsButton.addTarget(self, action: #selector(openSettings), for: .touchUpInside)
 
+        // Voice is local and therefore belongs with the always-present utility
+        // actions, not with host-backed session surfaces.
+        voiceToggleButton.setImage(UIImage(systemName: "waveform"), for: .normal)
+        voiceToggleButton.accessibilityLabel = "Voice"
+        voiceToggleButton.accessibilityIdentifier = "voice-toggle"
+        voiceToggleButton.addTarget(
+            self,
+            action: #selector(toggleVoiceSurface),
+            for: .touchUpInside
+        )
+
         // R24: orientation remains a global action in the same rail as surface selection.
         orientationToggleButton.accessibilityIdentifier = "orientation-toggle"
         orientationToggleButton.addTarget(self, action: #selector(toggleOrientation), for: .touchUpInside)

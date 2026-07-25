@@ -149,6 +149,12 @@ final class PairingClient {
         ClientDiagnostics.shared.record(type: "pairingScanStarted", fields: [:], level: .info)
     }
 
+    func cancelScanning() {
+        guard state == .scanning else { return }
+        state = .unpaired
+        ClientDiagnostics.shared.record(type: "pairingScanCancelled", fields: [:], level: .info)
+    }
+
     func acceptScannedCode(_ code: String) throws -> PairingPayload {
         guard state == .scanning else {
             throw PairingClientError.invalidState

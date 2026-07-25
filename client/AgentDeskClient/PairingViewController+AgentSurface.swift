@@ -2,7 +2,8 @@ import OSLog
 import UIKit
 import WebKit
 
-// Extension: surface switcher and lifecycle for Control, Agent, Terminal, Browser, Workspace, and IDE.
+// Extension: host-backed surface switcher and lifecycle for Control, Agent,
+// Terminal, Browser, Workspace, and IDE.
 // The ControlSurface enum + visibility(for:) mapping live in ControlSurface.swift.
 //
 // Each non-control surface sits beside the shared right-side control rail. The
@@ -155,7 +156,9 @@ extension PairingViewController {
 
     @discardableResult
     func teardownAgentSurface() -> Task<Void, Never>? {
-        activeControlSurface = .control
+        if activeControlSurface != .voice {
+            activeControlSurface = .control
+        }
         // Detach the push sink so no transport delivers to a dead surface.
         pairingClient.onAgentPush = nil
 
@@ -172,12 +175,11 @@ extension PairingViewController {
             terminalSurface = nil
         }
 
-        // The switcher owns all non-control surfaces; tear the browser down too
-        // so a reconnect rebuilds all three cleanly from the fresh session.
+        // Tear down only session-owned surfaces. Voice is a local utility and
+        // remains mounted when the host is absent or disconnects.
         teardownDomMirrorSurface()
         teardownWorkspaceSurface()
         teardownIDESurface()
-        teardownVoiceSurface()
 
         surfaceControlRail.clearSurfaces()
         return terminalCloseTask
@@ -313,6 +315,16 @@ extension PairingViewController {
         }
         if surface != .voice {
             suspendVoiceSurfaceIfNeeded()
+            surfaceControlRail.setUtilityButton(
+                voiceToggleButton,
+                selected: false
+            )
+            // A host may connect while Voice is active. Voice deliberately
+            // skips media startup, so the first host-backed selection owns
+            // starting it instead.
+            if case .connected = pairingClient.state {
+                startMediaTransportIfNeeded()
+            }
         }
         applySurface(surface)
 
@@ -351,8 +363,9 @@ extension PairingViewController {
         domMirrorSurface?.setPaused(activeControlSurface != .browser)
     }
 
-    // The ordered surfaces the current rail offers. Browser is present only with a `.dom` lane;
-    // availability is fixed for the session, so the index<->surface mapping is stable between rebuilds.
+    // The ordered host-backed surfaces the current rail offers. Browser is
+    // present only with a `.dom` lane; availability is fixed for the session,
+    // so the index<->surface mapping is stable between rebuilds.
     private func currentSurfaces() -> [ControlSurface] {
         availableControlSurfaces(browserAvailable: pairingClient.activeDomMirror != nil)
     }

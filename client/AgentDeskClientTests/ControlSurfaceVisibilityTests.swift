@@ -96,12 +96,17 @@ struct ControlSurfaceVisibilityTests {
 // labels crowd. These pin the pure ordering/availability and per-surface metadata the UIKit
 // switcher builds from (and that a11y-driven flows target by label).
 struct SurfaceSwitcherTests {
-    @Test func withoutBrowserOffersFiveSurfacesInOrder() {
-        #expect(availableControlSurfaces(browserAvailable: false) == [.control, .agent, .terminal, .workspace, .ide, .voice])
+    @Test func withoutBrowserOffersFiveHostSurfacesInOrder() {
+        #expect(availableControlSurfaces(browserAvailable: false) == [.control, .agent, .terminal, .workspace, .ide])
     }
 
-    @Test func withBrowserOffersSixSurfacesInOrder() {
-        #expect(availableControlSurfaces(browserAvailable: true) == [.control, .agent, .terminal, .browser, .workspace, .ide, .voice])
+    @Test func withBrowserOffersSixHostSurfacesInOrder() {
+        #expect(availableControlSurfaces(browserAvailable: true) == [.control, .agent, .terminal, .browser, .workspace, .ide])
+    }
+
+    @Test func voiceIsNotGatedByHostSurfaceAvailability() {
+        #expect(!availableControlSurfaces(browserAvailable: false).contains(.voice))
+        #expect(!availableControlSurfaces(browserAvailable: true).contains(.voice))
     }
 
     @Test func everySurfaceHasADistinctSymbolAndStableAccessibilityLabel() {

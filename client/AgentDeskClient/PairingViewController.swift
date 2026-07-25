@@ -132,6 +132,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }()
     let scrollStripHint = UIImageView()
     let settingsButton = UIButton(type: .system)
+    let voiceToggleButton = UIButton(type: .system)
     // R24: orientation toggle. Synthesises a UIWindowScene geometry update when tapped.
     let orientationToggleButton = UIButton(type: .system)
     // Toggles the half-screen gesture panel (camera + swipe tracker for desktop
@@ -140,6 +141,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     lazy var surfaceControlRail = SurfaceControlRail(
         gestureButton: gestureToggleButton,
         orientationButton: orientationToggleButton,
+        voiceButton: voiceToggleButton,
         settingsButton: settingsButton
     )
     // MARK: - One-handed affordances
@@ -323,6 +325,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     func triggerSessionIfPaired() {
         guard sessionTask == nil else { return }
+        // Voice is a fully local mode. Showing it must not wait for or start a
+        // host session; toggling back calls this method again.
+        guard activeControlSurface != .voice else { return }
         // A user-requested disconnect stays down until they explicitly reconnect.
         guard !userRequestedDisconnect else { return }
         guard case .pairedDisconnected = pairingClient.state else { return }
@@ -746,7 +751,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             statusLabel.isHidden = true
             actionButton.isHidden = true
             stopCamera()
-            startMediaTransportIfNeeded()
+            if activeControlSurface != .voice {
+                startMediaTransportIfNeeded()
+            }
         case .revoked:
             statusLabel.text = "Revoked by host"
             actionButton.isHidden = false
@@ -758,10 +765,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             stopCamera()
         }
 
-        // The agent-surface toggle is state-driven, not gated on a one-shot
-        // channel check: render() runs on every state change so it cannot race
-        // the session/channel timing. Background suspend keeps the mounted
-        // surfaces visible; explicit non-connected states tear them down.
+        // Host-backed surface buttons are state-driven, not gated on a
+        // one-shot channel check: render() runs on every state change so it
+        // cannot race the session/channel timing. Background suspend keeps
+        // mounted surfaces visible; explicit non-connected states tear them
+        // down.
         if case .connected = pairingClient.state {
             // The switcher exposes Browser as a third segment only when this
             // session opened a .dom lane; the DOM-mirror surface is created and
@@ -781,13 +789,39 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             showSurfaceToggleIfNeeded()
             applySurface(activeControlSurface)
         } else {
-            // teardownAgentSurface owns the switcher and tears down all
-            // non-control surfaces (agent + browser).
+            // Host-backed surfaces follow the session lifecycle. The local
+            // Voice surface is deliberately preserved across this teardown.
             teardownAgentSurface()
         }
 
+        applyVoiceRootPresentation()
         startOfferListenerIfNeeded()
         configureOfferListener()
+    }
+
+    /// Voice replaces the pairing or connected UI rather than sitting on top
+    /// of an initialized video path. The local surface is brought above every
+    /// session-owned view, with only the always-present rail left in front.
+    private func applyVoiceRootPresentation() {
+        let voiceIsActive = activeControlSurface == .voice
+        surfaceControlRail.setUtilityButton(
+            voiceToggleButton,
+            selected: voiceIsActive
+        )
+        guard voiceIsActive else {
+            voiceSurface?.isHidden = true
+            return
+        }
+
+        ensureVoiceSurface()
+        applySurface(.voice)
+        statusLabel.isHidden = true
+        actionButton.isHidden = true
+        forgetButton.isHidden = true
+        if let voiceSurface {
+            view.bringSubviewToFront(voiceSurface)
+        }
+        view.bringSubviewToFront(surfaceControlRail)
     }
 
     private func unpairedStatusText() -> String {

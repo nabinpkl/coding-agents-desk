@@ -25,9 +25,10 @@ final class SurfaceControlRail: UIView {
     init(
         gestureButton: UIButton,
         orientationButton: UIButton,
+        voiceButton: UIButton,
         settingsButton: UIButton
     ) {
-        utilityButtons = [gestureButton, orientationButton, settingsButton]
+        utilityButtons = [gestureButton, orientationButton, voiceButton, settingsButton]
         super.init(frame: .zero)
         configureView()
         configureCollapseButton()
@@ -276,11 +277,11 @@ final class SurfaceControlRail: UIView {
         collapseButton.accessibilityValue = isCollapsed ? "Collapsed" : "Expanded"
     }
 
-    @objc private func collapseButtonPressed() {
+    @objc func collapseButtonPressed() {
         setCollapsed(!isCollapsed, animated: true)
     }
 
-    @objc private func surfaceButtonPressed(_ sender: UIButton) {
+    @objc func surfaceButtonPressed(_ sender: UIButton) {
         guard let surface = surfaceByButton[ObjectIdentifier(sender)] else { return }
         select(surface)
         onSelection?(surface)
