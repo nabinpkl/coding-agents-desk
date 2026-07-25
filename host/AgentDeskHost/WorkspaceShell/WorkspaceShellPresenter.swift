@@ -395,6 +395,7 @@ final class WorkspaceShellPresenter: NSObject {
         )
         dockPanel.onSwapToggle = { [weak presenter] in presenter?.toggleSwap() }
         dockPanel.onDesktopSelection = { [weak presenter] selection in presenter?.selectDesktop(selection) }
+        dockPanel.onDesktopActivation = { [weak presenter] request in presenter?.activateDesktop(request) }
         dockPanel.onWindowFocus = { [weak presenter] request in presenter?.focusWindow(request) }
         dockPanel.onUndo = { [weak presenter] in presenter?.undo() }
         dockPanel.onCancel = { [weak presenter] in presenter?.cancelInteraction() }

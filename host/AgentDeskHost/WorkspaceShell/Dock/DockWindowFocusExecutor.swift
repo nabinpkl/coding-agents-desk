@@ -50,6 +50,43 @@ struct DockWindowFocusRequest: Equatable, Sendable {
     }
 }
 
+/// A Desktop card action has no window identity: it only activates the card's
+/// exact Space on its owning display. Keeping this separate from
+/// `DockWindowFocusRequest` prevents a blank-card click from accidentally
+/// performing Accessibility actions on one of its apps.
+struct DockDesktopActivationRequest: Equatable, Sendable {
+    let spaceID: UInt64
+    let displayID: String
+    let desktopLabel: String
+
+    init?(group: DockDesktopGroupSummary) {
+        guard let spaceID = group.spaceID, let displayID = group.displayID else {
+            return nil
+        }
+        self.init(spaceID: spaceID, displayID: displayID, desktopLabel: group.desktopLabel)
+    }
+
+    init(spaceID: UInt64, displayID: String, desktopLabel: String) {
+        self.spaceID = spaceID
+        self.displayID = displayID
+        self.desktopLabel = desktopLabel
+    }
+}
+
+enum DockDesktopActivationError: Error, Equatable, LocalizedError {
+    case spaceSwitchRejected(UInt64)
+    case spaceSwitchTimedOut(UInt64)
+
+    var errorDescription: String? {
+        switch self {
+        case .spaceSwitchRejected:
+            return "The target Desktop could not be selected."
+        case .spaceSwitchTimedOut:
+            return "The target Desktop did not become active in time."
+        }
+    }
+}
+
 enum DockWindowFocusError: Error, Equatable, LocalizedError {
     case accessibilityPermissionRequired
     case unresolvedWindowID
@@ -100,6 +137,7 @@ enum DockWindowFocusError: Error, Equatable, LocalizedError {
 @MainActor
 protocol DockWindowFocusExecuting: AnyObject {
     func focus(_ request: DockWindowFocusRequest) async throws
+    func activateDesktop(_ request: DockDesktopActivationRequest) async throws
 }
 
 struct DockAXWindowCandidate<Element> {
@@ -277,6 +315,24 @@ final class DockWindowFocusExecutor<AXAccess: DockAXWindowAccessing>: DockWindow
         try axAccess.setFocused(true, for: candidate.element)
         try axAccess.raise(candidate.element)
         try axAccess.activate(pid: request.pid)
+    }
+
+    func activateDesktop(_ request: DockDesktopActivationRequest) async throws {
+        try Task.checkCancellation()
+        let result = try await desktopSwitcher.switchToDesktopAndWait(
+            spaceID: request.spaceID,
+            displayID: request.displayID
+        )
+        switch result {
+        case .reached:
+            logger.notice(
+                "desktop activation succeeded space=\(request.spaceID) display=\(request.displayID, privacy: .public)"
+            )
+        case .rejected:
+            throw DockDesktopActivationError.spaceSwitchRejected(request.spaceID)
+        case .timedOut:
+            throw DockDesktopActivationError.spaceSwitchTimedOut(request.spaceID)
+        }
     }
 
     private func logStage(_ stage: String, request: DockWindowFocusRequest) {

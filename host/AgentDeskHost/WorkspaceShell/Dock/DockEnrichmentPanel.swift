@@ -45,6 +45,7 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
 
     var onSwapToggle: (() -> Void)?
     var onDesktopSelection: ((DockDesktopSwapSelection) -> Void)?
+    var onDesktopActivation: ((DockDesktopActivationRequest) -> Void)?
     var onWindowFocus: ((DockWindowFocusRequest) -> Void)?
     var onUndo: (() -> Void)? {
         didSet { statusView.onUndo = onUndo }
@@ -103,6 +104,9 @@ final class DockEnrichmentPanel: NSView, DockEnrichmentRendering {
                     swapState: swapState,
                     onDesktopSelection: { [weak self] selection in
                         self?.onDesktopSelection?(selection)
+                    },
+                    onDesktopActivation: { [weak self] request in
+                        self?.onDesktopActivation?(request)
                     },
                     onAppPrimaryAction: { [weak self] button, app in
                         self?.performPrimaryAction(for: app, in: group, anchoredTo: button)
@@ -410,11 +414,19 @@ private final class DockDesktopPillView: NSView {
     private let onAppHoverEnd: () -> Void
     private let swapState: DockDesktopSwapState
     private let onDesktopSelection: (DockDesktopSwapSelection) -> Void
+    private let desktopActivation: DockDesktopActivationRequest?
+    private let onDesktopActivation: (DockDesktopActivationRequest) -> Void
+    private var trackingAreaToken: NSTrackingArea?
+    private var isHovered = false {
+        didSet { applyColor() }
+    }
+    private var isMouseDownInside = false
 
     init(
         group: DockDesktopGroupSummary,
         swapState: DockDesktopSwapState,
         onDesktopSelection: @escaping (DockDesktopSwapSelection) -> Void,
+        onDesktopActivation: @escaping (DockDesktopActivationRequest) -> Void,
         onAppPrimaryAction: @escaping (DockAppIconButton, DockAppInstanceSummary) -> Void,
         onAppContextMenu: @escaping (DockAppIconButton, DockAppInstanceSummary) -> Void,
         onAppHover: @escaping (DockAppIconButton, DockAppInstanceSummary) -> Void,
@@ -423,6 +435,8 @@ private final class DockDesktopPillView: NSView {
         self.group = group
         self.swapState = swapState
         self.onDesktopSelection = onDesktopSelection
+        desktopActivation = DockDesktopActivationRequest(group: group)
+        self.onDesktopActivation = onDesktopActivation
         self.onAppPrimaryAction = onAppPrimaryAction
         self.onAppContextMenu = onAppContextMenu
         self.onAppHover = onAppHover
@@ -440,6 +454,69 @@ private final class DockDesktopPillView: NSView {
         window?.makeFirstResponder(self)
     }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        desktopActivation != nil && !swapState.isSelecting
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hit = super.hitTest(point) else { return nil }
+        guard !swapState.isSelecting else { return hit }
+        return hit is DockAppIconButton ? hit : self
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingAreaToken {
+            removeTrackingArea(trackingAreaToken)
+        }
+        let tracking = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(tracking)
+        trackingAreaToken = tracking
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        isHovered = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        guard !isMouseDownInside else { return }
+        isHovered = false
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard desktopActivation != nil, !swapState.isSelecting else { return }
+        isMouseDownInside = true
+        isHovered = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { isMouseDownInside = false }
+        guard let desktopActivation,
+              !swapState.isSelecting,
+              bounds.insetBy(dx: -2, dy: -2).contains(convert(event.locationInWindow, from: nil))
+        else { return }
+        onDesktopActivation(desktopActivation)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard desktopActivation != nil, !swapState.isSelecting else { return }
+        addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        guard let desktopActivation, !swapState.isSelecting else { return false }
+        onDesktopActivation(desktopActivation)
+        return true
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColor()
@@ -450,9 +527,15 @@ private final class DockDesktopPillView: NSView {
         applyColor()
         translatesAutoresizingMaskIntoConstraints = false
         setAccessibilityElement(true)
-        setAccessibilityRole(.group)
+        setAccessibilityRole(desktopActivation == nil || swapState.isSelecting ? .group : .button)
         setAccessibilityIdentifier("dock-desktop-\(group.spaceID.map(String.init) ?? "unknown")")
-        setAccessibilityLabel("\(group.desktopLabel) on \(group.monitorName)")
+        setAccessibilityLabel(
+            desktopActivation == nil || swapState.isSelecting
+                ? "\(group.desktopLabel) on \(group.monitorName)"
+                : "Switch to \(group.desktopLabel) on \(group.monitorName)"
+        )
+        setAccessibilityValue(group.isActive ? "active Desktop" : "inactive Desktop")
+        toolTip = desktopActivation.map { "Switch to \($0.desktopLabel)" }
 
         let icons = NSStackView()
         icons.orientation = .horizontal
@@ -543,9 +626,9 @@ private final class DockDesktopPillView: NSView {
 
     private func applyColor() {
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            layer?.backgroundColor = DockEnrichmentPalette.tileSurface.cgColor
-            layer?.borderColor = (group.isActive ? AppTheme.accent : NSColor.separatorColor).cgColor
-            layer?.borderWidth = group.isActive ? 2 : 1
+            layer?.backgroundColor = (isHovered ? DockEnrichmentPalette.tileHoverSurface : DockEnrichmentPalette.tileSurface).cgColor
+            layer?.borderColor = (group.isActive || isHovered ? AppTheme.accent : NSColor.separatorColor).cgColor
+            layer?.borderWidth = group.isActive || isHovered ? 2 : 1
             layer?.cornerRadius = DockEnrichmentMetrics.desktopPillCornerRadius
         }
     }

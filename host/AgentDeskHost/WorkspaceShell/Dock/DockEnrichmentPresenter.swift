@@ -163,6 +163,36 @@ final class DockEnrichmentPresenter {
         }
     }
 
+    func activateDesktop(_ request: DockDesktopActivationRequest) {
+        guard !swapState.holdsDock else { return }
+        cancelWindowFocus()
+        renderer?.renderWindowFocusFailure(nil)
+        focusGeneration += 1
+        let token = focusGeneration
+        focusTask = Task { [weak self, focusExecutor, focusLogger] in
+            do {
+                try await focusExecutor.activateDesktop(request)
+                guard !Task.isCancelled, let self, token == self.focusGeneration else { return }
+                focusLogger.notice(
+                    "dock desktop activation succeeded space=\(request.spaceID) display=\(request.displayID, privacy: .public)"
+                )
+                self.renderer?.renderWindowFocusFailure(nil)
+                self.focusTask = nil
+                self.refreshIfVisible()
+            } catch is CancellationError {
+                return
+            } catch {
+                guard !Task.isCancelled, let self, token == self.focusGeneration else { return }
+                focusLogger.error(
+                    "dock desktop activation failed space=\(request.spaceID) display=\(request.displayID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+                self.renderer?.renderWindowFocusFailure(error.localizedDescription)
+                self.focusTask = nil
+                self.refreshIfVisible()
+            }
+        }
+    }
+
     func selectDesktop(_ selection: DockDesktopSwapSelection) {
         apply(.select(selection))
     }

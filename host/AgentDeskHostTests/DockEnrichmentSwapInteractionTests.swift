@@ -234,6 +234,56 @@ struct DockEnrichmentSwapInteractionTests {
         #expect(requests.first?.targetDisplayID == "primary")
     }
 
+    @Test func desktopTileRoutesBlankHitAreasToDesktopActivationWithoutCapturingAppIcons() {
+        let panel = DockEnrichmentPanel()
+        panel.frame = NSRect(x: 0, y: 0, width: 800, height: 140)
+        let snapshot = Self.focusSnapshot(windowCount: 1)
+        var desktopRequests: [DockDesktopActivationRequest] = []
+        var windowRequests: [DockWindowFocusRequest] = []
+        panel.onDesktopActivation = { desktopRequests.append($0) }
+        panel.onWindowFocus = { windowRequests.append($0) }
+        panel.render(snapshot, swapState: .idle)
+        panel.layoutSubtreeIfNeeded()
+
+        let desktop = panel.descendant(identifier: "dock-desktop-100")
+        let appIcon = panel.descendant(identifier: "dock-app-44")
+        #expect(desktop?.acceptsFirstMouse(for: nil) == true)
+        if let desktop {
+            let blankTilePoint = desktop.convert(NSPoint(x: 100, y: 8), to: panel)
+            #expect(panel.hitTest(blankTilePoint) === desktop)
+        }
+        #expect(desktop?.accessibilityPerformPress() == true)
+        #expect(desktopRequests == [
+            DockDesktopActivationRequest(spaceID: 100, displayID: "primary", desktopLabel: "Desktop 1"),
+        ])
+        #expect(windowRequests.isEmpty)
+
+        #expect(appIcon?.accessibilityPerformPress() == true)
+        #expect(desktopRequests.count == 1)
+        #expect(windowRequests.map(\.windowID) == [700])
+    }
+
+    @Test func presenterActivatesDesktopWithoutFocusingAWindow() async {
+        let renderer = RecordingDockRenderer()
+        let focusExecutor = RecordingDockFocusExecutor()
+        let presenter = DockEnrichmentPresenter(
+            reader: StaticDockSnapshotReader(snapshot: Self.focusSnapshot(windowCount: 1)),
+            renderer: renderer,
+            snapshotScheduler: ImmediateDockSnapshotScheduler(),
+            swapExecutor: RecordingDockSwapExecutor(),
+            focusExecutor: focusExecutor,
+            undoTimer: ManualDockUndoTimer()
+        )
+        let group = Self.focusSnapshot(windowCount: 1).desktopGroups[0]
+        let request = try! #require(DockDesktopActivationRequest(group: group))
+
+        presenter.activateDesktop(request)
+        await Self.yieldUntil { focusExecutor.desktopRequests == [request] }
+
+        #expect(focusExecutor.requests.isEmpty)
+        presenter.stop()
+    }
+
     @Test func multipleDesktopScopedWindowsRequireChooserInsteadOfDirectFocus() {
         let group = Self.focusSnapshot(windowCount: 2).desktopGroups[0]
 
@@ -511,9 +561,14 @@ private final class RecordingDockRenderer: DockEnrichmentRendering {
 @MainActor
 private final class RecordingDockFocusExecutor: DockWindowFocusExecuting {
     private(set) var requests: [DockWindowFocusRequest] = []
+    private(set) var desktopRequests: [DockDesktopActivationRequest] = []
 
     func focus(_ request: DockWindowFocusRequest) async throws {
         requests.append(request)
+    }
+
+    func activateDesktop(_ request: DockDesktopActivationRequest) async throws {
+        desktopRequests.append(request)
     }
 }
 
@@ -532,12 +587,18 @@ private final class CancellableDockFocusExecutor: DockWindowFocusExecuting {
             throw error
         }
     }
+
+    func activateDesktop(_ request: DockDesktopActivationRequest) async throws {}
 }
 
 @MainActor
 private final class FailingDockFocusExecutor: DockWindowFocusExecuting {
     func focus(_ request: DockWindowFocusRequest) async throws {
         throw DockWindowFocusError.accessibilityPermissionRequired
+    }
+
+    func activateDesktop(_ request: DockDesktopActivationRequest) async throws {
+        throw DockDesktopActivationError.spaceSwitchRejected(request.spaceID)
     }
 }
 

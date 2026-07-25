@@ -9,6 +9,31 @@ import Testing
 struct DockWindowFocusExecutorTests {
     private let bounds = CGRect(x: 100, y: 200, width: 900, height: 700)
 
+    @Test func desktopActivationWaitsForTheTargetSpaceWithoutAccessibilityActions() async throws {
+        var currentSpaceID: UInt64 = 10
+        var commits: [(Int, String)] = []
+        let switcher = makeSwitcher(
+            currentSpaceID: { currentSpaceID },
+            commit: { delta, displayID in
+                commits.append((delta, displayID))
+                return true
+            },
+            wait: { target, _ in
+                currentSpaceID = target
+                return true
+            }
+        )
+        let ax = RecordingDockAXAccess(candidates: [])
+        let executor = makeExecutor(switcher: switcher, spaceIDs: [], ax: ax)
+
+        try await executor.activateDesktop(
+            DockDesktopActivationRequest(spaceID: 20, displayID: "D1", desktopLabel: "Desktop 2")
+        )
+
+        #expect(commits == [(1, "D1")])
+        #expect(ax.actions.isEmpty)
+    }
+
     @Test func offSpaceTargetWaitsForExactSpaceThenFocusesExactWindow() async throws {
         var currentSpaceID: UInt64 = 10
         var commits: [(Int, String)] = []
