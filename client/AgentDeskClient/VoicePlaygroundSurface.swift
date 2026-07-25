@@ -604,12 +604,55 @@ final class VoicePlaygroundSurface: UIView {
             controls.spacing = 8
             controls.distribution = .fillEqually
 
-            let review = UIButton(type: .system)
-            review.setTitle("Review", for: .normal)
-            review.addAction(UIAction { [weak self] _ in
-                self?.reviewSavedAttempt(id: attempt.id)
+            let analysisContainer = UIStackView()
+            analysisContainer.axis = .vertical
+            analysisContainer.spacing = 4
+            analysisContainer.isLayoutMarginsRelativeArrangement = true
+            analysisContainer.layoutMargins = UIEdgeInsets(
+                top: 8,
+                left: 10,
+                bottom: 8,
+                right: 10
+            )
+            analysisContainer.layer.cornerRadius = 6
+            analysisContainer.backgroundColor = .tertiarySystemBackground
+            analysisContainer.accessibilityIdentifier =
+                "voice-saved-analysis-\(attempt.id.uuidString)"
+            analysisContainer.isHidden = true
+            analysisContainer.addArrangedSubview(caption("Stored analysis"))
+
+            let analysisLabel = UILabel()
+            analysisLabel.font = .preferredFont(forTextStyle: .footnote)
+            analysisLabel.numberOfLines = 0
+            analysisLabel.text = Self.savedAttemptAnalysisText(attempt)
+            analysisContainer.addArrangedSubview(analysisLabel)
+
+            let viewAnalysis = UIButton(type: .system)
+            viewAnalysis.setTitle("View analysis", for: .normal)
+            viewAnalysis.titleLabel?.numberOfLines = 2
+            viewAnalysis.titleLabel?.textAlignment = .center
+            viewAnalysis.accessibilityIdentifier =
+                "voice-view-analysis-\(attempt.id.uuidString)"
+            viewAnalysis.accessibilityValue = "Collapsed"
+            viewAnalysis.addAction(UIAction { [weak self, weak viewAnalysis, weak analysisContainer] _ in
+                guard let self, let viewAnalysis, let analysisContainer else { return }
+                let isRevealing = Self.toggleSavedAttemptAnalysis(
+                    analysisContainer,
+                    button: viewAnalysis
+                )
+                guard isRevealing else { return }
+
+                self.layoutIfNeeded()
+                let visibleRect = analysisContainer.convert(
+                    analysisContainer.bounds,
+                    to: self.scrollView
+                )
+                self.scrollView.scrollRectToVisible(
+                    visibleRect.insetBy(dx: 0, dy: -12),
+                    animated: true
+                )
             }, for: .touchUpInside)
-            controls.addArrangedSubview(review)
+            controls.addArrangedSubview(viewAnalysis)
 
             let replay = UIButton(type: .system)
             replay.setTitle("Replay", for: .normal)
@@ -628,6 +671,7 @@ final class VoicePlaygroundSurface: UIView {
             controls.addArrangedSubview(delete)
 
             card.addArrangedSubview(controls)
+            card.addArrangedSubview(analysisContainer)
             savedAttemptsStack.addArrangedSubview(card)
         }
     }
@@ -659,35 +703,56 @@ final class VoicePlaygroundSurface: UIView {
         """
     }
 
-    private func reviewSavedAttempt(id: UUID) {
-        guard let attempt = savedAttempts.first(where: { $0.id == id }) else { return }
-        targetField.text = attempt.targetPhrase
+    @discardableResult
+    static func toggleSavedAttemptAnalysis(
+        _ analysisContainer: UIView,
+        button: UIButton
+    ) -> Bool {
+        let isRevealing = analysisContainer.isHidden
+        analysisContainer.isHidden = !isRevealing
+        button.setTitle(
+            isRevealing ? "Hide analysis" : "View analysis",
+            for: .normal
+        )
+        button.accessibilityValue = isRevealing ? "Expanded" : "Collapsed"
+        return isRevealing
+    }
+
+    static func savedAttemptAnalysisText(_ attempt: VoiceSavedAttempt) -> String {
         if let analysis = attempt.analysis {
-            verdictLabel.text = Self.describe(
+            let verdict = Self.describe(
                 analysis.verdict,
                 withoutContextMatch: analysis.withoutContextTargetMatch,
                 withContextMatch: analysis.withContextTargetMatch
             )
-            unaidedLabel.text = Self.describe(reading: analysis.withoutContext)
-            aidedLabel.text = Self.describe(reading: analysis.withContext)
             let candidates = VoiceContextComparison.confusions(
                 target: attempt.targetPhrase,
                 reading: analysis.withoutContext
             )
-            confusionsLabel.text = candidates.isEmpty ? "—" : candidates.joined(separator: ", ")
-            statusLabel.text = "Loaded saved take \(attempt.id.uuidString.prefix(8))."
+            return """
+            \(verdict)
+
+            No context
+            \(Self.describe(reading: analysis.withoutContext))
+
+            With target as context
+            \(Self.describe(reading: analysis.withContext))
+
+            Other recognition candidates
+            \(candidates.isEmpty ? "—" : candidates.joined(separator: ", "))
+            """
         } else if let failure = attempt.analysisFailure {
-            verdictLabel.text = "Analysis failed for this retained recording."
-            unaidedLabel.text = "—"
-            aidedLabel.text = "—"
-            confusionsLabel.text = "—"
-            statusLabel.text = failure
+            return """
+            Analysis failed for this retained recording.
+
+            \(failure)
+            """
         } else {
-            verdictLabel.text = "Recognition metadata is still pending."
-            unaidedLabel.text = "—"
-            aidedLabel.text = "—"
-            confusionsLabel.text = "—"
-            statusLabel.text = "Recording retained before analysis completed."
+            return """
+            Recognition metadata is still pending.
+
+            Recording retained before analysis completed.
+            """
         }
     }
 

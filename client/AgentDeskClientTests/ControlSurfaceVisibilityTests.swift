@@ -129,6 +129,91 @@ struct VoicePlaygroundNavigationTests {
     }
 }
 
+@MainActor
+struct VoiceSavedAttemptPresentationTests {
+    @Test func viewAnalysisTogglesInlineDisclosureState() {
+        guard #available(iOS 26.0, *) else { return }
+        let analysisContainer = UIView()
+        analysisContainer.isHidden = true
+        let button = UIButton(type: .system)
+        button.setTitle("View analysis", for: .normal)
+        button.accessibilityValue = "Collapsed"
+
+        let didReveal = VoicePlaygroundSurface.toggleSavedAttemptAnalysis(
+            analysisContainer,
+            button: button
+        )
+
+        #expect(didReveal)
+        #expect(!analysisContainer.isHidden)
+        #expect(button.title(for: .normal) == "Hide analysis")
+        #expect(button.accessibilityValue == "Expanded")
+
+        let didRevealAgain = VoicePlaygroundSurface.toggleSavedAttemptAnalysis(
+            analysisContainer,
+            button: button
+        )
+
+        #expect(!didRevealAgain)
+        #expect(analysisContainer.isHidden)
+        #expect(button.title(for: .normal) == "View analysis")
+        #expect(button.accessibilityValue == "Collapsed")
+    }
+
+    @Test func savedAnalysisTextContainsStoredRecognitionDetails() {
+        guard #available(iOS 26.0, *) else { return }
+        let withoutContext = VoiceReading(
+            top: VoiceRecognitionCandidate(text: "thank", confidence: 0.61),
+            alternatives: [
+                VoiceRecognitionCandidate(text: "think", confidence: 0.42)
+            ]
+        )
+        let withContext = VoiceReading(
+            top: VoiceRecognitionCandidate(text: "think", confidence: 0.88),
+            alternatives: []
+        )
+        let attempt = VoiceSavedAttempt(
+            schemaVersion: VoiceSavedAttempt.currentSchemaVersion,
+            id: UUID(),
+            createdAt: Date(),
+            targetPhrase: "think",
+            localeIdentifier: "en-US",
+            durationSeconds: 1,
+            frameCount: 16_000,
+            audioFileName: VoiceSavedAttempt.audioFileName,
+            analyzerFormat: VoiceAnalyzerFormatMetadata(
+                sampleRate: 16_000,
+                channelCount: 1,
+                commonFormat: "pcmFloat32",
+                isInterleaved: false,
+                container: "caf",
+                codec: "linearPCM"
+            ),
+            build: VoiceBuildIdentity(
+                bundleIdentifier: "voice.tests",
+                marketingVersion: "1",
+                buildNumber: "1",
+                gitSHA: "test"
+            ),
+            analysis: VoiceAttemptAnalysis(
+                withoutContext: withoutContext,
+                withContext: withContext,
+                withoutContextTargetMatch: .alternative,
+                withContextTargetMatch: .topResult,
+                verdict: .clear
+            ),
+            analysisFailure: nil
+        )
+
+        let text = VoicePlaygroundSurface.savedAttemptAnalysisText(attempt)
+
+        #expect(text.contains("No context\nthank"))
+        #expect(text.contains("alts: think (0.420)"))
+        #expect(text.contains("With target as context\nthink"))
+        #expect(text.contains("Other recognition candidates\nthank"))
+    }
+}
+
 // R30: the rail offers icon buttons for every surface, fitting narrow iPhone widths where text
 // labels crowd. These pin the pure ordering/availability and per-surface metadata the UIKit
 // switcher builds from (and that a11y-driven flows target by label).

@@ -47,9 +47,10 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   top-result from alternative-only matches, and run a saved minimal-pair matrix that decides whether
   the target-biased pass remains a product signal or is removed while ordinary STT stays.
   - Implementation landed: every retained take is a versioned `audio.caf` plus `metadata.json`,
-    review/replay/delete and retain/discard controls are present, recognition candidates retain order
-    and confidence, match rank is explicit, and the matrix applies a tested keep/remove rule across
-    `think/sink`, `rice/lice`, `very/wary`, and `ship/sheep`. Voice is an always-present local toggle
+    inline view-analysis/replay/delete and retain/discard controls are present, recognition
+    candidates retain order and confidence, match rank is explicit, and the matrix applies a tested
+    keep/remove rule across `think/sink`, `rice/lice`, `very/wary`, and `ship/sheep`. Voice is an
+    always-present local toggle
     beside Settings: it replaces pairing or session UI immediately, works on first launch, and does
     not initiate a host session or media path until the user returns to a host-backed surface. A
     shared live level bar shows microphone power while recording and saved-audio power during replay.
