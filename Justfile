@@ -497,6 +497,46 @@ build-voice-sidecar:
     mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"
     echo "build-voice-sidecar: DONE"
 
+# Live check of the voice sidecar's recordings REST surface: newest-first
+# ordering, wav playback, delete, and cross-origin readability from the embedded
+# panel's origin. Boots its own server on a scratch data root (never touches the
+# real recordings) and tears it down. NOT part of `just check`: it spins up the
+# Python voice stack, which is far slower than the rest of that gate.
+voice-recordings-smoke port="7699":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    listeners() { lsof -nP -iTCP:'{{port}}' -sTCP:LISTEN -t 2>/dev/null || true; }
+    # Refuse to run against someone else's server: the checks would pass or fail
+    # for reasons that have nothing to do with this tree, and cleanup would kill
+    # a process we do not own.
+    if [ -n "$(listeners)" ]; then
+        echo "voice-recordings-smoke: port {{port}} is already in use" >&2
+        exit 1
+    fi
+    DATA_ROOT="$(mktemp -d)"
+    # Kill by port, not by the pid of the backgrounded subshell: `uv run` spawns
+    # the python server as a grandchild, so killing the subshell leaves the
+    # server holding the port and the next run would silently test a stale one.
+    cleanup() {
+        PIDS="$(listeners)"
+        [ -n "$PIDS" ] && kill $PIDS 2>/dev/null || true
+        rm -rf "$DATA_ROOT"
+    }
+    trap cleanup EXIT
+    echo "voice-recordings-smoke: data root $DATA_ROOT"
+    (cd '{{gesture_agent_dir}}' && VOICE_HOST=127.0.0.1 VOICE_PORT='{{port}}' \
+        VOICE_DATA_ROOT="$DATA_ROOT" uv run voice-server >"$DATA_ROOT/server.log" 2>&1) &
+    for _ in $(seq 1 60); do
+        curl -sf -m 2 "http://127.0.0.1:{{port}}/health" >/dev/null 2>&1 && break
+        sleep 1
+    done
+    if ! curl -sf -m 2 "http://127.0.0.1:{{port}}/health" >/dev/null 2>&1; then
+        echo "voice-recordings-smoke: server never became ready" >&2
+        tail -20 "$DATA_ROOT/server.log" >&2 || true
+        exit 1
+    fi
+    /usr/bin/python3 tools/voice-recordings-api-tests.py "http://127.0.0.1:{{port}}"
+
 # Verify the webview bundle was built and landed correctly. Checks that index.html
 # and a non-empty assets/ dir are present and that index.html references assets
 # by relative path. This is for manual/coordinator verification; it is NOT part

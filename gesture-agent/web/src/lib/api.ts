@@ -70,6 +70,30 @@ export function getRecording(id: string): Promise<Recording> {
   return request<Recording>(`/recordings/${encodeURIComponent(id)}`);
 }
 
+/**
+ * Playable URL for a recording's saved audio. Returned as a URL rather than a
+ * blob so an <audio> element can stream and seek it directly; every other
+ * endpoint hands back JSON, this one is the wav itself.
+ */
+export function recordingAudioUrl(id: string): string {
+  return `${apiBase()}/recordings/${encodeURIComponent(id)}/audio`;
+}
+
+/** Delete a recording and its audio. Answers 204, so there is no body to read. */
+export async function deleteRecording(id: string): Promise<void> {
+  const response = await fetch(
+    `${apiBase()}/recordings/${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+  );
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      response.statusText,
+      await response.text(),
+    );
+  }
+}
+
 export function saveRecording(
   payload: SaveRecordingRequest,
 ): Promise<Recording> {

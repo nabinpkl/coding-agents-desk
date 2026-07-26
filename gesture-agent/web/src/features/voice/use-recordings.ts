@@ -7,9 +7,15 @@
 
 "use client";
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
-import { listRecordings } from "@/lib/api";
+import { deleteRecording, listRecordings } from "@/lib/api";
 import type { Recording } from "@/lib/wire";
 
 export const RECORDINGS_QUERY_KEY = ["recordings"] as const;
@@ -18,5 +24,19 @@ export function useRecordings(): UseQueryResult<Recording[]> {
   return useQuery({
     queryKey: RECORDINGS_QUERY_KEY,
     queryFn: listRecordings,
+  });
+}
+
+/**
+ * Delete one recording. The server owns the list, so this refetches rather than
+ * editing the cache by hand — a delete that failed server-side must not leave
+ * the row missing from the view.
+ */
+export function useDeleteRecording(): UseMutationResult<void, Error, string> {
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: deleteRecording,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: RECORDINGS_QUERY_KEY }),
   });
 }

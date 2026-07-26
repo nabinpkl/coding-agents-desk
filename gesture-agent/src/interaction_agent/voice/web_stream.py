@@ -144,4 +144,29 @@ def list_recording_ids() -> list[str]:
 
 
 def load_all_recordings() -> list[Recording]:
-    return [load_recording(recording_id) for recording_id in list_recording_ids()]
+    """Every persisted recording, newest first.
+
+    Ordering is the server's call, not each client's: the list is what a user
+    reads top-down and the newest take is the one they just made. Sorting on
+    ``createdAt`` rather than the id keeps this honest if the id format ever
+    stops being timestamp-ordered.
+    """
+    recordings = [load_recording(recording_id) for recording_id in list_recording_ids()]
+    recordings.sort(key=lambda recording: recording.created_at, reverse=True)
+    return recordings
+
+
+def delete_recording(recording_id: str) -> bool:
+    """Remove a recording's audio and metadata. False when it was not there.
+
+    Both files go or neither does, so a half-deleted recording can never show up
+    in the list with no audio behind it: the json is the one the list reads, so
+    it is removed last.
+    """
+    wav_path = recording_wav_path(recording_id)
+    json_path = recording_json_path(recording_id)
+    if not json_path.exists():
+        return False
+    wav_path.unlink(missing_ok=True)
+    json_path.unlink()
+    return True

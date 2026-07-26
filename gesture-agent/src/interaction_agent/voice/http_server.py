@@ -14,12 +14,13 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Response,
     UploadFile,
     WebSocket,
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -57,6 +58,7 @@ from interaction_agent.voice.web_stream import (
     VoiceWireError,
     compute_meter,
     decode_pcm,
+    delete_recording,
     load_all_recordings,
     load_recording,
     parse_client_message,
@@ -527,6 +529,28 @@ async def get_recording(recording_id: str) -> Recording:
     if not json_path.exists():
         raise HTTPException(status_code=404, detail=f"recording not found: {recording_id}")
     return await run_in_threadpool(load_recording, recording_id)
+
+
+@app.get("/recordings/{recording_id}/audio")
+async def get_recording_audio(recording_id: str) -> FileResponse:
+    """Serve the saved wav so a client can play the recording back.
+
+    The rest of the recording API is metadata; this is the only route that hands
+    back the audio itself. ``recording_wav_path`` validates the id against the
+    session-id pattern, so a caller cannot walk out of the recordings directory.
+    """
+    wav_path = recording_wav_path(recording_id)
+    if not wav_path.exists():
+        raise HTTPException(status_code=404, detail=f"recording not found: {recording_id}")
+    return FileResponse(wav_path, media_type="audio/wav", filename=f"{recording_id}.wav")
+
+
+@app.delete("/recordings/{recording_id}", status_code=204)
+async def remove_recording(recording_id: str) -> Response:
+    deleted = await run_in_threadpool(delete_recording, recording_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"recording not found: {recording_id}")
+    return Response(status_code=204)
 
 
 # --- Analysis REST ---------------------------------------------------------
