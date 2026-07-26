@@ -609,7 +609,13 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   dictionary asset, adjacent chunk merging, multiple independent lossless recordings, sample seeding
   and audio format, per-recording deletion, and the two-level three-card UI contract. The correction
   passed `just check-all`: 583 host tests and 425 client tests, plus all package, web, and Rust gates.
-  The manual bundled-sample simulator drive remains pending against the committed build identity.
+- Manually verified the committed `b7d8a9a4` host and client on iPhone 17 / iOS 26.5 with
+  `voice-passage-sample.yaml`. A fresh reanalysis was observed from start through saved completion,
+  retained 27 raw-audio phones and 29 reference phones with no phone-analysis failure, replayed the
+  saved sample to completion, and returned to the recordings library. The analyzed CAF retained
+  SHA-256 `3a44aad26dac579913f4a2e581012435b1139c7d15c980992f63950a575b7b6c`,
+  identical to the bundled source. `SpeechTranscriber` remains unavailable in this simulator, so
+  real-device saved-file transcription is not covered by this drive.
 
 ## Promotion log
 
@@ -624,5 +630,5 @@ R134  candidate   remaining  baselines and longitudinal attempt history
 R135  candidate   remaining  integrated explainable pronunciation gap loop
 R136  checkpoint  remaining  authorized physical-device acceptance
 R137  implemented remaining  physical normal-cycle and killed-analysis host-bundle proof
-R138  implemented remaining  integrated checks and manual bundled-sample reanalysis drive
+D138  2026-07-26  landed     persistent passage library and bundled-sample raw-audio reanalysis
 ```
