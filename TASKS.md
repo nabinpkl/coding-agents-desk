@@ -511,6 +511,27 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
 - Verification is green for the 8-test offline formula/provenance suite, 17 focused iOS scoring and
   persistence tests, the full 415-test client simulator suite, and `just check` including all 583 host
   tests. The report recipe exits `2` by design because the learner-facing release gates did not pass.
+- Researched publicly inspectable pronunciation scorers and phone representations through 2026-07-26.
+  Li et al.'s July 2026 context-aware CTC with GOPT reports `0.641` phone PCC versus `0.612` for
+  standard GOPT; its HierCB table reaches about `0.636` with WavLM while the Kaldi TDNN-F baseline
+  remains `0.660`. The paper links component implementations, and the related
+  [CTC-based-GOP repository](https://github.com/frank613/CTC-based-GOP) publishes score-extraction
+  code, but no complete released checkpoint was found, so those results are not locally validated.
+  ConPCO/HierCB publishes training code but no checkpoint. The March 2026
+  [Jianshu001/wavlm-phoneme-scorer](https://huggingface.co/Jianshu001/wavlm-phoneme-scorer)
+  raw-audio checkpoint claims `0.645` phone PCC, but has private training data, a
+  non-speaker-disjoint split, zero recorded downloads, no linked publication, and an inference script
+  that disables safe weight-only loading; it is not an authoritative candidate.
+- Added a pinned, isolated Mac reproduction for the official BSD-licensed GOPT LibriSpeech scorer.
+  On the M2 Pro CPU with PyTorch `2.13.0`, its untouched SpeechOcean762 test features reproduced
+  `0.618` phone Pearson, `0.438` Spearman, and `0.083` MSE over 47,369 phones in about one second.
+  This reproduces the published Pearson result and clears the Pearson and error gates, but fails
+  R131's `0.50` Spearman gate. It also does not validate a replacement for Agent Desk's raw-audio
+  path: GOPT requires an 84-value Kaldi TDNN GOP vector per phone while R131's calibration surface
+  offers four scalar CTC candidate margins. CPU and Apple Metal both reproduced the same metrics in
+  about one second for this 120 KB scorer, so accelerator availability is not the blocker. The
+  benchmark therefore records `passesScorerGate=false`,
+  `rawAudioReplacementValidated=false`, and `appGradeEnableAuthorized=false`.
 - Remaining before D131: choose and validate a stronger acoustic representation without tuning on the
   official test split, run the user-licensed L2-ARCTIC cross-L1 gate, rerun the R130 personal contrast
   and perturbation matrix, then complete the explicit physical-device Review/persistence checkpoint.

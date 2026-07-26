@@ -834,6 +834,27 @@ voice-phone-calibration: voice-phone-calibration-env voice-phone-mapping-check v
     .build/voice-phone-model/venv/bin/python \
         tools/voice-phone-calibration.py run
 
+# The candidate scorer benchmark is intentionally isolated from the shipping
+# calibration environment. It validates a pinned public checkpoint on its
+# official upstream features, and never enables the in-app grade.
+voice-pronunciation-model-benchmark-env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VENV='{{justfile_directory()}}/.build/voice-pronunciation-model-benchmark/venv'
+    if [ ! -x "$VENV/bin/python" ]; then
+        uv venv --python 3.12 "$VENV"
+    fi
+    uv pip install --python "$VENV/bin/python" \
+        -r tools/voice-pronunciation-model-benchmark-requirements.txt
+
+voice-pronunciation-model-benchmark-test: voice-pronunciation-model-benchmark-env
+    .build/voice-pronunciation-model-benchmark/venv/bin/python \
+        tools/voice-pronunciation-model-benchmark-tests.py
+
+voice-pronunciation-model-benchmark: voice-pronunciation-model-benchmark-env
+    .build/voice-pronunciation-model-benchmark/venv/bin/python \
+        tools/voice-pronunciation-model-benchmark.py
+
 dev:
     open host/AgentDeskHost.xcodeproj
     open client/AgentDeskClient.xcodeproj

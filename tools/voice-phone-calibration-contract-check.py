@@ -27,6 +27,8 @@ def main() -> int:
         "tools/voice-phone-calibration.py",
         "tools/voice_phone_calibration_lib.py",
         "tools/voice-phone-calibration-tests.py",
+        "tools/voice-pronunciation-model-benchmark.py",
+        "tools/voice-pronunciation-model-benchmark-tests.py",
     ):
         ast.parse((root / source).read_text(encoding="utf-8"), filename=source)
 
