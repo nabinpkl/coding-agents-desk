@@ -362,6 +362,12 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     func sendCurrentClientConfig() {
         guard let channel = pairingClient.activeInputChannel else { return }
         let config = currentClientConfig()
+        if let owned = videoSink as? any OwnedMediaFrameSink {
+            let expectedFps = config.mediaQuality.flatMap { quality in
+                quality.adaptiveEnabled ? nil : quality.fixedTarget?.fps
+            } ?? Config.ownedMediaExpectedFrameRate
+            owned.setOwnedMediaExpectedFrameRate(expectedFps)
+        }
         ClientDiagnostics.shared.record(
             type: "clientConfigSendStarted",
             fields: [

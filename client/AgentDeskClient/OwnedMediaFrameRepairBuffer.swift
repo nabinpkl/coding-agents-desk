@@ -87,6 +87,7 @@ final class MediaDatagramFrameRepairBuffer {
         result.completedFrames.append(contentsOf: completed)
         result.skippedFrames.append(contentsOf: enforceTrackedFrameLimit())
         result.resendRequests.append(contentsOf: requestMissingPackets())
+        result.pendingFrameCount = frames.count
         return result
     }
 
@@ -165,7 +166,8 @@ final class MediaDatagramFrameRepairBuffer {
             resendRequests: [],
             completedFrames: [],
             skippedFrames: [frame.incompleteFrame],
-            repairedFrameCount: 0
+            repairedFrameCount: 0,
+            pendingFrameCount: frames.count
         )
     }
 }
@@ -188,12 +190,14 @@ struct MediaDatagramRepairResult: Equatable {
     var completedFrames: [MediaDatagramCompletedFrame]
     var skippedFrames: [IncompleteFrame]
     var repairedFrameCount: Int
+    var pendingFrameCount: Int
 
     static let empty = MediaDatagramRepairResult(
         resendRequests: [],
         completedFrames: [],
         skippedFrames: [],
-        repairedFrameCount: 0
+        repairedFrameCount: 0,
+        pendingFrameCount: 0
     )
 }
 

@@ -271,13 +271,13 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         let disabled = state.applyClientMediaQuality(ClientMediaQualityConfig(
             adaptiveEnabled: false,
             fixedTarget: ClientMediaQualityTarget(
-                bitrateKbps: 1_200,
-                fps: 15,
+                bitrateKbps: 180,
+                fps: 1,
                 resolutionScale: 0.5
             )
         ))
-        XCTAssertEqual(disabled?.target.bitrateKbps, 1200)
-        XCTAssertEqual(disabled?.target.fps, 15)
+        XCTAssertEqual(disabled?.target.bitrateKbps, 180)
+        XCTAssertEqual(disabled?.target.fps, 1)
         XCTAssertEqual(disabled?.target.resolutionScale, 0.5)
         XCTAssertEqual(disabled?.reason, "manual-quality-fixed")
 
@@ -288,8 +288,8 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         )
         XCTAssertFalse(stressedWhileDisabled.outcome.changed)
         XCTAssertEqual(stressedWhileDisabled.outcome.reason, "manual-quality-fixed")
-        XCTAssertEqual(state.targetKbps, 1200)
-        XCTAssertEqual(state.targetFps, 15)
+        XCTAssertEqual(state.targetKbps, 180)
+        XCTAssertEqual(state.targetFps, 1)
         XCTAssertEqual(state.targetResolutionScale, 0.5)
 
         let reenabled = state.applyClientMediaQuality(ClientMediaQualityConfig(adaptiveEnabled: true))

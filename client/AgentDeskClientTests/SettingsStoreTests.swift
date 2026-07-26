@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import AgentDeskWire
 
 @testable import AgentDeskClient
 
@@ -39,6 +40,27 @@ struct SettingsStoreTests {
         store.diagnosticScreenshotsEnabled = true
         #expect(store.diagnosticScreenshotsEnabled)
         #expect(defaults.object(forKey: "agentDesk.diagnosticScreenshotsEnabled") as? Bool == true)
+    }
+
+    @Test func fixedConstrainedMediaProfileIsRepresentableAndAtomic() {
+        let defaults = isolatedDefaults()
+        let store = SettingsStore(defaults: defaults)
+
+        store.manualMediaBitrateKbps = 180
+        store.manualMediaFps = 1
+        store.manualMediaResolutionScale = 0.5
+        store.adaptiveMediaQualityEnabled = false
+
+        #expect(SettingsStore.manualMediaBitrateKbpsRange.lowerBound == 180)
+        #expect(SettingsStore.manualMediaFpsValues.contains(1))
+        #expect(store.mediaQualityConfig == ClientMediaQualityConfig(
+            adaptiveEnabled: false,
+            fixedTarget: ClientMediaQualityTarget(
+                bitrateKbps: 180,
+                fps: 1,
+                resolutionScale: 0.5
+            )
+        ))
     }
 
     private func isolatedDefaults() -> UserDefaults {

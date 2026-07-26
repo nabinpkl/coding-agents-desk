@@ -708,7 +708,11 @@ final class SettingsViewController: UIViewController {
     }
 
     private func roundedManualBitrate() -> Int {
-        Int((manualMediaBitrateSlider.value / 50).rounded() * 50)
+        let minimum = SettingsStore.manualMediaBitrateKbpsRange.lowerBound
+        if manualMediaBitrateSlider.value < Float(minimum + 25) {
+            return minimum
+        }
+        return Int((manualMediaBitrateSlider.value / 50).rounded() * 50)
     }
 
     private func manualFpsValues() -> [Int] {

@@ -44,17 +44,17 @@ human-gated final phase.
 
 ## v9 Phase 3: fixed profile and evidence
 
-- R124. Extend client manual settings to support 180 kbps and 1 fps, preserve 180
+- D124. Extend client manual settings to support 180 kbps and 1 fps, preserve 180
   through slider rounding, apply the 180 / 1 / 0.5 target atomically, and make
   client presentation summaries use the fixed target instead of the 30 fps ceiling.
-- R125. Add bounded host and client freshness diagnostics for replaced captures,
+- D125. Add bounded host and client freshness diagnostics for replaced captures,
   abandoned in-flight frames and bytes, served or missed resends, gap skips,
   discarded recovery deltas, keyframe recovery, pending depth, and presentation
   gaps, with focused schema tests.
 
 ## v9 Phase 4: verification and authorized device acceptance
 
-- R126. Run targeted host and client tests plus `just check`, self-review the
+- D126. Run targeted host and client tests plus `just check`, self-review the
   integrated diff, and confirm no tracked source or project file changed as a build
   side effect.
 - R127. Stop at the device checkpoint; after explicit approval run
@@ -68,7 +68,7 @@ human-gated final phase.
 D118     2026-07-23  complete    ADR-0073 accepted; 582 host tests and full check green
 D119-120 2026-07-23  complete    latest admission and cumulative ACK tests; 583 host tests green
 D121-123 2026-07-23  complete    gap skip and fair burst scheduler; 21 focused tests green
-R124-125 pending     pending     fixed profile and freshness evidence
-R126     pending     pending     integrated compile, tests, and self-review
+D124-125 2026-07-23  complete    fixed 180/1/0.5 profile and bounded freshness diagnostics
+D126     2026-07-23  complete    focused client suites and 584-host-test full check green
 R127     checkpoint  pending     authorized physical mobile-data validation
 ```

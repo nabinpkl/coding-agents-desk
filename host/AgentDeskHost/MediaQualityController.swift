@@ -855,6 +855,10 @@ struct QuicSessionHostMediaState {
     private var keyframeRequestsInWindow = 0
     private var ackAgesMs: [Double] = []
     private var staleRecoveryCountInWindow = 0
+    private var replacedCapturesInWindow = 0
+    private var abandonedBytesInWindow = 0
+    private var resendPacketsServedInWindow = 0
+    private var resendPacketsMissedInWindow = 0
     private var qualityWindowId: UInt64 = 0
     private var adaptiveQualityEnabled = true
 
@@ -881,6 +885,10 @@ struct QuicSessionHostMediaState {
     var targetResolutionScale: Double { qualityController.targetResolutionScale }
     var inFlightFrames: Int { backpressure.inFlight }
     var inFlightBytes: Int { backpressure.bytesInFlight }
+
+    mutating func noteCaptureReplaced() {
+        replacedCapturesInWindow += 1
+    }
 
     mutating func applyClientMediaQuality(_ config: ClientMediaQualityConfig) -> MediaQualityOutcome? {
         let previous = qualityController.target
@@ -928,6 +936,7 @@ struct QuicSessionHostMediaState {
         }
         if !abandoned.isEmpty {
             staleRecoveryCountInWindow += abandoned.count
+            abandonedBytesInWindow += abandoned.reduce(0) { $0 + $1.bytes }
         }
         nextFrameId &+= 1
         lastProduceUptimeNs = nowNs
@@ -968,7 +977,10 @@ struct QuicSessionHostMediaState {
         indexes: [UInt16],
         maxCount: Int
     ) -> (packets: [(UInt16, Data)], misses: [UInt16]) {
-        resendRing.packets(frameId: frameId, indexes: indexes, maxCount: maxCount)
+        let result = resendRing.packets(frameId: frameId, indexes: indexes, maxCount: maxCount)
+        resendPacketsServedInWindow += result.packets.count
+        resendPacketsMissedInWindow += result.misses.count
+        return result
     }
 
     mutating func noteResendRequest() {
@@ -1023,6 +1035,7 @@ struct QuicSessionHostMediaState {
                     Double(nowNs >= sentNs ? nowNs - sentNs : 0) / 1_000_000.0
                 },
                 staleRecoveryCount: staleRecoveryCountInWindow,
+                freshness: freshnessSummary(),
                 signals: MediaQualityObservationSignals(
                     lossPressure: false,
                     repairPressure: resendRequestsInWindow > 0,
@@ -1069,6 +1082,7 @@ struct QuicSessionHostMediaState {
             inFlightBytes: input.inFlightBytes,
             oldestInflightMs: input.oldestInflightMs,
             staleRecoveryCount: input.staleRecoveryCount,
+            freshness: freshnessSummary(),
             signals: evaluation.signals,
             recoveryStatus: evaluation.recoveryStatus
         )
@@ -1135,6 +1149,20 @@ struct QuicSessionHostMediaState {
         resendRequestsInWindow = 0
         keyframeRequestsInWindow = 0
         staleRecoveryCountInWindow = 0
+        replacedCapturesInWindow = 0
+        abandonedBytesInWindow = 0
+        resendPacketsServedInWindow = 0
+        resendPacketsMissedInWindow = 0
         ackAgesMs.removeAll(keepingCapacity: true)
+    }
+
+    private func freshnessSummary() -> MediaFreshnessDiagnosticsSummary {
+        MediaFreshnessDiagnosticsSummary(
+            replacedCaptures: replacedCapturesInWindow,
+            abandonedFrames: staleRecoveryCountInWindow,
+            abandonedBytes: abandonedBytesInWindow,
+            resendPacketsServed: resendPacketsServedInWindow,
+            resendPacketsMissed: resendPacketsMissedInWindow
+        )
     }
 }

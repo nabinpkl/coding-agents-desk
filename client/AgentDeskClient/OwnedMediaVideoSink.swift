@@ -18,6 +18,7 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
     @MainActor func setOwnedMediaStatus(_ status: OwnedMediaStatus)
     @MainActor func noteOwnedMediaRepairRequested(_ count: Int)
     @MainActor func noteOwnedMediaRepairExpired(_ count: Int)
+    @MainActor func setOwnedMediaExpectedFrameRate(_ fps: Int)
     // ADR-0027: the transport installs how the sink asks for a keyframe (the render
     // -stall watchdog and the wedged-layer recovery both use it).
     @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void)
@@ -34,6 +35,7 @@ extension OwnedMediaFrameSink {
     @MainActor func setOwnedMediaStatus(_ status: OwnedMediaStatus) {}
     @MainActor func noteOwnedMediaRepairRequested(_ count: Int) {}
     @MainActor func noteOwnedMediaRepairExpired(_ count: Int) {}
+    @MainActor func setOwnedMediaExpectedFrameRate(_ fps: Int) {}
     @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void) {}
     @MainActor var onOwnedMediaStatusChange: ((OwnedMediaStatus) -> Void)? {
         get { nil }
@@ -84,6 +86,7 @@ struct OwnedMediaVideoStatusSnapshot: Equatable {
     let decodeDropCount: Int
     let repairRequestedCount: Int
     let repairExpiredCount: Int
+    let presentationGapCount: Int
     let windowMs: Int
 
     var labelText: String {
@@ -105,6 +108,7 @@ struct OwnedMediaVideoStatusSnapshot: Equatable {
             "decodeDropCount": String(decodeDropCount),
             "repairRequestedCount": String(repairRequestedCount),
             "repairExpiredCount": String(repairExpiredCount),
+            "presentationGapCount": String(presentationGapCount),
             "windowMs": String(windowMs)
         ]
     }
@@ -112,7 +116,7 @@ struct OwnedMediaVideoStatusSnapshot: Equatable {
 
 struct OwnedMediaVideoStatusTracker {
     private let publishIntervalNs: UInt64
-    private let expectedFps: Int
+    private var expectedFps: Int
     private var windowStartNs: UInt64?
     private var windowFrames = 0
     private var windowBytes = 0
@@ -124,6 +128,7 @@ struct OwnedMediaVideoStatusTracker {
     private var decodeDropCount = 0
     private var repairRequestedCount = 0
     private var repairExpiredCount = 0
+    private var presentationGapCount = 0
 
     init(
         publishIntervalNs: UInt64 = Config.diagnosticsMediaSummaryIntervalNs,
@@ -135,6 +140,10 @@ struct OwnedMediaVideoStatusTracker {
 
     mutating func noteDroppedFrames(_ count: Int) {
         droppedFrames += max(0, count)
+    }
+
+    mutating func setExpectedFps(_ fps: Int) {
+        expectedFps = max(1, fps)
     }
 
     mutating func noteRenderStall(_ count: Int = 1) {
@@ -162,6 +171,10 @@ struct OwnedMediaVideoStatusTracker {
         if let lastEnqueueNs, nowNs >= lastEnqueueNs {
             lastGapMs = Double(nowNs - lastEnqueueNs) / 1_000_000.0
             maxGapMs = max(maxGapMs, lastGapMs)
+            let expectedIntervalMs = 1_000.0 / Double(expectedFps)
+            if lastGapMs > expectedIntervalMs * 1.5 {
+                presentationGapCount += 1
+            }
         }
         lastEnqueueNs = nowNs
         if windowStartNs == nil {
@@ -188,6 +201,7 @@ struct OwnedMediaVideoStatusTracker {
             decodeDropCount: decodeDropCount,
             repairRequestedCount: repairRequestedCount,
             repairExpiredCount: repairExpiredCount,
+            presentationGapCount: presentationGapCount,
             windowMs: Int(round(elapsedSeconds * 1_000.0))
         )
         self.windowStartNs = nowNs
@@ -198,6 +212,7 @@ struct OwnedMediaVideoStatusTracker {
         decodeDropCount = 0
         repairRequestedCount = 0
         repairExpiredCount = 0
+        presentationGapCount = 0
         return snapshot
     }
 }
@@ -515,6 +530,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
 
     func noteOwnedMediaRepairExpired(_ count: Int) {
         videoStatusTracker.noteRepairExpired(count)
+    }
+
+    func setOwnedMediaExpectedFrameRate(_ fps: Int) {
+        videoStatusTracker.setExpectedFps(fps)
     }
 
     func setOwnedMediaStatus(_ status: OwnedMediaStatus) {

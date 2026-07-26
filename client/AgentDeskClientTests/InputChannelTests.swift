@@ -317,6 +317,7 @@ struct InputChannelTests {
             decodeDropCount: 0,
             repairRequestedCount: 0,
             repairExpiredCount: 0,
+            presentationGapCount: 0,
             windowMs: 1_000
         )).labelText == "30/30fps rx1250kbps 1280x720 gap33 d0")
         #expect(OwnedMediaStatus.videoRepairing.labelText == "video repairing")
@@ -351,10 +352,37 @@ struct InputChannelTests {
             decodeDropCount: 1,
             repairRequestedCount: 3,
             repairExpiredCount: 1,
+            presentationGapCount: 2,
             windowMs: 1_000
         ))
         #expect(snapshot?.diagnosticsFields["maxGapMs"] == "500")
         #expect(snapshot?.diagnosticsFields["renderStallCount"] == "1")
+        #expect(snapshot?.diagnosticsFields["presentationGapCount"] == "2")
+    }
+
+    @Test func ownedMediaVideoStatusTrackerUsesUpdatedFixedFrameRate() {
+        var tracker = OwnedMediaVideoStatusTracker(
+            publishIntervalNs: 1_000_000_000,
+            expectedFps: 30
+        )
+        tracker.setExpectedFps(1)
+
+        #expect(tracker.noteEnqueuedFrame(
+            bytes: 22_500,
+            width: 640,
+            height: 360,
+            nowNs: 0
+        ) == nil)
+        let snapshot = tracker.noteEnqueuedFrame(
+            bytes: 22_500,
+            width: 640,
+            height: 360,
+            nowNs: 1_000_000_000
+        )
+
+        #expect(snapshot?.expectedFps == 1)
+        #expect(snapshot?.fpsDeficit == 0)
+        #expect(snapshot?.presentationGapCount == 0)
     }
 
     @MainActor

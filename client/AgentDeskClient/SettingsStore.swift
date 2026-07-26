@@ -53,9 +53,9 @@ final class SettingsStore: @unchecked Sendable {
     static let defaultAccessoryKeyHeight: Double = 36
     static let defaultAccessoryKeySpacing: Double = 6
     static let defaultManualMediaBitrateKbps = 2_500
-    static let manualMediaBitrateKbpsRange: ClosedRange<Int> = 300...5_000
+    static let manualMediaBitrateKbpsRange: ClosedRange<Int> = 180...5_000
     static let defaultManualMediaFps = 30
-    static let manualMediaFpsValues = [6, 10, 15, 24, 30]
+    static let manualMediaFpsValues = [1, 6, 10, 15, 24, 30]
     static let defaultManualMediaResolutionScale = 1.0
     static let manualMediaResolutionScaleValues = [0.33, 0.5, 0.75, 1.0]
 

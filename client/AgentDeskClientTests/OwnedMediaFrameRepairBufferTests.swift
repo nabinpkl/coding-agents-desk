@@ -47,6 +47,7 @@ final class OwnedMediaFrameRepairBufferTests: XCTestCase {
         XCTAssertEqual(result.resendRequests, [MediaDatagramRepairRequest(frameId: 1, packetIndexes: [1])])
         XCTAssertTrue(result.completedFrames.isEmpty)
         XCTAssertTrue(result.skippedFrames.isEmpty)
+        XCTAssertEqual(result.pendingFrameCount, 2)
     }
 
     func testNewerCompleteFrameSkipsOlderIncompleteFrameWithoutWaiting() {
@@ -58,6 +59,7 @@ final class OwnedMediaFrameRepairBufferTests: XCTestCase {
         XCTAssertEqual(result.skippedFrames.map(\.frameId), [1])
         XCTAssertEqual(result.completedFrames.map(\.frameId), [2])
         XCTAssertTrue(result.resendRequests.isEmpty, "do not repair a frame already overtaken")
+        XCTAssertEqual(result.pendingFrameCount, 0)
     }
 
     func testLatePacketForSkippedFrameIsRejected() {

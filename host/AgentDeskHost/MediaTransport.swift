@@ -99,8 +99,17 @@ struct MediaQualityObservation: Equatable {
     let inFlightBytes: Int
     let oldestInflightMs: Double?
     let staleRecoveryCount: Int
+    let freshness: MediaFreshnessDiagnosticsSummary
     let signals: MediaQualityObservationSignals
     let recoveryStatus: MediaQualityRecoveryStatus
+}
+
+struct MediaFreshnessDiagnosticsSummary: Equatable {
+    let replacedCaptures: Int
+    let abandonedFrames: Int
+    let abandonedBytes: Int
+    let resendPacketsServed: Int
+    let resendPacketsMissed: Int
 }
 
 struct MediaQualityDecision: Equatable {

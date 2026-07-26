@@ -563,6 +563,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             let decisions = accepted.completedFrames.map { completed in
                 state.mediaRecovery.decideCompletedFrame(isKeyframe: completed.isKeyframe)
             }
+            state.discardedRecoveryDeltas += decisions.filter { $0 == .discardRecoveryDelta }.count
+            state.keyframeRecoveries += decisions.filter { $0 == .renderRecoveryKeyframe }.count
+            state.maxPendingFrameDepth = max(state.maxPendingFrameDepth, accepted.pendingFrameCount)
             let requestKeyframe = state.mediaRecovery.takeKeyframeRequestIfNeeded(nowNs: nowNs)
             return (result: accepted, decisions: decisions, requestKeyframe: requestKeyframe)
         }
@@ -617,6 +620,13 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                 frameId: recoveryFrameId
             ))
         }
+        if handling.decisions.contains(.renderRecoveryKeyframe) {
+            ClientDiagnostics.shared.record(
+                type: "mediaKeyframeRecovery",
+                fields: ["frameId": String(packet.frameId)],
+                level: .info
+            )
+        }
     }
 
     private func startLinkHealthReporting() {
@@ -632,26 +642,50 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     }
 
     private func flushLinkHealth() {
-        let counts = lock.withLock { state -> (Int, Int) in
-            let counts = (state.completedFrames, state.expiredFrames)
+        let counts = lock.withLock { state -> (
+            completed: Int,
+            skipped: Int,
+            discardedRecoveryDeltas: Int,
+            keyframeRecoveries: Int,
+            maxPendingFrameDepth: Int
+        ) in
+            let counts = (
+                state.completedFrames,
+                state.expiredFrames,
+                state.discardedRecoveryDeltas,
+                state.keyframeRecoveries,
+                state.maxPendingFrameDepth
+            )
             state.completedFrames = 0
             state.expiredFrames = 0
+            state.discardedRecoveryDeltas = 0
+            state.keyframeRecoveries = 0
+            state.maxPendingFrameDepth = 0
             return counts
         }
-        guard counts.0 > 0 || counts.1 > 0 else { return }
+        guard counts.completed > 0
+            || counts.skipped > 0
+            || counts.discardedRecoveryDeltas > 0
+            || counts.keyframeRecoveries > 0
+            || counts.maxPendingFrameDepth > 0
+        else { return }
         ClientDiagnostics.shared.record(
             type: "mediaLinkHealthSummary",
             fields: [
-                "completedFrames": String(counts.0),
-                "expiredFrames": String(counts.1)
+                "completedFrames": String(counts.completed),
+                "expiredFrames": String(counts.skipped),
+                "gapSkips": String(counts.skipped),
+                "discardedRecoveryDeltas": String(counts.discardedRecoveryDeltas),
+                "keyframeRecoveries": String(counts.keyframeRecoveries),
+                "maxPendingFrameDepth": String(counts.maxPendingFrameDepth)
             ],
             level: .info
         )
         sendVideoControl(OwnedMediaControlMessage(
             kind: .linkHealth,
             frameId: 0,
-            linkHealthCompletedFrames: counts.0,
-            linkHealthExpiredFrames: counts.1
+            linkHealthCompletedFrames: counts.completed,
+            linkHealthExpiredFrames: counts.skipped
         ))
     }
 
@@ -688,6 +722,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         var closed = false
         var completedFrames = 0
         var expiredFrames = 0
+        var discardedRecoveryDeltas = 0
+        var keyframeRecoveries = 0
+        var maxPendingFrameDepth = 0
         var mediaRecovery = MediaFrameRecoveryGate(
             keyframeRequestMinGapNs: UInt64(Config.ownedMediaKeyframeRequestMinGapMs) * 1_000_000
         )

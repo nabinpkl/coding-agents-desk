@@ -447,6 +447,21 @@ struct QuicSessionHostMediaStateTests {
         #expect(served.packets.map { $0.0 } == [0, 1])
         #expect(served.packets.map { $0.1 } == [Data([0]), Data([1])])
         #expect(served.misses == [9])
+
+        let decision = state.observeLinkHealth(
+            completedFrames: 1,
+            expiredFrames: 0,
+            productionSummary: nil
+        )
+        #expect(decision.observation.freshness.resendPacketsServed == 2)
+        #expect(decision.observation.freshness.resendPacketsMissed == 1)
+        let reset = state.observeLinkHealth(
+            completedFrames: 1,
+            expiredFrames: 0,
+            productionSummary: nil
+        )
+        #expect(reset.observation.freshness.resendPacketsServed == 0)
+        #expect(reset.observation.freshness.resendPacketsMissed == 0)
     }
 
     @Test func linkHealthMovesAdaptiveTargets() {
@@ -505,11 +520,33 @@ struct QuicSessionHostMediaStateTests {
         #expect(decision.observation.inFlightFrames == 0)
         #expect(decision.observation.inFlightBytes == 0)
         #expect(decision.observation.staleRecoveryCount == 1)
+        #expect(decision.observation.freshness.abandonedFrames == 1)
+        #expect(decision.observation.freshness.abandonedBytes == 42)
         #expect(decision.observation.signals.stalePressure)
         #expect(decision.observation.signals.cadencePressure)
         #expect(decision.outcome.target.rung == .capacity1)
         #expect(decision.changedAxes == "bitrate,fps,resolution,rung")
         #expect(decision.observation.ackCount == 0)
+    }
+
+    @Test func qualityObservationBoundsReplacedCaptureCountToItsWindow() {
+        var state = makeState()
+        state.noteCaptureReplaced()
+        state.noteCaptureReplaced()
+
+        let first = state.observeLinkHealth(
+            completedFrames: 1,
+            expiredFrames: 0,
+            productionSummary: nil
+        )
+        let second = state.observeLinkHealth(
+            completedFrames: 1,
+            expiredFrames: 0,
+            productionSummary: nil
+        )
+
+        #expect(first.observation.freshness.replacedCaptures == 2)
+        #expect(second.observation.freshness.replacedCaptures == 0)
     }
 
     @Test func smoothnessCapacityDecisionReportsResolutionAxisAndReason() throws {
