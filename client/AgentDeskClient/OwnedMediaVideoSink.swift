@@ -87,6 +87,7 @@ struct OwnedMediaVideoStatusSnapshot: Equatable {
     let repairRequestedCount: Int
     let repairExpiredCount: Int
     let presentationGapCount: Int
+    let presentationSkipCount: Int
     let windowMs: Int
 
     var labelText: String {
@@ -109,6 +110,7 @@ struct OwnedMediaVideoStatusSnapshot: Equatable {
             "repairRequestedCount": String(repairRequestedCount),
             "repairExpiredCount": String(repairExpiredCount),
             "presentationGapCount": String(presentationGapCount),
+            "presentationSkipCount": String(presentationSkipCount),
             "windowMs": String(windowMs)
         ]
     }
@@ -129,6 +131,7 @@ struct OwnedMediaVideoStatusTracker {
     private var repairRequestedCount = 0
     private var repairExpiredCount = 0
     private var presentationGapCount = 0
+    private var presentationSkipCount = 0
 
     init(
         publishIntervalNs: UInt64 = Config.diagnosticsMediaSummaryIntervalNs,
@@ -160,6 +163,11 @@ struct OwnedMediaVideoStatusTracker {
 
     mutating func noteRepairExpired(_ count: Int = 1) {
         repairExpiredCount += max(0, count)
+    }
+
+    mutating func notePresentationSkip(bytes: Int) {
+        presentationSkipCount += 1
+        windowBytes += max(0, bytes)
     }
 
     mutating func noteEnqueuedFrame(
@@ -202,6 +210,7 @@ struct OwnedMediaVideoStatusTracker {
             repairRequestedCount: repairRequestedCount,
             repairExpiredCount: repairExpiredCount,
             presentationGapCount: presentationGapCount,
+            presentationSkipCount: presentationSkipCount,
             windowMs: Int(round(elapsedSeconds * 1_000.0))
         )
         self.windowStartNs = nowNs
@@ -213,6 +222,7 @@ struct OwnedMediaVideoStatusTracker {
         repairRequestedCount = 0
         repairExpiredCount = 0
         presentationGapCount = 0
+        presentationSkipCount = 0
         return snapshot
     }
 }
@@ -228,6 +238,23 @@ struct OwnedMediaRenderStallWatchdog {
     let activeWindowNs: UInt64
     let stallThresholdNs: UInt64
     let minRequestIntervalNs: UInt64
+
+    static func configured(
+        expectedFrameRate: Int,
+        minimumStallNs: UInt64
+    ) -> OwnedMediaRenderStallWatchdog {
+        let frameIntervalNs = UInt64(max(1, 1_000_000_000 / max(1, expectedFrameRate)))
+        let (twoFrameIntervalsNs, overflow) = frameIntervalNs.multipliedReportingOverflow(by: 2)
+        let cadenceAwareStallNs = max(
+            minimumStallNs,
+            overflow ? UInt64.max : twoFrameIntervalsNs
+        )
+        return OwnedMediaRenderStallWatchdog(
+            activeWindowNs: cadenceAwareStallNs,
+            stallThresholdNs: cadenceAwareStallNs,
+            minRequestIntervalNs: minimumStallNs
+        )
+    }
 
     func shouldRequestKeyframe(
         lastArrivalNs: UInt64?,
@@ -247,6 +274,11 @@ struct OwnedMediaRenderStallWatchdog {
 
 @MainActor
 final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
+    private struct QueuedVideoFrame {
+        let envelope: OwnedMediaFrameEnvelope
+        let frameBytes: Int
+    }
+
     let view: UIView
     private let surfaceLayer = CALayer()
     // ADR-0034 crisp-repair: the always-live video floor. It sits beneath surfaceLayer and
@@ -266,23 +298,27 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?
     // ADR-0027 render-stall watchdog state. lastVideoArrivalUptimeNs is set on every
     // video frame that reaches the sink (the host is sending); lastVideoEnqueueUptimeNs
-    // only on a frame that actually presented. The watchdog asks for a keyframe when
-    // arrivals are fresh but nothing has enqueued for the stall window, rate-limited by
+    // only when the decoder layer accepts a displayed or dependency-only sample. The
+    // watchdog asks for a keyframe when arrivals are fresh but decoding makes no
+    // progress for the cadence-aware stall window, rate-limited by
     // lastKeyframeRequestUptimeNs.
     private var lastVideoArrivalUptimeNs: UInt64?
     private var lastVideoEnqueueUptimeNs: UInt64?
     private var lastKeyframeRequestUptimeNs: UInt64?
     private var videoStatusTracker = OwnedMediaVideoStatusTracker()
+    private var videoPresentationPacer = OwnedMediaLatestFramePacer<QueuedVideoFrame>(
+        expectedFrameRate: Config.ownedMediaExpectedFrameRate
+    )
+    private var pendingVideoPresentationTask: Task<Void, Never>?
     private var videoKeyframeRequestHandler: (@Sendable () -> Void)?
-    private let stallWatchdog: OwnedMediaRenderStallWatchdog
+    private var stallWatchdog: OwnedMediaRenderStallWatchdog
     private let stallTimer: DispatchSourceTimer
 
     init() {
         let stallNs = UInt64(Config.ownedMediaRenderStallMs) * 1_000_000
-        stallWatchdog = OwnedMediaRenderStallWatchdog(
-            activeWindowNs: stallNs,
-            stallThresholdNs: stallNs,
-            minRequestIntervalNs: stallNs
+        stallWatchdog = OwnedMediaRenderStallWatchdog.configured(
+            expectedFrameRate: Config.ownedMediaExpectedFrameRate,
+            minimumStallNs: stallNs
         )
         stallTimer = DispatchSource.makeTimerSource(queue: .main)
         let container = LayerBackedVideoContainerView()
@@ -320,6 +356,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     }
 
     deinit {
+        pendingVideoPresentationTask?.cancel()
         stallTimer.cancel()
     }
 
@@ -351,6 +388,9 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         )
         requestKeyframe(now: now)
         videoDecoder.reset()
+        videoPresentationPacer.reset()
+        pendingVideoPresentationTask?.cancel()
+        pendingVideoPresentationTask = nil
     }
 
     // Single rate-limited keyframe-request point shared by the watchdog and the
@@ -370,30 +410,69 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         return Double(nowNs - thenNs) / 1_000_000.0
     }
 
-    // ADR-0025: a decoded HEVC motion frame. Enqueue it on the video layer and, on
-    // the first video frame of a scroll, swap the video layer in front of the tiles.
+    // ADR-0073: accept complete HEVC frames without building a presentation backlog.
+    // One newest frame may wait for the next fixed-rate slot. A replaced frame is
+    // decoded with DoNotDisplay so later deltas retain their reference chain.
     func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope, frameBytes: Int) {
         let now = DispatchTime.now().uptimeNanoseconds
         lastVideoArrivalUptimeNs = now
-        let result = videoDecoder.decodeAndEnqueue(envelope)
+        let actions = videoPresentationPacer.submit(
+            QueuedVideoFrame(envelope: envelope, frameBytes: frameBytes),
+            nowNs: now
+        )
+        for action in actions {
+            processVideoPresentationAction(action, nowNs: now)
+        }
+        schedulePendingVideoPresentation(nowNs: now)
+        showVideoFloor()
+        lastRenderUptimeNs = now
+    }
+
+    private func processVideoPresentationAction(
+        _ action: OwnedMediaVideoPresentationAction<QueuedVideoFrame>,
+        nowNs: UInt64
+    ) {
+        let frame: QueuedVideoFrame
+        let presentation: OwnedMediaVideoPresentation
+        switch action {
+        case .decodeOnly(let queuedFrame):
+            frame = queuedFrame
+            presentation = .decodeOnly
+        case .display(let queuedFrame):
+            frame = queuedFrame
+            presentation = .display
+        }
+
+        let envelope = frame.envelope
+        let result = videoDecoder.decodeAndEnqueue(envelope, presentation: presentation)
         switch result {
         case .enqueued:
-            lastVideoEnqueueUptimeNs = now
-            if let snapshot = videoStatusTracker.noteEnqueuedFrame(
-                bytes: frameBytes,
-                width: envelope.header.width,
-                height: envelope.header.height,
-                nowNs: now
-            ) {
-                setOwnedMediaStatus(.video(snapshot))
+            lastVideoEnqueueUptimeNs = nowNs
+            switch presentation {
+            case .display:
+                if let snapshot = videoStatusTracker.noteEnqueuedFrame(
+                    bytes: frame.frameBytes,
+                    width: envelope.header.width,
+                    height: envelope.header.height,
+                    nowNs: nowNs
+                ) {
+                    setOwnedMediaStatus(.video(snapshot))
+                    ClientDiagnostics.shared.record(
+                        type: "mediaSummary",
+                        fields: snapshot.diagnosticsFields,
+                        level: .info
+                    )
+                    ClientDiagnostics.shared.record(
+                        type: "mediaPresentationWindow",
+                        fields: snapshot.diagnosticsFields,
+                        level: .info
+                    )
+                }
+            case .decodeOnly:
+                videoStatusTracker.notePresentationSkip(bytes: frame.frameBytes)
                 ClientDiagnostics.shared.record(
-                    type: "mediaSummary",
-                    fields: snapshot.diagnosticsFields,
-                    level: .info
-                )
-                ClientDiagnostics.shared.record(
-                    type: "mediaPresentationWindow",
-                    fields: snapshot.diagnosticsFields,
+                    type: "mediaStalePresentationSkipped",
+                    fields: ["frameId": String(envelope.header.frameId)],
                     level: .info
                 )
             }
@@ -409,7 +488,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 fields: ["frameId": String(envelope.header.frameId)],
                 level: .error
             )
-            requestKeyframe(now: now)
+            requestKeyframe(now: nowNs)
         case .droppedPendingKeyframe:
             videoStatusTracker.noteDroppedFrames(1)
             videoStatusTracker.noteDecodeDrop()
@@ -437,8 +516,32 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 level: .error
             )
         }
-        showVideoFloor()
-        lastRenderUptimeNs = now
+    }
+
+    private func schedulePendingVideoPresentation(nowNs: UInt64) {
+        pendingVideoPresentationTask?.cancel()
+        guard let deadlineNs = videoPresentationPacer.nextPresentationDeadlineNs else {
+            pendingVideoPresentationTask = nil
+            return
+        }
+        let delayNs = deadlineNs > nowNs ? deadlineNs - nowNs : 0
+        pendingVideoPresentationTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: delayNs)
+            } catch is CancellationError {
+                return
+            } catch {
+                assertionFailure("unexpected video presentation timer error: \(error)")
+                return
+            }
+            guard let self else { return }
+            self.pendingVideoPresentationTask = nil
+            let presentationNowNs = DispatchTime.now().uptimeNanoseconds
+            if let action = self.videoPresentationPacer.takePendingIfDue(nowNs: presentationNowNs) {
+                self.processVideoPresentationAction(action, nowNs: presentationNowNs)
+            }
+            self.schedulePendingVideoPresentation(nowNs: presentationNowNs)
+        }
     }
 
     // ADR-0034 crisp-repair: the video floor and the crisp overlay composite together;
@@ -534,6 +637,12 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
 
     func setOwnedMediaExpectedFrameRate(_ fps: Int) {
         videoStatusTracker.setExpectedFps(fps)
+        videoPresentationPacer.setExpectedFrameRate(fps)
+        stallWatchdog = OwnedMediaRenderStallWatchdog.configured(
+            expectedFrameRate: fps,
+            minimumStallNs: UInt64(Config.ownedMediaRenderStallMs) * 1_000_000
+        )
+        schedulePendingVideoPresentation(nowNs: DispatchTime.now().uptimeNanoseconds)
     }
 
     func setOwnedMediaStatus(_ status: OwnedMediaStatus) {

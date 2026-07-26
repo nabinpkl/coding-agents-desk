@@ -55,6 +55,29 @@ final class OwnedMediaVideoDecoderTests: XCTestCase {
         OwnedMediaVideoDecoder(layer: spy, makeFormatDescription: { _, _ in self.stubFormatDescription() })
     }
 
+    private func sampleAttachmentIsTrue(
+        _ key: CFString,
+        in sampleBuffer: CMSampleBuffer
+    ) -> Bool {
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(
+            sampleBuffer,
+            createIfNecessary: false
+        ), CFArrayGetCount(attachments) > 0 else {
+            return false
+        }
+        let attachment = unsafeBitCast(
+            CFArrayGetValueAtIndex(attachments, 0),
+            to: CFDictionary.self
+        )
+        guard let value = CFDictionaryGetValue(
+            attachment,
+            Unmanaged.passUnretained(key).toOpaque()
+        ) else {
+            return false
+        }
+        return CFBooleanGetValue(unsafeBitCast(value, to: CFBoolean.self))
+    }
+
     func testDeltaBeforeKeyframeIsDropped() {
         let spy = SpyEnqueuer()
         let decoder = makeDecoder(spy)
@@ -70,6 +93,47 @@ final class OwnedMediaVideoDecoderTests: XCTestCase {
         XCTAssertEqual(decoder.decodeAndEnqueue(envelope(frameId: 2, keyframe: false, hasParameterSets: false)), .enqueued)
         XCTAssertEqual(spy.enqueued.count, 2)
         XCTAssertEqual(spy.flushCount, 1, "the keyframe flushes the queue before enqueuing the fresh sync point")
+    }
+
+    func testDisplayedFrameIsMarkedForImmediateDisplay() throws {
+        let spy = SpyEnqueuer()
+        let decoder = makeDecoder(spy)
+
+        XCTAssertEqual(
+            decoder.decodeAndEnqueue(
+                envelope(frameId: 1, keyframe: true, hasParameterSets: true),
+                presentation: .display
+            ),
+            .enqueued
+        )
+
+        let sampleBuffer = try XCTUnwrap(spy.enqueued.first)
+        XCTAssertTrue(sampleAttachmentIsTrue(kCMSampleAttachmentKey_DisplayImmediately, in: sampleBuffer))
+        XCTAssertFalse(sampleAttachmentIsTrue(kCMSampleAttachmentKey_DoNotDisplay, in: sampleBuffer))
+    }
+
+    func testDecodeOnlyFramePreservesDependencyWithoutDisplayingIt() throws {
+        let spy = SpyEnqueuer()
+        let decoder = makeDecoder(spy)
+        XCTAssertEqual(
+            decoder.decodeAndEnqueue(
+                envelope(frameId: 1, keyframe: true, hasParameterSets: true),
+                presentation: .display
+            ),
+            .enqueued
+        )
+
+        XCTAssertEqual(
+            decoder.decodeAndEnqueue(
+                envelope(frameId: 2, keyframe: false, hasParameterSets: false),
+                presentation: .decodeOnly
+            ),
+            .enqueued
+        )
+
+        let sampleBuffer = try XCTUnwrap(spy.enqueued.last)
+        XCTAssertTrue(sampleAttachmentIsTrue(kCMSampleAttachmentKey_DoNotDisplay, in: sampleBuffer))
+        XCTAssertFalse(sampleAttachmentIsTrue(kCMSampleAttachmentKey_DisplayImmediately, in: sampleBuffer))
     }
 
     func testKeyframeAtNewDimensionsResyncsDecoder() {
@@ -186,6 +250,27 @@ final class OwnedMediaVideoDecoderTests: XCTestCase {
         XCTAssertFalse(watchdog().shouldRequestKeyframe(
             lastArrivalNs: now - 100_000_000,
             lastEnqueueNs: nil,                 // never presented: startup, covered elsewhere
+            lastRequestNs: nil,
+            nowNs: now
+        ))
+    }
+
+    func testOneFpsWatchdogDoesNotRaceTheNextPresentationSlot() {
+        let watchdog = OwnedMediaRenderStallWatchdog.configured(
+            expectedFrameRate: 1,
+            minimumStallNs: 1_000_000_000
+        )
+        let now: UInt64 = 10_000_000_000
+
+        XCTAssertFalse(watchdog.shouldRequestKeyframe(
+            lastArrivalNs: now - 100_000_000,
+            lastEnqueueNs: now - 1_000_000_000,
+            lastRequestNs: nil,
+            nowNs: now
+        ))
+        XCTAssertTrue(watchdog.shouldRequestKeyframe(
+            lastArrivalNs: now - 100_000_000,
+            lastEnqueueNs: now - 2_000_000_000,
             lastRequestNs: nil,
             nowNs: now
         ))

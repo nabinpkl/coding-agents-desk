@@ -6,9 +6,11 @@ import AgentDeskWire
 // Phase 3 of the mixed-mode renderer (ADR-0025). Decode-by-display: a reassembled
 // motion frame is wrapped into a CMSampleBuffer (format description from the HEVC
 // parameter sets carried on each keyframe) and enqueued on an
-// AVSampleBufferDisplayLayer set to display immediately, which decodes and presents
-// it itself. A delta that arrives before any keyframe has no format description, so
-// it is dropped and the transport requests a keyframe to resync.
+// AVSampleBufferDisplayLayer, which decodes and presents it itself. Frames superseded
+// inside one presentation interval are marked DoNotDisplay so the layer still decodes
+// their reference state without visibly replaying stale history. A delta that arrives
+// before any keyframe has no format description, so it is dropped and the transport
+// requests a keyframe to resync.
 
 // The enqueue target, abstracted so the decode state machine can be tested without
 // a real display layer. displayStatus / requiresFlushToResumeDecoding expose the
@@ -35,6 +37,11 @@ enum OwnedMediaVideoDecodeResult: Equatable {
     case droppedMismatchedDimensionsRequestKeyframe
 }
 
+enum OwnedMediaVideoPresentation {
+    case display
+    case decodeOnly
+}
+
 final class OwnedMediaVideoDecoder {
     private let layer: OwnedMediaVideoEnqueuing
     private let makeFormatDescription: (OwnedMediaParameterSets, OwnedMediaCodec) -> CMVideoFormatDescription?
@@ -50,7 +57,10 @@ final class OwnedMediaVideoDecoder {
     }
 
     @discardableResult
-    func decodeAndEnqueue(_ envelope: OwnedMediaFrameEnvelope) -> OwnedMediaVideoDecodeResult {
+    func decodeAndEnqueue(
+        _ envelope: OwnedMediaFrameEnvelope,
+        presentation: OwnedMediaVideoPresentation = .display
+    ) -> OwnedMediaVideoDecodeResult {
         let header = envelope.header
         // ADR-0027: recover a wedged layer before anything else. A delta decoded
         // against a reference lost to packet drop can leave the layer .failed /
@@ -97,7 +107,8 @@ final class OwnedMediaVideoDecoder {
         guard let sampleBuffer = Self.makeSampleBuffer(
             payload: envelope.payload,
             formatDescription: description,
-            presentationTimeNs: header.presentationTimeNs
+            presentationTimeNs: header.presentationTimeNs,
+            presentation: presentation
         ) else {
             return .sampleBufferBuildFailed
         }
@@ -116,7 +127,8 @@ final class OwnedMediaVideoDecoder {
     static func makeSampleBuffer(
         payload: Data,
         formatDescription: CMVideoFormatDescription,
-        presentationTimeNs: UInt64
+        presentationTimeNs: UInt64,
+        presentation: OwnedMediaVideoPresentation
     ) -> CMSampleBuffer? {
         let length = payload.count
         guard length > 0 else { return nil }
@@ -165,9 +177,15 @@ final class OwnedMediaVideoDecoder {
         if let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
            CFArrayGetCount(attachments) > 0 {
             let attachment = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
+            let presentationKey = switch presentation {
+            case .display:
+                kCMSampleAttachmentKey_DisplayImmediately
+            case .decodeOnly:
+                kCMSampleAttachmentKey_DoNotDisplay
+            }
             CFDictionarySetValue(
                 attachment,
-                Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
+                Unmanaged.passUnretained(presentationKey).toOpaque(),
                 Unmanaged.passUnretained(kCFBooleanTrue).toOpaque()
             )
         }
