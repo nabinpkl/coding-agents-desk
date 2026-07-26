@@ -712,6 +712,7 @@ check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar
     set -euo pipefail
     sh tools/media-architecture-guard.sh
     sh tools/exact-executable-pids-tests.sh
+    sh tools/local-udp-port-pids-tests.sh
     sh tools/host-run-lifecycle-tests.sh
     sh tools/client-install-lifecycle-tests.sh
     sh tools/launch-env-tests.sh
@@ -964,10 +965,12 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
     # Scoped to the tier-derived port (env override honored, matching Config), so
     # the sibling variant on its own port is never touched.
     SIGPORT="${AGENTDESK_SIGNALING_PORT:-$SIGPORT}"
+    UDP_PORT_RECORDS="$(lsof -nP -iUDP:"$SIGPORT" -F pn 2>/dev/null || true)"
     PORT_PIDS="$(
         {
             lsof -nP -iTCP:"$SIGPORT" -sTCP:LISTEN -t 2>/dev/null || true
-            lsof -nP -iUDP:"$SIGPORT" -t 2>/dev/null || true
+            printf '%s\n' "$UDP_PORT_RECORDS" |
+                sh tools/local-udp-port-pids.sh "$SIGPORT"
         } | sort -u
     )"
     if [ -n "$PORT_PIDS" ]; then
@@ -1102,10 +1105,12 @@ host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-ge
     # variant's signaling port (the path-scoped kill misses it). Port-scoped, so the
     # sibling variant on its own tier-derived port is untouched.
     SIGPORT="${AGENTDESK_SIGNALING_PORT:-$SIGPORT}"
+    UDP_PORT_RECORDS="$(lsof -nP -iUDP:"$SIGPORT" -F pn 2>/dev/null || true)"
     PORT_PIDS="$(
         {
             lsof -nP -iTCP:"$SIGPORT" -sTCP:LISTEN -t 2>/dev/null || true
-            lsof -nP -iUDP:"$SIGPORT" -t 2>/dev/null || true
+            printf '%s\n' "$UDP_PORT_RECORDS" |
+                sh tools/local-udp-port-pids.sh "$SIGPORT"
         } | sort -u
     )"
     if [ -n "$PORT_PIDS" ]; then

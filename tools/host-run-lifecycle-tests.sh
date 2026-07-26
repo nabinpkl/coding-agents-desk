@@ -12,6 +12,17 @@ assert_contains() {
     fi
 }
 
+assert_not_contains() {
+    output="$1"
+    unexpected="$2"
+    description="$3"
+    if printf '%s\n' "$output" | grep -Fq "$unexpected"; then
+        printf 'host run lifecycle test failed: %s\nunexpected: %s\n' \
+            "$description" "$unexpected" >&2
+        exit 1
+    fi
+}
+
 stable_release="$(just --dry-run host-run stable 2>&1)"
 assert_contains "$stable_release" \
     '/Build/Products/Debug/AgentDeskHost.app/Contents/MacOS/AgentDeskHost' \
@@ -20,8 +31,11 @@ assert_contains "$stable_release" \
     '/Build/Products/Release/AgentDeskHost.app/Contents/MacOS/AgentDeskHost' \
     'Release launch must kill an existing stable Release host'
 assert_contains "$stable_release" \
+    'sh tools/local-udp-port-pids.sh "$SIGPORT"' \
+    'QUIC signaling owner discovery must inspect the local UDP endpoint'
+assert_not_contains "$stable_release" \
     'lsof -nP -iUDP:"$SIGPORT" -t' \
-    'QUIC signaling owner must be discovered over UDP'
+    'QUIC signaling owner discovery must not include remote UDP endpoints'
 assert_contains "$stable_release" \
     'FEEDPORT=7682' \
     'stable launch must target the stable agent-feed port'
@@ -43,8 +57,11 @@ assert_contains "$dev_debug" \
     '/Build/Products/Release/AgentDeskHost.app/Contents/MacOS/AgentDeskHost' \
     'Debug launch must kill an existing dev Release host'
 assert_contains "$dev_debug" \
+    'sh tools/local-udp-port-pids.sh "$SIGPORT"' \
+    'dev QUIC signaling discovery must inspect the local UDP endpoint'
+assert_not_contains "$dev_debug" \
     'lsof -nP -iUDP:"$SIGPORT" -t' \
-    'dev QUIC signaling owner must be discovered over UDP'
+    'dev QUIC signaling discovery must not include remote UDP endpoints'
 assert_contains "$dev_debug" \
     'FEEDPORT=7782' \
     'dev launch must target the dev agent-feed port'
