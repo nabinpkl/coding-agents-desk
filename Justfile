@@ -608,6 +608,7 @@ check variant="stable": ensure-sidecar-placeholder ensure-pty-runtime-placeholde
     set -euo pipefail
     sh tools/media-architecture-guard.sh
     sh tools/exact-executable-pids-tests.sh
+    sh tools/host-run-lifecycle-tests.sh
     sh tools/launch-env-tests.sh
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
     sh tools/testflight-upload-tests.sh
@@ -791,17 +792,29 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-sidecar bu
     }
     just prepare-pty-runtime "{{variant}}"
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
-    # Kill only THIS variant's exact host executable. A bundle-prefix match also
-    # selects its atc-sidecar and pty-manager, defeating manager preservation.
-    HOST_PIDS=$(sh tools/exact-executable-pids.sh "$APP/Contents/MacOS/AgentDeskHost")
+    # Kill both build configurations of THIS variant. LaunchServices treats Debug
+    # and Release as the same running app because they share a bundle id, so leaving
+    # either one alive can make `open "$APP"` silently keep the stale executable.
+    # Exact executable matching avoids selecting atc-sidecar or PTY processes.
+    HOST_PIDS="$(
+        {
+            sh tools/exact-executable-pids.sh "$DD/Build/Products/Debug/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"
+            sh tools/exact-executable-pids.sh "$DD/Build/Products/Release/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"
+        } | sort -u
+    )"
     [ -n "$HOST_PIDS" ] && kill_host_pids $HOST_PIDS
     # Backstop: a host from a DIFFERENT checkout has the same bundle id but a
-    # different derived-data path, so the pkill above misses it and the two stacks
+    # different derived-data path, so the path-scoped kill above misses it and the two stacks
     # collide on the signaling port. Also kill whoever holds THIS variant's port.
     # Scoped to the tier-derived port (env override honored, matching Config), so
     # the sibling variant on its own port is never touched.
     SIGPORT="${AGENTDESK_SIGNALING_PORT:-$SIGPORT}"
-    PORT_PIDS=$(lsof -nP -iTCP:"$SIGPORT" -sTCP:LISTEN -t 2>/dev/null || true)
+    PORT_PIDS="$(
+        {
+            lsof -nP -iTCP:"$SIGPORT" -sTCP:LISTEN -t 2>/dev/null || true
+            lsof -nP -iUDP:"$SIGPORT" -t 2>/dev/null || true
+        } | sort -u
+    )"
     if [ -n "$PORT_PIDS" ]; then
         SAFE_PIDS=()
         for PID in $PORT_PIDS; do
@@ -822,9 +835,18 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-sidecar bu
     else
         open "$APP"
     fi
-    sleep 2
+    HOST_PID=""
+    for _ in $(seq 1 50); do
+        HOST_PID="$(sh tools/exact-executable-pids.sh "$APP/Contents/MacOS/AgentDeskHost" | head -1)"
+        [ -n "$HOST_PID" ] && break
+        sleep 0.1
+    done
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh unset
-    pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true
+    test -n "$HOST_PID" || {
+        echo "ERROR: newly built host did not launch: $APP" >&2
+        exit 1
+    }
+    echo "$HOST_PID $APP/Contents/MacOS/AgentDeskHost"
     # DOM bridge is first-class: wire this variant's native-messaging manifest on every
     # launch so the Chrome extension can reach the running host. Non-fatal so a host run
     # never blocks on Chrome/node config; it warns loudly instead of failing silently.
@@ -882,15 +904,27 @@ host-run variant="stable": build-agent-sidecar build-agent-webview build-gesture
     }
     just prepare-pty-runtime "{{variant}}"
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
-    # Kill only THIS variant's exact host executable. A bundle-prefix match also
-    # selects its atc-sidecar and pty-manager, defeating manager preservation.
-    HOST_PIDS=$(sh tools/exact-executable-pids.sh "$APP/Contents/MacOS/AgentDeskHost")
+    # Kill both build configurations of THIS variant. LaunchServices treats Debug
+    # and Release as the same running app because they share a bundle id, so leaving
+    # either one alive can make `open "$APP"` silently keep the stale executable.
+    # Exact executable matching avoids selecting atc-sidecar or PTY processes.
+    HOST_PIDS="$(
+        {
+            sh tools/exact-executable-pids.sh "$DD/Build/Products/Debug/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"
+            sh tools/exact-executable-pids.sh "$DD/Build/Products/Release/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"
+        } | sort -u
+    )"
     [ -n "$HOST_PIDS" ] && kill_host_pids $HOST_PIDS
     # Backstop: kill a same-bundle-id host from a different checkout that holds this
-    # variant's signaling port (the path-scoped pkill misses it). Port-scoped, so the
+    # variant's signaling port (the path-scoped kill misses it). Port-scoped, so the
     # sibling variant on its own tier-derived port is untouched.
     SIGPORT="${AGENTDESK_SIGNALING_PORT:-$SIGPORT}"
-    PORT_PIDS=$(lsof -nP -iTCP:"$SIGPORT" -sTCP:LISTEN -t 2>/dev/null || true)
+    PORT_PIDS="$(
+        {
+            lsof -nP -iTCP:"$SIGPORT" -sTCP:LISTEN -t 2>/dev/null || true
+            lsof -nP -iUDP:"$SIGPORT" -t 2>/dev/null || true
+        } | sort -u
+    )"
     if [ -n "$PORT_PIDS" ]; then
         SAFE_PIDS=()
         for PID in $PORT_PIDS; do
@@ -911,9 +945,18 @@ host-run variant="stable": build-agent-sidecar build-agent-webview build-gesture
     else
         open "$APP"
     fi
-    sleep 2
+    HOST_PID=""
+    for _ in $(seq 1 50); do
+        HOST_PID="$(sh tools/exact-executable-pids.sh "$APP/Contents/MacOS/AgentDeskHost" | head -1)"
+        [ -n "$HOST_PID" ] && break
+        sleep 0.1
+    done
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh unset
-    pgrep -lf "$DD/Build/Products/.*/AgentDeskHost" || true
+    test -n "$HOST_PID" || {
+        echo "ERROR: newly built host did not launch: $APP" >&2
+        exit 1
+    }
+    echo "$HOST_PID $APP/Contents/MacOS/AgentDeskHost"
     # DOM bridge first-class: wire this variant's native-messaging manifest on every launch.
     just dom-bridge-reinstall {{variant}} || echo "WARN: dom-bridge wiring failed; browser mode will not mirror until 'just dom-bridge-reinstall {{variant}}' succeeds"
 
