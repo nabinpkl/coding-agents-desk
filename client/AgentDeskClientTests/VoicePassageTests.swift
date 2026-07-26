@@ -80,50 +80,153 @@ struct VoicePassagePhoneChunkTests {
             to: &phones
         )
 
-        #expect(phones == ["θ", "ɪ", "ŋ", "k", "w", "ɔː", "k", "t", "uː"])
+        #expect(
+            phones
+                == ["θ", "ɪ", "ŋ", "k", "w", "ɔː", "k", "t", "uː"]
+        )
     }
 }
 
-struct VoicePassageSessionStoreTests {
+struct VoicePassageRecordingStoreTests {
     @Test @MainActor
-    func savesLosslessCurrentTakeAndUpdatedComparisonMetadata() throws {
+    func retainsMultipleLosslessTakesAndTheirIndependentAnalyses()
+        throws
+    {
         guard #available(iOS 26.0, *) else { return }
-        let directory = FileManager.default.temporaryDirectory
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = VoicePassageRecordingStore(
+            rootDirectory: directory
+        )
+
+        let first = try store.save(
+            capture: makeCapture(startedAt: Date(timeIntervalSince1970: 1)),
+            locale: Locale(identifier: "en-US"),
+            build: testBuild
+        )
+        var second = try store.save(
+            capture: makeCapture(startedAt: Date(timeIntervalSince1970: 2)),
+            locale: Locale(identifier: "en-US"),
+            build: testBuild
+        )
+        second.applyRecognizedTranscript("I taught about walking.")
+        second.applyTranscriptEdit(
+            "I thought about walking.",
+            at: Date(timeIntervalSince1970: 4)
+        )
+        second.applyRecognizedTranscript("I taught about walking again.")
+        second.observedPhones = ["aɪ", "t", "ɔː", "t"]
+        second.referencePhones = ["aɪ", "θ", "ɔː", "t"]
+        second.modelWeightSHA256 = "model"
+        second.lastAnalyzedAt = Date(timeIntervalSince1970: 3)
+        try store.save(second)
+
+        let recordings = try store.recordings()
+        #expect(recordings.map(\.id) == [second.id, first.id])
+        #expect(try store.recording(id: second.id) == second)
+        #expect(second.transcript == "I thought about walking.")
+        #expect(
+            second.recognizedTranscript
+                == "I taught about walking again."
+        )
+        #expect(
+            try AVAudioFile(
+                forReading: store.audioURL(for: first)
+            ).length == 512
+        )
+        #expect(
+            try AVAudioFile(
+                forReading: store.audioURL(for: second)
+            ).length == 512
+        )
+    }
+
+    @Test
+    func bundledSampleIsIdempotentAndReadyForSavedAudioAnalysis()
+        throws
+    {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = VoicePassageRecordingStore(
+            rootDirectory: directory
+        )
+        let bundle = Bundle(for: VoicePassageSurface.self)
+
+        let first = try store.seedBundledSample(
+            bundle: bundle,
+            build: testBuild
+        )
+        let second = try store.seedBundledSample(
+            bundle: bundle,
+            build: testBuild
+        )
+
+        #expect(first == second)
+        #expect(first.id == VoicePassageBundledSample.id)
+        #expect(first.source == .bundledSample)
+        #expect(
+            first.transcript
+                == VoicePassageBundledSample.transcript
+        )
+        #expect(try store.recordings().count == 1)
+        let audio = try AVAudioFile(
+            forReading: store.audioURL(for: first)
+        )
+        #expect(audio.processingFormat.sampleRate == 16_000)
+        #expect(audio.processingFormat.channelCount == 1)
+        #expect(audio.length > 16_000)
+    }
+
+    @Test
+    func deletingOneUserRecordingDoesNotDeleteOtherAudio()
+        throws
+    {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = VoicePassageRecordingStore(
+            rootDirectory: directory
+        )
+        let first = try store.save(
+            capture: makeCapture(startedAt: Date(timeIntervalSince1970: 1)),
+            locale: Locale(identifier: "en-US"),
+            build: testBuild
+        )
+        let second = try store.save(
+            capture: makeCapture(startedAt: Date(timeIntervalSince1970: 2)),
+            locale: Locale(identifier: "en-US"),
+            build: testBuild
+        )
+
+        try store.delete(recordingID: first.id)
+
+        #expect(try store.recordings().map(\.id) == [second.id])
+        #expect(
+            FileManager.default.fileExists(
+                atPath: store.audioURL(for: second).path
+            )
+        )
+    }
+
+    private var testBuild: VoiceBuildIdentity {
+        VoiceBuildIdentity(
+            bundleIdentifier: "voice.tests",
+            marketingVersion: "1.0.0",
+            buildNumber: "1",
+            gitSHA: "abc1234"
+        )
+    }
+
+    private func temporaryDirectory() -> URL {
+        FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "voice-passage-store-\(UUID().uuidString)",
                 isDirectory: true
             )
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = VoicePassageSessionStore(directory: directory)
-
-        var session = try store.save(
-            capture: makeCapture(),
-            locale: Locale(identifier: "en-US"),
-            build: VoiceBuildIdentity(
-                bundleIdentifier: "voice.tests",
-                marketingVersion: "1.0.0",
-                buildNumber: "1",
-                gitSHA: "abc1234"
-            )
-        )
-        session.transcript = "I thought about walking."
-        session.observedPhones = ["aɪ", "t", "ɔː", "t"]
-        session.referencePhones = ["aɪ", "θ", "ɔː", "t"]
-        session.unknownReferenceWords = []
-        session.modelWeightSHA256 = "model"
-        try store.save(session)
-
-        #expect(try store.load() == session)
-        let audio = try AVAudioFile(forReading: store.audioURL(for: session))
-        #expect(audio.length == 512)
-        #expect(
-            audio.fileFormat.settings[AVFormatIDKey] as? UInt32
-                == kAudioFormatLinearPCM
-        )
     }
 
-    @MainActor
-    private func makeCapture() -> VoiceCapturedTake {
+    private func makeCapture(
+        startedAt: Date
+    ) -> VoiceCapturedTake {
         let format = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: 16_000,
@@ -143,7 +246,7 @@ struct VoicePassageSessionStoreTests {
             return buffer
         }
         return VoiceCapturedTake(
-            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            startedAt: startedAt,
             format: format,
             buffers: buffers
         )
@@ -153,7 +256,7 @@ struct VoicePassageSessionStoreTests {
 @MainActor
 struct VoicePassageSurfaceTests {
     @Test
-    func passageIsASeparateTabWithExactlyThreeComparisonCards() throws {
+    func speechModeKeepsTargetPracticeAndPassageAsSeparateTabs() throws {
         guard #available(iOS 26.0, *) else { return }
         let surface = VoicePlaygroundSurface()
         defer { surface.teardown() }
@@ -170,7 +273,56 @@ struct VoicePassageSurfaceTests {
 
         surface.selectMode(.passage)
         #expect(mode.selectedSegmentIndex == 1)
+        let legacyStatus = try #require(
+            surface.passageDescendant(identifier: "voice-status")
+        )
+        #expect(legacyStatus.isEffectivelyHidden)
+        let library = try #require(
+            surface.passageDescendant(
+                identifier: "voice-passage-library"
+            )
+        )
+        #expect(!library.isEffectivelyHidden)
+    }
 
+    @Test
+    func passageUsesLibraryThenSelectedRecordingThreeCardDetail()
+        throws
+    {
+        guard #available(iOS 26.0, *) else { return }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "voice-passage-ui-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = VoicePassageRecordingStore(
+            rootDirectory: directory
+        )
+        let surface = VoicePassageSurface(
+            frame: .zero,
+            recordingStore: store,
+            resourceBundle: Bundle(for: VoicePassageSurface.self)
+        )
+        defer { surface.teardown() }
+
+        let library = try #require(
+            surface.passageDescendant(
+                identifier: "voice-passage-library"
+            )
+        )
+        let detail = try #require(
+            surface.passageDescendant(
+                identifier: "voice-passage-detail"
+            )
+        )
+        #expect(!library.isEffectivelyHidden)
+        #expect(detail.isEffectivelyHidden)
+
+        surface.showRecording(id: VoicePassageBundledSample.id)
+
+        #expect(library.isEffectivelyHidden)
+        #expect(!detail.isEffectivelyHidden)
         let cardIDs = surface.passageIdentifiers(
             withPrefix: "voice-passage-",
             suffix: "-card"
@@ -182,33 +334,22 @@ struct VoicePassageSurfaceTests {
         ]))
         for identifier in cardIDs {
             let card = try #require(
-                surface.passageDescendant(identifier: identifier)
+                surface.passageDescendant(
+                    identifier: identifier
+                )
             )
             #expect(!card.isEffectivelyHidden)
         }
-        let legacyStatus = try #require(
-            surface.passageDescendant(identifier: "voice-status")
-        )
-        #expect(legacyStatus.isEffectivelyHidden)
-
         let transcript = try #require(
             surface.passageDescendant(
                 identifier: "voice-passage-transcript"
             ) as? UITextView
         )
-        let observed = try #require(
-            surface.passageDescendant(
-                identifier: "voice-passage-observed-phones"
-            ) as? UILabel
+        #expect(
+            transcript.text == VoicePassageBundledSample.transcript
         )
-        let reference = try #require(
-            surface.passageDescendant(
-                identifier: "voice-passage-reference-phones"
-            ) as? UILabel
-        )
+        #expect(transcript.isEditable)
         #expect(!transcript.isScrollEnabled)
-        #expect(observed.numberOfLines == 0)
-        #expect(reference.numberOfLines == 0)
     }
 }
 
@@ -218,7 +359,9 @@ private extension UIView {
             return self
         }
         for subview in subviews {
-            if let match = subview.passageDescendant(identifier: identifier) {
+            if let match = subview.passageDescendant(
+                identifier: identifier
+            ) {
                 return match
             }
         }

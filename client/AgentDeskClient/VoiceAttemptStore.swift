@@ -2,7 +2,7 @@ import AVFoundation
 import CryptoKit
 import Foundation
 
-struct VoiceAnalyzerFormatMetadata: Codable, Equatable {
+struct VoiceAnalyzerFormatMetadata: Codable, Equatable, Sendable {
     let sampleRate: Double
     let channelCount: UInt32
     let commonFormat: String
@@ -43,7 +43,7 @@ struct VoiceAnalyzerFormatMetadata: Codable, Equatable {
     }
 }
 
-struct VoiceBuildIdentity: Codable, Equatable {
+struct VoiceBuildIdentity: Codable, Equatable, Sendable {
     let bundleIdentifier: String
     let marketingVersion: String
     let buildNumber: String

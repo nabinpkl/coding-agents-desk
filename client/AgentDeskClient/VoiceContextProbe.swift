@@ -290,6 +290,7 @@ final class VoiceContextProbe {
     private var sessionActivated = false
 
     private(set) var isRecording = false
+    private(set) var transcriptionAvailable = false
     var analysisLocale: Locale { resolvedLocale ?? requestedLocale }
     var currentAudioLevel: Float { sink?.currentLevel ?? 0 }
     var onCaptureInterrupted: (@MainActor @Sendable (String) -> Void)?
@@ -304,21 +305,75 @@ final class VoiceContextProbe {
     /// Progress is reported so a slow first run is visible rather than looking
     /// like a hang.
     func prepare(progress: @escaping (String) -> Void) async throws {
-        guard SpeechTranscriber.isAvailable else { throw ProbeError.transcriberUnavailable }
+        guard SpeechTranscriber.isAvailable else {
+            throw ProbeError.transcriberUnavailable
+        }
 
         guard let supported = await SpeechTranscriber.supportedLocale(
             equivalentTo: requestedLocale
         ) else {
             throw ProbeError.localeUnsupported(requestedLocale.identifier)
         }
-        resolvedLocale = supported
+        try await prepareTranscription(
+            locale: supported,
+            progress: progress
+        )
+        progress("Ready.")
+    }
 
-        let transcriber = Self.makeTranscriber(locale: supported)
+    /// Prepares passage capture even when the current hardware cannot run
+    /// SpeechTranscriber. Retained audio and raw-phone analysis do not depend
+    /// on transcription, and the transcript remains editable.
+    func preparePassageCapture(
+        progress: @escaping (String) -> Void
+    ) async throws {
+        if SpeechTranscriber.isAvailable,
+           let supported = await SpeechTranscriber.supportedLocale(
+               equivalentTo: requestedLocale
+           )
+        {
+            try await prepareTranscription(
+                locale: supported,
+                progress: progress
+            )
+            progress("Ready.")
+            return
+        }
+
+        guard let fallbackFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 16_000,
+            channels: 1,
+            interleaved: false
+        ) else {
+            throw ProbeError.audioFormatUnavailable
+        }
+        resolvedLocale = requestedLocale
+        analyzerFormat = fallbackFormat
+        transcriptionAvailable = false
+        VoiceProbeTrace.emit(
+            "SpeechTranscriber unavailable; passage capture uses "
+                + "16000Hz mono Float32"
+        )
+        progress(
+            "Ready to record. Transcription is unavailable on this "
+                + "device; saved audio can still be analyzed."
+        )
+    }
+
+    private func prepareTranscription(
+        locale: Locale,
+        progress: @escaping (String) -> Void
+    ) async throws {
+        transcriptionAvailable = false
+        resolvedLocale = locale
+
+        let transcriber = Self.makeTranscriber(locale: locale)
         let status = await AssetInventory.status(forModules: [transcriber])
         VoiceProbeTrace.emit("asset status: \(status)")
 
         if status != .installed {
-            progress("Installing \(supported.identifier) speech model…")
+            progress("Installing \(locale.identifier) speech model…")
             if let request = try await AssetInventory.assetInstallationRequest(
                 supporting: [transcriber]
             ) {
@@ -332,8 +387,12 @@ final class VoiceContextProbe {
             throw ProbeError.audioFormatUnavailable
         }
         analyzerFormat = format
-        VoiceProbeTrace.emit("analyzer format: \(format.sampleRate)Hz ch=\(format.channelCount) common=\(format.commonFormat.rawValue)")
-        progress("Ready.")
+        transcriptionAvailable = true
+        VoiceProbeTrace.emit(
+            "analyzer format: \(format.sampleRate)Hz "
+                + "ch=\(format.channelCount) "
+                + "common=\(format.commonFormat.rawValue)"
+        )
     }
 
     // MARK: - Capture
@@ -500,6 +559,36 @@ final class VoiceContextProbe {
         return reading
     }
 
+    /// Re-runs unaided transcription from retained audio. This path is
+    /// independent of the current in-memory capture, so a recording remains
+    /// analyzable after navigation or app restart.
+    func unaidedReading(
+        audioURL: URL,
+        localeIdentifier: String
+    ) async throws -> VoiceReading {
+        VoiceProbeTrace.emit("unaidedReading(file): entered")
+        guard SpeechTranscriber.isAvailable else {
+            throw ProbeError.transcriberUnavailable
+        }
+        let requested = Locale(identifier: localeIdentifier)
+        guard let locale = await SpeechTranscriber.supportedLocale(
+            equivalentTo: requested
+        ) else {
+            throw ProbeError.localeUnsupported(localeIdentifier)
+        }
+        let audioFile = try AVAudioFile(forReading: audioURL)
+        let reading = try await Self.transcribe(
+            locale: locale,
+            audioFile: audioFile
+        )
+        VoiceProbeTrace.emit(
+            "unaidedReading(file) complete: "
+                + "text=\(!reading.top.text.isEmpty) "
+                + "alts=\(reading.alternatives.count)"
+        )
+        return reading
+    }
+
     /// Transcribes the captured audio twice and returns the unaided reading
     /// first, the context-seeded reading second.
     func readings(
@@ -598,6 +687,57 @@ final class VoiceContextProbe {
         return VoiceReading(
             top: VoiceRecognitionCandidate(
                 text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+                confidence: confidence
+            ),
+            alternatives: alternatives
+        )
+    }
+
+    private static func transcribe(
+        locale: Locale,
+        audioFile: AVAudioFile
+    ) async throws -> VoiceReading {
+        let transcriber = makeTranscriber(locale: locale)
+        let analyzer = SpeechAnalyzer(modules: [transcriber])
+        let collector = Task {
+            var text = ""
+            var alternatives: [VoiceRecognitionCandidate] = []
+            var confidences: [Double] = []
+            for try await result in transcriber.results {
+                text += String(result.text.characters)
+                alternatives += result.alternatives.map {
+                    VoiceRecognitionCandidate(
+                        text: String($0.characters),
+                        confidence: meanConfidence(in: $0)
+                    )
+                }
+                for run in result.text.runs {
+                    if let value = run.transcriptionConfidence {
+                        confidences.append(value)
+                    }
+                }
+            }
+            let mean = confidences.isEmpty
+                ? nil
+                : confidences.reduce(0, +) / Double(confidences.count)
+            return (text, alternatives, mean)
+        }
+        defer { collector.cancel() }
+
+        if let lastSample = try await analyzer.analyzeSequence(
+            from: audioFile
+        ) {
+            try await analyzer.finalizeAndFinish(through: lastSample)
+        } else {
+            await analyzer.cancelAndFinishNow()
+        }
+
+        let (text, alternatives, confidence) = try await collector.value
+        return VoiceReading(
+            top: VoiceRecognitionCandidate(
+                text: text.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ),
                 confidence: confidence
             ),
             alternatives: alternatives

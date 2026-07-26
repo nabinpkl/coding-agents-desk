@@ -2,12 +2,27 @@ import AVFoundation
 import UIKit
 
 @available(iOS 26.0, *)
+@MainActor
 final class VoicePassageSurface: UIView {
     private let stack = UIStackView()
+    private let libraryStack = UIStackView()
+    private let detailStack = UIStackView()
+
     private let recordButton = UIButton(type: .system)
-    private let statusLabel = UILabel()
-    private let waveformContainer = UIStackView()
-    private let waveformView = VoiceWaveformView()
+    private let libraryStatusLabel = UILabel()
+    private let recordingWaveformContainer = UIStackView()
+    private let recordingWaveformView = VoiceWaveformView()
+    private let samplesStack = UIStackView()
+    private let recordingsStack = UIStackView()
+
+    private let detailTitleLabel = UILabel()
+    private let detailMetadataLabel = UILabel()
+    private let detailStatusLabel = UILabel()
+    private let playButton = UIButton(type: .system)
+    private let reanalyzeButton = UIButton(type: .system)
+    private let deleteButton = UIButton(type: .system)
+    private let playbackWaveformContainer = UIStackView()
+    private let playbackWaveformView = VoiceWaveformView()
     private let transcriptView = UITextView()
     private let observedPhonesLabel = UILabel()
     private let referencePhonesLabel = UILabel()
@@ -16,8 +31,11 @@ final class VoicePassageSurface: UIView {
     private let probe = VoiceContextProbe()
     private let phoneAnalyzer = VoicePhoneAnalyzer()
     private let pronouncer = VoicePassagePronouncer()
-    private let sessionStore = VoicePassageSessionStore()
-    private var currentSession: VoicePassageSession?
+    private let recordingStore: VoicePassageRecordingStore
+    private let resourceBundle: Bundle
+
+    private var recordings: [VoicePassageRecording] = []
+    private var selectedRecordingID: UUID?
     private var isPrepared = false
     private var preparationTask: Task<Void, Never>?
     private var recordingTask: Task<Void, Never>?
@@ -25,12 +43,30 @@ final class VoicePassageSurface: UIView {
     private var referenceUpdateTask: Task<Void, Never>?
     private var waveformTask: Task<Void, Never>?
     private var recordingLimitTask: Task<Void, Never>?
+    private var audioPlayer: AVAudioPlayer?
     private var displayedLevel: Float = 0
 
     override init(frame: CGRect) {
+        recordingStore = VoicePassageRecordingStore()
+        resourceBundle = .main
         super.init(frame: frame)
         configure()
-        restoreCurrentSession()
+        loadLibrary()
+        probe.onCaptureInterrupted = { [weak self] message in
+            self?.finishRecording(interruptionMessage: message)
+        }
+    }
+
+    init(
+        frame: CGRect,
+        recordingStore: VoicePassageRecordingStore,
+        resourceBundle: Bundle
+    ) {
+        self.recordingStore = recordingStore
+        self.resourceBundle = resourceBundle
+        super.init(frame: frame)
+        configure()
+        loadLibrary()
         probe.onCaptureInterrupted = { [weak self] message in
             self?.finishRecording(interruptionMessage: message)
         }
@@ -46,19 +82,23 @@ final class VoicePassageSurface: UIView {
         preparationTask = Task { [weak self] in
             guard let self else { return }
             do {
-                try await probe.prepare { [weak self] message in
-                    self?.statusLabel.text = message
+                try await probe.preparePassageCapture {
+                    [weak self] message in
+                    self?.libraryStatusLabel.text = message
                 }
                 guard !Task.isCancelled else { return }
                 isPrepared = true
                 recordButton.isEnabled = true
-                statusLabel.text = currentSession == nil
+                libraryStatusLabel.text = probe.transcriptionAvailable
                     ? "Ready. Record a passage of up to two minutes."
-                    : "Ready. Record again or edit the transcript."
+                    : """
+                    Ready to record. Transcription is unavailable here; \
+                    saved audio and samples can still be analyzed.
+                    """
             } catch {
                 guard !Task.isCancelled else { return }
-                statusLabel.text =
-                    "Speech setup failed: \(error.localizedDescription)"
+                libraryStatusLabel.text =
+                    "Audio setup failed: \(error.localizedDescription)"
             }
             preparationTask = nil
         }
@@ -69,34 +109,12 @@ final class VoicePassageSurface: UIView {
         recordingTask = nil
         recordingLimitTask?.cancel()
         recordingLimitTask = nil
+        stopPlayback()
         if probe.isRecording {
-            probe.stopRecording()
-            stopWaveform()
-            recordButton.configuration?.title = "Record"
-            recordButton.configuration?.image = UIImage(
-                systemName: "mic.fill"
+            finishRecording(
+                interruptionMessage:
+                    "Recording stopped and saved when you left Passage."
             )
-            do {
-                let capture = try probe.capturedTake()
-                let session = try sessionStore.save(
-                    capture: capture,
-                    locale: probe.analysisLocale
-                )
-                currentSession = session
-                transcriptView.text =
-                    "The recording was saved before transcription completed."
-                transcriptView.isEditable = false
-                observedPhonesLabel.text =
-                    "The saved recording has not been decoded."
-                referencePhonesLabel.text =
-                    "Record again to create a transcript and reference sequence."
-                referenceDetailLabel.isHidden = true
-                statusLabel.text =
-                    "Recording saved when you left Passage. Record again to analyze."
-            } catch {
-                statusLabel.text =
-                    "Interrupted recording could not be saved: \(error.localizedDescription)"
-            }
         }
     }
 
@@ -108,6 +126,8 @@ final class VoicePassageSurface: UIView {
         referenceUpdateTask = nil
         analysisTask?.cancel()
         analysisTask = nil
+        waveformTask?.cancel()
+        waveformTask = nil
         probe.onCaptureInterrupted = nil
     }
 
@@ -123,23 +143,33 @@ final class VoicePassageSurface: UIView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
-        let title = UILabel()
-        title.text = "Passage comparison"
-        title.font = .preferredFont(forTextStyle: .title2)
-        title.adjustsFontForContentSizeCategory = true
-        stack.addArrangedSubview(title)
+        configureLibrary()
+        configureDetail()
+        stack.addArrangedSubview(libraryStack)
+        stack.addArrangedSubview(detailStack)
+        detailStack.isHidden = true
+    }
 
-        let controls = UIStackView()
-        controls.axis = .horizontal
-        controls.spacing = 10
-        controls.alignment = .center
+    private func configureLibrary() {
+        libraryStack.axis = .vertical
+        libraryStack.spacing = 12
+        libraryStack.accessibilityIdentifier = "voice-passage-library"
 
-        var recordConfiguration = UIButton.Configuration.filled()
-        recordConfiguration.title = "Record"
-        recordConfiguration.image = UIImage(systemName: "mic.fill")
-        recordConfiguration.imagePadding = 8
-        recordConfiguration.cornerStyle = .capsule
-        recordButton.configuration = recordConfiguration
+        let title = heading("Passage recordings")
+        libraryStack.addArrangedSubview(title)
+        libraryStack.addArrangedSubview(
+            detailLabel(
+                "Record freely, or open a saved take to replay and "
+                    + "reanalyze the same audio."
+            )
+        )
+
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = "Record"
+        configuration.image = UIImage(systemName: "mic.fill")
+        configuration.imagePadding = 8
+        configuration.cornerStyle = .capsule
+        recordButton.configuration = configuration
         recordButton.isEnabled = false
         recordButton.accessibilityIdentifier = "voice-passage-record"
         recordButton.addTarget(
@@ -147,26 +177,164 @@ final class VoicePassageSurface: UIView {
             action: #selector(toggleRecording),
             for: .touchUpInside
         )
-        controls.addArrangedSubview(recordButton)
+        libraryStack.addArrangedSubview(recordButton)
 
-        statusLabel.font = .preferredFont(forTextStyle: .footnote)
-        statusLabel.adjustsFontForContentSizeCategory = true
-        statusLabel.textColor = .secondaryLabel
-        statusLabel.numberOfLines = 0
-        statusLabel.text = "Preparing speech recognition…"
-        statusLabel.accessibilityIdentifier = "voice-passage-status"
-        controls.addArrangedSubview(statusLabel)
-        stack.addArrangedSubview(controls)
+        libraryStatusLabel.font = .preferredFont(
+            forTextStyle: .footnote
+        )
+        libraryStatusLabel.adjustsFontForContentSizeCategory = true
+        libraryStatusLabel.textColor = .secondaryLabel
+        libraryStatusLabel.numberOfLines = 0
+        libraryStatusLabel.text = "Preparing audio capture…"
+        libraryStatusLabel.accessibilityIdentifier =
+            "voice-passage-status"
+        libraryStack.addArrangedSubview(libraryStatusLabel)
 
-        waveformContainer.axis = .vertical
-        waveformContainer.spacing = 6
-        waveformContainer.isHidden = true
-        let waveformCaption = detailLabel("Live microphone")
-        waveformContainer.addArrangedSubview(waveformCaption)
-        waveformView.tintColor = .systemRed
-        waveformView.accessibilityIdentifier = "voice-passage-waveform"
-        waveformContainer.addArrangedSubview(waveformView)
-        stack.addArrangedSubview(waveformContainer)
+        recordingWaveformContainer.axis = .vertical
+        recordingWaveformContainer.spacing = 6
+        recordingWaveformContainer.isHidden = true
+        recordingWaveformContainer.addArrangedSubview(
+            detailLabel("Live microphone")
+        )
+        recordingWaveformView.tintColor = .systemRed
+        recordingWaveformView.accessibilityIdentifier =
+            "voice-passage-waveform"
+        recordingWaveformContainer.addArrangedSubview(
+            recordingWaveformView
+        )
+        libraryStack.addArrangedSubview(recordingWaveformContainer)
+
+        libraryStack.addArrangedSubview(sectionLabel("Samples"))
+        samplesStack.axis = .vertical
+        samplesStack.spacing = 10
+        samplesStack.accessibilityIdentifier =
+            "voice-passage-samples"
+        libraryStack.addArrangedSubview(samplesStack)
+
+        libraryStack.addArrangedSubview(
+            sectionLabel("Saved recordings")
+        )
+        recordingsStack.axis = .vertical
+        recordingsStack.spacing = 10
+        recordingsStack.accessibilityIdentifier =
+            "voice-passage-recordings"
+        libraryStack.addArrangedSubview(recordingsStack)
+    }
+
+    private func configureDetail() {
+        detailStack.axis = .vertical
+        detailStack.spacing = 12
+        detailStack.accessibilityIdentifier = "voice-passage-detail"
+
+        let backButton = UIButton(type: .system)
+        var backConfiguration = UIButton.Configuration.plain()
+        backConfiguration.title = "Back to recordings"
+        backConfiguration.image = UIImage(
+            systemName: "chevron.backward"
+        )
+        backConfiguration.imagePadding = 6
+        backConfiguration.contentInsets = .zero
+        backButton.configuration = backConfiguration
+        backButton.contentHorizontalAlignment = .leading
+        backButton.accessibilityIdentifier =
+            "voice-passage-back-to-recordings"
+        backButton.addTarget(
+            self,
+            action: #selector(showLibrary),
+            for: .touchUpInside
+        )
+        detailStack.addArrangedSubview(backButton)
+
+        detailTitleLabel.font = .preferredFont(
+            forTextStyle: .title2
+        )
+        detailTitleLabel.adjustsFontForContentSizeCategory = true
+        detailTitleLabel.numberOfLines = 0
+        detailStack.addArrangedSubview(detailTitleLabel)
+
+        detailMetadataLabel.font = .preferredFont(
+            forTextStyle: .footnote
+        )
+        detailMetadataLabel.adjustsFontForContentSizeCategory = true
+        detailMetadataLabel.textColor = .secondaryLabel
+        detailMetadataLabel.numberOfLines = 0
+        detailStack.addArrangedSubview(detailMetadataLabel)
+
+        let actions = UIStackView()
+        actions.axis = .horizontal
+        actions.spacing = 8
+        actions.distribution = .fillEqually
+
+        playButton.setTitle("Play", for: .normal)
+        playButton.setImage(
+            UIImage(systemName: "play.fill"),
+            for: .normal
+        )
+        playButton.accessibilityIdentifier =
+            "voice-passage-play"
+        playButton.addTarget(
+            self,
+            action: #selector(togglePlayback),
+            for: .touchUpInside
+        )
+        actions.addArrangedSubview(playButton)
+
+        reanalyzeButton.setTitle("Reanalyze", for: .normal)
+        reanalyzeButton.setImage(
+            UIImage(systemName: "waveform.badge.magnifyingglass"),
+            for: .normal
+        )
+        reanalyzeButton.accessibilityIdentifier =
+            "voice-passage-reanalyze"
+        reanalyzeButton.addTarget(
+            self,
+            action: #selector(reanalyzeSelectedRecording),
+            for: .touchUpInside
+        )
+        actions.addArrangedSubview(reanalyzeButton)
+
+        deleteButton.setTitle("Delete", for: .normal)
+        deleteButton.setImage(
+            UIImage(systemName: "trash"),
+            for: .normal
+        )
+        deleteButton.setTitleColor(.systemRed, for: .normal)
+        deleteButton.tintColor = .systemRed
+        deleteButton.accessibilityIdentifier =
+            "voice-passage-delete"
+        deleteButton.addTarget(
+            self,
+            action: #selector(deleteSelectedRecording),
+            for: .touchUpInside
+        )
+        actions.addArrangedSubview(deleteButton)
+        detailStack.addArrangedSubview(actions)
+
+        playbackWaveformContainer.axis = .vertical
+        playbackWaveformContainer.spacing = 6
+        playbackWaveformContainer.isHidden = true
+        playbackWaveformContainer.addArrangedSubview(
+            detailLabel("Saved recording playback")
+        )
+        playbackWaveformView.tintColor = .systemBlue
+        playbackWaveformView.accessibilityIdentifier =
+            "voice-passage-playback-waveform"
+        playbackWaveformContainer.addArrangedSubview(
+            playbackWaveformView
+        )
+        detailStack.addArrangedSubview(
+            playbackWaveformContainer
+        )
+
+        detailStatusLabel.font = .preferredFont(
+            forTextStyle: .footnote
+        )
+        detailStatusLabel.adjustsFontForContentSizeCategory = true
+        detailStatusLabel.textColor = .secondaryLabel
+        detailStatusLabel.numberOfLines = 0
+        detailStatusLabel.accessibilityIdentifier =
+            "voice-passage-detail-status"
+        detailStack.addArrangedSubview(detailStatusLabel)
 
         transcriptView.font = .preferredFont(forTextStyle: .body)
         transcriptView.adjustsFontForContentSizeCategory = true
@@ -174,29 +342,25 @@ final class VoicePassageSurface: UIView {
         transcriptView.textContainerInset = .zero
         transcriptView.textContainer.lineFragmentPadding = 0
         transcriptView.isScrollEnabled = false
-        transcriptView.isEditable = false
         transcriptView.delegate = self
-        transcriptView.text =
-            "Record a passage. The transcript will appear here and remain editable."
-        transcriptView.accessibilityIdentifier = "voice-passage-transcript"
+        transcriptView.accessibilityIdentifier =
+            "voice-passage-transcript"
         transcriptView.heightAnchor.constraint(
             greaterThanOrEqualToConstant: 112
         ).isActive = true
-        stack.addArrangedSubview(
+        detailStack.addArrangedSubview(
             card(
                 title: "Transcript",
-                detail: "Editable after transcription",
+                detail: "Saved and editable",
                 content: transcriptView,
                 identifier: "voice-passage-transcript-card"
             )
         )
 
         configurePhoneLabel(observedPhonesLabel)
-        observedPhonesLabel.text =
-            "Record a passage to decode phonemes from the raw audio."
         observedPhonesLabel.accessibilityIdentifier =
             "voice-passage-observed-phones"
-        stack.addArrangedSubview(
+        detailStack.addArrangedSubview(
             card(
                 title: "Phonemes heard",
                 detail: "Raw audio model",
@@ -206,11 +370,11 @@ final class VoicePassageSurface: UIView {
         )
 
         configurePhoneLabel(referencePhonesLabel)
-        referencePhonesLabel.text =
-            "The reference sequence will follow the editable transcript."
         referencePhonesLabel.accessibilityIdentifier =
             "voice-passage-reference-phones"
-        referenceDetailLabel.font = .preferredFont(forTextStyle: .caption1)
+        referenceDetailLabel.font = .preferredFont(
+            forTextStyle: .caption1
+        )
         referenceDetailLabel.adjustsFontForContentSizeCategory = true
         referenceDetailLabel.textColor = .systemOrange
         referenceDetailLabel.numberOfLines = 0
@@ -223,7 +387,7 @@ final class VoicePassageSurface: UIView {
         )
         referenceContent.axis = .vertical
         referenceContent.spacing = 8
-        stack.addArrangedSubview(
+        detailStack.addArrangedSubview(
             card(
                 title: "Reference phonemes",
                 detail: "CMUdict from transcript",
@@ -233,11 +397,647 @@ final class VoicePassageSurface: UIView {
         )
     }
 
-    private func configurePhoneLabel(_ label: UILabel) {
-        label.font = .monospacedSystemFont(ofSize: 17, weight: .regular)
-        label.adjustsFontForContentSizeCategory = true
-        label.numberOfLines = 0
-        label.lineBreakMode = .byWordWrapping
+    private func loadLibrary() {
+        do {
+            _ = try recordingStore.seedBundledSample(
+                bundle: resourceBundle
+            )
+            refreshRecordings()
+        } catch {
+            libraryStatusLabel.text =
+                "Saved recordings could not be loaded: "
+                    + error.localizedDescription
+        }
+    }
+
+    private func refreshRecordings() {
+        do {
+            recordings = try recordingStore.recordings()
+            rebuildLibrary()
+            if selectedRecordingID != nil {
+                renderSelectedRecording()
+            }
+        } catch {
+            recordings = []
+            rebuildLibrary()
+            libraryStatusLabel.text =
+                "Saved recordings could not be read: "
+                    + error.localizedDescription
+        }
+    }
+
+    private func rebuildLibrary() {
+        clearArrangedSubviews(samplesStack)
+        clearArrangedSubviews(recordingsStack)
+
+        let samples = recordings.filter {
+            $0.source == .bundledSample
+        }
+        let saved = recordings.filter { $0.source == .microphone }
+
+        if samples.isEmpty {
+            samplesStack.addArrangedSubview(
+                detailLabel("No bundled samples are available.")
+            )
+        } else {
+            for recording in samples {
+                samplesStack.addArrangedSubview(
+                    recordingRow(recording)
+                )
+            }
+        }
+
+        if saved.isEmpty {
+            recordingsStack.addArrangedSubview(
+                detailLabel("No saved recordings yet.")
+            )
+        } else {
+            for recording in saved {
+                recordingsStack.addArrangedSubview(
+                    recordingRow(recording)
+                )
+            }
+        }
+    }
+
+    private func recordingRow(
+        _ recording: VoicePassageRecording
+    ) -> UIView {
+        let container = UIStackView()
+        container.axis = .vertical
+        container.spacing = 8
+        container.isLayoutMarginsRelativeArrangement = true
+        container.layoutMargins = UIEdgeInsets(
+            top: 12,
+            left: 14,
+            bottom: 12,
+            right: 14
+        )
+        container.layer.cornerRadius = 12
+        container.backgroundColor = .secondarySystemBackground
+        container.accessibilityIdentifier =
+            "voice-passage-recording-\(recording.id.uuidString)"
+
+        let title = UILabel()
+        title.font = .preferredFont(forTextStyle: .headline)
+        title.adjustsFontForContentSizeCategory = true
+        title.numberOfLines = 0
+        title.text = recording.title
+        container.addArrangedSubview(title)
+
+        let summary = detailLabel(
+            recording.source == .bundledSample
+                ? String(
+                    format: "Bundled sample • %.1f sec",
+                    recording.durationSeconds
+                )
+                : String(
+                    format: "%@ • %.1f sec",
+                    Self.dateFormatter.string(
+                        from: recording.createdAt
+                    ),
+                    recording.durationSeconds
+                )
+        )
+        summary.numberOfLines = 0
+        container.addArrangedSubview(summary)
+
+        let open = UIButton(type: .system)
+        var configuration = UIButton.Configuration.tinted()
+        configuration.title = recording.source == .bundledSample
+            ? "Open sample"
+            : "Open recording"
+        configuration.image = UIImage(
+            systemName: "chevron.forward.circle.fill"
+        )
+        configuration.imagePadding = 8
+        open.configuration = configuration
+        open.contentHorizontalAlignment = .leading
+        if recording.source == .bundledSample {
+            open.accessibilityIdentifier =
+                "voice-passage-open-sample"
+        }
+        open.addAction(UIAction { [weak self] _ in
+            self?.showRecording(id: recording.id)
+        }, for: .touchUpInside)
+        container.addArrangedSubview(open)
+        return container
+    }
+
+    func showRecording(id: UUID) {
+        selectedRecordingID = id
+        libraryStack.isHidden = true
+        detailStack.isHidden = false
+        renderSelectedRecording()
+        if let recording = recordings.first(
+            where: { $0.id == id }
+        ), !recording.transcript.isEmpty,
+           recording.referencePhones.isEmpty
+        {
+            scheduleReferenceUpdate(
+                transcript: recording.transcript,
+                recordingID: id,
+                delay: .zero,
+                markTranscriptEdited: false
+            )
+        }
+    }
+
+    @objc private func showLibrary() {
+        endEditing(true)
+        stopPlayback()
+        selectedRecordingID = nil
+        detailStack.isHidden = true
+        libraryStack.isHidden = false
+        refreshRecordings()
+    }
+
+    private func renderSelectedRecording() {
+        guard let selectedRecordingID,
+              let recording = recordings.first(
+                  where: { $0.id == selectedRecordingID }
+              )
+        else {
+            return
+        }
+        detailTitleLabel.text = recording.title
+        detailMetadataLabel.text = recording.source == .bundledSample
+            ? String(
+                format: "Bundled sample • %.1f sec • %@",
+                recording.durationSeconds,
+                recording.localeIdentifier
+            )
+            : String(
+                format: "%@ • %.1f sec • %@",
+                Self.dateFormatter.string(
+                    from: recording.createdAt
+                ),
+                recording.durationSeconds,
+                recording.localeIdentifier
+            )
+        transcriptView.text = recording.transcript
+        transcriptView.isEditable = analysisTask == nil
+        observedPhonesLabel.text = recording.observedPhones.isEmpty
+            ? recording.phoneAnalysisFailure.map {
+                "Raw-audio phoneme decoding failed: \($0)"
+            } ?? "Tap Reanalyze to decode the saved audio."
+            : recording.observedPhones.joined(separator: "  ")
+        referencePhonesLabel.text = recording.referencePhones.isEmpty
+            ? "Edit the transcript to generate reference phonemes."
+            : recording.referencePhones.joined(separator: "  ")
+        referenceDetailLabel.isHidden =
+            recording.unknownReferenceWords.isEmpty
+        referenceDetailLabel.text =
+            recording.unknownReferenceWords.isEmpty
+                ? nil
+                : "No dictionary entry: "
+                    + recording.unknownReferenceWords.joined(
+                        separator: ", "
+                    )
+        reanalyzeButton.isEnabled = analysisTask == nil
+        playButton.isEnabled = analysisTask == nil
+        deleteButton.isEnabled = analysisTask == nil
+        deleteButton.isHidden =
+            recording.source == .bundledSample
+        if analysisTask == nil {
+            if let lastAnalyzedAt = recording.lastAnalyzedAt {
+                detailStatusLabel.text =
+                    "Saved analysis from "
+                    + Self.dateFormatter.string(
+                        from: lastAnalyzedAt
+                    )
+                    + ". Reanalyze uses this same audio."
+            } else if recording.source == .bundledSample {
+                detailStatusLabel.text =
+                    "Sample ready. Tap Reanalyze to run the raw-audio "
+                    + "model in the simulator or on device."
+            } else {
+                detailStatusLabel.text =
+                    "Recording saved. Tap Reanalyze at any time."
+            }
+        }
+    }
+
+    @objc private func toggleRecording() {
+        endEditing(true)
+        if probe.isRecording {
+            finishRecording(interruptionMessage: nil)
+            return
+        }
+        recordingTask?.cancel()
+        recordingTask = Task { [weak self] in
+            await self?.beginRecording()
+        }
+    }
+
+    private func beginRecording() async {
+        guard isPrepared else {
+            libraryStatusLabel.text =
+                "Still preparing audio capture."
+            return
+        }
+        do {
+            try await probe.startRecording()
+            guard !Task.isCancelled else {
+                probe.stopRecording()
+                return
+            }
+            recordButton.configuration?.title = "Stop"
+            recordButton.configuration?.image = UIImage(
+                systemName: "stop.fill"
+            )
+            libraryStatusLabel.text =
+                "Recording. Tap Stop when finished."
+            startRecordingWaveform()
+            startRecordingLimit()
+        } catch {
+            guard !Task.isCancelled else { return }
+            libraryStatusLabel.text =
+                "Record failed: \(error.localizedDescription)"
+        }
+        recordingTask = nil
+    }
+
+    private func finishRecording(
+        interruptionMessage: String?
+    ) {
+        guard probe.isRecording || interruptionMessage != nil else {
+            return
+        }
+        recordingTask?.cancel()
+        recordingTask = nil
+        recordingLimitTask?.cancel()
+        recordingLimitTask = nil
+        probe.stopRecording()
+        stopWaveform()
+        recordButton.configuration?.title = "Record"
+        recordButton.configuration?.image = UIImage(
+            systemName: "mic.fill"
+        )
+
+        do {
+            let recording = try recordingStore.save(
+                capture: probe.capturedTake(),
+                locale: probe.analysisLocale
+            )
+            refreshRecordings()
+            showRecording(id: recording.id)
+            detailStatusLabel.text = interruptionMessage
+                ?? "Recording saved. Analyzing the retained audio…"
+            analyze(recordingID: recording.id)
+        } catch {
+            libraryStatusLabel.text =
+                "Recording could not be saved: "
+                    + error.localizedDescription
+        }
+    }
+
+    @objc private func reanalyzeSelectedRecording() {
+        guard let selectedRecordingID else { return }
+        analyze(recordingID: selectedRecordingID)
+    }
+
+    private func analyze(recordingID: UUID) {
+        guard analysisTask == nil else {
+            detailStatusLabel.text =
+                "Wait for the current analysis to finish."
+            return
+        }
+        stopPlayback()
+        transcriptView.isEditable = false
+        reanalyzeButton.isEnabled = false
+        playButton.isEnabled = false
+        deleteButton.isEnabled = false
+        detailStatusLabel.text =
+            "Reanalyzing the saved audio…"
+        analysisTask = Task { [weak self] in
+            await self?.runAnalysis(recordingID: recordingID)
+        }
+    }
+
+    private func runAnalysis(recordingID: UUID) async {
+        defer {
+            analysisTask = nil
+            refreshRecordings()
+        }
+        do {
+            var recording = try recordingStore.recording(
+                id: recordingID
+            )
+            if probe.transcriptionAvailable {
+                do {
+                    let reading = try await probe.unaidedReading(
+                        audioURL: recordingStore.audioURL(
+                            for: recording
+                        ),
+                        localeIdentifier:
+                            recording.localeIdentifier
+                    )
+                    guard !Task.isCancelled else { return }
+                    if !reading.top.text.isEmpty {
+                        recording.applyRecognizedTranscript(
+                            reading.top.text
+                        )
+                    }
+                    recording.transcriptionFailure = nil
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    recording.transcriptionFailure =
+                        error.localizedDescription
+                }
+            } else {
+                recording.transcriptionFailure =
+                    "Speech transcription is unavailable on this device."
+            }
+            try recordingStore.save(recording)
+            refreshRecordings()
+            await updateReference(
+                transcript: recording.transcript,
+                recordingID: recordingID,
+                markTranscriptEdited: false
+            )
+            guard !Task.isCancelled else { return }
+
+            recording = try recordingStore.recording(
+                id: recordingID
+            )
+            let manifest = try VoicePhoneModelAssets.loadManifest()
+            let observation = try await phoneAnalyzer.analyzePassage(
+                VoicePhoneAnalyzer.PassageRequest(
+                    analysisID: recording.id,
+                    audioURL: recordingStore.audioURL(
+                        for: recording
+                    ),
+                    localeIdentifier:
+                        recording.localeIdentifier,
+                    modelManifest: manifest
+                )
+            )
+            guard !Task.isCancelled else { return }
+            recording = try recordingStore.recording(
+                id: recordingID
+            )
+            recording.observedPhones = observation.phones
+            recording.modelWeightSHA256 =
+                observation.modelWeightSHA256
+            recording.phoneAnalysisFailure = nil
+            recording.lastAnalyzedAt = Date()
+            try recordingStore.save(recording)
+            detailStatusLabel.text = recording.transcriptionFailure
+                == nil
+                ? "Analysis complete and saved."
+                : """
+                Raw-audio analysis complete and saved. Transcription \
+                was unavailable; the saved editable transcript was kept.
+                """
+        } catch let analysisError {
+            guard !Task.isCancelled else { return }
+            do {
+                var recording = try recordingStore.recording(
+                    id: recordingID
+                )
+                recording.phoneAnalysisFailure =
+                    analysisError.localizedDescription
+                recording.lastAnalyzedAt = Date()
+                try recordingStore.save(recording)
+            } catch let persistenceError {
+                detailStatusLabel.text =
+                    "Analysis and failure persistence both failed: "
+                        + persistenceError.localizedDescription
+                return
+            }
+            detailStatusLabel.text =
+                "Raw-audio analysis failed: "
+                    + analysisError.localizedDescription
+        }
+    }
+
+    private func scheduleReferenceUpdate(
+        transcript: String,
+        recordingID: UUID,
+        delay: Duration = .milliseconds(250),
+        markTranscriptEdited: Bool = true
+    ) {
+        referenceUpdateTask?.cancel()
+        referencePhonesLabel.text =
+            "Updating reference phonemes…"
+        referenceUpdateTask = Task { [weak self] in
+            if delay != .zero {
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+            }
+            await self?.updateReference(
+                transcript: transcript,
+                recordingID: recordingID,
+                markTranscriptEdited: markTranscriptEdited
+            )
+        }
+    }
+
+    private func updateReference(
+        transcript: String,
+        recordingID: UUID,
+        markTranscriptEdited: Bool
+    ) async {
+        do {
+            var recording = try recordingStore.recording(
+                id: recordingID
+            )
+            if markTranscriptEdited {
+                recording.applyTranscriptEdit(transcript)
+            } else {
+                recording.transcript = transcript
+            }
+            try recordingStore.save(recording)
+
+            let result = try await pronouncer.pronunciation(
+                for: transcript
+            )
+            guard !Task.isCancelled else { return }
+            recording = try recordingStore.recording(
+                id: recordingID
+            )
+            recording.transcript = transcript
+            recording.referencePhones = result.phones
+            recording.unknownReferenceWords = result.unknownWords
+            try recordingStore.save(recording)
+            refreshRecordings()
+        } catch {
+            guard !Task.isCancelled else { return }
+            detailStatusLabel.text =
+                "Reference update failed: "
+                    + error.localizedDescription
+        }
+    }
+
+    @objc private func togglePlayback() {
+        if audioPlayer != nil {
+            stopPlayback()
+            detailStatusLabel.text = "Playback stopped."
+            return
+        }
+        guard let selectedRecordingID else { return }
+        do {
+            let recording = try recordingStore.recording(
+                id: selectedRecordingID
+            )
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(
+                .playback,
+                mode: .spokenAudio
+            )
+            try session.setActive(true)
+            let player = try AVAudioPlayer(
+                contentsOf: recordingStore.audioURL(
+                    for: recording
+                )
+            )
+            player.delegate = self
+            player.isMeteringEnabled = true
+            guard player.prepareToPlay(), player.play() else {
+                throw VoicePassageRecordingStore.StoreError
+                    .invalidRecording(recording.id)
+            }
+            audioPlayer = player
+            playButton.setTitle("Stop", for: .normal)
+            playButton.setImage(
+                UIImage(systemName: "stop.fill"),
+                for: .normal
+            )
+            detailStatusLabel.text =
+                "Playing the saved recording."
+            startPlaybackWaveform()
+        } catch {
+            stopPlayback()
+            detailStatusLabel.text =
+                "Playback failed: \(error.localizedDescription)"
+        }
+    }
+
+    @objc private func deleteSelectedRecording() {
+        guard let selectedRecordingID else { return }
+        do {
+            try recordingStore.delete(
+                recordingID: selectedRecordingID
+            )
+            showLibrary()
+            libraryStatusLabel.text =
+                "Saved recording deleted."
+        } catch {
+            detailStatusLabel.text =
+                "Delete failed: \(error.localizedDescription)"
+        }
+    }
+
+    private func startRecordingWaveform() {
+        stopWaveform()
+        recordingWaveformContainer.isHidden = false
+        recordingWaveformView.reset()
+        displayedLevel = 0
+        waveformTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .milliseconds(50))
+                } catch {
+                    return
+                }
+                guard let self, !Task.isCancelled else { return }
+                appendSmoothedLevel(
+                    probe.currentAudioLevel,
+                    to: recordingWaveformView
+                )
+            }
+        }
+    }
+
+    private func startPlaybackWaveform() {
+        stopWaveform()
+        playbackWaveformContainer.isHidden = false
+        playbackWaveformView.reset()
+        displayedLevel = 0
+        waveformTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .milliseconds(50))
+                } catch {
+                    return
+                }
+                guard let self, let audioPlayer,
+                      !Task.isCancelled
+                else {
+                    return
+                }
+                audioPlayer.updateMeters()
+                appendSmoothedLevel(
+                    VoiceAudioLevel.normalized(
+                        decibels: audioPlayer.averagePower(
+                            forChannel: 0
+                        )
+                    ),
+                    to: playbackWaveformView
+                )
+            }
+        }
+    }
+
+    private func appendSmoothedLevel(
+        _ measured: Float,
+        to waveform: VoiceWaveformView
+    ) {
+        let response: Float =
+            measured >= displayedLevel ? 0.85 : 0.12
+        displayedLevel +=
+            (measured - displayedLevel) * response
+        waveform.append(level: displayedLevel)
+    }
+
+    private func stopWaveform() {
+        waveformTask?.cancel()
+        waveformTask = nil
+        displayedLevel = 0
+        recordingWaveformView.reset()
+        playbackWaveformView.reset()
+        recordingWaveformContainer.isHidden = true
+        playbackWaveformContainer.isHidden = true
+    }
+
+    private func stopPlayback() {
+        audioPlayer?.stop()
+        audioPlayer = nil
+        playButton.setTitle("Play", for: .normal)
+        playButton.setImage(
+            UIImage(systemName: "play.fill"),
+            for: .normal
+        )
+        stopWaveform()
+        try? AVAudioSession.sharedInstance().setActive(
+            false,
+            options: [.notifyOthersOnDeactivation]
+        )
+    }
+
+    private func startRecordingLimit() {
+        recordingLimitTask?.cancel()
+        recordingLimitTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(
+                    for: .seconds(
+                        VoicePassagePhoneObservation
+                            .maximumDurationSeconds - 1
+                    )
+                )
+            } catch {
+                return
+            }
+            guard let self, probe.isRecording else { return }
+            finishRecording(
+                interruptionMessage:
+                    "Two-minute limit reached. Recording saved."
+            )
+        }
     }
 
     private func card(
@@ -271,11 +1071,41 @@ final class VoicePassageSurface: UIView {
         header.addArrangedSubview(titleLabel)
         let detailLabel = detailLabel(detail)
         detailLabel.textAlignment = .right
-        detailLabel.setContentHuggingPriority(.required, for: .horizontal)
+        detailLabel.setContentHuggingPriority(
+            .required,
+            for: .horizontal
+        )
         header.addArrangedSubview(detailLabel)
         container.addArrangedSubview(header)
         container.addArrangedSubview(content)
         return container
+    }
+
+    private func configurePhoneLabel(_ label: UILabel) {
+        label.font = .monospacedSystemFont(
+            ofSize: 17,
+            weight: .regular
+        )
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+    }
+
+    private func heading(_ text: String) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.font = .preferredFont(forTextStyle: .title2)
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 0
+        return label
+    }
+
+    private func sectionLabel(_ text: String) -> UILabel {
+        let label = UILabel()
+        label.text = text
+        label.font = .preferredFont(forTextStyle: .headline)
+        label.adjustsFontForContentSizeCategory = true
+        return label
     }
 
     private func detailLabel(_ text: String) -> UILabel {
@@ -284,299 +1114,62 @@ final class VoicePassageSurface: UIView {
         label.font = .preferredFont(forTextStyle: .caption1)
         label.adjustsFontForContentSizeCategory = true
         label.textColor = .secondaryLabel
+        label.numberOfLines = 0
         return label
     }
 
-    @objc private func toggleRecording() {
-        endEditing(true)
-        if probe.isRecording {
-            finishRecording(interruptionMessage: nil)
-            return
-        }
-        analysisTask?.cancel()
-        analysisTask = nil
-        recordingTask?.cancel()
-        recordingTask = Task { [weak self] in
-            await self?.beginRecording()
+    private func clearArrangedSubviews(_ stack: UIStackView) {
+        for view in stack.arrangedSubviews {
+            stack.removeArrangedSubview(view)
+            view.removeFromSuperview()
         }
     }
 
-    private func beginRecording() async {
-        guard isPrepared else {
-            statusLabel.text = "Still preparing speech recognition."
-            return
-        }
-        do {
-            try await probe.startRecording()
-            guard !Task.isCancelled else {
-                probe.stopRecording()
-                return
-            }
-            recordButton.configuration?.title = "Stop"
-            recordButton.configuration?.image = UIImage(
-                systemName: "stop.fill"
-            )
-            transcriptView.isEditable = false
-            statusLabel.text = "Recording. Tap Stop when finished."
-            startWaveform()
-            startRecordingLimit()
-        } catch {
-            guard !Task.isCancelled else { return }
-            statusLabel.text = "Record failed: \(error.localizedDescription)"
-        }
-        recordingTask = nil
-    }
-
-    private func finishRecording(interruptionMessage: String?) {
-        guard probe.isRecording || interruptionMessage != nil else { return }
-        recordingTask?.cancel()
-        recordingTask = nil
-        recordingLimitTask?.cancel()
-        recordingLimitTask = nil
-        probe.stopRecording()
-        stopWaveform()
-        recordButton.configuration?.title = "Record"
-        recordButton.configuration?.image = UIImage(systemName: "mic.fill")
-
-        do {
-            let capture = try probe.capturedTake()
-            let session = try sessionStore.save(
-                capture: capture,
-                locale: probe.analysisLocale
-            )
-            currentSession = session
-            transcriptView.isEditable = false
-            transcriptView.text = "Transcribing…"
-            observedPhonesLabel.text = "Decoding raw audio…"
-            referencePhonesLabel.text = "Waiting for transcript…"
-            referenceDetailLabel.isHidden = true
-            statusLabel.text = interruptionMessage
-                ?? "Recording saved. Transcribing and decoding phonemes…"
-            analysisTask = Task { [weak self] in
-                await self?.analyze(session: session)
-            }
-        } catch {
-            statusLabel.text =
-                "Recording could not be saved: \(error.localizedDescription)"
-        }
-    }
-
-    private func analyze(session: VoicePassageSession) async {
-        defer { analysisTask = nil }
-        var updatedSession = session
-        do {
-            let reading = try await probe.unaidedReading()
-            guard !Task.isCancelled, currentSession?.id == session.id else {
-                return
-            }
-            updatedSession.transcript = reading.top.text
-            currentSession = updatedSession
-            transcriptView.text = reading.top.text
-            transcriptView.isEditable = true
-            try sessionStore.save(updatedSession)
-        } catch {
-            guard !Task.isCancelled else { return }
-            transcriptView.text = ""
-            transcriptView.isEditable = true
-            statusLabel.text =
-                "The recording was saved, but transcription failed: "
-                    + error.localizedDescription
-        }
-
-        await updateReference(
-            transcript: updatedSession.transcript,
-            sessionID: session.id
-        )
-        guard !Task.isCancelled, currentSession?.id == session.id else {
-            return
-        }
-
-        do {
-            let manifest = try VoicePhoneModelAssets.loadManifest()
-            let observation = try await phoneAnalyzer.analyzePassage(
-                VoicePhoneAnalyzer.PassageRequest(
-                    analysisID: session.id,
-                    audioURL: sessionStore.audioURL(for: session),
-                    localeIdentifier: session.localeIdentifier,
-                    modelManifest: manifest
-                )
-            )
-            guard !Task.isCancelled, currentSession?.id == session.id else {
-                return
-            }
-            observedPhonesLabel.text = observation.displayText
-            updatedSession = currentSession ?? updatedSession
-            updatedSession.observedPhones = observation.phones
-            updatedSession.modelWeightSHA256 =
-                observation.modelWeightSHA256
-            currentSession = updatedSession
-            try sessionStore.save(updatedSession)
-            statusLabel.text = """
-            Done. The transcript is editable; changing it updates only the \
-            reference phonemes.
-            """
-        } catch {
-            guard !Task.isCancelled else { return }
-            observedPhonesLabel.text =
-                "Raw-audio phoneme decoding failed: \(error.localizedDescription)"
-            statusLabel.text =
-                "Transcript ready. Raw-audio phoneme decoding failed."
-        }
-    }
-
-    private func updateReference(
-        transcript: String,
-        sessionID: UUID
-    ) async {
-        guard !Task.isCancelled,
-              var transcriptSession = currentSession,
-              transcriptSession.id == sessionID
-        else {
-            return
-        }
-        transcriptSession.transcript = transcript
-        do {
-            try sessionStore.save(transcriptSession)
-            currentSession = transcriptSession
-        } catch {
-            statusLabel.text =
-                "Transcript could not be saved: \(error.localizedDescription)"
-            return
-        }
-
-        let result: VoicePassagePronunciationResult
-        do {
-            result = try await pronouncer.pronunciation(for: transcript)
-        } catch {
-            guard !Task.isCancelled, currentSession?.id == sessionID else {
-                return
-            }
-            referencePhonesLabel.text =
-                "Reference generation failed: \(error.localizedDescription)"
-            referenceDetailLabel.isHidden = true
-            return
-        }
-        guard !Task.isCancelled, currentSession?.id == sessionID else {
-            return
-        }
-        referencePhonesLabel.text = result.displayText
-        if result.unknownWords.isEmpty {
-            referenceDetailLabel.isHidden = true
-            referenceDetailLabel.text = nil
-        } else {
-            referenceDetailLabel.isHidden = false
-            referenceDetailLabel.text =
-                "No dictionary entry: "
-                    + result.unknownWords.joined(separator: ", ")
-        }
-        if var session = currentSession {
-            session.referencePhones = result.phones
-            session.unknownReferenceWords = result.unknownWords
-            currentSession = session
-            do {
-                try sessionStore.save(session)
-            } catch {
-                statusLabel.text =
-                    "Reference shown, but metadata could not be saved: "
-                        + error.localizedDescription
-            }
-        }
-    }
-
-    private func restoreCurrentSession() {
-        do {
-            guard let session = try sessionStore.load() else { return }
-            currentSession = session
-            transcriptView.text = session.transcript.isEmpty
-                ? "The last recording ended before transcription completed."
-                : session.transcript
-            transcriptView.isEditable = !session.transcript.isEmpty
-            observedPhonesLabel.text = session.observedPhones.isEmpty
-                ? "The last recording has no decoded phonemes."
-                : session.observedPhones.joined(separator: "  ")
-            referencePhonesLabel.text = session.referencePhones.isEmpty
-                ? "Edit the transcript to generate reference phonemes."
-                : session.referencePhones.joined(separator: "  ")
-            referenceDetailLabel.isHidden =
-                session.unknownReferenceWords.isEmpty
-            referenceDetailLabel.text = session.unknownReferenceWords.isEmpty
-                ? nil
-                : "No dictionary entry: "
-                    + session.unknownReferenceWords.joined(separator: ", ")
-        } catch {
-            statusLabel.text =
-                "Saved passage could not be read: \(error.localizedDescription)"
-        }
-    }
-
-    private func startWaveform() {
-        stopWaveform()
-        waveformContainer.isHidden = false
-        waveformView.reset()
-        displayedLevel = 0
-        waveformTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .milliseconds(50))
-                } catch {
-                    return
-                }
-                guard let self, !Task.isCancelled else { return }
-                let measured = probe.currentAudioLevel
-                let response: Float = measured >= displayedLevel ? 0.85 : 0.12
-                displayedLevel += (measured - displayedLevel) * response
-                waveformView.append(level: displayedLevel)
-            }
-        }
-    }
-
-    private func startRecordingLimit() {
-        recordingLimitTask?.cancel()
-        recordingLimitTask = Task { @MainActor [weak self] in
-            do {
-                try await Task.sleep(
-                    for: .seconds(
-                        VoicePassagePhoneObservation
-                            .maximumDurationSeconds - 1
-                    )
-                )
-            } catch {
-                return
-            }
-            guard let self, probe.isRecording else { return }
-            finishRecording(
-                interruptionMessage:
-                    "Two-minute recording limit reached. Recording saved."
-            )
-        }
-    }
-
-    private func stopWaveform() {
-        waveformTask?.cancel()
-        waveformTask = nil
-        displayedLevel = 0
-        waveformView.reset()
-        waveformContainer.isHidden = true
-    }
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
 }
 
 @available(iOS 26.0, *)
 extension VoicePassageSurface: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
-        guard let sessionID = currentSession?.id else { return }
-        referenceUpdateTask?.cancel()
-        referencePhonesLabel.text = "Updating reference phonemes…"
-        let transcript = textView.text ?? ""
-        referenceUpdateTask = Task { [weak self] in
-            do {
-                try await Task.sleep(for: .milliseconds(250))
-            } catch {
-                return
-            }
-            await self?.updateReference(
-                transcript: transcript,
-                sessionID: sessionID
-            )
+        guard let selectedRecordingID else { return }
+        scheduleReferenceUpdate(
+            transcript: textView.text ?? "",
+            recordingID: selectedRecordingID
+        )
+    }
+}
+
+@available(iOS 26.0, *)
+extension VoicePassageSurface: AVAudioPlayerDelegate {
+    nonisolated func audioPlayerDidFinishPlaying(
+        _ player: AVAudioPlayer,
+        successfully flag: Bool
+    ) {
+        Task { @MainActor [weak self] in
+            self?.stopPlayback()
+            self?.detailStatusLabel.text = flag
+                ? "Saved recording playback finished."
+                : "Saved recording playback stopped early."
+        }
+    }
+
+    nonisolated func audioPlayerDecodeErrorDidOccur(
+        _ player: AVAudioPlayer,
+        error: (any Error)?
+    ) {
+        Task { @MainActor [weak self] in
+            self?.stopPlayback()
+            self?.detailStatusLabel.text =
+                "Playback failed: "
+                + (
+                    error?.localizedDescription
+                        ?? "audio decode error"
+                )
         }
     }
 }

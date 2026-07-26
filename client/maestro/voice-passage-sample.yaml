@@ -1,0 +1,38 @@
+# Exercises the saved-audio Passage path without simulator microphone input.
+# The bundled sample is copied into the same persistent recording store as a
+# learner take, then replayed and reanalyzed through the raw Core ML model.
+appId: com.example.agentdesk.AgentDeskClient
+---
+- extendedWaitUntil:
+    visible: "Voice"
+    timeout: 30000
+- tapOn: "Voice"
+- assertVisible: "Target practice"
+- tapOn: "Passage"
+- assertVisible: "Passage recordings"
+- assertVisible: "Samples"
+- assertVisible: "Saved recordings"
+- tapOn:
+    id: "voice-passage-open-sample"
+- assertVisible: "Thought about the quiet garden"
+- assertVisible: "Transcript"
+- assertVisible: "Phonemes heard"
+- assertVisible: "Reference phonemes"
+- takeScreenshot: voice-passage-sample-before-analysis
+- tapOn:
+    id: "voice-passage-reanalyze"
+- extendedWaitUntil:
+    notVisible: "Tap Reanalyze to decode the saved audio."
+    timeout: 120000
+- takeScreenshot: voice-passage-sample-after-analysis
+- tapOn:
+    id: "voice-passage-play"
+- extendedWaitUntil:
+    visible: "Stop"
+    timeout: 5000
+- takeScreenshot: voice-passage-sample-playback
+- tapOn:
+    id: "voice-passage-play"
+- tapOn:
+    id: "voice-passage-back-to-recordings"
+- assertVisible: "Passage recordings"
