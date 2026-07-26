@@ -636,7 +636,15 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   `Transcript-aligned` so the UI does not misrepresent the grouping as an acoustic word boundary.
 - `just check-all` passed with 583 host tests, 428 client tests, and every package, web, and Rust
   gate. The final alignment self-review added nearest-anchor coverage and the client suite then passed
-  with 429 tests across 50 suites. A committed-build simulator screenshot remains.
+  with 429 tests across 50 suites.
+- Manually verified the committed `086befa8` host and client on iPhone 17 / iOS 26.5 with
+  `voice-passage-sample.yaml`. Reanalysis completed, saved-recording playback completed, and the app
+  returned to the recordings library without exiting. The screenshot shows transcript-word phone
+  groups flowing inline and wrapping only at available-width boundaries, with no fixed groups per
+  line. Persisted metadata contains all 8 transcript words, preserves the flat heard sequence exactly
+  (27 grouped phones = 27 raw phones), and preserves the reference sequence exactly (29 = 29). The
+  analyzed CAF remains byte-identical to the bundled source. `SpeechTranscriber` is unavailable in
+  this simulator, so real-device saved-file transcription remains outside this drive.
 
 ## Promotion log
 
@@ -652,5 +660,5 @@ R135  candidate   remaining  integrated explainable pronunciation gap loop
 R136  checkpoint  remaining  authorized physical-device acceptance
 R137  implemented remaining  physical normal-cycle and killed-analysis host-bundle proof
 D138  2026-07-26  landed     persistent passage library and bundled-sample raw-audio reanalysis
-R139  implemented remaining  integrated checks and committed-build grouped-phone visual verification
+D139  2026-07-26  landed     inline transcript-word phone grouping with raw evidence preserved
 ```
