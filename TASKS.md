@@ -568,6 +568,35 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   replay, deletion, phoneme evidence, reference comparison, and history on the physical iPhone with
   matching build identity.
 
+## v15 Phase 7: open-passage phoneme comparison
+
+- R138. Add an independent `Passage` tab beside the existing target-practice probe. Record up to two
+  minutes without a supplied target, retain the lossless current take and metadata, transcribe it
+  without context injection, and present exactly three long-form cards: editable transcript,
+  unconstrained phones decoded from the raw audio, and reference phones generated from the edited
+  transcript. Keep the two phone sequences separate and visible; do not present them as aligned,
+  scored, or proof of pronunciation correctness.
+
+### R138 implementation checkpoint (2026-07-26)
+
+- Added the tab without replacing the R128-R131 target-practice UI. Switching modes suspends the
+  inactive recorder and preserves an interrupted Passage take instead of discarding it; analysis of
+  an already-finished take continues while its tab is hidden.
+- Passage capture uses the existing iOS 26 SpeechAnalyzer path for unaided transcription. Raw-audio
+  phone decoding runs the pinned Core ML CTC model over consecutive four-second windows for recordings
+  up to 120 seconds, merges only an identical adjacent chunk-boundary phone, checks cancellation
+  between windows, and writes the existing durable analysis checkpoints with `analysisMode=passage`.
+- Reference phones use the pinned CMUdict revision
+  `74790861f652b15e4ac49015a90074ad62a27690` bundled with its BSD license. The app verifies dictionary
+  SHA-256 `81917843c7f44ce2b094ac63873c2c7a4cf802040792c455ba3ca406891c3d22`,
+  maps stress-insensitive ARPABET through the same generated model-phone inventory, keeps the first
+  listed pronunciation, and exposes unknown words rather than guessing.
+- Added focused coverage for long transcript tokenization/reference generation, the real pinned
+  dictionary asset, adjacent chunk merging, lossless current-take persistence, and the two-tab
+  three-card UI contract. Focused tests and `just check-all` are green, including 422 client and 583
+  host tests. Promotion still requires an explicitly authorized manual simulator or physical-device
+  recording.
+
 ## Promotion log
 
 ```text
@@ -581,4 +610,5 @@ R134  candidate   remaining  baselines and longitudinal attempt history
 R135  candidate   remaining  integrated explainable pronunciation gap loop
 R136  checkpoint  remaining  authorized physical-device acceptance
 R137  implemented remaining  physical normal-cycle and killed-analysis host-bundle proof
+R138  implemented remaining  manual open-passage capture and raw/reference phone comparison
 ```

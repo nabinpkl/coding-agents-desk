@@ -15,10 +15,20 @@ import UIKit
 final class VoicePlaygroundSurface: UIView {
     private static let retentionDefaultsKey = "VoiceProbeRetainsAttempts"
 
+    enum Mode: Int {
+        case targetPractice
+        case passage
+    }
+
     var onBackToVideo: (() -> Void)?
 
     private let scrollView = UIScrollView()
     private let stack = UIStackView()
+    private let modeControl = UISegmentedControl(
+        items: ["Target practice", "Passage"]
+    )
+    private let practiceStack = UIStackView()
+    private let passageSurface = VoicePassageSurface()
     private let backToVideoButton = UIButton(type: .system)
     private let targetField = UITextField()
     private let statusLabel = UILabel()
@@ -142,7 +152,22 @@ final class VoicePlaygroundSurface: UIView {
             for: .touchUpInside
         )
         stack.addArrangedSubview(backToVideoButton)
-        stack.addArrangedSubview(heading("Speech context probe"))
+
+        modeControl.selectedSegmentIndex = 0
+        modeControl.accessibilityLabel = "Speech mode"
+        modeControl.accessibilityIdentifier = "voice-mode-control"
+        modeControl.addTarget(
+            self,
+            action: #selector(modeChanged),
+            for: .valueChanged
+        )
+        stack.addArrangedSubview(modeControl)
+
+        practiceStack.axis = .vertical
+        practiceStack.spacing = 12
+        practiceStack.alignment = .fill
+        stack.addArrangedSubview(practiceStack)
+        practiceStack.addArrangedSubview(heading("Speech context probe"))
 
         targetField.text = "think"
         targetField.borderStyle = .roundedRect
@@ -151,19 +176,19 @@ final class VoicePlaygroundSurface: UIView {
         targetField.returnKeyType = .done
         targetField.addTarget(self, action: #selector(dismissKeyboard), for: .editingDidEndOnExit)
         targetField.accessibilityLabel = "Target phrase"
-        stack.addArrangedSubview(caption("Target phrase"))
-        stack.addArrangedSubview(targetField)
-        stack.addArrangedSubview(presetGrid())
+        practiceStack.addArrangedSubview(caption("Target phrase"))
+        practiceStack.addArrangedSubview(targetField)
+        practiceStack.addArrangedSubview(presetGrid())
 
         speakButton.setTitle("Hear reference", for: .normal)
         speakButton.addTarget(self, action: #selector(speakTarget), for: .touchUpInside)
-        stack.addArrangedSubview(speakButton)
+        practiceStack.addArrangedSubview(speakButton)
 
         recordButton.setTitle("Record", for: .normal)
         recordButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
         recordButton.addTarget(self, action: #selector(toggleRecording), for: .touchUpInside)
         recordButton.accessibilityLabel = "Record"
-        stack.addArrangedSubview(recordButton)
+        practiceStack.addArrangedSubview(recordButton)
 
         recordingWaveformStack.axis = .vertical
         recordingWaveformStack.spacing = 6
@@ -175,21 +200,21 @@ final class VoicePlaygroundSurface: UIView {
         recordingWaveformView.tintColor = .systemRed
         recordingWaveformView.accessibilityIdentifier = "voice-recording-waveform"
         recordingWaveformStack.addArrangedSubview(recordingWaveformView)
-        stack.addArrangedSubview(recordingWaveformStack)
+        practiceStack.addArrangedSubview(recordingWaveformStack)
 
         statusLabel.font = .preferredFont(forTextStyle: .footnote)
         statusLabel.textColor = .secondaryLabel
         statusLabel.numberOfLines = 0
         statusLabel.text = "Preparing…"
         statusLabel.accessibilityIdentifier = "voice-status"
-        stack.addArrangedSubview(statusLabel)
+        practiceStack.addArrangedSubview(statusLabel)
 
-        stack.addArrangedSubview(separator())
+        practiceStack.addArrangedSubview(separator())
 
         verdictLabel.font = .preferredFont(forTextStyle: .title3)
         verdictLabel.numberOfLines = 0
         verdictLabel.accessibilityIdentifier = "voice-verdict"
-        stack.addArrangedSubview(verdictLabel)
+        practiceStack.addArrangedSubview(verdictLabel)
 
         for (caption, label) in [
             ("No context", unaidedLabel),
@@ -198,12 +223,12 @@ final class VoicePlaygroundSurface: UIView {
         ] {
             label.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
             label.numberOfLines = 0
-            stack.addArrangedSubview(self.caption(caption))
-            stack.addArrangedSubview(label)
+            practiceStack.addArrangedSubview(self.caption(caption))
+            practiceStack.addArrangedSubview(label)
         }
 
-        stack.addArrangedSubview(separator())
-        stack.addArrangedSubview(heading("Saved evidence"))
+        practiceStack.addArrangedSubview(separator())
+        practiceStack.addArrangedSubview(heading("Saved evidence"))
 
         let retentionRow = UIStackView()
         retentionRow.axis = .horizontal
@@ -226,7 +251,7 @@ final class VoicePlaygroundSurface: UIView {
             for: .valueChanged
         )
         retentionSwitch.accessibilityLabel = "Keep new voice recordings"
-        stack.addArrangedSubview(retentionRow)
+        practiceStack.addArrangedSubview(retentionRow)
 
         deleteAllButton.setTitle("Delete all saved takes", for: .normal)
         deleteAllButton.setTitleColor(.systemRed, for: .normal)
@@ -235,18 +260,23 @@ final class VoicePlaygroundSurface: UIView {
             action: #selector(confirmDeleteAll),
             for: .touchUpInside
         )
-        stack.addArrangedSubview(deleteAllButton)
+        practiceStack.addArrangedSubview(deleteAllButton)
 
         matrixLabel.font = .preferredFont(forTextStyle: .footnote)
         matrixLabel.numberOfLines = 0
         matrixLabel.accessibilityIdentifier = "voice-context-matrix"
-        stack.addArrangedSubview(caption("Saved minimal-pair matrix"))
-        stack.addArrangedSubview(matrixLabel)
+        practiceStack.addArrangedSubview(
+            caption("Saved minimal-pair matrix")
+        )
+        practiceStack.addArrangedSubview(matrixLabel)
 
         savedAttemptsStack.axis = .vertical
         savedAttemptsStack.spacing = 10
-        stack.addArrangedSubview(caption("Saved takes"))
-        stack.addArrangedSubview(savedAttemptsStack)
+        practiceStack.addArrangedSubview(caption("Saved takes"))
+        practiceStack.addArrangedSubview(savedAttemptsStack)
+
+        passageSurface.isHidden = true
+        stack.addArrangedSubview(passageSurface)
     }
 
     private func heading(_ text: String) -> UILabel {
@@ -298,6 +328,27 @@ final class VoicePlaygroundSurface: UIView {
     }
 
     // MARK: - Actions
+
+    @objc private func modeChanged() {
+        guard let mode = Mode(rawValue: modeControl.selectedSegmentIndex) else {
+            return
+        }
+        selectMode(mode)
+    }
+
+    func selectMode(_ mode: Mode) {
+        modeControl.selectedSegmentIndex = mode.rawValue
+        let showsPassage = mode == .passage
+        practiceStack.isHidden = showsPassage
+        passageSurface.isHidden = !showsPassage
+        if showsPassage {
+            suspendPractice()
+            passageSurface.activate()
+        } else {
+            passageSurface.suspend()
+        }
+        scrollView.setContentOffset(.zero, animated: false)
+    }
 
     @objc private func dismissKeyboard() {
         targetField.resignFirstResponder()
@@ -1306,7 +1357,7 @@ final class VoicePlaygroundSurface: UIView {
         return nil
     }
 
-    func suspend() {
+    private func suspendPractice() {
         recordingTask?.cancel()
         recordingTask = nil
         readingsTask?.cancel()
@@ -1330,11 +1381,17 @@ final class VoicePlaygroundSurface: UIView {
         activeAttemptID = nil
     }
 
+    func suspend() {
+        suspendPractice()
+        passageSurface.suspend()
+    }
+
     func teardown() {
         suspend()
         preparationTask?.cancel()
         preparationTask = nil
         probe.onCaptureInterrupted = nil
+        passageSurface.teardown()
     }
 
     private func deactivateReferenceAudioSession() {

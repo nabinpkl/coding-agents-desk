@@ -475,6 +475,31 @@ final class VoiceContextProbe {
 
     // MARK: - The two readings
 
+    /// Transcribes the captured audio once without vocabulary context. Passage
+    /// mode uses this result as editable text; it does not know the intended
+    /// phrase before recording.
+    func unaidedReading() async throws -> VoiceReading {
+        VoiceProbeTrace.emit("unaidedReading: entered")
+        guard let locale = resolvedLocale else {
+            throw ProbeError.localeUnsupported(requestedLocale.identifier)
+        }
+        let buffers = sink?.snapshot() ?? []
+        VoiceProbeTrace.emit(
+            "unaidedReading: \(buffers.count) captured buffers"
+        )
+        guard !buffers.isEmpty else { throw ProbeError.noAudioCaptured }
+        let reading = try await Self.transcribe(
+            locale: locale,
+            inputs: buffers.map { AnalyzerInput(buffer: $0) },
+            contextualStrings: []
+        )
+        VoiceProbeTrace.emit(
+            "unaidedReading complete: text=\(!reading.top.text.isEmpty) "
+                + "alts=\(reading.alternatives.count)"
+        )
+        return reading
+    }
+
     /// Transcribes the captured audio twice and returns the unaided reading
     /// first, the context-seeded reading second.
     func readings(

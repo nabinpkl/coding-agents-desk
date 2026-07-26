@@ -12,6 +12,7 @@ enum VoicePhoneAnalyzerError: LocalizedError {
     case analysisLogWriteFailed(String)
     case emptyRecording
     case recordingTooLong(TimeInterval)
+    case passageRecordingTooLong(TimeInterval)
     case audioBufferAllocationFailed
 
     var errorDescription: String? {
@@ -31,6 +32,12 @@ enum VoicePhoneAnalyzerError: LocalizedError {
         case .recordingTooLong(let duration):
             return String(
                 format: "Phone analysis accepts recordings up to 30 seconds; this take is %.1f seconds.",
+                duration
+            )
+        case .passageRecordingTooLong(let duration):
+            return String(
+                format: "Passage analysis accepts recordings up to %.0f seconds; this take is %.1f seconds.",
+                VoicePassagePhoneObservation.maximumDurationSeconds,
                 duration
             )
         case .audioBufferAllocationFailed:
@@ -196,6 +203,13 @@ actor VoicePhoneAnalyzer {
         let modelManifest: VoicePhoneModelManifest
     }
 
+    struct PassageRequest: Equatable, Sendable {
+        let analysisID: UUID
+        let audioURL: URL
+        let localeIdentifier: String
+        let modelManifest: VoicePhoneModelManifest
+    }
+
     private struct LoadedAssets {
         let manifest: VoicePhoneModelManifest
         let vocabulary: VoicePhoneVocabulary
@@ -267,6 +281,287 @@ actor VoicePhoneAnalyzer {
                 )
             }
             throw analysisError
+        }
+    }
+
+    func analyzePassage(
+        _ request: PassageRequest
+    ) throws -> VoicePassagePhoneObservation {
+        let residentBefore = Self.residentMemoryBytes()
+        defer {
+            loadedAssets = nil
+            ClientDiagnostics.shared.record(
+                type: "voicePassagePhoneModelReleased",
+                fields: [
+                    "residentMemoryBytes":
+                        Self.residentMemoryBytes().map(String.init)
+                            ?? "unavailable"
+                ],
+                level: .info
+            )
+        }
+        var analysisLog = try VoicePhoneAnalysisLogWriter(
+            attemptID: request.analysisID,
+            audioURL: request.audioURL,
+            modelWeightSHA256: request.modelManifest.modelWeightSHA256,
+            residentMemoryBytes: residentBefore
+        )
+        do {
+            return try analyzePassage(
+                request,
+                analysisLog: &analysisLog
+            )
+        } catch {
+            let analysisError = error
+            do {
+                try analysisLog.record(
+                    .analysisFailed,
+                    residentMemoryBytes: Self.residentMemoryBytes(),
+                    details: [
+                        "analysisMode": "passage",
+                        "errorType": String(
+                            reflecting: type(of: analysisError)
+                        ),
+                        "message": String(
+                            analysisError.localizedDescription.prefix(1_000)
+                        )
+                    ]
+                )
+            } catch {
+                throw VoicePhoneAnalyzerError.analysisLogWriteFailed(
+                    "passage analysis error: \(analysisError.localizedDescription); "
+                        + "log error: \(error.localizedDescription)"
+                )
+            }
+            throw analysisError
+        }
+    }
+
+    private func analyzePassage(
+        _ request: PassageRequest,
+        analysisLog: inout VoicePhoneAnalysisLogWriter
+    ) throws -> VoicePassagePhoneObservation {
+        try analysisLog.record(
+            .audioReadStarted,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: ["analysisMode": "passage"]
+        )
+        let audioData = try Data(
+            contentsOf: request.audioURL,
+            options: .mappedIfSafe
+        )
+        let audioSHA256 = SHA256.hash(data: audioData).hexString
+        try analysisLog.record(
+            .audioReadCompleted,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: [
+                "analysisMode": "passage",
+                "sourceBytes": String(audioData.count)
+            ]
+        )
+
+        try analysisLog.record(
+            .audioPreparationStarted,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: ["analysisMode": "passage"]
+        )
+        let passageAudio = try preparePassageAudio(
+            url: request.audioURL,
+            manifest: request.modelManifest
+        )
+        let chunkStarts = stride(
+            from: 0,
+            to: passageAudio.samples.count,
+            by: request.modelManifest.sampleCount
+        )
+        .map { $0 }
+        try analysisLog.record(
+            .audioPrepared,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: [
+                "analysisMode": "passage",
+                "analyzedSamples": String(passageAudio.samples.count),
+                "chunkCount": String(chunkStarts.count),
+                "sourceDurationMilliseconds": String(
+                    Int((passageAudio.durationSeconds * 1_000).rounded())
+                )
+            ]
+        )
+
+        try analysisLog.record(
+            .assetsLoadStarted,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: ["analysisMode": "passage"]
+        )
+        let (assets, _) = try assets(
+            for: request.modelManifest,
+            analysisLog: &analysisLog
+        )
+        let excludedTokenIDs = Set([
+            request.modelManifest.blankTokenID,
+            1,
+            2,
+            3
+        ])
+        var observedPhones: [String] = []
+        for (chunkIndex, start) in chunkStarts.enumerated() {
+            try Task.checkCancellation()
+            let end = min(
+                start + request.modelManifest.sampleCount,
+                passageAudio.samples.count
+            )
+            var chunk = Array(passageAudio.samples[start..<end])
+            if chunk.count < request.modelManifest.sampleCount {
+                chunk.append(
+                    contentsOf: repeatElement(
+                        0,
+                        count: request.modelManifest.sampleCount - chunk.count
+                    )
+                )
+            }
+
+            try analysisLog.record(
+                .inputAllocationStarted,
+                residentMemoryBytes: Self.residentMemoryBytes(),
+                details: [
+                    "analysisMode": "passage",
+                    "chunkIndex": String(chunkIndex),
+                    "sampleCount": String(chunk.count)
+                ]
+            )
+            let input = try MLMultiArray(
+                shape: [
+                    1,
+                    NSNumber(value: request.modelManifest.sampleCount)
+                ],
+                dataType: .float32
+            )
+            for index in chunk.indices {
+                input[index] = NSNumber(value: chunk[index])
+            }
+            let provider = try MLDictionaryFeatureProvider(dictionary: [
+                "input_values": MLFeatureValue(multiArray: input)
+            ])
+            try analysisLog.record(
+                .inputPrepared,
+                residentMemoryBytes: Self.residentMemoryBytes(),
+                details: [
+                    "analysisMode": "passage",
+                    "chunkIndex": String(chunkIndex)
+                ]
+            )
+
+            try analysisLog.record(
+                .inferenceStarted,
+                residentMemoryBytes: Self.residentMemoryBytes(),
+                details: [
+                    "analysisMode": "passage",
+                    "chunkIndex": String(chunkIndex)
+                ]
+            )
+            let inferenceStart = CFAbsoluteTimeGetCurrent()
+            let prediction = try autoreleasepool {
+                try assets.model.prediction(from: provider)
+            }
+            let inferenceMilliseconds =
+                (CFAbsoluteTimeGetCurrent() - inferenceStart) * 1_000
+            try analysisLog.record(
+                .inferenceCompleted,
+                residentMemoryBytes: Self.residentMemoryBytes(),
+                details: [
+                    "analysisMode": "passage",
+                    "chunkIndex": String(chunkIndex),
+                    "elapsedMilliseconds": String(
+                        Int(inferenceMilliseconds.rounded())
+                    )
+                ]
+            )
+            guard let output = prediction.featureValue(
+                for: "logits"
+            )?.multiArrayValue else {
+                throw VoicePhoneAnalyzerError.invalidModelOutput(
+                    "missing passage logits for chunk \(chunkIndex)"
+                )
+            }
+            try analysisLog.record(
+                .logitsCopyStarted,
+                residentMemoryBytes: Self.residentMemoryBytes(),
+                details: [
+                    "analysisMode": "passage",
+                    "chunkIndex": String(chunkIndex),
+                    "shape": output.shape.map(\.stringValue)
+                        .joined(separator: "x")
+                ]
+            )
+            let logits = try Self.copyLogits(
+                output,
+                frameCount: request.modelManifest.frameCount,
+                vocabularySize: request.modelManifest.vocabularySize
+            )
+            let logPosteriors = try VoiceCTCAlignment.logPosteriors(
+                logits: logits
+            )
+            let tokenIDs = VoiceCTCAlignment.greedyTokens(
+                logPosteriors: logPosteriors,
+                blankTokenID: request.modelManifest.blankTokenID
+            )
+            let chunkPhones = tokenIDs.compactMap { tokenID -> String? in
+                guard !excludedTokenIDs.contains(tokenID),
+                      let phone = assets.vocabulary.tokensByID[tokenID],
+                      !phone.hasPrefix("<")
+                else {
+                    return nil
+                }
+                return phone
+            }
+            let appendedPhoneCount = chunkPhones.count
+            Self.appendPassageChunk(
+                chunkPhones,
+                to: &observedPhones
+            )
+            try analysisLog.record(
+                .logitsCopied,
+                residentMemoryBytes: Self.residentMemoryBytes(),
+                details: [
+                    "analysisMode": "passage",
+                    "chunkIndex": String(chunkIndex),
+                    "decodedPhoneCount": String(appendedPhoneCount)
+                ]
+            )
+        }
+
+        guard !observedPhones.isEmpty else {
+            throw VoicePhoneAnalyzerError.invalidModelOutput(
+                "no unconstrained phones were decoded from the passage"
+            )
+        }
+        let observation = VoicePassagePhoneObservation(
+            phones: observedPhones,
+            sourceDurationSeconds: passageAudio.durationSeconds,
+            analyzedChunkCount: chunkStarts.count,
+            audioSHA256: audioSHA256,
+            modelWeightSHA256: request.modelManifest.modelWeightSHA256
+        )
+        try analysisLog.record(
+            .analysisCompleted,
+            residentMemoryBytes: Self.residentMemoryBytes(),
+            details: [
+                "analysisMode": "passage",
+                "chunkCount": String(observation.analyzedChunkCount),
+                "decodedPhoneCount": String(observation.phones.count)
+            ]
+        )
+        return observation
+    }
+
+    static func appendPassageChunk(
+        _ chunk: [String],
+        to phones: inout [String]
+    ) {
+        if phones.last == chunk.first {
+            phones.append(contentsOf: chunk.dropFirst())
+        } else {
+            phones.append(contentsOf: chunk)
         }
     }
 
@@ -699,6 +994,60 @@ actor VoicePhoneAnalyzer {
             analyzedDurationSeconds: Double(windowSize) / Double(manifest.sampleRate),
             peakAbsoluteSample: peakAbsoluteSample,
             clippedSampleRatio: clippedSampleRatio
+        )
+    }
+
+    private func preparePassageAudio(
+        url: URL,
+        manifest: VoicePhoneModelManifest
+    ) throws -> (samples: [Float], durationSeconds: TimeInterval) {
+        let file = try AVAudioFile(forReading: url)
+        guard file.length > 0 else {
+            throw VoicePhoneAnalyzerError.emptyRecording
+        }
+        let sourceDuration =
+            Double(file.length) / file.processingFormat.sampleRate
+        guard sourceDuration
+                <= VoicePassagePhoneObservation.maximumDurationSeconds
+        else {
+            throw VoicePhoneAnalyzerError.passageRecordingTooLong(
+                sourceDuration
+            )
+        }
+        guard file.length <= Int64(UInt32.max),
+              let sourceBuffer = AVAudioPCMBuffer(
+                  pcmFormat: file.processingFormat,
+                  frameCapacity: AVAudioFrameCount(file.length)
+              )
+        else {
+            throw VoicePhoneAnalyzerError.audioBufferAllocationFailed
+        }
+        try file.read(into: sourceBuffer)
+        guard let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: Double(manifest.sampleRate),
+            channels: 1,
+            interleaved: false
+        ) else {
+            throw VoicePhoneAnalyzerError.audioBufferAllocationFailed
+        }
+        let converted = try VoiceBufferConverter().convert(
+            sourceBuffer,
+            to: targetFormat
+        )
+        guard let channel = converted.floatChannelData?[0] else {
+            throw VoicePhoneAnalyzerError.audioBufferAllocationFailed
+        }
+        let sampleCount = Int(converted.frameLength)
+        guard sampleCount > 0 else {
+            throw VoicePhoneAnalyzerError.emptyRecording
+        }
+        return (
+            samples: Array(
+                UnsafeBufferPointer(start: channel, count: sampleCount)
+            ),
+            durationSeconds:
+                Double(sampleCount) / Double(manifest.sampleRate)
         )
     }
 
