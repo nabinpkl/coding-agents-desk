@@ -110,13 +110,17 @@ final class OwnedGraphicsAckWaiter: @unchecked Sendable {
     }
 }
 
-// ADR-0021: single-channel backpressure. The producer holds at most
-// `maxUnacked` graphics frames in flight (sent but not yet acked). In flight is
-// the gap between the highest sent frameId and the highest acked frameId. Acks
-// can arrive out of order or be dropped, so both watermarks only advance, never
-// retreat. When at the cap the pump stalls and the mailbox coalesces dirtyRects
-// into the next frame.
+// ADR-0073: owned-media accounting is bounded without stalling fresh video.
+// When either limit binds, the producer explicitly abandons the oldest frame
+// until the latest capture can be admitted. ACKs remain cumulative accounting
+// watermarks, but an ACK for an abandoned frame cannot retire a newer entry.
 struct GraphicsBackpressure {
+    struct InFlightFrame: Equatable {
+        let id: UInt64
+        let bytes: Int
+        let sentAtUptimeNs: UInt64
+    }
+
     let maxUnacked: Int
     // A2: in-flight byte ceiling. Defaults to .max so a caller that passes no byte
     // budget gets the pure frame-count behavior (and every existing count-only test
@@ -127,7 +131,7 @@ struct GraphicsBackpressure {
     // keeps the in-flight COUNT and in-flight BYTES exactly consistent without
     // relying on a frameId-keyed lookup that the reconnect-climbing frameId would
     // corrupt (B2).
-    private var inFlightFrames: [(id: UInt64, bytes: Int, sentAtUptimeNs: UInt64)] = []
+    private var inFlightFrames: [InFlightFrame] = []
     private var inFlightBytes = 0
     private var lastAckedFrameId: UInt64 = 0
 
@@ -156,25 +160,45 @@ struct GraphicsBackpressure {
         sentAtUptimeNs: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) {
         let b = max(0, bytes)
-        inFlightFrames.append((frameId, b, sentAtUptimeNs))
+        inFlightFrames.append(
+            InFlightFrame(id: frameId, bytes: b, sentAtUptimeNs: sentAtUptimeNs)
+        )
         inFlightBytes += b
     }
 
-    // Acks carry the highest applied frameId and arrive about 1:1 with sends.
-    // Count only forward progress so a duplicate or stale ack cannot double
-    // decrement. Pop the OLDEST in-flight frame (send order) and release its bytes,
-    // so count and bytes drain together. B2: in-flight is a true list of sent
-    // frames cleared on reset, not a lastSent-minus-lastAcked frameId delta. The
-    // frameId counter keeps climbing across reconnects while reset() empties the
-    // list, so a post-reset send reports an in-flight of 1, not the (large) frameId.
+    // ACKs carry the highest applied frameId. Retire every tracked entry through
+    // that watermark. Return the timestamp only when the ACKed frame itself was
+    // still tracked, so a late ACK for an abandoned frame cannot be misreported as
+    // the age of a newer entry.
     @discardableResult
     mutating func noteAck(frameId: UInt64) -> UInt64? {
         guard frameId > lastAckedFrameId else { return nil }
         lastAckedFrameId = frameId
+        var ackedSentAtUptimeNs: UInt64?
+        while let first = inFlightFrames.first, first.id <= frameId {
+            let done = inFlightFrames.removeFirst()
+            inFlightBytes = max(0, inFlightBytes - done.bytes)
+            if done.id == frameId {
+                ackedSentAtUptimeNs = done.sentAtUptimeNs
+            }
+        }
+        return ackedSentAtUptimeNs
+    }
+
+    @discardableResult
+    mutating func abandonOldest() -> InFlightFrame? {
         guard !inFlightFrames.isEmpty else { return nil }
-        let done = inFlightFrames.removeFirst()
-        inFlightBytes = max(0, inFlightBytes - done.bytes)
-        return done.sentAtUptimeNs
+        let abandoned = inFlightFrames.removeFirst()
+        inFlightBytes = max(0, inFlightBytes - abandoned.bytes)
+        return abandoned
+    }
+
+    mutating func abandonUntilCanProduce() -> [InFlightFrame] {
+        var abandoned: [InFlightFrame] = []
+        while !canProduce(), let frame = abandonOldest() {
+            abandoned.append(frame)
+        }
+        return abandoned
     }
 
     // A new connection or a surface reset abandons every prior in-flight frame:

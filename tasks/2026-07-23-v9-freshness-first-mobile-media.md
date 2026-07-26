@@ -20,11 +20,11 @@ human-gated final phase.
 
 ## v9 Phase 1: host latest-frame admission
 
-- R119. Extend `host/AgentDeskHost/GraphicsSendState.swift` with cumulative ACK
+- D119. Extend `host/AgentDeskHost/GraphicsSendState.swift` with cumulative ACK
   retirement and explicit oldest-frame abandonment metadata, then replace
   backpressure retry in `QuicSessionHostMediaState.reserveUpdateId` with bounded
   abandonment while retaining capacity pacing.
-- R120. Extend host backpressure and media-state tests to prove frame-cap and
+- D120. Extend host backpressure and media-state tests to prove frame-cap and
   byte-cap abandonment, stale-ACK isolation, cumulative ACK retirement,
   abandoned-keyframe release, one-current-plus-one-latest capture ownership, and
   fixed-target stability.
@@ -66,7 +66,7 @@ human-gated final phase.
 
 ```text
 D118     2026-07-23  complete    ADR-0073 accepted; 582 host tests and full check green
-R119-120 pending     pending     host latest-frame admission and accounting
+D119-120 2026-07-23  complete    latest admission and cumulative ACK tests; 583 host tests green
 R121-123 pending     pending     nonblocking client recovery and resend scheduling
 R124-125 pending     pending     fixed profile and freshness evidence
 R126     pending     pending     integrated compile, tests, and self-review

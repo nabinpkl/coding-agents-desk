@@ -1,13 +1,17 @@
 import Testing
 @testable import AgentDeskHost
 
-@Test func backpressureStallsAtCapAndResumesOnAck() {
+@Test func backpressureAtCapAbandonsOldestForFreshVideo() {
     var bp = GraphicsBackpressure(maxUnacked: 2)
     #expect(bp.canProduce())
     bp.noteSent(frameId: 1); bp.noteSent(frameId: 2)
-    #expect(!bp.canProduce())          // at cap
-    bp.noteAck(frameId: 1)
-    #expect(bp.canProduce())           // one slot freed
+    #expect(!bp.canProduce())
+
+    let abandoned = bp.abandonUntilCanProduce()
+
+    #expect(abandoned.map(\.id) == [1])
+    #expect(bp.inFlight == 1)
+    #expect(bp.canProduce())
 }
 
 // B2: across a reconnect the frameId counter keeps climbing while reset() drops
@@ -27,15 +31,32 @@ import Testing
     #expect(bp.inFlight == 0)
 }
 
-// A duplicate or out-of-order ack must not double-decrement the in-flight count.
-@Test func backpressureIgnoresStaleAndDuplicateAcks() {
+// An ACK is a cumulative applied-frame watermark.
+@Test func backpressureCumulativeAckRetiresEveryOlderTrackedFrame() {
     var bp = GraphicsBackpressure(maxUnacked: 4)
-    bp.noteSent(frameId: 10); bp.noteSent(frameId: 11)
-    bp.noteAck(frameId: 11)            // newest ack clears one
+    bp.noteSent(frameId: 10, bytes: 20, sentAtUptimeNs: 100)
+    bp.noteSent(frameId: 11, bytes: 30, sentAtUptimeNs: 200)
+
+    let ackedAt = bp.noteAck(frameId: 11)
+
+    #expect(ackedAt == 200)
+    #expect(bp.inFlight == 0)
+    #expect(bp.bytesInFlight == 0)
+    #expect(bp.noteAck(frameId: 10) == nil)
+    #expect(bp.noteAck(frameId: 11) == nil)
+}
+
+@Test func lateAckForAbandonedFrameCannotRetireNewerFrame() {
+    var bp = GraphicsBackpressure(maxUnacked: 1)
+    bp.noteSent(frameId: 10, bytes: 20, sentAtUptimeNs: 100)
+    #expect(bp.abandonOldest()?.id == 10)
+    bp.noteSent(frameId: 11, bytes: 30, sentAtUptimeNs: 200)
+
+    #expect(bp.noteAck(frameId: 10) == nil)
     #expect(bp.inFlight == 1)
-    bp.noteAck(frameId: 10)            // stale, ignored
-    bp.noteAck(frameId: 11)            // duplicate, ignored
-    #expect(bp.inFlight == 1)
+    #expect(bp.bytesInFlight == 30)
+    #expect(bp.noteAck(frameId: 11) == 200)
+    #expect(bp.inFlight == 0)
 }
 
 // A2: the in-flight BYTE ceiling keeps the send buffer shallow. A single fast-scroll
@@ -45,7 +66,7 @@ import Testing
 // permanently stall. (canProduce results are bound to locals: a Testing #expect
 // autoclosure rejects an arg-bearing call on a mutable value-type local, and these
 // reads sit between mutations of bp.)
-@Test func backpressureStallsOnInFlightByteCeiling() {
+@Test func backpressureAbandonsFrameAtInFlightByteCeiling() {
     var bp = GraphicsBackpressure(maxUnacked: 8, maxUnackedBytes: 100_000)
     let emptyAdmits = bp.canProduce()              // empty: first frame always admitted
     #expect(emptyAdmits)
@@ -53,7 +74,9 @@ import Testing
     #expect(bp.bytesInFlight == 120_000)
     let afterBig = bp.canProduce()                 // gate closes though only 1 of 8 frames
     #expect(!afterBig)
-    bp.noteAck(frameId: 1)                          // bytes released
+    let abandoned = bp.abandonUntilCanProduce()
+    #expect(abandoned.map(\.id) == [1])
+    #expect(abandoned.map(\.bytes) == [120_000])
     #expect(bp.bytesInFlight == 0)
     let drained = bp.canProduce()
     #expect(drained)

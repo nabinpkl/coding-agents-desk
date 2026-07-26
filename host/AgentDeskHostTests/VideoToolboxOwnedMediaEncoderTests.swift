@@ -809,13 +809,11 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
 
         var state = QuicSessionHostMediaState(
             expectedFrameRate: 30,
-            qualityController: controller,
-            retryIntervalNs: 50_000_000,
-            staleInflightTimeoutNs: 500_000_000
+            qualityController: controller
         )
 
         let firstAdmission = state.reserveUpdateId(nowNs: 1_000_000_000)
-        guard case .ready(let firstUpdateId) = firstAdmission else {
+        guard case .ready(let firstUpdateId, _) = firstAdmission else {
             return XCTFail("expected first frame admission to succeed")
         }
         XCTAssertEqual(firstUpdateId.frameId, 1)
@@ -829,23 +827,21 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertLessThanOrEqual(afterNs, 40_000_000)
 
         let thirdAdmission = state.reserveUpdateId(nowNs: 1_067_000_000)
-        guard case .ready(let secondUpdateId) = thirdAdmission else {
+        guard case .ready(let secondUpdateId, _) = thirdAdmission else {
             return XCTFail("expected admission after capacity interval elapsed")
         }
         XCTAssertEqual(secondUpdateId.frameId, 2)
     }
 
-    func testMediaStateRecoversStaleInflightBackpressureWithoutForcedKeyframe() {
+    func testMediaStateAbandonsInflightFrameImmediatelyWithoutForcedKeyframe() {
         var state = QuicSessionHostMediaState(
             maxInflightFrames: 1,
             maxInflightBytes: 10_000,
-            expectedFrameRate: 30,
-            retryIntervalNs: 50_000_000,
-            staleInflightTimeoutNs: 200_000_000
+            expectedFrameRate: 30
         )
 
         let firstAdmission = state.reserveUpdateId(nowNs: 1_000_000_000)
-        guard case .ready(let firstUpdateId) = firstAdmission else {
+        guard case .ready(let firstUpdateId, _) = firstAdmission else {
             return XCTFail("expected first frame admission to succeed")
         }
         state.noteSent(
@@ -855,29 +851,20 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             sentAtUptimeNs: 1_000_000_000
         )
 
-        let blockedAdmission = state.reserveUpdateId(nowNs: 1_050_000_000)
-        guard case .retry(let afterNs, let reason) = blockedAdmission else {
-            return XCTFail("expected backpressure retry while in-flight frame is fresh")
+        let latestAdmission = state.reserveUpdateId(nowNs: 1_050_000_000)
+        guard case .ready(let latestUpdateId, let abandoned) = latestAdmission else {
+            return XCTFail("expected latest frame admission without ACK wait")
         }
-        XCTAssertEqual(reason, .backpressure)
-        XCTAssertEqual(afterNs, 50_000_000)
+        XCTAssertEqual(latestUpdateId.frameId, 2)
+        XCTAssertEqual(abandoned.map(\.id), [firstUpdateId.frameId])
         XCTAssertFalse(state.takeClientKeyframeRequest())
-
-        let recoveredAdmission = state.reserveUpdateId(nowNs: 1_250_000_000)
-        guard case .ready(let recoveredUpdateId) = recoveredAdmission else {
-            return XCTFail("expected stale in-flight recovery to reopen admission")
-        }
-        XCTAssertEqual(recoveredUpdateId.frameId, 2)
-        XCTAssertFalse(state.takeClientKeyframeRequest(), "stale admission recovery is pressure, not decoder recovery")
     }
 
     func testMediaStateCoalescesClientKeyframeRequestsWhileKeyframeIsInflight() {
         var state = QuicSessionHostMediaState(
             maxInflightFrames: 2,
             maxInflightBytes: 200_000,
-            expectedFrameRate: 30,
-            retryIntervalNs: 50_000_000,
-            staleInflightTimeoutNs: 200_000_000
+            expectedFrameRate: 30
         )
 
         XCTAssertEqual(state.noteKeyframeRequest(), .queued)
@@ -889,6 +876,35 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertFalse(state.takeClientKeyframeRequest())
 
         _ = state.noteAck(frameId: 1, nowNs: 1_050_000_000)
+        XCTAssertEqual(state.noteKeyframeRequest(), .queued)
+        XCTAssertTrue(state.takeClientKeyframeRequest())
+    }
+
+    func testAbandoningInflightKeyframeReopensKeyframeRequestAdmission() {
+        var state = QuicSessionHostMediaState(
+            maxInflightFrames: 1,
+            maxInflightBytes: 200_000,
+            expectedFrameRate: 30
+        )
+        guard case .ready(let first, _) = state.reserveUpdateId(nowNs: 0) else {
+            return XCTFail("expected first admission")
+        }
+        state.noteSent(
+            frameId: first.frameId,
+            encodedBytes: 60_000,
+            packets: [],
+            isKeyframe: true,
+            sentAtUptimeNs: 0
+        )
+        XCTAssertEqual(
+            state.noteKeyframeRequest(),
+            .suppressedInFlight(frameId: first.frameId)
+        )
+
+        guard case .ready(_, let abandoned) = state.reserveUpdateId(nowNs: 1) else {
+            return XCTFail("expected latest admission to abandon the old keyframe")
+        }
+        XCTAssertEqual(abandoned.map(\.id), [first.frameId])
         XCTAssertEqual(state.noteKeyframeRequest(), .queued)
         XCTAssertTrue(state.takeClientKeyframeRequest())
     }

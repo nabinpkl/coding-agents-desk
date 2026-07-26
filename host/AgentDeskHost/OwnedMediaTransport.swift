@@ -189,7 +189,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 switch state.mediaState.reserveUpdateId(
                     nowNs: DispatchTime.now().uptimeNanoseconds
                 ) {
-                case .ready(let updateId):
+                case .ready(let updateId, let abandoned):
                     state.latest = nil
                     let clientKeyframe = state.mediaState.takeClientKeyframeRequest()
                     let forceKeyframe = state.forceKeyframe || clientKeyframe
@@ -199,7 +199,8 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                             frame: frame,
                             updateId: updateId,
                             forceKeyframe: forceKeyframe,
-                            clientKeyframe: clientKeyframe
+                            clientKeyframe: clientKeyframe,
+                            abandoned: abandoned
                         )
                     )
                 case .retry(let afterNs, let reason):
@@ -214,6 +215,12 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 scheduleDrainRetry(afterNs: afterNs)
                 return
             case .job(let job):
+                if !job.abandoned.isEmpty {
+                    let abandonedBytes = job.abandoned.reduce(0) { $0 + $1.bytes }
+                    logger.notice(
+                        "owned media abandoned obsolete in-flight video frames=\(job.abandoned.count, privacy: .public) bytes=\(abandonedBytes, privacy: .public) oldestFrameId=\(job.abandoned[0].id, privacy: .public) newestFrameId=\(job.abandoned[job.abandoned.count - 1].id, privacy: .public)"
+                    )
+                }
                 if job.clientKeyframe {
                     logger.notice("owned media transport accepted client keyframe request")
                 }
@@ -786,6 +793,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         let updateId: OwnedSurfaceUpdateId
         let forceKeyframe: Bool
         let clientKeyframe: Bool
+        let abandoned: [GraphicsBackpressure.InFlightFrame]
     }
 
     private enum DrainStep {

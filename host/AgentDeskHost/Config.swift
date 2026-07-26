@@ -342,14 +342,10 @@ enum Config {
     // video admission must keep in-flight media bounded instead of filling the
     // connection behind input.
     //
-    // This is the frame-count half of the in-flight window; the byte ceiling below is
-    // the real bufferbloat guard. On a high-latency link (acks 400-900ms) the count is
-    // the binding limit: with only 2 frames allowed in flight, motion delivers ~2 frames
-    // per round-trip (~2.5fps) no matter how much bandwidth is free, so a slow scroll
-    // stalls. A larger window fills the bandwidth-delay product so each rung can actually
-    // hit its fps target during motion. It does not deepen bufferbloat: small frames
-    // transit the RTT in parallel, and the byte ceiling still caps total in-flight bytes,
-    // so a heavy scroll binds on bytes long before 6 large frames queue up.
+    // ADR-0073: these limits bound ACK accounting, not production. When either
+    // limit binds, owned media abandons only enough oldest entries to admit the
+    // latest frame. The byte limit therefore bounds tracked obsolete data without
+    // turning mobile-data latency into a video stall.
     static let ownedMediaBackpressureMaxInflightFrames = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_MAX_INFLIGHT_FRAMES",
         defaultValue: 6
@@ -357,14 +353,6 @@ enum Config {
     static let ownedMediaBackpressureMaxInflightBytes = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_MAX_INFLIGHT_BYTES",
         defaultValue: 300_000
-    )
-    static let ownedMediaDrainRetryIntervalMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_DRAIN_RETRY_INTERVAL_MS",
-        defaultValue: 250
-    )
-    static let ownedMediaBackpressureStaleTimeoutMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_BACKPRESSURE_STALE_TIMEOUT_MS",
-        defaultValue: 1_500
     )
     // ADR-0021: damage is emitted as tiles snapped to a fixed grid in surface
     // pixel space. A fixed cell size bounds per-tile bytes and gives each tile a

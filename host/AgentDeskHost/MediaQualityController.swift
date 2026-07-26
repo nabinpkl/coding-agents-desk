@@ -826,13 +826,15 @@ struct MediaQualityController {
 
 struct QuicSessionHostMediaState {
     enum Admission: Equatable {
-        case ready(OwnedSurfaceUpdateId)
+        case ready(
+            OwnedSurfaceUpdateId,
+            abandoned: [GraphicsBackpressure.InFlightFrame]
+        )
         case retry(afterNs: UInt64, reason: RetryReason)
     }
 
     enum RetryReason: String, Equatable {
         case capacity
-        case backpressure
     }
 
     enum KeyframeRequestAdmission: Equatable {
@@ -847,8 +849,6 @@ struct QuicSessionHostMediaState {
     private var qualityController: MediaQualityController
     private var resendRing: OwnedMediaResendRing
     private let expectedFrameRate: Int
-    private let retryIntervalNs: UInt64
-    private let staleInflightTimeoutNs: UInt64
     private var pendingClientKeyframeRequest = false
     private var keyframeInFlight: UInt64?
     private var resendRequestsInWindow = 0
@@ -864,9 +864,7 @@ struct QuicSessionHostMediaState {
         expectedFrameRate: Int = Config.ownedMediaExpectedFrameRate,
         qualityControllerConfig: MediaQualityControllerConfig = .fromConfig(),
         qualityController: MediaQualityController? = nil,
-        resendRingFrames: Int = Config.ownedMediaResendRingFrames,
-        retryIntervalNs: UInt64 = UInt64(Config.ownedMediaDrainRetryIntervalMs) * 1_000_000,
-        staleInflightTimeoutNs: UInt64 = UInt64(Config.ownedMediaBackpressureStaleTimeoutMs) * 1_000_000
+        resendRingFrames: Int = Config.ownedMediaResendRingFrames
     ) {
         self.backpressure = GraphicsBackpressure(
             maxUnacked: maxInflightFrames,
@@ -876,8 +874,6 @@ struct QuicSessionHostMediaState {
         self.qualityControllerConfig = qualityControllerConfig
         self.qualityController = qualityController ?? MediaQualityController(config: qualityControllerConfig)
         self.resendRing = OwnedMediaResendRing(capacityFrames: resendRingFrames)
-        self.retryIntervalNs = max(1, retryIntervalNs)
-        self.staleInflightTimeoutNs = max(1, staleInflightTimeoutNs)
     }
 
     var targetKbps: Int { qualityController.targetKbps }
@@ -919,32 +915,26 @@ struct QuicSessionHostMediaState {
     }
 
     mutating func reserveUpdateId(nowNs: UInt64) -> Admission {
-        if !backpressure.canProduce() {
-            if let oldestSentUptimeNs = backpressure.oldestSentUptimeNs {
-                let ageNs = nowNs >= oldestSentUptimeNs ? nowNs - oldestSentUptimeNs : 0
-                if ageNs >= staleInflightTimeoutNs {
-                    backpressure.reset()
-                    keyframeInFlight = nil
-                    staleRecoveryCountInWindow += 1
-                } else {
-                    return .retry(
-                        afterNs: min(retryIntervalNs, staleInflightTimeoutNs - ageNs),
-                        reason: .backpressure
-                    )
-                }
-            } else {
-                return .retry(afterNs: retryIntervalNs, reason: .backpressure)
-            }
-        }
         if let last = lastProduceUptimeNs {
             let interval = capacityIntervalNs()
             if interval > 0, nowNs &- last < interval {
                 return .retry(afterNs: interval - (nowNs &- last), reason: .capacity)
             }
         }
+        let abandoned = backpressure.abandonUntilCanProduce()
+        if let inFlightKeyframe = keyframeInFlight,
+           abandoned.contains(where: { $0.id == inFlightKeyframe }) {
+            keyframeInFlight = nil
+        }
+        if !abandoned.isEmpty {
+            staleRecoveryCountInWindow += abandoned.count
+        }
         nextFrameId &+= 1
         lastProduceUptimeNs = nowNs
-        return .ready(OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: nextFrameId))
+        return .ready(
+            OwnedSurfaceUpdateId(surfaceGeneration: 1, frameId: nextFrameId),
+            abandoned: abandoned
+        )
     }
 
     mutating func noteSent(

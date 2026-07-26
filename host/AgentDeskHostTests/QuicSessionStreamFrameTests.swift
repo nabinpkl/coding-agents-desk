@@ -388,7 +388,7 @@ struct QuicSessionHostMediaStateTests {
         _ message: @autoclosure () -> String
     ) throws -> OwnedSurfaceUpdateId {
         switch admission {
-        case .ready(let updateId):
+        case .ready(let updateId, _):
             return updateId
         case .retry(let afterNs, let reason):
             Issue.record("\(message()) (retry after \(afterNs)ns reason=\(reason.rawValue))")
@@ -407,23 +407,26 @@ struct QuicSessionHostMediaStateTests {
         #expect(second.frameId == 2)
     }
 
-    @Test func inFlightAdmissionBlocksUntilAck() throws {
+    @Test func inFlightAdmissionAbandonsOldestWithoutWaitingForAck() throws {
         var state = makeState(maxInflightFrames: 2)
         let first = try requireReady(state.reserveUpdateId(nowNs: 0), "expected first update id")
         state.noteSent(frameId: first.frameId, encodedBytes: 10, packets: [Data([1])])
         let second = try requireReady(state.reserveUpdateId(nowNs: 1), "expected second update id")
         state.noteSent(frameId: second.frameId, encodedBytes: 10, packets: [Data([2])])
 
-        let blocked = state.reserveUpdateId(nowNs: 2)
-        if case .retry(_, let reason) = blocked {
-            #expect(reason == .backpressure)
-        } else {
-            Issue.record("expected backpressure retry while max inflight frames are still unacked")
+        let thirdAdmission = state.reserveUpdateId(nowNs: 2)
+        guard case .ready(let third, let abandoned) = thirdAdmission else {
+            Issue.record("expected latest frame admission while max inflight frames are unacked")
             throw NSError(domain: "QuicSessionStreamFrameTests.AdmissionExpectationFailed", code: 2)
         }
-        state.noteAck(frameId: first.frameId)
-        let third = try requireReady(state.reserveUpdateId(nowNs: 3), "expected third update id after ack")
         #expect(third.frameId == 3)
+        #expect(abandoned.map(\.id) == [first.frameId])
+        #expect(state.inFlightFrames == 1)
+
+        state.noteSent(frameId: third.frameId, encodedBytes: 20, packets: [Data([3])])
+        _ = state.noteAck(frameId: first.frameId)
+        #expect(state.inFlightFrames == 2)
+        #expect(state.inFlightBytes == 30)
     }
 
     @Test func resendRingServesRememberedPackets() throws {
@@ -632,14 +635,12 @@ struct QuicSessionHostMediaStateTests {
         #expect(!forcedKeyframe)
     }
 
-    @Test func staleInflightRecoveryDoesNotForceKeyframe() throws {
+    @Test func immediateInflightAbandonmentDoesNotForceKeyframe() throws {
         var state = QuicSessionHostMediaState(
             maxInflightFrames: 1,
             maxInflightBytes: 300_000,
             expectedFrameRate: 30,
-            qualityController: MediaQualityController(config: controllerConfig()),
-            retryIntervalNs: 50_000_000,
-            staleInflightTimeoutNs: 200_000_000
+            qualityController: MediaQualityController(config: controllerConfig())
         )
         let first = try requireReady(state.reserveUpdateId(nowNs: 1_000_000_000), "expected first update id")
         state.noteSent(
@@ -650,8 +651,8 @@ struct QuicSessionHostMediaStateTests {
         )
 
         let second = try requireReady(
-            state.reserveUpdateId(nowNs: 1_250_000_000),
-            "expected stale admission recovery"
+            state.reserveUpdateId(nowNs: 1_000_000_001),
+            "expected immediate latest-frame admission"
         )
 
         #expect(second.frameId == 2)
@@ -661,7 +662,7 @@ struct QuicSessionHostMediaStateTests {
             completedFrames: 1,
             expiredFrames: 0,
             productionSummary: nil,
-            nowNs: 1_250_000_000
+            nowNs: 1_000_000_001
         )
         #expect(decision.observation.staleRecoveryCount == 1)
         #expect(decision.observation.signals.stalePressure)
