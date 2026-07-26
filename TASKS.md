@@ -221,9 +221,17 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   reverse lookup keys exact Unicode scalar sequences, so all 392 model logits retain their original
   token IDs; the generator pins the transformed resource hash and the regression test covers that
   exact pair.
-- Software gates are green: the generated-asset check, Python reproduction-script compile, all 398
-  client simulator tests across 42 suites, and repository-wide `just check` (579 host tests across
-  74 suites plus its package, web, and build gates).
+- iOS 26.5 simulator verification at exact client build `6fa76a77` then fixed the post-inference
+  crash on Core ML's padded `[1, 199, 392]` output. The analyzer now reads logits by logical
+  coordinates instead of passing stride-derived storage offsets to the bounded `NSNumber`
+  subscript, and a custom-stride regression test pins that case. All three saved synthetic smoke
+  takes reached `analysisCompleted`, retained `phone-evidence.json`, and rendered the evidence
+  inline: `think` observed `/θ/`, `sink` observed `/s/`, and deliberate `tink` against target
+  `think` observed `/t/` over `/θ/` with a `-3.76` target margin. This proves the on-device raw-audio
+  path and contrast visibility, not learner-speech acceptance.
+- Software gates are green: the generated-asset check, Python reproduction-script compile, all 404
+  client simulator tests across 43 suites, and repository-wide `just check` (583 host tests across
+  76 suites plus its package, web, and build gates).
 - Remaining before D130: use `just voice-phone-device-run` after the device checkpoint, collect and
   manually interval-label the 16 retained minimal-pair takes plus two deliberate `tink` takes from
   `client/voice-phone-fixtures/manifest.template.json`, meet the 14/16 plus 2/2 phone gates and the
