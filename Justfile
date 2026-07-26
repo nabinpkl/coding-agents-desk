@@ -20,6 +20,7 @@ sim_console_log := env_var_or_default("AGENTDESK_SIM_CONSOLE_LOG", "/tmp/agentde
 motion_host_oslog := env_var_or_default("AGENTDESK_MOTION_HOST_OSLOG", "/tmp/agentdesk-motion-host-oslog.log")
 motion_host_stdio := env_var_or_default("AGENTDESK_MOTION_HOST_STDIO", "/tmp/agentdesk-motion-host-stdio.log")
 motion_client_log := env_var_or_default("AGENTDESK_MOTION_CLIENT_LOG", "/tmp/agentdesk-motion-client.log")
+motion_client_diagnostics := env_var_or_default("AGENTDESK_MOTION_CLIENT_DIAGNOSTICS", "/tmp/agentdesk-motion-client-diagnostics")
 iphone_log_device_udid := env_var_or_default("AGENTDESK_IOS_DEVICE_UDID", "")
 # Host-written automation files live under the host's Application Support dir,
 # which is now rooted on the host bundle id (Config.applicationSupportDirectory).
@@ -1359,7 +1360,7 @@ fresh-diagnostic-run-dev:
 #   {{motion_host_stdio}}   host stdout + stderr (prints, crashes)
 #   {{motion_client_log}}   attached client console (stderr traces)
 # One-shot motion-carrier device verification: rebuild+reinstall both ends, scroll, durable /tmp logs.
-motion-verify variant="dev" video="1" seconds="60":
+motion-verify variant="dev" video="1" seconds="60" fixed_profile="180,1,0.5":
     #!/usr/bin/env bash
     set -uo pipefail
     HOST_BIN_PAT="Contents/MacOS/AgentDeskHost"
@@ -1368,11 +1369,15 @@ motion-verify variant="dev" video="1" seconds="60":
         [ -n "$LOG_PID" ] && kill "$LOG_PID" 2>/dev/null || true
         [ -n "$CONSOLE_PID" ] && kill "$CONSOLE_PID" 2>/dev/null || true
         pkill -f "devicectl device process launch" 2>/dev/null || true
+        rm -f "{{last_pair_url_path}}"
     }
     trap cleanup EXIT INT TERM
 
     : > "{{motion_host_oslog}}"; : > "{{motion_host_stdio}}"; : > "{{motion_client_log}}"
     if [ "{{variant}}" = "dev" ]; then BID='{{client_dev_bundle_id}}'; else BID='{{client_bundle_id}}'; fi
+    IFS=',' read -r PROFILE_BITRATE PROFILE_FPS PROFILE_SCALE <<< "{{fixed_profile}}"
+    PROFILE_SCALE_FORMATTED="$(printf '%.6f' "$PROFILE_SCALE")"
+    PROFILE_LOG_MARKER="bitrateKbps=$PROFILE_BITRATE fps=$PROFILE_FPS resolutionScale=$PROFILE_SCALE_FORMATTED"
 
     echo "== [1/5] build host =="
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
@@ -1405,7 +1410,7 @@ motion-verify variant="dev" video="1" seconds="60":
     test -n "$HOST_PID" || { echo "host did not start"; exit 1; }
     # Wait until the host finishes launching before signaling it. SIGUSR1's default
     # disposition is terminate, so signaling before the host installs its handler kills
-    # it. installPairingSignalHandler() runs early in applicationDidFinishLaunching,
+    # it. installAutomationSignalHandlers() runs early in applicationDidFinishLaunching,
     # well before "signaling server started" is logged, so that line is a safe gate.
     i=0; while ! grep -q "signaling server started" "{{motion_host_oslog}}" 2>/dev/null && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     grep -q "signaling server started" "{{motion_host_oslog}}" 2>/dev/null || { echo "host did not finish launching"; exit 1; }
@@ -1413,7 +1418,6 @@ motion-verify variant="dev" video="1" seconds="60":
 
     echo "== [4/5] pair + attach client console ($BID) =="
     rm -f "{{last_pair_url_path}}"
-    trap 'rm -f "{{last_pair_url_path}}"' EXIT
     kill -USR1 "$HOST_PID"
     i=0; while [ ! -s "{{last_pair_url_path}}" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "{{last_pair_url_path}}" || { echo "host did not write pairing URL"; exit 1; }
@@ -1424,17 +1428,30 @@ motion-verify variant="dev" video="1" seconds="60":
     export DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL"
     export DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1"
     export DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="{{video}}"
+    export DEVICECTL_CHILD_AGENTDESK_CLIENT_FIXED_MEDIA_PROFILE="{{fixed_profile}}"
     while IFS='=' read -r k v; do
         case "$k" in AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED|AGENTDESK_OWNED_MEDIA_STDERR_TRACE) continue;; esac
         export "DEVICECTL_CHILD_$k=$v"
     done < <(env | grep '^AGENTDESK_OWNED_MEDIA_')
-    echo "client launch env: <redacted launch URL; media knobs forwarded>"
+    echo "client launch env: <redacted launch URL; fixed media profile={{fixed_profile}}>"
     xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing \
         "$BID" >"{{motion_client_log}}" 2>&1 &
     CONSOLE_PID=$!
 
-    echo "== [5/5] capturing for {{seconds}}s -- SCROLL A WINDOW NOW =="
+    i=0
+    while ! grep -q "$PROFILE_LOG_MARKER" "{{motion_host_oslog}}" 2>/dev/null && [ $i -lt 600 ]; do
+        sleep 0.1
+        i=$((i+1))
+    done
+    grep -q "$PROFILE_LOG_MARKER" "{{motion_host_oslog}}" 2>/dev/null || {
+        echo "client did not connect and apply its fixed media profile"
+        exit 1
+    }
+
+    echo "== [5/5] capturing connected session for {{seconds}}s -- SCROLL A WINDOW NOW =="
     sleep {{seconds}}
+
+    AGENTDESK_CLIENT_DIAGNOSTICS_OUTPUT="{{motion_client_diagnostics}}" just client-diagnostics {{variant}}
 
     cleanup
     trap - EXIT INT TERM
@@ -1443,6 +1460,7 @@ motion-verify variant="dev" video="1" seconds="60":
     echo "  host os_log : {{motion_host_oslog}}"
     echo "  host stdio  : {{motion_host_stdio}}"
     echo "  client      : {{motion_client_log}}"
+    echo "  diagnostics : {{motion_client_diagnostics}}"
 
 # Build client Debug for the iPhone simulator and install (does not launch).
 # Mirrors `client-install` but targets the simulator instead of the

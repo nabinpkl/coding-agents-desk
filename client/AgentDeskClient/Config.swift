@@ -86,6 +86,13 @@ enum Config {
     static let screenshotJPEGQuality: CGFloat = 0.85
     static let screenshotMinimumIntervalSeconds: TimeInterval = 3
     static let diagnosticsMediaSummaryIntervalNs: UInt64 = 1_000_000_000
+    // One-shot validation override. Unlike the durable AGENTDESK_OWNED_MEDIA_*
+    // knobs, this never persists or mutates the user's settings. The physical
+    // motion recipe uses it to prove an exact fixed profile instead of silently
+    // inheriting whatever manual values were last selected on the phone.
+    static let launchMediaQualityOverride = fixedMediaQualityOverride(
+        environment: ProcessInfo.processInfo.environment
+    )
     static let ownedMediaExpectedFrameRate = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_EXPECTED_FRAME_RATE",
         defaultValue: 30
@@ -194,6 +201,39 @@ enum Config {
             return defaultValue
         }
         return value
+    }
+
+    static func fixedMediaQualityOverride(
+        environment: [String: String]
+    ) -> ClientMediaQualityConfig? {
+        guard let raw = environment["AGENTDESK_CLIENT_FIXED_MEDIA_PROFILE"] else {
+            return nil
+        }
+        let components = raw.split(separator: ",", omittingEmptySubsequences: false)
+        precondition(
+            components.count == 3,
+            "AGENTDESK_CLIENT_FIXED_MEDIA_PROFILE must be bitrateKbps,fps,resolutionScale"
+        )
+        guard let bitrateKbps = Int(components[0]),
+              let fps = Int(components[1]),
+              let resolutionScale = Double(components[2]),
+              bitrateKbps > 0,
+              fps > 0,
+              resolutionScale > 0,
+              resolutionScale <= 1
+        else {
+            preconditionFailure(
+                "AGENTDESK_CLIENT_FIXED_MEDIA_PROFILE must contain positive bitrate/fps and scale in (0,1]"
+            )
+        }
+        return ClientMediaQualityConfig(
+            adaptiveEnabled: false,
+            fixedTarget: ClientMediaQualityTarget(
+                bitrateKbps: bitrateKbps,
+                fps: fps,
+                resolutionScale: resolutionScale
+            )
+        )
     }
 
     // The agent-feed webview is now owned by the reusable AgentPanel package

@@ -22,7 +22,9 @@ final class SettingsViewController: UIViewController {
     private let diagnosticScreenshotsSwitch = UISwitch()
     private let manualMediaBitrateSlider = UISlider()
     private let manualMediaBitrateLabel = UILabel()
-    private let manualMediaFpsControl = UISegmentedControl(items: ["6", "10", "15", "24", "30"])
+    private let manualMediaFpsControl = UISegmentedControl(
+        items: SettingsStore.manualMediaFpsValues.map(String.init)
+    )
     private let manualMediaResolutionControl = UISegmentedControl(items: ["33%", "50%", "75%", "100%"])
     private let manualMediaRows = UIStackView()
     private let remoteInputModeControl = RemoteInputModeControl()

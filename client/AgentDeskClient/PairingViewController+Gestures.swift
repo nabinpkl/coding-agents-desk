@@ -474,7 +474,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             selectedDisplayId: explicitSelectedDisplayId ?? selectedDisplayIdForConfig(),
             crispTextOverlayEnabled: SettingsStore.shared.crispTextOverlayEnabled,
             showHostCursorInVideo: SettingsStore.shared.showHostCursorInVideo,
-            mediaQuality: SettingsStore.shared.mediaQualityConfig,
+            mediaQuality: Config.launchMediaQualityOverride ?? SettingsStore.shared.mediaQualityConfig,
             autoKeyboardEnabled: SettingsStore.shared.autoKeyboardEnabled,
             diagnosticScreenshotsEnabled: SettingsStore.shared.diagnosticScreenshotsEnabled
         )

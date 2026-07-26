@@ -63,6 +63,20 @@ struct SettingsStoreTests {
         ))
     }
 
+    @Test func launchFixedMediaProfileOverrideIsExplicitAndNonadaptive() {
+        #expect(Config.fixedMediaQualityOverride(environment: [:]) == nil)
+        #expect(Config.fixedMediaQualityOverride(environment: [
+            "AGENTDESK_CLIENT_FIXED_MEDIA_PROFILE": "180,1,0.5"
+        ]) == ClientMediaQualityConfig(
+            adaptiveEnabled: false,
+            fixedTarget: ClientMediaQualityTarget(
+                bitrateKbps: 180,
+                fps: 1,
+                resolutionScale: 0.5
+            )
+        ))
+    }
+
     private func isolatedDefaults() -> UserDefaults {
         let name = "SettingsStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
