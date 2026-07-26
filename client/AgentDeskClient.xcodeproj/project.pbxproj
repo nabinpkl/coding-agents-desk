@@ -27,6 +27,8 @@
 		D0000000000000000000E509 /* WorkspaceIDE in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E507 /* WorkspaceIDE */; };
 		D0000000000000000000B603 /* BrowserProjection in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000B602 /* BrowserProjection */; };
 		D0000000000000000000B605 /* BrowserProjection in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000B604 /* BrowserProjection */; };
+		E14000000000000000000003 /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = E14000000000000000000002 /* onnxruntime */; };
+		E14000000000000000000005 /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = E14000000000000000000004 /* onnxruntime */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -89,6 +91,7 @@
 				C0000000000000000000EE07 /* PtyClientSwift in Frameworks */,
 				C0000000000000000000EE0B /* PtyTerminalSession in Frameworks */,
 				C0000000000000000000EE0C /* PtyTerminalWebView in Frameworks */,
+				E14000000000000000000003 /* onnxruntime in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -106,6 +109,7 @@
 				C0000000000000000000EE09 /* PtyClientSwift in Frameworks */,
 				C0000000000000000000EE0D /* PtyTerminalSession in Frameworks */,
 				C0000000000000000000EE0E /* PtyTerminalWebView in Frameworks */,
+				E14000000000000000000005 /* onnxruntime in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -160,6 +164,7 @@
 				C0000000000000000000EE03 /* PtyClientSwift */,
 				C0000000000000000000EE0F /* PtyTerminalSession */,
 				C0000000000000000000EE10 /* PtyTerminalWebView */,
+				E14000000000000000000002 /* onnxruntime */,
 			);
 			productName = AgentDeskClient;
 			productReference = B00000000000000000000141 /* AgentDeskClient.app */;
@@ -193,6 +198,7 @@
 				C0000000000000000000EE05 /* PtyClientSwift */,
 				C0000000000000000000EE11 /* PtyTerminalSession */,
 				C0000000000000000000EE12 /* PtyTerminalWebView */,
+				E14000000000000000000004 /* onnxruntime */,
 			);
 			productName = AgentDeskClientTests;
 			productReference = B00000000000000000000142 /* AgentDeskClientTests.xctest */;
@@ -234,6 +240,7 @@
 				D0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */,
 				A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */,
 				C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */,
+				E14000000000000000000001 /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */,
 			);
 			productRefGroup = B00000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -547,7 +554,28 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		E14000000000000000000001 /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/microsoft/onnxruntime-swift-package-manager";
+			requirement = {
+				kind = exactVersion;
+				version = 1.24.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		E14000000000000000000002 /* onnxruntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E14000000000000000000001 /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
+			productName = onnxruntime;
+		};
+		E14000000000000000000004 /* onnxruntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E14000000000000000000001 /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
+			productName = onnxruntime;
+		};
 		D0000000000000000000AF02 /* AgentPanel */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */;

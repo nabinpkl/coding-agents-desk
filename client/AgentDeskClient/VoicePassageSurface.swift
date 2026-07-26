@@ -21,6 +21,9 @@ final class VoicePassageSurface: UIView {
     private let playButton = UIButton(type: .system)
     private let reanalyzeButton = UIButton(type: .system)
     private let deleteButton = UIButton(type: .system)
+    private let phoneModelControl = UISegmentedControl(
+        items: VoicePassagePhoneModel.allCases.map(\.displayName)
+    )
     private let playbackWaveformContainer = UIStackView()
     private let playbackWaveformView = VoiceWaveformView()
     private let transcriptView = UITextView()
@@ -29,10 +32,11 @@ final class VoicePassageSurface: UIView {
     private let referenceDetailLabel = UILabel()
 
     private let probe = VoiceContextProbe()
-    private let phoneAnalyzer = VoicePhoneAnalyzer()
+    private let phoneAnalyzer: VoicePassagePhoneAnalyzer
     private let pronouncer = VoicePassagePronouncer()
     private let recordingStore: VoicePassageRecordingStore
     private let resourceBundle: Bundle
+    private let userDefaults: UserDefaults
 
     private var recordings: [VoicePassageRecording] = []
     private var selectedRecordingID: UUID?
@@ -49,6 +53,8 @@ final class VoicePassageSurface: UIView {
     override init(frame: CGRect) {
         recordingStore = VoicePassageRecordingStore()
         resourceBundle = .main
+        userDefaults = .standard
+        phoneAnalyzer = VoicePassagePhoneAnalyzer()
         super.init(frame: frame)
         configure()
         loadLibrary()
@@ -60,10 +66,15 @@ final class VoicePassageSurface: UIView {
     init(
         frame: CGRect,
         recordingStore: VoicePassageRecordingStore,
-        resourceBundle: Bundle
+        resourceBundle: Bundle,
+        userDefaults: UserDefaults = .standard
     ) {
         self.recordingStore = recordingStore
         self.resourceBundle = resourceBundle
+        self.userDefaults = userDefaults
+        phoneAnalyzer = VoicePassagePhoneAnalyzer(
+            bundle: resourceBundle
+        )
         super.init(frame: frame)
         configure()
         loadLibrary()
@@ -309,6 +320,26 @@ final class VoicePassageSurface: UIView {
         )
         actions.addArrangedSubview(deleteButton)
         detailStack.addArrangedSubview(actions)
+
+        let modelChooser = UIStackView()
+        modelChooser.axis = .vertical
+        modelChooser.spacing = 6
+        modelChooser.addArrangedSubview(
+            detailLabel("Phone model for the next analysis")
+        )
+        phoneModelControl.selectedSegmentIndex =
+            VoicePassagePhoneModel.allCases.firstIndex(
+                of: selectedPhoneModel
+            ) ?? 0
+        phoneModelControl.accessibilityIdentifier =
+            "voice-passage-phone-model"
+        phoneModelControl.addTarget(
+            self,
+            action: #selector(phoneModelChanged),
+            for: .valueChanged
+        )
+        modelChooser.addArrangedSubview(phoneModelControl)
+        detailStack.addArrangedSubview(modelChooser)
 
         playbackWaveformContainer.axis = .vertical
         playbackWaveformContainer.spacing = 6
@@ -576,6 +607,10 @@ final class VoicePassageSurface: UIView {
             )
         transcriptView.text = recording.transcript
         transcriptView.isEditable = analysisTask == nil
+        phoneModelControl.selectedSegmentIndex =
+            VoicePassagePhoneModel.allCases.firstIndex(
+                of: selectedPhoneModel
+            ) ?? 0
         if let groups = recording.wordPhoneGroups,
            !groups.isEmpty
         {
@@ -619,16 +654,35 @@ final class VoicePassageSurface: UIView {
         reanalyzeButton.isEnabled = analysisTask == nil
         playButton.isEnabled = analysisTask == nil
         deleteButton.isEnabled = analysisTask == nil
+        phoneModelControl.isEnabled = analysisTask == nil
         deleteButton.isHidden =
             recording.source == .bundledSample
         if analysisTask == nil {
-            if let lastAnalyzedAt = recording.lastAnalyzedAt {
+            if let failure = recording.phoneAnalysisFailure {
+                let attemptedModel =
+                    VoicePassagePhoneModel.displayName(
+                        forModelIdentifier:
+                            recording.lastAttemptedPhoneModelIdentifier
+                    ) ?? "Phone model"
+                let retainedModel = VoicePassagePhoneModel.displayName(
+                    forModelIdentifier: recording.phoneModelIdentifier
+                ).map {
+                    " The visible phonemes remain from the last successful \($0) analysis."
+                } ?? ""
+                detailStatusLabel.text =
+                    "\(attemptedModel) analysis failed: \(failure)."
+                    + retainedModel
+            } else if let lastAnalyzedAt = recording.lastAnalyzedAt {
+                let modelName = VoicePassagePhoneModel.displayName(
+                    forModelIdentifier: recording.phoneModelIdentifier
+                ).map { " using \($0)" } ?? ""
                 detailStatusLabel.text =
                     "Saved analysis from "
                     + Self.dateFormatter.string(
                         from: lastAnalyzedAt
                     )
-                    + ". Reanalyze uses this same audio."
+                    + modelName
+                    + ". Reanalyze uses this same audio with the selected model."
             } else if recording.source == .bundledSample {
                 detailStatusLabel.text =
                     "Sample ready. Tap Reanalyze to run the raw-audio "
@@ -719,6 +773,24 @@ final class VoicePassageSurface: UIView {
         analyze(recordingID: selectedRecordingID)
     }
 
+    @objc private func phoneModelChanged() {
+        let models = VoicePassagePhoneModel.allCases
+        guard models.indices.contains(
+            phoneModelControl.selectedSegmentIndex
+        ) else {
+            return
+        }
+        selectPhoneModel(models[phoneModelControl.selectedSegmentIndex])
+    }
+
+    func selectPhoneModel(_ model: VoicePassagePhoneModel) {
+        phoneModelControl.selectedSegmentIndex =
+            VoicePassagePhoneModel.allCases.firstIndex(of: model) ?? 0
+        model.select(in: userDefaults)
+        detailStatusLabel.text =
+            "\(model.displayName) selected. Tap Reanalyze to run it on the saved audio."
+    }
+
     private func analyze(recordingID: UUID) {
         guard analysisTask == nil else {
             detailStatusLabel.text =
@@ -730,14 +802,22 @@ final class VoicePassageSurface: UIView {
         reanalyzeButton.isEnabled = false
         playButton.isEnabled = false
         deleteButton.isEnabled = false
+        phoneModelControl.isEnabled = false
+        let model = selectedPhoneModel
         detailStatusLabel.text =
-            "Reanalyzing the saved audio…"
+            "Reanalyzing the saved audio with \(model.displayName)…"
         analysisTask = Task { [weak self] in
-            await self?.runAnalysis(recordingID: recordingID)
+            await self?.runAnalysis(
+                recordingID: recordingID,
+                model: model
+            )
         }
     }
 
-    private func runAnalysis(recordingID: UUID) async {
+    private func runAnalysis(
+        recordingID: UUID,
+        model: VoicePassagePhoneModel
+    ) async {
         defer {
             analysisTask = nil
             refreshRecordings()
@@ -783,17 +863,13 @@ final class VoicePassageSurface: UIView {
             recording = try recordingStore.recording(
                 id: recordingID
             )
-            let manifest = try VoicePhoneModelAssets.loadManifest()
-            let observation = try await phoneAnalyzer.analyzePassage(
-                VoicePhoneAnalyzer.PassageRequest(
-                    analysisID: recording.id,
-                    audioURL: recordingStore.audioURL(
-                        for: recording
-                    ),
-                    localeIdentifier:
-                        recording.localeIdentifier,
-                    modelManifest: manifest
-                )
+            let observation = try await phoneAnalyzer.analyze(
+                model: model,
+                analysisID: recording.id,
+                audioURL: recordingStore.audioURL(
+                    for: recording
+                ),
+                localeIdentifier: recording.localeIdentifier
             )
             guard !Task.isCancelled else { return }
             recording = try recordingStore.recording(
@@ -810,14 +886,18 @@ final class VoicePassageSurface: UIView {
                 )
             recording.modelWeightSHA256 =
                 observation.modelWeightSHA256
+            recording.phoneModelIdentifier =
+                model.modelIdentifier
+            recording.lastAttemptedPhoneModelIdentifier =
+                model.modelIdentifier
             recording.phoneAnalysisFailure = nil
             recording.lastAnalyzedAt = Date()
             try recordingStore.save(recording)
             detailStatusLabel.text = recording.transcriptionFailure
                 == nil
-                ? "Analysis complete and saved."
+                ? "\(model.displayName) analysis complete and saved."
                 : """
-                Raw-audio analysis complete and saved. Transcription \
+                \(model.displayName) raw-audio analysis complete and saved. Transcription \
                 was unavailable; the saved editable transcript was kept.
                 """
         } catch let analysisError {
@@ -826,9 +906,10 @@ final class VoicePassageSurface: UIView {
                 var recording = try recordingStore.recording(
                     id: recordingID
                 )
+                recording.lastAttemptedPhoneModelIdentifier =
+                    model.modelIdentifier
                 recording.phoneAnalysisFailure =
                     analysisError.localizedDescription
-                recording.lastAnalyzedAt = Date()
                 try recordingStore.save(recording)
             } catch let persistenceError {
                 detailStatusLabel.text =
@@ -840,6 +921,10 @@ final class VoicePassageSurface: UIView {
                 "Raw-audio analysis failed: "
                     + analysisError.localizedDescription
         }
+    }
+
+    private var selectedPhoneModel: VoicePassagePhoneModel {
+        VoicePassagePhoneModel.selected(in: userDefaults)
     }
 
     private func scheduleReferenceUpdate(

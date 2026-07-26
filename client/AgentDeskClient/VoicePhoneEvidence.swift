@@ -2,6 +2,8 @@ import Foundation
 
 struct VoicePhoneModelManifest: Codable, Equatable, Sendable {
     static let currentSchemaVersion = 1
+    static let selectedIdentifier =
+        "wav2vec2-lv-60-espeak-cv-ft-coreml-lut4"
     static let selectedWeightSHA256 =
         "8c093d09a94c89898670734440b18432f3229e7a9e5174f1fe3c159898fa172c"
     static let selectedSpecificationSHA256 =

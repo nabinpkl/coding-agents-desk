@@ -61,6 +61,12 @@ client/AgentDeskClient/AgentFeedWebview/*
 client/AgentDeskClient/VoicePhoneModel.mlpackage/
 client/AgentDeskClient/VoicePhoneModelManifest.json
 client/AgentDeskClient/VoicePhoneVocabulary.json
+# R140 ZIPA comparison model. Reproduced by `just voice-zipa-model`; all four
+# coupled resources are hash-verified before any client build.
+client/AgentDeskClient/VoiceZIPAModel.onnx
+client/AgentDeskClient/VoiceZIPAModelManifest.json
+client/AgentDeskClient/VoiceZIPATokens.txt
+client/AgentDeskClient/VoiceZIPALicense.txt
 packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelWebview/*
 !packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelWebview/.gitkeep
 packages/InteractionPanel/Sources/InteractionPanel/Resources/InteractionPanelWebview/*

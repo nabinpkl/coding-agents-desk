@@ -752,7 +752,7 @@ wire-test:
 
 # Client simulator tests. Boots the iPhone simulator and is the slow leg split
 # out of `check`. Run before committing client-side changes.
-sim-test: ensure-webview-placeholder voice-phone-model-check
+sim-test: ensure-webview-placeholder voice-phone-model-check voice-zipa-model-check
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
 
 # Full gate: the fast host-side check plus the client simulator tests.
@@ -778,6 +778,20 @@ voice-phone-model-check:
     set -euo pipefail
     /usr/bin/python3 tools/prepare-voice-phone-model.py --check-only || {
         echo "R130 phone model is missing or stale; run: just voice-phone-model"
+        exit 1
+    }
+
+# Stage the pinned 70.7 MB ZIPA INT8 ONNX graph, its ID-ordered token source,
+# model manifest, and upstream MIT license under the synchronized client
+# resource root. All inputs are immutable-revision and SHA-256 pinned.
+voice-zipa-model:
+    /usr/bin/python3 tools/prepare-voice-zipa-model.py
+
+voice-zipa-model-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/python3 tools/prepare-voice-zipa-model.py --check-only || {
+        echo "R140 ZIPA model is missing or stale; run: just voice-zipa-model"
         exit 1
     }
 
@@ -1312,7 +1326,7 @@ pty-live-update-verify:
 # variant: "stable" (default) or "dev" (the experimental side-by-side install:
 # bundle id {{client_dev_bundle_id}}, DEV icon, "AgentDesk Dev" name, separate
 # build dir). The dev variant overrides the three identity build settings inline.
-client-install variant="stable": voice-phone-model-check
+client-install variant="stable": voice-phone-model-check voice-zipa-model-check
     #!/usr/bin/env bash
     set -euo pipefail
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
@@ -1335,7 +1349,7 @@ client-reinstall variant="stable":
 # experimental dev side-by-side variant stays Debug). Device install uses the same
 # automatic development signing as the Debug path, so no distribution provisioning
 # is needed. Used by the fresh-install feel-test composite.
-client-install-release: voice-phone-model-check
+client-install-release: voice-phone-model-check voice-zipa-model-check
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     xcrun devicectl device install app --device {{ios_device}} '{{client_app_release}}'
 
@@ -1878,7 +1892,7 @@ motion-verify variant="dev" video="1" seconds="60" fixed_profile="180,1,0.5":
 # variant: stable (default) | dev. The dev variant builds the dev-bundle-id client
 # (DEV icon, separate derived-data) onto the dev simulator ({{ios_sim_udid_dev}}),
 # so a full dev stack (dev host + dev client) runs beside the stable stack.
-client-sim-install variant="stable": voice-phone-model-check
+client-sim-install variant="stable": voice-phone-model-check voice-zipa-model-check
     #!/usr/bin/env bash
     set -euo pipefail
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
@@ -1901,7 +1915,7 @@ client-sim-reinstall variant="stable":
 
 # Release-configuration twins of client-sim-install / the historical update alias, used by
 # the sim-fresh-install feel-test composite. No signing concerns on the simulator.
-client-sim-install-release: voice-phone-model-check
+client-sim-install-release: voice-phone-model-check voice-zipa-model-check
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     xcrun simctl install {{ios_sim_udid}} "{{client_sim_app_release}}"
@@ -2106,7 +2120,7 @@ client-build-number:
 # Build a signed iOS Release archive for TestFlight export/upload.
 # variant: "stable" (default) or "dev" (the experimental record, bundle id
 # {{client_dev_bundle_id}}, separate archive path; identity overridden inline).
-client-archive-release variant="stable": voice-phone-model-check
+client-archive-release variant="stable": voice-phone-model-check voice-zipa-model-check
     #!/usr/bin/env bash
     # Override per upload: AGENTDESK_CLIENT_VERSION=1.0 AGENTDESK_CLIENT_BUILD=20260621173045 just client-archive-release
     set -euo pipefail

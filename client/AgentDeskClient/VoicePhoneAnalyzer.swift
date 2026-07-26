@@ -936,15 +936,7 @@ actor VoicePhoneAnalyzer {
         guard sourceDuration <= 30 else {
             throw VoicePhoneAnalyzerError.recordingTooLong(sourceDuration)
         }
-        guard file.length <= Int64(UInt32.max),
-              let sourceBuffer = AVAudioPCMBuffer(
-                pcmFormat: file.processingFormat,
-                frameCapacity: AVAudioFrameCount(file.length)
-              )
-        else {
-            throw VoicePhoneAnalyzerError.audioBufferAllocationFailed
-        }
-        try file.read(into: sourceBuffer)
+        let sourceBuffer = try VoiceAudioFileReader.readAll(from: file)
         guard let targetFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: Double(manifest.sampleRate),
@@ -1014,15 +1006,7 @@ actor VoicePhoneAnalyzer {
                 sourceDuration
             )
         }
-        guard file.length <= Int64(UInt32.max),
-              let sourceBuffer = AVAudioPCMBuffer(
-                  pcmFormat: file.processingFormat,
-                  frameCapacity: AVAudioFrameCount(file.length)
-              )
-        else {
-            throw VoicePhoneAnalyzerError.audioBufferAllocationFailed
-        }
-        try file.read(into: sourceBuffer)
+        let sourceBuffer = try VoiceAudioFileReader.readAll(from: file)
         guard let targetFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: Double(manifest.sampleRate),
@@ -1173,7 +1157,7 @@ actor VoicePhoneAnalyzer {
     }
 }
 
-private extension SHA256.Digest {
+extension SHA256.Digest {
     var hexString: String {
         map { String(format: "%02x", $0) }.joined()
     }

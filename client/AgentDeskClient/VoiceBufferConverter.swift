@@ -1,5 +1,78 @@
 import AVFoundation
 
+enum VoiceAudioFileReader {
+    enum ReadError: LocalizedError {
+        case recordingTooLarge
+        case unsupportedPCMFormat
+        case incompleteRead(expected: Int64, actual: Int64)
+
+        var errorDescription: String? {
+            switch self {
+            case .recordingTooLarge:
+                return "The saved recording is too large to read."
+            case .unsupportedPCMFormat:
+                return "The saved recording could not be decoded as Float32 PCM."
+            case .incompleteRead(let expected, let actual):
+                return "The saved recording ended at \(actual) of \(expected) frames."
+            }
+        }
+    }
+
+    static func readAll(from file: AVAudioFile) throws -> AVAudioPCMBuffer {
+        guard file.length > 0,
+              file.length <= Int64(UInt32.max)
+        else {
+            throw ReadError.recordingTooLarge
+        }
+        guard let output = AVAudioPCMBuffer(
+            pcmFormat: file.processingFormat,
+            frameCapacity: AVAudioFrameCount(file.length)
+        ) else {
+            throw ReadError.recordingTooLarge
+        }
+        guard let outputChannels = output.floatChannelData else {
+            throw ReadError.unsupportedPCMFormat
+        }
+        let channelCount = Int(file.processingFormat.channelCount)
+        var frameOffset = 0
+        while frameOffset < Int(file.length) {
+            let requested = min(8_192, Int(file.length) - frameOffset)
+            guard let chunk = AVAudioPCMBuffer(
+                pcmFormat: file.processingFormat,
+                frameCapacity: AVAudioFrameCount(requested)
+            ) else {
+                throw ReadError.recordingTooLarge
+            }
+            try file.read(
+                into: chunk,
+                frameCount: AVAudioFrameCount(requested)
+            )
+            guard chunk.frameLength > 0 else { break }
+            guard let chunkChannels = chunk.floatChannelData else {
+                throw ReadError.unsupportedPCMFormat
+            }
+            let copiedFrames = Int(chunk.frameLength)
+            for channel in 0..<channelCount {
+                outputChannels[channel]
+                    .advanced(by: frameOffset)
+                    .update(
+                        from: chunkChannels[channel],
+                        count: copiedFrames
+                    )
+            }
+            frameOffset += copiedFrames
+            output.frameLength = AVAudioFrameCount(frameOffset)
+        }
+        guard frameOffset == Int(file.length) else {
+            throw ReadError.incompleteRead(
+                expected: file.length,
+                actual: Int64(frameOffset)
+            )
+        }
+        return output
+    }
+}
+
 // Resamples microphone buffers into the format `SpeechAnalyzer` negotiated.
 //
 // This follows Apple's SpeechAnalyzer sample `BufferConverter` rather than a

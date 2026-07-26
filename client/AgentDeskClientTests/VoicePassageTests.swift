@@ -240,6 +240,10 @@ struct VoicePassageRecordingStoreTests {
                 hasReferencePronunciation: true
             )
         ]
+        second.phoneModelIdentifier =
+            VoicePassagePhoneModel.wav2vec2.modelIdentifier
+        second.lastAttemptedPhoneModelIdentifier =
+            VoicePassagePhoneModel.wav2vec2.modelIdentifier
         second.modelWeightSHA256 = "model"
         second.lastAnalyzedAt = Date(timeIntervalSince1970: 3)
         try store.save(second)
@@ -376,6 +380,195 @@ struct VoicePassageRecordingStoreTests {
     }
 }
 
+struct VoicePassagePhoneModelTests {
+    @Test
+    func defaultsToZIPAAndPersistsAnExplicitChoice() throws {
+        let suiteName = "voice-passage-model-\(UUID().uuidString)"
+        let defaults = try #require(
+            UserDefaults(suiteName: suiteName)
+        )
+        defer {
+            defaults.removePersistentDomain(
+                forName: suiteName
+            )
+        }
+
+        #expect(
+            VoicePassagePhoneModel.selected(in: defaults) == .zipa
+        )
+        VoicePassagePhoneModel.wav2vec2.select(in: defaults)
+        #expect(
+            VoicePassagePhoneModel.selected(in: defaults)
+                == .wav2vec2
+        )
+    }
+
+    @Test
+    func ZIPATokensMergeIntoReferenceCompatiblePhoneUnits() {
+        #expect(
+            VoiceZIPAPhoneUnits.merge([
+                "a", "ɪ", "t", "ʃ", "i", "ː", "g"
+            ]) == ["aɪ", "tʃ", "iː", "ɡ"]
+        )
+    }
+
+    @Test
+    func greedyCTCRemovesBlanksAndOnlyAdjacentDuplicates() {
+        let logits: [Float] = [
+            9, 0, 0, 0,
+            0, 9, 0, 0,
+            0, 8, 1, 0,
+            9, 0, 0, 0,
+            0, 0, 9, 0,
+            0, 9, 0, 0
+        ]
+        let decoded = logits.withUnsafeBufferPointer {
+            VoiceZIPAPhoneAnalyzer.greedyCTCDecode(
+                values: $0,
+                frameCount: 6,
+                vocabularySize: 4,
+                blankTokenID: 0
+            )
+        }
+        #expect(decoded == [1, 2, 1])
+    }
+
+    @Test
+    func chunkOverlapIsRemovedWithoutDroppingNewPhones() {
+        var phones = ["aɪ", "θ", "ɔ", "t"]
+        VoiceZIPAPhoneAnalyzer.appendChunk(
+            ["ɔ", "t", "ə", "b", "aʊ", "t"],
+            to: &phones
+        )
+        #expect(
+            phones == ["aɪ", "θ", "ɔ", "t", "ə", "b", "aʊ", "t"]
+        )
+    }
+
+    @Test
+    func filterbankStaysWithinBoundedParityWithZIPAsLhotseFrontend()
+        throws
+    {
+        let bundle = Bundle(for: VoicePassageSurface.self)
+        let url = try #require(
+            bundle.url(
+                forResource: VoicePassageBundledSample.resourceName,
+                withExtension: "caf"
+            )
+        )
+        let file = try AVAudioFile(forReading: url)
+        let buffer = try VoiceAudioFileReader.readAll(from: file)
+        #expect(Int64(buffer.frameLength) == file.length)
+        let channel = try #require(buffer.floatChannelData?[0])
+        let samples = Array(
+            UnsafeBufferPointer(
+                start: channel,
+                count: Int(buffer.frameLength)
+            )
+        )
+
+        let features = try VoiceZIPAFilterbank.extract(
+            samples: samples
+        )
+
+        #expect(features.frameCount == 232)
+        assertApproximately(
+            Array(features.values[0..<8]),
+            [
+                -10.99058151, -10.26861382, -8.95499134,
+                -7.62882948, -6.70632696, -6.03437424,
+                -5.85319328, -6.70732307
+            ]
+        )
+        let middle = (features.frameCount / 2) * 80
+        assertApproximately(
+            Array(features.values[middle..<(middle + 8)]),
+            [
+                -10.79094791, -11.33516598, -10.38888454,
+                -10.06188679, -9.69330692, -9.37312031,
+                -9.19065189, -8.75494671
+            ]
+        )
+        assertApproximately(
+            Array(features.values.suffix(80).prefix(8)),
+            Array(repeating: -15.94238472, count: 8)
+        )
+    }
+
+    @Test
+    func bundledZIPAModelDecodesTheSavedPassageAudio() async throws {
+        let bundle = Bundle(for: VoicePassageSurface.self)
+        let audioURL = try #require(
+            bundle.url(
+                forResource: VoicePassageBundledSample.resourceName,
+                withExtension: "caf"
+            )
+        )
+        let observation = try await VoiceZIPAPhoneAnalyzer(
+            bundle: bundle
+        ).analyze(
+            analysisID: VoicePassageBundledSample.id,
+            audioURL: audioURL
+        )
+
+        #expect(observation.analyzedChunkCount == 1)
+        #expect(
+            observation.phones == [
+                "aɪ", "θ", "ɔ", "t", "ə", "b", "aʊ", "t",
+                "w", "ɔ", "k", "ɪ", "ŋ", "θ", "ɹ", "u",
+                "ð", "ə", "k", "w", "aɪ", "ə", "t", "ɡ",
+                "ɑ", "ɹ", "d", "ə", "n"
+            ]
+        )
+        #expect(
+            observation.modelWeightSHA256
+                == VoiceZIPAModelManifest.selectedModelSHA256
+        )
+    }
+
+    @Test
+    func coordinatorRoutesTheSameSavedAudioToWav2vec2() async throws {
+        let bundle = Bundle(for: VoicePassageSurface.self)
+        let audioURL = try #require(
+            bundle.url(
+                forResource: VoicePassageBundledSample.resourceName,
+                withExtension: "caf"
+            )
+        )
+        let observation = try await VoicePassagePhoneAnalyzer(
+            bundle: bundle
+        ).analyze(
+            model: .wav2vec2,
+            analysisID: VoicePassageBundledSample.id,
+            audioURL: audioURL,
+            localeIdentifier: "en_US"
+        )
+
+        #expect(!observation.phones.isEmpty)
+        #expect(
+            observation.modelWeightSHA256
+                == VoicePhoneModelManifest.selectedWeightSHA256
+        )
+    }
+
+    private func assertApproximately(
+        _ actual: [Float],
+        _ expected: [Float],
+        // Accelerate's Float32 complex FFT and PyTorch's real FFT differ
+        // slightly in low-energy bins. The end-to-end test above is the
+        // stronger gate: it must preserve ZIPA's exact decoded phone sequence.
+        tolerance: Float = 0.2
+    ) {
+        #expect(actual.count == expected.count)
+        for (actualValue, expectedValue) in zip(actual, expected) {
+            #expect(
+                abs(actualValue - expectedValue) < tolerance,
+                "actual \(actualValue), expected \(expectedValue)"
+            )
+        }
+    }
+}
+
 @MainActor
 struct VoicePassageSurfaceTests {
     @Test
@@ -423,11 +616,25 @@ struct VoicePassageSurfaceTests {
             rootDirectory: directory
         )
         let bundle = Bundle(for: VoicePassageSurface.self)
+        let suiteName = "voice-passage-ui-model-\(UUID().uuidString)"
+        let defaults = try #require(
+            UserDefaults(suiteName: suiteName)
+        )
+        defer {
+            defaults.removePersistentDomain(
+                forName: suiteName
+            )
+        }
         var sample = try store.seedBundledSample(
             bundle: bundle
         )
         sample.observedPhones = ["aɪ", "t", "ɔ", "t"]
         sample.referencePhones = ["aɪ", "θ", "ɔ", "t"]
+        sample.phoneModelIdentifier =
+            VoicePassagePhoneModel.wav2vec2.modelIdentifier
+        sample.lastAttemptedPhoneModelIdentifier =
+            VoicePassagePhoneModel.wav2vec2.modelIdentifier
+        sample.lastAnalyzedAt = Date(timeIntervalSince1970: 1)
         sample.wordPhoneGroups = [
             VoicePassageWordPhoneGroup(
                 word: "i",
@@ -446,7 +653,8 @@ struct VoicePassageSurfaceTests {
         let surface = VoicePassageSurface(
             frame: .zero,
             recordingStore: store,
-            resourceBundle: bundle
+            resourceBundle: bundle,
+            userDefaults: defaults
         )
         defer { surface.teardown() }
 
@@ -494,6 +702,29 @@ struct VoicePassageSurfaceTests {
         )
         #expect(transcript.isEditable)
         #expect(!transcript.isScrollEnabled)
+        let modelControl = try #require(
+            surface.passageDescendant(
+                identifier: "voice-passage-phone-model"
+            ) as? UISegmentedControl
+        )
+        #expect(modelControl.numberOfSegments == 2)
+        #expect(modelControl.titleForSegment(at: 0) == "ZIPA")
+        #expect(modelControl.titleForSegment(at: 1) == "wav2vec2")
+        #expect(modelControl.selectedSegmentIndex == 0)
+        let detailStatus = try #require(
+            surface.passageDescendant(
+                identifier: "voice-passage-detail-status"
+            ) as? UILabel
+        )
+        #expect(
+            detailStatus.text?.contains("using wav2vec2") == true
+        )
+        surface.selectPhoneModel(.wav2vec2)
+        #expect(modelControl.selectedSegmentIndex == 1)
+        #expect(
+            VoicePassagePhoneModel.selected(in: defaults)
+                == .wav2vec2
+        )
         let observed = try #require(
             surface.passageDescendant(
                 identifier: "voice-passage-observed-phones"

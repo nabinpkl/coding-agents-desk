@@ -646,6 +646,50 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   analyzed CAF remains byte-identical to the bundled source. `SpeechTranscriber` is unavailable in
   this simulator, so real-device saved-file transcription remains outside this drive.
 
+## v15 Phase 8: selectable phone-recognizer bakeoff
+
+- R140. Add a persisted phone-model chooser to each saved Passage recording so the same immutable
+  audio can be reanalyzed with either the existing compressed Core ML wav2vec2 model or a second,
+  materially different pretrained phone recognizer. Keep successful-result provenance separate from
+  the latest attempted model, retain old visible phones when another model fails, pin and verify every
+  downloadable runtime asset, and make ZIPA the default while the two models are compared. This is an
+  A/B evidence surface, not a pronunciation score or a claim that either raw phone sequence is correct.
+
+### R140 implementation checkpoint (2026-07-26)
+
+- Added a native segmented ZIPA / wav2vec2 chooser to saved Passage detail. The choice persists in
+  `UserDefaults`, disables during analysis, and is captured when Reanalyze begins so a mid-run UI
+  change cannot alter the active model. New recordings use ZIPA by default. Metadata stores the model
+  that produced the visible phones and the most recently attempted model separately; a failed model
+  run keeps the previous successful model, timestamp, weight hash, and phone sequence intact.
+- ZIPA runs locally through Microsoft's official `onnxruntime` Swift package pinned to 1.24.2. The
+  `anyspeech/zipa-small-crctc-ns-700k` INT8 graph, token inventory, and upstream MIT license are fetched
+  only from immutable revisions, staged as generated resources, and checked against pinned byte counts
+  and SHA-256 values before simulator tests, installs, or release archives. The app repeats the
+  manifest, token, model-size, and model-hash checks before creating an inference session.
+- Implemented the model's 16 kHz, 80-bin Lhotse/Kaldi-style filterbank frontend and CTC decoder.
+  Passage audio is read to its declared frame count instead of assuming one `AVAudioFile.read` call is
+  complete, split into 12-second windows with 0.4-second overlap, and merged without discarding new
+  phones. ZIPA character tokens are joined into the same IPA-like phone units used by the reference
+  card, while the existing wav2vec2 path remains unchanged behind the same result contract. The ZIPA
+  session is released after each analysis, cancellation is honored between chunks, and durable start,
+  model-load, chunk, cancellation, completion, and failure checkpoints survive a client crash or kill
+  for later on-demand diagnostics.
+- Focused simulator tests exercise selector persistence and layout, asset verification, frontend
+  parity, CTC and overlap behavior, and the real bundled ONNX graph. The saved garden sample decoded
+  the same 29-phone sequence as the upstream Python inference check. `just check-all` passed with
+  583 host tests, 436 client tests, and every package, web, and Rust gate. A manual simulator or
+  physical app drive remains at the explicit run checkpoint, so chooser interaction and comparative
+  output have not yet been visually accepted.
+- Current evidence through July 2026: the pretrained alternative is grounded in the
+  [ZIPA ACL 2025 paper](https://aclanthology.org/2025.acl-long.961/) (published July 2025)
+  and its [published model repository](https://huggingface.co/anyspeech/zipa-small-crctc-ns-700k)
+  (no publication date verifiable);
+  Microsoft's [Swift package release 1.24.2](https://github.com/microsoft/onnxruntime-swift-package-manager/releases/tag/1.24.2)
+  was published 2026-02-25. [PRiSM at ACL 2026](https://aclanthology.org/2026.acl-long.825/)
+  (published July 2026) is relevant to the later pronunciation-scoring phase, but is not treated
+  as a drop-in phone transcription runtime here.
+
 ## Promotion log
 
 ```text
@@ -661,4 +705,5 @@ R136  checkpoint  remaining  authorized physical-device acceptance
 R137  implemented remaining  physical normal-cycle and killed-analysis host-bundle proof
 D138  2026-07-26  landed     persistent passage library and bundled-sample raw-audio reanalysis
 D139  2026-07-26  landed     inline transcript-word phone grouping with raw evidence preserved
+R140  implemented remaining  manual model-selector and comparative saved-audio acceptance
 ```
