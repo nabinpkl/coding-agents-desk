@@ -356,6 +356,142 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   scale against labeled non-native speech before displaying it; do not ship an arbitrary distance
   transformed into a percentage.
 
+### July 2026 decision baseline
+
+- R130's `posteriorMargin` is the first candidate, not an accepted score. It is the duration-normalized
+  target log posterior minus the strongest unrestricted competing phone over a forced target range.
+  The raw target, observed phone, competitors, range, and model hashes remain authoritative even if a
+  later calibration changes.
+- Evaluate score extraction with the selected R130 model before considering another acoustic
+  backbone. The three candidates are: the existing aligned posterior margin; an aligned pre-softmax
+  logit margin computed while the full model output is still in memory; and an alignment-free CTC
+  canonical-sequence margin whose denominator permits every phone in a pinned US-English assessment
+  inventory plus deletion at the assessed phone. Keep R130's all-model-vocabulary competitors as raw
+  evidence, but do not let unrelated multilingual tokens define the calibrated denominator. Do not
+  persist the full 199 x 392 tensor, add a learned neural scoring head, or use STT, synthesized
+  reference audio, speaker embeddings, or attempt history in this phase.
+- Standard CTC's blank-heavy, peaky output and target-conditioned segmentation are explicit risks.
+  The score bake-off must measure blank ratio, effective non-blank support, boundary/score stability,
+  and deletion behavior. A forced alignment that produces a number for every target phone is not
+  evidence that the number is trustworthy.
+- Use the official SpeechOcean762 train/test split as the only source of shipping calibration
+  coefficients. It contains 5,000 utterances from 250 Mandarin-L1 English learners, independently
+  scored by five experts at phone, word, and utterance levels, and is CC BY 4.0. Its Mandarin-L1 and
+  child/adult mix are part of the calibration provenance and prevent a claim of universal correctness.
+  Corpus audio stays in a gitignored local cache; only the pinned source revision/hash, mapping,
+  aggregate metrics, and selected small calibration manifest may enter the repository.
+- Use L2-ARCTIC v5 only as a non-shipping robustness evaluation. Its 3,599 manually annotated
+  utterances cover substitutions, deletions, and additions from 24 speakers across Hindi, Korean,
+  Mandarin, Spanish, Arabic, and Vietnamese L1 groups, but its CC BY-NC 4.0 license means no shipped
+  coefficient or threshold may be fit or tuned on it. R130's retained 18-take matrix remains a
+  personal contrast check and never becomes calibration training data.
+- Current primary sources inspected on 2026-07-26:
+  [Li et al., BEA 2026, published 2026-07-03](https://aclanthology.org/2026.bea-1.3/)
+  documents standard CTC peakiness, timing instability, and the effect on GOP;
+  [Cao et al., Interspeech 2024](https://www.isca-archive.org/interspeech_2024/cao24b_interspeech.html)
+  defines alignment-free CTC GOP and shows why deletion-aware denominators matter;
+  [Parikh et al., Interspeech 2025](https://www.isca-archive.org/interspeech_2025/parikh25_interspeech.html)
+  evaluates unrestricted and phonologically restricted substitution sets;
+  [OpenSLR SLR101](https://www.openslr.org/101/) is the authoritative SpeechOcean762 license and
+  distribution page; and the
+  [official L2-ARCTIC v5 page](https://psi.engr.tamu.edu/l2-arctic-corpus/) documents its speakers,
+  annotations, and access terms. Older GOP work is historical context, not authority for the selected
+  iOS 26 implementation.
+
+### R131 execution plan
+
+1. **Freeze the score feature and provenance contracts.**
+   - Add a pure `VoicePronunciationScorer` boundary that consumes only `VoicePhoneEvidence` plus a
+     pinned `VoicePhoneCalibrationManifest`. Its output is versioned per aligned phone and carries the
+     evidence index/hash, feature-version identifier, all candidate raw margins, selected candidate,
+     calibrated expected expert grade on the corpus's native 0-to-2 scale, support status, and an
+     abstention reason when a score is not justified.
+   - Extend the analyzer only enough to emit bounded per-phone pre-softmax target/competitor aggregates
+     and alignment-free canonical/substitution/deletion log probabilities while the logits are already
+     resident. Keep the existing posterior target and competitors unchanged and never retain the full
+     tensor.
+   - Persist the derived result atomically as `phone-assessment.json` beside `phone-evidence.json`,
+     keyed by the audio, evidence, model, vocabulary, feature, and calibration-manifest hashes.
+     Recalibration reads retained evidence and replaces only the assessment. A stale or mismatched hash
+     is a visible abstention, and deleting an attempt removes audio, evidence, assessment, and logs
+     together.
+
+2. **Build a reproducible, speaker-disjoint calibration harness.**
+   - Add one offline recipe that downloads the official SpeechOcean762 artifact into
+     `.build/voice-phone-calibration`, verifies its license, revision and SHA-256, preserves the
+     upstream speaker-disjoint train/test split, and records duration, phone-label, age-group, gender,
+     and phone-inventory coverage before running inference.
+   - Expand ARPABET-to-model-phone conversion in one shared generated mapping. Every stressed phone
+     must map to an exact R130 token ID. Unknown symbols, utterances that cannot fit the model's
+     four-second tensor contract, and labels without enough acoustic coverage are excluded with
+     counted reasons rather than silently cropped or coerced.
+   - Run the exact selected Core ML package and preprocessing contract on macOS. Pin Python/Swift
+     parity fixtures for audio normalization, CTC forward probability, aligned aggregation, candidate
+     features, and calibration output so the offline evaluator and iPhone cannot drift.
+   - Define a supported-phone set from training data only: at least 100 scored training instances,
+     20 held-out instances, and coverage of both below-1.0 and at-least-1.5 expert grades. R131 cannot
+     cover the current product matrix unless `/θ s ɹ l v w ɪ iː/` all pass this support gate.
+
+3. **Bake off score candidates without looking at held-out labels.**
+   - Compare the aligned posterior margin, aligned logit margin, alignment-free substitution margin,
+     and alignment-free substitution-plus-deletion margin on SpeechOcean762 training folds grouped by
+     speaker. For each candidate report phone-level Pearson and Spearman correlation, mean absolute
+     error after calibration, at-most-0.5-versus-at-least-1.5 AUROC, score distributions by phone and
+     speaker, and blank/effective-frame diagnostics.
+   - Fit only a monotonic scalar calibrator on training data. Prefer a global isotonic mapping that can
+     be exported as bounded knots; add phone-specific mappings only when their predeclared support gate
+     passes and they improve speaker-fold error without reversing monotonicity. No runtime ML or
+     statistics dependency ships in the app.
+   - Select the simplest candidate within 0.02 Pearson correlation and 0.02 grade MAE of the best
+     training-fold result. The final candidate, mappings, phone support set, bands, and all thresholds
+     freeze before the official test labels are opened.
+
+4. **Gate calibration, robustness, and abstention on untouched evidence.**
+   - On the official SpeechOcean762 test split require phone-level Pearson and Spearman correlation of
+     at least 0.50, grade MAE no greater than 0.35 on the 0-to-2 scale,
+     at-most-0.5-versus-at-least-1.5 AUROC of at least 0.80, and equal-count-bin calibration error no
+     greater than 0.10 after normalizing the grade to 0-to-1. Bootstrap by speaker; the 95% lower
+     Pearson bound must remain at least 0.45.
+   - Report every metric overall and by supported phone, adult/child group, and gender. A phone is
+     removed from the shipping support set if its held-out correlation is inverted, its MAE exceeds
+     0.50, or either expert-grade side has fewer than 10 test instances.
+   - Freeze the SpeechOcean-derived threshold, then run L2-ARCTIC without tuning. Require overall
+     substitution/deletion AUROC of at least 0.70, no L1 group below 0.55, and no worst-group recall
+     more than 20 percentage points below Mandarin at the frozen threshold. Failure keeps the score
+     explicitly Mandarin-calibrated or blocks learner-facing display; it never triggers threshold
+     tuning on the non-commercial corpus.
+   - On R130's 18 retained takes, the two correct `think` takes must score above both deliberate
+     `tink`-as-`think` takes, the actual phone must remain the leading contrasted hypothesis in the
+     accepted 14-of-16 plus 2-of-2 matrix, and gain changes of plus/minus 6 dB or 200 ms edge silence
+     must not change the selected phone or move the calibrated grade by more than 0.20. Low effective
+     support, unsupported phones, clipping, or an out-of-domain calibration must return no score.
+
+5. **Integrate an honest per-phone result into saved-take Review.**
+   - Show the calibrated estimate as an expected expert phone grade rounded to one decimal on the
+     native `0.0–2.0` scale, paired with `Needs attention`, `Close`, or `Clear` bands frozen in the
+     calibration manifest. Keep target phone, observed phone, strongest competitors, raw selected
+     margin, time range, calibration corpus, and support/abstention state visible in the same phone row.
+   - Do not show a percentage, phrase average, pass/fail verdict, reference similarity, or improvement
+     claim in Phase 2. Unsupported or low-evidence phones retain the complete raw R130 evidence and say
+     why no calibrated estimate is available.
+   - Add re-score and stale-calibration handling without rerunning Core ML when the evidence contract is
+     current. Analysis remains off the main actor; scoring failure cannot destroy raw evidence or make
+     replay, deletion, STT analysis, or the Voice/video surface switch unavailable.
+
+6. **Verify, self-review, and promote only after physical evidence.**
+   - Unit-test feature formulas, blank/special-token exclusion, substitution/deletion forward sums,
+     calibration monotonicity and bounds, hash invalidation, unsupported-phone abstention, atomic
+     persistence, deletion, offline/iPhone parity fixtures, and the invariant that scoring accepts no
+     transcript, reference audio, speaker identity, or history input.
+   - Run the pinned corpus harness, held-out reports, focused client tests, `just check`, and the full
+     client simulator suite. Self-review the evidence-to-score-to-UI path, generated asset provenance,
+     privacy boundary, and every failure state.
+   - Stop at the device checkpoint. After explicit approval, update the current stable client in place,
+     re-score the retained physical matrix, verify a supported score and an abstention in Review, pull
+     the persisted evidence/assessment, and confirm replay/delete plus host/video return paths still
+     work. Flip R131 to D131 only when the corpus, cross-L1, perturbation, personal contrast, persistence,
+     and physical UI gates all pass.
+
 ## v15 Phase 3: analyzable reference audio
 
 - R132. Replace playback-only reference handling with a first-class reference source that can retain
