@@ -1,3 +1,4 @@
+import CoreML
 import Foundation
 import Testing
 
@@ -287,5 +288,55 @@ struct VoicePhoneEvidenceEncodingTests {
                 observedResidentMemoryDeltaBytes: 4
             )
         )
+    }
+}
+
+struct VoicePhoneAnalyzerLogitsTests {
+    @Test
+    func copiesPaddedModelOutputByCoordinates() throws {
+        let logits = MLMultiArray(
+            shape: [1, 2, 3],
+            dataType: .float32,
+            strides: [8, 4, 1]
+        )
+        let expected: [[Float]] = [
+            [1, 2, 3],
+            [4, 5, 6]
+        ]
+        for frame in expected.indices {
+            for token in expected[frame].indices {
+                logits[
+                    [
+                        NSNumber(value: 0),
+                        NSNumber(value: frame),
+                        NSNumber(value: token)
+                    ]
+                ] = NSNumber(value: expected[frame][token])
+            }
+        }
+
+        let copied = try VoicePhoneAnalyzer.copyLogits(
+            logits,
+            frameCount: 2,
+            vocabularySize: 3
+        )
+
+        #expect(copied == expected)
+    }
+
+    @Test
+    func rejectsUnexpectedModelOutputShape() throws {
+        let logits = try MLMultiArray(
+            shape: [1, 2, 4],
+            dataType: .float32
+        )
+
+        #expect(throws: VoicePhoneAnalyzerError.self) {
+            try VoicePhoneAnalyzer.copyLogits(
+                logits,
+                frameCount: 2,
+                vocabularySize: 3
+            )
+        }
     }
 }

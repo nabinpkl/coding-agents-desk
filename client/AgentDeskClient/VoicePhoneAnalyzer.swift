@@ -637,7 +637,7 @@ actor VoicePhoneAnalyzer {
         return bestOffset
     }
 
-    private static func copyLogits(
+    static func copyLogits(
         _ array: MLMultiArray,
         frameCount: Int,
         vocabularySize: Int
@@ -648,11 +648,17 @@ actor VoicePhoneAnalyzer {
                 "expected [1, \(frameCount), \(vocabularySize)], got \(shape)"
             )
         }
-        let frameStride = array.strides[1].intValue
-        let tokenStride = array.strides[2].intValue
         return (0..<frameCount).map { frame in
             (0..<vocabularySize).map { token in
-                Float(truncating: array[frame * frameStride + token * tokenStride])
+                Float(
+                    truncating: array[
+                        [
+                            NSNumber(value: 0),
+                            NSNumber(value: frame),
+                            NSNumber(value: token)
+                        ]
+                    ]
+                )
             }
         }
     }
