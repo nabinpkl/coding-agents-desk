@@ -30,8 +30,19 @@ struct VoicePassagePronunciationTests {
         )
 
         #expect(result.words.count == 11)
+        #expect(result.wordPronunciations.count == 11)
         #expect(result.phones.starts(with: ["θ", "ɔ", "t"]))
         #expect(result.phones.contains("ð"))
+        #expect(
+            result.wordPronunciations.first {
+                $0.word == "thought"
+            }?.phones == ["θ", "ɔ", "t"]
+        )
+        #expect(
+            result.wordPronunciations.first {
+                $0.word == "flibbertigibbet"
+            }?.isKnown == false
+        )
         #expect(result.unknownWords == [
             "flibbertigibbet",
             "i",
@@ -63,6 +74,104 @@ struct VoicePassagePronunciationTests {
         #expect(result.phones.contains("θ"))
         #expect(result.phones.contains("ð"))
         #expect(result.unknownWords.isEmpty)
+    }
+}
+
+struct VoicePassagePhoneGroupingTests {
+    @Test
+    func groupsRawPhonesByReferenceWordAndRetainsInsertions() {
+        let groups = VoicePassagePhoneGrouper.group(
+            observedPhones: ["a", "x", "b", "c", "d", "z"],
+            words: [
+                VoicePassageWordPronunciation(
+                    word: "one",
+                    phones: ["a", "b"],
+                    isKnown: true
+                ),
+                VoicePassageWordPronunciation(
+                    word: "two",
+                    phones: ["c", "d"],
+                    isKnown: true
+                )
+            ]
+        )
+
+        #expect(groups.count == 2)
+        #expect(groups[0].word == "one")
+        #expect(groups[0].heardPhones == ["a", "x", "b"])
+        #expect(groups[0].referencePhones == ["a", "b"])
+        #expect(groups[1].word == "two")
+        #expect(groups[1].heardPhones == ["c", "d", "z"])
+        #expect(
+            groups.flatMap(\.heardPhones)
+                == ["a", "x", "b", "c", "d", "z"]
+        )
+    }
+
+    @Test
+    func keepsPhonesUnassignedWhenNoWordHasAReferenceAnchor() {
+        let groups = VoicePassagePhoneGrouper.group(
+            observedPhones: ["f", "oʊ", "n"],
+            words: [
+                VoicePassageWordPronunciation(
+                    word: "unknownword",
+                    phones: [],
+                    isKnown: false
+                )
+            ]
+        )
+
+        #expect(groups.count == 2)
+        #expect(groups[0].word == "unknownword")
+        #expect(groups[0].heardPhones.isEmpty)
+        #expect(groups[0].hasReferencePronunciation == false)
+        #expect(groups[1].word == nil)
+        #expect(groups[1].heardPhones == ["f", "oʊ", "n"])
+    }
+
+    @Test
+    func deletionsLeaveTheMissingPhoneInsideItsReferenceWord() {
+        let groups = VoicePassagePhoneGrouper.group(
+            observedPhones: ["a", "c", "d"],
+            words: [
+                VoicePassageWordPronunciation(
+                    word: "one",
+                    phones: ["a", "b"],
+                    isKnown: true
+                ),
+                VoicePassageWordPronunciation(
+                    word: "two",
+                    phones: ["c", "d"],
+                    isKnown: true
+                )
+            ]
+        )
+
+        #expect(groups[0].heardPhones == ["a"])
+        #expect(groups[0].referencePhones == ["a", "b"])
+        #expect(groups[1].heardPhones == ["c", "d"])
+    }
+
+    @Test
+    func aRunOfInsertedPhonesSplitsAtTheNearestWordAnchor() {
+        let groups = VoicePassagePhoneGrouper.group(
+            observedPhones: ["a", "x", "y", "z", "b"],
+            words: [
+                VoicePassageWordPronunciation(
+                    word: "one",
+                    phones: ["a"],
+                    isKnown: true
+                ),
+                VoicePassageWordPronunciation(
+                    word: "two",
+                    phones: ["b"],
+                    isKnown: true
+                )
+            ]
+        )
+
+        #expect(groups[0].heardPhones == ["a", "x", "y"])
+        #expect(groups[1].heardPhones == ["z", "b"])
     }
 }
 
@@ -117,6 +226,20 @@ struct VoicePassageRecordingStoreTests {
         second.applyRecognizedTranscript("I taught about walking again.")
         second.observedPhones = ["aɪ", "t", "ɔː", "t"]
         second.referencePhones = ["aɪ", "θ", "ɔː", "t"]
+        second.wordPhoneGroups = [
+            VoicePassageWordPhoneGroup(
+                word: "i",
+                heardPhones: ["aɪ"],
+                referencePhones: ["aɪ"],
+                hasReferencePronunciation: true
+            ),
+            VoicePassageWordPhoneGroup(
+                word: "thought",
+                heardPhones: ["t", "ɔː", "t"],
+                referencePhones: ["θ", "ɔː", "t"],
+                hasReferencePronunciation: true
+            )
+        ]
         second.modelWeightSHA256 = "model"
         second.lastAnalyzedAt = Date(timeIntervalSince1970: 3)
         try store.save(second)
@@ -299,10 +422,31 @@ struct VoicePassageSurfaceTests {
         let store = VoicePassageRecordingStore(
             rootDirectory: directory
         )
+        let bundle = Bundle(for: VoicePassageSurface.self)
+        var sample = try store.seedBundledSample(
+            bundle: bundle
+        )
+        sample.observedPhones = ["aɪ", "t", "ɔ", "t"]
+        sample.referencePhones = ["aɪ", "θ", "ɔ", "t"]
+        sample.wordPhoneGroups = [
+            VoicePassageWordPhoneGroup(
+                word: "i",
+                heardPhones: ["aɪ"],
+                referencePhones: ["aɪ"],
+                hasReferencePronunciation: true
+            ),
+            VoicePassageWordPhoneGroup(
+                word: "thought",
+                heardPhones: ["t", "ɔ", "t"],
+                referencePhones: ["θ", "ɔ", "t"],
+                hasReferencePronunciation: true
+            )
+        ]
+        try store.save(sample)
         let surface = VoicePassageSurface(
             frame: .zero,
             recordingStore: store,
-            resourceBundle: Bundle(for: VoicePassageSurface.self)
+            resourceBundle: bundle
         )
         defer { surface.teardown() }
 
@@ -350,6 +494,36 @@ struct VoicePassageSurfaceTests {
         )
         #expect(transcript.isEditable)
         #expect(!transcript.isScrollEnabled)
+        let observed = try #require(
+            surface.passageDescendant(
+                identifier: "voice-passage-observed-phones"
+            ) as? UILabel
+        )
+        let reference = try #require(
+            surface.passageDescendant(
+                identifier: "voice-passage-reference-phones"
+            ) as? UILabel
+        )
+        #expect(
+            observed.attributedText?.string.contains(
+                "i\u{00A0}\u{00A0}aɪ      "
+                    + "thought\u{00A0}\u{00A0}t"
+                    + "\u{00A0}\u{00A0}ɔ"
+                    + "\u{00A0}\u{00A0}t"
+            ) == true
+        )
+        #expect(
+            reference.attributedText?.string.contains(
+                "i\u{00A0}\u{00A0}aɪ      "
+                    + "thought\u{00A0}\u{00A0}θ"
+                    + "\u{00A0}\u{00A0}ɔ"
+                    + "\u{00A0}\u{00A0}t"
+            ) == true
+        )
+        #expect(
+            observed.attributedText?.string.contains("\n")
+                == false
+        )
     }
 }
 

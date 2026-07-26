@@ -27,6 +27,7 @@ struct VoicePassageRecording: Codable, Equatable, Identifiable, Sendable {
     var transcriptEditedAt: Date?
     var observedPhones: [String]
     var referencePhones: [String]
+    var wordPhoneGroups: [VoicePassageWordPhoneGroup]?
     var unknownReferenceWords: [String]
     var modelWeightSHA256: String?
     var transcriptionFailure: String?
@@ -171,6 +172,7 @@ final class VoicePassageRecordingStore {
                 transcriptEditedAt: nil,
                 observedPhones: [],
                 referencePhones: [],
+                wordPhoneGroups: nil,
                 unknownReferenceWords: [],
                 modelWeightSHA256: nil,
                 transcriptionFailure: nil,
@@ -250,6 +252,7 @@ final class VoicePassageRecordingStore {
                 transcriptEditedAt: nil,
                 observedPhones: [],
                 referencePhones: [],
+                wordPhoneGroups: nil,
                 unknownReferenceWords: [],
                 modelWeightSHA256: nil,
                 transcriptionFailure: nil,

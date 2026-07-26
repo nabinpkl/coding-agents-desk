@@ -579,6 +579,11 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   sequences separate and visible; do not present them as aligned, scored, or proof of pronunciation
   correctness. Include a deterministic bundled recording that exercises the same raw-audio path in
   simulator verification without depending on simulated microphone speech.
+- R139. Group both Passage phone cards by transcript word. Reference groups come directly from
+  CMUdict word pronunciations. Because the raw model does not emit word boundaries, assign its flat
+  phone stream with an explicitly labeled transcript-guided sequence alignment, retain every inserted
+  phone, and expose an unassigned group when no dictionary anchor exists. Persist the grouped result
+  so reopening a saved recording does not collapse back to a flat stream.
 
 ### R138 implementation checkpoint (2026-07-26)
 
@@ -617,6 +622,22 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   identical to the bundled source. `SpeechTranscriber` remains unavailable in this simulator, so
   real-device saved-file transcription is not covered by this drive.
 
+### R139 implementation checkpoint (2026-07-26)
+
+- Added a pure global edit-distance grouper over the raw and reference phone sequences. Reference
+  tokens retain their transcript-word index; raw insertions attach to the nearest aligned word,
+  deletions remain visible as missing raw phones within their reference word, and an explicit
+  `Unassigned raw phones` group preserves evidence when the transcript has no known pronunciation.
+- Stored the optional word-group result beside the unchanged flat evidence. Existing schema-1
+  recordings remain readable and regenerate groups when opened; transcript edits recompute both the
+  reference groups and the raw-to-reference grouping without rerunning the audio model.
+- Both phone cards now render word-plus-phone groups inline with transcript-like spacing and natural
+  width-based wrapping, rather than fixed rows or a fixed group count per line. The heard card says
+  `Transcript-aligned` so the UI does not misrepresent the grouping as an acoustic word boundary.
+- `just check-all` passed with 583 host tests, 428 client tests, and every package, web, and Rust
+  gate. The final alignment self-review added nearest-anchor coverage and the client suite then passed
+  with 429 tests across 50 suites. A committed-build simulator screenshot remains.
+
 ## Promotion log
 
 ```text
@@ -631,4 +652,5 @@ R135  candidate   remaining  integrated explainable pronunciation gap loop
 R136  checkpoint  remaining  authorized physical-device acceptance
 R137  implemented remaining  physical normal-cycle and killed-analysis host-bundle proof
 D138  2026-07-26  landed     persistent passage library and bundled-sample raw-audio reanalysis
+R139  implemented remaining  integrated checks and committed-build grouped-phone visual verification
 ```

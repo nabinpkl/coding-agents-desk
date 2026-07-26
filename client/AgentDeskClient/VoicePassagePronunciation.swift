@@ -3,6 +3,7 @@ import Foundation
 
 struct VoicePassagePronunciationResult: Codable, Equatable, Sendable {
     let words: [String]
+    let wordPronunciations: [VoicePassageWordPronunciation]
     let phones: [String]
     let unknownWords: [String]
 
@@ -71,18 +72,29 @@ actor VoicePassagePronouncer {
         guard !words.isEmpty else {
             return VoicePassagePronunciationResult(
                 words: [],
+                wordPronunciations: [],
                 phones: [],
                 unknownWords: []
             )
         }
 
-        var phones: [String] = []
+        var wordPronunciations: [
+            VoicePassageWordPronunciation
+        ] = []
         var unknownWords: [String] = []
         for word in words {
             guard let symbols = entries[word] else {
                 unknownWords.append(word)
+                wordPronunciations.append(
+                    VoicePassageWordPronunciation(
+                        word: word,
+                        phones: [],
+                        isKnown: false
+                    )
+                )
                 continue
             }
+            var wordPhones: [String] = []
             for symbol in symbols {
                 guard let phone = VoiceARPABETPhoneMapping.modelPhone(
                     for: symbol
@@ -90,12 +102,20 @@ actor VoicePassagePronouncer {
                     throw VoicePassagePronunciationError
                         .missingARPABETMapping(symbol)
                 }
-                phones.append(phone)
+                wordPhones.append(phone)
             }
+            wordPronunciations.append(
+                VoicePassageWordPronunciation(
+                    word: word,
+                    phones: wordPhones,
+                    isKnown: true
+                )
+            )
         }
         return VoicePassagePronunciationResult(
             words: words,
-            phones: phones,
+            wordPronunciations: wordPronunciations,
+            phones: wordPronunciations.flatMap(\.phones),
             unknownWords: Array(Set(unknownWords)).sorted()
         )
     }

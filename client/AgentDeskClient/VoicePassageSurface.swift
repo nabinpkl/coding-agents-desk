@@ -363,7 +363,7 @@ final class VoicePassageSurface: UIView {
         detailStack.addArrangedSubview(
             card(
                 title: "Phonemes heard",
-                detail: "Raw audio model",
+                detail: "Transcript-aligned",
                 content: observedPhonesLabel,
                 identifier: "voice-passage-observed-card"
             )
@@ -390,7 +390,7 @@ final class VoicePassageSurface: UIView {
         detailStack.addArrangedSubview(
             card(
                 title: "Reference phonemes",
-                detail: "CMUdict from transcript",
+                detail: "CMUdict by word",
                 content: referenceContent,
                 identifier: "voice-passage-reference-card"
             )
@@ -531,8 +531,7 @@ final class VoicePassageSurface: UIView {
         renderSelectedRecording()
         if let recording = recordings.first(
             where: { $0.id == id }
-        ), !recording.transcript.isEmpty,
-           recording.referencePhones.isEmpty
+        ), recording.wordPhoneGroups == nil
         {
             scheduleReferenceUpdate(
                 transcript: recording.transcript,
@@ -577,14 +576,37 @@ final class VoicePassageSurface: UIView {
             )
         transcriptView.text = recording.transcript
         transcriptView.isEditable = analysisTask == nil
-        observedPhonesLabel.text = recording.observedPhones.isEmpty
-            ? recording.phoneAnalysisFailure.map {
+        if let groups = recording.wordPhoneGroups,
+           !groups.isEmpty
+        {
+            observedPhonesLabel.attributedText =
+                Self.groupedPhoneText(
+                    groups,
+                    column: .heard
+                )
+            referencePhonesLabel.attributedText =
+                Self.groupedPhoneText(
+                    groups,
+                    column: .reference
+                )
+        } else {
+            observedPhonesLabel.attributedText = nil
+            observedPhonesLabel.text =
+                recording.observedPhones.isEmpty
+                ? recording.phoneAnalysisFailure.map {
                 "Raw-audio phoneme decoding failed: \($0)"
-            } ?? "Tap Reanalyze to decode the saved audio."
-            : recording.observedPhones.joined(separator: "  ")
-        referencePhonesLabel.text = recording.referencePhones.isEmpty
-            ? "Edit the transcript to generate reference phonemes."
-            : recording.referencePhones.joined(separator: "  ")
+                } ?? (
+                    recording.wordPhoneGroups == nil
+                        ? "Grouping phonemes by transcript…"
+                        : "Tap Reanalyze to decode the saved audio."
+                )
+                : "Grouping decoded phonemes by transcript…"
+            referencePhonesLabel.attributedText = nil
+            referencePhonesLabel.text =
+                recording.wordPhoneGroups == nil
+                ? "Grouping reference phonemes by word…"
+                : "Edit the transcript to generate reference phonemes."
+        }
         referenceDetailLabel.isHidden =
             recording.unknownReferenceWords.isEmpty
         referenceDetailLabel.text =
@@ -778,6 +800,14 @@ final class VoicePassageSurface: UIView {
                 id: recordingID
             )
             recording.observedPhones = observation.phones
+            let words = Self.wordPronunciations(
+                from: recording.wordPhoneGroups ?? []
+            )
+            recording.wordPhoneGroups =
+                VoicePassagePhoneGrouper.group(
+                    observedPhones: observation.phones,
+                    words: words
+                )
             recording.modelWeightSHA256 =
                 observation.modelWeightSHA256
             recording.phoneAnalysisFailure = nil
@@ -862,6 +892,11 @@ final class VoicePassageSurface: UIView {
             )
             recording.transcript = transcript
             recording.referencePhones = result.phones
+            recording.wordPhoneGroups =
+                VoicePassagePhoneGrouper.group(
+                    observedPhones: recording.observedPhones,
+                    words: result.wordPronunciations
+                )
             recording.unknownReferenceWords = result.unknownWords
             try recordingStore.save(recording)
             refreshRecordings()
@@ -1089,6 +1124,131 @@ final class VoicePassageSurface: UIView {
         label.adjustsFontForContentSizeCategory = true
         label.numberOfLines = 0
         label.lineBreakMode = .byWordWrapping
+    }
+
+    private enum PhoneGroupColumn {
+        case heard
+        case reference
+    }
+
+    private static func groupedPhoneText(
+        _ groups: [VoicePassageWordPhoneGroup],
+        column: PhoneGroupColumn
+    ) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: "")
+        let wordFont = UIFontMetrics(
+            forTextStyle: .subheadline
+        ).scaledFont(
+            for: .systemFont(
+                ofSize: 15,
+                weight: .semibold
+            )
+        )
+        let phoneFont = UIFontMetrics(
+            forTextStyle: .body
+        ).scaledFont(
+            for: .monospacedSystemFont(
+                ofSize: 17,
+                weight: .regular
+            )
+        )
+
+        for (index, group) in groups.enumerated() {
+            if index > 0 {
+                result.append(
+                    NSAttributedString(string: "      ")
+                )
+            }
+            let wordLabel = group.word ?? "No word anchor"
+            result.append(
+                NSAttributedString(
+                    string: wordLabel,
+                    attributes: [
+                        .font: wordFont,
+                        .foregroundColor:
+                            UIColor.secondaryLabel
+                    ]
+                )
+            )
+            result.append(
+                NSAttributedString(
+                    string: "\u{00A0}\u{00A0}",
+                    attributes: [
+                        .font: wordFont,
+                        .foregroundColor:
+                            UIColor.tertiaryLabel
+                    ]
+                )
+            )
+
+            let phones: [String]
+            let emptyText: String
+            let color: UIColor
+            switch column {
+            case .heard:
+                phones = group.heardPhones
+                emptyText = "No raw phones aligned"
+                color = phones.isEmpty
+                    ? .tertiaryLabel
+                    : .label
+            case .reference:
+                phones = group.referencePhones
+                if group.word == nil {
+                    emptyText = "Raw phones only"
+                    color = .tertiaryLabel
+                } else {
+                    emptyText =
+                        group.hasReferencePronunciation
+                        ? "No reference phones"
+                        : "No dictionary entry"
+                    color =
+                        group.hasReferencePronunciation
+                        ? (
+                            phones.isEmpty
+                                ? .tertiaryLabel
+                                : .label
+                        )
+                        : .systemOrange
+                }
+            }
+            result.append(
+                NSAttributedString(
+                    string: phones.isEmpty
+                        ? emptyText
+                        : phones.joined(
+                            separator: "\u{00A0}\u{00A0}"
+                        ),
+                    attributes: [
+                        .font: phoneFont,
+                        .foregroundColor: color
+                    ]
+                )
+            )
+        }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 7
+        result.addAttribute(
+            .paragraphStyle,
+            value: paragraph,
+            range: NSRange(
+                location: 0,
+                length: result.length
+            )
+        )
+        return result
+    }
+
+    private static func wordPronunciations(
+        from groups: [VoicePassageWordPhoneGroup]
+    ) -> [VoicePassageWordPronunciation] {
+        groups.compactMap { group in
+            guard let word = group.word else { return nil }
+            return VoicePassageWordPronunciation(
+                word: word,
+                phones: group.referencePhones,
+                isKnown: group.hasReferencePronunciation
+            )
+        }
     }
 
     private func heading(_ text: String) -> UILabel {
