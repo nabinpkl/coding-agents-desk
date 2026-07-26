@@ -31,3 +31,123 @@ struct OwnedMediaDatagramSendPacer: Equatable {
 
     var pauseNanos: UInt64 { UInt64(max(0, burstPauseUs)) * 1_000 }
 }
+
+actor OwnedMediaDatagramBurstScheduler {
+    typealias PacketSender = @Sendable (Data) async -> Bool
+
+    private struct LiveJob {
+        var bursts: [[Data]]
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
+    private enum BurstKind {
+        case live
+        case repair
+    }
+
+    private let pacer: OwnedMediaDatagramSendPacer
+    private let sendPacket: PacketSender
+    private var liveJobs: [LiveJob] = []
+    private var repairBursts: [[Data]] = []
+    private var lastBurstKind: BurstKind?
+    private var draining = false
+
+    init(
+        pacer: OwnedMediaDatagramSendPacer,
+        sendPacket: @escaping PacketSender
+    ) {
+        self.pacer = pacer
+        self.sendPacket = sendPacket
+    }
+
+    func sendLive(_ packets: [Data]) async -> Bool {
+        guard !packets.isEmpty else { return true }
+        return await withCheckedContinuation { continuation in
+            liveJobs.append(
+                LiveJob(
+                    bursts: makeBursts(packets),
+                    continuation: continuation
+                )
+            )
+            startDrainIfNeeded()
+        }
+    }
+
+    func enqueueRepair(_ packets: [Data]) {
+        guard !packets.isEmpty else { return }
+        repairBursts.append(contentsOf: makeBursts(packets))
+        startDrainIfNeeded()
+    }
+
+    private func makeBursts(_ packets: [Data]) -> [[Data]] {
+        pacer.bursts(packetCount: packets.count).map { Array(packets[$0]) }
+    }
+
+    private func startDrainIfNeeded() {
+        guard !draining else { return }
+        draining = true
+        Task { await drain() }
+    }
+
+    private func drain() async {
+        while let next = takeNextBurst() {
+            for packet in next.packets {
+                guard await sendPacket(packet) else {
+                    failPendingLiveJobs()
+                    repairBursts.removeAll()
+                    lastBurstKind = nil
+                    draining = false
+                    return
+                }
+            }
+            completeLiveJobIfNeeded(after: next.kind)
+            if hasPendingWork, pacer.pauseNanos > 0 {
+                try? await Task.sleep(nanoseconds: pacer.pauseNanos)
+            }
+        }
+        lastBurstKind = nil
+        draining = false
+    }
+
+    private var hasPendingWork: Bool {
+        !liveJobs.isEmpty || !repairBursts.isEmpty
+    }
+
+    private func takeNextBurst() -> (kind: BurstKind, packets: [Data])? {
+        let hasLive = !liveJobs.isEmpty
+        let hasRepair = !repairBursts.isEmpty
+        guard hasLive || hasRepair else { return nil }
+
+        let kind: BurstKind
+        if hasLive, hasRepair {
+            kind = lastBurstKind == .repair ? .live : .repair
+        } else {
+            kind = hasRepair ? .repair : .live
+        }
+        lastBurstKind = kind
+        switch kind {
+        case .repair:
+            return (.repair, repairBursts.removeFirst())
+        case .live:
+            return (.live, liveJobs[0].bursts.removeFirst())
+        }
+    }
+
+    private func completeLiveJobIfNeeded(after kind: BurstKind) {
+        guard kind == .live,
+              !liveJobs.isEmpty,
+              liveJobs[0].bursts.isEmpty else {
+            return
+        }
+        let completed = liveJobs.removeFirst()
+        completed.continuation.resume(returning: true)
+    }
+
+    private func failPendingLiveJobs() {
+        let pending = liveJobs
+        liveJobs.removeAll()
+        for job in pending {
+            job.continuation.resume(returning: false)
+        }
+    }
+}

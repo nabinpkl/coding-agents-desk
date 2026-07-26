@@ -15,7 +15,6 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     private let graphicsStream: QUIC.Stream<QUICStream>
     private let datagrams: QUIC.Datagrams<QUICDatagram>
     private let mediaRepairBuffer = MediaDatagramFrameRepairBuffer(
-        repairDeadlineNs: UInt64(Config.ownedMediaRepairDeadlineMs) * 1_000_000,
         trackedFrameLimit: Config.ownedMediaTrackedFrameLimit,
         maxResendPackets: Config.ownedMediaMaxResendPackets
     )
@@ -553,20 +552,31 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         guard let packet = try? MediaDatagramFramePacket.decode(data, key: mediaKey) else {
             return
         }
-        let result = lock.withLock { state in
-            let accepted = mediaRepairBuffer.accept(packet, now: DispatchTime.now().uptimeNanoseconds)
+        let nowNs = DispatchTime.now().uptimeNanoseconds
+        let handling = lock.withLock { state in
+            let accepted = mediaRepairBuffer.accept(packet)
             state.completedFrames += accepted.completedFrames.count
-            state.expiredFrames += accepted.expiredFrames.count
-            return accepted
+            state.expiredFrames += accepted.skippedFrames.count
+            if !accepted.skippedFrames.isEmpty {
+                state.mediaRecovery.noteGapSkip()
+            }
+            let decisions = accepted.completedFrames.map { completed in
+                state.mediaRecovery.decideCompletedFrame(isKeyframe: completed.isKeyframe)
+            }
+            let requestKeyframe = state.mediaRecovery.takeKeyframeRequestIfNeeded(nowNs: nowNs)
+            return (result: accepted, decisions: decisions, requestKeyframe: requestKeyframe)
         }
-        for completed in result.completedFrames {
-            guard let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else { continue }
+        for (completed, decision) in zip(handling.result.completedFrames, handling.decisions) {
             sendVideoControl(OwnedMediaControlMessage(kind: .frameAck, frameId: completed.frameId))
+            guard decision != .discardRecoveryDelta,
+                  let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else {
+                continue
+            }
             Task { @MainActor [weak self] in
                 self?.sink?.renderOwnedVideoFrame(envelope, frameBytes: completed.data.count)
             }
         }
-        for request in result.resendRequests {
+        for request in handling.result.resendRequests {
             Task { @MainActor [weak self] in
                 self?.sink?.noteOwnedMediaRepairRequested(1)
             }
@@ -584,21 +594,28 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                 packetIndexes: request.packetIndexes
             ))
         }
-        if let expired = result.expiredFrames.last {
-            let expiredCount = result.expiredFrames.count
+        if let skipped = handling.result.skippedFrames.last {
+            let skippedCount = handling.result.skippedFrames.count
             Task { @MainActor [weak self] in
-                self?.sink?.noteOwnedMediaDroppedFrames(expiredCount)
-                self?.sink?.noteOwnedMediaRepairExpired(expiredCount)
+                self?.sink?.noteOwnedMediaDroppedFrames(skippedCount)
             }
             ClientDiagnostics.shared.record(
-                type: "mediaRepairDeadlineMissed",
+                type: "mediaGapSkipped",
                 fields: [
-                    "frameId": String(expired.frameId),
-                    "expiredFrameCount": String(expiredCount)
+                    "frameId": String(skipped.frameId),
+                    "skippedFrameCount": String(skippedCount)
                 ],
-                level: .error
+                level: .info
             )
-            sendVideoControl(OwnedMediaControlMessage(kind: .keyframeRequest, frameId: expired.frameId))
+        }
+        if handling.requestKeyframe {
+            let recoveryFrameId = handling.result.skippedFrames.last?.frameId
+                ?? handling.result.completedFrames.last?.frameId
+                ?? packet.frameId
+            sendVideoControl(OwnedMediaControlMessage(
+                kind: .keyframeRequest,
+                frameId: recoveryFrameId
+            ))
         }
     }
 
@@ -671,6 +688,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         var closed = false
         var completedFrames = 0
         var expiredFrames = 0
+        var mediaRecovery = MediaFrameRecoveryGate(
+            keyframeRequestMinGapNs: UInt64(Config.ownedMediaKeyframeRequestMinGapMs) * 1_000_000
+        )
     }
 
     private struct InputFrameHeader: Decodable {

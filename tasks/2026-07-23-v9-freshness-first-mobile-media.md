@@ -31,14 +31,14 @@ human-gated final phase.
 
 ## v9 Phase 2: nonblocking loss recovery
 
-- R121. Replace the client repair deadline in
+- D121. Replace the client repair deadline in
   `client/AgentDeskClient/OwnedMediaFrameRepairBuffer.swift` with opportunistic
   resend plus immediate gap skipping, and make the transport discard dependent
   deltas behind one coalesced keyframe request until a complete keyframe arrives.
-- R122. Replace the host task-tail datagram sender with a serial burst scheduler that
+- D122. Replace the host task-tail datagram sender with a serial burst scheduler that
   services one repair burst before the next live burst without allowing repair
   traffic to starve video.
-- R123. Add deterministic client and host tests for repair-before-overtake,
+- D123. Add deterministic client and host tests for repair-before-overtake,
   overtake-without-wait, late-packet rejection, keyframe-request coalescing,
   recovery-keyframe retry, and repair/live burst fairness.
 
@@ -67,7 +67,7 @@ human-gated final phase.
 ```text
 D118     2026-07-23  complete    ADR-0073 accepted; 582 host tests and full check green
 D119-120 2026-07-23  complete    latest admission and cumulative ACK tests; 583 host tests green
-R121-123 pending     pending     nonblocking client recovery and resend scheduling
+D121-123 2026-07-23  complete    gap skip and fair burst scheduler; 21 focused tests green
 R124-125 pending     pending     fixed profile and freshness evidence
 R126     pending     pending     integrated compile, tests, and self-review
 R127     checkpoint  pending     authorized physical mobile-data validation

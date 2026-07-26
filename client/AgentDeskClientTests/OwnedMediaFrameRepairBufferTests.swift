@@ -7,6 +7,13 @@ import AgentDeskWire
 // datagram carrier under loss and reordering, and the resend/keyframe-request
 // recovery the host serves from its ring.
 final class OwnedMediaFrameRepairBufferTests: XCTestCase {
+    private func buffer(trackedFrameLimit: Int = 8) -> MediaDatagramFrameRepairBuffer {
+        MediaDatagramFrameRepairBuffer(
+            trackedFrameLimit: trackedFrameLimit,
+            maxResendPackets: 64
+        )
+    }
+
     private func packet(
         frame: UInt64, index: UInt16, count: UInt16, payload: Data, keyframe: Bool = false
     ) -> MediaDatagramFramePacket {
@@ -17,55 +24,94 @@ final class OwnedMediaFrameRepairBufferTests: XCTestCase {
     }
 
     func testInOrderPacketsCompleteFrame() {
-        let buffer = MediaDatagramFrameRepairBuffer(repairDeadlineNs: 1_000, trackedFrameLimit: 8, maxResendPackets: 64)
-        let first = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([1])), now: 0)
+        let buffer = buffer()
+        let first = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([1])))
         XCTAssertTrue(first.completedFrames.isEmpty)
-        let second = buffer.accept(packet(frame: 1, index: 1, count: 2, payload: Data([2])), now: 0)
+        let second = buffer.accept(packet(frame: 1, index: 1, count: 2, payload: Data([2])))
         XCTAssertEqual(second.completedFrames.map(\.frameId), [1])
         XCTAssertEqual(second.completedFrames.first?.data, Data([1, 2]))
         XCTAssertEqual(second.completedFrames.first?.wasRepaired, false)
     }
 
     func testOutOfOrderPacketsReassembleInIndexOrder() {
-        let buffer = MediaDatagramFrameRepairBuffer(repairDeadlineNs: 1_000, trackedFrameLimit: 8, maxResendPackets: 64)
-        _ = buffer.accept(packet(frame: 1, index: 1, count: 2, payload: Data([2])), now: 0)
-        let result = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([1])), now: 0)
+        let buffer = buffer()
+        _ = buffer.accept(packet(frame: 1, index: 1, count: 2, payload: Data([2])))
+        let result = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([1])))
         XCTAssertEqual(result.completedFrames.first?.data, Data([1, 2]))
     }
 
-    func testMissingPacketRequestsResendOnceNewerFrameArrives() {
-        let buffer = MediaDatagramFrameRepairBuffer(repairDeadlineNs: 1_000, trackedFrameLimit: 8, maxResendPackets: 64)
-        _ = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([0])), now: 0)
-        let result = buffer.accept(packet(frame: 2, index: 0, count: 1, payload: Data([2])), now: 10)
+    func testMissingPacketRequestsResendWhileNewerFrameIsStillAssembling() {
+        let buffer = buffer()
+        _ = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([0])))
+        let result = buffer.accept(packet(frame: 2, index: 0, count: 2, payload: Data([2])))
         XCTAssertEqual(result.resendRequests, [MediaDatagramRepairRequest(frameId: 1, packetIndexes: [1])])
-        XCTAssertTrue(result.completedFrames.isEmpty, "frame 2 is blocked behind the incomplete frame 1")
+        XCTAssertTrue(result.completedFrames.isEmpty)
+        XCTAssertTrue(result.skippedFrames.isEmpty)
     }
 
-    func testUnrepairedFrameExpiresPastDeadlineThenLaterFramesDrain() {
-        let buffer = MediaDatagramFrameRepairBuffer(repairDeadlineNs: 1_000, trackedFrameLimit: 8, maxResendPackets: 64)
-        _ = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([0])), now: 0)
-        _ = buffer.accept(packet(frame: 2, index: 0, count: 1, payload: Data([2])), now: 10) // arms frame 1 deadline at 1010
-        let result = buffer.accept(packet(frame: 3, index: 0, count: 1, payload: Data([3])), now: 2_000)
-        XCTAssertTrue(result.expiredFrames.contains { $0.frameId == 1 }, "frame 1 dropped past its repair deadline")
-        XCTAssertEqual(result.completedFrames.map(\.frameId), [2, 3], "frames 2 and 3 drain once the gap is dropped")
+    func testNewerCompleteFrameSkipsOlderIncompleteFrameWithoutWaiting() {
+        let buffer = buffer()
+        _ = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([0])))
+
+        let result = buffer.accept(packet(frame: 2, index: 0, count: 1, payload: Data([2])))
+
+        XCTAssertEqual(result.skippedFrames.map(\.frameId), [1])
+        XCTAssertEqual(result.completedFrames.map(\.frameId), [2])
+        XCTAssertTrue(result.resendRequests.isEmpty, "do not repair a frame already overtaken")
+    }
+
+    func testLatePacketForSkippedFrameIsRejected() {
+        let buffer = buffer()
+        _ = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([0])))
+        _ = buffer.accept(packet(frame: 2, index: 0, count: 1, payload: Data([2])))
+
+        let late = buffer.accept(packet(frame: 1, index: 1, count: 2, payload: Data([1])))
+
+        XCTAssertEqual(late, .empty)
     }
 
     func testTrackedLimitEvictsBeforeRequestingResend() {
-        let buffer = MediaDatagramFrameRepairBuffer(repairDeadlineNs: 100_000, trackedFrameLimit: 1, maxResendPackets: 64)
-        _ = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([1])), now: 0)
-        let result = buffer.accept(packet(frame: 2, index: 0, count: 2, payload: Data([2])), now: 10)
-        XCTAssertEqual(result.expiredFrames.map(\.frameId), [1])
+        let buffer = buffer(trackedFrameLimit: 1)
+        _ = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([1])))
+        let result = buffer.accept(packet(frame: 2, index: 0, count: 2, payload: Data([2])))
+        XCTAssertEqual(result.skippedFrames.map(\.frameId), [1])
         XCTAssertEqual(result.resendRequests, [], "do not NACK a frame we already evicted locally")
     }
 
-    func testLatePacketBeforeDeadlineCompletesAsRepaired() {
-        let buffer = MediaDatagramFrameRepairBuffer(repairDeadlineNs: 100_000, trackedFrameLimit: 8, maxResendPackets: 64)
-        _ = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([10])), now: 0)
-        _ = buffer.accept(packet(frame: 2, index: 0, count: 1, payload: Data([20])), now: 5) // requests resend, arms deadline
-        let result = buffer.accept(packet(frame: 1, index: 1, count: 2, payload: Data([11])), now: 10)
-        XCTAssertEqual(result.completedFrames.map(\.frameId), [1, 2])
-        XCTAssertEqual(result.completedFrames.first { $0.frameId == 1 }?.wasRepaired, true)
+    func testRepairCompletesBeforeNewerFrameOvertakes() {
+        let buffer = buffer()
+        _ = buffer.accept(packet(frame: 1, index: 0, count: 2, payload: Data([10])))
+        let request = buffer.accept(packet(frame: 2, index: 0, count: 2, payload: Data([20])))
+        XCTAssertEqual(request.resendRequests.map(\.frameId), [1])
+
+        let result = buffer.accept(packet(frame: 1, index: 1, count: 2, payload: Data([11])))
+
+        XCTAssertEqual(result.completedFrames.map(\.frameId), [1])
+        XCTAssertEqual(result.completedFrames.first?.wasRepaired, true)
         XCTAssertEqual(result.repairedFrameCount, 1)
+    }
+
+    func testRecoveryGateCoalescesRequestsAndRetriesAfterGap() {
+        var gate = MediaFrameRecoveryGate(keyframeRequestMinGapNs: 300)
+        gate.noteGapSkip()
+        gate.noteGapSkip()
+
+        XCTAssertTrue(gate.takeKeyframeRequestIfNeeded(nowNs: 1_000))
+        XCTAssertFalse(gate.takeKeyframeRequestIfNeeded(nowNs: 1_100))
+        XCTAssertEqual(gate.decideCompletedFrame(isKeyframe: false), .discardRecoveryDelta)
+        XCTAssertFalse(gate.takeKeyframeRequestIfNeeded(nowNs: 1_299))
+        XCTAssertTrue(gate.takeKeyframeRequestIfNeeded(nowNs: 1_300))
+    }
+
+    func testRecoveryKeyframeResumesRendering() {
+        var gate = MediaFrameRecoveryGate(keyframeRequestMinGapNs: 300)
+        gate.noteGapSkip()
+
+        XCTAssertEqual(gate.decideCompletedFrame(isKeyframe: false), .discardRecoveryDelta)
+        XCTAssertEqual(gate.decideCompletedFrame(isKeyframe: true), .renderRecoveryKeyframe)
+        XCTAssertFalse(gate.awaitingKeyframe)
+        XCTAssertFalse(gate.takeKeyframeRequestIfNeeded(nowNs: 1_000))
+        XCTAssertEqual(gate.decideCompletedFrame(isKeyframe: false), .render)
     }
 
     func testPacketWireRoundTripsOnClient() throws {

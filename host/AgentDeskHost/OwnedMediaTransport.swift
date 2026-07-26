@@ -26,12 +26,15 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         burstPacketCount: Config.ownedMediaDatagramBurstPacketCount,
         burstPauseUs: Config.ownedMediaDatagramBurstPauseUs
     )
+    private lazy var sendScheduler = OwnedMediaDatagramBurstScheduler(
+        pacer: pacer
+    ) { [weak self] packet in
+        guard let self else { return false }
+        return await self.sendPacket(packet)
+    }
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
     let connectionState: AsyncStream<MediaConnectionState>
     private let encodeGate = OSAllocatedUnfairLock<EncodeState>(initialState: EncodeState())
-    private let sendQueueGate = OSAllocatedUnfairLock<MediaSendQueueState>(
-        initialState: MediaSendQueueState()
-    )
     private var controlTask: Task<Void, Never>?
     // ADR-0034 crisp-repair: per-tile crisp emitter and its reliable lane. Guarded by
     // its own lock because crisp runs alongside the video encode in the drain loop.
@@ -624,7 +627,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 sentAtUptimeNs: sentAtUptimeNs
             )
         }
-        let sent = await enqueuePackets(packets).value
+        let sent = await sendScheduler.sendLive(packets)
         guard sent else { return }
         let liveTargets = encodeGate.withLock { state in
             let summary = state.productionDiagnostics.noteSent(
@@ -655,32 +658,6 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         }
     }
 
-    private func enqueuePackets(_ packets: [Data]) -> Task<Bool, Never> {
-        sendQueueGate.withLock { state -> Task<Bool, Never> in
-            let prior = state.tail
-            let task = Task { [weak self] in
-                _ = await prior?.value
-                guard let self else { return false }
-                return await self.sendPacketsSerial(packets)
-            }
-            state.tail = task
-            return task
-        }
-    }
-
-    private func sendPacketsSerial(_ packets: [Data]) async -> Bool {
-        let bursts = pacer.bursts(packetCount: packets.count)
-        for (burstIndex, range) in bursts.enumerated() {
-            if burstIndex > 0, pacer.pauseNanos > 0 {
-                try? await Task.sleep(nanoseconds: pacer.pauseNanos)
-            }
-            for packet in packets[range] {
-                guard await sendPacket(packet) else { return false }
-            }
-        }
-        return true
-    }
-
     private func sendPacket(_ packet: Data) async -> Bool {
         do {
             try await datagrams.send(packet)
@@ -705,7 +682,9 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     private func sendResendPackets(_ packets: [Data]) {
-        _ = enqueuePackets(packets)
+        Task { [sendScheduler] in
+            await sendScheduler.enqueueRepair(packets)
+        }
     }
 
     private func handleFrameAck(_ frameId: UInt64) {
@@ -864,7 +843,4 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var latestProductionSummary: MediaProductionSummary?
     }
 
-    private struct MediaSendQueueState {
-        var tail: Task<Bool, Never>?
-    }
 }

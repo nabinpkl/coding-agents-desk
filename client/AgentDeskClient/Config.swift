@@ -90,13 +90,9 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_EXPECTED_FRAME_RATE",
         defaultValue: 30
     )
-    // ADR-0025 datagram carrier: how long the client holds an incomplete motion
-    // frame awaiting resends before dropping it and requesting a keyframe, how many
-    // frames it tracks at once, and the cap on missing packets named per request.
-    static let ownedMediaRepairDeadlineMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_REPAIR_DEADLINE_MS",
-        defaultValue: 50
-    )
+    // ADR-0073 datagram carrier: incomplete frames have no presentation deadline.
+    // This bounds pending assemblies and the number of missing packets named in one
+    // opportunistic resend request.
     static let ownedMediaTrackedFrameLimit = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_TRACKED_FRAME_LIMIT",
         defaultValue: 8
@@ -130,11 +126,9 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_LINK_HEALTH_INTERVAL_MS",
         defaultValue: 500
     )
-    // ADR-0028: minimum gap between expiry-path keyframe requests, so a loss burst
-    // cannot fan out into a keyframe storm on a lossy link before a packet resend
-    // lands. Roughly one LTE round trip; a genuinely lost keyframe still re-requests
-    // after the gap. Selective resend (R92) is the primary recovery; this bounds the
-    // keyframe fallback.
+    // ADR-0073: minimum gap between recovery keyframe requests. Gap skips coalesce
+    // behind one request; a later completed delta retries after this interval if the
+    // recovery keyframe itself was lost.
     static let ownedMediaKeyframeRequestMinGapMs = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_REQUEST_MIN_GAP_MS",
         defaultValue: 300
