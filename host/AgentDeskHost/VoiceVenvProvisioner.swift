@@ -65,9 +65,16 @@ final class VoiceVenvProvisioner: @unchecked Sendable {
     /// Ensure the venv is present and current. Completion runs on an arbitrary
     /// queue; the caller hops to the main actor as needed. Fails loud: on error
     /// the venv is left as-is and the error is reported (no partial success).
+    ///
+    /// The queued work captures self STRONGLY on purpose. Provisioning is a
+    /// one-shot task that outlives its caller's scope: the caller builds a
+    /// provisioner, calls this, and drops its reference. A weak capture let the
+    /// provisioner deallocate before the queue drained, so the block returned
+    /// without running, without logging, and the host silently had no voice
+    /// server (the ws://127.0.0.1:<port>/ws/voice connect then failed).
+    /// The reference is released when the block completes.
     func ensureProvisioned(_ completion: @escaping (Result<URL, Error>) -> Void) {
-        queue.async { [weak self] in
-            guard let self else { return }
+        queue.async {
             if self.isUpToDate {
                 completion(.success(self.voiceServerExecutable))
                 return
