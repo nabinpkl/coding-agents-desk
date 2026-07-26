@@ -32,23 +32,6 @@ enum VoicePronunciationLexicon {
         "wary": [["W", "EH1", "R", "IY0"]]
     ]
 
-    private static let modelPhones: [String: String] = [
-        "AY": "aɪ",
-        "EH": "ɛ",
-        "IH": "ɪ",
-        "IY": "iː",
-        "K": "k",
-        "L": "l",
-        "NG": "ŋ",
-        "P": "p",
-        "R": "ɹ",
-        "S": "s",
-        "SH": "ʃ",
-        "TH": "θ",
-        "V": "v",
-        "W": "w"
-    ]
-
     static func pronunciations(
         for phrase: String,
         localeIdentifier: String
@@ -71,8 +54,9 @@ enum VoicePronunciationLexicon {
 
         return try variants.map { symbols in
             let phones = try symbols.map { symbol in
-                let unstressed = symbol.trimmingCharacters(in: .decimalDigits)
-                guard let phone = modelPhones[unstressed] else {
+                guard let phone = VoiceARPABETPhoneMapping.modelPhone(
+                    for: symbol
+                ) else {
                     throw VoicePronunciationLexiconError.missingARPABETMapping(symbol)
                 }
                 return phone

@@ -92,9 +92,11 @@ final class VoiceAttemptStore {
         case unsupportedAudioFormat(String)
         case unsupportedSchema(Int)
         case unsupportedPhoneAnalysisSchema(Int)
+        case unsupportedPhoneAssessmentSchema(Int)
         case missingAttempt(UUID)
         case invalidAttempt(UUID)
         case invalidPhoneAnalysis(UUID)
+        case invalidPhoneAssessment(UUID)
 
         var errorDescription: String? {
             switch self {
@@ -104,18 +106,23 @@ final class VoiceAttemptStore {
                 return "Saved voice attempt schema \(version) is unsupported."
             case .unsupportedPhoneAnalysisSchema(let version):
                 return "Saved phone analysis schema \(version) is unsupported."
+            case .unsupportedPhoneAssessmentSchema(let version):
+                return "Saved phone assessment schema \(version) is unsupported."
             case .missingAttempt(let id):
                 return "Saved voice attempt \(id.uuidString) no longer exists."
             case .invalidAttempt(let id):
                 return "Saved voice attempt \(id.uuidString) is incomplete."
             case .invalidPhoneAnalysis(let id):
                 return "Saved phone analysis for \(id.uuidString) is incomplete."
+            case .invalidPhoneAssessment(let id):
+                return "Saved phone assessment for \(id.uuidString) is incomplete."
             }
         }
     }
 
     private static let metadataFileName = "metadata.json"
     private static let phoneAnalysisFileName = "phone-evidence.json"
+    private static let phoneAssessmentFileName = "phone-assessment.json"
 
     private let rootDirectory: URL
     private let fileManager: FileManager
@@ -310,6 +317,47 @@ final class VoiceAttemptStore {
         return analysis
     }
 
+    func phoneAssessment(
+        for attempt: VoiceSavedAttempt
+    ) throws -> VoicePhoneAssessment? {
+        let url = phoneAssessmentURL(for: attempt.id)
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        let assessment = try decoder.decode(
+            VoicePhoneAssessment.self,
+            from: Data(contentsOf: url)
+        )
+        guard assessment.schemaVersion == VoicePhoneAssessment.currentSchemaVersion else {
+            throw StoreError.unsupportedPhoneAssessmentSchema(
+                assessment.schemaVersion
+            )
+        }
+        guard assessment.attemptID == attempt.id, assessment.isWellFormed else {
+            throw StoreError.invalidPhoneAssessment(attempt.id)
+        }
+        return assessment
+    }
+
+    func savePhoneAssessment(
+        _ assessment: VoicePhoneAssessment,
+        evidence: VoicePhoneEvidence,
+        calibration: VoicePhoneCalibrationManifest
+    ) throws {
+        let attempt = try load(attemptID: assessment.attemptID)
+        guard try audioSHA256(for: attempt) == evidence.audioSHA256,
+              assessment.isCurrent(
+                  for: evidence,
+                  calibration: calibration
+              )
+        else {
+            throw StoreError.invalidPhoneAssessment(assessment.attemptID)
+        }
+        let data = try encoder.encode(assessment)
+        try data.write(
+            to: phoneAssessmentURL(for: assessment.attemptID),
+            options: .atomic
+        )
+    }
+
     func recordPhoneAnalysisFailure(
         attemptID: UUID,
         message: String,
@@ -381,6 +429,11 @@ final class VoiceAttemptStore {
     private func phoneAnalysisURL(for attemptID: UUID) -> URL {
         attemptDirectory(for: attemptID)
             .appendingPathComponent(Self.phoneAnalysisFileName, isDirectory: false)
+    }
+
+    private func phoneAssessmentURL(for attemptID: UUID) -> URL {
+        attemptDirectory(for: attemptID)
+            .appendingPathComponent(Self.phoneAssessmentFileName, isDirectory: false)
     }
 
     private func attemptDirectory(for attemptID: UUID) -> URL {

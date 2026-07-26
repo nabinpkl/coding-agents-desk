@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "ctc": {
+    "logPosteriors": [
+      [
+        -2.302585092994046,
+        -0.5108256237659907,
+        -1.2039728043259361
+      ],
+      [
+        -2.302585092994046,
+        -0.5108256237659907,
+        -1.2039728043259361
+      ]
+    ],
+    "targetTokenIDs": [
+      1
+    ],
+    "targetIndex": 0,
+    "assessmentTokenIDs": [
+      1,
+      2
+    ],
+    "blankTokenID": 0,
+    "expectedCanonicalLogProbability": -0.7339691750802004,
+    "expectedSubstitutionLogSumProbability": -1.8971199848858813,
+    "expectedDeletionLogProbability": -4.605170185988091,
+    "expectedAlignedPosteriorMargin": 0.6931471805599454,
+    "expectedAlignedLogitMargin": 0.6931471805599454,
+    "expectedBlankFrameRatio": 0.0,
+    "expectedEffectiveNonBlankFrameCount": 2
+  },
+  "audioNormalization": {
+    "pcm16": [
+      0,
+      16384,
+      -32768,
+      32767
+    ],
+    "expectedFloat32": [
+      0.0,
+      0.5,
+      -1.0,
+      0.999969482421875
+    ]
+  },
+  "calibration": {
+    "knots": [
+      {
+        "margin": -1.0,
+        "expectedGrade": 0.0
+      },
+      {
+        "margin": 0.0,
+        "expectedGrade": 1.0
+      },
+      {
+        "margin": 1.0,
+        "expectedGrade": 2.0
+      }
+    ],
+    "margin": 0.5,
+    "expectedGrade": 1.5
+  }
+}

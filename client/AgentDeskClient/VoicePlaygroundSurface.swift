@@ -8,8 +8,9 @@ import UIKit
 // record are retained together so later model work can replay the evidence
 // instead of relying on a transient label or the user's recollection.
 //
-// It remains a recognition probe, not a pronunciation score or reference
-// comparison.
+// The retained acoustic evidence can also carry a separately calibrated,
+// per-phone estimate. The estimate never consumes either transcript, reference
+// audio, speaker identity, or attempt history.
 @available(iOS 26.0, *)
 final class VoicePlaygroundSurface: UIView {
     private static let retentionDefaultsKey = "VoiceProbeRetainsAttempts"
@@ -43,8 +44,12 @@ final class VoicePlaygroundSurface: UIView {
     private var replayingAttemptID: UUID?
     private var savedAttempts: [VoiceSavedAttempt] = []
     private var savedPhoneAnalyses: [UUID: VoiceStoredPhoneAnalysis] = [:]
+    private var savedPhoneAssessments: [UUID: VoicePhoneAssessment] = [:]
     private var savedAudioHashes: [UUID: String] = [:]
     private var savedPhoneAnalysisReadFailures: [UUID: String] = [:]
+    private var savedPhoneAssessmentReadFailures: [UUID: String] = [:]
+    private var phoneCalibration: VoicePhoneCalibrationManifest?
+    private var phoneCalibrationReadFailure: String?
     private var expandedAttemptIDs = Set<UUID>()
     private var analyzingAttemptID: UUID?
     private var activePhoneAnalysisToken: UUID?
@@ -579,8 +584,17 @@ final class VoicePlaygroundSurface: UIView {
         do {
             savedAttempts = try attemptStore.attempts()
             savedPhoneAnalyses.removeAll()
+            savedPhoneAssessments.removeAll()
             savedAudioHashes.removeAll()
             savedPhoneAnalysisReadFailures.removeAll()
+            savedPhoneAssessmentReadFailures.removeAll()
+            do {
+                phoneCalibration = try VoicePhoneCalibrationAssets.loadManifest()
+                phoneCalibrationReadFailure = nil
+            } catch {
+                phoneCalibration = nil
+                phoneCalibrationReadFailure = error.localizedDescription
+            }
             for attempt in savedAttempts {
                 do {
                     savedAudioHashes[attempt.id] = try attemptStore.audioSHA256(
@@ -593,6 +607,13 @@ final class VoicePlaygroundSurface: UIView {
                     savedPhoneAnalysisReadFailures[attempt.id] =
                         error.localizedDescription
                 }
+                do {
+                    savedPhoneAssessments[attempt.id] =
+                        try attemptStore.phoneAssessment(for: attempt)
+                } catch {
+                    savedPhoneAssessmentReadFailures[attempt.id] =
+                        error.localizedDescription
+                }
             }
             rebuildSavedAttempts()
             updateMatrix()
@@ -600,8 +621,10 @@ final class VoicePlaygroundSurface: UIView {
         } catch {
             savedAttempts = []
             savedPhoneAnalyses = [:]
+            savedPhoneAssessments = [:]
             savedAudioHashes = [:]
             savedPhoneAnalysisReadFailures = [:]
+            savedPhoneAssessmentReadFailures = [:]
             rebuildSavedAttempts()
             matrixLabel.text = "Saved evidence could not be read: \(error.localizedDescription)"
             deleteAllButton.isEnabled = false
@@ -666,7 +689,9 @@ final class VoicePlaygroundSurface: UIView {
             analysisLabel.text = Self.savedAttemptAnalysisText(attempt)
             analysisContainer.addArrangedSubview(analysisLabel)
             analysisContainer.addArrangedSubview(separator())
-            analysisContainer.addArrangedSubview(caption("Raw acoustic phone evidence"))
+            analysisContainer.addArrangedSubview(
+                caption("Acoustic phone evidence and calibrated assessment")
+            )
 
             let phoneAnalysisLabel = UILabel()
             phoneAnalysisLabel.font = .monospacedSystemFont(
@@ -678,8 +703,13 @@ final class VoicePlaygroundSurface: UIView {
                 "voice-phone-analysis-\(attempt.id.uuidString)"
             phoneAnalysisLabel.text = Self.savedPhoneAnalysisText(
                 analysis: savedPhoneAnalyses[attempt.id],
+                assessment: savedPhoneAssessments[attempt.id],
+                calibration: phoneCalibration,
                 audioSHA256: savedAudioHashes[attempt.id],
-                readFailure: savedPhoneAnalysisReadFailures[attempt.id]
+                readFailure: savedPhoneAnalysisReadFailures[attempt.id],
+                assessmentReadFailure:
+                    savedPhoneAssessmentReadFailures[attempt.id]
+                        ?? phoneCalibrationReadFailure
             )
             analysisContainer.addArrangedSubview(phoneAnalysisLabel)
 
@@ -702,6 +732,18 @@ final class VoicePlaygroundSurface: UIView {
                 self?.analyzeSavedAttempt(id: attempt.id)
             }, for: .touchUpInside)
             analysisContainer.addArrangedSubview(analyzePhones)
+
+            if savedPhoneAnalyses[attempt.id]?.evidence != nil {
+                let rescore = UIButton(type: .system)
+                rescore.setTitle("Re-score retained evidence", for: .normal)
+                rescore.isEnabled = phoneAnalysisTask == nil
+                rescore.accessibilityIdentifier =
+                    "voice-rescore-phones-\(attempt.id.uuidString)"
+                rescore.addAction(UIAction { [weak self] _ in
+                    self?.rescoreSavedAttempt(id: attempt.id)
+                }, for: .touchUpInside)
+                analysisContainer.addArrangedSubview(rescore)
+            }
 
             let viewAnalysis = UIButton(type: .system)
             let isExpanded = expandedAttemptIDs.contains(attempt.id)
@@ -865,8 +907,11 @@ final class VoicePlaygroundSurface: UIView {
 
     static func savedPhoneAnalysisText(
         analysis: VoiceStoredPhoneAnalysis?,
+        assessment: VoicePhoneAssessment?,
+        calibration: VoicePhoneCalibrationManifest?,
         audioSHA256: String?,
-        readFailure: String?
+        readFailure: String?,
+        assessmentReadFailure: String?
     ) -> String {
         if let readFailure {
             return """
@@ -912,13 +957,53 @@ final class VoicePlaygroundSurface: UIView {
         }
 
         let target = evidence.pronunciation.phones.joined(separator: " ")
-        let aligned = evidence.alignedPhones.map { phone in
+        let assessmentIsCurrent = assessment.flatMap { assessment in
+            calibration.map {
+                assessment.isCurrent(for: evidence, calibration: $0)
+            }
+        } ?? false
+        let aligned = evidence.alignedPhones.enumerated().map { index, phone in
             let competitors = phone.competingPhones.prefix(3).map {
                 "\($0.phone) \(String(format: "%.2f", $0.logPosterior))"
             }
             .joined(separator: ", ")
+            let estimate: String
+            if assessmentIsCurrent,
+               let assessment,
+               assessment.phones.indices.contains(index) {
+                let assessed = assessment.phones[index]
+                if let grade = assessed.expectedExpertGrade,
+                   let band = assessed.band {
+                    estimate = """
+                      expected expert grade \(String(format: "%.1f", grade))/2.0 · \(band.displayName)
+                      \(assessed.selectedCandidate.rawValue) raw margin \(String(format: "%+.2f", assessed.selectedRawMargin))
+                      \(assessment.calibrationCorpus) · \(assessment.calibrationPopulation)
+                    """
+                } else {
+                    estimate = """
+                      calibrated estimate unavailable · \(assessed.supportStatus.displayName)
+                      \(assessed.abstentionReason ?? "No abstention reason was retained.") · selected raw margin \(String(format: "%+.2f", assessed.selectedRawMargin))
+                    """
+                }
+            } else if let assessmentReadFailure {
+                estimate = """
+                  calibrated estimate unavailable
+                  \(assessmentReadFailure)
+                """
+            } else if assessment != nil {
+                estimate = """
+                  calibrated estimate stale
+                  Re-score retained evidence with the current calibration.
+                """
+            } else {
+                estimate = """
+                  calibrated estimate not saved
+                  Re-score retained evidence without rerunning Core ML.
+                """
+            }
             return """
             \(phone.targetPhone) \(String(format: "%.2f–%.2fs", phone.startSeconds, phone.endSeconds))
+            \(estimate)
               target \(String(format: "%.2f", phone.targetLogPosterior)) · observed \(phone.observedPhone.phone) \(String(format: "%.2f", phone.observedPhone.logPosterior))
               competitors \(competitors) · margin \(String(format: "%+.2f", phone.posteriorMargin))
             """
@@ -940,7 +1025,7 @@ final class VoicePlaygroundSurface: UIView {
             evidence.metrics.sourceDurationSeconds
         )
         return """
-        Raw model evidence, not a pronunciation score.
+        Raw model evidence with a separately calibrated per-phone estimate.
         Target / \(target) /
 
         \(aligned)
@@ -970,6 +1055,14 @@ final class VoicePlaygroundSurface: UIView {
         rebuildSavedAttempts()
         phoneAnalysisTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                if activePhoneAnalysisToken == analysisToken {
+                    activePhoneAnalysisToken = nil
+                    analyzingAttemptID = nil
+                    phoneAnalysisTask = nil
+                    refreshSavedAttempts()
+                }
+            }
             var requestedModelHash: String?
             do {
                 let manifest = try VoicePhoneModelAssets.loadManifest()
@@ -996,9 +1089,43 @@ final class VoicePlaygroundSurface: UIView {
                     return
                 }
                 _ = try attemptStore.savePhoneEvidence(evidence)
-                if activePhoneAnalysisToken == analysisToken {
-                    statusLabel.text =
-                        "Raw phone evidence saved below with phones and timing."
+                do {
+                    let calibration =
+                        try VoicePhoneCalibrationAssets.loadManifest()
+                    let assessment = try await Task.detached {
+                        try VoicePronunciationScorer.score(
+                            evidence: evidence,
+                            calibration: calibration
+                        )
+                    }.value
+                    try attemptStore.savePhoneAssessment(
+                        assessment,
+                        evidence: evidence,
+                        calibration: calibration
+                    )
+                    if activePhoneAnalysisToken == analysisToken {
+                        let supportedCount = assessment.phones.filter {
+                            $0.supportStatus == .supported
+                        }.count
+                        statusLabel.text = supportedCount > 0
+                            ? "Phone evidence and calibrated estimates saved below."
+                            : "Phone evidence saved. Calibration abstained; details are shown below."
+                    }
+                } catch {
+                    ClientDiagnostics.shared.record(
+                        type: "voicePhoneScoringFailed",
+                        fields: [
+                            "attemptID": attempt.id.uuidString,
+                            "message": String(error.localizedDescription.prefix(1_000))
+                        ],
+                        level: .error
+                    )
+                    if activePhoneAnalysisToken == analysisToken {
+                        statusLabel.text = """
+                        Raw phone evidence was saved.
+                        Calibration failed: \(error.localizedDescription)
+                        """
+                    }
                 }
             } catch {
                 guard !Task.isCancelled else {
@@ -1024,11 +1151,62 @@ final class VoicePlaygroundSurface: UIView {
                 }
             }
             ClientDiagnostics.shared.announceCurrentRun()
-            guard activePhoneAnalysisToken == analysisToken else { return }
-            activePhoneAnalysisToken = nil
-            analyzingAttemptID = nil
-            phoneAnalysisTask = nil
-            refreshSavedAttempts()
+        }
+    }
+
+    private func rescoreSavedAttempt(id: UUID) {
+        guard phoneAnalysisTask == nil else {
+            statusLabel.text = "Wait for the current phone analysis to finish."
+            return
+        }
+        guard let evidence = savedPhoneAnalyses[id]?.evidence else {
+            statusLabel.text = "Analyze the saved audio before re-scoring it."
+            return
+        }
+        let token = UUID()
+        activePhoneAnalysisToken = token
+        analyzingAttemptID = id
+        statusLabel.text = "Re-scoring retained phone evidence…"
+        rebuildSavedAttempts()
+        phoneAnalysisTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if activePhoneAnalysisToken == token {
+                    activePhoneAnalysisToken = nil
+                    analyzingAttemptID = nil
+                    phoneAnalysisTask = nil
+                    refreshSavedAttempts()
+                }
+            }
+            do {
+                let calibration =
+                    try VoicePhoneCalibrationAssets.loadManifest()
+                let assessment = try await Task.detached {
+                    try VoicePronunciationScorer.score(
+                        evidence: evidence,
+                        calibration: calibration
+                    )
+                }.value
+                guard !Task.isCancelled else { return }
+                try attemptStore.savePhoneAssessment(
+                    assessment,
+                    evidence: evidence,
+                    calibration: calibration
+                )
+                if activePhoneAnalysisToken == token {
+                    statusLabel.text = assessment.phones.contains {
+                        $0.supportStatus == .supported
+                    }
+                        ? "Calibrated per-phone estimates refreshed."
+                        : "Calibration abstained; retained raw evidence is unchanged."
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                if activePhoneAnalysisToken == token {
+                    statusLabel.text =
+                        "Re-score failed; retained raw evidence is unchanged: \(error.localizedDescription)"
+                }
+            }
         }
     }
 

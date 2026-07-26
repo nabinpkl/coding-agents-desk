@@ -719,6 +719,8 @@ check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
     sh tools/host-client-telemetry-tests.sh
     /usr/bin/python3 tools/voice-phone-evidence-summary-tests.py
+    /usr/bin/python3 tools/generate-voice-phone-mapping.py --check
+    /usr/bin/python3 tools/voice-phone-calibration-contract-check.py
     sh tools/testflight-upload-tests.sh
     (cd packages/AgentDeskWire && swift test)
     (cd packages/BrowserProjection && swift test)
@@ -778,6 +780,59 @@ voice-phone-model-check:
         echo "R130 phone model is missing or stale; run: just voice-phone-model"
         exit 1
     }
+
+# One authoritative CMUdict-to-model-phone mapping feeds the iPhone and the
+# offline calibration harness.
+voice-phone-mapping:
+    /usr/bin/python3 tools/generate-voice-phone-mapping.py
+
+voice-phone-mapping-check:
+    /usr/bin/python3 tools/generate-voice-phone-mapping.py --check
+
+# The large labeled corpora and derived rows stay under .build. SpeechOcean is
+# downloaded and hash-verified automatically. L2-ARCTIC requires the user to
+# accept its CC BY-NC terms and supply a local root before infer-l2 can run.
+voice-phone-calibration-env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VENV='{{justfile_directory()}}/.build/voice-phone-model/venv'
+    if [ ! -x "$VENV/bin/python" ]; then
+        uv venv --python 3.12 "$VENV"
+    fi
+    uv pip install --python "$VENV/bin/python" \
+        -r tools/voice-phone-calibration-requirements.txt
+
+voice-phone-calibration-test: voice-phone-calibration-env voice-phone-mapping-check
+    .build/voice-phone-model/venv/bin/python \
+        tools/voice-phone-calibration-tests.py
+
+voice-phone-calibration-audit: voice-phone-calibration-env voice-phone-mapping-check
+    .build/voice-phone-model/venv/bin/python \
+        tools/voice-phone-calibration.py audit
+
+voice-phone-calibration-smoke limit="2": voice-phone-calibration-env voice-phone-mapping-check voice-phone-model-check
+    .build/voice-phone-model/venv/bin/python \
+        tools/voice-phone-calibration.py smoke --limit '{{limit}}'
+
+voice-phone-calibration-train: voice-phone-calibration-env voice-phone-mapping-check voice-phone-model-check
+    .build/voice-phone-model/venv/bin/python \
+        tools/voice-phone-calibration.py infer-train
+
+voice-phone-calibration-test-split: voice-phone-calibration-env voice-phone-mapping-check voice-phone-model-check
+    .build/voice-phone-model/venv/bin/python \
+        tools/voice-phone-calibration.py infer-test
+
+voice-phone-calibration-l2 l2_root: voice-phone-calibration-env voice-phone-mapping-check voice-phone-model-check
+    .build/voice-phone-model/venv/bin/python \
+        tools/voice-phone-calibration.py infer-l2 --l2-root '{{l2_root}}'
+
+voice-phone-calibration-report: voice-phone-calibration-env voice-phone-mapping-check
+    .build/voice-phone-model/venv/bin/python \
+        tools/voice-phone-calibration.py report
+
+voice-phone-calibration: voice-phone-calibration-env voice-phone-mapping-check voice-phone-model-check
+    .build/voice-phone-model/venv/bin/python \
+        tools/voice-phone-calibration.py run
 
 dev:
     open host/AgentDeskHost.xcodeproj

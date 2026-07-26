@@ -207,6 +207,13 @@ actor VoicePhoneAnalyzer {
         let sourceDurationSeconds: TimeInterval
         let analyzedOffsetSeconds: TimeInterval
         let analyzedDurationSeconds: TimeInterval
+        let peakAbsoluteSample: Double
+        let clippedSampleRatio: Double
+    }
+
+    struct SupportDiagnostics: Equatable, Sendable {
+        let blankFrameRatio: Double
+        let effectiveNonBlankFrameCount: Int
     }
 
     private let bundle: Bundle
@@ -318,6 +325,15 @@ actor VoicePhoneAnalyzer {
             }
             return tokenID
         }
+        let assessmentTokenIDs = try VoiceARPABETPhoneMapping.assessmentPhones.map {
+            phone in
+            guard let tokenID = assets.vocabulary.tokenID(for: phone) else {
+                throw VoicePhoneAnalyzerError.invalidVocabulary(
+                    "assessment phone \(phone) is absent"
+                )
+            }
+            return tokenID
+        }
 
         try analysisLog.record(
             .inputAllocationStarted,
@@ -412,6 +428,10 @@ actor VoicePhoneAnalyzer {
                 logPosteriors: logPosteriors,
                 range: range
             )
+            let averagedLogits = Self.averageLogits(
+                logits: logits,
+                range: range
+            )
             guard let observed = VoiceCTCAlignment.topHypotheses(
                 frame: averaged,
                 vocabulary: assets.vocabulary.tokensByID,
@@ -434,6 +454,36 @@ actor VoicePhoneAnalyzer {
                 )
             }
             let targetLogPosterior = averaged[targetTokenID]
+            let strongestLogitCompetitor = averagedLogits.indices
+                .filter {
+                    $0 != targetTokenID
+                        && !excludedTokens.contains($0)
+                        && !(assets.vocabulary.tokensByID[$0]?.hasPrefix("<")
+                            ?? true)
+                }
+                .max { averagedLogits[$0] < averagedLogits[$1] }
+            guard let strongestLogitCompetitor else {
+                throw VoicePhoneAnalyzerError.invalidModelOutput(
+                    "no competing logit for aligned target"
+                )
+            }
+            let contrast = try VoiceCTCAlignment.phoneContrastProbabilities(
+                logPosteriors: logPosteriors,
+                targetTokenIDs: targetTokenIDs,
+                targetIndex: index,
+                assessmentTokenIDs: assessmentTokenIDs,
+                blankTokenID: request.modelManifest.blankTokenID
+            )
+            let supportDiagnostics = Self.supportDiagnostics(
+                logPosteriors: logPosteriors,
+                range: range,
+                assessmentTokenIDs: assessmentTokenIDs,
+                blankTokenID: request.modelManifest.blankTokenID
+            )
+            let substitutionDeletionLogSum = VoiceCTCAlignment.logSumExp([
+                contrast.substitutionLogSumProbability,
+                contrast.deletionLogProbability
+            ])
             return VoiceAlignedPhoneEvidence(
                 targetPhone: request.pronunciation.phones[index],
                 startSeconds: audio.analyzedOffsetSeconds
@@ -444,7 +494,30 @@ actor VoicePhoneAnalyzer {
                 observedPhone: observed,
                 competingPhones: competitors,
                 posteriorMargin: targetLogPosterior
-                    - strongestCompetitor.logPosterior
+                    - strongestCompetitor.logPosterior,
+                scoreFeatures: VoicePhoneScoreFeatures(
+                    featureVersion: VoicePhoneScoreFeatures.currentVersion,
+                    alignedTargetMeanLogit: averagedLogits[targetTokenID],
+                    alignedStrongestCompetitorMeanLogit:
+                        averagedLogits[strongestLogitCompetitor],
+                    alignedLogitMargin: averagedLogits[targetTokenID]
+                        - averagedLogits[strongestLogitCompetitor],
+                    canonicalSequenceLogProbability:
+                        contrast.canonicalLogProbability,
+                    substitutionSequenceLogSumProbability:
+                        contrast.substitutionLogSumProbability,
+                    deletionSequenceLogProbability:
+                        contrast.deletionLogProbability,
+                    alignmentFreeSubstitutionMargin:
+                        contrast.canonicalLogProbability
+                        - contrast.substitutionLogSumProbability,
+                    alignmentFreeSubstitutionDeletionMargin:
+                        contrast.canonicalLogProbability
+                        - substitutionDeletionLogSum,
+                    blankFrameRatio: supportDiagnostics.blankFrameRatio,
+                    effectiveNonBlankFrameCount:
+                        supportDiagnostics.effectiveNonBlankFrameCount
+                )
             )
         }
         try analysisLog.record(
@@ -477,7 +550,9 @@ actor VoicePhoneAnalyzer {
                 preprocessingMilliseconds: preprocessingMilliseconds,
                 modelLoadMilliseconds: modelLoadMilliseconds,
                 inferenceMilliseconds: inferenceMilliseconds,
-                observedResidentMemoryDeltaBytes: residentDelta
+                observedResidentMemoryDeltaBytes: residentDelta,
+                peakAbsoluteSample: audio.peakAbsoluteSample,
+                clippedSampleRatio: audio.clippedSampleRatio
             )
         )
         try analysisLog.record(
@@ -595,13 +670,21 @@ actor VoicePhoneAnalyzer {
             throw VoicePhoneAnalyzerError.emptyRecording
         }
         let samples = Array(UnsafeBufferPointer(start: channel, count: sampleCount))
+        let peakAbsoluteSample = samples.reduce(0.0) {
+            max($0, Double(abs($1)))
+        }
+        let clippedSampleRatio = Double(
+            samples.lazy.filter { abs($0) >= 0.999 }.count
+        ) / Double(samples.count)
         let windowSize = manifest.sampleCount
         if samples.count <= windowSize {
             return PreparedAudio(
                 samples: samples + Array(repeating: 0, count: windowSize - samples.count),
                 sourceDurationSeconds: Double(samples.count) / Double(manifest.sampleRate),
                 analyzedOffsetSeconds: 0,
-                analyzedDurationSeconds: Double(samples.count) / Double(manifest.sampleRate)
+                analyzedDurationSeconds: Double(samples.count) / Double(manifest.sampleRate),
+                peakAbsoluteSample: peakAbsoluteSample,
+                clippedSampleRatio: clippedSampleRatio
             )
         }
 
@@ -613,7 +696,9 @@ actor VoicePhoneAnalyzer {
             samples: Array(samples[offset..<(offset + windowSize)]),
             sourceDurationSeconds: Double(samples.count) / Double(manifest.sampleRate),
             analyzedOffsetSeconds: Double(offset) / Double(manifest.sampleRate),
-            analyzedDurationSeconds: Double(windowSize) / Double(manifest.sampleRate)
+            analyzedDurationSeconds: Double(windowSize) / Double(manifest.sampleRate),
+            peakAbsoluteSample: peakAbsoluteSample,
+            clippedSampleRatio: clippedSampleRatio
         )
     }
 
@@ -663,7 +748,7 @@ actor VoicePhoneAnalyzer {
         }
     }
 
-    private static func averagePosteriors(
+    static func averagePosteriors(
         logPosteriors: [[Double]],
         range: ClosedRange<Int>
     ) -> [Double] {
@@ -673,6 +758,46 @@ actor VoicePhoneAnalyzer {
                 $0 + logPosteriors[$1][token]
             } / count
         }
+    }
+
+    static func averageLogits(
+        logits: [[Float]],
+        range: ClosedRange<Int>
+    ) -> [Double] {
+        let count = Double(range.count)
+        return logits[0].indices.map { token in
+            range.reduce(0.0) {
+                $0 + Double(logits[$1][token])
+            } / count
+        }
+    }
+
+    static func supportDiagnostics(
+        logPosteriors: [[Double]],
+        range: ClosedRange<Int>,
+        assessmentTokenIDs: [Int],
+        blankTokenID: Int
+    ) -> SupportDiagnostics {
+        let blankFrames = range.filter { frameIndex in
+            let frame = logPosteriors[frameIndex]
+            guard let winner = frame.indices.max(
+                by: { frame[$0] < frame[$1] }
+            ) else {
+                return true
+            }
+            return winner == blankTokenID
+        }.count
+        let effectiveNonBlankFrames = range.filter { frameIndex in
+            let frame = logPosteriors[frameIndex]
+            let strongestAssessment = assessmentTokenIDs
+                .map { frame[$0] }
+                .max() ?? -Double.infinity
+            return strongestAssessment > frame[blankTokenID]
+        }.count
+        return SupportDiagnostics(
+            blankFrameRatio: Double(blankFrames) / Double(range.count),
+            effectiveNonBlankFrameCount: effectiveNonBlankFrames
+        )
     }
 
     private static func residentMemoryBytes() -> UInt64? {

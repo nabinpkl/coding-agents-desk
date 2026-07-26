@@ -492,6 +492,29 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
      work. Flip R131 to D131 only when the corpus, cross-L1, perturbation, personal contrast, persistence,
      and physical UI gates all pass.
 
+### R131 implementation checkpoint (2026-07-26)
+
+- Implemented the versioned R131 evidence features, deterministic CMUdict/model-phone mapping,
+  pure calibrated scorer with provenance and abstention, atomic assessment sidecar, stale-evidence
+  re-score, and saved-take Review presentation. Scoring consumes only retained R130 evidence and the
+  pinned calibration manifest; transcript, reference audio, speaker identity, and history remain
+  outside its input contract.
+- Ran exact Core ML inference over all 2,500 SpeechOcean762 training utterances and all 2,500 official
+  test utterances. The training-only choice froze as `alignmentFreeSubstitutionMargin` before test
+  evaluation. On 7,604 held-out product-phone rows it produced Pearson `0.275`, Spearman `0.246`,
+  MAE `0.106`, AUROC `0.874`, calibration error `0.0046`, and speaker-bootstrap Pearson lower bound
+  `0.247`.
+- The frozen candidate fails the predeclared overall correlation gates and only `/s l ɪ iː/` pass every
+  per-phone population gate. The committed manifest therefore contains no coefficients or support
+  claims, `displayEnabled` remains false, and Review keeps the raw phone evidence while stating why
+  no calibrated estimate is available.
+- Verification is green for the 8-test offline formula/provenance suite, 17 focused iOS scoring and
+  persistence tests, the full 415-test client simulator suite, and `just check` including all 583 host
+  tests. The report recipe exits `2` by design because the learner-facing release gates did not pass.
+- Remaining before D131: choose and validate a stronger acoustic representation without tuning on the
+  official test split, run the user-licensed L2-ARCTIC cross-L1 gate, rerun the R130 personal contrast
+  and perturbation matrix, then complete the explicit physical-device Review/persistence checkpoint.
+
 ## v15 Phase 3: analyzable reference audio
 
 - R132. Replace playback-only reference handling with a first-class reference source that can retain

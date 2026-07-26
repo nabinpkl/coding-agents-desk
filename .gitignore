@@ -8,6 +8,8 @@
 
 # OS noise
 .DS_Store
+__pycache__/
+*.pyc
 
 # Xcode per-developer state (scrollback, breakpoints, last-opened files)
 xcuserdata/

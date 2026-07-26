@@ -55,6 +55,23 @@ struct VoiceAlignedPhoneEvidence: Codable, Equatable, Sendable {
     let observedPhone: VoicePhoneHypothesis
     let competingPhones: [VoicePhoneHypothesis]
     let posteriorMargin: Double
+    let scoreFeatures: VoicePhoneScoreFeatures
+}
+
+struct VoicePhoneScoreFeatures: Codable, Equatable, Sendable {
+    static let currentVersion = "r131-v1"
+
+    let featureVersion: String
+    let alignedTargetMeanLogit: Double
+    let alignedStrongestCompetitorMeanLogit: Double
+    let alignedLogitMargin: Double
+    let canonicalSequenceLogProbability: Double
+    let substitutionSequenceLogSumProbability: Double
+    let deletionSequenceLogProbability: Double
+    let alignmentFreeSubstitutionMargin: Double
+    let alignmentFreeSubstitutionDeletionMargin: Double
+    let blankFrameRatio: Double
+    let effectiveNonBlankFrameCount: Int
 }
 
 struct VoicePhoneInferenceMetrics: Codable, Equatable, Sendable {
@@ -65,10 +82,12 @@ struct VoicePhoneInferenceMetrics: Codable, Equatable, Sendable {
     let modelLoadMilliseconds: Double
     let inferenceMilliseconds: Double
     let observedResidentMemoryDeltaBytes: UInt64?
+    let peakAbsoluteSample: Double
+    let clippedSampleRatio: Double
 }
 
 struct VoicePhoneEvidence: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     let schemaVersion: Int
     let attemptID: UUID
@@ -83,7 +102,7 @@ struct VoicePhoneEvidence: Codable, Equatable, Sendable {
 }
 
 struct VoiceStoredPhoneAnalysis: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     let schemaVersion: Int
     let attemptID: UUID

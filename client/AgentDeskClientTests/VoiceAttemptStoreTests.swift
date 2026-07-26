@@ -81,9 +81,47 @@ struct VoiceAttemptStoreTests {
                     .path
             )
         )
+        let calibration = VoicePronunciationScoringFixtures.calibration()
+        let assessment = try VoicePronunciationScorer.score(
+            evidence: replacement,
+            calibration: calibration,
+            now: Date(timeIntervalSince1970: 1_700_000_004)
+        )
+        try store.savePhoneAssessment(
+            assessment,
+            evidence: replacement,
+            calibration: calibration
+        )
+        #expect(try store.phoneAssessment(for: completed) == assessment)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: root
+                    .appendingPathComponent(completed.id.uuidString)
+                    .appendingPathComponent("phone-assessment.json")
+                    .path
+            )
+        )
+        let rescoredEvidenceReplacement = phoneEvidence(
+            attemptID: completed.id,
+            audioSHA256: audioSHA256,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_003),
+            inferenceMilliseconds: 8
+        )
+        _ = try store.savePhoneEvidence(rescoredEvidenceReplacement)
+        let loadedAssessment = try store.phoneAssessment(for: completed)
+        let retainedAssessment = try #require(loadedAssessment)
+        #expect(!retainedAssessment.isCurrent(
+            for: rescoredEvidenceReplacement,
+            calibration: calibration
+        ))
 
         try store.delete(attemptID: pending.id)
         #expect(try store.attempts().isEmpty)
+        #expect(
+            !FileManager.default.fileExists(
+                atPath: root.appendingPathComponent(pending.id.uuidString).path
+            )
+        )
     }
 
     @Test @MainActor
@@ -224,7 +262,7 @@ struct VoiceAttemptStoreTests {
             phones: ["θ", "ɪ", "ŋ", "k"]
         )
         return VoicePhoneEvidence(
-            schemaVersion: 1,
+            schemaVersion: VoicePhoneEvidence.currentSchemaVersion,
             attemptID: attemptID,
             createdAt: createdAt,
             audioSHA256: audioSHA256,
@@ -232,7 +270,37 @@ struct VoiceAttemptStoreTests {
             model: model,
             pronunciation: pronunciation,
             frames: [],
-            alignedPhones: [],
+            alignedPhones: [
+                VoiceAlignedPhoneEvidence(
+                    targetPhone: "θ",
+                    startSeconds: 0,
+                    endSeconds: 0.02,
+                    targetLogPosterior: -0.2,
+                    observedPhone: VoicePhoneHypothesis(
+                        tokenID: 52,
+                        phone: "θ",
+                        logPosterior: -0.2
+                    ),
+                    competingPhones: [
+                        VoicePhoneHypothesis(
+                            tokenID: 6,
+                            phone: "t",
+                            logPosterior: -1.2
+                        )
+                    ],
+                    posteriorMargin: 1,
+                    scoreFeatures: VoicePronunciationScoringFixtures.features()
+                ),
+                VoicePronunciationScoringFixtures.alignedEvidence(
+                    targetPhone: "ɪ"
+                ),
+                VoicePronunciationScoringFixtures.alignedEvidence(
+                    targetPhone: "ŋ"
+                ),
+                VoicePronunciationScoringFixtures.alignedEvidence(
+                    targetPhone: "k"
+                )
+            ],
             metrics: VoicePhoneInferenceMetrics(
                 sourceDurationSeconds: 0.032,
                 analyzedOffsetSeconds: 0,
@@ -240,7 +308,9 @@ struct VoiceAttemptStoreTests {
                 preprocessingMilliseconds: 1,
                 modelLoadMilliseconds: 2,
                 inferenceMilliseconds: inferenceMilliseconds,
-                observedResidentMemoryDeltaBytes: nil
+                observedResidentMemoryDeltaBytes: nil,
+                peakAbsoluteSample: 0.5,
+                clippedSampleRatio: 0
             )
         )
     }

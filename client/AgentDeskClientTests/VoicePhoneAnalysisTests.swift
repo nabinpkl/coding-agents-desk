@@ -195,18 +195,30 @@ struct VoicePhoneEvidenceEncodingTests {
     }
 
     @Test @MainActor
-    func savedReviewLabelsPhoneEvidenceWithoutInventingAScore() {
+    func savedReviewKeepsRawEvidenceWhenCalibrationIsUnavailable() throws {
         let evidence = makeEvidence()
+        let calibration = VoicePronunciationScoringFixtures.calibration(
+            displayEnabled: false
+        )
+        let assessment = try VoicePronunciationScorer.score(
+            evidence: evidence,
+            calibration: calibration
+        )
         let text = VoicePlaygroundSurface.savedPhoneAnalysisText(
             analysis: .completed(evidence),
+            assessment: assessment,
+            calibration: calibration,
             audioSHA256: evidence.audioSHA256,
-            readFailure: nil
+            readFailure: nil,
+            assessmentReadFailure: nil
         )
 
-        #expect(text.contains("Raw model evidence, not a pronunciation score."))
+        #expect(text.contains("Raw model evidence with a separately calibrated"))
         #expect(text.contains("Target / θ ɪ ŋ k /"))
         #expect(text.contains("observed θ"))
         #expect(text.contains("competitors t"))
+        #expect(text.contains("calibrated estimate unavailable"))
+        #expect(text.contains("release gates"))
         #expect(text.contains("window 0.00–1.00s of 1.00s source"))
         #expect(!text.localizedCaseInsensitiveContains("percent"))
     }
@@ -247,7 +259,7 @@ struct VoicePhoneEvidenceEncodingTests {
             logPosterior: -0.2
         )
         return VoicePhoneEvidence(
-            schemaVersion: 1,
+            schemaVersion: VoicePhoneEvidence.currentSchemaVersion,
             attemptID: attemptID,
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
             audioSHA256: "audio",
@@ -261,9 +273,9 @@ struct VoicePhoneEvidenceEncodingTests {
                     hypotheses: [hypothesis]
                 )
             ],
-            alignedPhones: [
+            alignedPhones: pronunciation.phones.map { targetPhone in
                 VoiceAlignedPhoneEvidence(
-                    targetPhone: "θ",
+                    targetPhone: targetPhone,
                     startSeconds: 0,
                     endSeconds: 0.02,
                     targetLogPosterior: -0.2,
@@ -275,9 +287,10 @@ struct VoicePhoneEvidenceEncodingTests {
                             logPosterior: -1.2
                         )
                     ],
-                    posteriorMargin: 1
+                    posteriorMargin: 1,
+                    scoreFeatures: VoicePronunciationScoringFixtures.features()
                 )
-            ],
+            },
             metrics: VoicePhoneInferenceMetrics(
                 sourceDurationSeconds: 1,
                 analyzedOffsetSeconds: 0,
@@ -285,7 +298,9 @@ struct VoicePhoneEvidenceEncodingTests {
                 preprocessingMilliseconds: 1,
                 modelLoadMilliseconds: 2,
                 inferenceMilliseconds: 3,
-                observedResidentMemoryDeltaBytes: 4
+                observedResidentMemoryDeltaBytes: 4,
+                peakAbsoluteSample: 0.5,
+                clippedSampleRatio: 0
             )
         )
     }

@@ -1,0 +1,29 @@
+{
+  "closeUpperBound": 1.5,
+  "disabledReason": "SpeechOcean762 held-out metrics or product-phone support gates did not pass.",
+  "displayEnabled": false,
+  "featureVersion": "r131-v1",
+  "generatedAt": "2026-07-26T00:00:00Z",
+  "identifier": "speechocean762-openslr-slr101-2021-02-02-r131-v1",
+  "localeIdentifiers": [
+    "en-US"
+  ],
+  "mappings": [],
+  "maximumBlankFrameRatio": 0.95,
+  "maximumClippedSampleRatio": 0.01,
+  "maximumSourceDurationSeconds": 4.0,
+  "minimumEffectiveNonBlankFrameCount": 2,
+  "modelSpecificationSHA256": "44629ea3d97747f6d80b8ebb906b5ddfabc301bdc6f565e5ed1bb625d46f34f4",
+  "modelWeightSHA256": "8c093d09a94c89898670734440b18432f3229e7a9e5174f1fe3c159898fa172c",
+  "needsAttentionUpperBound": 1.0,
+  "schemaVersion": 1,
+  "selectedCandidate": "alignmentFreeSubstitutionMargin",
+  "sourceCorpus": "SpeechOcean762",
+  "sourceLicense": "CC BY 4.0",
+  "sourcePopulation": "Mandarin-L1 English learners; adult and child speakers",
+  "sourceRevision": "OpenSLR-SLR101-2021-02-02",
+  "sourceSHA256": "876c34b828c2ebcc35ba2ff1ba5947d50e6b0162fc4a4af91db0942422b3bdd5",
+  "supportedPhones": [],
+  "validation": null,
+  "vocabularySHA256": "202ef6b52161221d96496b4d189ab009b5a7b066a0a277822d9190a196fc6f69"
+}
