@@ -18,6 +18,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
@@ -106,40 +107,52 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# No CORS layer: the browser reaches REST through a same-origin Next rewrite
-# (see web/next.config.ts). The WebSocket connects directly and is exempt from
-# CORS, so it is guarded by an explicit Origin allowlist instead (see below).
-
-DEFAULT_WS_ALLOWED_ORIGINS: Final = (
+DEFAULT_ALLOWED_ORIGINS: Final = (
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
     # Embedded webview served from the native host's custom scheme. WKWebView
-    # tags WebSocket handshakes from an interactionfeed:// page with this origin
-    # (some configs send "null" instead), so both are allowed. The sidecar is
+    # tags requests from an interactionfeed:// page with this origin (some
+    # configs send "null" instead), so both are allowed. The sidecar is
     # loopback-only, so the phone still cannot reach it even with these listed.
     "interactionfeed://app",
     "null",
 )
 
 
-def load_ws_allowed_origins() -> frozenset[str]:
-    """Origins allowed to open the audio WebSocket.
+def load_allowed_origins() -> frozenset[str]:
+    """Origins allowed to reach this server, for both REST and the WebSocket.
 
     WebSocket handshakes are not subject to the browser same-origin policy, so
     without this check any page the user visits could open ``/ws/voice`` and
     read back their transcripts or force recordings onto disk. Overridable via
-    VOICE_WS_ALLOWED_ORIGINS (comma-separated) since the dev port is
+    VOICE_ALLOWED_ORIGINS (comma-separated) since the dev port is
     environment-dependent (Next falls back to 3001 when 3000 is taken).
     """
-    raw = os.environ.get("VOICE_WS_ALLOWED_ORIGINS", "").strip()
+    raw = os.environ.get("VOICE_ALLOWED_ORIGINS", "").strip()
     if raw:
         return frozenset(o.strip() for o in raw.split(",") if o.strip())
-    return frozenset(DEFAULT_WS_ALLOWED_ORIGINS)
+    return frozenset(DEFAULT_ALLOWED_ORIGINS)
 
 
-WS_ALLOWED_ORIGINS = load_ws_allowed_origins()
+ALLOWED_ORIGINS = load_allowed_origins()
+
+# REST needs CORS because only one of the two clients is same-origin. In the
+# browser the bundle reaches REST through a same-origin Next rewrite (see
+# web/next.config.ts), but embedded in the native host's WKWebView the page is
+# served from interactionfeed:// with no rewrite, so it fetches the sidecar's
+# loopback origin directly and every call is cross-origin. Without this layer
+# those fetches failed preflight (api.ts sends Content-Type on GETs too, so even
+# the recordings list is preflighted) and the panel showed "Load failed".
+# The same allowlist guards the WebSocket, which is exempt from CORS and does
+# its own Origin check in voice_websocket().
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=sorted(ALLOWED_ORIGINS),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 UPLOAD_DIR = VOICE_UPLOAD_ROOT
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -463,7 +476,7 @@ async def run_voice_session(
 @app.websocket("/ws/voice")
 async def voice_websocket(websocket: WebSocket) -> None:
     origin = websocket.headers.get("origin")
-    if origin is None or origin not in WS_ALLOWED_ORIGINS:
+    if origin is None or origin not in ALLOWED_ORIGINS:
         # Reject cross-site WebSocket connections before the handshake completes.
         await websocket.close(code=1008, reason="origin not allowed")
         return

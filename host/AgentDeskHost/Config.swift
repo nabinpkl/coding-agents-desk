@@ -832,21 +832,35 @@ enum Config {
     static var voiceWheelhouseURL: URL? {
         Bundle.main.url(forResource: "voice-wheelhouse", withExtension: nil)
     }
+    // Content hash of the staged voice source, written by `just
+    // build-voice-sidecar` (the same hash that gates its own staging). It stamps
+    // the provisioned venv, which holds a COPY of the source: without a stamp
+    // that tracks content, editing the Python and relaunching silently keeps
+    // running the venv's old code. The app's marketing version cannot carry this
+    // — it does not move when the source does.
+    static var voiceSourceStageHash: String? {
+        guard let sourceURL = voiceSourceURL else { return nil }
+        let stamp = sourceURL.appendingPathComponent(voiceSourceStageHashFilename)
+        return (try? String(contentsOf: stamp, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    static let voiceSourceStageHashFilename = "stage-hash"
     static var voiceProvisionerInputs: VoiceVenvProvisioner.Inputs? {
         guard let uvURL = voiceUvURL, let sourceURL = voiceSourceURL else {
             return nil
         }
-        // The staged source version stamps the venv; a changed source triggers a
-        // rebuild. The app's short version is a coarse but sufficient signal.
-        let version = Bundle.main
-            .infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        // No stage hash means the source was staged by something other than the
+        // build recipe. Bias to a rebuild (a fresh value never matches the
+        // stored stamp) rather than risk serving stale code; the provisioner's
+        // "voice venv: creating at" line makes the repeat cost visible.
+        let stamp = voiceSourceStageHash ?? "unstamped-\(UUID().uuidString)"
         return VoiceVenvProvisioner.Inputs(
             uvURL: uvURL,
             sourceURL: sourceURL,
             venvURL: voiceVenvDirectory,
             cacheURL: voiceUvCacheDirectory,
             wheelhouseURL: voiceWheelhouseURL,
-            versionStamp: version
+            versionStamp: stamp
         )
     }
     // The launch that runs the provisioned venv's `voice-server` console entry

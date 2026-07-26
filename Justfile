@@ -475,7 +475,7 @@ build-voice-sidecar:
     # Hash only pyproject + uv.lock + src + the uv binary — never the whole tree
     # (its data/ holds a ~500 MB model). $UV_BIN in the hash catches a uv upgrade.
     HASH="$('{{source_hash}}' "$SRC/pyproject.toml" "$SRC/uv.lock" "$SRC/src" "$UV_BIN")"
-    if [ -x "$UV_OUT" ] && [ -f "$SRC_OUT/pyproject.toml" ] && [ "$HASH" = "$(cat "$STAMP" 2>/dev/null || true)" ]; then
+    if [ -x "$UV_OUT" ] && [ -f "$SRC_OUT/pyproject.toml" ] && [ -f "$SRC_OUT/stage-hash" ] && [ "$HASH" = "$(cat "$STAMP" 2>/dev/null || true)" ]; then
         echo "build-voice-sidecar: inputs unchanged, skipping"
         exit 0
     fi
@@ -489,6 +489,11 @@ build-voice-sidecar:
     [ -f "$SRC/README.md" ] && cp "$SRC/README.md" "$SRC_OUT/" || true
     # src/ only — exclude data/ (models), __pycache__, and any local venv.
     rsync -a --exclude '__pycache__' --exclude '*.pyc' --exclude '*.egg-info' "$SRC/src" "$SRC_OUT/"
+    # Ride the same hash into the bundle. The runtime venv holds a COPY of this
+    # source, so VoiceVenvProvisioner stamps it with this value and rebuilds when
+    # the content moves — the app's marketing version does not track Python edits
+    # and a stale venv silently keeps serving the old code (Config.swift reads it).
+    printf '%s\n' "$HASH" > "$SRC_OUT/stage-hash"
     mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"
     echo "build-voice-sidecar: DONE"
 

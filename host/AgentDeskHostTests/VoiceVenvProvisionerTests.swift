@@ -89,6 +89,55 @@ struct VoiceVenvProvisionerTests {
         #expect(invocations.last?.hasPrefix("pip install ") == true)
     }
 
+    // The venv holds a copy of the staged source, so a changed stamp is the only
+    // thing that makes an edit reach the running sidecar. Config derives the
+    // stamp from the staged content hash for exactly this reason.
+    @Test func changedStampRebuildsTheVenv() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("voice-provisioner-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = try makeInputs(root: root, versionStamp: "hash-aaa")
+
+        try provisionAndWait(inputs: first)
+        #expect(try stampContents(of: first) == "hash-aaa")
+
+        let second = VoiceVenvProvisioner.Inputs(
+            uvURL: first.uvURL,
+            sourceURL: first.sourceURL,
+            venvURL: first.venvURL,
+            cacheURL: first.cacheURL,
+            wheelhouseURL: first.wheelhouseURL,
+            versionStamp: "hash-bbb"
+        )
+        try provisionAndWait(inputs: second)
+        #expect(try stampContents(of: second) == "hash-bbb")
+
+        // Four invocations: venv + pip install, twice.
+        let invocations = try String(contentsOf: invocationLog(root: root), encoding: .utf8)
+            .split(separator: "\n")
+        #expect(invocations.count == 4)
+    }
+
+    private func provisionAndWait(inputs: VoiceVenvProvisioner.Inputs) throws {
+        let finished = DispatchSemaphore(value: 0)
+        let outcome = Locked<Result<URL, Error>?>(nil)
+        VoiceVenvProvisioner(inputs: inputs).ensureProvisioned { result in
+            outcome.value = result
+            finished.signal()
+        }
+        #expect(finished.wait(timeout: .now() + 10) == .success)
+        if case .success = outcome.value {} else {
+            Issue.record("provisioning failed: \(String(describing: outcome.value))")
+        }
+    }
+
+    private func stampContents(of inputs: VoiceVenvProvisioner.Inputs) throws -> String {
+        try String(
+            contentsOf: inputs.venvURL.appendingPathComponent(".provision-stamp"),
+            encoding: .utf8
+        )
+    }
+
     // A matching stamp short-circuits with no uv invocation. Guarding the fast
     // path keeps repeat launches from rebuilding a good venv.
     @Test func upToDateVenvSkipsProvisioning() throws {
