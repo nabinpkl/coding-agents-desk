@@ -1,6 +1,7 @@
 import CoreML
 import Foundation
 import Testing
+import UIKit
 
 struct VoicePronunciationLexiconTests {
     @Test
@@ -204,7 +205,7 @@ struct VoicePhoneEvidenceEncodingTests {
             evidence: evidence,
             calibration: calibration
         )
-        let text = VoicePlaygroundSurface.savedPhoneAnalysisText(
+        let presentation = VoicePhoneAnalysisPresentation.make(
             analysis: .completed(evidence),
             assessment: assessment,
             calibration: calibration,
@@ -212,15 +213,65 @@ struct VoicePhoneEvidenceEncodingTests {
             readFailure: nil,
             assessmentReadFailure: nil
         )
+        guard case .evidence(let content) = presentation else {
+            Issue.record("Expected structured phone evidence")
+            return
+        }
 
-        #expect(text.contains("Raw model evidence with a separately calibrated"))
-        #expect(text.contains("Target / θ ɪ ŋ k /"))
-        #expect(text.contains("observed θ"))
-        #expect(text.contains("competitors t"))
-        #expect(text.contains("calibrated estimate unavailable"))
-        #expect(text.contains("release gates"))
-        #expect(text.contains("window 0.00–1.00s of 1.00s source"))
-        #expect(!text.localizedCaseInsensitiveContains("percent"))
+        #expect(content.targetWord == "think")
+        #expect(content.targetSequence == "θ  ɪ  ŋ  k")
+        #expect(content.phones.count == 4)
+        #expect(content.phones[0].expectedPhone == "θ")
+        #expect(content.phones[0].observedPhone == "θ")
+        #expect(content.phones[0].competitors.contains("t -1.20"))
+        #expect(content.phones[0].assessmentTitle == "No calibrated grade")
+        #expect(content.phones[0].assessmentDetail.contains("release gates"))
+        #expect(content.phones[0].evidence.contains {
+            $0.label == "Aligned margin" && $0.value == "+1.00"
+        })
+        #expect(content.technicalDetails.contains {
+            $0.label == "Analyzed window"
+                && $0.value == "0.00–1.00s of 1.00s source"
+        })
+        #expect(!presentation.accessibilitySummary
+            .localizedCaseInsensitiveContains("percent"))
+
+        let view = VoicePhoneAnalysisView(presentation: presentation)
+        #expect(view.voiceDescendant(identifier: "voice-phone-target-sequence")
+            != nil)
+        for index in content.phones.indices {
+            let card = view.voiceDescendant(identifier: "voice-phone-row-\(index)")
+            #expect(card?.isAccessibilityElement == true)
+            #expect(card?.accessibilityLabel?.contains("Expected") == true)
+            #expect(card?.accessibilityLabel?.contains("Model heard") == true)
+        }
+        let technical = view.voiceDescendant(
+            identifier: "voice-phone-technical-details"
+        )
+        #expect(technical?.accessibilityLabel?.contains("Model hash") == true)
+    }
+
+    @Test @MainActor
+    func unanalyzedReviewUsesReadableStatusCard() {
+        let presentation = VoicePhoneAnalysisPresentation.make(
+            analysis: nil,
+            assessment: nil,
+            calibration: nil,
+            audioSHA256: nil,
+            readFailure: nil,
+            assessmentReadFailure: nil
+        )
+        guard case .message(let message) = presentation else {
+            Issue.record("Expected an unanalyzed status")
+            return
+        }
+
+        #expect(message.title == "Raw audio not analyzed")
+        #expect(message.detail.contains("audio.caf directly"))
+        let view = VoicePhoneAnalysisView(presentation: presentation)
+        #expect(view.voiceDescendant(
+            identifier: "voice-phone-analysis-message"
+        ) != nil)
     }
 
     private func makeEvidence() -> VoicePhoneEvidence {
@@ -303,6 +354,20 @@ struct VoicePhoneEvidenceEncodingTests {
                 clippedSampleRatio: 0
             )
         )
+    }
+}
+
+private extension UIView {
+    func voiceDescendant(identifier: String) -> UIView? {
+        if accessibilityIdentifier == identifier {
+            return self
+        }
+        for subview in subviews {
+            if let match = subview.voiceDescendant(identifier: identifier) {
+                return match
+            }
+        }
+        return nil
     }
 }
 

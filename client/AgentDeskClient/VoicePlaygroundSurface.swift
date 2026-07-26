@@ -693,57 +693,74 @@ final class VoicePlaygroundSurface: UIView {
                 caption("Acoustic phone evidence and calibrated assessment")
             )
 
-            let phoneAnalysisLabel = UILabel()
-            phoneAnalysisLabel.font = .monospacedSystemFont(
-                ofSize: 12,
-                weight: .regular
+            let phoneAnalysisView = VoicePhoneAnalysisView(
+                presentation: VoicePhoneAnalysisPresentation.make(
+                    analysis: savedPhoneAnalyses[attempt.id],
+                    assessment: savedPhoneAssessments[attempt.id],
+                    calibration: phoneCalibration,
+                    audioSHA256: savedAudioHashes[attempt.id],
+                    readFailure: savedPhoneAnalysisReadFailures[attempt.id],
+                    assessmentReadFailure:
+                        savedPhoneAssessmentReadFailures[attempt.id]
+                            ?? phoneCalibrationReadFailure
+                )
             )
-            phoneAnalysisLabel.numberOfLines = 0
-            phoneAnalysisLabel.accessibilityIdentifier =
+            phoneAnalysisView.accessibilityIdentifier =
                 "voice-phone-analysis-\(attempt.id.uuidString)"
-            phoneAnalysisLabel.text = Self.savedPhoneAnalysisText(
-                analysis: savedPhoneAnalyses[attempt.id],
-                assessment: savedPhoneAssessments[attempt.id],
-                calibration: phoneCalibration,
-                audioSHA256: savedAudioHashes[attempt.id],
-                readFailure: savedPhoneAnalysisReadFailures[attempt.id],
-                assessmentReadFailure:
-                    savedPhoneAssessmentReadFailures[attempt.id]
-                        ?? phoneCalibrationReadFailure
-            )
-            analysisContainer.addArrangedSubview(phoneAnalysisLabel)
+            analysisContainer.addArrangedSubview(phoneAnalysisView)
+
+            let phoneActions = UIStackView()
+            phoneActions.axis = .vertical
+            phoneActions.spacing = 8
 
             let analyzePhones = UIButton(type: .system)
             let hasPriorPhoneAnalysis =
                 savedPhoneAnalyses[attempt.id] != nil
                     || savedPhoneAnalysisReadFailures[attempt.id] != nil
-            analyzePhones.setTitle(
+            var analyzeConfiguration = UIButton.Configuration.filled()
+            analyzeConfiguration.title =
                 analyzingAttemptID == attempt.id
                     ? "Analyzing saved audio…"
                     : hasPriorPhoneAnalysis
                         ? "Reanalyze raw audio"
-                        : "Analyze raw audio",
-                for: .normal
-            )
+                        : "Analyze raw audio"
+            analyzeConfiguration.image = UIImage(systemName: "waveform.badge.magnifyingglass")
+            analyzeConfiguration.imagePadding = 8
+            analyzeConfiguration.cornerStyle = .medium
+            analyzePhones.configuration = analyzeConfiguration
             analyzePhones.isEnabled = phoneAnalysisTask == nil
+            analyzePhones.titleLabel?.numberOfLines = 2
+            analyzePhones.heightAnchor.constraint(
+                greaterThanOrEqualToConstant: 44
+            ).isActive = true
             analyzePhones.accessibilityIdentifier =
                 "voice-analyze-phones-\(attempt.id.uuidString)"
             analyzePhones.addAction(UIAction { [weak self] _ in
                 self?.analyzeSavedAttempt(id: attempt.id)
             }, for: .touchUpInside)
-            analysisContainer.addArrangedSubview(analyzePhones)
+            phoneActions.addArrangedSubview(analyzePhones)
 
             if savedPhoneAnalyses[attempt.id]?.evidence != nil {
                 let rescore = UIButton(type: .system)
-                rescore.setTitle("Re-score retained evidence", for: .normal)
+                var rescoreConfiguration = UIButton.Configuration.tinted()
+                rescoreConfiguration.title = "Re-score retained evidence"
+                rescoreConfiguration.image = UIImage(systemName: "arrow.clockwise")
+                rescoreConfiguration.imagePadding = 8
+                rescoreConfiguration.cornerStyle = .medium
+                rescore.configuration = rescoreConfiguration
                 rescore.isEnabled = phoneAnalysisTask == nil
+                rescore.titleLabel?.numberOfLines = 2
+                rescore.heightAnchor.constraint(
+                    greaterThanOrEqualToConstant: 44
+                ).isActive = true
                 rescore.accessibilityIdentifier =
                     "voice-rescore-phones-\(attempt.id.uuidString)"
                 rescore.addAction(UIAction { [weak self] _ in
                     self?.rescoreSavedAttempt(id: attempt.id)
                 }, for: .touchUpInside)
-                analysisContainer.addArrangedSubview(rescore)
+                phoneActions.addArrangedSubview(rescore)
             }
+            analysisContainer.addArrangedSubview(phoneActions)
 
             let viewAnalysis = UIButton(type: .system)
             let isExpanded = expandedAttemptIDs.contains(attempt.id)
@@ -903,138 +920,6 @@ final class VoicePlaygroundSurface: UIView {
             Recording retained before analysis completed.
             """
         }
-    }
-
-    static func savedPhoneAnalysisText(
-        analysis: VoiceStoredPhoneAnalysis?,
-        assessment: VoicePhoneAssessment?,
-        calibration: VoicePhoneCalibrationManifest?,
-        audioSHA256: String?,
-        readFailure: String?,
-        assessmentReadFailure: String?
-    ) -> String {
-        if let readFailure {
-            return """
-            Phone evidence could not be read.
-
-            \(readFailure)
-            """
-        }
-        guard let analysis else {
-            return """
-            Not analyzed.
-
-            This pass reads audio.caf directly. It does not receive either speech transcript.
-            """
-        }
-        guard analysis.audioSHA256 == audioSHA256 else {
-            return """
-            Stored phone evidence is stale.
-
-            The saved audio changed. Reanalyze to replace it.
-            """
-        }
-        if let failure = analysis.failure {
-            return """
-            Phone analysis failed for this retained recording.
-
-            \(failure)
-            """
-        }
-        guard analysis.modelWeightSHA256
-                == VoicePhoneModelManifest.selectedWeightSHA256,
-              analysis.evidence?.model.modelSpecificationSHA256
-                == VoicePhoneModelManifest.selectedSpecificationSHA256
-        else {
-            return """
-            Stored phone evidence is stale.
-
-            The selected model hashes changed. Reanalyze to replace it.
-            """
-        }
-        guard let evidence = analysis.evidence else {
-            return "Phone evidence is incomplete."
-        }
-
-        let target = evidence.pronunciation.phones.joined(separator: " ")
-        let assessmentIsCurrent = assessment.flatMap { assessment in
-            calibration.map {
-                assessment.isCurrent(for: evidence, calibration: $0)
-            }
-        } ?? false
-        let aligned = evidence.alignedPhones.enumerated().map { index, phone in
-            let competitors = phone.competingPhones.prefix(3).map {
-                "\($0.phone) \(String(format: "%.2f", $0.logPosterior))"
-            }
-            .joined(separator: ", ")
-            let estimate: String
-            if assessmentIsCurrent,
-               let assessment,
-               assessment.phones.indices.contains(index) {
-                let assessed = assessment.phones[index]
-                if let grade = assessed.expectedExpertGrade,
-                   let band = assessed.band {
-                    estimate = """
-                      expected expert grade \(String(format: "%.1f", grade))/2.0 · \(band.displayName)
-                      \(assessed.selectedCandidate.rawValue) raw margin \(String(format: "%+.2f", assessed.selectedRawMargin))
-                      \(assessment.calibrationCorpus) · \(assessment.calibrationPopulation)
-                    """
-                } else {
-                    estimate = """
-                      calibrated estimate unavailable · \(assessed.supportStatus.displayName)
-                      \(assessed.abstentionReason ?? "No abstention reason was retained.") · selected raw margin \(String(format: "%+.2f", assessed.selectedRawMargin))
-                    """
-                }
-            } else if let assessmentReadFailure {
-                estimate = """
-                  calibrated estimate unavailable
-                  \(assessmentReadFailure)
-                """
-            } else if assessment != nil {
-                estimate = """
-                  calibrated estimate stale
-                  Re-score retained evidence with the current calibration.
-                """
-            } else {
-                estimate = """
-                  calibrated estimate not saved
-                  Re-score retained evidence without rerunning Core ML.
-                """
-            }
-            return """
-            \(phone.targetPhone) \(String(format: "%.2f–%.2fs", phone.startSeconds, phone.endSeconds))
-            \(estimate)
-              target \(String(format: "%.2f", phone.targetLogPosterior)) · observed \(phone.observedPhone.phone) \(String(format: "%.2f", phone.observedPhone.logPosterior))
-              competitors \(competitors) · margin \(String(format: "%+.2f", phone.posteriorMargin))
-            """
-        }
-        .joined(separator: "\n")
-
-        let memory: String
-        if let bytes = evidence.metrics.observedResidentMemoryDeltaBytes {
-            memory = String(format: "%.1f MiB observed RSS delta", Double(bytes) / 1_048_576)
-        } else {
-            memory = "RSS delta unavailable"
-        }
-        let analyzedEnd = evidence.metrics.analyzedOffsetSeconds
-            + evidence.metrics.analyzedDurationSeconds
-        let window = String(
-            format: "window %.2f–%.2fs of %.2fs source",
-            evidence.metrics.analyzedOffsetSeconds,
-            analyzedEnd,
-            evidence.metrics.sourceDurationSeconds
-        )
-        return """
-        Raw model evidence with a separately calibrated per-phone estimate.
-        Target / \(target) /
-
-        \(aligned)
-
-        model \(evidence.model.identifier)
-        model \(evidence.model.modelWeightSHA256.prefix(12)) · audio \(evidence.audioSHA256.prefix(12))
-        \(window)
-        load \(String(format: "%.0fms", evidence.metrics.modelLoadMilliseconds)) · inference \(String(format: "%.0fms", evidence.metrics.inferenceMilliseconds)) · \(memory)
-        """
     }
 
     private func analyzeSavedAttempt(id: UUID) {
