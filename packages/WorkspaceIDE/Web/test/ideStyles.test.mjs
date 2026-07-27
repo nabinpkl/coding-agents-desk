@@ -11,6 +11,15 @@ test('semantic hidden state wins over component display rules', () => {
 
 test('Explorer uses compact semantic icons at every sidebar width', () => {
   assert.match(css, /\.ide-file-icon\s*\{[^}]*width:\s*16px;/s)
-  assert.match(css, /\.ide-file-icon\[data-tone='folder'\]\s*\{\s*color:\s*var\(--ide-icon-folder\);/)
   assert.doesNotMatch(css, /@container sidebar[^}]*\.ide-file-icon\s*\{\s*display:\s*none;/s)
+  // The generated icons paint themselves, so a leftover tone rule would only ever fight them.
+  assert.doesNotMatch(css, /data-tone='(folder|swift|python|javascript|markdown)'/)
+  assert.doesNotMatch(css, /--ide-icon-/)
+})
+
+test('section buttons are stroked glyphs that never fall back to a text label', () => {
+  assert.match(css, /\.ide-activity-button svg\s*\{[^}]*stroke:\s*currentColor;/s)
+  assert.match(css, /\.ide-activity-button svg\s*\{[^}]*fill:\s*none;/s)
+  // The old narrow-sidebar rule shrank the label to its first letter; there is no label now.
+  assert.doesNotMatch(css, /::first-letter/)
 })

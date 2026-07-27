@@ -10,19 +10,6 @@
   --ide-accent: #007a80;
   --ide-danger: #c62828;
   --ide-warning: #a15c00;
-  --ide-icon-folder: #12a7b8;
-  --ide-icon-git: #f28c00;
-  --ide-icon-config: #8e5cc7;
-  --ide-icon-swift: #e95d2a;
-  --ide-icon-python: #3776ab;
-  --ide-icon-javascript: #b78b00;
-  --ide-icon-typescript: #2775c2;
-  --ide-icon-markdown: #1674d1;
-  --ide-icon-html: #dc5b2c;
-  --ide-icon-css: #c4498d;
-  --ide-icon-shell: #3a9952;
-  --ide-icon-ruby: #c23b3b;
-  --ide-icon-image: #8e5cc7;
   --ide-row-height: 28px;
   /* Git state is meaning, not decoration: added and untracked share the "new content" hue and
      differ only in weight, so staged-vs-new reads without learning a second colour. */
@@ -45,19 +32,6 @@
     --ide-accent: #2dd4bf;
     --ide-danger: #ff7b72;
     --ide-warning: #e3b341;
-    --ide-icon-folder: #35c2ca;
-    --ide-icon-git: #ff9f2e;
-    --ide-icon-config: #b48aeb;
-    --ide-icon-swift: #ff7b50;
-    --ide-icon-python: #5aa5e8;
-    --ide-icon-javascript: #e1bd42;
-    --ide-icon-typescript: #62a8eb;
-    --ide-icon-markdown: #62a8eb;
-    --ide-icon-html: #ff8055;
-    --ide-icon-css: #e77ab7;
-    --ide-icon-shell: #65c47a;
-    --ide-icon-ruby: #ff6b6b;
-    --ide-icon-image: #b48aeb;
     --ide-git-modified: #e3b341;
     --ide-git-added: #3fb950;
     --ide-git-untracked: #56d364;
@@ -139,15 +113,28 @@ body[data-region='sidebar'] #workspace-ide {
   padding: 5px 7px;
   border-bottom: 1px solid var(--ide-border);
 }
-.ide-activity button {
-  min-height: 27px;
-  padding: 0 9px;
+.ide-activity-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 27px;
   border-radius: 6px;
   color: var(--ide-muted);
-  white-space: nowrap;
 }
-.ide-activity button:hover { background: var(--ide-hover); }
-.ide-activity button.is-selected { color: var(--ide-fg); background: var(--ide-selected); }
+/* Stroked and unfilled, sized so the two glyphs share an optical weight with the row disclosure
+   arrows beneath them rather than competing with the file icons. */
+.ide-activity-button svg {
+  display: block;
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ide-activity-button:hover { background: var(--ide-hover); }
+.ide-activity-button.is-selected { color: var(--ide-fg); background: var(--ide-selected); }
 .ide-alert {
   padding: 6px 9px;
   border-bottom: 1px solid var(--ide-border);
@@ -176,25 +163,9 @@ body[data-region='sidebar'] #workspace-ide {
   flex: 0 0 16px;
   color: var(--ide-muted);
 }
+/* The generated icons carry their own `fill` per path, so `currentColor` only ever reaches the
+   fallback glyph — which is exactly the one that should take the row's muted colour. */
 .ide-file-icon svg { display: block; width: 16px; height: 16px; fill: currentColor; }
-.ide-file-icon[data-tone='folder'] { color: var(--ide-icon-folder); }
-.ide-file-icon[data-tone='git'] { color: var(--ide-icon-git); }
-.ide-file-icon[data-tone='config'] { color: var(--ide-icon-config); }
-.ide-file-icon[data-tone='environment'] { color: var(--ide-icon-shell); }
-.ide-file-icon[data-tone='docker'], .ide-file-icon[data-tone='typescript'],
-.ide-file-icon[data-tone='code'], .ide-file-icon[data-tone='document'] { color: var(--ide-icon-typescript); }
-.ide-file-icon[data-tone='swift'] { color: var(--ide-icon-swift); }
-.ide-file-icon[data-tone='python'] { color: var(--ide-icon-python); }
-.ide-file-icon[data-tone='javascript'] { color: var(--ide-icon-javascript); }
-.ide-file-icon[data-tone='markdown'] { color: var(--ide-icon-markdown); }
-.ide-file-icon[data-tone='html'] { color: var(--ide-icon-html); }
-.ide-file-icon[data-tone='css'] { color: var(--ide-icon-css); }
-.ide-file-icon[data-tone='shell'] { color: var(--ide-icon-shell); }
-.ide-file-icon[data-tone='go'] { color: var(--ide-icon-folder); }
-.ide-file-icon[data-tone='rust'] { color: var(--ide-icon-swift); }
-.ide-file-icon[data-tone='ruby'], .ide-file-icon[data-tone='java'],
-.ide-file-icon[data-tone='pdf'] { color: var(--ide-icon-ruby); }
-.ide-file-icon[data-tone='image'] { color: var(--ide-icon-image); }
 .ide-tree-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ide-git-decoration { margin-left: auto; color: var(--ide-git-modified); font: 11px/1 ui-monospace, monospace; }
 .ide-tree-row[data-git='added'] .ide-git-decoration { color: var(--ide-git-added); }
@@ -417,8 +388,6 @@ body[data-region='editor'] #workspace-ide {
   /* Below this width the directory has no room to say anything useful; the filename and its
      status still do, and the full path stays on the row's tooltip. */
   .ide-source-dir { display: none; }
-  .ide-activity button { font-size: 0; width: 31px; padding: 0; }
-  .ide-activity button::first-letter { font-size: 13px; }
   .ide-management button { padding: 0 5px; }
   .ide-management button:nth-last-child(-n + 3) { font-size: 0; width: 29px; padding: 0; }
   .ide-management button:nth-last-child(3)::after { content: 'D'; font-size: 12px; }

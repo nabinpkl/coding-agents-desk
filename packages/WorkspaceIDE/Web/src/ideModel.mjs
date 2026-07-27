@@ -1,51 +1,29 @@
+import { extensionIcons, filenameIcons, iconShapes } from './generated/fileIcons.mjs'
+
 const regions = new Set(['sidebar', 'editor'])
 
-const filenameTones = Object.freeze({
-  '.gitattributes': 'git',
-  '.gitignore': 'git',
-  '.gitmodules': 'git',
-  '.env': 'environment',
-  '.env.local': 'environment',
-  '.env.production': 'environment',
-  'cargo.lock': 'muted',
-  dockerfile: 'docker',
-  license: 'muted',
-  'license.md': 'muted',
-  'license.txt': 'muted',
-  'package-lock.json': 'muted',
-  'package.resolved': 'muted',
-  'podfile.lock': 'muted',
-})
-
-const extensionTones = Object.freeze({
-  swift: 'swift', py: 'python', pyw: 'python',
-  js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
-  ts: 'typescript', tsx: 'typescript', json: 'javascript', jsonc: 'javascript',
-  yaml: 'config', yml: 'config', toml: 'config', ini: 'config', cfg: 'config', conf: 'config',
-  md: 'markdown', markdown: 'markdown', rst: 'markdown',
-  html: 'html', htm: 'html', xml: 'muted', plist: 'muted',
-  css: 'css', scss: 'css', sass: 'css', less: 'css',
-  sh: 'shell', bash: 'shell', zsh: 'shell', fish: 'shell',
-  txt: 'default', text: 'default', log: 'default',
-  rb: 'ruby', go: 'go', rs: 'rust',
-  c: 'code', h: 'code', cpp: 'code', cc: 'code', cxx: 'code',
-  hpp: 'code', m: 'code', mm: 'code',
-  java: 'java', kt: 'java', kts: 'java',
-  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', svg: 'image', webp: 'image',
-  heic: 'image', bmp: 'image', ico: 'image', icns: 'image',
-  pdf: 'pdf', docx: 'document',
-  zip: 'muted', tar: 'muted', gz: 'muted', tgz: 'muted', bz2: 'muted', xz: 'muted',
-  '7z': 'muted', rar: 'muted', lock: 'muted',
-})
-
-export function fileIconSpec(name, isDirectory) {
-  if (isDirectory) return { shape: 'folder', tone: 'folder' }
+/// Which icon a row draws. `null` means "no icon of its own": the caller falls back to the plain
+/// document outline, which is what an unrecognised extension should look like rather than a
+/// misleading borrowed logo.
+///
+/// A whole filename beats an extension (`package.json` is the npm mark, not the generic JSON one),
+/// and a longer extension beats a shorter one (`docker-compose.yml` before `yml`) — the same
+/// precedence VS Code resolves icon themes with, so a file looks the way people expect.
+export function fileIconSpec(name, isDirectory = false, isExpanded = false) {
+  if (isDirectory) return { icon: isExpanded ? 'folder-open' : 'folder' }
   const lowerName = String(name ?? '').toLowerCase()
-  const namedTone = filenameTones[lowerName]
-  if (namedTone) return { shape: 'file', tone: namedTone }
-  const dot = lowerName.lastIndexOf('.')
-  const extension = dot >= 0 ? lowerName.slice(dot + 1) : ''
-  return { shape: 'file', tone: extensionTones[extension] ?? 'default' }
+  const named = filenameIcons[lowerName]
+  if (named) return { icon: named }
+  const segments = lowerName.split('.')
+  for (let start = 1; start < segments.length; start += 1) {
+    const icon = extensionIcons[segments.slice(start).join('.')]
+    if (icon) return { icon }
+  }
+  return { icon: null }
+}
+
+export function fileIconShape(icon) {
+  return iconShapes[icon] ?? null
 }
 
 export function regionFromLocation(location) {

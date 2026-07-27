@@ -5,6 +5,7 @@
   "description": "Bundled cross-platform workspace IDE and retained single-file viewer.",
   "scripts": {
     "build": "node scripts/build-generated.mjs",
+    "icons": "node scripts/generate-file-icons.mjs",
     "test": "node --test test/*.mjs"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "mermaid": "11.15.0"
   },
   "devDependencies": {
-    "esbuild": "0.28.1"
+    "esbuild": "0.28.1",
+    "material-icon-theme": "5.37.0"
   }
 }

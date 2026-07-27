@@ -1,5 +1,6 @@
 import { installFileSurface } from './viewer.mjs'
 import {
+  fileIconShape,
   fileIconSpec,
   fileRenderIdentity,
   gitDecorationTone,
@@ -13,6 +14,14 @@ import { applyWorkspaceZoom } from './workspaceZoom.mjs'
 const root = document.getElementById('workspace-ide')
 const region = regionFromLocation(window.location)
 const post = (message) => window.webkit?.messageHandlers?.workspaceIDE?.postMessage(message)
+
+/// Stroked outlines, not the filled brand marks the file rows use: these are chrome, so they read
+/// as controls that take the row's colour rather than as another piece of content. Declared up
+/// here because `mountSidebar` runs during module evaluation, below.
+const sectionShapes = Object.freeze({
+  explorer: 'M2.4 4.4c0-.7.6-1.3 1.3-1.3h2.6l1.5 1.6h4.5c.7 0 1.3.6 1.3 1.3v5.9c0 .7-.6 1.3-1.3 1.3H3.7c-.7 0-1.3-.6-1.3-1.3V4.4Z',
+  sourceControl: 'M4.6 5.6v5M4.6 12.7a1.9 1.9 0 1 0 0-3.8 1.9 1.9 0 0 0 0 3.8ZM4.6 5.4a1.9 1.9 0 1 0 0-3.8 1.9 1.9 0 0 0 0 3.8ZM11.6 5.4a1.9 1.9 0 1 0 0-3.8 1.9 1.9 0 0 0 0 3.8ZM11.6 5.6v1.1a2.6 2.6 0 0 1-2.6 2.6H6.5',
+})
 
 if (!region) throw new Error('Workspace IDE region is required')
 document.body.dataset.region = region
@@ -53,8 +62,8 @@ function mountSidebar(container, send) {
 
   const activity = element('nav', 'ide-activity')
   activity.setAttribute('aria-label', 'Workspace sidebar sections')
-  const explorerButton = button('Explorer', 'Show Explorer', () => send({ type: 'selectSidebarSection', section: 'explorer' }))
-  const sourceButton = button('Source Control', 'Show Source Control', () => send({ type: 'selectSidebarSection', section: 'sourceControl' }))
+  const explorerButton = sectionButton('explorer', 'Explorer', send)
+  const sourceButton = sectionButton('sourceControl', 'Source Control', send)
   activity.append(explorerButton, sourceButton)
 
   const panel = element('section', 'ide-sidebar-panel')
@@ -142,7 +151,7 @@ function renderTree(nodes, send, nested = false) {
     row.className = 'ide-tree-row'
     const disclosure = element('span', 'ide-disclosure')
     disclosure.textContent = node.isDirectory ? (node.expanded ? '▾' : '▸') : ''
-    const icon = fileIcon(node.name, node.isDirectory)
+    const icon = fileIcon(node.name, node.isDirectory, Boolean(node.expanded))
     const label = element('span', 'ide-tree-label')
     label.textContent = node.name
     row.append(disclosure, icon, label)
@@ -358,19 +367,41 @@ function button(title, label, action) {
   return value
 }
 
-function fileIcon(name, isDirectory) {
-  const spec = fileIconSpec(name, isDirectory)
-  const container = element('span', 'ide-file-icon')
-  container.dataset.tone = spec.tone
-  container.setAttribute('aria-hidden', 'true')
+function sectionButton(section, label, send) {
+  const control = button('', `Show ${label}`, () => send({ type: 'selectSidebarSection', section }))
+  control.className = 'ide-activity-button'
+  // The name is gone from the pixels but not from the surface: `aria-label` carries it to
+  // VoiceOver and `title` brings it back on hover for anyone still learning the two glyphs.
+  control.title = label
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('viewBox', '0 0 16 16')
   svg.setAttribute('focusable', 'false')
+  svg.setAttribute('aria-hidden', 'true')
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-  path.setAttribute('d', spec.shape === 'folder'
-    ? 'M1.5 4.25c0-.69.56-1.25 1.25-1.25h3.1l1.4 1.5h6c.69 0 1.25.56 1.25 1.25v6.5c0 .69-.56 1.25-1.25 1.25H2.75c-.69 0-1.25-.56-1.25-1.25v-8Z'
-    : 'M3 1.5h6.2l3.8 3.8v9.2H3v-13Zm6 1.4v2.6h2.6L9 2.9Z')
+  path.setAttribute('d', sectionShapes[section])
   svg.append(path)
+  control.append(svg)
+  return control
+}
+
+/// The generic outline drawn for a file whose type we carry no icon for. Deliberately uncoloured:
+/// a grey page reads as "just a file", where a borrowed logo would assert a language it isn't.
+const unknownFileShape = Object.freeze({
+  viewBox: '0 0 16 16',
+  body: '<path d="M3 1.5h6.2l3.8 3.8v9.2H3v-13Zm6 1.4v2.6h2.6L9 2.9Z"/>',
+})
+
+function fileIcon(name, isDirectory, isExpanded = false) {
+  const { icon } = fileIconSpec(name, isDirectory, isExpanded)
+  const shape = fileIconShape(icon) ?? unknownFileShape
+  const container = element('span', 'ide-file-icon')
+  container.setAttribute('aria-hidden', 'true')
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', shape.viewBox)
+  svg.setAttribute('focusable', 'false')
+  // Build-time constant from src/generated/fileIcons.mjs, never a filename or any other runtime
+  // value, so this carries no injection surface.
+  svg.innerHTML = shape.body
   container.append(svg)
   return container
 }
