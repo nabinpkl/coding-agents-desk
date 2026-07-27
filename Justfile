@@ -468,13 +468,15 @@ build-voice-sidecar: voice-zipa-model-check
     UV_OUT='{{voice_uv_out}}'
     SRC_OUT='{{voice_src_out}}'
     UV_BIN="$(command -v uv)"
+    CMU_DICT='{{justfile_directory()}}/client/AgentDeskClient/VoiceCMUDictionary.txt'
+    PHONE_MAP='{{justfile_directory()}}/client/voice-phone-calibration/arpabet-model-phone-map.json'
     if [ -z "$UV_BIN" ]; then echo "build-voice-sidecar: uv not on PATH" >&2; exit 1; fi
     if [ ! -f "$SRC/pyproject.toml" ]; then echo "build-voice-sidecar: no pyproject at $SRC" >&2; exit 1; fi
     if [ ! -f "$SRC/uv.lock" ]; then echo "build-voice-sidecar: no uv.lock at $SRC (run 'uv lock')" >&2; exit 1; fi
     STAMP='{{stamps_dir}}/voice-sidecar'
-    # Hash only pyproject + uv.lock + src + the uv binary — never the whole tree
-    # (its data/ holds a ~500 MB model). $UV_BIN in the hash catches a uv upgrade.
-    HASH="$('{{source_hash}}' "$SRC/pyproject.toml" "$SRC/uv.lock" "$SRC/src" "$UV_BIN")"
+    # Hash package inputs, pinned pronunciation assets, and the uv binary, never
+    # the whole tree (its data/ holds a ~500 MB model).
+    HASH="$('{{source_hash}}' "$SRC/pyproject.toml" "$SRC/uv.lock" "$SRC/src" "$UV_BIN" "$CMU_DICT" "$PHONE_MAP")"
     if [ -x "$UV_OUT" ] && [ -f "$SRC_OUT/pyproject.toml" ] && [ -f "$SRC_OUT/stage-hash" ] && [ "$HASH" = "$(cat "$STAMP" 2>/dev/null || true)" ]; then
         echo "build-voice-sidecar: inputs unchanged, skipping"
         exit 0
@@ -487,6 +489,9 @@ build-voice-sidecar: voice-zipa-model-check
     mkdir -p "$SRC_OUT"
     cp "$SRC/pyproject.toml" "$SRC/uv.lock" "$SRC_OUT/"
     [ -f "$SRC/README.md" ] && cp "$SRC/README.md" "$SRC_OUT/" || true
+    # The client copies remain authoritative. Stage the exact pinned assets so
+    # the installed Python sidecar can derive the same Passage reference view.
+    cp "$CMU_DICT" "$PHONE_MAP" "$SRC_OUT/"
     # src/ only — exclude data/ (models), __pycache__, and any local venv.
     rsync -a --exclude '__pycache__' --exclude '*.pyc' --exclude '*.egg-info' "$SRC/src" "$SRC_OUT/"
     # Ride the same hash into the bundle. The runtime venv holds a COPY of this

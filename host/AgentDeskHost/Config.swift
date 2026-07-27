@@ -873,18 +873,26 @@ enum Config {
     // directly (no uv at runtime), pointing data + models at writable
     // Application-Support paths.
     static func provisionedVoiceLaunch(voiceServerExecutable: URL) -> VoiceSidecarLaunch {
-        VoiceSidecarLaunch(
+        var environment = [
+            "VOICE_DATA_ROOT": voiceDataDirectory.path,
+            "VOICE_MODEL_ROOT": voiceModelDirectory.path,
+        ]
+        if let sourceURL = voiceSourceURL {
+            environment["VOICE_CMU_DICTIONARY_PATH"] = sourceURL
+                .appendingPathComponent("VoiceCMUDictionary.txt")
+                .path
+            environment["VOICE_PHONE_MAPPING_PATH"] = sourceURL
+                .appendingPathComponent("arpabet-model-phone-map.json")
+                .path
+        }
+        if let zipaURL = voiceZIPAResourceURL {
+            environment["VOICE_ZIPA_MODEL_ROOT"] = zipaURL.path
+        }
+        return VoiceSidecarLaunch(
             executableURL: voiceServerExecutable,
             arguments: [],
             workingDirectory: voiceSourceURL,
-            environment: [
-                "VOICE_DATA_ROOT": voiceDataDirectory.path,
-                "VOICE_MODEL_ROOT": voiceModelDirectory.path,
-            ].merging(
-                voiceZIPAResourceURL.map {
-                    ["VOICE_ZIPA_MODEL_ROOT": $0.path]
-                } ?? [:]
-            ) { _, new in new }
+            environment: environment
         )
     }
     static let ptyManagerResourceName = "pty-manager"

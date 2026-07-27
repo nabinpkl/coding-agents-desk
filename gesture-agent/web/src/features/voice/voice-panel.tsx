@@ -35,7 +35,10 @@ export function VoicePanel() {
       <Card>
         <CardHeader>
           <CardTitle>Recordings</CardTitle>
-          <CardDescription>Saved sessions and their transcripts.</CardDescription>
+          <CardDescription>
+            Saved transcript, heard phonemes, and reference phonemes grouped by
+            transcript word.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <RecordingsList />

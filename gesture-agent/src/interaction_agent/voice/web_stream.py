@@ -18,11 +18,16 @@ from pydantic import ValidationError
 
 from interaction_agent.paths import VOICE_RECORDING_ROOT
 from interaction_agent.voice.recording import VoiceRecordingResult
+from interaction_agent.voice.reference_pronunciation import (
+    ReferencePronunciationError,
+    reference_alignment,
+)
 from interaction_agent.voice.wire import (
     AudioFrameMessage,
     Recording,
     SessionStartMessage,
     SessionStopMessage,
+    WordPhoneGroup,
 )
 
 FloatArray = NDArray[np.float32]
@@ -132,6 +137,40 @@ def load_recording(recording_id: str) -> Recording:
         transcription_error = None
     phone_analysis = payload.get("phoneAnalysis")
     phone_analysis = phone_analysis if isinstance(phone_analysis, dict) else {}
+    observed_phones = list(phone_analysis.get("phones") or [])
+    word_phone_groups: list[WordPhoneGroup] = []
+    unknown_reference_words: list[str] = []
+    reference_pronunciation_error: str | None = None
+    reference_dictionary_identifier: str | None = None
+    reference_dictionary_hash: str | None = None
+    if isinstance(transcript_text, str) and transcript_text.strip():
+        try:
+            alignment = reference_alignment(transcript_text, observed_phones)
+            word_phone_groups = [
+                WordPhoneGroup(
+                    word=group.word,
+                    heard_phones=list(group.heard_phones),
+                    reference_phones=list(group.reference_phones),
+                    has_reference_pronunciation=(
+                        group.has_reference_pronunciation
+                    ),
+                )
+                for group in alignment.groups
+            ]
+            unknown_reference_words = list(alignment.unknown_words)
+            reference_dictionary_identifier = alignment.dictionary_identifier
+            reference_dictionary_hash = alignment.dictionary_hash
+        except ReferencePronunciationError as exc:
+            reference_pronunciation_error = str(exc)
+    elif observed_phones:
+        word_phone_groups = [
+            WordPhoneGroup(
+                word=None,
+                heard_phones=observed_phones,
+                reference_phones=[],
+                has_reference_pronunciation=False,
+            )
+        ]
 
     return Recording(
         id=recording_id,
@@ -141,12 +180,17 @@ def load_recording(recording_id: str) -> Recording:
         status=payload.get("status", "completed"),
         transcript=transcript_text,
         transcription_error=transcription_error,
-        observed_phones=list(phone_analysis.get("phones") or []),
+        observed_phones=observed_phones,
         phone_analysis_error=phone_analysis.get("error"),
         phone_model_identifier=phone_analysis.get("modelIdentifier"),
         phone_model_hash=phone_analysis.get("modelHash"),
         phone_runtime_identifier=phone_analysis.get("runtimeIdentifier"),
         phone_analyzed_at=phone_analysis.get("analyzedAt"),
+        word_phone_groups=word_phone_groups,
+        unknown_reference_words=unknown_reference_words,
+        reference_pronunciation_error=reference_pronunciation_error,
+        reference_dictionary_identifier=reference_dictionary_identifier,
+        reference_dictionary_hash=reference_dictionary_hash,
         sample_rate=int(summary["sampleRate"]),
     )
 

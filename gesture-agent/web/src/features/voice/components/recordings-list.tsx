@@ -9,6 +9,7 @@
 
 import { AlertCircle, ListMusic, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 
 import {
   useDeleteRecording,
@@ -20,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { loadRecordingAudioURL, recordingAudioUrl } from "@/lib/api";
 import { getHostConfig } from "@/lib/host-bridge";
-import type { Recording } from "@/lib/wire";
+import type { Recording, WordPhoneGroup } from "@/lib/wire";
 
 function formatDuration(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
@@ -40,6 +41,75 @@ function formatCreatedAt(iso: string): string {
   });
 }
 
+function PassageCard({
+  title,
+  detail,
+  children,
+}: {
+  readonly title: string;
+  readonly detail: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border border-border bg-background/70 p-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        <span className="text-xs text-muted-foreground">{detail}</span>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function GroupedPhones({
+  groups,
+  column,
+}: {
+  readonly groups: readonly WordPhoneGroup[];
+  readonly column: "heard" | "reference";
+}) {
+  if (groups.length === 0) {
+    return <p className="text-sm text-muted-foreground">No word groups available.</p>;
+  }
+
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-3 leading-relaxed">
+      {groups.map((group, index) => {
+        const phones =
+          column === "heard" ? group.heardPhones : group.referencePhones;
+        let emptyText = "No raw phones aligned";
+        if (column === "reference") {
+          emptyText =
+            group.word === null
+              ? "Raw phones only"
+              : group.hasReferencePronunciation
+                ? "No reference phones"
+                : "No dictionary entry";
+        }
+        return (
+          <span
+            className="inline-flex max-w-full items-baseline gap-2"
+            key={`${group.word ?? "unassigned"}-${index}`}
+          >
+            <span className="shrink-0 text-sm font-semibold text-muted-foreground">
+              {group.word ?? "No word anchor"}
+            </span>
+            <span
+              className={
+                phones.length > 0
+                  ? "font-mono text-base"
+                  : "text-xs italic text-muted-foreground"
+              }
+            >
+              {phones.length > 0 ? phones.join("\u00a0\u00a0") : emptyText}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function RecordingRow({
   recording,
   onDelete,
@@ -49,6 +119,8 @@ function RecordingRow({
   readonly onDelete: (id: string) => void;
   readonly isDeleting: boolean;
 }) {
+  const wordPhoneGroups = recording.wordPhoneGroups ?? [];
+  const unknownReferenceWords = recording.unknownReferenceWords ?? [];
   const nativeTransport = getHostConfig()?.voiceTransport === "native";
   const [audioURL, setAudioURL] = useState<string | undefined>(
     nativeTransport ? undefined : recordingAudioUrl(recording.id),
@@ -75,7 +147,7 @@ function RecordingRow({
   }
 
   return (
-    <li className="flex flex-col gap-1.5 rounded-lg border border-border bg-card/50 p-3">
+    <li className="flex flex-col gap-3 rounded-xl border border-border bg-card/50 p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground">
           {formatCreatedAt(recording.createdAt)}
@@ -91,30 +163,57 @@ function RecordingRow({
           <Badge variant="outline">{recording.sampleRate} Hz</Badge>
         </div>
       </div>
-      <p className="text-sm leading-relaxed">
-        {recording.transcript && recording.transcript.length > 0 ? (
-          recording.transcript
-        ) : (
-          <span className="text-muted-foreground italic">No transcript</span>
-        )}
-      </p>
-      {recording.transcriptionError && (
-        <p className="text-xs text-destructive">
-          Transcription failed: {recording.transcriptionError}
-        </p>
-      )}
-      {recording.observedPhones.length > 0 ? (
-        <div className="flex flex-col gap-1">
-          <p className="font-mono text-sm">{recording.observedPhones.join(" ")}</p>
-          <p className="text-xs text-muted-foreground">
-            {recording.phoneModelIdentifier} · {recording.phoneRuntimeIdentifier}
+      <div className="grid gap-2">
+        <PassageCard detail="Saved transcript" title="Transcript">
+          <p className="text-base leading-relaxed">
+            {recording.transcript && recording.transcript.length > 0 ? (
+              recording.transcript
+            ) : (
+              <span className="text-muted-foreground italic">No transcript</span>
+            )}
           </p>
-        </div>
-      ) : recording.phoneAnalysisError ? (
-        <p className="text-xs text-destructive">
-          Phone analysis failed: {recording.phoneAnalysisError}
-        </p>
-      ) : null}
+          {recording.transcriptionError && (
+            <p className="text-xs text-destructive">
+              Transcription failed: {recording.transcriptionError}
+            </p>
+          )}
+        </PassageCard>
+
+        <PassageCard detail="Transcript-aligned" title="Phonemes heard">
+          <GroupedPhones column="heard" groups={wordPhoneGroups} />
+          {recording.phoneAnalysisError && (
+            <p className="text-xs text-destructive">
+              Phone analysis failed: {recording.phoneAnalysisError}
+            </p>
+          )}
+          {recording.phoneModelIdentifier && (
+            <p className="text-xs text-muted-foreground">
+              {recording.phoneModelIdentifier}
+              {recording.phoneRuntimeIdentifier
+                ? ` · ${recording.phoneRuntimeIdentifier}`
+                : ""}
+            </p>
+          )}
+        </PassageCard>
+
+        <PassageCard
+          detail={recording.referenceDictionaryIdentifier ?? "CMUdict by word"}
+          title="Reference phonemes"
+        >
+          <GroupedPhones column="reference" groups={wordPhoneGroups} />
+          {recording.referencePronunciationError && (
+            <p className="text-xs text-destructive">
+              Reference pronunciation failed:{" "}
+              {recording.referencePronunciationError}
+            </p>
+          )}
+          {unknownReferenceWords.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              No dictionary entry: {unknownReferenceWords.join(", ")}
+            </p>
+          )}
+        </PassageCard>
+      </div>
       {reanalyze.isError && (
         <p className="text-xs text-destructive">
           {reanalyze.error instanceof Error
@@ -210,7 +309,7 @@ export function RecordingsList() {
             : "Failed to delete recording"}
         </div>
       )}
-      <ScrollArea className="max-h-96">
+      <ScrollArea className="max-h-[42rem]">
         <ul className="flex flex-col gap-2 pr-3">
           {data.map((recording) => (
             <RecordingRow

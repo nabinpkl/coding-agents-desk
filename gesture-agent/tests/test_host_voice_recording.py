@@ -112,6 +112,14 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
         phone = await self._finalize("iphone")
         self.assertEqual(mac.transcript, phone.transcript)
         self.assertEqual(mac.observed_phones, phone.observed_phones)
+        self.assertEqual(mac.word_phone_groups, phone.word_phone_groups)
+        self.assertEqual(mac.word_phone_groups[0].word, "thank")
+        self.assertEqual(
+            mac.word_phone_groups[0].reference_phones,
+            ["θ", "æ", "ŋ", "k"],
+        )
+        self.assertEqual(mac.unknown_reference_words, [])
+        self.assertTrue(mac.reference_dictionary_identifier.startswith("CMUdict@"))
         self.assertEqual(mac.phone_model_identifier, phone.phone_model_identifier)
         self.assertEqual(mac.source, "macos")
         self.assertEqual(phone.source, "iphone")

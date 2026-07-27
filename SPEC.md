@@ -410,6 +410,11 @@ never delete the audio. Empty disconnects are discarded; an empty explicit Stop 
 error. Reanalysis reads the retained WAV and updates only phone-analysis metadata. The ONNX session is
 hash-verified, cached for the sidecar lifetime, and inference is serialized. The fullscreen native
 Voice/Passage surface remains a separate on-device experiment and is not a fallback for this flow.
+Recording responses derive a Passage view from the saved transcript, flat ZIPA phone sequence, pinned
+CMUdict revision, and the shared ARPABET-to-model-phone mapping. The host aligns the unconstrained
+phones to reference words for display while retaining unanchored phones explicitly; the web panel
+shows separate transcript, heard-phone, and reference-phone cards. These word groups are presentation
+alignment, not acoustic word boundaries, and are not a second persisted analysis authority.
 
 ## Workspace Workbench Terminal Flow
 

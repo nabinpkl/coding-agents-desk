@@ -60,6 +60,15 @@ test("native REST reassembles bounded response chunks", async () => {
         source: "iphone",
         status: "completed",
         observedPhones: ["θ", "æ", "ŋ", "k"],
+        wordPhoneGroups: [
+          {
+            word: "thank",
+            heardPhones: ["θ", "æ", "ŋ", "k"],
+            referencePhones: ["θ", "æ", "ŋ", "k"],
+            hasReferencePronunciation: true,
+          },
+        ],
+        unknownReferenceWords: [],
         sampleRate: 16_000,
       },
     ],

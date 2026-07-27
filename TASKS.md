@@ -708,6 +708,11 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   the microphone immediately and exposes saving, transcription, and analysis stages.
 - R145. Implementation and automated gates are complete. At the explicit runtime checkpoint, manually
   accept Mac, iPhone, disconnect, busy, and microphone/WebSocket/QUIC resource-cleanup behavior.
+- D146. Give completed shared Voice recordings the native Passage reading mode: one transcript card,
+  one ZIPA-phone card grouped against transcript words, and one CMUdict reference-phone card grouped
+  by the same words. Derive grouping on the host from durable transcript and flat phone facts, retain
+  every unanchored phone, expose unknown words and pinned dictionary provenance, and stage the same
+  CMUdict/mapping assets into the installed Python sidecar.
 
 ## Promotion log
 
@@ -730,4 +735,5 @@ D142  2026-07-27  landed     authenticated bounded QUIC voice lane and loopback 
 D143  2026-07-27  landed     native iOS InteractionPanel voice transport
 D144  2026-07-27  landed     shared host voice library and explicit finalization states
 R145  implemented remaining  authorized cross-device runtime acceptance
+D146  2026-07-27  landed     shared Voice transcript and word-grouped heard/reference Passage cards
 ```

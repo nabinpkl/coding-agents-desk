@@ -91,7 +91,22 @@ export interface Recording {
   phoneModelHash?: string | null;
   phoneRuntimeIdentifier?: string | null;
   phoneAnalyzedAt?: string | null;
+  wordPhoneGroups: WordPhoneGroup[];
+  unknownReferenceWords: string[];
+  referencePronunciationError?: string | null;
+  referenceDictionaryIdentifier?: string | null;
+  referenceDictionaryHash?: string | null;
   sampleRate: number;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "WordPhoneGroup".
+ */
+export interface WordPhoneGroup {
+  word: string | null;
+  heardPhones: string[];
+  referencePhones: string[];
+  hasReferencePronunciation: boolean;
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema

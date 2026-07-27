@@ -112,6 +112,13 @@ class SessionCompleteMessage(WireModel):
 # --- REST record models ----------------------------------------------------
 
 
+class WordPhoneGroup(WireModel):
+    word: str | None
+    heard_phones: list[str]
+    reference_phones: list[str]
+    has_reference_pronunciation: bool
+
+
 class Recording(WireModel):
     id: str
     created_at: str
@@ -126,6 +133,11 @@ class Recording(WireModel):
     phone_model_hash: str | None = None
     phone_runtime_identifier: str | None = None
     phone_analyzed_at: str | None = None
+    word_phone_groups: list[WordPhoneGroup]
+    unknown_reference_words: list[str]
+    reference_pronunciation_error: str | None = None
+    reference_dictionary_identifier: str | None = None
+    reference_dictionary_hash: str | None = None
     sample_rate: int
 
 
@@ -221,6 +233,7 @@ MODELS: Final[list[type[BaseModel]]] = [
     SessionProgressMessage,
     SessionErrorMessage,
     SessionCompleteMessage,
+    WordPhoneGroup,
     Recording,
     RecordingListResponse,
     VoiceSignalFramePayload,
