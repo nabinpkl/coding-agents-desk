@@ -9,6 +9,11 @@ test('semantic hidden state wins over component display rules', () => {
   assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/)
 })
 
+test('the sidebar panel keeps the growable row when the alert above it is hidden', () => {
+  assert.match(css, /\.ide-sidebar-panel\s*\{[^}]*grid-row:\s*4;/s)
+  assert.match(css, /grid-template-rows:\s*auto auto auto minmax\(0, 1fr\);/)
+})
+
 test('Explorer uses compact semantic icons at every sidebar width', () => {
   assert.match(css, /\.ide-file-icon\s*\{[^}]*width:\s*16px;/s)
   assert.doesNotMatch(css, /@container sidebar[^}]*\.ide-file-icon\s*\{\s*display:\s*none;/s)

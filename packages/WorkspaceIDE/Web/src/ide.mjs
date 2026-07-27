@@ -40,26 +40,6 @@ function mountSidebar(container, send) {
   const addButton = button('+', 'Add workspace', () => send({ type: 'addWorkspace' }))
   header.append(workspaceSelect, addButton)
 
-  const management = element('nav', 'ide-management')
-  management.setAttribute('aria-label', 'Workspace management')
-  const moveUpButton = button('↑', 'Move workspace earlier', () => reorderSelected(-1))
-  const moveDownButton = button('↓', 'Move workspace later', () => reorderSelected(1))
-  const assignButton = button('Display', 'Assign workspace to current Desktop', () => {
-    if (workspaceSelect.value) send({ type: 'assignDesktop', id: workspaceSelect.value })
-  })
-  const autoAssignButton = button('Auto', 'Toggle automatic Desktop assignment', () => {
-    const workspace = currentWorkspaces.find(({ id }) => id === workspaceSelect.value)
-    if (workspace) send({
-      type: 'setAutoAssignDesktop',
-      id: workspace.id,
-      enabled: !workspace.desktopAutoAssignEnabled,
-    })
-  })
-  const removeButton = button('Remove', 'Remove workspace', () => {
-    if (workspaceSelect.value) send({ type: 'removeWorkspace', id: workspaceSelect.value })
-  })
-  management.append(moveUpButton, moveDownButton, assignButton, autoAssignButton, removeButton)
-
   const activity = element('nav', 'ide-activity')
   activity.setAttribute('aria-label', 'Workspace sidebar sections')
   const explorerButton = sectionButton('explorer', 'Explorer', send)
@@ -69,20 +49,7 @@ function mountSidebar(container, send) {
   const panel = element('section', 'ide-sidebar-panel')
   const alert = element('div', 'ide-alert')
   alert.setAttribute('role', 'status')
-  container.replaceChildren(header, management, activity, alert, panel)
-
-  let currentWorkspaces = []
-
-  function reorderSelected(offset) {
-    const index = currentWorkspaces.findIndex(({ id }) => id === workspaceSelect.value)
-    const target = index + offset
-    if (index < 0 || target < 0 || target >= currentWorkspaces.length) return
-    const ids = currentWorkspaces.map(({ id }) => id)
-    const selectedID = ids[index]
-    ids[index] = ids[target]
-    ids[target] = selectedID
-    send({ type: 'reorderWorkspaces', ids })
-  }
+  container.replaceChildren(header, activity, alert, panel)
 
   workspaceSelect.addEventListener('change', () => {
     if (workspaceSelect.value) send({ type: 'selectWorkspace', id: workspaceSelect.value })
@@ -92,7 +59,6 @@ function mountSidebar(container, send) {
     const snapshot = normalizeProjection(raw, 'sidebar')
     if (!snapshot) return
     applyWorkspaceZoom(container, snapshot.zoomScale)
-    currentWorkspaces = snapshot.workspaces
     const selected = snapshot.selectedWorkspaceID ?? ''
     workspaceSelect.replaceChildren(...snapshot.workspaces.map((workspace) => {
       const option = element('option')
@@ -103,26 +69,6 @@ function mountSidebar(container, send) {
     }))
     workspaceSelect.disabled = snapshot.workspaces.length === 0
     addButton.hidden = !snapshot.capabilities.has('addWorkspace')
-    const selectedIndex = snapshot.workspaces.findIndex(({ id }) => id === selected)
-    const selectedWorkspace = snapshot.workspaces[selectedIndex]
-    const canManage = ['removeWorkspace', 'reorderWorkspaces', 'assignDesktop', 'autoAssignDesktop']
-      .some((capability) => snapshot.capabilities.has(capability))
-    management.hidden = !canManage
-    moveUpButton.hidden = !snapshot.capabilities.has('reorderWorkspaces')
-    moveDownButton.hidden = !snapshot.capabilities.has('reorderWorkspaces')
-    moveUpButton.disabled = selectedIndex <= 0
-    moveDownButton.disabled = selectedIndex < 0 || selectedIndex >= snapshot.workspaces.length - 1
-    assignButton.hidden = !snapshot.capabilities.has('assignDesktop')
-    assignButton.disabled = !selectedWorkspace
-    assignButton.textContent = selectedWorkspace?.desktopOrdinal
-      ? `Desktop ${selectedWorkspace.desktopOrdinal}`
-      : 'Assign Desktop'
-    autoAssignButton.hidden = !snapshot.capabilities.has('autoAssignDesktop')
-    autoAssignButton.disabled = !selectedWorkspace
-    autoAssignButton.setAttribute('aria-pressed', String(Boolean(selectedWorkspace?.desktopAutoAssignEnabled)))
-    autoAssignButton.classList.toggle('is-selected', Boolean(selectedWorkspace?.desktopAutoAssignEnabled))
-    removeButton.hidden = !snapshot.capabilities.has('removeWorkspace')
-    removeButton.disabled = !selectedWorkspace
     explorerButton.classList.toggle('is-selected', snapshot.section === 'explorer')
     sourceButton.classList.toggle('is-selected', snapshot.section === 'sourceControl')
     explorerButton.setAttribute('aria-pressed', String(snapshot.section === 'explorer'))

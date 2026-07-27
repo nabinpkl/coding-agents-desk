@@ -55,7 +55,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--ide-accent
 body[data-region='sidebar'] #workspace-ide {
   container: sidebar / inline-size;
   display: grid;
-  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   background: var(--ide-bg);
 }
 
@@ -84,28 +84,6 @@ body[data-region='sidebar'] #workspace-ide {
   background: var(--ide-panel);
   font-size: 18px;
 }
-
-.ide-management {
-  display: flex;
-  gap: 4px;
-  min-width: 0;
-  padding: 5px 7px;
-  border-bottom: 1px solid var(--ide-border);
-}
-.ide-management button {
-  min-width: 27px;
-  min-height: 26px;
-  padding: 0 7px;
-  overflow: hidden;
-  border: 1px solid var(--ide-border);
-  border-radius: 6px;
-  color: var(--ide-muted);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.ide-management button:hover:not(:disabled) { background: var(--ide-hover); }
-.ide-management button.is-selected { color: var(--ide-fg); background: var(--ide-selected); }
-.ide-management button:disabled { opacity: 0.38; }
 
 .ide-activity {
   display: flex;
@@ -141,7 +119,10 @@ body[data-region='sidebar'] #workspace-ide {
   color: var(--ide-danger);
   font-size: 12px;
 }
-.ide-sidebar-panel { overflow: auto; padding: 4px 0 18px; }
+/* Pinned to the growable row rather than auto-placed. The alert above it is `hidden` most of the
+   time, and a hidden element stops being a grid item, so auto-placement would slide the panel up
+   into an `auto` row and leave its height to whatever the content happened to be. */
+.ide-sidebar-panel { grid-row: 4; overflow: auto; padding: 4px 0 18px; }
 
 .ide-tree, .ide-source-list { list-style: none; padding: 0; margin: 0; }
 .ide-tree .ide-tree { padding-left: 13px; }
@@ -388,11 +369,6 @@ body[data-region='editor'] #workspace-ide {
   /* Below this width the directory has no room to say anything useful; the filename and its
      status still do, and the full path stays on the row's tooltip. */
   .ide-source-dir { display: none; }
-  .ide-management button { padding: 0 5px; }
-  .ide-management button:nth-last-child(-n + 3) { font-size: 0; width: 29px; padding: 0; }
-  .ide-management button:nth-last-child(3)::after { content: 'D'; font-size: 12px; }
-  .ide-management button:nth-last-child(2)::after { content: 'A'; font-size: 12px; }
-  .ide-management button:last-child::after { content: '×'; font-size: 16px; }
 }
 
 @container editor (max-width: 420px) {
