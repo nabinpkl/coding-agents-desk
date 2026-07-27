@@ -46,6 +46,65 @@ struct WorkspaceTerminalCoordinatorTests {
         #expect(calls.map(\.createIfMissing) == [false, false])
     }
 
+    @Test func anUnnamedPaneSkipsSessionsAnotherViewerAlreadyHolds() async throws {
+        let harness = try await Harness.make()
+        defer { harness.cleanup() }
+
+        let first = try await harness.coordinator.open(harness.request(id: "first"))
+        let viewer = try await harness.attachViewer(to: first.ptySessionName, title: "pane-1")
+        await harness.coordinator.acknowledgeAttachment(
+            requestID: "first",
+            workspaceID: harness.workspaceID.uuidString,
+            ptySessionName: first.ptySessionName
+        )
+
+        let second = try await harness.coordinator.open(harness.request(id: "second"))
+
+        #expect(second.ptySessionName != first.ptySessionName)
+        #expect(await harness.pty.session(named: first.ptySessionName)?.clients.count == 1)
+        _ = viewer
+    }
+
+    @Test func aNamedPaneStillJoinsASessionOtherViewersAreWatching() async throws {
+        let harness = try await Harness.make()
+        defer { harness.cleanup() }
+
+        let first = try await harness.coordinator.open(harness.request(id: "first"))
+        let viewer = try await harness.attachViewer(to: first.ptySessionName, title: "phone")
+        await harness.coordinator.acknowledgeAttachment(
+            requestID: "first",
+            workspaceID: harness.workspaceID.uuidString,
+            ptySessionName: first.ptySessionName
+        )
+
+        let rejoined = try await harness.coordinator.open(harness.request(
+            id: "rejoin",
+            preferredSessionName: first.ptySessionName
+        ))
+
+        #expect(rejoined.ptySessionName == first.ptySessionName)
+        _ = viewer
+    }
+
+    @Test func anUnusedProposedNameBecomesTheCreatedSessionName() async throws {
+        let harness = try await Harness.make()
+        defer { harness.cleanup() }
+        let identity = WorkspaceTerminalIdentity(workspaceID: harness.workspaceID)
+        let proposed = identity.makeSessionName(
+            id: UUID(uuidString: "55555555-5555-4555-8555-555555555555")!
+        )
+
+        let ready = try await harness.coordinator.open(harness.request(
+            id: "tab",
+            preferredSessionName: proposed
+        ))
+
+        #expect(ready.ptySessionName == proposed)
+        let call = try #require(await harness.pty.openCalls.first)
+        #expect(call.name == proposed)
+        #expect(call.createIfMissing)
+    }
+
     @Test func clientCannotEscapeItsWorkspaceTerminalNamespace() async throws {
         let harness = try await Harness.make()
         defer { harness.cleanup() }
@@ -186,6 +245,20 @@ private final class Harness: @unchecked Sendable {
             columns: 100,
             rows: 30,
             clientTitle: "test-bootstrap"
+        )
+    }
+
+    /// Stands in for a pane that has attached to a session and stayed on it, the way an IDE tab or
+    /// the phone does once the coordinator hands the session over.
+    func attachViewer(to name: String, title: String) async throws -> AgentSessionTerminalPtyLease {
+        try await pty.openSession(
+            name: name,
+            launch: .shell(cwd: root.path, shell: "/bin/zsh"),
+            lifetime: .persistent,
+            columns: 100,
+            rows: 30,
+            createIfMissing: false,
+            clientTitle: title
         )
     }
 

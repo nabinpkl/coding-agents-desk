@@ -147,12 +147,20 @@ actor WorkspaceTerminalCoordinator {
             let eligible = sessions.filter {
                 isEligible($0, identity: identity, root: root)
             }
+            // A pane that names its session reattaches to it even while other viewers are watching:
+            // that is how one workspace terminal is shared across Apple clients. A pane that names
+            // nothing is asking for a terminal of its own, so it may only adopt a session no one is
+            // viewing, otherwise a second IDE tab would land on the first tab's shell.
             let selected = request.preferredSessionName.flatMap { preferred in
                 eligible.first { $0.name == preferred }
-            } ?? eligible.max {
+            } ?? eligible.filter(\.clients.isEmpty).max {
                 ($0.startedAtUnixMilliseconds, $0.name) < ($1.startedAtUnixMilliseconds, $1.name)
             }
-            let name = selected?.name ?? nextAvailableName(identity: identity, sessions: sessions)
+            let name = selected?.name ?? proposedOrFreshName(
+                request,
+                identity: identity,
+                sessions: sessions
+            )
             selectedName = name
             selectedPID = selected?.pid
             createdSession = selected == nil
@@ -302,6 +310,21 @@ actor WorkspaceTerminalCoordinator {
             .resolvingSymlinksInPath()
             .standardizedFileURL
             .path
+    }
+
+    /// A caller may propose the name of a session it is about to create, so a new IDE tab or split
+    /// and the manager agree on the name without a second round trip. The namespace check already
+    /// ran in `performOpen`; an already-taken proposal falls back to a fresh name.
+    private func proposedOrFreshName(
+        _ request: WorkspaceTerminalOpenRequest,
+        identity: WorkspaceTerminalIdentity,
+        sessions: [PtySessionSummary]
+    ) -> String {
+        if let proposed = request.preferredSessionName,
+           !sessions.contains(where: { $0.name == proposed }) {
+            return proposed
+        }
+        return nextAvailableName(identity: identity, sessions: sessions)
     }
 
     private func nextAvailableName(
