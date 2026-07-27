@@ -5,6 +5,12 @@ import {
   speakReference,
   stopReferenceSpeech,
 } from "@/features/voice/reference-speech";
+import {
+  browserSpeechRate,
+  parseReferenceSpeechState,
+  postReferenceSpeechPreferencesUpdate,
+  requestReferenceSpeechState,
+} from "@/features/voice/reference-speech-settings";
 import { VoiceSocket } from "@/lib/ws";
 import type { RecordingListResponse } from "@/lib/wire";
 
@@ -68,6 +74,68 @@ test("reference speech rejects oversized text before crossing native", () => {
     "Reference speech is too long.",
   );
   expect(posted).toEqual([]);
+});
+
+test("reference speech preferences use the local native bridge", () => {
+  posted.length = 0;
+  requestReferenceSpeechState();
+  expect(posted.at(-1)).toEqual({
+    t: "referenceSpeechStateRequest",
+  });
+
+  postReferenceSpeechPreferencesUpdate("voice-1", 0.65);
+  expect(posted.at(-1)).toEqual({
+    t: "referenceSpeechPreferencesUpdate",
+    voiceIdentifier: "voice-1",
+    rate: 0.65,
+  });
+
+  postReferenceSpeechPreferencesUpdate(null, 0.5);
+  expect(posted.at(-1)).toEqual({
+    t: "referenceSpeechPreferencesUpdate",
+    voiceIdentifier: null,
+    rate: 0.5,
+  });
+  expect(() =>
+    postReferenceSpeechPreferencesUpdate("voice-1", Number.NaN),
+  ).toThrow("Reference speech preferences are invalid.");
+});
+
+test("reference speech state validates native inventory and rates", () => {
+  const state = parseReferenceSpeechState({
+    language: "en-US",
+    voices: [
+      {
+        identifier: "voice-1",
+        name: "Samantha",
+        language: "en-US",
+        quality: "premium",
+      },
+    ],
+    selectedVoiceIdentifier: "voice-1",
+    rate: {
+      minimum: 0,
+      defaultValue: 0.5,
+      maximum: 1,
+      current: 0.65,
+    },
+  });
+  expect(state?.voices[0]?.name).toBe("Samantha");
+  expect(state?.rate.current).toBe(0.65);
+  expect(
+    parseReferenceSpeechState({
+      language: "en-US",
+      voices: [],
+      rate: {
+        minimum: 0,
+        defaultValue: 0.5,
+        maximum: 1,
+        current: Number.NaN,
+      },
+    }),
+  ).toBeNull();
+  expect(browserSpeechRate(0.5)).toBe(1);
+  expect(browserSpeechRate(0)).toBe(0.1);
 });
 
 test("native REST reassembles bounded response chunks", async () => {

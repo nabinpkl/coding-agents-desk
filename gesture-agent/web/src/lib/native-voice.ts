@@ -1,4 +1,5 @@
 import { INTERACTION_HANDLER, postToHost } from "@/lib/host-bridge";
+import { subscribeInteractionDelivery } from "@/lib/interaction-delivery";
 
 export interface NativeVoiceEnvelope {
   t: string;
@@ -18,30 +19,12 @@ export interface NativeVoiceEnvelope {
   };
 }
 
-const handlers = new Set<(message: NativeVoiceEnvelope) => void>();
-let installed = false;
-
 export function subscribeNativeVoice(
   handler: (message: NativeVoiceEnvelope) => void,
 ): () => void {
-  if (!installed && typeof window !== "undefined") {
-    installed = true;
-    window.__interactionDeliver = (delivery: unknown) => {
-      const value = delivery as { type?: string; payload?: NativeVoiceEnvelope };
-      if (value?.type !== "voiceLane" || !value.payload) return;
-      for (const subscriber of handlers) subscriber(value.payload);
-    };
-  }
-  handlers.add(handler);
-  return () => handlers.delete(handler);
+  return subscribeInteractionDelivery("voiceLane", handler);
 }
 
 export function postNativeVoice(body: Record<string, unknown>): void {
   postToHost(INTERACTION_HANDLER, body);
-}
-
-declare global {
-  interface Window {
-    __interactionDeliver?: (payload: unknown) => void;
-  }
 }

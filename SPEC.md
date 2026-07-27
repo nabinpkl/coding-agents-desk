@@ -419,6 +419,13 @@ The reference card's whole-passage and per-word speaker actions send a bounded l
 `referenceSpeech` request to the containing app. macOS and iOS play it with `AVSpeechSynthesizer`;
 ordinary browser development uses Web Speech as a preview fallback. Reference TTS never crosses the
 voice or input lanes, is not retained as reference audio, and is stopped before microphone capture.
+The shared Voice page also requests a device-local `en-US` voice inventory and reference-speech
+preferences through the InteractionPanel bridge. Each native app re-enumerates
+`AVSpeechSynthesisVoice.speechVoices()` when the panel mounts or becomes visible, persists only its
+own selected voice identifier and raw native rate in bundle-scoped `UserDefaults`, and applies those
+preferences to both whole-passage and per-word playback. A removed voice visibly resets to the system
+default. Voice inventories and preferences never cross QUIC or enter the Python recording store;
+browser development keeps an independent Web Speech/local-storage preview.
 
 ## Workspace Workbench Terminal Flow
 

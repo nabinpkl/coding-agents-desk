@@ -81,7 +81,7 @@ export function postToHost(
 /**
  * Install a native -> JS delivery callback under `window.__<deliveryFn>` and
  * return a disposer that removes it. Voice uses the concrete shared
- * `__interactionDeliver` dispatcher in native-voice.ts; this generic helper
+ * `__interactionDeliver` dispatcher in interaction-delivery.ts; this generic helper
  * remains available to other InteractionPanel features.
  */
 export function onHostMessage(

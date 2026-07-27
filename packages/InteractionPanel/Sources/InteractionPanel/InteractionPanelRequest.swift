@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 /// Requests the interaction webview posts to native. The owning surface routes
@@ -6,10 +7,13 @@ import Foundation
 /// transport-agnostic.
 public enum InteractionPanelRequest: Equatable, Sendable {
     public static let maximumReferenceSpeechUTF8Bytes = 20_000
+    public static let maximumVoiceIdentifierUTF8Bytes = 512
 
     case spaceStep(delta: Int)
     case referenceSpeech(text: String, language: String)
     case referenceSpeechStop
+    case referenceSpeechStateRequest
+    case referenceSpeechPreferencesUpdate(voiceIdentifier: String?, rate: Double)
     case voiceSocketOpen(requestID: String, recordingSessionID: String)
     case voiceSocketMessage(recordingSessionID: String, json: String)
     case voiceSocketClose(recordingSessionID: String)
@@ -27,12 +31,33 @@ public enum InteractionPanelRequest: Equatable, Sendable {
                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   text.utf8.count <= maximumReferenceSpeechUTF8Bytes,
                   let language = body["language"] as? String,
-                  !language.isEmpty,
-                  language.utf8.count <= 32
+                  language == ReferenceSpeechPreferences.language
             else { return nil }
             return .referenceSpeech(text: text, language: language)
         case "referenceSpeechStop":
             return .referenceSpeechStop
+        case "referenceSpeechStateRequest":
+            return .referenceSpeechStateRequest
+        case "referenceSpeechPreferencesUpdate":
+            guard body.keys.contains("voiceIdentifier"),
+                  let rateNumber = body["rate"] as? NSNumber,
+                  CFGetTypeID(rateNumber) != CFBooleanGetTypeID(),
+                  rateNumber.doubleValue.isFinite
+            else { return nil }
+            let voiceIdentifier: String?
+            if body["voiceIdentifier"] is NSNull {
+                voiceIdentifier = nil
+            } else {
+                guard let identifier = body["voiceIdentifier"] as? String,
+                      !identifier.isEmpty,
+                      identifier.utf8.count <= maximumVoiceIdentifierUTF8Bytes
+                else { return nil }
+                voiceIdentifier = identifier
+            }
+            return .referenceSpeechPreferencesUpdate(
+                voiceIdentifier: voiceIdentifier,
+                rate: rateNumber.doubleValue
+            )
         case "voiceSocketOpen":
             guard let requestID = body["requestID"] as? String,
                   let recordingSessionID = body["recordingSessionID"] as? String

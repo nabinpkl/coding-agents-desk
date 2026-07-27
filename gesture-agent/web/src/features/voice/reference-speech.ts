@@ -3,8 +3,12 @@ import {
   isEmbedded,
   postToHost,
 } from "@/lib/host-bridge";
+import {
+  browserReferenceSpeechPreferences,
+  browserSpeechRate,
+  REFERENCE_SPEECH_LANGUAGE,
+} from "@/features/voice/reference-speech-settings";
 
-export const REFERENCE_SPEECH_LANGUAGE = "en-US";
 export const MAX_REFERENCE_SPEECH_UTF8_BYTES = 20_000;
 
 function normalizedReferenceText(text: string): string {
@@ -42,6 +46,12 @@ export function speakReference(text: string): void {
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(normalized);
   utterance.lang = REFERENCE_SPEECH_LANGUAGE;
+  const preferences = browserReferenceSpeechPreferences();
+  utterance.voice =
+    window.speechSynthesis
+      .getVoices()
+      .find((voice) => voice.voiceURI === preferences.voiceIdentifier) ?? null;
+  utterance.rate = browserSpeechRate(preferences.rate);
   window.speechSynthesis.speak(utterance);
 }
 

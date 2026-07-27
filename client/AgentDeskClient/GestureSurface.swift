@@ -24,6 +24,7 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
     private weak var voiceLaneTransport: QuicSessionClientTransport?
     private var panelContentView = UIView()
     private let referenceSpeechSynthesizer = AVSpeechSynthesizer()
+    private let referenceSpeechPreferences = ReferenceSpeechPreferences()
     private var referenceSpeechSessionActive = false
 
     override init(frame: CGRect) {
@@ -95,6 +96,10 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
         panelController = nil
     }
 
+    func refreshReferenceSpeechState() {
+        deliverReferenceSpeechState()
+    }
+
     // MARK: - InteractionPanelTransport
 
     func sendInteractionRequest(_ request: InteractionPanelRequest) {
@@ -105,10 +110,27 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
         switch request {
         case .spaceStep(let delta):
             onSpaceStep?(delta)
-        case .referenceSpeech(let text, let language):
-            speakReference(text: text, language: language)
+        case .referenceSpeech(let text, _):
+            speakReference(text: text)
         case .referenceSpeechStop:
             stopReferenceSpeech()
+        case .referenceSpeechStateRequest:
+            deliverReferenceSpeechState()
+        case .referenceSpeechPreferencesUpdate(let voiceIdentifier, let rate):
+            stopReferenceSpeech()
+            do {
+                let state = try referenceSpeechPreferences.update(
+                    voiceIdentifier: voiceIdentifier,
+                    rate: rate
+                )
+                deliverReferenceSpeechState(state)
+            } catch {
+                deliverReferenceSpeechState(
+                    referenceSpeechPreferences.currentState(
+                        error: error.localizedDescription
+                    )
+                )
+            }
         case .voiceSocketOpen(let requestID, let sessionID):
             forwardVoice(.socketOpen(
                 requestID: requestID,
@@ -140,7 +162,7 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
         }
     }
 
-    private func speakReference(text: String, language: String) {
+    private func speakReference(text: String) {
         referenceSpeechSynthesizer.stopSpeaking(at: .immediate)
         do {
             let session = AVAudioSession.sharedInstance()
@@ -154,7 +176,7 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
             return
         }
         let utterance = AVSpeechUtterance(string: text)
-        utterance.voice = AVSpeechSynthesisVoice(language: language)
+        referenceSpeechPreferences.configure(utterance)
         referenceSpeechSynthesizer.speak(utterance)
     }
 
@@ -174,6 +196,20 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
         } catch {
             logger.error(
                 "reference speech cleanup failed: \(error.localizedDescription, privacy: .public)"
+            )
+        }
+    }
+
+    private func deliverReferenceSpeechState(
+        _ state: ReferenceSpeechState? = nil
+    ) {
+        do {
+            try panelController?.deliver(
+                referenceSpeechState: state ?? referenceSpeechPreferences.currentState()
+            )
+        } catch {
+            logger.error(
+                "reference speech state delivery failed: \(String(describing: error), privacy: .public)"
             )
         }
     }

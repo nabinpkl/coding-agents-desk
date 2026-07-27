@@ -718,6 +718,11 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
 - D148. Add whole-passage and per-word reference speakers to shared Voice, using bounded local
   InteractionPanel requests and native TTS on Mac and iPhone without sending or retaining synthesized
   audio.
+- R149. Add one shared reference-speech chooser above the host recording library while keeping
+  inventory and persistence device-local. Extract the native AVSpeech catalog, quality ordering,
+  selection recovery, and raw-rate preference into InteractionPanel; let macOS and iOS enumerate
+  their own installed `en-US` voices, retain separate bundle-scoped choices, and apply them to both
+  passage and word speakers. Keep Agent Say independent while reusing the neutral catalog logic.
 
 ## Promotion log
 
@@ -743,4 +748,5 @@ R145  implemented remaining  authorized cross-device runtime acceptance
 D146  2026-07-27  landed     shared Voice transcript and word-grouped heard/reference Passage cards
 D147  2026-07-27  landed     one continuous shared Voice scroll surface
 D148  2026-07-27  landed     local whole-passage and per-word reference TTS
+R149  implemented remaining  authorized Mac/iOS chooser playback and persistence acceptance
 ```

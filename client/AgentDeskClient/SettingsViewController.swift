@@ -1,4 +1,5 @@
 import AVFoundation
+import InteractionPanel
 import UIKit
 
 // Modal settings screen presented from PairingViewController's gear icon.
@@ -404,14 +405,7 @@ final class SettingsViewController: UIViewController {
     }
 
     private func configureSpeechOptions() {
-        agentSayVoices = AVSpeechSynthesisVoice.speechVoices()
-            .sorted { lhs, rhs in
-                let leftRank = voiceQualityRank(lhs.quality)
-                let rightRank = voiceQualityRank(rhs.quality)
-                if leftRank != rightRank { return leftRank < rightRank }
-                if lhs.language != rhs.language { return lhs.language < rhs.language }
-                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-            }
+        agentSayVoices = NativeSpeechVoiceCatalog.currentVoices()
         agentSayLanguages = Array(Set(agentSayVoices.map(\.language)))
             .sorted { lhs, rhs in
                 languageDisplayName(lhs).localizedCaseInsensitiveCompare(languageDisplayName(rhs)) == .orderedAscending
@@ -477,33 +471,15 @@ final class SettingsViewController: UIViewController {
     }
 
     private func normalizeSpeechSelection() {
-        if let identifier = store.agentSayVoiceIdentifier,
-           let selectedVoice = agentSayVoices.first(where: { $0.identifier == identifier }) {
-            if store.agentSayVoiceLanguage != selectedVoice.language {
-                store.agentSayVoiceLanguage = selectedVoice.language
-            }
-            return
-        }
-
-        if store.agentSayVoiceIdentifier != nil {
-            store.agentSayVoiceIdentifier = nil
-        }
-
-        if let language = store.agentSayVoiceLanguage,
-           agentSayLanguages.contains(language) {
-            return
-        }
-
-        let preferred = Locale.preferredLanguages.first { preferredLanguage in
-            agentSayLanguages.contains(preferredLanguage)
-        } ?? Locale.preferredLanguages.compactMap { preferredLanguage in
-            let preferredPrefix = Locale(identifier: preferredLanguage).language.languageCode?.identifier
-            return agentSayLanguages.first { candidate in
-                Locale(identifier: candidate).language.languageCode?.identifier == preferredPrefix
-            }
-        }.first
-
-        store.agentSayVoiceLanguage = preferred ?? agentSayLanguages.first
+        let selection = NativeSpeechVoiceCatalog.resolvedSelection(
+            voices: agentSayVoices.map(NativeSpeechVoiceDescriptor.init(voice:)),
+            voiceIdentifier: store.agentSayVoiceIdentifier,
+            language: store.agentSayVoiceLanguage,
+            preferredLanguages: Locale.preferredLanguages,
+            languageOrder: agentSayLanguages
+        )
+        store.agentSayVoiceIdentifier = selection.voiceIdentifier
+        store.agentSayVoiceLanguage = selection.language
     }
 
     private func selectedSpeechLanguage() -> String? {
@@ -547,30 +523,7 @@ final class SettingsViewController: UIViewController {
     }
 
     private func voiceMenuTitle(_ voice: AVSpeechSynthesisVoice) -> String {
-        let quality = voiceQualityLabel(voice.quality)
-        return quality.isEmpty ? voice.name : "\(voice.name) (\(quality))"
-    }
-
-    private func voiceQualityRank(_ quality: AVSpeechSynthesisVoiceQuality) -> Int {
-        switch quality {
-        case .premium:
-            0
-        case .enhanced:
-            1
-        default:
-            2
-        }
-    }
-
-    private func voiceQualityLabel(_ quality: AVSpeechSynthesisVoiceQuality) -> String {
-        switch quality {
-        case .premium:
-            "Premium"
-        case .enhanced:
-            "Enhanced"
-        default:
-            ""
-        }
+        NativeSpeechVoiceDescriptor(voice: voice).displayName
     }
 
     @objc private func dismissSelf() {

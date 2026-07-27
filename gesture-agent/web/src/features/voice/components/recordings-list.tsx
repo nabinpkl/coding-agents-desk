@@ -27,6 +27,7 @@ import {
   speakReference,
   stopReferenceSpeech,
 } from "@/features/voice/reference-speech";
+import { ReferenceSpeechControls } from "@/features/voice/components/reference-speech-controls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { loadRecordingAudioURL, recordingAudioUrl } from "@/lib/api";
@@ -348,54 +349,58 @@ export function RecordingsList() {
     voiceStatus === "requestingMic" || voiceStatus === "capturing";
   useEffect(() => () => stopReferenceSpeech(), []);
 
+  let content: ReactNode;
   if (isPending) {
-    return (
+    content = (
       <div className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
         <Loader2 className="size-4 animate-spin" />
         Loading recordings
       </div>
     );
-  }
-
-  if (isError) {
-    return (
+  } else if (isError) {
+    content = (
       <div className="flex items-center gap-2 p-4 text-sm text-destructive">
         <AlertCircle className="size-4" />
         {error instanceof Error ? error.message : "Failed to load recordings"}
       </div>
     );
-  }
-
-  if (data.length === 0) {
-    return (
+  } else if (data.length === 0) {
+    content = (
       <div className="flex flex-col items-center gap-2 p-8 text-center text-sm text-muted-foreground">
         <ListMusic className="size-5" />
         No recordings yet. Record something to see it here.
       </div>
     );
+  } else {
+    content = (
+      <>
+        {remove.isError && (
+          <div className="flex items-center gap-2 px-1 text-sm text-destructive">
+            <AlertCircle className="size-4" />
+            {remove.error instanceof Error
+              ? remove.error.message
+              : "Failed to delete recording"}
+          </div>
+        )}
+        <ul className="flex flex-col gap-2">
+          {data.map((recording) => (
+            <RecordingRow
+              key={recording.id}
+              isDeleting={remove.isPending && remove.variables === recording.id}
+              onDelete={(id) => remove.mutate(id)}
+              recording={recording}
+              referenceSpeechDisabled={referenceSpeechDisabled}
+            />
+          ))}
+        </ul>
+      </>
+    );
   }
 
   return (
     <div className="flex flex-col gap-2">
-      {remove.isError && (
-        <div className="flex items-center gap-2 px-1 text-sm text-destructive">
-          <AlertCircle className="size-4" />
-          {remove.error instanceof Error
-            ? remove.error.message
-            : "Failed to delete recording"}
-        </div>
-      )}
-      <ul className="flex flex-col gap-2">
-        {data.map((recording) => (
-          <RecordingRow
-            key={recording.id}
-            isDeleting={remove.isPending && remove.variables === recording.id}
-            onDelete={(id) => remove.mutate(id)}
-            recording={recording}
-            referenceSpeechDisabled={referenceSpeechDisabled}
-          />
-        ))}
-      </ul>
+      <ReferenceSpeechControls disabled={referenceSpeechDisabled} />
+      {content}
     </div>
   );
 }

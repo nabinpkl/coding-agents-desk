@@ -51,6 +51,7 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
         // orderFrontRegardless (not makeKeyAndOrderFront) so the LSUIElement app
         // never activates; the nonactivating panel can still become key.
         window?.orderFrontRegardless()
+        transport?.sendInteractionRequest(.referenceSpeechStateRequest)
     }
 
     func stop() {
@@ -73,6 +74,15 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
             )
             self.transport = transport
             self.panelController = controller
+            transport.onReferenceSpeechState = { [weak self, weak controller] state in
+                do {
+                    try controller?.deliver(referenceSpeechState: state)
+                } catch {
+                    self?.logger.error(
+                        "reference speech state delivery failed: \(String(describing: error), privacy: .public)"
+                    )
+                }
+            }
 
             let webView = controller.webView
             webView.setAccessibilityIdentifier(Self.webViewAccessibilityIdentifier)
