@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 
 const readFixture = (path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')
 
-const css = readFixture('../viewer.css')
+const css = readFixture('../file-content.css')
 const viewer = readFixture('../src/viewer.mjs')
 
 test('viewer exposes light and dark system theme variables', () => {

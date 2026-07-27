@@ -1,3 +1,8 @@
+/* Styles for *rendered file content* — markdown, highlighted code, notebooks, DOCX. Loaded by every
+   document that renders a file: the standalone viewer and the IDE's editor pane. Nothing in here may
+   lay out `html` or `body`; that belongs to the owning document, which is why this file exists. See
+   viewer.css for the standalone viewer's own chrome. */
+
 :root {
   color-scheme: light dark;
   --bg: #ffffff;
@@ -56,45 +61,8 @@
   }
 }
 
-* { box-sizing: border-box; }
 
-html, body {
-  margin: 0;
-  height: 100%;
-  background: var(--bg);
-  color: var(--fg);
-  font: var(--markdown-font-size)/1.5 -apple-system, system-ui, sans-serif;
-}
 
-body {
-  display: flex;
-  flex-direction: column;
-}
-
-#content {
-  flex: 1 1 auto;
-  overflow: hidden;  /* the CodeMirror editor scrolls itself; markdown body scrolls inside */
-  padding: 0;
-  position: relative;
-}
-
-/* A code file fills the content area with its own scroller. */
-#content > .cm-editor {
-  height: 100%;
-  font: var(--editor-code-font-size)/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-/* Markdown bodies scroll (the editor handles its own scrolling). */
-#content > .markdown-body { height: 100%; overflow: auto; }
-
-/* DOCX is one shared reader on macOS and iOS. docx-preview owns Word's page
-   geometry; DocxViewport scales that complete geometry to fit this scroller. */
-#content > .docx-scroll {
-  height: 100%;
-  overflow: auto;
-  overscroll-behavior: contain;
-  touch-action: pan-x pan-y;
-  -webkit-overflow-scrolling: touch;
-}
 .docx-document {
   min-width: 0;
 }
@@ -169,7 +137,6 @@ body {
 .mermaid-error { padding: 12px; color: var(--danger-fg); font-family: ui-monospace, monospace; }
 
 /* ── Notebook (.ipynb) read-only view ───────────────────────────────────── */
-#content > .nb { height: 100%; overflow: auto; }
 .nb {
   max-width: 980px;
   margin: 0 auto;

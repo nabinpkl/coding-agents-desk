@@ -48,12 +48,16 @@ async function buildGeneratedWorkspaceIDE(stagingDirectory) {
     mkdir(viewer, { recursive: true }),
     mkdir(ide, { recursive: true }),
   ])
+  // file-content.css goes to both: it is the shared file-rendering stylesheet. viewer.css is the
+  // standalone viewer's own document chrome and must NOT reach the IDE — it lays out `body`, and
+  // the IDE lays out its own.
   await Promise.all([
     copyFile(resolve(webRoot, 'index.html'), resolve(viewer, 'index.html')),
     copyFile(resolve(webRoot, 'viewer.css'), resolve(viewer, 'viewer.css')),
+    copyFile(resolve(webRoot, 'file-content.css'), resolve(viewer, 'file-content.css')),
     copyFile(resolve(webRoot, 'ide.html'), resolve(ide, 'index.html')),
     copyFile(resolve(webRoot, 'ide.css'), resolve(ide, 'ide.css')),
-    copyFile(resolve(webRoot, 'viewer.css'), resolve(ide, 'viewer.css')),
+    copyFile(resolve(webRoot, 'file-content.css'), resolve(ide, 'file-content.css')),
   ])
   await Promise.all([
     buildBundle({

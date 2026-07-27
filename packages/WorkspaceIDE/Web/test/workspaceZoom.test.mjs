@@ -5,9 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { applyWorkspaceZoom, normalizeWorkspaceZoom } from '../src/workspaceZoom.mjs'
 
 const read = (name) => readFileSync(fileURLToPath(new URL(`../${name}`, import.meta.url)), 'utf8')
-const viewerCss = read('viewer.css')
-const ideCss = read('ide.css')
-const ideHtml = read('ide.html')
+const stylesheetsOf = (html) => [...html.matchAll(/<link[^>]+href="[^"]*\/([\w.-]+\.css)"/g)].map(([, name]) => name)
 
 test('workspace zoom scales a region while preserving its physical viewport coverage', () => {
   const root = { style: {} }
@@ -27,14 +25,33 @@ test('workspace zoom rejects invalid values and remains within the native range'
   assert.equal(normalizeWorkspaceZoom(4), 2)
 })
 
-test('the IDE root is not a flex item, or zooming out would squash it', () => {
-  // viewer.css ships `body { display: flex }` for the standalone viewer, and ide.html loads both
-  // stylesheets. As a flex item the zoomed-out root (height: 100/scale%) shrinks back to the
-  // viewport before the transform runs, so the sidebar only paints `scale` of the window height.
-  assert.match(viewerCss, /body\s*\{[^}]*display:\s*flex;/s)
-  assert.match(ideCss, /body\s*\{[^}]*display:\s*block;/s)
-  assert.ok(
-    ideHtml.indexOf('viewer.css') < ideHtml.indexOf('ide.css'),
-    'ide.css must load after viewer.css to win the body display'
-  )
+test('each document loads exactly one stylesheet that lays itself out', () => {
+  // Zooming out sizes a region's root to 100/scale% so scaling it back down covers the window.
+  // That collapses the moment a second stylesheet turns the root into a flex or grid item, because
+  // such an item shrinks to fit — which is what a shared stylesheet laying out `body` would do.
+  assert.deepEqual(stylesheetsOf(read('index.html')), ['file-content.css', 'viewer.css'])
+  assert.deepEqual(stylesheetsOf(read('ide.html')), ['file-content.css', 'ide.css'])
+})
+
+/// Every selector the sheet declares, comments stripped and `@media` blocks flattened, so the check
+/// below reads real selectors rather than whatever a regex happens to bump into.
+function selectorsOf(css) {
+  return css
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('}')
+    .flatMap((block) => block.split('{').slice(0, -1))
+    .flatMap((selector) => selector.split(','))
+    .map((selector) => selector.replace(/@media[^{]*/g, '').trim())
+    .filter(Boolean)
+}
+
+test('the shared content stylesheet never lays out the document that loads it', () => {
+  const shared = selectorsOf(read('file-content.css'))
+  const layoutTargets = shared.filter((selector) => /(^|\s)(html|body)(\s|$|[.:[])/.test(selector))
+  assert.deepEqual(layoutTargets, [], 'file-content.css must not style html or body')
+  // Nor reach for the standalone viewer's container, which only that one document has.
+  assert.deepEqual(shared.filter((selector) => selector.includes('#content')), [])
+  // Both roots are still laid out, by their own documents, and they disagree on purpose.
+  assert.match(read('viewer.css'), /body\s*\{[^}]*display:\s*flex;/s)
+  assert.match(read('ide.css'), /#workspace-ide\s*\{[^}]*display:\s*grid;/s)
 })
