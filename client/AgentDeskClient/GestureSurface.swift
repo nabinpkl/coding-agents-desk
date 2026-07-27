@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import OSLog
 import UIKit
@@ -22,6 +23,8 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
     private var voiceLaneOpeningTask: Task<VoiceLaneClient, Error>?
     private weak var voiceLaneTransport: QuicSessionClientTransport?
     private var panelContentView = UIView()
+    private let referenceSpeechSynthesizer = AVSpeechSynthesizer()
+    private var referenceSpeechSessionActive = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -36,6 +39,7 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
     }
 
     private func setUpPanel() {
+        referenceSpeechSynthesizer.delegate = self
         do {
             let config = WKUserScript(
                 source: #"window.__interactionConfig = {"voiceTransport":"native"};"#,
@@ -82,6 +86,7 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
     }
 
     func teardown() {
+        stopReferenceSpeech()
         voiceLane?.close()
         voiceLane = nil
         voiceLaneOpeningTask?.cancel()
@@ -100,6 +105,10 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
         switch request {
         case .spaceStep(let delta):
             onSpaceStep?(delta)
+        case .referenceSpeech(let text, let language):
+            speakReference(text: text, language: language)
+        case .referenceSpeechStop:
+            stopReferenceSpeech()
         case .voiceSocketOpen(let requestID, let sessionID):
             forwardVoice(.socketOpen(
                 requestID: requestID,
@@ -128,6 +137,44 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
                 path: request.path,
                 body: request.body
             )))
+        }
+    }
+
+    private func speakReference(text: String, language: String) {
+        referenceSpeechSynthesizer.stopSpeaking(at: .immediate)
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .spokenAudio)
+            try session.setActive(true)
+            referenceSpeechSessionActive = true
+        } catch {
+            logger.error(
+                "reference speech audio session failed: \(error.localizedDescription, privacy: .public)"
+            )
+            return
+        }
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.voice = AVSpeechSynthesisVoice(language: language)
+        referenceSpeechSynthesizer.speak(utterance)
+    }
+
+    private func stopReferenceSpeech() {
+        referenceSpeechSynthesizer.stopSpeaking(at: .immediate)
+        deactivateReferenceSpeechSession()
+    }
+
+    private func deactivateReferenceSpeechSession() {
+        guard referenceSpeechSessionActive else { return }
+        do {
+            try AVAudioSession.sharedInstance().setActive(
+                false,
+                options: [.notifyOthersOnDeactivation]
+            )
+            referenceSpeechSessionActive = false
+        } catch {
+            logger.error(
+                "reference speech cleanup failed: \(error.localizedDescription, privacy: .public)"
+            )
         }
     }
 
@@ -222,6 +269,32 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
         decisionHandler: @escaping (WKPermissionDecision) -> Void
     ) {
         decisionHandler(.grant)
+    }
+}
+
+extension GestureSurface: AVSpeechSynthesizerDelegate {
+    nonisolated func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didFinish utterance: AVSpeechUtterance
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self, !self.referenceSpeechSynthesizer.isSpeaking else {
+                return
+            }
+            self.deactivateReferenceSpeechSession()
+        }
+    }
+
+    nonisolated func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didCancel utterance: AVSpeechUtterance
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self, !self.referenceSpeechSynthesizer.isSpeaking else {
+                return
+            }
+            self.deactivateReferenceSpeechSession()
+        }
     }
 }
 

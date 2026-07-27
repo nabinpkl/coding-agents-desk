@@ -7,7 +7,14 @@
 
 "use client";
 
-import { AlertCircle, ListMusic, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import {
+  AlertCircle,
+  ListMusic,
+  Loader2,
+  RefreshCw,
+  Trash2,
+  Volume2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -16,11 +23,16 @@ import {
   useReanalyzeRecording,
   useRecordings,
 } from "@/features/voice/use-recordings";
+import {
+  speakReference,
+  stopReferenceSpeech,
+} from "@/features/voice/reference-speech";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { loadRecordingAudioURL, recordingAudioUrl } from "@/lib/api";
 import { getHostConfig } from "@/lib/host-bridge";
 import type { Recording, WordPhoneGroup } from "@/lib/wire";
+import { useVoiceStore } from "@/stores/voice-store";
 
 function formatDuration(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
@@ -43,17 +55,22 @@ function formatCreatedAt(iso: string): string {
 function PassageCard({
   title,
   detail,
+  action,
   children,
 }: {
   readonly title: string;
   readonly detail: string;
+  readonly action?: ReactNode;
   readonly children: ReactNode;
 }) {
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border bg-background/70 p-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <h3 className="text-sm font-semibold">{title}</h3>
-        <span className="text-xs text-muted-foreground">{detail}</span>
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground">{detail}</span>
+          {action}
+        </div>
       </div>
       {children}
     </section>
@@ -63,9 +80,13 @@ function PassageCard({
 function GroupedPhones({
   groups,
   column,
+  referenceSpeechDisabled,
+  onSpeakWord,
 }: {
   readonly groups: readonly WordPhoneGroup[];
   readonly column: "heard" | "reference";
+  readonly referenceSpeechDisabled?: boolean;
+  readonly onSpeakWord?: (word: string) => void;
 }) {
   if (groups.length === 0) {
     return <p className="text-sm text-muted-foreground">No word groups available.</p>;
@@ -74,6 +95,7 @@ function GroupedPhones({
   return (
     <div className="flex flex-wrap items-baseline gap-x-6 gap-y-3 leading-relaxed">
       {groups.map((group, index) => {
+        const word = group.word;
         const phones =
           column === "heard" ? group.heardPhones : group.referencePhones;
         let emptyText = "No raw phones aligned";
@@ -91,8 +113,20 @@ function GroupedPhones({
             key={`${group.word ?? "unassigned"}-${index}`}
           >
             <span className="shrink-0 text-sm font-semibold text-muted-foreground">
-              {group.word ?? "No word anchor"}
+              {word ?? "No word anchor"}
             </span>
+            {column === "reference" && word !== null && onSpeakWord ? (
+              <Button
+                aria-label={`Hear reference word ${word}`}
+                disabled={referenceSpeechDisabled}
+                onClick={() => onSpeakWord(word)}
+                size="icon-xs"
+                title={`Hear “${word}”`}
+                variant="ghost"
+              >
+                <Volume2 />
+              </Button>
+            ) : null}
             <span
               className={
                 phones.length > 0
@@ -113,18 +147,22 @@ function RecordingRow({
   recording,
   onDelete,
   isDeleting,
+  referenceSpeechDisabled,
 }: {
   readonly recording: Recording;
   readonly onDelete: (id: string) => void;
   readonly isDeleting: boolean;
+  readonly referenceSpeechDisabled: boolean;
 }) {
   const wordPhoneGroups = recording.wordPhoneGroups ?? [];
   const unknownReferenceWords = recording.unknownReferenceWords ?? [];
+  const referenceText = recording.transcript?.trim() ?? "";
   const nativeTransport = getHostConfig()?.voiceTransport === "native";
   const [audioURL, setAudioURL] = useState<string | undefined>(
     nativeTransport ? undefined : recordingAudioUrl(recording.id),
   );
   const [audioError, setAudioError] = useState<string>();
+  const [referenceSpeechError, setReferenceSpeechError] = useState<string>();
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const reanalyze = useReanalyzeRecording();
   useEffect(() => {
@@ -142,6 +180,19 @@ function RecordingRow({
       setAudioError(error instanceof Error ? error.message : "Audio unavailable");
     } finally {
       setIsLoadingAudio(false);
+    }
+  }
+
+  function playReference(text: string): void {
+    try {
+      speakReference(text);
+      setReferenceSpeechError(undefined);
+    } catch (error) {
+      setReferenceSpeechError(
+        error instanceof Error
+          ? error.message
+          : "Reference speech is unavailable.",
+      );
     }
   }
 
@@ -196,10 +247,29 @@ function RecordingRow({
         </PassageCard>
 
         <PassageCard
+          action={
+            <Button
+              disabled={
+                referenceSpeechDisabled || referenceText.length === 0
+              }
+              onClick={() => playReference(referenceText)}
+              size="xs"
+              title="Hear the full reference passage"
+              variant="ghost"
+            >
+              <Volume2 />
+              Hear all
+            </Button>
+          }
           detail={recording.referenceDictionaryIdentifier ?? "CMUdict by word"}
           title="Reference phonemes"
         >
-          <GroupedPhones column="reference" groups={wordPhoneGroups} />
+          <GroupedPhones
+            column="reference"
+            groups={wordPhoneGroups}
+            onSpeakWord={playReference}
+            referenceSpeechDisabled={referenceSpeechDisabled}
+          />
           {recording.referencePronunciationError && (
             <p className="text-xs text-destructive">
               Reference pronunciation failed:{" "}
@@ -210,6 +280,9 @@ function RecordingRow({
             <p className="text-xs text-muted-foreground">
               No dictionary entry: {unknownReferenceWords.join(", ")}
             </p>
+          )}
+          {referenceSpeechError && (
+            <p className="text-xs text-destructive">{referenceSpeechError}</p>
           )}
         </PassageCard>
       </div>
@@ -270,6 +343,10 @@ function RecordingRow({
 export function RecordingsList() {
   const { data, isPending, isError, error } = useRecordings();
   const remove = useDeleteRecording();
+  const voiceStatus = useVoiceStore((state) => state.runState.status);
+  const referenceSpeechDisabled =
+    voiceStatus === "requestingMic" || voiceStatus === "capturing";
+  useEffect(() => () => stopReferenceSpeech(), []);
 
   if (isPending) {
     return (
@@ -315,6 +392,7 @@ export function RecordingsList() {
             isDeleting={remove.isPending && remove.variables === recording.id}
             onDelete={(id) => remove.mutate(id)}
             recording={recording}
+            referenceSpeechDisabled={referenceSpeechDisabled}
           />
         ))}
       </ul>

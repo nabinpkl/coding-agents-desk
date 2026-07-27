@@ -415,6 +415,10 @@ CMUdict revision, and the shared ARPABET-to-model-phone mapping. The host aligns
 phones to reference words for display while retaining unanchored phones explicitly; the web panel
 shows separate transcript, heard-phone, and reference-phone cards. These word groups are presentation
 alignment, not acoustic word boundaries, and are not a second persisted analysis authority.
+The reference card's whole-passage and per-word speaker actions send a bounded local
+`referenceSpeech` request to the containing app. macOS and iOS play it with `AVSpeechSynthesizer`;
+ordinary browser development uses Web Speech as a preview fallback. Reference TTS never crosses the
+voice or input lanes, is not retained as reference audio, and is stopped before microphone capture.
 
 ## Workspace Workbench Terminal Flow
 

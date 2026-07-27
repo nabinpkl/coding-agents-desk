@@ -22,6 +22,37 @@ struct InteractionPanelTests {
         #expect(InteractionPanelRequest.decode(tag: "unknown", body: ["delta": 1]) == nil)
     }
 
+    @Test func decodesBoundedReferenceSpeechRequests() {
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "referenceSpeech",
+                body: ["text": "hello", "language": "en-US"]
+            ) == .referenceSpeech(text: "hello", language: "en-US")
+        )
+        #expect(
+            InteractionPanelRequest.decode(tag: "referenceSpeechStop", body: [:])
+                == .referenceSpeechStop
+        )
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "referenceSpeech",
+                body: ["text": "  ", "language": "en-US"]
+            ) == nil
+        )
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "referenceSpeech",
+                body: [
+                    "text": String(
+                        repeating: "a",
+                        count: InteractionPanelRequest.maximumReferenceSpeechUTF8Bytes + 1
+                    ),
+                    "language": "en-US",
+                ]
+            ) == nil
+        )
+    }
+
     @Test func decodesVoiceTransportRequests() {
         #expect(
             InteractionPanelRequest.decode(

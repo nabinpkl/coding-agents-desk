@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { LiveTranscript } from "@/features/voice/components/live-transcript";
+import { stopReferenceSpeech } from "@/features/voice/reference-speech";
 import { VuMeter } from "@/features/voice/components/vu-meter";
 import { useVoiceSession } from "@/features/voice/use-voice-session";
 import {
@@ -64,7 +65,10 @@ export function VoiceRecorder() {
             variant="default"
             size="lg"
             disabled={isBusy}
-            onClick={() => void startRecording()}
+            onClick={() => {
+              stopReferenceSpeech();
+              void startRecording();
+            }}
           >
             <Mic />
             {status === "complete" || status === "error"

@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 
 import { listRecordings } from "@/lib/api";
+import {
+  speakReference,
+  stopReferenceSpeech,
+} from "@/features/voice/reference-speech";
 import { VoiceSocket } from "@/lib/ws";
 import type { RecordingListResponse } from "@/lib/wire";
 
@@ -44,6 +48,27 @@ afterAll(() => {
 function deliver(payload: Record<string, unknown>): void {
   testWindow.__interactionDeliver?.({ type: "voiceLane", payload });
 }
+
+test("reference speech uses the local native bridge", () => {
+  posted.length = 0;
+  speakReference("  Hello, hello.  ");
+  expect(posted.at(-1)).toEqual({
+    t: "referenceSpeech",
+    text: "Hello, hello.",
+    language: "en-US",
+  });
+
+  stopReferenceSpeech();
+  expect(posted.at(-1)).toEqual({ t: "referenceSpeechStop" });
+});
+
+test("reference speech rejects oversized text before crossing native", () => {
+  posted.length = 0;
+  expect(() => speakReference("a".repeat(20_001))).toThrow(
+    "Reference speech is too long.",
+  );
+  expect(posted).toEqual([]);
+});
 
 test("native REST reassembles bounded response chunks", async () => {
   posted.length = 0;
