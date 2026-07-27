@@ -10,7 +10,6 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
     private let terminalController: WorkspaceIDEMacTerminalController
     private let ideContentView: WorkspaceIDEWindowContentView
     private var isStopping = false
-    private var hasBeenShown = false
 
     init(
         files: WorkspaceFilesResponder,
@@ -50,6 +49,12 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenPrimary]
         window.isReleasedWhenClosed = false
         window.contentView = ideContentView
+        // Naming the frame only tells AppKit where to *save* it; a code-created window (no nib)
+        // still has to ask for the saved rectangle back, and centres when there is nothing stored.
+        window.setFrameAutosaveName(Config.workspaceIDEWindowFrameAutosaveName)
+        if !window.setFrameUsingName(Config.workspaceIDEWindowFrameAutosaveName) {
+            window.center()
+        }
         super.init(window: window)
         window.delegate = self
         ideController.delegate = self
@@ -62,23 +67,36 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
 
     func toggle() {
         guard let window else { return }
-        if window.isVisible {
-            hide()
-        } else {
-            showWindow(nil)
-            if !hasBeenShown {
-                window.center()
-                hasBeenShown = true
-            }
+        if window.isVisible { hide() } else { show() }
+    }
+
+    /// `activating` is false for the launch restore: the host starts at login, and a window that
+    /// takes focus out from under whatever you were doing is worse than no restore at all.
+    func show(activating: Bool = true) {
+        guard let window else { return }
+        showWindow(nil)
+        if activating {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
-            terminalController.setWindowPresented(true)
+        } else {
+            window.orderFront(nil)
         }
+        terminalController.setWindowPresented(true)
+        recordWindowVisible(true)
+    }
+
+    /// Whether the window was on screen when the host last quit. Read before the controller
+    /// exists, because building one spins up the lane bridge and workspace subscriptions and that
+    /// cost only makes sense if we are actually going to show it.
+    static var wasVisibleAtLastQuit: Bool {
+        UserDefaults.standard.bool(forKey: Config.workspaceIDEWindowVisibleKey)
     }
 
     func stop() {
         guard !isStopping else { return }
         isStopping = true
+        // Deliberately not recording visibility here: quitting closes the window, and treating
+        // that as "the user closed it" would lose the very state this is meant to restore.
         terminalController.stop()
         ideController.stop()
         ideController.delegate = nil
@@ -133,6 +151,11 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
     private func hide() {
         terminalController.setWindowPresented(false)
         window?.orderOut(nil)
+        recordWindowVisible(false)
+    }
+
+    private func recordWindowVisible(_ visible: Bool) {
+        UserDefaults.standard.set(visible, forKey: Config.workspaceIDEWindowVisibleKey)
     }
 
     func windowDidEndLiveResize(_ notification: Notification) {

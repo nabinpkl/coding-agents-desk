@@ -974,6 +974,12 @@ enum Config {
         .appendingPathComponent("workspace-ide-state.json", isDirectory: false)
     static let workspaceIDEDraftsDirectory = applicationSupportDirectory
         .appendingPathComponent("WorkspaceIDE/Drafts", isDirectory: true)
+    /// AppKit writes the IDE window's frame under this name in the app's own defaults domain, which
+    /// is already bundle-scoped, so the stable and dev hosts keep separate window positions.
+    static let workspaceIDEWindowFrameAutosaveName = "AgentDeskWorkspaceIDEWindow"
+    /// Whether the IDE window was on screen when the host last quit. Read once at launch to put it
+    /// back, so a restart is invisible to someone who was working in it.
+    static let workspaceIDEWindowVisibleKey = "agentDesk.workspaceIDE.windowVisible"
     static let terminalWindowPresentationsURL = applicationSupportDirectory
         .appendingPathComponent("terminal-window-presentations.json", isDirectory: false)
     static let donorWorkspaceStoreURL = FileManager.default

@@ -312,6 +312,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startPtyManager()
         startAgentFeedSidecar()
         startVoiceEngineSidecar()
+        restoreWorkspaceIDEWindowIfPreviouslyOpen()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
         }
@@ -598,6 +599,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func toggleWorkspaceIDE() {
+        workspaceIDEWindow().toggle()
+    }
+
+    /// Puts the IDE back on screen if that is where the user left it. Called at launch so a host
+    /// restart does not cost them the window they were working in; when it was closed we build
+    /// nothing, and the controller stays lazy until they ask for it.
+    private func restoreWorkspaceIDEWindowIfPreviouslyOpen() {
+        guard WorkspaceIDEWindowController.wasVisibleAtLastQuit else { return }
+        workspaceIDEWindow().show(activating: false)
+    }
+
+    private func workspaceIDEWindow() -> WorkspaceIDEWindowController {
+        if let workspaceIDEWindowController { return workspaceIDEWindowController }
         let terminalEndpoint = localWorkspaceTerminalEndpoint ?? WorkspaceTerminalEndpoint(
             coordinator: workspaceTerminalCoordinator,
             requestNamespace: "workspace-macos-ide",
@@ -606,7 +620,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             push: nil
         )
         localWorkspaceTerminalEndpoint = terminalEndpoint
-        let controller = workspaceIDEWindowController ?? WorkspaceIDEWindowController(
+        let controller = WorkspaceIDEWindowController(
             files: workspaceFilesResponder,
             workspaces: workspaceCoordinator,
             ideState: workspaceIDEStateCoordinator,
@@ -615,7 +629,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             spacesProvider: spacesProvider
         )
         workspaceIDEWindowController = controller
-        controller.toggle()
+        return controller
     }
 
     private func toggleBrowserProjection() {

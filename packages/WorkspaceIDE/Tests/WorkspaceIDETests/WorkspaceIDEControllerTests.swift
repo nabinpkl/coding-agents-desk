@@ -31,6 +31,56 @@ import Testing
 }
 
 @MainActor
+@Test func startupReopensTheWorkspaceTheUserWasLastIn() async {
+    let source = WorkspaceIDEFakeDataSource(workspaces: [
+        WorkspaceSummary(id: "workspace-1", name: "One"),
+        WorkspaceSummary(id: "workspace-2", name: "Two"),
+    ])
+    let stateStore = WorkspaceIDEInMemoryStateStore()
+    stateStore.save(WorkspaceIDELocalState(
+        selectedWorkspaceID: "workspace-2",
+        sidebarSection: .sourceControl,
+        zoomStep: 3
+    ))
+    let controller = WorkspaceIDEController(
+        dataSource: source,
+        capabilities: .macOSWorkspaceManagement,
+        localStateStore: stateStore,
+        draftStore: WorkspaceIDEInMemoryDraftStore()
+    )
+
+    controller.start()
+    await eventually { controller.localState.selectedWorkspaceID == "workspace-2" }
+
+    // The whole point of persisting these is that a restart lands you where you left off, not on
+    // whichever workspace happens to sort first.
+    #expect(controller.sidebarProjection().selectedWorkspaceID == "workspace-2")
+    #expect(controller.currentLocalState.sidebarSection == .sourceControl)
+    #expect(controller.currentLocalState.zoomScale == 1.3)
+    controller.stop()
+}
+
+@MainActor
+@Test func aWorkspaceRemovedWhileTheHostWasDownFallsBackInsteadOfShowingNothing() async {
+    let stateStore = WorkspaceIDEInMemoryStateStore()
+    stateStore.save(WorkspaceIDELocalState(selectedWorkspaceID: "workspace-gone"))
+    let controller = WorkspaceIDEController(
+        dataSource: WorkspaceIDEFakeDataSource(workspaces: [
+            WorkspaceSummary(id: "workspace-1", name: "One"),
+        ]),
+        capabilities: .macOSWorkspaceManagement,
+        localStateStore: stateStore,
+        draftStore: WorkspaceIDEInMemoryDraftStore()
+    )
+
+    controller.start()
+    await eventually { controller.localState.selectedWorkspaceID == "workspace-1" }
+
+    #expect(controller.sidebarProjection().error == nil)
+    controller.stop()
+}
+
+@MainActor
 @Test func emptyEditorProjectionIsNotLoadingAFile() {
     let controller = makeController()
     controller.localState.selectedWorkspaceID = "workspace-1"
@@ -330,10 +380,13 @@ private func eventually(
 
 private actor WorkspaceIDEFakeDataSource: WorkspaceIDEDataSource {
     private var writes: [String] = []
+    private let workspaces: [WorkspaceSummary]
 
-    func listWorkspaces() async throws -> [WorkspaceSummary] {
-        [WorkspaceSummary(id: "workspace-1", name: "Workspace")]
+    init(workspaces: [WorkspaceSummary] = [WorkspaceSummary(id: "workspace-1", name: "Workspace")]) {
+        self.workspaces = workspaces
     }
+
+    func listWorkspaces() async throws -> [WorkspaceSummary] { workspaces }
 
     func listDirectory(workspaceID: String, path: String) async throws -> [WorkspaceDirectoryEntry] {
         []
