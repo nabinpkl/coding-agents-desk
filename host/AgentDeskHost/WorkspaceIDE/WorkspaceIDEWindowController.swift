@@ -92,17 +92,13 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         return false
     }
 
+    /// Retargets the IDE — tree, editor, terminal — at another workspace. It deliberately does
+    /// **not** follow the workspace's Desktop assignment: this window is a single surface you look
+    /// at while the Mac stays where it is, so switching its subject must not yank the whole screen
+    /// to another Space. Desktop following belongs to the shell (`WorkspaceShellSession`), which is
+    /// the surface whose job is to move you between workspaces.
     func workspaceIDEController(_ controller: WorkspaceIDEController, didSelectWorkspace id: String?) {
         terminalController.selectWorkspace(id: id, name: id.flatMap { controller.workspaceName(for: $0) })
-        guard let id, let workspaceID = UUID(uuidString: id) else { return }
-        Task { [weak self] in
-            guard let self,
-                  let workspace = try? await workspaceCoordinator.workspace(id: workspaceID),
-                  controller.currentLocalState.selectedWorkspaceID == id,
-                  let assignment = workspace.desktopAssignment,
-                  !desktopSwitcher.isActive(assignment) else { return }
-            _ = desktopSwitcher.switchToDesktop(assignment)
-        }
     }
 
     func workspaceIDEController(_ controller: WorkspaceIDEController, handle intent: WorkspaceIDEPlatformIntent) {
