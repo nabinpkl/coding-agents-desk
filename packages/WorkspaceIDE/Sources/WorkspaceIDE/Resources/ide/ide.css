@@ -138,6 +138,27 @@ body[data-region='sidebar'] #workspace-ide {
 }
 .ide-tree-row:hover { background: var(--ide-hover); }
 .ide-disclosure { width: 12px; color: var(--ide-muted); text-align: center; }
+/* Occupies the same column as a file's icon, so names stay aligned whether the row is a file or a
+   folder. Sized and weighted to be aimable, unlike the ▸ text glyph it replaces, which rendered at
+   whatever half-height the system font felt like giving it. */
+.ide-tree-chevron {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  color: var(--ide-muted);
+}
+.ide-tree-chevron svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ide-tree-chevron[data-expanded='true'] svg { transform: rotate(90deg); }
+.ide-tree-row:hover .ide-tree-chevron { color: var(--ide-fg); }
 .ide-file-icon {
   width: 16px;
   height: 16px;

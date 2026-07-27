@@ -95,12 +95,13 @@ function renderTree(nodes, send, nested = false) {
       else send({ type: 'open', path: node.path })
     })
     row.className = 'ide-tree-row'
-    const disclosure = element('span', 'ide-disclosure')
-    disclosure.textContent = node.isDirectory ? (node.expanded ? '▾' : '▸') : ''
-    const icon = fileIcon(node.name, node.isDirectory, Boolean(node.expanded))
+    // A directory's chevron IS its mark, so it takes the icon column outright: a folder glyph
+    // beside it said the same thing twice, and dropping it lets the chevron grow to a size you
+    // can actually aim at while filenames stay aligned down the column.
+    const mark = node.isDirectory ? chevron(Boolean(node.expanded)) : fileIcon(node.name)
     const label = element('span', 'ide-tree-label')
     label.textContent = node.name
-    row.append(disclosure, icon, label)
+    row.append(mark, label)
     const tone = gitDecorationTone(node.gitStatus)
     if (tone) {
       row.dataset.git = tone
@@ -171,7 +172,7 @@ function renderSourceRows(section, send) {
     name.textContent = row.name
     const directory = element('span', 'ide-source-dir')
     directory.textContent = row.directory
-    control.append(badge, fileIcon(row.name, false), name, directory)
+    control.append(badge, fileIcon(row.name), name, directory)
     item.append(control)
     list.append(item)
   }
@@ -337,8 +338,22 @@ const unknownFileShape = Object.freeze({
   body: '<path d="M3 1.5h6.2l3.8 3.8v9.2H3v-13Zm6 1.4v2.6h2.6L9 2.9Z"/>',
 })
 
-function fileIcon(name, isDirectory, isExpanded = false) {
-  const { icon } = fileIconSpec(name, isDirectory, isExpanded)
+function chevron(isExpanded) {
+  const container = element('span', 'ide-tree-chevron')
+  container.dataset.expanded = String(isExpanded)
+  container.setAttribute('aria-hidden', 'true')
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.setAttribute('focusable', 'false')
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  path.setAttribute('d', 'M6 3.5 10.5 8 6 12.5')
+  svg.append(path)
+  container.append(svg)
+  return container
+}
+
+function fileIcon(name) {
+  const { icon } = fileIconSpec(name)
   const shape = fileIconShape(icon) ?? unknownFileShape
   const container = element('span', 'ide-file-icon')
   container.setAttribute('aria-hidden', 'true')

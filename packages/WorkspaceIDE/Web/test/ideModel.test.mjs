@@ -44,8 +44,7 @@ test('file render identity ignores local keystrokes and changes for native refre
   )
 })
 
-const iconFor = (name, isDirectory = false, isExpanded = false) =>
-  fileIconSpec(name, isDirectory, isExpanded).icon
+const iconFor = (name) => fileIconSpec(name).icon
 
 test('every extension resolves to an icon this bundle actually carries', () => {
   for (const icon of new Set(Object.values(extensionIcons).concat(Object.values(filenameIcons)))) {
@@ -68,9 +67,7 @@ test('gradient ids are namespaced, so one icon cannot repaint another', () => {
   }
 })
 
-test('file rows take the icon of their extension, folders open and close', () => {
-  assert.equal(iconFor('Sources', true), 'folder')
-  assert.equal(iconFor('Sources', true, true), 'folder-open')
+test('file rows take the icon of their extension', () => {
   assert.equal(iconFor('Package.swift'), 'swift')
   assert.equal(iconFor('worker.py'), 'python')
   assert.equal(iconFor('main.rs'), 'rust')

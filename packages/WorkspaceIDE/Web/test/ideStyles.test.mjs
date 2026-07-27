@@ -22,6 +22,12 @@ test('Explorer uses compact semantic icons at every sidebar width', () => {
   assert.doesNotMatch(css, /--ide-icon-/)
 })
 
+test('a directory is marked by its chevron alone, in the icon column', () => {
+  assert.match(css, /\.ide-tree-chevron\s*\{[^}]*flex:\s*0 0 16px;/s)
+  assert.match(css, /\.ide-tree-chevron svg\s*\{[^}]*stroke-width:\s*1\.7;/s)
+  assert.match(css, /\.ide-tree-chevron\[data-expanded='true'\] svg\s*\{\s*transform:\s*rotate\(90deg\);/)
+})
+
 test('section buttons are stroked glyphs that never fall back to a text label', () => {
   assert.match(css, /\.ide-activity-button svg\s*\{[^}]*stroke:\s*currentColor;/s)
   assert.match(css, /\.ide-activity-button svg\s*\{[^}]*fill:\s*none;/s)

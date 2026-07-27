@@ -2,15 +2,14 @@ import { extensionIcons, filenameIcons, iconShapes } from './generated/fileIcons
 
 const regions = new Set(['sidebar', 'editor'])
 
-/// Which icon a row draws. `null` means "no icon of its own": the caller falls back to the plain
-/// document outline, which is what an unrecognised extension should look like rather than a
-/// misleading borrowed logo.
+/// Which icon a file row draws. `null` means "no icon of its own": the caller falls back to the
+/// plain document outline, which is what an unrecognised extension should look like rather than a
+/// misleading borrowed logo. Directories never reach here — their chevron is their mark.
 ///
 /// A whole filename beats an extension (`package.json` is the npm mark, not the generic JSON one),
 /// and a longer extension beats a shorter one (`docker-compose.yml` before `yml`) — the same
 /// precedence VS Code resolves icon themes with, so a file looks the way people expect.
-export function fileIconSpec(name, isDirectory = false, isExpanded = false) {
-  if (isDirectory) return { icon: isExpanded ? 'folder-open' : 'folder' }
+export function fileIconSpec(name) {
   const lowerName = String(name ?? '').toLowerCase()
   const named = filenameIcons[lowerName]
   if (named) return { icon: named }

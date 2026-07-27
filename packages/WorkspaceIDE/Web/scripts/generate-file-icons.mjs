@@ -34,8 +34,6 @@ const includedIcons = [
   // Documents and media
   'readme', 'license', 'pdf', 'word', 'powerpoint', 'table', 'document', 'jupyter',
   'image', 'svg', 'video', 'audio', 'font', 'zip', 'log', 'exe',
-  // Containers
-  'folder', 'folder-open',
 ]
 
 /// Upstream ships light and high-contrast variants of a few icons. The sidebar uses one icon per
