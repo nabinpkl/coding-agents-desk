@@ -24,6 +24,13 @@
   --ide-icon-ruby: #c23b3b;
   --ide-icon-image: #8e5cc7;
   --ide-row-height: 28px;
+  /* Git state is meaning, not decoration: added and untracked share the "new content" hue and
+     differ only in weight, so staged-vs-new reads without learning a second colour. */
+  --ide-git-modified: #a15c00;
+  --ide-git-added: #1a7f37;
+  --ide-git-untracked: #2da44e;
+  --ide-git-deleted: #c62828;
+  --ide-git-conflicted: #9c2b4e;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -51,6 +58,11 @@
     --ide-icon-shell: #65c47a;
     --ide-icon-ruby: #ff6b6b;
     --ide-icon-image: #b48aeb;
+    --ide-git-modified: #e3b341;
+    --ide-git-added: #3fb950;
+    --ide-git-untracked: #56d364;
+    --ide-git-deleted: #ff7b72;
+    --ide-git-conflicted: #f778ba;
   }
 }
 
@@ -184,18 +196,131 @@ body[data-region='sidebar'] #workspace-ide {
 .ide-file-icon[data-tone='pdf'] { color: var(--ide-icon-ruby); }
 .ide-file-icon[data-tone='image'] { color: var(--ide-icon-image); }
 .ide-tree-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ide-git-decoration { margin-left: auto; color: var(--ide-warning); font: 11px/1 ui-monospace, monospace; }
+.ide-git-decoration { margin-left: auto; color: var(--ide-git-modified); font: 11px/1 ui-monospace, monospace; }
+.ide-tree-row[data-git='added'] .ide-git-decoration { color: var(--ide-git-added); }
+.ide-tree-row[data-git='untracked'] .ide-git-decoration { color: var(--ide-git-untracked); }
+.ide-tree-row[data-git='deleted'] .ide-git-decoration { color: var(--ide-git-deleted); }
+.ide-tree-row[data-git='conflicted'] .ide-git-decoration { color: var(--ide-git-conflicted); }
+.ide-tree-row[data-git='ignored'] { opacity: 0.45; }
+
+.ide-source-group + .ide-source-group { margin-top: 2px; }
+.ide-source-group-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 0 9px 0 5px;
+  text-align: left;
+  /* Opaque: rows scroll underneath, and a translucent header would smear them. */
+  background: var(--ide-bg);
+  color: var(--ide-muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ide-source-group-header:hover { color: var(--ide-fg); }
+.ide-source-group-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ide-source-count {
+  margin-left: auto;
+  min-width: 17px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: var(--ide-hover);
+  color: var(--ide-muted);
+  font: 10px/1.5 ui-monospace, monospace;
+  letter-spacing: 0;
+  text-align: center;
+}
+.ide-source-group-header[data-tone='conflicts'] { color: var(--ide-git-conflicted); }
 
 .ide-source-row {
+  width: 100%;
   display: flex;
-  gap: 8px;
+  gap: 6px;
   min-height: var(--ide-row-height);
   align-items: center;
-  padding: 3px 9px;
+  padding: 2px 9px 2px 5px;
+  text-align: left;
+  border-radius: 4px;
 }
 .ide-source-row:hover { background: var(--ide-hover); }
-.ide-source-row > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ide-empty-note { padding: 18px 12px; color: var(--ide-muted); text-align: center; }
+.ide-source-badge {
+  flex: 0 0 auto;
+  min-width: 18px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ide-git-modified) 15%, transparent);
+  color: var(--ide-git-modified);
+  font: 10px/1 ui-monospace, monospace;
+}
+.ide-source-row[data-tone='added'] .ide-source-badge {
+  background: color-mix(in srgb, var(--ide-git-added) 15%, transparent);
+  color: var(--ide-git-added);
+}
+.ide-source-row[data-tone='untracked'] .ide-source-badge {
+  background: color-mix(in srgb, var(--ide-git-untracked) 15%, transparent);
+  color: var(--ide-git-untracked);
+}
+.ide-source-row[data-tone='deleted'] .ide-source-badge {
+  background: color-mix(in srgb, var(--ide-git-deleted) 15%, transparent);
+  color: var(--ide-git-deleted);
+}
+/* A conflict blocks work, so it is the one state that fills rather than tints. The label takes the
+   page background rather than white, so it stays legible against a dark magenta in light mode and a
+   light pink in dark mode. */
+.ide-source-row[data-tone='conflicted'] .ide-source-badge {
+  background: var(--ide-git-conflicted);
+  color: var(--ide-bg);
+}
+.ide-source-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ide-source-row[data-tone='deleted'] .ide-source-name { text-decoration: line-through; }
+/* The directory is context, so it yields first and the filename survives the squeeze. A zero
+   flex-basis is what enforces that order: the directory only ever occupies leftover space, so it
+   collapses to nothing before the name gives up a single character. */
+.ide-source-dir {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ide-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ide-source-clean {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  padding: 34px 16px;
+  color: var(--ide-muted);
+  text-align: center;
+}
+.ide-source-clean-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-bottom: 3px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ide-git-added) 15%, transparent);
+  color: var(--ide-git-added);
+  font-size: 15px;
+}
+.ide-source-clean-title { margin: 0; color: var(--ide-fg); }
+.ide-source-clean-note { margin: 0; font-size: 12px; }
 
 body[data-region='editor'] #workspace-ide {
   container: editor / inline-size;
@@ -289,6 +414,9 @@ body[data-region='editor'] #workspace-ide {
 }
 
 @container sidebar (max-width: 210px) {
+  /* Below this width the directory has no room to say anything useful; the filename and its
+     status still do, and the full path stays on the row's tooltip. */
+  .ide-source-dir { display: none; }
   .ide-activity button { font-size: 0; width: 31px; padding: 0; }
   .ide-activity button::first-letter { font-size: 13px; }
   .ide-management button { padding: 0 5px; }

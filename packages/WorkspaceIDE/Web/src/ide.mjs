@@ -2,9 +2,11 @@ import { installFileSurface } from './viewer.mjs'
 import {
   fileIconSpec,
   fileRenderIdentity,
+  gitDecorationTone,
   normalizeProjection,
   orderedPathsAfterMove,
   regionFromLocation,
+  sourceControlSections,
 } from './ideModel.mjs'
 import { applyWorkspaceZoom } from './workspaceZoom.mjs'
 
@@ -119,7 +121,7 @@ function mountSidebar(container, send) {
     alert.textContent = snapshot.error ?? ''
     alert.hidden = !snapshot.error
     if (snapshot.section === 'sourceControl') {
-      panel.replaceChildren(renderSourceControl(snapshot.gitEntries))
+      panel.replaceChildren(renderSourceControl(snapshot.gitEntries, send))
     } else {
       panel.replaceChildren(renderTree(snapshot.tree, send))
     }
@@ -144,10 +146,16 @@ function renderTree(nodes, send, nested = false) {
     const label = element('span', 'ide-tree-label')
     label.textContent = node.name
     row.append(disclosure, icon, label)
-    if (node.gitStatus) {
-      const status = element('span', 'ide-git-decoration')
-      status.textContent = node.gitStatus.trim() || 'M'
-      row.append(status)
+    const tone = gitDecorationTone(node.gitStatus)
+    if (tone) {
+      row.dataset.git = tone
+      // Ignored rows carry no badge: dimming already says "not part of the repo", and a column
+      // of amber marks beside every build artefact drowns the handful of real changes.
+      if (tone !== 'ignored') {
+        const status = element('span', 'ide-git-decoration')
+        status.textContent = node.gitStatus.trim()
+        row.append(status)
+      }
     }
     item.append(row)
     if (node.isDirectory && node.expanded) item.append(renderTree(node.children ?? [], send, true))
@@ -156,25 +164,76 @@ function renderTree(nodes, send, nested = false) {
   return tree
 }
 
-function renderSourceControl(entries) {
-  const list = element('ul', 'ide-source-list')
-  list.setAttribute('aria-label', 'Source Control changes')
-  if (!entries.length) {
-    const empty = element('li', 'ide-empty-note')
-    empty.textContent = 'No changes'
-    list.append(empty)
-    return list
+// Survives a projection re-render, which rebuilds the whole panel; collapsing a long Untracked
+// group should not spring back open every time the workspace pushes a snapshot.
+const collapsedSourceGroups = new Set()
+
+function renderSourceControl(entries, send) {
+  const container = element('div', 'ide-source')
+  const sections = sourceControlSections(entries)
+  if (!sections.length) {
+    container.append(renderCleanWorkingTree())
+    return container
   }
-  for (const entry of entries) {
-    const item = element('li', 'ide-source-row')
-    const path = element('span')
-    path.textContent = entry.relativePath ?? ''
-    const status = element('span', 'ide-git-decoration')
-    status.textContent = `${entry.indexStatus ?? ''}${entry.workTreeStatus ?? ''}`.trim() || 'M'
-    item.append(path, status)
+  for (const section of sections) container.append(renderSourceGroup(section, send))
+  return container
+}
+
+function renderSourceGroup(section, send) {
+  const group = element('section', 'ide-source-group')
+  const collapsed = collapsedSourceGroups.has(section.id)
+  const header = button('', `${collapsed ? 'Expand' : 'Collapse'} ${section.title}`, () => {
+    if (!collapsedSourceGroups.delete(section.id)) collapsedSourceGroups.add(section.id)
+    group.replaceWith(renderSourceGroup(section, send))
+  })
+  header.className = 'ide-source-group-header'
+  header.dataset.tone = section.id
+  header.setAttribute('aria-expanded', String(!collapsed))
+  const disclosure = element('span', 'ide-disclosure')
+  disclosure.textContent = collapsed ? '▸' : '▾'
+  const title = element('span', 'ide-source-group-title')
+  title.textContent = section.title
+  const count = element('span', 'ide-source-count')
+  count.textContent = String(section.rows.length)
+  header.append(disclosure, title, count)
+  group.append(header)
+  if (!collapsed) group.append(renderSourceRows(section, send))
+  return group
+}
+
+function renderSourceRows(section, send) {
+  const list = element('ul', 'ide-source-list')
+  list.setAttribute('aria-label', section.title)
+  for (const row of section.rows) {
+    const item = element('li')
+    const control = button('', `Open ${row.path}`, () => send({ type: 'open', path: row.path }))
+    control.className = 'ide-source-row'
+    control.dataset.tone = row.tone
+    control.title = row.path
+    const badge = element('span', 'ide-source-badge')
+    badge.textContent = row.letters
+    const name = element('span', 'ide-source-name')
+    name.textContent = row.name
+    const directory = element('span', 'ide-source-dir')
+    directory.textContent = row.directory
+    control.append(badge, fileIcon(row.name, false), name, directory)
+    item.append(control)
     list.append(item)
   }
   return list
+}
+
+function renderCleanWorkingTree() {
+  const empty = element('div', 'ide-source-clean')
+  const mark = element('span', 'ide-source-clean-mark')
+  mark.textContent = '✓'
+  mark.setAttribute('aria-hidden', 'true')
+  const title = element('p', 'ide-source-clean-title')
+  title.textContent = 'Working tree clean'
+  const note = element('p', 'ide-source-clean-note')
+  note.textContent = 'Nothing staged, changed, or untracked.'
+  empty.append(mark, title, note)
+  return empty
 }
 
 function mountEditor(container, send) {
