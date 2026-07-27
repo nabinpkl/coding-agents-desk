@@ -18,7 +18,7 @@ export type VoiceRunState =
   | { readonly status: "idle" }
   | { readonly status: "requestingMic" }
   | { readonly status: "capturing" }
-  | { readonly status: "decoding" }
+  | { readonly status: "saving" | "transcribing" | "analyzing" }
   | { readonly status: "complete"; readonly recordingId: string }
   | { readonly status: "error"; readonly message: string };
 
@@ -53,7 +53,7 @@ interface VoiceStoreState {
 
   requestMic: () => void;
   beginCapture: () => void;
-  beginDecode: () => void;
+  setFinalizationStage: (stage: "saving" | "transcribing" | "analyzing") => void;
 
   setPartialTranscript: (text: string) => void;
   setFinalTranscript: (text: string) => void;
@@ -85,7 +85,7 @@ export const useVoiceStore = create<VoiceStoreState>((set) => ({
 
   beginCapture: () => set({ runState: { status: "capturing" } }),
 
-  beginDecode: () => set({ runState: { status: "decoding" } }),
+  setFinalizationStage: (status) => set({ runState: { status } }),
 
   setPartialTranscript: (text) => set({ partialTranscript: text }),
   setFinalTranscript: (text) => set({ finalTranscript: text }),

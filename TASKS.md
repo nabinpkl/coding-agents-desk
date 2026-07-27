@@ -690,6 +690,25 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   (published July 2026) is relevant to the later pronunciation-scoring phase, but is not treated
   as a drop-in phone transcription runtime here.
 
+## v15 Phase 9: host-owned shared voice recordings
+
+- D141. Make the Python voice sidecar the single recording, transcription, and ZIPA-analysis
+  authority for the shared Gesture/Voice InteractionPanel. Persist nonempty normal and interrupted
+  sessions atomically with explicit source, stage failures, and executor provenance; reject a second
+  active recorder immediately and permit analysis-only reanalysis from the retained WAV.
+- D142. Add the additive authenticated `voice = 7` QUIC stream with its own `voice-lane-v1`
+  negotiation, bounded typed envelopes, stale-request protection, a loopback WebSocket proxy, and a
+  strict recording REST allowlist. Keep protocol v15 because existing peers and lanes remain
+  compatible.
+- D143. Bridge the iOS embedded InteractionPanel through native Swift to the voice lane while the Mac
+  panel and browser development retain direct loopback transports. Transport loss must visibly fail
+  the web run and cause Python to finalize any nonempty partial audio as interrupted.
+- D144. Present the one host library on both panels with source and completion badges, transcript and
+  phone-analysis failures, ZIPA provenance, host-WAV playback, deletion, and reanalysis. Stop releases
+  the microphone immediately and exposes saving, transcription, and analysis stages.
+- R145. Implementation and automated gates are complete. At the explicit runtime checkpoint, manually
+  accept Mac, iPhone, disconnect, busy, and microphone/WebSocket/QUIC resource-cleanup behavior.
+
 ## Promotion log
 
 ```text
@@ -706,4 +725,9 @@ R137  implemented remaining  physical normal-cycle and killed-analysis host-bund
 D138  2026-07-26  landed     persistent passage library and bundled-sample raw-audio reanalysis
 D139  2026-07-26  landed     inline transcript-word phone grouping with raw evidence preserved
 R140  implemented remaining  manual model-selector and comparative saved-audio acceptance
+D141  2026-07-27  landed     host-authoritative voice persistence, Whisper, and ZIPA finalization
+D142  2026-07-27  landed     authenticated bounded QUIC voice lane and loopback proxy
+D143  2026-07-27  landed     native iOS InteractionPanel voice transport
+D144  2026-07-27  landed     shared host voice library and explicit finalization states
+R145  implemented remaining  authorized cross-device runtime acceptance
 ```

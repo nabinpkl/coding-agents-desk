@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, Literal
 from uuid import uuid4
 
 import numpy as np
@@ -28,13 +28,17 @@ from interaction_agent.paths import VOICE_UPLOAD_ROOT
 from interaction_agent.voice.config import load_voice_runtime_config
 from interaction_agent.voice.live_mlx import (
     MlxLiveChunkTranscriber,
-    MlxLiveTranscriptSnapshot,
+)
+from interaction_agent.voice.phone_recognizer import (
+    PhoneRecognition,
+    ZIPAPhoneRecognizer,
 )
 from interaction_agent.voice.pronunciation import compare_recordings, load_wav
 from interaction_agent.voice.recording import (
     DEFAULT_SAMPLE_RATE,
     save_voice_recording,
     save_voice_recording_transcript,
+    update_recording_metadata,
 )
 from interaction_agent.voice.runtime import (
     BEST_MODEL,
@@ -48,8 +52,8 @@ from interaction_agent.voice.runtime import (
     duration_from_segments,
     format_srt,
     format_vtt,
-    transcript_text,
     transcribe_audio_path,
+    transcript_text,
     validate_temperature,
 )
 from interaction_agent.voice.signals import analyze_audio
@@ -78,6 +82,8 @@ from interaction_agent.voice.wire import (
     RecordingListResponse,
     SaveRecordingRequest,
     SessionCompleteMessage,
+    SessionErrorMessage,
+    SessionProgressMessage,
     SessionStartMessage,
     SignalAnalysis,
     WireModel,
@@ -96,6 +102,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.voice_session_lock = asyncio.Lock()
     app.state.voice_transcriber_lock = asyncio.Lock()
     app.state.voice_transcriber = None
+    app.state.voice_phone_recognizer_lock = asyncio.Lock()
+    app.state.voice_phone_inference_lock = asyncio.Lock()
+    app.state.voice_phone_recognizer = None
     try:
         yield
     finally:
@@ -366,49 +375,163 @@ async def send_wire(websocket: WebSocket, message: WireModel) -> None:
     await websocket.send_text(message.model_dump_json(by_alias=True))
 
 
+async def get_phone_recognizer(app: FastAPI) -> ZIPAPhoneRecognizer:
+    if app.state.voice_phone_recognizer is not None:
+        return app.state.voice_phone_recognizer
+    async with app.state.voice_phone_recognizer_lock:
+        if app.state.voice_phone_recognizer is None:
+            app.state.voice_phone_recognizer = await run_in_threadpool(
+                ZIPAPhoneRecognizer
+            )
+    return app.state.voice_phone_recognizer
+
+
+async def analyze_recording_phones(
+    app: FastAPI,
+    recording_id: str,
+) -> Recording:
+    recognizer = await get_phone_recognizer(app)
+    wav_path = recording_wav_path(recording_id)
+    async with app.state.voice_phone_inference_lock:
+        result: PhoneRecognition = await run_in_threadpool(
+            recognizer.analyze_wav,
+            wav_path,
+        )
+    await run_in_threadpool(
+        update_recording_metadata,
+        recording_json_path(recording_id),
+        {
+            "phoneAnalysis": {
+                "status": "completed",
+                "phones": list(result.phones),
+                "error": None,
+                "modelIdentifier": result.model_identifier,
+                "modelHash": result.model_hash,
+                "runtimeIdentifier": result.runtime_identifier,
+                "analyzedAt": datetime.now().isoformat(),
+            }
+        },
+    )
+    return await run_in_threadpool(load_recording, recording_id)
+
+
+async def send_progress(
+    websocket: WebSocket | None,
+    stage: Literal["saving", "transcribing", "analyzing"],
+) -> None:
+    if websocket is not None:
+        await send_wire(websocket, SessionProgressMessage(stage=stage))
+
+
+async def finish_live_transcriber(transcriber: MlxLiveChunkTranscriber) -> None:
+    """Release preview state without making retained PCM depend on it."""
+    try:
+        await run_in_threadpool(transcriber.finish_session)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "live voice preview teardown failed; finalizing retained PCM"
+        )
+
+
 async def finalize_session(
-    websocket: WebSocket,
-    snapshot: MlxLiveTranscriptSnapshot,
+    app: FastAPI,
+    websocket: WebSocket | None,
     collected: list[FloatArray],
     sample_rate: int,
     started_at: datetime,
-) -> None:
-    del snapshot  # The live preview is a rolling window; the final is a full pass.
+    source: Literal["macos", "iphone", "browserDev"],
+    status: Literal["completed", "interrupted"],
+) -> Recording | None:
     audio = (
         np.concatenate(collected)
         if collected
         else np.zeros(0, dtype=np.float32)
     )
+    if audio.size == 0:
+        if websocket is not None:
+            await send_wire(
+                websocket,
+                SessionErrorMessage(
+                    code="invalidSession",
+                    message="No audio was received; the recording was discarded.",
+                ),
+            )
+        return None
+    await send_progress(websocket, "saving")
     result = await run_in_threadpool(
         save_voice_recording,
         audio,
         sample_rate,
         started_at,
+        source=source,
+        status=status,
     )
+    recording_id = recording_id_from_result(result)
+
     # The live partial is only the last decoded window, so the authoritative
     # final transcript is a full-wav Whisper pass over the persisted recording.
-    # It fails loud (the caller closes 1011) rather than falling back silently.
+    # A stage failure is persisted and does not remove the retained audio.
+    await send_progress(websocket, "transcribing")
     config = load_voice_runtime_config()
-    final_result = await run_in_threadpool(
-        transcribe_audio_path,
-        result.wav_path,
-        VoiceTranscriptionOptions(model=config.final_transcription_model),
-    )
-    final_text = transcript_text(final_result)
-    if final_text:
-        await run_in_threadpool(save_voice_recording_transcript, result, final_text)
+    final_text = ""
+    try:
+        final_result = await run_in_threadpool(
+            transcribe_audio_path,
+            result.wav_path,
+            VoiceTranscriptionOptions(model=config.final_transcription_model),
+        )
+        final_text = transcript_text(final_result)
+        await run_in_threadpool(
+            save_voice_recording_transcript,
+            result,
+            final_text,
+            f"mlx-whisper {config.final_transcription_model}",
+        )
+    except Exception as exc:
+        await run_in_threadpool(
+            update_recording_metadata,
+            result.json_path,
+            {
+                "transcription": {
+                    "status": "failed",
+                    "text": None,
+                    "error": str(exc),
+                    "engine": f"mlx-whisper {config.final_transcription_model}",
+                }
+            },
+        )
 
-    # sessionComplete is emitted ONLY after the recording is fully persisted.
-    await send_wire(websocket, FinalTranscriptMessage(text=final_text))
-    await send_wire(
-        websocket,
-        SessionCompleteMessage(recording_id=recording_id_from_result(result)),
-    )
+    await send_progress(websocket, "analyzing")
+    try:
+        recording = await analyze_recording_phones(app, recording_id)
+    except Exception as exc:
+        await run_in_threadpool(
+            update_recording_metadata,
+            result.json_path,
+            {
+                "phoneAnalysis": {
+                    "status": "failed",
+                    "phones": [],
+                    "error": str(exc),
+                    "modelIdentifier": None,
+                    "modelHash": None,
+                    "runtimeIdentifier": None,
+                    "analyzedAt": datetime.now().isoformat(),
+                }
+            },
+        )
+        recording = await run_in_threadpool(load_recording, recording_id)
+
+    if websocket is not None:
+        await send_wire(websocket, FinalTranscriptMessage(text=final_text))
+        await send_wire(websocket, SessionCompleteMessage(recording=recording))
+    return recording
 
 
 async def run_voice_session(
     websocket: WebSocket,
     transcriber: MlxLiveChunkTranscriber,
+    source: Literal["macos", "iphone", "browserDev"],
 ) -> None:
     collected: list[FloatArray] = []
     sample_rate = DEFAULT_SAMPLE_RATE
@@ -449,48 +572,103 @@ async def run_voice_session(
                 # Close the streaming session first, then persist and hand off.
                 # session_open flips here so the except clauses below never
                 # double-finish if persistence or the final pass raises.
-                snapshot = await run_in_threadpool(transcriber.finish_session)
+                await finish_live_transcriber(transcriber)
                 session_open = False
                 await finalize_session(
+                    websocket.app,
                     websocket,
-                    snapshot,
                     collected,
                     sample_rate,
                     started_at,
+                    source,
+                    "completed",
                 )
                 return
     except WebSocketDisconnect:
         if session_open:
-            await run_in_threadpool(transcriber.finish_session)
+            await finish_live_transcriber(transcriber)
+            session_open = False
+            await finalize_session(
+                websocket.app,
+                None,
+                collected,
+                sample_rate,
+                started_at,
+                source,
+                "interrupted",
+            )
     except VoiceWireError as exc:
         if session_open:
-            await run_in_threadpool(transcriber.finish_session)
+            await finish_live_transcriber(transcriber)
+            session_open = False
+            await finalize_session(
+                websocket.app,
+                None,
+                collected,
+                sample_rate,
+                started_at,
+                source,
+                "interrupted",
+            )
         await websocket.close(code=1003, reason=str(exc)[:120])
     except Exception as exc:
         # Any other failure (e.g. the offline final pass, a persistence error)
         # must reach the client instead of hanging it: close loud with 1011 so
-        # the browser transitions out of its decoding state.
+        # the browser transitions out of its finalization state.
         if session_open:
-            await run_in_threadpool(transcriber.finish_session)
+            await finish_live_transcriber(transcriber)
+            session_open = False
+            try:
+                await finalize_session(
+                    websocket.app,
+                    None,
+                    collected,
+                    sample_rate,
+                    started_at,
+                    source,
+                    "interrupted",
+                )
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "failed to finalize interrupted voice recording"
+                )
         await websocket.close(code=1011, reason=str(exc)[:120])
 
 
 @app.websocket("/ws/voice")
-async def voice_websocket(websocket: WebSocket) -> None:
+async def voice_websocket(
+    websocket: WebSocket,
+    source: Literal["macos", "iphone", "browserDev"] = "browserDev",
+) -> None:
     origin = websocket.headers.get("origin")
     if origin is None or origin not in ALLOWED_ORIGINS:
         # Reject cross-site WebSocket connections before the handshake completes.
         await websocket.close(code=1008, reason="origin not allowed")
         return
     await websocket.accept()
+    lock = websocket.app.state.voice_session_lock
+    if lock.locked():
+        await send_wire(
+            websocket,
+            SessionErrorMessage(
+                code="recorderBusy",
+                message="Another voice recording is already active.",
+            ),
+        )
+        await websocket.close(code=1008, reason="recorder busy")
+        return
+    await lock.acquire()
     try:
         transcriber = await get_transcriber(websocket.app)
     except Exception as exc:  # model missing / load failure -> fail loud to client
+        lock.release()
         await websocket.close(code=1011, reason=str(exc)[:120])
         return
 
-    async with websocket.app.state.voice_session_lock:
-        await run_voice_session(websocket, transcriber)
+    try:
+        await run_voice_session(websocket, transcriber, source)
+    finally:
+        lock.release()
 
 
 # --- Recording REST --------------------------------------------------------
@@ -551,6 +729,32 @@ async def remove_recording(recording_id: str) -> Response:
     if not deleted:
         raise HTTPException(status_code=404, detail=f"recording not found: {recording_id}")
     return Response(status_code=204)
+
+
+@app.post("/recordings/{recording_id}/reanalyze", response_model=Recording)
+async def reanalyze_recording(recording_id: str) -> Recording:
+    wav_path = recording_wav_path(recording_id)
+    if not wav_path.exists():
+        raise HTTPException(status_code=404, detail=f"recording not found: {recording_id}")
+    try:
+        return await analyze_recording_phones(app, recording_id)
+    except Exception as exc:
+        await run_in_threadpool(
+            update_recording_metadata,
+            recording_json_path(recording_id),
+            {
+                "phoneAnalysis": {
+                    "status": "failed",
+                    "phones": [],
+                    "error": str(exc),
+                    "modelIdentifier": None,
+                    "modelHash": None,
+                    "runtimeIdentifier": None,
+                    "analyzedAt": datetime.now().isoformat(),
+                }
+            },
+        )
+        return await run_in_threadpool(load_recording, recording_id)
 
 
 # --- Analysis REST ---------------------------------------------------------
@@ -626,8 +830,8 @@ if __name__ == "__main__":
 
 
 __all__ = [
+    "BEST_MODEL",
+    "FAST_MODEL",
     "app",
     "main",
-    "FAST_MODEL",
-    "BEST_MODEL",
 ]

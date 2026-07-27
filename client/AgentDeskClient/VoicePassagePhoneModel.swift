@@ -45,7 +45,7 @@ enum VoicePassagePhoneModel: String, Codable, CaseIterable, Equatable, Sendable 
 }
 
 struct VoiceZIPAModelManifest: Codable, Equatable, Sendable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
     static let selectedIdentifier = "zipa-small-crctc-ns-700k-int8-onnx"
     static let selectedModelSHA256 =
         "c0a74847edb1224f90a5a1d20c501f81d841439e0692f8e32d1fe6bd94beaa77"
@@ -59,12 +59,10 @@ struct VoiceZIPAModelManifest: Codable, Equatable, Sendable {
     let upstreamLicense: String
     let licenseRepository: String
     let licenseRevision: String
-    let runtime: String
     let modelSHA256: String
     let tokensSHA256: String
     let licenseSHA256: String
     let modelBytes: Int
-    let minimumIOSVersion: Int
     let sampleRate: Int
     let filterbankBins: Int
     let vocabularySize: Int
@@ -113,8 +111,6 @@ struct VoiceZIPAModelAssets {
               manifest.identifier == VoiceZIPAModelManifest.selectedIdentifier,
               manifest.modelSHA256 == VoiceZIPAModelManifest.selectedModelSHA256,
               manifest.tokensSHA256 == VoiceZIPAModelManifest.selectedTokensSHA256,
-              manifest.runtime == "onnxruntime-1.24.2",
-              manifest.minimumIOSVersion == 26,
               manifest.sampleRate == 16_000,
               manifest.filterbankBins == 80,
               manifest.vocabularySize == 127,

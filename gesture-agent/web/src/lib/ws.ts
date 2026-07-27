@@ -8,6 +8,11 @@
 
 import { VOICE_WS_URL } from "@/lib/config";
 import { getHostConfig } from "@/lib/host-bridge";
+import {
+  postNativeVoice,
+  subscribeNativeVoice,
+  type NativeVoiceEnvelope,
+} from "@/lib/native-voice";
 import type {
   AudioFrameMessage,
   ClientWireMessage,
@@ -29,6 +34,10 @@ export class VoiceSocketError extends Error {
 
 export class VoiceSocket {
   private socket: WebSocket | null = null;
+  private nativeReadyState: number = WebSocket.CLOSED;
+  private nativeSessionID = "";
+  private nativeRequestID = "";
+  private nativeUnsubscribe: (() => void) | null = null;
   private intentionalClose = false;
   private readonly messageHandlers = new Set<ServerMessageHandler>();
   private readonly errorHandlers = new Set<SocketErrorHandler>();
@@ -47,6 +56,9 @@ export class VoiceSocket {
 
   /** Opens the connection. Resolves on open, rejects on the first error. */
   connect(): Promise<void> {
+    if (getHostConfig()?.voiceTransport === "native") {
+      return this.connectNative();
+    }
     if (this.socket) {
       if (this.socket.readyState === WebSocket.OPEN) {
         return Promise.resolve();
@@ -86,6 +98,11 @@ export class VoiceSocket {
         try {
           message = JSON.parse(event.data as string) as ServerWireMessage;
         } catch {
+          const error = new VoiceSocketError(
+            "voice service returned invalid JSON",
+          );
+          for (const handler of this.errorHandlers) handler(new Event("error"));
+          socket.close(1003, error.message);
           return;
         }
         for (const handler of this.messageHandlers) handler(message);
@@ -126,18 +143,118 @@ export class VoiceSocket {
 
   close(): void {
     this.intentionalClose = true;
+    if (this.nativeReadyState === WebSocket.OPEN) {
+      postNativeVoice({
+        t: "voiceSocketClose",
+        recordingSessionID: this.nativeSessionID,
+      });
+    }
+    this.nativeReadyState = WebSocket.CLOSED;
+    this.nativeUnsubscribe?.();
+    this.nativeUnsubscribe = null;
     this.socket?.close();
     this.socket = null;
   }
 
   get readyState(): number {
+    if (getHostConfig()?.voiceTransport === "native") {
+      return this.nativeReadyState;
+    }
     return this.socket?.readyState ?? WebSocket.CLOSED;
   }
 
   private send(message: ClientWireMessage): void {
+    if (getHostConfig()?.voiceTransport === "native") {
+      if (this.nativeReadyState !== WebSocket.OPEN) {
+        throw new VoiceSocketError("voice socket is not open");
+      }
+      postNativeVoice({
+        t: "voiceSocketMessage",
+        recordingSessionID: this.nativeSessionID,
+        json: JSON.stringify(message),
+      });
+      return;
+    }
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new VoiceSocketError("voice socket is not open");
     }
     this.socket.send(JSON.stringify(message));
+  }
+
+  private connectNative(): Promise<void> {
+    if (this.nativeReadyState !== WebSocket.CLOSED) {
+      return Promise.reject(new VoiceSocketError("native voice socket is not idle"));
+    }
+    this.nativeReadyState = WebSocket.CONNECTING;
+    this.nativeSessionID = crypto.randomUUID();
+    this.nativeRequestID = crypto.randomUUID();
+    return new Promise<void>((resolve, reject) => {
+      this.nativeUnsubscribe = subscribeNativeVoice((message) => {
+        this.handleNativeMessage(message, resolve, reject);
+      });
+      postNativeVoice({
+        t: "voiceSocketOpen",
+        requestID: this.nativeRequestID,
+        recordingSessionID: this.nativeSessionID,
+      });
+    });
+  }
+
+  private handleNativeMessage(
+    envelope: NativeVoiceEnvelope,
+    resolve: () => void,
+    reject: (error: Error) => void,
+  ): void {
+    if (envelope.t === "socketOpened" &&
+        envelope.rid === this.nativeRequestID &&
+        envelope.sid === this.nativeSessionID) {
+      this.nativeReadyState = WebSocket.OPEN;
+      resolve();
+      return;
+    }
+    if (envelope.t === "socketMessage" &&
+        envelope.sid === this.nativeSessionID && envelope.j) {
+      try {
+        const message = JSON.parse(envelope.j) as ServerWireMessage;
+        for (const handler of this.messageHandlers) handler(message);
+      } catch {
+        const error = new VoiceSocketError("Mac voice service returned invalid JSON");
+        this.failNativeSocket(error, reject);
+      }
+      return;
+    }
+    if (envelope.t === "error" &&
+        (envelope.sid === this.nativeSessionID ||
+          (!envelope.sid && !envelope.rid))) {
+      const error = new VoiceSocketError(envelope.m ?? "iPhone voice transport failed");
+      this.failNativeSocket(error, reject);
+      return;
+    }
+    if (envelope.t === "socketClosed" && envelope.sid === this.nativeSessionID) {
+      this.nativeReadyState = WebSocket.CLOSED;
+      this.nativeUnsubscribe?.();
+      this.nativeUnsubscribe = null;
+      if (!this.intentionalClose) {
+        for (const handler of this.closeHandlers) {
+          handler(new CloseEvent("close", { code: 1006, reason: envelope.z }));
+        }
+      }
+    }
+  }
+
+  private failNativeSocket(
+    error: VoiceSocketError,
+    reject: (error: Error) => void,
+  ): void {
+    if (this.nativeReadyState === WebSocket.CONNECTING) reject(error);
+    this.nativeReadyState = WebSocket.CLOSED;
+    this.nativeUnsubscribe?.();
+    this.nativeUnsubscribe = null;
+    for (const handler of this.errorHandlers) handler(new Event("error"));
+    if (!this.intentionalClose) {
+      for (const handler of this.closeHandlers) {
+        handler(new CloseEvent("close", { code: 1011, reason: error.message }));
+      }
+    }
   }
 }

@@ -67,6 +67,7 @@ client/AgentDeskClient/VoiceZIPAModel.onnx
 client/AgentDeskClient/VoiceZIPAModelManifest.json
 client/AgentDeskClient/VoiceZIPATokens.txt
 client/AgentDeskClient/VoiceZIPALicense.txt
+host/AgentDeskHost/VoiceZIPAHostAssets/
 packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelWebview/*
 !packages/AgentPanel/Sources/AgentPanel/Resources/AgentPanelWebview/.gitkeep
 packages/InteractionPanel/Sources/InteractionPanel/Resources/InteractionPanelWebview/*

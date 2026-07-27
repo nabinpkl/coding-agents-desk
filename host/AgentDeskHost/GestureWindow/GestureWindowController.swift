@@ -95,7 +95,8 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
     private static func makeHostConfigScript() -> WKUserScript {
         let port = Config.voiceSidecarPort
         let config: [String: Any] = [
-            "voiceWsUrl": "ws://127.0.0.1:\(port)/ws/voice",
+            "voiceTransport": "websocket",
+            "voiceWsUrl": "ws://127.0.0.1:\(port)/ws/voice?source=macos",
             "apiBaseUrl": "http://127.0.0.1:\(port)",
         ]
         // JSONSerialization keeps the injected literal valid even if a value ever

@@ -15,7 +15,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
-import { deleteRecording, listRecordings } from "@/lib/api";
+import { deleteRecording, listRecordings, reanalyzeRecording } from "@/lib/api";
 import type { Recording } from "@/lib/wire";
 
 export const RECORDINGS_QUERY_KEY = ["recordings"] as const;
@@ -24,6 +24,10 @@ export function useRecordings(): UseQueryResult<Recording[]> {
   return useQuery({
     queryKey: RECORDINGS_QUERY_KEY,
     queryFn: listRecordings,
+    // The library is host-owned and can change from the other paired surface.
+    // A short loopback poll also discovers an interrupted iPhone capture after
+    // transport recovery, when no sessionComplete can reach the disconnected UI.
+    refetchInterval: 5_000,
   });
 }
 
@@ -36,6 +40,15 @@ export function useDeleteRecording(): UseMutationResult<void, Error, string> {
   const queryClient = useQueryClient();
   return useMutation<void, Error, string>({
     mutationFn: deleteRecording,
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: RECORDINGS_QUERY_KEY }),
+  });
+}
+
+export function useReanalyzeRecording(): UseMutationResult<Recording, Error, string> {
+  const queryClient = useQueryClient();
+  return useMutation<Recording, Error, string>({
+    mutationFn: reanalyzeRecording,
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: RECORDINGS_QUERY_KEY }),
   });

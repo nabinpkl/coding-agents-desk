@@ -7,6 +7,7 @@ public enum QuicSessionStreamRole: UInt8, Codable, Equatable, Sendable {
     case dom = 4
     case terminal = 5
     case files = 6
+    case voice = 7
 }
 
 public enum QuicSessionFrameError: Error, Equatable {
@@ -53,7 +54,14 @@ public struct QuicSessionStreamFrame: Equatable, Sendable {
     }
 
     public static func maxFrameLength(for role: QuicSessionStreamRole) -> Int {
-        role == .files ? WorkspaceLaneCodec.maximumFrameBytes : maxFrameLength
+        switch role {
+        case .files:
+            WorkspaceLaneCodec.maximumFrameBytes
+        case .voice:
+            VoiceLaneCodec.maximumFrameBytes
+        default:
+            maxFrameLength
+        }
     }
 }
 

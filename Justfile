@@ -461,7 +461,7 @@ build-gesture-webview:
 # `Contents/Resources/voice-src/` with structure preserved (a folder reference,
 # not flattened). Verify once with:
 #   just build-host && ls "{{host_app}}/Contents/Resources/voice-src/pyproject.toml"
-build-voice-sidecar:
+build-voice-sidecar: voice-zipa-model-check
     #!/usr/bin/env bash
     set -euo pipefail
     SRC='{{gesture_agent_dir}}'
@@ -764,6 +764,7 @@ check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar
     sh tools/hybrid-graphics-diagnostics-summary-tests.sh
     sh tools/host-client-telemetry-tests.sh
     /usr/bin/python3 tools/voice-phone-evidence-summary-tests.py
+    (cd gesture-agent && uv run python -m unittest discover -s tests)
     /usr/bin/python3 tools/generate-voice-phone-mapping.py --check
     /usr/bin/python3 tools/voice-phone-calibration-contract-check.py
     sh tools/testflight-upload-tests.sh

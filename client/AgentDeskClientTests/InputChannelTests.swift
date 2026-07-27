@@ -419,7 +419,8 @@ struct InputChannelTests {
         #expect(QuicSessionStreamRole(rawValue: 5) == .terminal)
         #expect(QuicSessionStreamRole.files.rawValue == 6)
         #expect(QuicSessionStreamRole(rawValue: 6) == .files)
-        #expect(QuicSessionStreamRole(rawValue: 7) == nil)
+        #expect(QuicSessionStreamRole.voice.rawValue == 7)
+        #expect(QuicSessionStreamRole(rawValue: 7) == .voice)
     }
 
     @Test func browserViewerStateEncodesToPinnedWireShape() throws {

@@ -45,6 +45,9 @@ extension PairingViewController {
         surface.onSpaceStep = { [weak self] delta in
             self?.sendInput(.switchSpaceStep(delta: delta))
         }
+        surface.voiceTransportProvider = { [weak self] in
+            self?.pairingClient.activeSessionTransport
+        }
         hostContentView.addSubview(surface)
         NSLayoutConstraint.activate([
             // Bottom half of the screen; the video stays visible above it.

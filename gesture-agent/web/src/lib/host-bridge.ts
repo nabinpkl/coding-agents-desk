@@ -16,6 +16,7 @@
 
 /** Config the native host injects before the bundle boots. */
 export interface HostConfig {
+  voiceTransport?: "websocket" | "native";
   /** Loopback WebSocket URL of the host-owned voice sidecar, when present. */
   voiceWsUrl?: string;
   /**
@@ -79,9 +80,9 @@ export function postToHost(
 
 /**
  * Install a native -> JS delivery callback under `window.__<deliveryFn>` and
- * return a disposer that removes it. Unused by the first gesture slice (which
- * is one-way JS -> native), but wired here for symmetry with AgentPanel's
- * `__agentFeedDeliver` so the voice phase has the inbound path ready.
+ * return a disposer that removes it. Voice uses the concrete shared
+ * `__interactionDeliver` dispatcher in native-voice.ts; this generic helper
+ * remains available to other InteractionPanel features.
  */
 export function onHostMessage(
   deliveryFn: string,

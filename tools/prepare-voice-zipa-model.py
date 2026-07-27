@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage and verify the pinned ZIPA INT8 ONNX phone model for the iOS client."""
+"""Stage and verify the pinned ZIPA INT8 ONNX phone model for iOS and host."""
 
 from __future__ import annotations
 
@@ -110,19 +110,17 @@ def parse_tokens(path: Path) -> list[str]:
 
 def required_manifest() -> dict[str, object]:
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "identifier": IDENTIFIER,
         "upstreamModel": MODEL_REPOSITORY,
         "upstreamRevision": MODEL_REVISION,
         "upstreamLicense": "MIT",
         "licenseRepository": LICENSE_REPOSITORY,
         "licenseRevision": LICENSE_REVISION,
-        "runtime": "onnxruntime-1.24.2",
         "modelSHA256": MODEL_SHA256,
         "tokensSHA256": TOKENS_SHA256,
         "licenseSHA256": LICENSE_SHA256,
         "modelBytes": MODEL_BYTES,
-        "minimumIOSVersion": 26,
         "sampleRate": 16_000,
         "filterbankBins": 80,
         "vocabularySize": 127,
@@ -159,7 +157,7 @@ def check_generated(repo_root: Path, output: str) -> None:
         raise RuntimeError("Generated ZIPA manifest is stale or invalid")
 
 
-def prepare(repo_root: Path, cache: str, output: str) -> None:
+def prepare(repo_root: Path, cache: str, outputs: list[str]) -> None:
     cache_root = (repo_root / cache).resolve()
     try:
         cache_root.relative_to(repo_root)
@@ -173,24 +171,31 @@ def prepare(repo_root: Path, cache: str, output: str) -> None:
     fetch(github_url("LICENSE"), cached_license, LICENSE_SHA256)
     parse_tokens(cached_tokens)
 
-    installed_model, manifest, installed_tokens, installed_license = output_paths(
-        repo_root,
-        output,
-    )
-    installed_model.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(cached_model, installed_model)
-    shutil.copyfile(cached_tokens, installed_tokens)
-    shutil.copyfile(cached_license, installed_license)
-    manifest.write_text(
-        json.dumps(required_manifest(), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    check_generated(repo_root, output)
-    print(
-        json.dumps(
+    staged: list[dict[str, object]] = []
+    for output in outputs:
+        installed_model, manifest, installed_tokens, installed_license = output_paths(
+            repo_root,
+            output,
+        )
+        installed_model.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(cached_model, installed_model)
+        shutil.copyfile(cached_tokens, installed_tokens)
+        shutil.copyfile(cached_license, installed_license)
+        manifest.write_text(
+            json.dumps(required_manifest(), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        check_generated(repo_root, output)
+        staged.append(
             {
                 "manifest": str(manifest),
                 "model": str(installed_model),
+            }
+        )
+    print(
+        json.dumps(
+            {
+                "outputs": staged,
                 "modelBytes": MODEL_BYTES,
                 "modelSHA256": MODEL_SHA256,
             },
@@ -209,8 +214,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output",
-        default="client/AgentDeskClient",
-        help="Repo-relative directory for generated Xcode resources.",
+        action="append",
+        help=(
+            "Repo-relative generated resource directory. Repeat for multiple "
+            "consumers; defaults to the iOS and host resource roots."
+        ),
     )
     parser.add_argument(
         "--check-only",
@@ -224,10 +232,15 @@ if __name__ == "__main__":
     try:
         arguments = parse_args()
         root = Path(__file__).resolve().parent.parent
+        outputs = arguments.output or [
+            "client/AgentDeskClient",
+            "host/AgentDeskHost/VoiceZIPAHostAssets",
+        ]
         if arguments.check_only:
-            check_generated(root, arguments.output)
+            for output in outputs:
+                check_generated(root, output)
         else:
-            prepare(root, arguments.cache, arguments.output)
+            prepare(root, arguments.cache, outputs)
     except Exception as error:
         print(f"prepare-voice-zipa-model: {error}", file=sys.stderr)
         raise

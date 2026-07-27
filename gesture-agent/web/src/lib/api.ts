@@ -6,6 +6,7 @@
 
 import { API_BASE } from "@/lib/config";
 import { getHostConfig } from "@/lib/host-bridge";
+import { postNativeVoice, subscribeNativeVoice } from "@/lib/native-voice";
 import type {
   AnalyzePronunciationRequest,
   AnalyzeSignalsRequest,
@@ -38,6 +39,14 @@ function apiBase(): string {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if (getHostConfig()?.voiceTransport === "native") {
+    const response = await nativeRequest(path, init);
+    if (response.status < 200 || response.status >= 300) {
+      throw new ApiError(response.status, "Native proxy error",
+        new TextDecoder().decode(response.body));
+    }
+    return JSON.parse(new TextDecoder().decode(response.body)) as T;
+  }
   const response = await fetch(`${apiBase()}${path}`, {
     ...init,
     headers: {
@@ -53,6 +62,63 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     );
   }
   return (await response.json()) as T;
+}
+
+async function nativeRequest(path: string, init?: RequestInit): Promise<{
+  status: number;
+  contentType?: string;
+  body: Uint8Array;
+}> {
+  const requestID = crypto.randomUUID();
+  const bodyText = typeof init?.body === "string" ? init.body : undefined;
+  return new Promise((resolve, reject) => {
+    const chunks: Uint8Array[] = [];
+    let nextSequence = 0;
+    const timeout = window.setTimeout(() => {
+      unsubscribe();
+      reject(new Error("Mac voice request timed out"));
+    }, 10_000);
+    const unsubscribe = subscribeNativeVoice((message) => {
+      if (message.t === "rest" && message.r?.requestID === requestID) {
+        if (message.r.sequence !== nextSequence) {
+          window.clearTimeout(timeout);
+          unsubscribe();
+          reject(new Error("Mac voice response arrived out of order"));
+          return;
+        }
+        nextSequence += 1;
+        const binary = atob(message.r.body);
+        chunks.push(Uint8Array.from(binary, (value) => value.charCodeAt(0)));
+        if (message.r.isFinal) {
+          window.clearTimeout(timeout);
+          unsubscribe();
+          const length = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+          const body = new Uint8Array(length);
+          let offset = 0;
+          for (const chunk of chunks) {
+            body.set(chunk, offset);
+            offset += chunk.byteLength;
+          }
+          resolve({
+            status: message.r.status,
+            contentType: message.r.contentType,
+            body,
+          });
+        }
+      } else if (message.t === "error" && message.rid === requestID) {
+        window.clearTimeout(timeout);
+        unsubscribe();
+        reject(new Error(message.m ?? "Mac voice request failed"));
+      }
+    });
+    postNativeVoice({
+      t: "voiceREST",
+      requestID,
+      method: init?.method ?? "GET",
+      path,
+      ...(bodyText ? { bodyBase64: btoa(bodyText) } : {}),
+    });
+  });
 }
 
 function postJson<T>(path: string, payload: unknown): Promise<T> {
@@ -79,8 +145,33 @@ export function recordingAudioUrl(id: string): string {
   return `${apiBase()}/recordings/${encodeURIComponent(id)}/audio`;
 }
 
+export async function loadRecordingAudioURL(id: string): Promise<string> {
+  if (getHostConfig()?.voiceTransport !== "native") {
+    return recordingAudioUrl(id);
+  }
+  const response = await nativeRequest(
+    `/recordings/${encodeURIComponent(id)}/audio`,
+  );
+  if (response.status !== 200) {
+    throw new ApiError(response.status, "Native proxy error", "audio unavailable");
+  }
+  const copy = new Uint8Array(response.body.byteLength);
+  copy.set(response.body);
+  return URL.createObjectURL(new Blob([copy.buffer], { type: "audio/wav" }));
+}
+
 /** Delete a recording and its audio. Answers 204, so there is no body to read. */
 export async function deleteRecording(id: string): Promise<void> {
+  if (getHostConfig()?.voiceTransport === "native") {
+    const response = await nativeRequest(
+      `/recordings/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    );
+    if (response.status < 200 || response.status >= 300) {
+      throw new ApiError(response.status, "Native proxy error", "delete failed");
+    }
+    return;
+  }
   const response = await fetch(
     `${apiBase()}/recordings/${encodeURIComponent(id)}`,
     { method: "DELETE" },
@@ -92,6 +183,13 @@ export async function deleteRecording(id: string): Promise<void> {
       await response.text(),
     );
   }
+}
+
+export function reanalyzeRecording(id: string): Promise<Recording> {
+  return postJson<Recording>(
+    `/recordings/${encodeURIComponent(id)}/reanalyze`,
+    {},
+  );
 }
 
 export function saveRecording(

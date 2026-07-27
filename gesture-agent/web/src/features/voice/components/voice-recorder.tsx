@@ -45,7 +45,11 @@ export function VoiceRecorder() {
   const status = runState.status;
   const isCapturing = status === "capturing";
   const isBusy =
-    status === "requestingMic" || status === "capturing" || status === "decoding";
+    status === "requestingMic" ||
+    status === "capturing" ||
+    status === "saving" ||
+    status === "transcribing" ||
+    status === "analyzing";
 
   return (
     <div className="flex flex-col gap-6">
@@ -59,7 +63,7 @@ export function VoiceRecorder() {
           <Button
             variant="default"
             size="lg"
-            disabled={status === "requestingMic" || status === "decoding"}
+            disabled={isBusy}
             onClick={() => void startRecording()}
           >
             <Mic />
@@ -144,11 +148,13 @@ function StatusBadge({ status }: { readonly status: string }) {
           Recording
         </Badge>
       );
-    case "decoding":
+    case "saving":
+    case "transcribing":
+    case "analyzing":
       return (
         <Badge variant="secondary">
           <Loader2 className="animate-spin" />
-          Transcribing
+          {status[0].toUpperCase() + status.slice(1)}
         </Badge>
       );
     case "complete":

@@ -25,7 +25,6 @@ from pydantic.json_schema import models_json_schema
 
 from interaction_agent.paths import PROJECT_ROOT
 
-
 WIRE_TS_PATH: Final = PROJECT_ROOT / "web" / "src" / "lib" / "wire.ts"
 
 
@@ -81,9 +80,26 @@ class MeterMessage(WireModel):
     peak: float
 
 
+class SessionProgressMessage(WireModel):
+    type: Literal["sessionProgress"] = "sessionProgress"
+    stage: Literal["saving", "transcribing", "analyzing"]
+
+
+class SessionErrorMessage(WireModel):
+    type: Literal["sessionError"] = "sessionError"
+    code: Literal[
+        "recorderBusy",
+        "invalidSession",
+        "transcriptionFailed",
+        "phoneAnalysisFailed",
+        "transportLost",
+    ]
+    message: str
+
+
 class SessionCompleteMessage(WireModel):
     type: Literal["sessionComplete"] = "sessionComplete"
-    recording_id: str
+    recording: "Recording"
     """Emitted only after the recording is fully persisted (momentum->truth)."""
 
 
@@ -100,7 +116,16 @@ class Recording(WireModel):
     id: str
     created_at: str
     duration_seconds: float
+    source: Literal["macos", "iphone", "browserDev"]
+    status: Literal["completed", "interrupted"]
     transcript: str | None = None
+    transcription_error: str | None = None
+    observed_phones: list[str]
+    phone_analysis_error: str | None = None
+    phone_model_identifier: str | None = None
+    phone_model_hash: str | None = None
+    phone_runtime_identifier: str | None = None
+    phone_analyzed_at: str | None = None
     sample_rate: int
 
 
@@ -193,6 +218,8 @@ MODELS: Final[list[type[BaseModel]]] = [
     PartialTranscriptMessage,
     FinalTranscriptMessage,
     MeterMessage,
+    SessionProgressMessage,
+    SessionErrorMessage,
     SessionCompleteMessage,
     Recording,
     RecordingListResponse,
@@ -215,6 +242,8 @@ _SERVER_MESSAGES: Final = [
     "PartialTranscriptMessage",
     "FinalTranscriptMessage",
     "MeterMessage",
+    "SessionProgressMessage",
+    "SessionErrorMessage",
     "SessionCompleteMessage",
 ]
 

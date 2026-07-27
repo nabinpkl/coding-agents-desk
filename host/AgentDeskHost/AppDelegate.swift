@@ -715,6 +715,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Task { @MainActor in
                     self?.handleWorkspaceLaneReady(fingerprint, lane: lane)
                 }
+            },
+            voiceLaneReadyHandler: { [weak self] fingerprint, lane in
+                Task { @MainActor in
+                    self?.handleVoiceLaneReady(fingerprint, lane: lane)
+                }
             }
         )
         do {
@@ -1377,6 +1382,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             for: fingerprint
         )
+    }
+
+    private func handleVoiceLaneReady(
+        _ fingerprint: DeviceFingerprint,
+        lane: VoiceLaneServer
+    ) {
+        let sidecar = voiceEngineSidecar
+        signalingLogger.notice(
+            "voice lane ready fp=\(fingerprint.rawValue, privacy: .public)"
+        )
+        lane.start(baseURLProvider: { [weak sidecar] in sidecar?.baseURL })
     }
 
     private func handleClientDiagnosticsAnnouncement(

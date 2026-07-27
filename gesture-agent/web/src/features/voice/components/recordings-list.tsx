@@ -7,13 +7,19 @@
 
 "use client";
 
-import { AlertCircle, ListMusic, Loader2, Trash2 } from "lucide-react";
+import { AlertCircle, ListMusic, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
 
-import { useDeleteRecording, useRecordings } from "@/features/voice/use-recordings";
+import {
+  useDeleteRecording,
+  useReanalyzeRecording,
+  useRecordings,
+} from "@/features/voice/use-recordings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { recordingAudioUrl } from "@/lib/api";
+import { loadRecordingAudioURL, recordingAudioUrl } from "@/lib/api";
+import { getHostConfig } from "@/lib/host-bridge";
 import type { Recording } from "@/lib/wire";
 
 function formatDuration(seconds: number): string {
@@ -43,6 +49,31 @@ function RecordingRow({
   readonly onDelete: (id: string) => void;
   readonly isDeleting: boolean;
 }) {
+  const nativeTransport = getHostConfig()?.voiceTransport === "native";
+  const [audioURL, setAudioURL] = useState<string | undefined>(
+    nativeTransport ? undefined : recordingAudioUrl(recording.id),
+  );
+  const [audioError, setAudioError] = useState<string>();
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const reanalyze = useReanalyzeRecording();
+  useEffect(() => {
+    return () => {
+      if (audioURL?.startsWith("blob:")) URL.revokeObjectURL(audioURL);
+    };
+  }, [audioURL]);
+
+  async function loadAudio(): Promise<void> {
+    setIsLoadingAudio(true);
+    setAudioError(undefined);
+    try {
+      setAudioURL(await loadRecordingAudioURL(recording.id));
+    } catch (error) {
+      setAudioError(error instanceof Error ? error.message : "Audio unavailable");
+    } finally {
+      setIsLoadingAudio(false);
+    }
+  }
+
   return (
     <li className="flex flex-col gap-1.5 rounded-lg border border-border bg-card/50 p-3">
       <div className="flex items-center justify-between gap-2">
@@ -51,6 +82,12 @@ function RecordingRow({
         </span>
         <div className="flex items-center gap-1.5">
           <Badge variant="secondary">{formatDuration(recording.durationSeconds)}</Badge>
+          <Badge variant="outline">
+            {recording.source === "iphone" ? "iPhone" : recording.source === "macos" ? "Mac" : "Browser"}
+          </Badge>
+          <Badge variant={recording.status === "interrupted" ? "destructive" : "outline"}>
+            {recording.status}
+          </Badge>
           <Badge variant="outline">{recording.sampleRate} Hz</Badge>
         </div>
       </div>
@@ -61,16 +98,59 @@ function RecordingRow({
           <span className="text-muted-foreground italic">No transcript</span>
         )}
       </p>
+      {recording.transcriptionError && (
+        <p className="text-xs text-destructive">
+          Transcription failed: {recording.transcriptionError}
+        </p>
+      )}
+      {recording.observedPhones.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          <p className="font-mono text-sm">{recording.observedPhones.join(" ")}</p>
+          <p className="text-xs text-muted-foreground">
+            {recording.phoneModelIdentifier} · {recording.phoneRuntimeIdentifier}
+          </p>
+        </div>
+      ) : recording.phoneAnalysisError ? (
+        <p className="text-xs text-destructive">
+          Phone analysis failed: {recording.phoneAnalysisError}
+        </p>
+      ) : null}
+      {reanalyze.isError && (
+        <p className="text-xs text-destructive">
+          {reanalyze.error instanceof Error
+            ? reanalyze.error.message
+            : "Reanalysis failed"}
+        </p>
+      )}
+      {audioError && <p className="text-xs text-destructive">{audioError}</p>}
       <div className="flex items-center gap-2">
-        {/* Native controls: transport, scrubbing, and duration for free, and
-            they stay correct while the wav streams. `preload="none"` keeps a
-            long list from fetching every recording's audio on mount. */}
-        <audio
-          className="h-8 min-w-0 flex-1"
-          controls
-          preload="none"
-          src={recordingAudioUrl(recording.id)}
-        />
+        {audioURL ? (
+          <audio
+            className="h-8 min-w-0 flex-1"
+            controls
+            preload="none"
+            src={audioURL}
+          />
+        ) : (
+          <Button
+            disabled={isLoadingAudio}
+            onClick={() => void loadAudio()}
+            size="sm"
+            variant="outline"
+          >
+            {isLoadingAudio && <Loader2 className="animate-spin" />}
+            Load audio
+          </Button>
+        )}
+        <Button
+          aria-label="Reanalyze recording"
+          disabled={reanalyze.isPending}
+          onClick={() => reanalyze.mutate(recording.id)}
+          size="icon-sm"
+          variant="ghost"
+        >
+          <RefreshCw className={reanalyze.isPending ? "animate-spin" : ""} />
+        </Button>
         <Button
           aria-label="Delete recording"
           disabled={isDeleting}

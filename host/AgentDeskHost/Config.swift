@@ -822,6 +822,12 @@ enum Config {
         .appendingPathComponent("voice-data", isDirectory: true)
     static let voiceModelDirectory = applicationSupportDirectory
         .appendingPathComponent("voice-models", isDirectory: true)
+    static var voiceZIPAResourceURL: URL? {
+        Bundle.main.url(
+            forResource: "VoiceZIPAModelManifest",
+            withExtension: "json"
+        )?.deletingLastPathComponent()
+    }
     static let voiceSourceResourceName = "voice-src"
     static var voiceSourceURL: URL? {
         Bundle.main.url(forResource: voiceSourceResourceName, withExtension: nil)
@@ -874,7 +880,11 @@ enum Config {
             environment: [
                 "VOICE_DATA_ROOT": voiceDataDirectory.path,
                 "VOICE_MODEL_ROOT": voiceModelDirectory.path,
-            ]
+            ].merging(
+                voiceZIPAResourceURL.map {
+                    ["VOICE_ZIPA_MODEL_ROOT": $0.path]
+                } ?? [:]
+            ) { _, new in new }
         )
     }
     static let ptyManagerResourceName = "pty-manager"

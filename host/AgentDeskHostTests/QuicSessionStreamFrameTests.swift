@@ -60,7 +60,7 @@ struct QuicSessionStreamFrameTests {
         #expect(QuicSessionStreamRole(rawValue: 4) == .dom)
         #expect(QuicSessionStreamRole(rawValue: 5) == .terminal)
         #expect(QuicSessionStreamRole(rawValue: 6) == .files)
-        #expect(QuicSessionStreamRole(rawValue: 7) == nil)
+        #expect(QuicSessionStreamRole(rawValue: 7) == .voice)
     }
 
     @Test func quicSessionFrameRoundTripsDomRole() throws {

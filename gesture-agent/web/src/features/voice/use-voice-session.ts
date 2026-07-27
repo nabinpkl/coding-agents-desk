@@ -65,9 +65,17 @@ export function useVoiceSession(): VoiceSessionController {
           void queryClient.invalidateQueries({
             queryKey: RECORDINGS_QUERY_KEY,
           });
-          store.complete(message.recordingId);
+          store.complete(message.recording.id);
           teardownSocket();
           capture.stop();
+          break;
+        case "sessionProgress":
+          store.setFinalizationStage(message.stage);
+          break;
+        case "sessionError":
+          capture.stop();
+          store.fail(message.message);
+          teardownSocket();
           break;
         default:
           break;
@@ -77,8 +85,8 @@ export function useVoiceSession(): VoiceSessionController {
   );
 
   // An unexpected socket close (backend error-close, dropped connection) while
-  // a run is live must fail loud, or the UI would sit in `decoding`/`capturing`
-  // forever with no enabled control to recover.
+  // a run is live must fail loud, or the UI would sit in a capture/finalization
+  // state forever with no enabled control to recover.
   const handleSocketClose = useCallback(
     (event: CloseEvent) => {
       const store = useVoiceStore.getState();
@@ -86,7 +94,9 @@ export function useVoiceSession(): VoiceSessionController {
       if (
         status === "requestingMic" ||
         status === "capturing" ||
-        status === "decoding"
+        status === "saving" ||
+        status === "transcribing" ||
+        status === "analyzing"
       ) {
         capture.stop();
         teardownSocket();
@@ -103,7 +113,9 @@ export function useVoiceSession(): VoiceSessionController {
     if (
       status === "requestingMic" ||
       status === "capturing" ||
-      status === "decoding"
+      status === "saving" ||
+      status === "transcribing" ||
+      status === "analyzing"
     ) {
       return;
     }
@@ -166,7 +178,7 @@ export function useVoiceSession(): VoiceSessionController {
     const socket = socketRef.current;
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.sendControl({ type: "sessionStop" });
-      store.beginDecode();
+      store.setFinalizationStage("saving");
     } else {
       store.fail("voice socket closed before decode");
       teardownSocket();
@@ -192,7 +204,9 @@ export function useVoiceSession(): VoiceSessionController {
       if (
         status === "requestingMic" ||
         status === "capturing" ||
-        status === "decoding"
+        status === "saving" ||
+        status === "transcribing" ||
+        status === "analyzing"
       ) {
         store.reset();
       }

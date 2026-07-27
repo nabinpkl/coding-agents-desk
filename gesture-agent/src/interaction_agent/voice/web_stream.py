@@ -25,7 +25,6 @@ from interaction_agent.voice.wire import (
     SessionStopMessage,
 )
 
-
 FloatArray = NDArray[np.float32]
 
 ClientWireMessage = SessionStartMessage | AudioFrameMessage | SessionStopMessage
@@ -119,14 +118,35 @@ def load_recording(recording_id: str) -> Recording:
 
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     summary = payload["summary"]
-    transcript = payload.get("transcript")
-    transcript_text = transcript["text"] if isinstance(transcript, dict) else None
+    transcription = payload.get("transcription")
+    legacy_transcript = payload.get("transcript")
+    if isinstance(transcription, dict):
+        transcript_text = transcription.get("text")
+        transcription_error = transcription.get("error")
+    else:
+        transcript_text = (
+            legacy_transcript.get("text")
+            if isinstance(legacy_transcript, dict)
+            else None
+        )
+        transcription_error = None
+    phone_analysis = payload.get("phoneAnalysis")
+    phone_analysis = phone_analysis if isinstance(phone_analysis, dict) else {}
 
     return Recording(
         id=recording_id,
         created_at=str(payload["createdAt"]),
         duration_seconds=float(summary["durationSeconds"]),
+        source=payload.get("source", "browserDev"),
+        status=payload.get("status", "completed"),
         transcript=transcript_text,
+        transcription_error=transcription_error,
+        observed_phones=list(phone_analysis.get("phones") or []),
+        phone_analysis_error=phone_analysis.get("error"),
+        phone_model_identifier=phone_analysis.get("modelIdentifier"),
+        phone_model_hash=phone_analysis.get("modelHash"),
+        phone_runtime_identifier=phone_analysis.get("runtimeIdentifier"),
+        phone_analyzed_at=phone_analysis.get("analyzedAt"),
         sample_rate=int(summary["sampleRate"]),
     )
 

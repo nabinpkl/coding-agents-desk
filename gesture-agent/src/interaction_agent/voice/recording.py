@@ -1,11 +1,13 @@
 import json
+import os
 import threading
 import wave
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Final
+from typing import Any, Final
 
 import numpy as np
 import sounddevice as sd
@@ -14,7 +16,6 @@ from numpy.typing import NDArray
 from interaction_agent.paths import VOICE_RECORDING_ROOT
 from interaction_agent.voice.devices import device_name, query_device_info
 from interaction_agent.voice.signals import VoiceSignalAnalysis, analyze_audio
-
 
 FloatArray = NDArray[np.float32]
 AudioSink = Callable[[FloatArray, int], None]
@@ -272,6 +273,9 @@ def save_voice_recording(
     audio: FloatArray,
     sample_rate: int,
     started_at: datetime,
+    *,
+    source: str = "browserDev",
+    status: str = "completed",
 ) -> VoiceRecordingResult:
     timestamp = started_at.strftime("%Y%m%d-%H%M%S-%f")
     VOICE_RECORDING_ROOT.mkdir(parents=True, exist_ok=True)
@@ -279,16 +283,31 @@ def save_voice_recording(
     json_path = VOICE_RECORDING_ROOT / f"session-{timestamp}.json"
     write_wav(wav_path, audio, sample_rate)
     analysis = analyze_audio(audio, sample_rate)
-    json_path.write_text(
-        json.dumps(
-            {
-                "createdAt": started_at.isoformat(),
-                "wavPath": str(wav_path),
-                **analysis.to_json_payload(),
+    write_recording_metadata(
+        json_path,
+        {
+            "schemaVersion": 2,
+            "createdAt": started_at.isoformat(),
+            "wavPath": str(wav_path),
+            "source": source,
+            "status": status,
+            "transcription": {
+                "status": "pending",
+                "text": None,
+                "error": None,
+                "engine": None,
             },
-            indent=2,
-        ),
-        encoding="utf-8",
+            "phoneAnalysis": {
+                "status": "pending",
+                "phones": [],
+                "error": None,
+                "modelIdentifier": None,
+                "modelHash": None,
+                "runtimeIdentifier": None,
+                "analyzedAt": None,
+            },
+            **analysis.to_json_payload(),
+        },
     )
     return VoiceRecordingResult(
         wav_path=wav_path,
@@ -302,15 +321,42 @@ def save_voice_recording_transcript(
     transcript_text: str,
     engine: str = "sherpa-onnx-streaming",
 ) -> None:
-    payload = json.loads(result.json_path.read_text(encoding="utf-8"))
-    payload["transcript"] = {
-        "engine": engine,
-        "text": transcript_text,
-    }
-    result.json_path.write_text(
-        json.dumps(payload, indent=2),
+    update_recording_metadata(
+        result.json_path,
+        {
+            "transcript": {
+                "engine": engine,
+                "text": transcript_text,
+            },
+            "transcription": {
+                "status": "completed",
+                "text": transcript_text,
+                "error": None,
+                "engine": engine,
+            },
+        },
+    )
+
+
+def write_recording_metadata(path: Path, payload: dict[str, Any]) -> None:
+    """Atomically replace one recording metadata document."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+    os.replace(temporary, path)
+
+
+def update_recording_metadata(
+    path: Path,
+    updates: dict[str, Any],
+) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload.update(updates)
+    write_recording_metadata(path, payload)
+    return payload
 
 
 def write_wav(path: Path, audio: FloatArray, sample_rate: int) -> None:

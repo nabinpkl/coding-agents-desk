@@ -81,7 +81,16 @@ export interface Recording {
   id: string;
   createdAt: string;
   durationSeconds: number;
+  source: "macos" | "iphone" | "browserDev";
+  status: "completed" | "interrupted";
   transcript?: string | null;
+  transcriptionError?: string | null;
+  observedPhones: string[];
+  phoneAnalysisError?: string | null;
+  phoneModelIdentifier?: string | null;
+  phoneModelHash?: string | null;
+  phoneRuntimeIdentifier?: string | null;
+  phoneAnalyzedAt?: string | null;
   sampleRate: number;
 }
 /**
@@ -107,7 +116,24 @@ export interface SaveRecordingRequest {
  */
 export interface SessionCompleteMessage {
   type?: "sessionComplete";
-  recordingId: string;
+  recording: Recording;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "SessionErrorMessage".
+ */
+export interface SessionErrorMessage {
+  type?: "sessionError";
+  code: "recorderBusy" | "invalidSession" | "transcriptionFailed" | "phoneAnalysisFailed" | "transportLost";
+  message: string;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "SessionProgressMessage".
+ */
+export interface SessionProgressMessage {
+  type?: "sessionProgress";
+  stage: "saving" | "transcribing" | "analyzing";
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema
@@ -176,4 +202,6 @@ export type ServerWireMessage =
   | PartialTranscriptMessage
   | FinalTranscriptMessage
   | MeterMessage
+  | SessionProgressMessage
+  | SessionErrorMessage
   | SessionCompleteMessage;

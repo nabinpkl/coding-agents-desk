@@ -278,6 +278,22 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         return transport
     }
 
+    func openVoiceLane(
+        delivery: @escaping VoiceLaneClient.Delivery
+    ) async throws -> VoiceLaneClient {
+        let client = VoiceLaneClient(
+            stream: try await connection.openStream(),
+            delivery: delivery
+        )
+        do {
+            try await client.open()
+            return client
+        } catch {
+            client.close()
+            throw error
+        }
+    }
+
     func close() {
         guard lock.withLock({ state in
             if state.closed { return false }
