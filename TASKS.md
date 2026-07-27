@@ -713,6 +713,8 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   by the same words. Derive grouping on the host from durable transcript and flat phone facts, retain
   every unanchored phone, expose unknown words and pinned dictionary provenance, and stage the same
   CMUdict/mapping assets into the installed Python sidecar.
+- D147. Remove the nested recordings viewport from shared Voice so capture and saved passage results
+  use one continuous WKWebView scroll surface on Mac and iPhone.
 
 ## Promotion log
 
@@ -736,4 +738,5 @@ D143  2026-07-27  landed     native iOS InteractionPanel voice transport
 D144  2026-07-27  landed     shared host voice library and explicit finalization states
 R145  implemented remaining  authorized cross-device runtime acceptance
 D146  2026-07-27  landed     shared Voice transcript and word-grouped heard/reference Passage cards
+D147  2026-07-27  landed     one continuous shared Voice scroll surface
 ```

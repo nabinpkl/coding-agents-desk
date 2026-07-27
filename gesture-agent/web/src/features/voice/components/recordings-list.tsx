@@ -18,7 +18,6 @@ import {
 } from "@/features/voice/use-recordings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { loadRecordingAudioURL, recordingAudioUrl } from "@/lib/api";
 import { getHostConfig } from "@/lib/host-bridge";
 import type { Recording, WordPhoneGroup } from "@/lib/wire";
@@ -309,18 +308,16 @@ export function RecordingsList() {
             : "Failed to delete recording"}
         </div>
       )}
-      <ScrollArea className="max-h-[42rem]">
-        <ul className="flex flex-col gap-2 pr-3">
-          {data.map((recording) => (
-            <RecordingRow
-              key={recording.id}
-              isDeleting={remove.isPending && remove.variables === recording.id}
-              onDelete={(id) => remove.mutate(id)}
-              recording={recording}
-            />
-          ))}
-        </ul>
-      </ScrollArea>
+      <ul className="flex flex-col gap-2">
+        {data.map((recording) => (
+          <RecordingRow
+            key={recording.id}
+            isDeleting={remove.isPending && remove.variables === recording.id}
+            onDelete={(id) => remove.mutate(id)}
+            recording={recording}
+          />
+        ))}
+      </ul>
     </div>
   );
 }
