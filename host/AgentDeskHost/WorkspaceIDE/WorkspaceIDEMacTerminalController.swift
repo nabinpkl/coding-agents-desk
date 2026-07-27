@@ -206,6 +206,10 @@ final class WorkspaceIDEMacTerminalController: NSObject, PtyTerminalWebViewDeleg
         logger.error("workspace IDE terminal open failed: \(code.rawValue, privacy: .public)")
     }
 
+    func ptyTerminalContent(_ content: PtyTerminalWebView, didReceiveStatus text: String) {
+        logger.info("workspace IDE terminal status: \(text, privacy: .public)")
+    }
+
     func ptyTerminalContent(_ content: PtyTerminalWebView, didFail error: Error) {
         logger.error("workspace IDE terminal connection failed: \(String(describing: error), privacy: .public)")
         activeRequest = nil

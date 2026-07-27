@@ -125,7 +125,7 @@ function createPane(pane) {
       resizeTimer: null, resizeGeneration: 0, resizeObserver: null,
       settledDimensions: null, pendingViewportClaim: false,
       status: null, sourceColumns: 80, sourceRows: 24, checkpointOpen: false,
-      lastPresentation: '',
+      lastPresentation: '', unsettledAttempts: 0,
     };
     terminals.set(entry.id, entry);
     term.onUserData(data => emitInput(entry, data));
@@ -152,6 +152,7 @@ function createPane(pane) {
     element.dataset.synchronizing = entry.checkpointOpen ? 'true' : 'false';
     mount.replaceWith(entry.term.element?.parentElement ?? mount);
     entry.resizeObserver.observe(viewport);
+    entry.unsettledAttempts = 0;
     scheduleViewport(entry);
   }
   return element;
@@ -264,6 +265,10 @@ function applyFocusedPane(paneId) {
   for (const entry of terminals.values()) entry.element.dataset.focused = entry.paneId === paneId ? 'true' : 'false';
 }
 
+function capacityLabel(capacity) {
+  return capacity ? `${capacity.columns}x${capacity.rows}` : 'none';
+}
+
 function proposedDimensions(entry) {
   const prior = {
     width: entry.canvas.style.width, height: entry.canvas.style.height,
@@ -291,9 +296,20 @@ function scheduleViewport(entry) {
       const second = proposedDimensions(entry);
       const dimensions = settledCapacity(first, second);
       if (!dimensions) {
-        if (isAuthoritativeCapacity(second)) scheduleViewport(entry);
+        // A pane opened while detached can measure zero forever. Report the raw numbers and keep
+        // retrying for a bounded window instead of giving up silently.
+        entry.unsettledAttempts += 1;
+        if (entry.unsettledAttempts <= 3 || entry.unsettledAttempts % 8 === 0) {
+          post('diagnostic', {
+            code: `vp${entry.unsettledAttempts} f=${capacityLabel(first)} s=${capacityLabel(second)}`
+              + ` px=${entry.viewport.clientWidth}x${entry.viewport.clientHeight}`
+              + ` m=${entry.term.element?.isConnected ? 1 : 0}`,
+          });
+        }
+        if (entry.unsettledAttempts <= 24 || isAuthoritativeCapacity(second)) scheduleViewport(entry);
         return;
       }
+      entry.unsettledAttempts = 0;
       entry.settledDimensions = dimensions;
       if (publishViewport(entry, dimensions, entry.pendingViewportClaim)) {
         entry.pendingViewportClaim = false;
