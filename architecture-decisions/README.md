@@ -115,3 +115,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0074 | Own the agent feed source inside AgentDesk | superseded by ADR-0075 | 2026-07-24 |
 | ADR-0075 | Load the agent feed by visible layer | accepted | 2026-07-24 |
 | ADR-0076 | Let the Mac host own shared voice recordings and analysis | accepted | 2026-07-27 |
+| ADR-0077 | Build the workspace IDE surface on Vite, TypeScript and Tailwind, and defer React | accepted | 2026-07-27 |
