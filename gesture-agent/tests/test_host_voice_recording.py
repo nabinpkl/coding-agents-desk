@@ -148,6 +148,47 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(web_stream.recording_wav_path(result.id).exists())
 
+    async def test_progress_failure_cannot_precede_wav_persistence(self) -> None:
+        persisted = False
+
+        def save(*args, **kwargs):
+            nonlocal persisted
+            persisted = True
+            return recording.save_voice_recording(*args, **kwargs)
+
+        async def fail_progress(*args, **kwargs):
+            del args, kwargs
+            raise RuntimeError("client disconnected")
+
+        async def analyze(app, recording_id):
+            del app
+            return web_stream.load_recording(recording_id)
+
+        with (
+            patch.object(http_server, "save_voice_recording", save),
+            patch.object(http_server, "send_progress", fail_progress),
+            patch.object(
+                http_server,
+                "transcribe_audio_path",
+                return_value={"text": "thank"},
+            ),
+            patch.object(http_server, "analyze_recording_phones", analyze),
+        ):
+            result = await http_server.finalize_session(
+                test_app(),
+                FakeWebSocket(),
+                [np.full(2048, 0.1, dtype=np.float32)],
+                16_000,
+                datetime(2026, 7, 26, tzinfo=UTC),
+                "iphone",
+                "completed",
+                "11111111-2222-3333-4444-555555555555",
+            )
+
+        self.assertTrue(persisted)
+        self.assertEqual(result.transcript, "thank")
+        self.assertTrue(web_stream.recording_wav_path(result.id).exists())
+
     async def test_empty_interrupted_audio_is_discarded(self) -> None:
         result = await http_server.finalize_session(
             test_app(),

@@ -34,40 +34,135 @@ private actor KeyboardFrameSendGate {
 
 struct KeyboardDictationFrameQueueTests {
     @Test
+    func intentionalVoiceLaneCloseDoesNotReportTransportLoss() {
+        #expect(!VoiceLaneReceiveTerminationPolicy.shouldReportTransportLoss(
+            isClosed: true,
+            errorIsCancellation: true
+        ))
+        #expect(!VoiceLaneReceiveTerminationPolicy.shouldReportTransportLoss(
+            isClosed: true,
+            errorIsCancellation: false
+        ))
+        #expect(!VoiceLaneReceiveTerminationPolicy.shouldReportTransportLoss(
+            isClosed: false,
+            errorIsCancellation: true
+        ))
+        #expect(VoiceLaneReceiveTerminationPolicy.shouldReportTransportLoss(
+            isClosed: false,
+            errorIsCancellation: false
+        ))
+    }
+
+    @Test
+    func staleLifecycleCallbacksAreRejected() {
+        let activeGeneration = UUID()
+        #expect(!KeyboardDictationLifecyclePolicy.acceptsLaneCallback(
+            callbackGeneration: UUID(),
+            activeGeneration: activeGeneration
+        ))
+        #expect(KeyboardDictationLifecyclePolicy.acceptsLaneCallback(
+            callbackGeneration: activeGeneration,
+            activeGeneration: activeGeneration
+        ))
+        #expect(!KeyboardDictationLifecyclePolicy.acceptsSocketCompletion(
+            requestID: "stale",
+            activeRequestID: "current"
+        ))
+        #expect(KeyboardDictationLifecyclePolicy.acceptsSocketCompletion(
+            requestID: "current",
+            activeRequestID: "current"
+        ))
+        #expect(!KeyboardDictationLifecyclePolicy.acceptsCaptureCallback(
+            captureSessionID: UUID(),
+            activeSessionID: activeGeneration
+        ))
+        #expect(KeyboardDictationLifecyclePolicy.acceptsCaptureCallback(
+            captureSessionID: activeGeneration,
+            activeSessionID: activeGeneration
+        ))
+    }
+
+    @Test
     func sendsOutOfOrderArrivalsInSequenceBeforeFlushReturns() async throws {
         let collector = KeyboardFrameCollector()
         let queue = KeyboardDictationFrameQueue()
-        try await queue.reset { frame in
+        let captureSessionID = UUID()
+        try await queue.reset(captureSessionID: captureSessionID) { frame in
             await collector.append(frame.sequence)
         }
 
-        try await queue.enqueue(frame(sequence: 1))
-        try await queue.enqueue(frame(sequence: 0))
+        try await queue.enqueue(frame(
+            captureSessionID: captureSessionID,
+            sequence: 1
+        ))
+        try await queue.enqueue(frame(
+            captureSessionID: captureSessionID,
+            sequence: 0
+        ))
         try await queue.flush(through: 1)
 
         #expect(await collector.sequences == [0, 1])
     }
 
     @Test
+    func ignoresFramesFromAReplacedCaptureSession() async throws {
+        let collector = KeyboardFrameCollector()
+        let queue = KeyboardDictationFrameQueue()
+        let captureSessionID = UUID()
+        try await queue.reset(captureSessionID: captureSessionID) { frame in
+            await collector.append(frame.sequence)
+        }
+
+        try await queue.enqueue(frame(
+            captureSessionID: UUID(),
+            sequence: 0
+        ))
+        try await queue.enqueue(frame(
+            captureSessionID: captureSessionID,
+            sequence: 0
+        ))
+        try await queue.flush(through: 0)
+
+        #expect(await collector.sequences == [0])
+    }
+
+    @Test
     func overflowFailsTheTakeInsteadOfDroppingAudio() async throws {
         let gate = KeyboardFrameSendGate()
         let queue = KeyboardDictationFrameQueue(maximumPendingFrames: 2)
-        try await queue.reset { _ in
+        let captureSessionID = UUID()
+        try await queue.reset(captureSessionID: captureSessionID) { _ in
             await gate.wait()
         }
-        try await queue.enqueue(frame(sequence: 0))
+        try await queue.enqueue(frame(
+            captureSessionID: captureSessionID,
+            sequence: 0
+        ))
         await gate.waitUntilStarted()
-        try await queue.enqueue(frame(sequence: 1))
-        try await queue.enqueue(frame(sequence: 2))
+        try await queue.enqueue(frame(
+            captureSessionID: captureSessionID,
+            sequence: 1
+        ))
+        try await queue.enqueue(frame(
+            captureSessionID: captureSessionID,
+            sequence: 2
+        ))
 
         await #expect(throws: KeyboardDictationCoordinatorError.self) {
-            try await queue.enqueue(frame(sequence: 3))
+            try await queue.enqueue(frame(
+                captureSessionID: captureSessionID,
+                sequence: 3
+            ))
         }
         await gate.open()
     }
 
-    private func frame(sequence: Int) -> KeyboardDictationPCMFrame {
+    private func frame(
+        captureSessionID: UUID,
+        sequence: Int
+    ) -> KeyboardDictationPCMFrame {
         KeyboardDictationPCMFrame(
+            captureSessionID: captureSessionID,
             sequence: sequence,
             samples: Data([UInt8(sequence)])
         )

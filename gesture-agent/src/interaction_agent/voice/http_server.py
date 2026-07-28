@@ -436,6 +436,24 @@ async def send_progress(
         await send_wire(websocket, SessionProgressMessage(stage=stage))
 
 
+async def send_progress_best_effort(
+    websocket: WebSocket | None,
+    stage: Literal["saving", "transcribing", "analyzing"],
+) -> bool:
+    if websocket is None:
+        return False
+    try:
+        await send_progress(websocket, stage)
+        return True
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "voice client disconnected during %s progress delivery",
+            stage,
+            exc_info=True,
+        )
+        return False
+
+
 async def finish_live_transcriber(transcriber: MlxLiveChunkTranscriber) -> None:
     """Release preview state without making retained PCM depend on it."""
     try:
@@ -471,7 +489,6 @@ async def finalize_session(
                 ),
             )
         return None
-    await send_progress(websocket, "saving")
     result = await run_in_threadpool(
         save_voice_recording,
         audio,
@@ -482,11 +499,14 @@ async def finalize_session(
         client_session_id=client_session_id,
     )
     recording_id = recording_id_from_result(result)
+    if not await send_progress_best_effort(websocket, "saving"):
+        websocket = None
 
     # The live partial is only the last decoded window, so the authoritative
     # final transcript is a full-wav Whisper pass over the persisted recording.
     # A stage failure is persisted and does not remove the retained audio.
-    await send_progress(websocket, "transcribing")
+    if not await send_progress_best_effort(websocket, "transcribing"):
+        websocket = None
     config = load_voice_runtime_config()
     final_text = ""
     try:
@@ -516,7 +536,8 @@ async def finalize_session(
             },
         )
 
-    await send_progress(websocket, "analyzing")
+    if not await send_progress_best_effort(websocket, "analyzing"):
+        websocket = None
     try:
         recording = await analyze_recording_phones(app, recording_id)
     except Exception as exc:

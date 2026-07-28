@@ -2,6 +2,7 @@ import AVFoundation
 import Foundation
 
 struct KeyboardDictationPCMFrame: Sendable {
+    let captureSessionID: UUID
     let sequence: Int
     let samples: Data
 }
@@ -34,8 +35,8 @@ enum KeyboardDictationAudioError: LocalizedError {
 /// is active. Idle buffers therefore never enter App Group storage or transport.
 private final class KeyboardDictationCaptureSink: @unchecked Sendable {
     typealias FrameHandler = @Sendable (KeyboardDictationPCMFrame) -> Void
-    typealias MeterHandler = @Sendable (Float) -> Void
-    typealias FailureHandler = @Sendable (Error) -> Void
+    typealias MeterHandler = @Sendable (UUID, Float) -> Void
+    typealias FailureHandler = @Sendable (UUID, Error) -> Void
 
     private let lock = NSLock()
     private let converter = VoiceBufferConverter()
@@ -44,6 +45,7 @@ private final class KeyboardDictationCaptureSink: @unchecked Sendable {
     private let meterHandler: MeterHandler
     private let failureHandler: FailureHandler
     private var capturing = false
+    private var captureSessionID: UUID?
     private var samples: [Float] = []
     private var readOffset = 0
     private var nextSequence = 0
@@ -61,9 +63,10 @@ private final class KeyboardDictationCaptureSink: @unchecked Sendable {
         self.failureHandler = failureHandler
     }
 
-    func begin() {
+    func begin(captureSessionID: UUID) {
         lock.withLock {
             capturing = true
+            self.captureSessionID = captureSessionID
             samples.removeAll(keepingCapacity: true)
             readOffset = 0
             nextSequence = 0
@@ -82,6 +85,7 @@ private final class KeyboardDictationCaptureSink: @unchecked Sendable {
                 emit(Array(samples[readOffset...]))
             }
             let lastSequence = nextSequence - 1
+            captureSessionID = nil
             samples.removeAll(keepingCapacity: true)
             readOffset = 0
             return lastSequence
@@ -97,8 +101,16 @@ private final class KeyboardDictationCaptureSink: @unchecked Sendable {
         do {
             let converted = try converter.convert(buffer, to: outputFormat)
             guard let channel = converted.floatChannelData?[0] else {
+                let failedSessionID = captureSessionID
+                capturing = false
+                captureSessionID = nil
                 lock.unlock()
-                failureHandler(KeyboardDictationAudioError.conversionFailed)
+                if let failedSessionID {
+                    failureHandler(
+                        failedSessionID,
+                        KeyboardDictationAudioError.conversionFailed
+                    )
+                }
                 return
             }
             let count = Int(converted.frameLength)
@@ -122,20 +134,32 @@ private final class KeyboardDictationCaptureSink: @unchecked Sendable {
             if shouldPublishMeter {
                 lastMeterPublish = .now
             }
+            let meterSessionID = shouldPublishMeter
+                ? captureSessionID
+                : nil
             lock.unlock()
-            if shouldPublishMeter {
-                meterHandler(Self.meterLevel(buffer))
+            if let meterSessionID {
+                meterHandler(meterSessionID, Self.meterLevel(buffer))
             }
         } catch {
+            let failedSessionID = captureSessionID
             capturing = false
+            captureSessionID = nil
             lock.unlock()
-            failureHandler(KeyboardDictationAudioError.conversionFailed)
+            if let failedSessionID {
+                failureHandler(
+                    failedSessionID,
+                    KeyboardDictationAudioError.conversionFailed
+                )
+            }
         }
     }
 
     private func emit(_ frameSamples: [Float]) {
+        guard let captureSessionID else { return }
         let data = frameSamples.withUnsafeBytes { Data($0) }
         frameHandler(KeyboardDictationPCMFrame(
+            captureSessionID: captureSessionID,
             sequence: nextSequence,
             samples: data
         ))
@@ -164,8 +188,9 @@ private final class KeyboardDictationCaptureSink: @unchecked Sendable {
 @MainActor
 final class KeyboardDictationAudioCapture {
     var onFrame: (@Sendable (KeyboardDictationPCMFrame) -> Void)?
-    var onMeter: (@Sendable (Float) -> Void)?
-    var onFailure: (@Sendable (Error) -> Void)?
+    var onMeter: (@Sendable (UUID, Float) -> Void)?
+    var onCaptureFailure: (@Sendable (UUID, Error) -> Void)?
+    var onServiceFailure: (@Sendable (Error) -> Void)?
 
     private var engine: AVAudioEngine?
     private var sink: KeyboardDictationCaptureSink?
@@ -203,17 +228,17 @@ final class KeyboardDictationAudioCapture {
         }
         let frameHandler = onFrame
         let meterHandler = onMeter
-        let failureHandler = onFailure
+        let captureFailureHandler = onCaptureFailure
         let sink = KeyboardDictationCaptureSink(
             outputFormat: outputFormat,
             frameHandler: { frame in
                 frameHandler?(frame)
             },
-            meterHandler: { level in
-                meterHandler?(level)
+            meterHandler: { captureSessionID, level in
+                meterHandler?(captureSessionID, level)
             },
-            failureHandler: { error in
-                failureHandler?(error)
+            failureHandler: { captureSessionID, error in
+                captureFailureHandler?(captureSessionID, error)
             }
         )
         input.installTap(
@@ -236,11 +261,11 @@ final class KeyboardDictationAudioCapture {
         installObservers()
     }
 
-    func beginCapture() throws {
+    func beginCapture(sessionID: UUID) throws {
         guard isArmed, let sink else {
             throw KeyboardDictationAudioError.inputUnavailable
         }
-        sink.begin()
+        sink.begin(captureSessionID: sessionID)
     }
 
     func stopCapture() -> Int {
@@ -284,7 +309,9 @@ final class KeyboardDictationAudioCapture {
                 else {
                     return
                 }
-                self?.onFailure?(KeyboardDictationAudioError.interrupted)
+                self?.onServiceFailure?(
+                    KeyboardDictationAudioError.interrupted
+                )
             }
         }
         routeObserver = NotificationCenter.default.addObserver(
@@ -294,7 +321,9 @@ final class KeyboardDictationAudioCapture {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard self?.engine?.isRunning == false else { return }
-                self?.onFailure?(KeyboardDictationAudioError.interrupted)
+                self?.onServiceFailure?(
+                    KeyboardDictationAudioError.interrupted
+                )
             }
         }
     }

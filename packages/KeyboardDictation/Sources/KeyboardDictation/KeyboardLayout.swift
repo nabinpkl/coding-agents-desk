@@ -169,10 +169,15 @@ public enum KeyboardAutomaticInsertionGuard {
     public static func allowsInsertion(
         captureContext: KeyboardDocumentContextFingerprint?,
         currentContext: KeyboardDocumentContextFingerprint,
+        captureDocumentIdentifier: UUID?,
+        currentDocumentIdentifier: UUID?,
         keyboardControllerIsActive: Bool
     ) -> Bool {
         keyboardControllerIsActive
+            && captureDocumentIdentifier != nil
+            && captureDocumentIdentifier == currentDocumentIdentifier
             && captureContext != nil
             && captureContext == currentContext
     }
+
 }

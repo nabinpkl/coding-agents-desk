@@ -14,6 +14,15 @@ enum VoiceLaneClientError: LocalizedError {
     }
 }
 
+enum VoiceLaneReceiveTerminationPolicy {
+    static func shouldReportTransportLoss(
+        isClosed: Bool,
+        errorIsCancellation: Bool
+    ) -> Bool {
+        !isClosed && !errorIsCancellation
+    }
+}
+
 @available(iOS 26.0, *)
 final class VoiceLaneClient: @unchecked Sendable {
     typealias Delivery = @MainActor @Sendable (VoiceLaneHostMessage) -> Void
@@ -99,12 +108,18 @@ final class VoiceLaneClient: @unchecked Sendable {
                 await delivery(message)
             }
         } catch {
-            await delivery(.error(
-                requestID: nil,
-                recordingSessionID: nil,
-                code: .transportLost,
-                message: error.localizedDescription
-            ))
+            let isClosed = lock.withLock { closed }
+            if VoiceLaneReceiveTerminationPolicy.shouldReportTransportLoss(
+                isClosed: isClosed,
+                errorIsCancellation: error is CancellationError
+            ) {
+                await delivery(.error(
+                    requestID: nil,
+                    recordingSessionID: nil,
+                    code: .transportLost,
+                    message: error.localizedDescription
+                ))
+            }
             close()
         }
     }

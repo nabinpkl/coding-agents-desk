@@ -17,7 +17,9 @@ final class KeyboardViewController: UIInputViewController {
     private var refreshTimer: Timer?
     private var commandTimeout: Timer?
     private var pendingCommandID: UUID?
+    private var pendingCommandGenerationID: UUID?
     private var captureContext: KeyboardDocumentContextFingerprint?
+    private var captureDocumentIdentifier: UUID?
     private var serviceResponsive = false
     private var linkController: UIViewController?
     private var lastShiftTapAt: TimeInterval?
@@ -181,15 +183,33 @@ final class KeyboardViewController: UIInputViewController {
         guard let store else { return }
         do {
             let updated = try store.serviceSnapshot()
+            var shouldVerifyReplacement = false
+            if let pendingCommandID,
+               let pendingCommandGenerationID,
+               updated.generationID != pendingCommandGenerationID {
+                try store.clearCommand(ifMatching: pendingCommandID)
+                self.pendingCommandID = nil
+                self.pendingCommandGenerationID = nil
+                commandTimeout?.invalidate()
+                commandTimeout = nil
+                serviceResponsive = false
+                captureContext = nil
+                captureDocumentIdentifier = nil
+                shouldVerifyReplacement = updated.isArmed
+            }
             if let pendingCommandID,
                updated.acknowledgedCommandID == pendingCommandID {
                 self.pendingCommandID = nil
+                pendingCommandGenerationID = nil
                 commandTimeout?.invalidate()
                 commandTimeout = nil
                 serviceResponsive = true
                 try store.clearCommand(ifMatching: pendingCommandID)
             }
             snapshot = updated
+            if shouldVerifyReplacement {
+                verifyServiceLiveness()
+            }
             if updated.phase == .completed,
                updated.recordingID != nil {
                 handleCompletedResultIfNeeded()
@@ -219,20 +239,28 @@ final class KeyboardViewController: UIInputViewController {
         do {
             try store.saveCommand(command)
             pendingCommandID = command.id
+            pendingCommandGenerationID = generationID
             KeyboardDictationNotification.post(
                 KeyboardDictationNotification.command
             )
             commandTimeout?.invalidate()
             commandTimeout = Timer.scheduledTimer(
-                withTimeInterval: 2,
+                withTimeInterval:
+                    KeyboardDictationContract.commandAcknowledgementTimeout,
                 repeats: false
             ) { [weak self] _ in
                 Task { @MainActor in
                     guard self?.pendingCommandID == command.id else { return }
-                    self?.pendingCommandID = nil
                     self?.serviceResponsive = false
                     self?.render()
-                    self?.verifyServiceLiveness()
+                    let action = KeyboardDictationInteractionPolicy
+                        .commandTimeoutAction(
+                            hasUnacknowledgedCommand:
+                                self?.pendingCommandID == command.id
+                        )
+                    if action == .probeLiveness {
+                        self?.verifyServiceLiveness()
+                    }
                 }
             }
             render()
@@ -245,6 +273,7 @@ final class KeyboardViewController: UIInputViewController {
         switch snapshot.phase {
         case .ready, .completed, .failed:
             captureContext = currentDocumentFingerprint()
+            captureDocumentIdentifier = textDocumentProxy.documentIdentifier
             sendCommand(.start)
         case .recording:
             sendCommand(.stop)
@@ -280,12 +309,23 @@ final class KeyboardViewController: UIInputViewController {
                KeyboardAutomaticInsertionGuard.allowsInsertion(
                    captureContext: captureContext,
                    currentContext: currentDocumentFingerprint(),
+                   captureDocumentIdentifier: captureDocumentIdentifier,
+                   currentDocumentIdentifier:
+                       textDocumentProxy.documentIdentifier,
                    keyboardControllerIsActive: view.window != nil
                ) {
                 consumeAndInsert(
                     recordingID: recordingID,
                     text: transcript
                 )
+                return
+            }
+            captureContext = nil
+            captureDocumentIdentifier = nil
+            guard KeyboardDictationInteractionPolicy.shouldPresentDraft(
+                recordingID: recordingID,
+                typingTarget: layoutState.typingTarget
+            ) else {
                 return
             }
             try showDraft(recordingID: recordingID, transcript: transcript)
@@ -338,6 +378,8 @@ final class KeyboardViewController: UIInputViewController {
             try store?.saveConsumptionLog(log)
             try store?.clearDraft()
             closeDraft()
+            captureContext = nil
+            captureDocumentIdentifier = nil
             sendCommand(.dismissResult)
         } catch {
             voiceToolbar.render(.unavailable(error.localizedDescription))
@@ -355,6 +397,7 @@ final class KeyboardViewController: UIInputViewController {
             try store?.clearDraft()
             closeDraft()
             captureContext = nil
+            captureDocumentIdentifier = nil
             sendCommand(.dismissResult)
         } catch {
             voiceToolbar.render(.unavailable(error.localizedDescription))

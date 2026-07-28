@@ -12,6 +12,7 @@ actor KeyboardDictationFrameQueue {
     }
 
     private let maximumPendingFrames: Int
+    private var captureSessionID: UUID?
     private var sender: Sender?
     private var pending: [Int: KeyboardDictationPCMFrame] = [:]
     private var nextSequence = 0
@@ -24,10 +25,14 @@ actor KeyboardDictationFrameQueue {
         self.maximumPendingFrames = maximumPendingFrames
     }
 
-    func reset(sender: @escaping Sender) throws {
+    func reset(
+        captureSessionID: UUID,
+        sender: @escaping Sender
+    ) throws {
         guard !draining, waiters.isEmpty else {
             throw KeyboardDictationCoordinatorError.audioQueueClosed
         }
+        self.captureSessionID = captureSessionID
         self.sender = sender
         pending.removeAll(keepingCapacity: true)
         nextSequence = 0
@@ -38,6 +43,9 @@ actor KeyboardDictationFrameQueue {
     func enqueue(_ frame: KeyboardDictationPCMFrame) throws {
         if let terminalError {
             throw terminalError
+        }
+        guard frame.captureSessionID == captureSessionID else {
+            return
         }
         guard pending.count < maximumPendingFrames else {
             let error = KeyboardDictationCoordinatorError.audioQueueOverflow

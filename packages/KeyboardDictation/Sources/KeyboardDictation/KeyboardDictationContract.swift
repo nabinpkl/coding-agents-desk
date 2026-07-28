@@ -10,6 +10,7 @@ public enum KeyboardDictationContract {
     public static let maximumErrorUTF8Bytes = 8 * 1024
     public static let maximumStoreFileBytes = 128 * 1024
     public static let resultLifetime: TimeInterval = 24 * 60 * 60
+    public static let commandAcknowledgementTimeout: TimeInterval = 6
 
     public static func appGroupIdentifier(in bundle: Bundle = .main) throws -> String {
         guard let identifier = bundle.object(

@@ -192,6 +192,7 @@ struct KeyboardDictationTests {
     }
 
     @Test func automaticInsertionRequiresSameActiveContext() {
+        let documentIdentifier = UUID()
         let context = KeyboardDocumentContextFingerprint(
             beforeInput: "before",
             afterInput: "after",
@@ -200,6 +201,8 @@ struct KeyboardDictationTests {
         #expect(KeyboardAutomaticInsertionGuard.allowsInsertion(
             captureContext: context,
             currentContext: context,
+            captureDocumentIdentifier: documentIdentifier,
+            currentDocumentIdentifier: documentIdentifier,
             keyboardControllerIsActive: true
         ))
         #expect(!KeyboardAutomaticInsertionGuard.allowsInsertion(
@@ -209,12 +212,47 @@ struct KeyboardDictationTests {
                 afterInput: "after",
                 selectedText: nil
             ),
+            captureDocumentIdentifier: documentIdentifier,
+            currentDocumentIdentifier: documentIdentifier,
             keyboardControllerIsActive: true
         ))
         #expect(!KeyboardAutomaticInsertionGuard.allowsInsertion(
             captureContext: context,
             currentContext: context,
+            captureDocumentIdentifier: documentIdentifier,
+            currentDocumentIdentifier: documentIdentifier,
             keyboardControllerIsActive: false
+        ))
+        #expect(!KeyboardAutomaticInsertionGuard.allowsInsertion(
+            captureContext: context,
+            currentContext: context,
+            captureDocumentIdentifier: UUID(),
+            currentDocumentIdentifier: UUID(),
+            keyboardControllerIsActive: true
+        ))
+    }
+
+    @Test func commandTimeoutPreservesTheUnacknowledgedCommand() {
+        #expect(
+            KeyboardDictationInteractionPolicy.commandTimeoutAction(
+                hasUnacknowledgedCommand: true
+            ) == .waitForAcknowledgement
+        )
+        #expect(
+            KeyboardDictationInteractionPolicy.commandTimeoutAction(
+                hasUnacknowledgedCommand: false
+            ) == .probeLiveness
+        )
+    }
+
+    @Test func activeDraftIsNotPresentedAgainDuringPolling() {
+        #expect(!KeyboardDictationInteractionPolicy.shouldPresentDraft(
+            recordingID: "recording-1",
+            typingTarget: .draft(recordingID: "recording-1")
+        ))
+        #expect(KeyboardDictationInteractionPolicy.shouldPresentDraft(
+            recordingID: "recording-2",
+            typingTarget: .draft(recordingID: "recording-1")
         ))
     }
 

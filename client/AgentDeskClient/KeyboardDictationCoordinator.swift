@@ -81,15 +81,12 @@ final class KeyboardDictationCoordinator {
         audioCapture.onFrame = { [weak self] frame in
             guard let self else { return }
             Task {
-                let captureSessionID = await MainActor.run {
-                    self.currentSessionID
-                }
-                guard let captureSessionID else { return }
                 do {
                     try await self.frameQueue.enqueue(frame)
                 } catch {
                     await MainActor.run {
-                        guard self.currentSessionID == captureSessionID,
+                        guard self.currentSessionID
+                                == frame.captureSessionID,
                               self.generationID != nil
                         else {
                             return
@@ -99,22 +96,40 @@ final class KeyboardDictationCoordinator {
                 }
             }
         }
-        audioCapture.onMeter = { [weak self] level in
+        audioCapture.onMeter = { [weak self] captureSessionID, level in
             Task { @MainActor in
-                self?.publishMeter(level)
+                guard let self,
+                      KeyboardDictationLifecyclePolicy
+                          .acceptsCaptureCallback(
+                              captureSessionID: captureSessionID,
+                              activeSessionID: self.currentSessionID
+                          )
+                else {
+                    return
+                }
+                self.publishMeter(level)
             }
         }
-        audioCapture.onFailure = { [weak self] error in
+        audioCapture.onCaptureFailure = {
+            [weak self] captureSessionID, error in
             Task { @MainActor in
                 guard let self else { return }
-                guard self.generationID != nil else { return }
-                if let audioError = error as? KeyboardDictationAudioError,
-                   case .interrupted = audioError
-                {
-                    self.failService(error)
-                } else {
-                    self.failCurrentTake(error)
+                guard KeyboardDictationLifecyclePolicy
+                    .acceptsCaptureCallback(
+                        captureSessionID: captureSessionID,
+                        activeSessionID: self.currentSessionID
+                    ),
+                    self.generationID != nil
+                else {
+                    return
                 }
+                self.failCurrentTake(error)
+            }
+        }
+        audioCapture.onServiceFailure = { [weak self] error in
+            Task { @MainActor in
+                guard let self, self.generationID != nil else { return }
+                self.failService(error)
             }
         }
     }
@@ -152,7 +167,16 @@ final class KeyboardDictationCoordinator {
                 }
                 let lane = try await transport.openVoiceLane {
                     [weak self] message in
-                    self?.receive(message)
+                    guard let self,
+                          KeyboardDictationLifecyclePolicy
+                              .acceptsLaneCallback(
+                                  callbackGeneration: generationID,
+                                  activeGeneration: self.generationID
+                              )
+                    else {
+                        return
+                    }
+                    self.receive(message)
                 }
                 guard self.generationID == generationID else {
                     lane.close()
@@ -262,7 +286,10 @@ final class KeyboardDictationCoordinator {
             }
             commandTask = Task { [weak self] in
                 guard let self else { return }
-                defer { commandTask = nil }
+                defer {
+                    commandTask = nil
+                    consumePendingCommand()
+                }
                 do {
                     try await handle(command)
                 } catch {
@@ -335,6 +362,15 @@ final class KeyboardDictationCoordinator {
                     ))
                 } catch {
                     await MainActor.run {
+                        guard KeyboardDictationLifecyclePolicy
+                            .acceptsSocketCompletion(
+                                requestID: requestID,
+                                activeRequestID: self.socketOpenRequestID
+                            )
+                        else {
+                            return
+                        }
+                        self.socketOpenRequestID = nil
                         self.socketOpenContinuation?.resume(throwing: error)
                         self.socketOpenContinuation = nil
                         self.socketOpenTimeoutTask?.cancel()
@@ -347,13 +383,15 @@ final class KeyboardDictationCoordinator {
             recordingSessionID: sessionID.uuidString,
             json: try Self.json(KeyboardVoiceSessionStart())
         ))
-        try await frameQueue.reset { [weak self] frame in
+        try await frameQueue.reset(
+            captureSessionID: sessionID
+        ) { [weak self] frame in
             guard let self else {
                 throw KeyboardDictationCoordinatorError.audioQueueClosed
             }
             try await self.send(frame, sessionID: sessionID)
         }
-        try audioCapture.beginCapture()
+        try audioCapture.beginCapture(sessionID: sessionID)
         publish(KeyboardDictationServiceSnapshot(
             generationID: generationID,
             phase: .recording,
