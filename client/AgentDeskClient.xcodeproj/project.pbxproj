@@ -9,29 +9,29 @@
 /* Begin PBXBuildFile section */
 		A0000000000000000000EE03 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE02 /* AgentDeskWire */; };
 		A0000000000000000000EE05 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE04 /* AgentDeskWire */; };
+		B1550000000000000000000C /* AgentDeskKeyboard.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B15500000000000000000001 /* AgentDeskKeyboard.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		B15500000000000000000011 /* KeyboardDictation in Frameworks */ = {isa = PBXBuildFile; productRef = B15500000000000000000010 /* KeyboardDictation */; };
 		C0000000000000000000EE07 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE03 /* PtyClientSwift */; };
 		C0000000000000000000EE09 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE05 /* PtyClientSwift */; };
 		C0000000000000000000EE0B /* PtyTerminalSession in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE0F /* PtyTerminalSession */; };
 		C0000000000000000000EE0C /* PtyTerminalWebView in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE10 /* PtyTerminalWebView */; };
 		C0000000000000000000EE0D /* PtyTerminalSession in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE11 /* PtyTerminalSession */; };
 		C0000000000000000000EE0E /* PtyTerminalWebView in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE12 /* PtyTerminalWebView */; };
-		D0000000000000000000AF04 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000AF02 /* AgentPanel */; };
 		D00000000000000000001C04 /* InteractionPanel in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000001C02 /* InteractionPanel */; };
-		D0000000000000000000AF05 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000AF03 /* AgentPanel */; };
 		D00000000000000000001C05 /* InteractionPanel in Frameworks */ = {isa = PBXBuildFile; productRef = D00000000000000000001C03 /* InteractionPanel */; };
+		D0000000000000000000AF04 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000AF02 /* AgentPanel */; };
+		D0000000000000000000AF05 /* AgentPanel in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000AF03 /* AgentPanel */; };
+		D0000000000000000000B603 /* BrowserProjection in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000B602 /* BrowserProjection */; };
+		D0000000000000000000B605 /* BrowserProjection in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000B604 /* BrowserProjection */; };
 		D0000000000000000000C504 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000C502 /* WorkspaceKit */; };
 		D0000000000000000000C505 /* WorkspaceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000C503 /* WorkspaceKit */; };
 		D0000000000000000000E504 /* WorkspaceFileViewer in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E502 /* WorkspaceFileViewer */; };
 		D0000000000000000000E505 /* WorkspaceFileViewer in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E503 /* WorkspaceFileViewer */; };
 		D0000000000000000000E508 /* WorkspaceIDE in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E506 /* WorkspaceIDE */; };
 		D0000000000000000000E509 /* WorkspaceIDE in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000E507 /* WorkspaceIDE */; };
-		D0000000000000000000B603 /* BrowserProjection in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000B602 /* BrowserProjection */; };
-		D0000000000000000000B605 /* BrowserProjection in Frameworks */ = {isa = PBXBuildFile; productRef = D0000000000000000000B604 /* BrowserProjection */; };
+		DD267F34301871FD00A2FF1F /* KeyboardDictation in Frameworks */ = {isa = PBXBuildFile; productRef = B15500000000000000000012 /* KeyboardDictation */; };
 		E14000000000000000000003 /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = E14000000000000000000002 /* onnxruntime */; };
 		E14000000000000000000005 /* onnxruntime in Frameworks */ = {isa = PBXBuildFile; productRef = E14000000000000000000004 /* onnxruntime */; };
-		B1550000000000000000000C /* AgentDeskKeyboard.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B15500000000000000000001 /* AgentDeskKeyboard.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		B15500000000000000000011 /* KeyboardDictation in Frameworks */ = {isa = PBXBuildFile; productRef = B15500000000000000000010 /* KeyboardDictation */; };
-		B15500000000000000000013 /* KeyboardDictation in Frameworks */ = {isa = PBXBuildFile; productRef = B15500000000000000000012 /* KeyboardDictation */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -65,10 +65,16 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		B15500000000000000000003 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = B15500000000000000000004 /* AgentDeskKeyboard */;
+		};
 		DDD788912FF7B49100F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				AgentDeskClient.entitlements,
 				Info.plist,
 			);
 			target = B00000000000000000000004 /* AgentDeskClient */;
@@ -85,35 +91,27 @@
 				MediaStack.swift,
 				PairingViewController.swift,
 				"PairingViewController+AgentSurface.swift",
-				"PairingViewController+WorkspaceIDE.swift",
 				"PairingViewController+DomMirror.swift",
 				"PairingViewController+EdgeFollow.swift",
-				"PairingViewController+GestureSurface.swift",
 				"PairingViewController+Gestures.swift",
+				"PairingViewController+GestureSurface.swift",
 				"PairingViewController+Keyboard.swift",
 				"PairingViewController+KeyboardHandoff.swift",
 				"PairingViewController+Layout.swift",
 				"PairingViewController+VideoTouch.swift",
 				"PairingViewController+Voice.swift",
+				"PairingViewController+WorkspaceIDE.swift",
 				SceneDelegate.swift,
 				SettingsViewController.swift,
 			);
 			target = B00000000000000000000005 /* AgentDeskClientTests */;
 		};
-		B15500000000000000000003 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				AgentDeskKeyboard.entitlements,
-				Info.plist,
-			);
-			target = B15500000000000000000004 /* AgentDeskKeyboard */;
-		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		B15500000000000000000002 /* AgentDeskKeyboard */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (B15500000000000000000003 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = AgentDeskKeyboard; sourceTree = "<group>"; };
 		DDD788322FF7B49000F8BB76 /* AgentDeskClient */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (DDD788912FF7B49100F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, DDD788922FF7B49100F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (AgentFeedWebview, ); path = AgentDeskClient; sourceTree = "<group>"; };
 		DDD78B622FF82BFF00F8BB76 /* AgentDeskClientTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = AgentDeskClientTests; sourceTree = "<group>"; };
-		B15500000000000000000002 /* AgentDeskKeyboard */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (B15500000000000000000003 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = AgentDeskKeyboard; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -121,6 +119,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DD267F34301871FD00A2FF1F /* KeyboardDictation in Frameworks */,
 				D0000000000000000000AF04 /* AgentPanel in Frameworks */,
 				D00000000000000000001C04 /* InteractionPanel in Frameworks */,
 				D0000000000000000000C504 /* WorkspaceKit in Frameworks */,
@@ -564,7 +563,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = TEAMID0000;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -584,7 +583,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = TEAMID0000;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -700,6 +699,30 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
+		A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/AgentDeskWire;
+		};
+		B1550000000000000000000F /* XCLocalSwiftPackageReference "../packages/KeyboardDictation" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/KeyboardDictation;
+		};
+		C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../terminal/pty-client-swift";
+		};
+		D00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/InteractionPanel;
+		};
+		D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/AgentPanel;
+		};
+		D0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/BrowserProjection;
+		};
 		D0000000000000000000C501 /* XCLocalSwiftPackageReference "../packages/WorkspaceKit" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/WorkspaceKit;
@@ -707,30 +730,6 @@
 		D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../packages/WorkspaceIDE;
-		};
-		D0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../packages/BrowserProjection;
-		};
-		D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../packages/AgentPanel;
-		};
-		D00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../packages/InteractionPanel;
-		};
-		A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../packages/AgentDeskWire;
-		};
-		C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../terminal/pty-client-swift;
-		};
-		B1550000000000000000000F /* XCLocalSwiftPackageReference "../packages/KeyboardDictation" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../packages/KeyboardDictation;
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -746,76 +745,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		E14000000000000000000002 /* onnxruntime */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = E14000000000000000000001 /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
-			productName = onnxruntime;
-		};
-		E14000000000000000000004 /* onnxruntime */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = E14000000000000000000001 /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
-			productName = onnxruntime;
-		};
-		D0000000000000000000AF02 /* AgentPanel */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */;
-			productName = AgentPanel;
-		};
-		D00000000000000000001C02 /* InteractionPanel */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */;
-			productName = InteractionPanel;
-		};
-		D0000000000000000000AF03 /* AgentPanel */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */;
-			productName = AgentPanel;
-		};
-		D00000000000000000001C03 /* InteractionPanel */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */;
-			productName = InteractionPanel;
-		};
-		D0000000000000000000C502 /* WorkspaceKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D0000000000000000000C501 /* XCLocalSwiftPackageReference "../packages/WorkspaceKit" */;
-			productName = WorkspaceKit;
-		};
-		D0000000000000000000C503 /* WorkspaceKit */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D0000000000000000000C501 /* XCLocalSwiftPackageReference "../packages/WorkspaceKit" */;
-			productName = WorkspaceKit;
-		};
-		D0000000000000000000E502 /* WorkspaceFileViewer */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
-			productName = WorkspaceFileViewer;
-		};
-		D0000000000000000000E503 /* WorkspaceFileViewer */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
-			productName = WorkspaceFileViewer;
-		};
-		D0000000000000000000E506 /* WorkspaceIDE */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
-			productName = WorkspaceIDE;
-		};
-		D0000000000000000000E507 /* WorkspaceIDE */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
-			productName = WorkspaceIDE;
-		};
-		D0000000000000000000B602 /* BrowserProjection */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */;
-			productName = BrowserProjection;
-		};
-		D0000000000000000000B604 /* BrowserProjection */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */;
-			productName = BrowserProjection;
-		};
 		A0000000000000000000EE02 /* AgentDeskWire */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */;
@@ -825,6 +754,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A0000000000000000000EE01 /* XCLocalSwiftPackageReference "../packages/AgentDeskWire" */;
 			productName = AgentDeskWire;
+		};
+		B15500000000000000000010 /* KeyboardDictation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B1550000000000000000000F /* XCLocalSwiftPackageReference "../packages/KeyboardDictation" */;
+			productName = KeyboardDictation;
+		};
+		B15500000000000000000012 /* KeyboardDictation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B1550000000000000000000F /* XCLocalSwiftPackageReference "../packages/KeyboardDictation" */;
+			productName = KeyboardDictation;
 		};
 		C0000000000000000000EE03 /* PtyClientSwift */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -856,15 +795,75 @@
 			package = C0000000000000000000EE01 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */;
 			productName = PtyTerminalWebView;
 		};
-		B15500000000000000000010 /* KeyboardDictation */ = {
+		D00000000000000000001C02 /* InteractionPanel */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = B1550000000000000000000F /* XCLocalSwiftPackageReference "../packages/KeyboardDictation" */;
-			productName = KeyboardDictation;
+			package = D00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */;
+			productName = InteractionPanel;
 		};
-		B15500000000000000000012 /* KeyboardDictation */ = {
+		D00000000000000000001C03 /* InteractionPanel */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = B1550000000000000000000F /* XCLocalSwiftPackageReference "../packages/KeyboardDictation" */;
-			productName = KeyboardDictation;
+			package = D00000000000000000001C01 /* XCLocalSwiftPackageReference "../packages/InteractionPanel" */;
+			productName = InteractionPanel;
+		};
+		D0000000000000000000AF02 /* AgentPanel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */;
+			productName = AgentPanel;
+		};
+		D0000000000000000000AF03 /* AgentPanel */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000AF01 /* XCLocalSwiftPackageReference "../packages/AgentPanel" */;
+			productName = AgentPanel;
+		};
+		D0000000000000000000B602 /* BrowserProjection */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */;
+			productName = BrowserProjection;
+		};
+		D0000000000000000000B604 /* BrowserProjection */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */;
+			productName = BrowserProjection;
+		};
+		D0000000000000000000C502 /* WorkspaceKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000C501 /* XCLocalSwiftPackageReference "../packages/WorkspaceKit" */;
+			productName = WorkspaceKit;
+		};
+		D0000000000000000000C503 /* WorkspaceKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000C501 /* XCLocalSwiftPackageReference "../packages/WorkspaceKit" */;
+			productName = WorkspaceKit;
+		};
+		D0000000000000000000E502 /* WorkspaceFileViewer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
+			productName = WorkspaceFileViewer;
+		};
+		D0000000000000000000E503 /* WorkspaceFileViewer */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
+			productName = WorkspaceFileViewer;
+		};
+		D0000000000000000000E506 /* WorkspaceIDE */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
+			productName = WorkspaceIDE;
+		};
+		D0000000000000000000E507 /* WorkspaceIDE */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WorkspaceIDE" */;
+			productName = WorkspaceIDE;
+		};
+		E14000000000000000000002 /* onnxruntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E14000000000000000000001 /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
+			productName = onnxruntime;
+		};
+		E14000000000000000000004 /* onnxruntime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = E14000000000000000000001 /* XCRemoteSwiftPackageReference "onnxruntime-swift-package-manager" */;
+			productName = onnxruntime;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

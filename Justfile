@@ -23,8 +23,15 @@ motion_host_stdio := env_var_or_default("AGENTDESK_MOTION_HOST_STDIO", "/tmp/age
 motion_client_log := env_var_or_default("AGENTDESK_MOTION_CLIENT_LOG", "/tmp/agentdesk-motion-client.log")
 # The host's own stdout/stderr on an ordinary launch. A Swift trap prints its message here and
 # nowhere else: it never reaches os_log, and a crash that produces no .ips leaves no other trace.
-# Truncated per launch, so it holds the current host's output only.
+# The previous launch rolls to `<file>.prev`, because relaunching after a crash is exactly when
+# that output is wanted and truncating in place is how you lose it.
 host_stdio := env_var_or_default("AGENTDESK_HOST_STDIO", "/tmp/agentdesk-host-stdio.log")
+# How much of a launch's output to carry into `.prev`. A trap prints at the end, so the tail is
+# the part worth keeping, and capping it means a run that starts chattering to stderr cannot turn
+# crash evidence into an unbounded file. The live log is uncapped: it measured zero bytes across a
+# normal host lifetime, so a rotator reading a FIFO would be machinery guarding nothing, and a
+# reader that died would block the host on a full pipe.
+host_stdio_keep_bytes := env_var_or_default("AGENTDESK_HOST_STDIO_KEEP_BYTES", "4194304")
 motion_client_diagnostics := env_var_or_default("AGENTDESK_MOTION_CLIENT_DIAGNOSTICS", "/tmp/agentdesk-motion-client-diagnostics")
 iphone_log_device_udid := env_var_or_default("AGENTDESK_IOS_DEVICE_UDID", "")
 # Host-written automation files live under the host's Application Support dir,
@@ -1155,6 +1162,11 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     # Capture the host's stdio. Without this a Swift trap message is discarded and a crash leaves
     # nothing behind but a timestamp, which is exactly what happened to the close-all-sessions crash.
+    # Roll the outgoing launch aside rather than truncating it: the relaunch after a crash is the
+    # moment its output matters most. Only the tail survives, which is where a trap prints.
+    if [ -s '{{host_stdio}}' ]; then
+        tail -c '{{host_stdio_keep_bytes}}' '{{host_stdio}}' > '{{host_stdio}}.prev' 2>/dev/null || true
+    fi
     : > '{{host_stdio}}'
     if [ "${AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS:-0}" != "0" ]; then
         open -g --stdout '{{host_stdio}}' --stderr '{{host_stdio}}' "$APP"
@@ -1298,6 +1310,11 @@ host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-ge
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     # Capture the host's stdio. Without this a Swift trap message is discarded and a crash leaves
     # nothing behind but a timestamp, which is exactly what happened to the close-all-sessions crash.
+    # Roll the outgoing launch aside rather than truncating it: the relaunch after a crash is the
+    # moment its output matters most. Only the tail survives, which is where a trap prints.
+    if [ -s '{{host_stdio}}' ]; then
+        tail -c '{{host_stdio_keep_bytes}}' '{{host_stdio}}' > '{{host_stdio}}.prev' 2>/dev/null || true
+    fi
     : > '{{host_stdio}}'
     if [ "${AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS:-0}" != "0" ]; then
         open -g --stdout '{{host_stdio}}' --stderr '{{host_stdio}}' "$APP"
