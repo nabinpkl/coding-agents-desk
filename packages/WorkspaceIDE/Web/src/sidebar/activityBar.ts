@@ -20,18 +20,23 @@ export interface ActivityBar {
   select(section: SidebarSection): void
 }
 
+/// Stroked and unfilled, sized so the two glyphs share an optical weight with the row chevrons
+/// beneath them rather than competing with the file icons.
+const glyphChrome = 'size-[17px] block fill-none stroke-current stroke-[1.3] [stroke-linecap:round] [stroke-linejoin:round]'
+const buttonChrome = 'grid place-items-center w-[30px] h-[27px] rounded-md hover:bg-ide-hover'
+
 export function activityBar(send: Send): ActivityBar {
-  const root = element('nav', 'ide-activity')
+  const root = element('nav', 'flex gap-1 px-[7px] py-[5px] border-b border-ide-border')
   root.setAttribute('aria-label', 'Workspace sidebar sections')
   const buttons = new Map<SidebarSection, HTMLButtonElement>()
   for (const { id, label } of sections) {
     const control = button('', `Show ${label}`, () =>
       send({ type: 'selectSidebarSection', section: id }))
-    control.className = 'ide-activity-button'
+    control.className = buttonChrome
     // The name is gone from the pixels but not from the surface: `aria-label` carries it to
     // VoiceOver and `title` brings it back on hover for anyone still learning the two glyphs.
     control.title = label
-    control.append(glyph('ide-activity-glyph', sectionShapes[id]))
+    control.append(glyph(glyphChrome, sectionShapes[id]))
     buttons.set(id, control)
     root.append(control)
   }
@@ -39,8 +44,11 @@ export function activityBar(send: Send): ActivityBar {
     root,
     select(section) {
       for (const [id, control] of buttons) {
-        control.classList.toggle('is-selected', id === section)
-        control.setAttribute('aria-pressed', String(id === section))
+        const selected = id === section
+        control.className = selected
+          ? `${buttonChrome} text-ide-fg bg-ide-selected`
+          : `${buttonChrome} text-ide-muted`
+        control.setAttribute('aria-pressed', String(selected))
       }
     },
   }

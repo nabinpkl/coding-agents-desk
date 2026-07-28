@@ -16,6 +16,14 @@ if (!root) throw new Error('Workspace IDE root element is missing')
 if (!region) throw new Error('Workspace IDE region is required')
 document.body.dataset.region = region
 
+/// Each region is a named container so its own rows can respond to the pane's width rather than the
+/// window's — the sidebar can be narrow inside a wide window. The last row is the growable one and
+/// children pin themselves to it explicitly; auto-placement would slide them up whenever a sibling
+/// above is `hidden`, since a hidden element stops being a grid item.
+root.className = region === 'sidebar'
+  ? '@container/sidebar grid grid-rows-[auto_auto_auto_minmax(0,1fr)] bg-ide-bg'
+  : '@container/editor grid grid-rows-[36px_34px_auto_minmax(0,1fr)] bg-ide-panel'
+
 declare global {
   interface Window {
     webkit?: { messageHandlers?: { workspaceIDE?: { postMessage(message: unknown): void } } }

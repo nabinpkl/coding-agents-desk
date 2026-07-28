@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite'
 import { defineConfig } from 'vite'
 
 /// Both documents are loaded by a WKWebView over the custom `app://` scheme, which shapes two
@@ -16,7 +17,7 @@ const appSchemeAssets = {
 
 export default defineConfig({
   base: './',
-  plugins: [appSchemeAssets],
+  plugins: [tailwindcss(), appSchemeAssets],
   build: {
     target: 'safari17',
     // The Swift resource trees are committed, so a stable layout keeps diffs readable: one

@@ -61,7 +61,8 @@ test('the shared content stylesheet never lays out the document that loads it', 
   assert.deepEqual(layoutTargets, [], 'file-content.css must not style html or body')
   // Nor reach for the standalone viewer's container, which only that one document has.
   assert.deepEqual(shared.filter((selector) => selector.includes('#content')), [])
-  // Both roots are still laid out, by their own documents, and they disagree on purpose.
+  // Both roots are still laid out, by their own documents, and they disagree on purpose: the
+  // viewer says so in CSS, the IDE says so in the class it puts on its root.
   assert.match(read('viewer.css'), /body\s*\{[^}]*display:\s*flex;/s)
-  assert.match(read('ide.css'), /#workspace-ide\s*\{[^}]*display:\s*grid;/s)
+  assert.match(read('src/ide.ts'), /root\.className[\s\S]*?grid grid-rows-/)
 })

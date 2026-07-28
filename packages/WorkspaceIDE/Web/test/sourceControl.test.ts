@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url'
 import { gitDecorationTone, sourceControlSections } from '../src/ideModel.ts'
 
 const css = readFileSync(fileURLToPath(new URL('../ide.css', import.meta.url)), 'utf8')
+const panel = readFileSync(fileURLToPath(new URL('../src/sidebar/sourceControl.ts', import.meta.url)), 'utf8')
+const tree = readFileSync(fileURLToPath(new URL('../src/sidebar/tree.ts', import.meta.url)), 'utf8')
 
 const entry = (relativePath, indexStatus, workTreeStatus) => ({
   relativePath,
@@ -76,16 +78,20 @@ test('tree decorations collapse a two-letter code to its strongest meaning', () 
   assert.equal(gitDecorationTone(null), null)
 })
 
-test('ignored tree rows are dimmed rather than badged in a status colour', () => {
-  assert.match(css, /\.ide-tree-row\[data-git='ignored'\]\s*\{\s*opacity:/)
-  assert.match(css, /\.ide-source-row\[data-tone='conflicted'\] \.ide-source-badge\s*\{[^}]*background:\s*var\(--ide-git-conflicted\);/s)
+test('ignored tree rows are dimmed, and a conflict badge fills where others only tint', () => {
+  assert.match(tree, /data-\[git=ignored\]:opacity-45/)
+  // Every other state is a 15% tint; the conflict is the one that stops the eye.
+  assert.match(panel, /group-data-\[tone=added\]:bg-git-added\/15/)
+  assert.match(panel, /group-data-\[tone=conflicted\]:bg-git-conflicted(?!\/)/)
 })
 
 test('every git status colour is defined in both schemes', () => {
   const tokens = ['modified', 'added', 'untracked', 'deleted', 'conflicted']
   const dark = css.slice(css.indexOf('prefers-color-scheme: dark'))
   for (const token of tokens) {
-    assert.match(css, new RegExp(`--ide-git-${token}:\\s*#`), `light --ide-git-${token}`)
-    assert.match(dark, new RegExp(`--ide-git-${token}:\\s*#`), `dark --ide-git-${token}`)
+    // Declared once in @theme so `bg-git-x` and `text-git-x` exist, then re-valued for dark: one
+    // set of names, two sets of values, every utility following automatically.
+    assert.match(css, new RegExp(`--color-git-${token}:\\s*#`), `light --color-git-${token}`)
+    assert.match(dark, new RegExp(`--color-git-${token}:\\s*#`), `dark --color-git-${token}`)
   }
 })

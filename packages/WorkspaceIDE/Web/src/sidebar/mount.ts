@@ -6,17 +6,20 @@ import { activityBar } from './activityBar.ts'
 import { renderSourceControl } from './sourceControl.ts'
 import { renderTree } from './tree.ts'
 
+const controlChrome = 'h-7 rounded-[7px] border border-ide-border bg-ide-panel'
+
 export function mountSidebar(container: HTMLElement, send: Send): Receive {
-  const header = element('header', 'ide-sidebar-header')
-  const workspaceSelect = element('select', 'workspace-select')
+  const header = element('header', 'flex items-center gap-1.5 min-h-[42px] px-2 py-[7px] border-b border-ide-border')
+  const workspaceSelect = element('select', `min-w-0 flex-1 px-[7px] ${controlChrome}`)
   workspaceSelect.setAttribute('aria-label', 'Select workspace')
   const addButton = button('+', 'Add workspace', () => send({ type: 'addWorkspace' }))
+  addButton.className = `basis-7 grow-0 shrink-0 text-lg ${controlChrome}`
   header.append(workspaceSelect, addButton)
 
   const activity = activityBar(send)
 
-  const panel = element('section', 'ide-sidebar-panel')
-  const alert = element('div', 'ide-alert')
+  const panel = element('section', 'row-start-4 overflow-auto pt-1 pb-[18px]')
+  const alert = element('div', 'px-[9px] py-1.5 border-b border-ide-border text-ide-danger text-xs')
   alert.setAttribute('role', 'status')
   container.replaceChildren(header, activity.root, alert, panel)
 
