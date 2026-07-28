@@ -1,7 +1,6 @@
 import Foundation
 import Testing
 import AgentDeskWire
-import InteractionPanel
 
 @testable import AgentDeskClient
 
@@ -76,34 +75,6 @@ struct SettingsStoreTests {
                 resolutionScale: 0.5
             )
         ))
-    }
-
-    @Test func agentSayAndReferenceSpeechPreferencesRemainIndependent() throws {
-        let defaults = isolatedDefaults()
-        let store = SettingsStore(defaults: defaults)
-        let referencePreferences = ReferenceSpeechPreferences(defaults: defaults)
-        let referenceVoice = NativeSpeechVoiceDescriptor(
-            identifier: "reference-voice",
-            name: "Reference",
-            language: "en-US",
-            quality: .basic
-        )
-
-        store.agentSayVoiceIdentifier = "agent-voice"
-        store.agentSayVoiceLanguage = "fr-FR"
-        _ = try referencePreferences.update(
-            voiceIdentifier: referenceVoice.identifier,
-            rate: 0.65,
-            availableVoices: [referenceVoice]
-        )
-
-        #expect(store.agentSayVoiceIdentifier == "agent-voice")
-        #expect(store.agentSayVoiceLanguage == "fr-FR")
-        let referenceState = referencePreferences.currentState(
-            availableVoices: [referenceVoice]
-        )
-        #expect(referenceState.selectedVoiceIdentifier == "reference-voice")
-        #expect(referenceState.rate.current == 0.65)
     }
 
     private func isolatedDefaults() -> UserDefaults {

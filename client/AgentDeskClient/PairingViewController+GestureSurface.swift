@@ -27,7 +27,6 @@ extension PairingViewController {
         surface.isHidden = !show
         if show {
             hostContentView.bringSubviewToFront(surface)
-            surface.refreshReferenceSpeechState()
         }
         surfaceControlRail.setUtilityButton(gestureToggleButton, selected: show)
         view.bringSubviewToFront(surfaceControlRail)

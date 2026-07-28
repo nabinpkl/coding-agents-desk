@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from interaction_agent.voice import http_server, recording, web_stream
 from interaction_agent.voice.phone_recognizer import ZIPAPhoneRecognizer
 from interaction_agent.voice.recording import update_recording_metadata
+from interaction_agent.voice.reference_speech import ReferenceSpeechArtifact
 
 
 class FakeTranscriber:
@@ -214,6 +215,93 @@ class HostVoiceBusyTests(unittest.TestCase):
                         message = second.receive_json()
         self.assertEqual(message["type"], "sessionError")
         self.assertEqual(message["code"], "recorderBusy")
+
+
+class ReferenceSpeechHTTPTests(unittest.TestCase):
+    def test_state_artifact_and_audio_use_one_store(self) -> None:
+        class FakeStore:
+            def __init__(self, audio_path: Path) -> None:
+                self.audio_path_value = audio_path
+                self.received: dict[str, object] | None = None
+
+            def state(self) -> dict[str, object]:
+                return {
+                    "schemaVersion": 1,
+                    "status": "ready",
+                    "error": None,
+                    "language": "en-US",
+                    "voices": [
+                        {
+                            "identifier": "af_heart",
+                            "name": "Heart",
+                            "language": "en-US",
+                        }
+                    ],
+                    "defaultVoiceIdentifier": "af_heart",
+                    "speed": {
+                        "minimum": 0.5,
+                        "defaultValue": 1,
+                        "maximum": 2,
+                    },
+                    "modelIdentifier": "kokoro-test",
+                    "modelHash": "a" * 64,
+                    "runtimeIdentifier": "kokoro-python 0.9.4",
+                    "license": "Apache-2.0",
+                    "cacheBytes": 44,
+                    "cacheMaximumBytes": 1000,
+                }
+
+            def create(self, **kwargs):
+                self.received = kwargs
+                return ReferenceSpeechArtifact(
+                    id="b" * 64,
+                    audio_hash="f" * 64,
+                    text="thank",
+                    ipa="θˈæŋk",
+                    duration_seconds=0.1,
+                    sample_rate=24_000,
+                    cache_hit=False,
+                    voice_identifier="af_heart",
+                    speed=0.85,
+                    model_identifier="kokoro-test",
+                    model_hash="a" * 64,
+                    voice_hash="c" * 64,
+                    dictionary_identifier="CMUdict@test",
+                    dictionary_hash="d" * 64,
+                    synthesis_mapping_hash="e" * 64,
+                    synthesized_at="2026-07-27T00:00:00+00:00",
+                )
+
+            def audio_path(self, artifact_id: str) -> Path:
+                self.last_audio_id = artifact_id
+                return self.audio_path_value
+
+        with tempfile.TemporaryDirectory() as temporary:
+            audio_path = Path(temporary) / "reference.wav"
+            audio_path.write_bytes(b"RIFF-test")
+            fake = FakeStore(audio_path)
+            with TestClient(http_server.app) as client:
+                http_server.app.state.reference_speech_store = fake
+                state = client.get("/reference-speech/state")
+                created = client.post(
+                    "/reference-speech/artifacts",
+                    json={
+                        "recordingId": "session-20260727-010101-000001",
+                        "scope": {"kind": "word", "index": 0},
+                        "voiceIdentifier": "af_heart",
+                        "speed": 0.85,
+                    },
+                )
+                audio = client.get(
+                    f"/reference-speech/artifacts/{'b' * 64}/audio"
+                )
+        self.assertEqual(state.status_code, 200)
+        self.assertEqual(state.json()["defaultVoiceIdentifier"], "af_heart")
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(created.json()["ipa"], "θˈæŋk")
+        self.assertEqual(fake.received["voice_identifier"], "af_heart")
+        self.assertEqual(audio.status_code, 200)
+        self.assertEqual(audio.content, b"RIFF-test")
 
 
 class ZIPAParityTests(unittest.TestCase):

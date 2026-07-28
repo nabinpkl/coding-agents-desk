@@ -13,6 +13,9 @@ import type {
   PronunciationComparison,
   Recording,
   RecordingListResponse,
+  CreateReferenceSpeechArtifactRequest,
+  ReferenceSpeechArtifact,
+  ReferenceSpeechState,
   SaveRecordingRequest,
   SignalAnalysis,
 } from "@/lib/wire";
@@ -40,7 +43,11 @@ function apiBase(): string {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (getHostConfig()?.voiceTransport === "native") {
-    const response = await nativeRequest(path, init);
+    const response = await nativeRequest(
+      path,
+      init,
+      path === "/reference-speech/artifacts" ? 180_000 : 30_000,
+    );
     if (response.status < 200 || response.status >= 300) {
       throw new ApiError(response.status, "Native proxy error",
         new TextDecoder().decode(response.body));
@@ -64,7 +71,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
-async function nativeRequest(path: string, init?: RequestInit): Promise<{
+async function nativeRequest(
+  path: string,
+  init?: RequestInit,
+  timeoutMilliseconds = 10_000,
+): Promise<{
   status: number;
   contentType?: string;
   body: Uint8Array;
@@ -77,7 +88,7 @@ async function nativeRequest(path: string, init?: RequestInit): Promise<{
     const timeout = window.setTimeout(() => {
       unsubscribe();
       reject(new Error("Mac voice request timed out"));
-    }, 10_000);
+    }, timeoutMilliseconds);
     const unsubscribe = subscribeNativeVoice((message) => {
       if (message.t === "rest" && message.r?.requestID === requestID) {
         if (message.r.sequence !== nextSequence) {
@@ -190,6 +201,23 @@ export function reanalyzeRecording(id: string): Promise<Recording> {
     `/recordings/${encodeURIComponent(id)}/reanalyze`,
     {},
   );
+}
+
+export function getReferenceSpeechState(): Promise<ReferenceSpeechState> {
+  return request<ReferenceSpeechState>("/reference-speech/state");
+}
+
+export function createReferenceSpeechArtifact(
+  payload: CreateReferenceSpeechArtifactRequest,
+): Promise<ReferenceSpeechArtifact> {
+  return postJson<ReferenceSpeechArtifact>(
+    "/reference-speech/artifacts",
+    payload,
+  );
+}
+
+export function referenceSpeechAudioUrl(artifactID: string): string {
+  return `${apiBase()}/reference-speech/artifacts/${encodeURIComponent(artifactID)}/audio`;
 }
 
 export function saveRecording(

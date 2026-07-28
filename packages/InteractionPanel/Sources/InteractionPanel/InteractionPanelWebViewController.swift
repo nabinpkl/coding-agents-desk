@@ -7,16 +7,9 @@ import WebPanelKit
 /// into an `InteractionPanelRequest` and hands it to the transport.
 @MainActor
 public final class InteractionPanelWebViewController: NSObject, WebPanelMessageSink {
-    public static let maximumReferenceSpeechStateUTF8Bytes = 256 * 1024
-
     public enum InitializationError: Error, Equatable {
         case missingResourceRoot
         case invalidRequestURL
-    }
-
-    public enum DeliveryError: Error, Equatable {
-        case invalidUTF8
-        case payloadTooLarge
     }
 
     private let core: WebPanelWebViewController
@@ -58,21 +51,6 @@ public final class InteractionPanelWebViewController: NSObject, WebPanelMessageS
         core.deliver(rawJSON: rawJSON)
     }
 
-    public func deliver(referenceSpeechState state: ReferenceSpeechState) throws {
-        core.deliver(rawJSON: try Self.referenceSpeechDeliveryJSON(state))
-    }
-
-    static func referenceSpeechDeliveryJSON(_ state: ReferenceSpeechState) throws -> String {
-        let data = try JSONEncoder().encode(ReferenceSpeechStateDelivery(payload: state))
-        guard data.count <= maximumReferenceSpeechStateUTF8Bytes else {
-            throw DeliveryError.payloadTooLarge
-        }
-        guard let delivery = String(data: data, encoding: .utf8) else {
-            throw DeliveryError.invalidUTF8
-        }
-        return delivery
-    }
-
     public func resumeAfterSessionReconnect() {
         core.resumeAfterSessionReconnect()
     }
@@ -89,9 +67,4 @@ public final class InteractionPanelWebViewController: NSObject, WebPanelMessageS
         }
         transport?.sendInteractionRequest(request)
     }
-}
-
-private struct ReferenceSpeechStateDelivery: Encodable {
-    let type = "referenceSpeechState"
-    let payload: ReferenceSpeechState
 }

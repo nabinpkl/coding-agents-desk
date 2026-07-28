@@ -1,5 +1,4 @@
 import Foundation
-import AVFoundation
 import Testing
 import WebPanelKit
 @testable import InteractionPanel
@@ -23,80 +22,39 @@ struct InteractionPanelTests {
         #expect(InteractionPanelRequest.decode(tag: "unknown", body: ["delta": 1]) == nil)
     }
 
-    @Test func decodesBoundedReferenceSpeechRequests() {
+    @Test func decodesBoundedReferenceAudioRequests() {
+        let artifactID = String(repeating: "a", count: 64)
+        let audioHash = String(repeating: "b", count: 64)
         #expect(
             InteractionPanelRequest.decode(
-                tag: "referenceSpeech",
-                body: ["text": "hello", "language": "en-US"]
-            ) == .referenceSpeech(text: "hello", language: "en-US")
-        )
-        #expect(
-            InteractionPanelRequest.decode(tag: "referenceSpeechStop", body: [:])
-                == .referenceSpeechStop
-        )
-        #expect(
-            InteractionPanelRequest.decode(tag: "referenceSpeechStateRequest", body: [:])
-                == .referenceSpeechStateRequest
-        )
-        #expect(
-            InteractionPanelRequest.decode(
-                tag: "referenceSpeechPreferencesUpdate",
-                body: ["voiceIdentifier": NSNull(), "rate": 0.5]
-            ) == .referenceSpeechPreferencesUpdate(
-                voiceIdentifier: nil,
-                rate: 0.5
+                tag: "referenceAudioPlay",
+                body: ["artifactID": artifactID, "audioHash": audioHash]
+            ) == .referenceAudioPlay(
+                artifactID: artifactID,
+                audioHash: audioHash
             )
         )
         #expect(
             InteractionPanelRequest.decode(
-                tag: "referenceSpeechPreferencesUpdate",
-                body: ["voiceIdentifier": "voice-1", "rate": 0.65]
-            ) == .referenceSpeechPreferencesUpdate(
-                voiceIdentifier: "voice-1",
-                rate: 0.65
-            )
-        )
-        #expect(
-            InteractionPanelRequest.decode(
-                tag: "referenceSpeech",
-                body: ["text": "  ", "language": "en-US"]
-            ) == nil
-        )
-        #expect(
-            InteractionPanelRequest.decode(
-                tag: "referenceSpeech",
+                tag: "referenceAudioPlay",
                 body: [
-                    "text": String(
-                        repeating: "a",
-                        count: InteractionPanelRequest.maximumReferenceSpeechUTF8Bytes + 1
-                    ),
-                    "language": "en-US",
+                    "artifactID": "not-a-hash",
+                    "audioHash": audioHash,
                 ]
             ) == nil
         )
         #expect(
             InteractionPanelRequest.decode(
-                tag: "referenceSpeech",
-                body: ["text": "hello", "language": "fr-FR"]
+                tag: "referenceAudioPlay",
+                body: [
+                    "artifactID": artifactID,
+                    "audioHash": "not-a-hash",
+                ]
             ) == nil
         )
         #expect(
-            InteractionPanelRequest.decode(
-                tag: "referenceSpeechPreferencesUpdate",
-                body: ["voiceIdentifier": "", "rate": 0.5]
-            ) == nil
-        )
-        #expect(
-            InteractionPanelRequest.decode(
-                tag: "referenceSpeechPreferencesUpdate",
-                body: ["voiceIdentifier": NSNull(), "rate": Double.nan]
-            ) == nil
-        )
-        #expect(
-            InteractionPanelRequest.decode(
-                tag: "referenceSpeechPreferencesUpdate",
-                body: ["voiceIdentifier": NSNull(), "rate": true]
-            ) == nil
+            InteractionPanelRequest.decode(tag: "referenceAudioStop", body: [:])
+                == .referenceAudioStop
         )
     }
 
@@ -188,144 +146,6 @@ struct InteractionPanelTests {
         )
     }
 
-    @Test func referenceSpeechPreferencesPersistAndRecoverMissingVoice() throws {
-        let suite = "InteractionPanelTests.referenceSpeech.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let preferences = ReferenceSpeechPreferences(defaults: defaults)
-        let voices = [
-            NativeSpeechVoiceDescriptor(
-                identifier: "voice-1",
-                name: "Samantha",
-                language: "en-US",
-                quality: .basic
-            ),
-        ]
-
-        let updated = try preferences.update(
-            voiceIdentifier: "voice-1",
-            rate: 2,
-            availableVoices: voices
-        )
-        #expect(updated.selectedVoiceIdentifier == "voice-1")
-        #expect(updated.rate.current == Double(AVSpeechUtteranceMaximumSpeechRate))
-
-        let restored = ReferenceSpeechPreferences(defaults: defaults)
-            .currentState(availableVoices: voices)
-        #expect(restored.selectedVoiceIdentifier == "voice-1")
-        #expect(restored.rate.current == Double(AVSpeechUtteranceMaximumSpeechRate))
-
-        let missing = restoredState(
-            from: defaults,
-            availableVoices: []
-        )
-        #expect(missing.selectedVoiceIdentifier == nil)
-        #expect(missing.notice?.contains("no longer available") == true)
-    }
-
-    @Test func referenceSpeechPreferencesRejectInvalidUpdatesAndStayIsolated() throws {
-        let firstSuite = "InteractionPanelTests.referenceSpeech.first.\(UUID().uuidString)"
-        let secondSuite = "InteractionPanelTests.referenceSpeech.second.\(UUID().uuidString)"
-        let firstDefaults = try #require(UserDefaults(suiteName: firstSuite))
-        let secondDefaults = try #require(UserDefaults(suiteName: secondSuite))
-        defer {
-            firstDefaults.removePersistentDomain(forName: firstSuite)
-            secondDefaults.removePersistentDomain(forName: secondSuite)
-        }
-        let voice = NativeSpeechVoiceDescriptor(
-            identifier: "voice-1",
-            name: "Samantha",
-            language: "en-US",
-            quality: .basic
-        )
-        let first = ReferenceSpeechPreferences(defaults: firstDefaults)
-        let second = ReferenceSpeechPreferences(defaults: secondDefaults)
-
-        #expect(throws: ReferenceSpeechPreferencesError.invalidRate) {
-            try first.update(
-                voiceIdentifier: "voice-1",
-                rate: .nan,
-                availableVoices: [voice]
-            )
-        }
-        #expect(throws: ReferenceSpeechPreferencesError.voiceUnavailable) {
-            try first.update(
-                voiceIdentifier: "missing",
-                rate: 0.5,
-                availableVoices: [voice]
-            )
-        }
-        _ = try first.update(
-            voiceIdentifier: "voice-1",
-            rate: 0.65,
-            availableVoices: [voice]
-        )
-        #expect(
-            second.currentState(availableVoices: [voice]).selectedVoiceIdentifier == nil
-        )
-        #expect(second.currentState(availableVoices: [voice]).rate.current == 0.5)
-    }
-
-    @Test func referenceSpeechPreferencesConfigureSystemDefaultUtterance() throws {
-        let suite = "InteractionPanelTests.referenceSpeech.utterance.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let preferences = ReferenceSpeechPreferences(defaults: defaults)
-        _ = try preferences.update(
-            voiceIdentifier: nil,
-            rate: 0.65,
-            availableVoices: []
-        )
-
-        let utterance = AVSpeechUtterance(string: "hello")
-        preferences.configure(utterance)
-
-        #expect(utterance.voice?.language == "en-US")
-        #expect(utterance.rate == 0.65)
-    }
-
-    @MainActor
-    @Test func referenceSpeechStateDeliveryIsTypedAndBounded() throws {
-        let state = ReferenceSpeechState(
-            language: "en-US",
-            voices: [],
-            selectedVoiceIdentifier: nil,
-            rate: ReferenceSpeechRateState(
-                minimum: 0,
-                defaultValue: 0.5,
-                maximum: 1,
-                current: 0.5
-            )
-        )
-        let delivery = try InteractionPanelWebViewController.referenceSpeechDeliveryJSON(state)
-        let object = try #require(
-            JSONSerialization.jsonObject(with: Data(delivery.utf8)) as? [String: Any]
-        )
-        #expect(object["type"] as? String == "referenceSpeechState")
-        #expect(object["payload"] is [String: Any])
-
-        let oversized = ReferenceSpeechState(
-            language: "en-US",
-            voices: [
-                NativeSpeechVoiceDescriptor(
-                    identifier: "voice-1",
-                    name: String(
-                        repeating: "a",
-                        count: InteractionPanelWebViewController
-                            .maximumReferenceSpeechStateUTF8Bytes
-                    ),
-                    language: "en-US",
-                    quality: .basic
-                ),
-            ],
-            selectedVoiceIdentifier: nil,
-            rate: state.rate
-        )
-        #expect(throws: InteractionPanelWebViewController.DeliveryError.payloadTooLarge) {
-            try InteractionPanelWebViewController.referenceSpeechDeliveryJSON(oversized)
-        }
-    }
-
     @Test func decodesVoiceTransportRequests() {
         #expect(
             InteractionPanelRequest.decode(
@@ -384,12 +204,4 @@ struct InteractionPanelTests {
             #expect(html.contains("InteractionPanel fixture"))
         }
     }
-}
-
-private func restoredState(
-    from defaults: UserDefaults,
-    availableVoices: [NativeSpeechVoiceDescriptor]
-) -> ReferenceSpeechState {
-    ReferenceSpeechPreferences(defaults: defaults)
-        .currentState(availableVoices: availableVoices)
 }

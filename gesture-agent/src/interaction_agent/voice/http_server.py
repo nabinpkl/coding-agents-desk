@@ -3,6 +3,7 @@ import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal
@@ -40,6 +41,12 @@ from interaction_agent.voice.recording import (
     save_voice_recording_transcript,
     update_recording_metadata,
 )
+from interaction_agent.voice.reference_speech import (
+    ReferenceSpeechArtifactStore,
+    ReferenceSpeechError,
+    ReferenceSpeechScope,
+    ReferenceSpeechSynthesisError,
+)
 from interaction_agent.voice.runtime import (
     BEST_MODEL,
     FAST_MODEL,
@@ -74,12 +81,15 @@ from interaction_agent.voice.wire import (
     AnalyzePronunciationRequest,
     AnalyzeSignalsRequest,
     AudioFrameMessage,
+    CreateReferenceSpeechArtifactRequest,
     FinalTranscriptMessage,
     MeterMessage,
     PartialTranscriptMessage,
     PronunciationComparison,
     Recording,
     RecordingListResponse,
+    ReferenceSpeechArtifact,
+    ReferenceSpeechState,
     SaveRecordingRequest,
     SessionCompleteMessage,
     SessionErrorMessage,
@@ -105,6 +115,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.voice_phone_recognizer_lock = asyncio.Lock()
     app.state.voice_phone_inference_lock = asyncio.Lock()
     app.state.voice_phone_recognizer = None
+    app.state.reference_speech_store = ReferenceSpeechArtifactStore()
     try:
         yield
     finally:
@@ -672,6 +683,57 @@ async def voice_websocket(
 
 
 # --- Recording REST --------------------------------------------------------
+
+
+@app.get("/reference-speech/state", response_model=ReferenceSpeechState)
+async def get_reference_speech_state() -> ReferenceSpeechState:
+    return ReferenceSpeechState.model_validate(
+        app.state.reference_speech_store.state()
+    )
+
+
+@app.post(
+    "/reference-speech/artifacts",
+    response_model=ReferenceSpeechArtifact,
+)
+async def create_reference_speech_artifact(
+    request: CreateReferenceSpeechArtifactRequest,
+) -> ReferenceSpeechArtifact:
+    try:
+        artifact = await run_in_threadpool(
+            app.state.reference_speech_store.create,
+            recording_id=request.recording_id,
+            scope=ReferenceSpeechScope(
+                kind=request.scope.kind,
+                index=request.scope.index,
+            ),
+            voice_identifier=request.voice_identifier,
+            speed=request.speed,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ReferenceSpeechSynthesisError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ReferenceSpeechError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ReferenceSpeechArtifact.model_validate(asdict(artifact))
+
+
+@app.get("/reference-speech/artifacts/{artifact_id}/audio")
+async def get_reference_speech_audio(artifact_id: str) -> FileResponse:
+    try:
+        path = await run_in_threadpool(
+            app.state.reference_speech_store.audio_path,
+            artifact_id,
+        )
+    except ReferenceSpeechError as exc:
+        status = 400 if "Invalid" in str(exc) else 404
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+    return FileResponse(
+        path,
+        media_type="audio/wav",
+        filename=f"{artifact_id}.wav",
+    )
 
 
 @app.post("/recordings", response_model=Recording)

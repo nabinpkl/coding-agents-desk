@@ -2,7 +2,6 @@ import os
 from pathlib import Path
 from typing import Final
 
-
 PROJECT_ROOT: Final = Path(__file__).resolve().parents[2]
 
 # The data root is env-overridable because the shipped voice sidecar runs from a
@@ -28,6 +27,7 @@ VOICE_MODEL_ROOT: Final = (
 )
 VOICE_RECORDING_ROOT: Final = VOICE_DATA_ROOT / "recordings"
 VOICE_UPLOAD_ROOT: Final = VOICE_DATA_ROOT / "uploads"
+VOICE_REFERENCE_SPEECH_ROOT: Final = VOICE_DATA_ROOT / "reference-speech"
 
 VIDEO_DATA_ROOT: Final = DATA_ROOT / "videos"
 VIDEO_CLIP_ROOT: Final = VIDEO_DATA_ROOT / "clips"

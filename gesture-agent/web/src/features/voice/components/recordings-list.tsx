@@ -15,7 +15,7 @@ import {
   Trash2,
   Volume2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 
 import {
@@ -24,15 +24,25 @@ import {
   useRecordings,
 } from "@/features/voice/use-recordings";
 import {
+  referenceSpeechPlaybackSnapshot,
   speakReference,
   stopReferenceSpeech,
+  subscribeReferenceSpeechPlayback,
 } from "@/features/voice/reference-speech";
+import {
+  type ReferenceSpeechPreferences,
+  useReferenceSpeechSettings,
+} from "@/features/voice/reference-speech-settings";
 import { ReferenceSpeechControls } from "@/features/voice/components/reference-speech-controls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { loadRecordingAudioURL, recordingAudioUrl } from "@/lib/api";
 import { getHostConfig } from "@/lib/host-bridge";
-import type { Recording, WordPhoneGroup } from "@/lib/wire";
+import type {
+  Recording,
+  ReferenceSpeechScopeRequest,
+  WordPhoneGroup,
+} from "@/lib/wire";
 import { useVoiceStore } from "@/stores/voice-store";
 
 function formatDuration(seconds: number): string {
@@ -83,11 +93,15 @@ function GroupedPhones({
   column,
   referenceSpeechDisabled,
   onSpeakWord,
+  activeRequestKey,
+  recordingID,
 }: {
   readonly groups: readonly WordPhoneGroup[];
   readonly column: "heard" | "reference";
   readonly referenceSpeechDisabled?: boolean;
-  readonly onSpeakWord?: (word: string) => void;
+  readonly onSpeakWord?: (index: number) => void;
+  readonly activeRequestKey?: string;
+  readonly recordingID?: string;
 }) {
   if (groups.length === 0) {
     return <p className="text-sm text-muted-foreground">No word groups available.</p>;
@@ -119,13 +133,20 @@ function GroupedPhones({
             {column === "reference" && word !== null && onSpeakWord ? (
               <Button
                 aria-label={`Hear reference word ${word}`}
-                disabled={referenceSpeechDisabled}
-                onClick={() => onSpeakWord(word)}
+                disabled={
+                  referenceSpeechDisabled ||
+                  !group.hasReferencePronunciation
+                }
+                onClick={() => onSpeakWord(index)}
                 size="icon-xs"
                 title={`Hear “${word}”`}
                 variant="ghost"
               >
-                <Volume2 />
+                {activeRequestKey === `${recordingID}:word:${index}` ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <Volume2 />
+                )}
               </Button>
             ) : null}
             <span
@@ -149,11 +170,15 @@ function RecordingRow({
   onDelete,
   isDeleting,
   referenceSpeechDisabled,
+  referenceSpeechPreferences,
+  playback,
 }: {
   readonly recording: Recording;
   readonly onDelete: (id: string) => void;
   readonly isDeleting: boolean;
   readonly referenceSpeechDisabled: boolean;
+  readonly referenceSpeechPreferences?: ReferenceSpeechPreferences;
+  readonly playback: ReturnType<typeof referenceSpeechPlaybackSnapshot>;
 }) {
   const wordPhoneGroups = recording.wordPhoneGroups ?? [];
   const unknownReferenceWords = recording.unknownReferenceWords ?? [];
@@ -184,10 +209,18 @@ function RecordingRow({
     }
   }
 
-  function playReference(text: string): void {
+  async function playReference(scope: ReferenceSpeechScopeRequest): Promise<void> {
+    if (!referenceSpeechPreferences) {
+      setReferenceSpeechError("Reference speech is still loading.");
+      return;
+    }
     try {
-      speakReference(text);
       setReferenceSpeechError(undefined);
+      await speakReference(
+        recording.id,
+        scope,
+        referenceSpeechPreferences,
+      );
     } catch (error) {
       setReferenceSpeechError(
         error instanceof Error
@@ -251,14 +284,21 @@ function RecordingRow({
           action={
             <Button
               disabled={
-                referenceSpeechDisabled || referenceText.length === 0
+                referenceSpeechDisabled ||
+                referenceText.length === 0 ||
+                unknownReferenceWords.length > 0
               }
-              onClick={() => playReference(referenceText)}
+              onClick={() => void playReference({ kind: "passage" })}
               size="xs"
               title="Hear the full reference passage"
               variant="ghost"
             >
-              <Volume2 />
+              {playback.requestKey === `${recording.id}:passage` &&
+              playback.status === "preparing" ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Volume2 />
+              )}
               Hear all
             </Button>
           }
@@ -268,8 +308,16 @@ function RecordingRow({
           <GroupedPhones
             column="reference"
             groups={wordPhoneGroups}
-            onSpeakWord={playReference}
+            onSpeakWord={(index) =>
+              void playReference({ kind: "word", index })
+            }
             referenceSpeechDisabled={referenceSpeechDisabled}
+            activeRequestKey={
+              playback.status === "preparing"
+                ? playback.requestKey
+                : undefined
+            }
+            recordingID={recording.id}
           />
           {recording.referencePronunciationError && (
             <p className="text-xs text-destructive">
@@ -285,6 +333,10 @@ function RecordingRow({
           {referenceSpeechError && (
             <p className="text-xs text-destructive">{referenceSpeechError}</p>
           )}
+          {playback.status === "error" &&
+          playback.requestKey?.startsWith(`${recording.id}:`) ? (
+            <p className="text-xs text-destructive">{playback.error}</p>
+          ) : null}
         </PassageCard>
       </div>
       {reanalyze.isError && (
@@ -345,8 +397,16 @@ export function RecordingsList() {
   const { data, isPending, isError, error } = useRecordings();
   const remove = useDeleteRecording();
   const voiceStatus = useVoiceStore((state) => state.runState.status);
+  const referenceSettings = useReferenceSpeechSettings();
+  const playback = useSyncExternalStore(
+    subscribeReferenceSpeechPlayback,
+    referenceSpeechPlaybackSnapshot,
+    referenceSpeechPlaybackSnapshot,
+  );
   const referenceSpeechDisabled =
-    voiceStatus === "requestingMic" || voiceStatus === "capturing";
+    voiceStatus === "requestingMic" ||
+    voiceStatus === "capturing" ||
+    referenceSettings.view.status !== "ready";
   useEffect(() => () => stopReferenceSpeech(), []);
 
   let content: ReactNode;
@@ -390,6 +450,12 @@ export function RecordingsList() {
               onDelete={(id) => remove.mutate(id)}
               recording={recording}
               referenceSpeechDisabled={referenceSpeechDisabled}
+              referenceSpeechPreferences={
+                referenceSettings.view.status === "ready"
+                  ? referenceSettings.view.preferences
+                  : undefined
+              }
+              playback={playback}
             />
           ))}
         </ul>
@@ -399,7 +465,13 @@ export function RecordingsList() {
 
   return (
     <div className="flex flex-col gap-2">
-      <ReferenceSpeechControls disabled={referenceSpeechDisabled} />
+      <ReferenceSpeechControls
+        disabled={
+          voiceStatus === "requestingMic" || voiceStatus === "capturing"
+        }
+        update={referenceSettings.update}
+        view={referenceSettings.view}
+      />
       {content}
     </div>
   );

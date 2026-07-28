@@ -38,6 +38,14 @@ struct VoiceLaneServerTests {
             (.get, "/recordings/session-20260726-221100-123456/audio"),
             (.delete, "/recordings/session-20260726-221100-123456"),
             (.post, "/recordings/session-20260726-221100-123456/reanalyze"),
+            (.get, "/reference-speech/state"),
+            (.post, "/reference-speech/artifacts"),
+            (
+                .get,
+                "/reference-speech/artifacts/"
+                    + String(repeating: "a", count: 64)
+                    + "/audio"
+            ),
         ]
     )
     func recordingRoutesAreAllowlisted(
@@ -55,6 +63,14 @@ struct VoiceLaneServerTests {
             (.get, "/recordings/../../secret"),
             (.post, "/recordings/session-20260726-221100-123456/audio"),
             (.get, "/recordings/not-a-recording"),
+            (.post, "/reference-speech/state"),
+            (.get, "/reference-speech/artifacts/not-a-hash/audio"),
+            (
+                .delete,
+                "/reference-speech/artifacts/"
+                    + String(repeating: "a", count: 64)
+                    + "/audio"
+            ),
         ]
     )
     func arbitraryRoutesAreRejected(

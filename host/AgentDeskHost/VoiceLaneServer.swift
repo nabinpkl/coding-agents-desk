@@ -403,6 +403,20 @@ final class VoiceLaneServer: @unchecked Sendable {
             return true
         }
         let components = path.split(separator: "/", omittingEmptySubsequences: true)
+        if components.first == "reference-speech" {
+            switch (method, components.count) {
+            case (.get, 2):
+                return components[1] == "state"
+            case (.post, 2):
+                return components[1] == "artifacts"
+            case (.get, 4):
+                return components[1] == "artifacts"
+                    && isArtifactID(String(components[2]))
+                    && components[3] == "audio"
+            default:
+                return false
+            }
+        }
         guard components.count >= 2,
               components[0] == "recordings",
               isRecordingID(String(components[1]))
@@ -422,6 +436,13 @@ final class VoiceLaneServer: @unchecked Sendable {
     private static func isRecordingID(_ value: String) -> Bool {
         value.range(
             of: #"^session-\d{8}-\d{6}-\d{6}$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func isArtifactID(_ value: String) -> Bool {
+        value.range(
+            of: #"^[0-9a-f]{64}$"#,
             options: .regularExpression
         ) != nil
     }

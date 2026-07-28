@@ -718,11 +718,47 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
 - D148. Add whole-passage and per-word reference speakers to shared Voice, using bounded local
   InteractionPanel requests and native TTS on Mac and iPhone without sending or retaining synthesized
   audio.
-- R149. Add one shared reference-speech chooser above the host recording library while keeping
-  inventory and persistence device-local. Extract the native AVSpeech catalog, quality ordering,
-  selection recovery, and raw-rate preference into InteractionPanel; let macOS and iOS enumerate
-  their own installed `en-US` voices, retain separate bundle-scoped choices, and apply them to both
-  passage and word speakers. Keep Agent Say independent while reusing the neutral catalog logic.
+- D149. Retire the unaccepted native AVSpeech reference chooser while preserving the independent
+  Agent Say catalog. Reference pronunciation must have one host-generated audio authority rather
+  than different device voices and pronunciation inference.
+- D150. Convert the exact pinned CMUdict reference shown by the Passage cards into stressed
+  Kokoro-compatible IPA and send those tokens directly to pinned Kokoro-82M without constructing its
+  text G2P. Generate one atomic, hash-verified host WAV cache keyed by text, IPA, voice, speed, model,
+  dictionary, and mapping provenance. Let macOS play the loopback artifact and iPhone fetch the same
+  WAV through bounded voice-lane REST chunks for temporary native playback. Keep voice and speed
+  choices device-local, fail visibly on unknown words or missing symbols, and stop playback before
+  capture or navigation.
+- R151. At the explicit runtime checkpoint, accept first-use model preparation, passage and per-word
+  playback, independent Mac/iPhone chooser persistence, byte-identical cross-device artifacts,
+  unknown-word errors, cache reuse, and microphone/audio-session cleanup on Mac and physical iPhone.
+
+### D150 implementation checkpoint (2026-07-27)
+
+- Added a dedicated Python reference-speech artifact store as the single pronunciation, synthesis,
+  persistence, provenance, and cache boundary. The 82M Kokoro model, config, and 20 American-English
+  voice packs are immutable-revision and SHA-256 pinned; `cd gesture-agent &&
+  just download-kokoro-model` stages and verifies them, while ordinary playback downloads only the
+  selected voice lazily.
+- The host derives both displayed reference phones and synthesis IPA from the same CMUdict entry.
+  Direct synthesis validates tokens against Kokoro's actual vocabulary and calls the model with the
+  IPA plus voice pack, bypassing Kokoro's text G2P. Unknown CMUdict words and unsupported symbols are
+  explicit errors. Long passages split only between words at Kokoro's 510-character limit.
+- Generated 24 kHz mono PCM WAV and metadata pairs are atomic and retained under a configurable 2 GiB
+  LRU cache. Cache keys include all pronunciation and executor inputs; cached audio is rehashed before
+  playback, so a missing, partial, or corrupt pair is regenerated rather than trusted.
+- The strict voice REST allowlist now includes reference state, artifact creation, and artifact audio.
+  Mac uses direct loopback audio. iPhone reassembles ordered bounded chunks, writes a temporary WAV,
+  verifies its SHA-256, plays it under a spoken-audio session, reports
+  preparing/playing/completed/failed state to the shared UI, and cleans up on Stop or teardown. PCM
+  never enters the input lane.
+- Focused Python, web, InteractionPanel, host, generic iOS build, and full iOS simulator test gates
+  pass. A real pinned-model smoke synthesized `/θˈɪŋk/` and `/θˈæŋk/` into 36,000 nonempty samples.
+  `just check` passed 596 host tests and the Python/package/web/Rust gates; `just sim-test` passed 438
+  client tests. Two `just check-all` attempts reached the full host suite but each hit a different
+  unrelated timing failure, first two diagnostics-broker tests and then one agent-feed shutdown
+  test. Both affected suites passed on immediate targeted retry, as did the final reference-audio
+  client tests. No app was launched because manual runtime acceptance is the explicit R151
+  checkpoint.
 
 ## Promotion log
 
@@ -748,5 +784,7 @@ R145  implemented remaining  authorized cross-device runtime acceptance
 D146  2026-07-27  landed     shared Voice transcript and word-grouped heard/reference Passage cards
 D147  2026-07-27  landed     one continuous shared Voice scroll surface
 D148  2026-07-27  landed     local whole-passage and per-word reference TTS
-R149  implemented remaining  authorized Mac/iOS chooser playback and persistence acceptance
+D149  2026-07-27  landed     retired split native reference TTS authority
+D150  2026-07-27  landed     host Kokoro direct-IPA artifacts and cross-device playback
+R151  implemented remaining  authorized Mac/iPhone reference playback acceptance
 ```

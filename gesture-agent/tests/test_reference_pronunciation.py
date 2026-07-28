@@ -16,6 +16,9 @@ from interaction_agent.voice.reference_pronunciation import (
     reference_alignment,
     transcript_words,
 )
+from interaction_agent.voice.reference_pronunciation import (
+    reference_pronunciation as resolve_reference_pronunciation,
+)
 
 
 class ReferencePronunciationTests(unittest.TestCase):
@@ -105,6 +108,16 @@ ABOUT  AH0 B AW1 T
         )
         self.assertEqual(alignment.unknown_words, ())
         self.assertTrue(alignment.dictionary_identifier.startswith("CMUdict@"))
+
+    def test_kokoro_pronunciation_preserves_cmu_stress_and_punctuation(self) -> None:
+        pronunciation = resolve_reference_pronunciation("Think, thank.")
+        self.assertEqual(
+            tuple(word.kokoro_ipa for word in pronunciation.words),
+            ("θˈɪŋk", "θˈæŋk"),
+        )
+        self.assertEqual(pronunciation.passage_ipa, "θˈɪŋk, θˈæŋk.")
+        self.assertEqual(pronunciation.unknown_words, ())
+        self.assertEqual(len(pronunciation.synthesis_mapping_hash), 64)
 
 
 if __name__ == "__main__":

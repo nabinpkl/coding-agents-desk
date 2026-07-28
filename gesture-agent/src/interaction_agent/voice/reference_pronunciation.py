@@ -56,6 +56,26 @@ class ReferenceAlignment:
 
 
 @dataclass(frozen=True)
+class SynthesisWordPronunciation:
+    word: str
+    arpabet: tuple[str, ...]
+    display_phones: tuple[str, ...]
+    kokoro_ipa: str
+    is_known: bool
+
+
+@dataclass(frozen=True)
+class ReferencePronunciation:
+    text: str
+    words: tuple[SynthesisWordPronunciation, ...]
+    passage_ipa: str
+    unknown_words: tuple[str, ...]
+    dictionary_identifier: str
+    dictionary_hash: str
+    synthesis_mapping_hash: str
+
+
+@dataclass(frozen=True)
 class _ReferencePhone:
     phone: str
     word_index: int
@@ -76,19 +96,95 @@ class _PronunciationAssets:
     source_revision: str
 
 
+_KOKORO_BASE_PHONES: Final = {
+    "AA": "ɑ",
+    "AE": "æ",
+    "AH": "ʌ",
+    "AO": "ɔ",
+    "AW": "W",
+    "AY": "I",
+    "B": "b",
+    "CH": "ʧ",
+    "D": "d",
+    "DH": "ð",
+    "EH": "ɛ",
+    "ER": "ɜɹ",
+    "EY": "A",
+    "F": "f",
+    "G": "ɡ",
+    "HH": "h",
+    "IH": "ɪ",
+    "IY": "i",
+    "JH": "ʤ",
+    "K": "k",
+    "L": "l",
+    "M": "m",
+    "N": "n",
+    "NG": "ŋ",
+    "OW": "O",
+    "OY": "Y",
+    "P": "p",
+    "R": "ɹ",
+    "S": "s",
+    "SH": "ʃ",
+    "T": "t",
+    "TH": "θ",
+    "UH": "ʊ",
+    "UW": "u",
+    "V": "v",
+    "W": "w",
+    "Y": "j",
+    "Z": "z",
+    "ZH": "ʒ",
+}
+_KOKORO_ALLOWED_PUNCTUATION: Final = frozenset(",.;:!?")
+_CMU_SYMBOL: Final = re.compile(r"^([A-Z]+)([012])?$")
+KOKORO_SYNTHESIS_MAPPING_HASH: Final = hashlib.sha256(
+    json.dumps(
+        {
+            "schemaVersion": 1,
+            "phones": _KOKORO_BASE_PHONES,
+            "unstressedSchwa": {"AH0": "ə", "ER0": "əɹ"},
+            "stress": {"1": "ˈ", "2": "ˌ"},
+            "punctuation": sorted(_KOKORO_ALLOWED_PUNCTUATION),
+            "tokenizer": "unicode-letters-straight-apostrophe-v1",
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+).hexdigest()
+
+
 def transcript_words(transcript: str) -> tuple[str, ...]:
     """Match the native tokenizer: Unicode letters and straight apostrophes."""
     normalized = "".join(
-        character.lower()
-        if character.isalpha() or character == "'"
-        else " "
+        character.lower() if character.isalpha() or character == "'" else " "
         for character in transcript
     )
-    return tuple(
-        word.strip("'")
-        for word in normalized.split()
-        if word.strip("'")
-    )
+    return tuple(word.strip("'") for word in normalized.split() if word.strip("'"))
+
+
+def transcript_tokens(transcript: str) -> tuple[str, ...]:
+    """Return pronunciation words plus the punctuation Kokoro understands."""
+    tokens: list[str] = []
+    word: list[str] = []
+    for character in transcript:
+        if character.isalpha() or character == "'":
+            word.append(character.lower())
+            continue
+        if word:
+            normalized = "".join(word).strip("'")
+            if normalized:
+                tokens.append(normalized)
+            word = []
+        if character in _KOKORO_ALLOWED_PUNCTUATION:
+            tokens.append(character)
+    if word:
+        normalized = "".join(word).strip("'")
+        if normalized:
+            tokens.append(normalized)
+    return tuple(tokens)
 
 
 def parse_cmu_dictionary(text: str) -> dict[str, tuple[str, ...]]:
@@ -221,6 +317,77 @@ def reference_alignment(
     )
 
 
+def reference_pronunciation(transcript: str) -> ReferencePronunciation:
+    """Resolve display phones and direct Kokoro tokens from one CMU choice."""
+    assets = _load_pronunciation_assets()
+    words: list[SynthesisWordPronunciation] = []
+    unknown_words: set[str] = set()
+    passage_units: list[str] = []
+    for token in transcript_tokens(transcript):
+        if token in _KOKORO_ALLOWED_PUNCTUATION:
+            if passage_units:
+                passage_units[-1] += token
+            continue
+        symbols = assets.entries.get(token)
+        if symbols is None:
+            unknown_words.add(token)
+            words.append(
+                SynthesisWordPronunciation(
+                    word=token,
+                    arpabet=(),
+                    display_phones=(),
+                    kokoro_ipa="",
+                    is_known=False,
+                )
+            )
+            continue
+        try:
+            display_phones = tuple(assets.mapping[symbol] for symbol in symbols)
+        except KeyError as exc:
+            raise ReferencePronunciationError(
+                f"phone mapping does not cover CMUdict symbol {exc.args[0]}"
+            ) from exc
+        ipa = "".join(_kokoro_phone(symbol) for symbol in symbols)
+        words.append(
+            SynthesisWordPronunciation(
+                word=token,
+                arpabet=symbols,
+                display_phones=display_phones,
+                kokoro_ipa=ipa,
+                is_known=True,
+            )
+        )
+        passage_units.append(ipa)
+    return ReferencePronunciation(
+        text=transcript.strip(),
+        words=tuple(words),
+        passage_ipa=" ".join(passage_units),
+        unknown_words=tuple(sorted(unknown_words)),
+        dictionary_identifier=f"{assets.source}@{assets.source_revision}",
+        dictionary_hash=CMU_DICTIONARY_SHA256,
+        synthesis_mapping_hash=KOKORO_SYNTHESIS_MAPPING_HASH,
+    )
+
+
+def _kokoro_phone(symbol: str) -> str:
+    match = _CMU_SYMBOL.fullmatch(symbol)
+    if match is None:
+        raise ReferencePronunciationError(f"CMUdict symbol is malformed: {symbol}")
+    base, stress = match.groups()
+    try:
+        phone = _KOKORO_BASE_PHONES[base]
+    except KeyError as exc:
+        raise ReferencePronunciationError(
+            f"Kokoro mapping does not cover CMUdict symbol {symbol}"
+        ) from exc
+    if base == "AH" and stress == "0":
+        phone = "ə"
+    elif base == "ER" and stress == "0":
+        phone = "əɹ"
+    stress_mark = "ˈ" if stress == "1" else "ˌ" if stress == "2" else ""
+    return f"{stress_mark}{phone}"
+
+
 def _alignment_steps(
     observed_phones: tuple[str, ...],
     reference: tuple[_ReferencePhone, ...],
@@ -242,12 +409,8 @@ def _alignment_steps(
                 costs[(observed_index - 1) * row_width + reference_index - 1]
                 + substitution_cost
             )
-            insertion = (
-                costs[(observed_index - 1) * row_width + reference_index] + 1
-            )
-            deletion = (
-                costs[observed_index * row_width + reference_index - 1] + 1
-            )
+            insertion = costs[(observed_index - 1) * row_width + reference_index] + 1
+            deletion = costs[observed_index * row_width + reference_index - 1] + 1
             costs[observed_index * row_width + reference_index] = min(
                 diagonal,
                 insertion,
@@ -280,9 +443,7 @@ def _alignment_steps(
                 reference_index -= 1
                 continue
         if observed_index > 0:
-            insertion = (
-                costs[(observed_index - 1) * row_width + reference_index] + 1
-            )
+            insertion = costs[(observed_index - 1) * row_width + reference_index] + 1
             if current == insertion:
                 reversed_steps.append(
                     _AlignmentStep(
@@ -390,9 +551,7 @@ def _load_pronunciation_assets() -> _PronunciationAssets:
             "arpabet-model-phone-map.json could not be loaded"
         ) from exc
     if not isinstance(mapping_document, dict):
-        raise ReferencePronunciationError(
-            "arpabet-model-phone-map.json is malformed"
-        )
+        raise ReferencePronunciationError("arpabet-model-phone-map.json is malformed")
     mapping = mapping_document.get("mapping")
     source = mapping_document.get("source")
     source_revision = mapping_document.get("sourceRevision")
@@ -401,10 +560,7 @@ def _load_pronunciation_assets() -> _PronunciationAssets:
         or not isinstance(mapping, dict)
         or not mapping
         or not all(
-            isinstance(symbol, str)
-            and symbol
-            and isinstance(phone, str)
-            and phone
+            isinstance(symbol, str) and symbol and isinstance(phone, str) and phone
             for symbol, phone in mapping.items()
         )
         or not isinstance(source, str)
@@ -412,9 +568,7 @@ def _load_pronunciation_assets() -> _PronunciationAssets:
         or not isinstance(source_revision, str)
         or not source_revision
     ):
-        raise ReferencePronunciationError(
-            "arpabet-model-phone-map.json is malformed"
-        )
+        raise ReferencePronunciationError("arpabet-model-phone-map.json is malformed")
     return _PronunciationAssets(
         entries=entries,
         mapping=mapping,

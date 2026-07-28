@@ -1,4 +1,3 @@
-import AVFoundation
 import Foundation
 import OSLog
 import UIKit
@@ -23,9 +22,11 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
     private var voiceLaneOpeningTask: Task<VoiceLaneClient, Error>?
     private weak var voiceLaneTransport: QuicSessionClientTransport?
     private var panelContentView = UIView()
-    private let referenceSpeechSynthesizer = AVSpeechSynthesizer()
-    private let referenceSpeechPreferences = ReferenceSpeechPreferences()
-    private var referenceSpeechSessionActive = false
+    private var referenceAudioDownload: ReferenceAudioDownload?
+    private lazy var referenceAudioPlayback = ReferenceAudioPlayback {
+        [weak self] event in
+        self?.deliverReferenceAudio(event)
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -40,7 +41,6 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
     }
 
     private func setUpPanel() {
-        referenceSpeechSynthesizer.delegate = self
         do {
             let config = WKUserScript(
                 source: #"window.__interactionConfig = {"voiceTransport":"native"};"#,
@@ -87,17 +87,13 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
     }
 
     func teardown() {
-        stopReferenceSpeech()
+        stopReferenceAudio(deliverStopped: false)
         voiceLane?.close()
         voiceLane = nil
         voiceLaneOpeningTask?.cancel()
         voiceLaneOpeningTask = nil
         panelController?.teardown()
         panelController = nil
-    }
-
-    func refreshReferenceSpeechState() {
-        deliverReferenceSpeechState()
     }
 
     // MARK: - InteractionPanelTransport
@@ -110,27 +106,13 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
         switch request {
         case .spaceStep(let delta):
             onSpaceStep?(delta)
-        case .referenceSpeech(let text, _):
-            speakReference(text: text)
-        case .referenceSpeechStop:
-            stopReferenceSpeech()
-        case .referenceSpeechStateRequest:
-            deliverReferenceSpeechState()
-        case .referenceSpeechPreferencesUpdate(let voiceIdentifier, let rate):
-            stopReferenceSpeech()
-            do {
-                let state = try referenceSpeechPreferences.update(
-                    voiceIdentifier: voiceIdentifier,
-                    rate: rate
-                )
-                deliverReferenceSpeechState(state)
-            } catch {
-                deliverReferenceSpeechState(
-                    referenceSpeechPreferences.currentState(
-                        error: error.localizedDescription
-                    )
-                )
-            }
+        case .referenceAudioPlay(let artifactID, let audioHash):
+            startReferenceAudio(
+                artifactID: artifactID,
+                audioHash: audioHash
+            )
+        case .referenceAudioStop:
+            stopReferenceAudio()
         case .voiceSocketOpen(let requestID, let sessionID):
             forwardVoice(.socketOpen(
                 requestID: requestID,
@@ -162,54 +144,78 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
         }
     }
 
-    private func speakReference(text: String) {
-        referenceSpeechSynthesizer.stopSpeaking(at: .immediate)
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .spokenAudio)
-            try session.setActive(true)
-            referenceSpeechSessionActive = true
-        } catch {
-            logger.error(
-                "reference speech audio session failed: \(error.localizedDescription, privacy: .public)"
-            )
-            return
-        }
-        let utterance = AVSpeechUtterance(string: text)
-        referenceSpeechPreferences.configure(utterance)
-        referenceSpeechSynthesizer.speak(utterance)
-    }
-
-    private func stopReferenceSpeech() {
-        referenceSpeechSynthesizer.stopSpeaking(at: .immediate)
-        deactivateReferenceSpeechSession()
-    }
-
-    private func deactivateReferenceSpeechSession() {
-        guard referenceSpeechSessionActive else { return }
-        do {
-            try AVAudioSession.sharedInstance().setActive(
-                false,
-                options: [.notifyOthersOnDeactivation]
-            )
-            referenceSpeechSessionActive = false
-        } catch {
-            logger.error(
-                "reference speech cleanup failed: \(error.localizedDescription, privacy: .public)"
-            )
-        }
-    }
-
-    private func deliverReferenceSpeechState(
-        _ state: ReferenceSpeechState? = nil
+    private func startReferenceAudio(
+        artifactID: String,
+        audioHash: String
     ) {
+        stopReferenceAudio(deliverStopped: false)
+        let requestID = "reference-audio-\(UUID().uuidString)"
+        referenceAudioDownload = ReferenceAudioDownload(
+            artifactID: artifactID,
+            expectedAudioHash: audioHash,
+            requestID: requestID
+        )
+        referenceAudioPlayback.preparing(artifactID: artifactID)
+        forwardVoice(.rest(VoiceRESTRequest(
+            requestID: requestID,
+            method: .get,
+            path: "/reference-speech/artifacts/\(artifactID)/audio"
+        )))
+    }
+
+    private func stopReferenceAudio(deliverStopped: Bool = true) {
+        referenceAudioDownload = nil
+        referenceAudioPlayback.stop(deliverStopped: deliverStopped)
+    }
+
+    private func handleReferenceAudioDelivery(
+        _ message: VoiceLaneHostMessage
+    ) -> Bool {
+        guard var download = referenceAudioDownload else { return false }
+        switch message {
+        case .rest(let response) where response.requestID == download.requestID:
+            do {
+                let completed = try download.append(response)
+                referenceAudioDownload = completed == nil ? download : nil
+                if let completed {
+                    try referenceAudioPlayback.play(
+                        data: completed,
+                        artifactID: download.artifactID
+                    )
+                }
+            } catch {
+                referenceAudioDownload = nil
+                referenceAudioPlayback.fail(
+                    artifactID: download.artifactID,
+                    message: error.localizedDescription
+                )
+            }
+            return true
+        case .error(let requestID, _, _, let message)
+            where requestID == download.requestID:
+            referenceAudioDownload = nil
+            referenceAudioPlayback.fail(
+                artifactID: download.artifactID,
+                message: message
+            )
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func deliverReferenceAudio(_ event: ReferenceAudioPlaybackEvent) {
         do {
-            try panelController?.deliver(
-                referenceSpeechState: state ?? referenceSpeechPreferences.currentState()
+            let payload = try JSONEncoder().encode(event)
+            guard let payloadJSON = String(data: payload, encoding: .utf8) else {
+                return
+            }
+            panelController?.deliver(
+                rawJSON: #"{"type":"referenceAudioState","payload":\#(payloadJSON)}"#
             )
         } catch {
             logger.error(
-                "reference speech state delivery failed: \(String(describing: error), privacy: .public)"
+                "reference audio delivery encode failed: \(String(describing: error), privacy: .public)"
             )
         }
     }
@@ -236,6 +242,7 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
             throw VoiceLaneClientError.closed
         }
         if transport !== voiceLaneTransport {
+            stopReferenceAudio()
             voiceLane?.close()
             voiceLane = nil
             voiceLaneOpeningTask?.cancel()
@@ -271,9 +278,14 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
     }
 
     private func handleVoiceLaneDelivery(_ message: VoiceLaneHostMessage) {
+        let handledReferenceAudio = handleReferenceAudioDelivery(message)
         if case .error(_, _, .transportLost, _) = message {
+            stopReferenceAudio()
             voiceLane?.close()
             voiceLane = nil
+        }
+        if handledReferenceAudio {
+            return
         }
         deliverVoice(message)
     }
@@ -305,32 +317,6 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
         decisionHandler: @escaping (WKPermissionDecision) -> Void
     ) {
         decisionHandler(.grant)
-    }
-}
-
-extension GestureSurface: AVSpeechSynthesizerDelegate {
-    nonisolated func speechSynthesizer(
-        _ synthesizer: AVSpeechSynthesizer,
-        didFinish utterance: AVSpeechUtterance
-    ) {
-        Task { @MainActor [weak self] in
-            guard let self, !self.referenceSpeechSynthesizer.isSpeaking else {
-                return
-            }
-            self.deactivateReferenceSpeechSession()
-        }
-    }
-
-    nonisolated func speechSynthesizer(
-        _ synthesizer: AVSpeechSynthesizer,
-        didCancel utterance: AVSpeechUtterance
-    ) {
-        Task { @MainActor [weak self] in
-            guard let self, !self.referenceSpeechSynthesizer.isSpeaking else {
-                return
-            }
-            self.deactivateReferenceSpeechSession()
-        }
     }
 }
 

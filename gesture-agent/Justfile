@@ -29,6 +29,9 @@ download-voice-model:
 download-mlx-model:
     uv run python -c 'from interaction_agent.voice.runtime import ensure_local_model; ensure_local_model("{{mlx-model-name}}")'
 
+download-kokoro-model:
+    uv run python -m interaction_agent.voice.reference_speech
+
 voice-live: download-voice-model download-mlx-model
     uv run voice-live
 

@@ -415,17 +415,28 @@ CMUdict revision, and the shared ARPABET-to-model-phone mapping. The host aligns
 phones to reference words for display while retaining unanchored phones explicitly; the web panel
 shows separate transcript, heard-phone, and reference-phone cards. These word groups are presentation
 alignment, not acoustic word boundaries, and are not a second persisted analysis authority.
-The reference card's whole-passage and per-word speaker actions send a bounded local
-`referenceSpeech` request to the containing app. macOS and iOS play it with `AVSpeechSynthesizer`;
-ordinary browser development uses Web Speech as a preview fallback. Reference TTS never crosses the
-voice or input lanes, is not retained as reference audio, and is stopped before microphone capture.
-The shared Voice page also requests a device-local `en-US` voice inventory and reference-speech
-preferences through the InteractionPanel bridge. Each native app re-enumerates
-`AVSpeechSynthesisVoice.speechVoices()` when the panel mounts or becomes visible, persists only its
-own selected voice identifier and raw native rate in bundle-scoped `UserDefaults`, and applies those
-preferences to both whole-passage and per-word playback. A removed voice visibly resets to the system
-default. Voice inventories and preferences never cross QUIC or enter the Python recording store;
-browser development keeps an independent Web Speech/local-storage preview.
+The reference card's whole-passage and per-word speaker actions ask Python for one host-owned
+reference-speech artifact by saved recording ID and scope. Python resolves the same pinned CMUdict
+entry shown in the reference-phone card, maps stressed ARPABET to Kokoro-compatible IPA, validates
+every symbol against the pinned model vocabulary, and passes the IPA directly to Kokoro. Kokoro's
+text-to-pronunciation frontend is not constructed and there is no native TTS fallback. An unknown
+dictionary word fails visibly instead of synthesizing an inferred pronunciation.
+
+Kokoro `hexgrad/Kokoro-82M` is pinned by immutable revision with SHA-256 manifests for the model,
+config, and every selectable American-English voice. Model loading and synthesis are lazy and
+serialized. Python writes 24 kHz mono PCM WAV artifacts atomically under the host recording store and
+verifies the cached WAV hash before reuse. Cache identity covers text, IPA, voice identifier and
+hash, speed, model identifier and hash, CMUdict identifier and hash, synthesis-mapping hash, and
+sample rate. A 2 GiB LRU bound applies to generated WAV and metadata pairs.
+
+macOS plays the artifact from the loopback audio endpoint. iOS requests the same endpoint through the
+authenticated voice lane, reassembles bounded ordered REST chunks, verifies the completed bytes
+against the artifact's SHA-256, writes a temporary WAV, and plays it with `AVAudioPlayer`; Stop,
+completion, decode failure, navigation, and transport teardown remove the temporary file and release
+the audio session. Reference audio uses the voice lane rather than the input lane. The shared web UI
+persists only a device-local Kokoro voice identifier and speed, so Mac and iPhone choices remain
+independent while both devices play byte-identical host artifacts for an identical cache key. The
+native Agent Say voice catalog and preferences remain separate.
 
 ## Workspace Workbench Terminal Flow
 

@@ -28,6 +28,24 @@ export interface AudioFrameMessage {
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "CreateReferenceSpeechArtifactRequest".
+ */
+export interface CreateReferenceSpeechArtifactRequest {
+  recordingId: string;
+  scope: ReferenceSpeechScopeRequest;
+  voiceIdentifier: string;
+  speed: number;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "ReferenceSpeechScopeRequest".
+ */
+export interface ReferenceSpeechScopeRequest {
+  kind: "passage" | "word";
+  index?: number | null;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
  * via the `definition` "FinalTranscriptMessage".
  */
 export interface FinalTranscriptMessage {
@@ -114,6 +132,65 @@ export interface WordPhoneGroup {
  */
 export interface RecordingListResponse {
   recordings: Recording[];
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "ReferenceSpeechArtifact".
+ */
+export interface ReferenceSpeechArtifact {
+  id: string;
+  audioHash: string;
+  text: string;
+  ipa: string;
+  durationSeconds: number;
+  sampleRate: number;
+  cacheHit: boolean;
+  voiceIdentifier: string;
+  speed: number;
+  modelIdentifier: string;
+  modelHash: string;
+  voiceHash: string;
+  dictionaryIdentifier: string;
+  dictionaryHash: string;
+  synthesisMappingHash: string;
+  synthesizedAt: string;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "ReferenceSpeechSpeedState".
+ */
+export interface ReferenceSpeechSpeedState {
+  minimum: number;
+  defaultValue: number;
+  maximum: number;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "ReferenceSpeechState".
+ */
+export interface ReferenceSpeechState {
+  schemaVersion: number;
+  status: "unavailable" | "preparing" | "ready" | "failed";
+  error?: string | null;
+  language?: "en-US";
+  voices: ReferenceSpeechVoice[];
+  defaultVoiceIdentifier: string;
+  speed: ReferenceSpeechSpeedState;
+  modelIdentifier: string;
+  modelHash: string;
+  runtimeIdentifier: string;
+  license: string;
+  cacheBytes: number;
+  cacheMaximumBytes: number;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "ReferenceSpeechVoice".
+ */
+export interface ReferenceSpeechVoice {
+  identifier: string;
+  name: string;
+  language?: "en-US";
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema

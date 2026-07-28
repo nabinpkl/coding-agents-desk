@@ -145,6 +145,65 @@ class RecordingListResponse(WireModel):
     recordings: list[Recording]
 
 
+class ReferenceSpeechVoice(WireModel):
+    identifier: str
+    name: str
+    language: Literal["en-US"] = "en-US"
+
+
+class ReferenceSpeechSpeedState(WireModel):
+    minimum: float
+    default_value: float
+    maximum: float
+
+
+class ReferenceSpeechState(WireModel):
+    schema_version: int
+    status: Literal["unavailable", "preparing", "ready", "failed"]
+    error: str | None = None
+    language: Literal["en-US"] = "en-US"
+    voices: list[ReferenceSpeechVoice]
+    default_voice_identifier: str
+    speed: ReferenceSpeechSpeedState
+    model_identifier: str
+    model_hash: str
+    runtime_identifier: str
+    license: str
+    cache_bytes: int
+    cache_maximum_bytes: int
+
+
+class ReferenceSpeechScopeRequest(WireModel):
+    kind: Literal["passage", "word"]
+    index: int | None = None
+
+
+class CreateReferenceSpeechArtifactRequest(WireModel):
+    recording_id: str
+    scope: ReferenceSpeechScopeRequest
+    voice_identifier: str
+    speed: float
+
+
+class ReferenceSpeechArtifact(WireModel):
+    id: str
+    audio_hash: str
+    text: str
+    ipa: str
+    duration_seconds: float
+    sample_rate: int
+    cache_hit: bool
+    voice_identifier: str
+    speed: float
+    model_identifier: str
+    model_hash: str
+    voice_hash: str
+    dictionary_identifier: str
+    dictionary_hash: str
+    synthesis_mapping_hash: str
+    synthesized_at: str
+
+
 # --- Signal analysis (mirror of voice.signals.to_json_payload) -------------
 
 
@@ -236,6 +295,12 @@ MODELS: Final[list[type[BaseModel]]] = [
     WordPhoneGroup,
     Recording,
     RecordingListResponse,
+    ReferenceSpeechVoice,
+    ReferenceSpeechSpeedState,
+    ReferenceSpeechState,
+    ReferenceSpeechScopeRequest,
+    CreateReferenceSpeechArtifactRequest,
+    ReferenceSpeechArtifact,
     VoiceSignalFramePayload,
     VoiceSignalSummaryPayload,
     SignalAnalysis,
