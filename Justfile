@@ -379,10 +379,15 @@ workspace-ide-fitness:
     set -euo pipefail
     test ! -e '{{justfile_directory()}}/packages/WorkspaceEditorViewer'
     test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Package.swift'
-    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceFileViewer/Resources/viewer/dist/viewer.js'
-    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceIDE/Resources/ide/dist/ide.js'
-    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Web/src/viewerBootstrap.mjs'
-    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Web/src/ide.mjs'
+    # Each published tree is a self-contained document: its own index.html plus the hashed assets
+    # Vite emitted for it. Asserting the directory rather than a filename keeps this honest across
+    # content hashes, which change on every meaningful edit.
+    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceFileViewer/Resources/viewer/index.html'
+    test -d '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceFileViewer/Resources/viewer/assets'
+    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceIDE/Resources/ide/index.html'
+    test -d '{{justfile_directory()}}/packages/WorkspaceIDE/Sources/WorkspaceIDE/Resources/ide/assets'
+    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Web/src/viewerBootstrap.ts'
+    test -f '{{justfile_directory()}}/packages/WorkspaceIDE/Web/src/ide.ts'
     if find '{{justfile_directory()}}/packages/WorkspaceIDE/Sources' -type d -name node_modules -print -quit | grep -q .; then
         echo 'workspace-ide-fitness: node_modules found inside Swift package resources' >&2
         exit 1

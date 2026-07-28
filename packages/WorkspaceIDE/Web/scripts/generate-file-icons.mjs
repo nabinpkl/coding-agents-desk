@@ -107,7 +107,7 @@ export const extensionIcons = ${serialize(mappingFor(manifest.fileExtensions, ke
 export const filenameIcons = ${serialize(mappingFor(manifest.fileNames, kept))}
 `
 
-const outputPath = resolve(import.meta.dirname, '..', 'src', 'generated', 'fileIcons.mjs')
+const outputPath = resolve(import.meta.dirname, '..', 'src', 'generated', 'fileIcons.ts')
 await writeFile(outputPath, generated)
 await writeFile(
   resolve(import.meta.dirname, '..', 'LICENSE.material-icon-theme'),

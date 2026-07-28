@@ -23,9 +23,7 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/viewer/index.html"),
-                .copy("Resources/viewer/viewer.css"),
-                .copy("Resources/viewer/file-content.css"),
-                .copy("Resources/viewer/dist"),
+                .copy("Resources/viewer/assets"),
             ]
         ),
         .target(
@@ -37,9 +35,7 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/ide/index.html"),
-                .copy("Resources/ide/ide.css"),
-                .copy("Resources/ide/file-content.css"),
-                .copy("Resources/ide/dist"),
+                .copy("Resources/ide/assets"),
             ]
         ),
         .testTarget(
