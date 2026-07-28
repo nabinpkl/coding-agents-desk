@@ -273,7 +273,7 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
         arguments: (URL, Bool, String) -> [String]
     ) throws -> HostPtyRuntimeOutcome {
         let bundledDigest = Self.sha256Hex(binaryURL)
-        let peer = socketPeer(socketURL: socketURL)
+        let peer = servingPeer(socketURL: socketURL)
         let decision = HostPtyRuntimeSocketVerifier.decide(
             peer: peer,
             bundledExecutablePath: binaryURL.path,
@@ -349,7 +349,7 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
         arguments: (URL, Bool, String) -> [String]
     ) throws -> HostPtyRuntimeOutcome {
         discardCandidateIfIdle(component: component, socketURL: socketURL)
-        let alive = socketPeer(socketURL: socketURL) != nil
+        let alive = servingPeer(socketURL: socketURL) != nil
         switch HostPtyRuntimeSocketVerifier.recover(
             recovery: recovery,
             predecessorAlive: alive,
@@ -386,8 +386,12 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
     /// now the only holder of every master and killing it would end every session.
     private func discardCandidateIfIdle(component: Component, socketURL: URL) {
         guard let process = processes[component], process.isRunning else { return }
-        guard socketPeer(socketURL: socketURL)?.pid != process.processIdentifier else { return }
-        logger.notice("PTY \(component.rawValue, privacy: .public) discarding candidate pid=\(process.processIdentifier, privacy: .public) that never took the socket")
+        // Judged by published identity, not by the socket's peer pid, for the reason in `launch`.
+        // Asking the socket who owns it named the predecessor even after a completed handover, so
+        // this terminated candidates that had already taken custody of every session descriptor.
+        // Sessions survived that only because the outgoing manager's leases reseeded the vault.
+        guard runtimeIdentity(socketURL: socketURL)?.pid != process.processIdentifier else { return }
+        logger.notice("PTY \(component.rawValue, privacy: .public) discarding candidate pid=\(process.processIdentifier, privacy: .public) that never published an identity")
         process.terminate()
         processes[component] = nil
     }
@@ -398,19 +402,19 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
         socketURL: URL,
         timeout: TimeInterval = Config.ptyRuntimePeerTimeoutSeconds
     ) {
-        guard let peer = socketPeer(socketURL: socketURL) else { return }
+        guard let peer = servingPeer(socketURL: socketURL) else { return }
         logger.notice("PTY \(component.rawValue, privacy: .public) replacing predecessor pid=\(peer.pid, privacy: .public); vault-held sessions survive and are re-adopted")
         Darwin.kill(peer.pid, SIGTERM)
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if socketPeer(socketURL: socketURL)?.pid != peer.pid { return }
+            if servingPeer(socketURL: socketURL)?.pid != peer.pid { return }
             Thread.sleep(forTimeInterval: 0.05)
         }
         logger.error("PTY \(component.rawValue, privacy: .public) predecessor pid=\(peer.pid, privacy: .public) ignored SIGTERM; escalating")
         Darwin.kill(peer.pid, SIGKILL)
         let killDeadline = Date().addingTimeInterval(timeout)
         while Date() < killDeadline {
-            if socketPeer(socketURL: socketURL)?.pid != peer.pid { return }
+            if servingPeer(socketURL: socketURL)?.pid != peer.pid { return }
             Thread.sleep(forTimeInterval: 0.05)
         }
     }
@@ -464,71 +468,36 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
         }
         try process.run()
         processes[component] = process
-        guard waitForPeer(socketURL: socketURL, pid: process.processIdentifier) else {
-            logger.error("PTY \(component.rawValue, privacy: .public) candidate failed to activate pid=\(process.processIdentifier, privacy: .public)")
-            return false
-        }
-        return waitForIdentity(
+        // Activation is the identity the daemon publishes for itself, never the socket's peer pid.
+        //
+        // A handover candidate inherits the listening socket through SCM_RIGHTS instead of binding
+        // it, and Darwin attributes LOCAL_PEERPID to the process that created the socket. So a
+        // candidate that has taken over completely still reports its predecessor's pid forever, and
+        // waiting for the peer pid to change could never succeed for a handover. Every vault
+        // handover since ADR-0072 was declared failed this way while the candidate sat there
+        // healthy, serving, and holding every session descriptor.
+        let activated = waitForIdentity(
             socketURL: socketURL,
+            process: process,
             expected: HostPtyRuntimeIdentity(pid: process.processIdentifier, digest: digest)
         )
+        if !activated {
+            logger.error("PTY \(component.rawValue, privacy: .public) candidate failed to activate pid=\(process.processIdentifier, privacy: .public)")
+        }
+        return activated
     }
 
-    private func waitForPeer(
-        socketURL: URL,
-        pid: pid_t,
-        timeout: TimeInterval = Config.ptyRuntimePeerTimeoutSeconds
-    ) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if socketPeer(socketURL: socketURL)?.pid == pid { return true }
-            if processes.values.contains(where: { $0.processIdentifier == pid && !$0.isRunning }) {
-                return false
-            }
-            Thread.sleep(forTimeInterval: 0.05)
-        }
-        return socketPeer(socketURL: socketURL)?.pid == pid
-    }
-
-    private func socketPeer(socketURL: URL) -> HostPtyRuntimeSocketPeer? {
-        guard let descriptor = connectSocket(socketURL: socketURL) else { return nil }
-        defer { Darwin.close(descriptor) }
-        var pid: pid_t = 0
-        var length = socklen_t(MemoryLayout.size(ofValue: pid))
-        let result = withUnsafeMutablePointer(to: &pid) { pointer in
-            Darwin.getsockopt(descriptor, SOL_LOCAL, LOCAL_PEERPID, pointer, &length)
-        }
-        guard result == 0, pid > 0, let path = Self.executablePath(pid: pid) else {
-            return nil
-        }
-        return HostPtyRuntimeSocketPeer(pid: pid, executablePath: path)
-    }
-
-    private func connectSocket(socketURL: URL) -> Int32? {
-        let descriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
-        guard descriptor >= 0 else { return nil }
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let pathBytes = Array(socketURL.path.utf8)
-        guard pathBytes.count < MemoryLayout.size(ofValue: address.sun_path) else {
-            Darwin.close(descriptor)
-            return nil
-        }
-        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
-            buffer.copyBytes(from: pathBytes)
-            buffer[pathBytes.count] = 0
-        }
-        let length = socklen_t(MemoryLayout<sa_family_t>.size + pathBytes.count + 1)
-        let result = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(descriptor, $0, length)
-            }
-        }
-        guard result == 0 else {
-            Darwin.close(descriptor)
-            return nil
-        }
-        return descriptor
+    /// The generation actually serving this socket.
+    ///
+    /// Identified by the identity a daemon publishes for itself, not by who created the socket.
+    /// After a handover the creator is the *previous* generation, usually already exited, so asking
+    /// the socket would report a dead pid and make the host cold start over a healthy runtime.
+    /// `executablePath(pid:)` fails for a dead process, which is also the liveness check.
+    private func servingPeer(socketURL: URL) -> HostPtyRuntimeSocketPeer? {
+        guard let identity = runtimeIdentity(socketURL: socketURL),
+              let path = Self.executablePath(pid: identity.pid)
+        else { return nil }
+        return HostPtyRuntimeSocketPeer(pid: identity.pid, executablePath: path)
     }
 
     private func runtimeIdentity(socketURL: URL) -> HostPtyRuntimeIdentity? {
@@ -540,12 +509,17 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
 
     private func waitForIdentity(
         socketURL: URL,
+        process: Process,
         expected: HostPtyRuntimeIdentity,
-        timeout: TimeInterval = Config.ptyRuntimeIdentityTimeoutSeconds
+        timeout: TimeInterval = Config.ptyRuntimePeerTimeoutSeconds
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if runtimeIdentity(socketURL: socketURL) == expected { return true }
+            // A candidate that died is a failure now, not at the deadline.
+            if !process.isRunning {
+                return runtimeIdentity(socketURL: socketURL) == expected
+            }
             Thread.sleep(forTimeInterval: 0.025)
         }
         logger.error("PTY runtime identity was not published socket=\(socketURL.path, privacy: .public)")

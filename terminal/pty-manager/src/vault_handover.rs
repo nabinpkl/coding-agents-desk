@@ -15,6 +15,11 @@ pub(super) fn perform_handover(runtime: &VaultRuntime, transfer_socket_path: &Pa
     configure_stream(&transfer)?;
 
     let snapshot = snapshot_state(&runtime.state)?;
+    tracing::info!(
+        sessions = snapshot.sessions.len(),
+        generation = snapshot.vault_generation + 1,
+        "pty vault handover: sending manifest"
+    );
     let checksum = session_checksum(
         snapshot.vault_generation + 1,
         snapshot.next_session_generation,
@@ -48,8 +53,13 @@ pub(super) fn perform_handover(runtime: &VaultRuntime, transfer_socket_path: &Pa
             Some(descriptor.as_raw_fd()),
         )?;
     }
+    tracing::info!(
+        descriptors = snapshot.descriptors.len(),
+        "pty vault handover: descriptors sent, awaiting candidate ready"
+    );
     expect_phase(&mut transfer, handover_phase::Phase::Ready, "vault")?;
 
+    tracing::info!("pty vault handover: candidate ready, sending commit");
     let commit_sessions = snapshot_metadata(&runtime.state)?;
     let commit_checksum = session_checksum(
         snapshot.vault_generation + 1,
@@ -66,6 +76,7 @@ pub(super) fn perform_handover(runtime: &VaultRuntime, transfer_socket_path: &Pa
         None,
     )?;
     expect_phase(&mut transfer, handover_phase::Phase::Active, "vault")?;
+    tracing::info!("pty vault handover: candidate active, previous generation done");
     Ok(())
 }
 
@@ -114,6 +125,7 @@ pub(super) fn receive_handover(options: &VaultOptions) -> Result<(Vault, UnixLis
     let listener_descriptor = listener_descriptor.ok_or_else(|| {
         TerminalError::Protocol("vault handover omitted listener descriptor".to_owned())
     })?;
+    tracing::info!("pty vault handover: receiving descriptors");
     let mut sessions = HashMap::with_capacity(manifest.sessions.len());
     for (expected_index, metadata) in manifest.sessions.iter().enumerate() {
         let (frame, descriptor) = receive_message::<VaultHandoverDescriptor>(&mut transfer)?;
@@ -143,6 +155,7 @@ pub(super) fn receive_handover(options: &VaultOptions) -> Result<(Vault, UnixLis
         vault_generation: manifest.vault_generation,
     }));
     register_exit_observers(&state)?;
+    tracing::info!("pty vault handover: descriptors received, reporting ready");
     send_phase(&mut transfer, handover_phase::Phase::Ready)?;
     let (commit, descriptor) = receive_message::<VaultHandoverCommit>(&mut transfer)?;
     if descriptor.is_some() {
@@ -150,10 +163,12 @@ pub(super) fn receive_handover(options: &VaultOptions) -> Result<(Vault, UnixLis
             "vault handover commit contained unexpected descriptor".to_owned(),
         ));
     }
+    tracing::info!("pty vault handover: commit received, applying");
     apply_handover_commit(&state, &manifest, commit)?;
     let listener = UnixListener::from(listener_descriptor);
     listener.set_nonblocking(true)?;
     send_phase(&mut transfer, handover_phase::Phase::Active)?;
+    tracing::info!("pty vault handover: active, awaiting acknowledgement");
     let (response, descriptor) = receive_message::<VaultResponse>(&mut control)?;
     if descriptor.is_some()
         || response.protocol_version != VAULT_PROTOCOL_VERSION
