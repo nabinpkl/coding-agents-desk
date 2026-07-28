@@ -104,9 +104,34 @@ session, which is the thing ADR-0078 exists to prevent.
 - Neutral, because the handover checksums remain on the wire, computed but not trusted by current
   receivers.
 - Neutral, because the candidate activation timeout is now a backstop for a hung process rather than
-  a budget for a working one. Handover cost scales with session count: the first live run declared a
-  healthy twelve-session vault failed at 5.006s against a 5s ceiling and threw the transfer away for
-  a cold start, which the ladder absorbed but should not have had to.
+  a budget for a working one. An early reading of the first live failure blamed that budget and
+  claimed handover cost scales with session count. It does not: twelve sessions transfer in 23ms.
+  The timeout was never the cause, and raising it changed only how long the host waited before
+  giving up.
+
+### A generation is identified by what it publishes, not by who owns its socket
+
+Every vault handover from ADR-0072 until this decision failed while succeeding. The candidate
+completed the transfer in milliseconds, logged itself ready, and served clients, and the host
+declared it dead thirty seconds later.
+
+The host identified the serving generation by connecting to the socket and reading `LOCAL_PEERPID`.
+A handover candidate inherits its listening socket through `SCM_RIGHTS` rather than binding it, and
+Darwin attributes that peer pid to the process that **created** the socket. A candidate that has
+taken over completely still reports its predecessor's pid, so waiting for the pid to change is
+unsatisfiable for any handover. Verified directly: hand a vault from one pid to another and a fresh
+client still reads the old one.
+
+Two things hid it. The ladder above absorbed every failure into the cold-start path, and the
+outgoing manager's leases reseeded custody each time, so terminals kept working. And the same broken
+signal drove the discard, so the host was terminating candidates that already held every session
+descriptor from a vault that had already exited: sessions survived on the manager's leases alone,
+one process away from losing every terminal on the machine.
+
+A daemon publishes its own pid and digest once it is genuinely serving, after the transfer commits
+and before it accepts. That is authoritative and the host already had it. It is now the only way a
+generation is identified, and the socket-peer machinery is deleted so the broken signal cannot be
+reached for again.
 
 ### Confirmation
 
@@ -118,6 +143,12 @@ matter what the wire does, which is how the ADR-0078 field removal shipped green
 
 `HostPtyRuntimeProcessTests` pins the ladder: a live vault is kept whatever went wrong, an absent
 one cold starts, and a manager is replaced either way.
+
+The observable signal that the primary mechanism is actually running, rather than the ladder quietly
+covering for it, is a host log that reads `PTY vault update handover` followed by `PTY runtime ready`
+with no cold start in between. On a machine with thirteen live sessions that sequence completes in
+under a second. A run that reports `rebuilt vault` instead means handover failed and the fallback
+carried it, which is survivable but is not the system working.
 
 ## Pros and Cons of the Options
 
