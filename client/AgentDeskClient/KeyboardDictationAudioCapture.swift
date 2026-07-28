@@ -33,7 +33,10 @@ enum KeyboardDictationAudioError: LocalizedError {
 /// Audio-thread state. The engine always invokes the tap while the service is
 /// armed, but this object returns before conversion unless an explicit capture
 /// is active. Idle buffers therefore never enter App Group storage or transport.
-final class KeyboardDictationCaptureSink: @unchecked Sendable {
+final class KeyboardDictationCaptureSink:
+    VoiceAudioBufferSink,
+    @unchecked Sendable
+{
     typealias FrameHandler = @Sendable (KeyboardDictationPCMFrame) -> Void
     typealias MeterHandler = @Sendable (UUID, Float) -> Void
     typealias FailureHandler = @Sendable (UUID, Error) -> Void
@@ -185,19 +188,6 @@ final class KeyboardDictationCaptureSink: @unchecked Sendable {
     }
 }
 
-/// AVFAudio invokes tap blocks on its real-time queue. Constructing the block
-/// inside `KeyboardDictationAudioCapture.arm()`, which is main-actor isolated,
-/// lets Swift 6 attach a main-actor precondition that traps on the first
-/// microphone buffer. Keep callback construction explicitly nonisolated, as
-/// the existing on-device voice recorder does.
-enum KeyboardDictationAudioCallbacks {
-    nonisolated static func tap(
-        for sink: KeyboardDictationCaptureSink
-    ) -> AVAudioNodeTapBlock {
-        { buffer, _ in sink.accept(buffer) }
-    }
-}
-
 @MainActor
 final class KeyboardDictationAudioCapture {
     var onFrame: (@Sendable (KeyboardDictationPCMFrame) -> Void)?
@@ -261,7 +251,7 @@ final class KeyboardDictationAudioCapture {
             onBus: 0,
             bufferSize: 2_048,
             format: nil,
-            block: KeyboardDictationAudioCallbacks.tap(for: sink)
+            block: VoiceAudioCallbacks.tap(for: sink)
         )
         engine.prepare()
         do {

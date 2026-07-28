@@ -45,7 +45,7 @@ struct KeyboardDictationAudioCaptureTests {
         )
         sink.begin(captureSessionID: UUID())
         let callback = KeyboardTapBlockBox(
-            KeyboardDictationAudioCallbacks.tap(for: sink)
+            VoiceAudioCallbacks.tap(for: sink)
         )
 
         await withCheckedContinuation { continuation in

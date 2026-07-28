@@ -52,6 +52,10 @@ struct VoiceCapturedTake {
     }
 }
 
+protocol VoiceAudioBufferSink: Sendable {
+    func accept(_ buffer: AVAudioPCMBuffer)
+}
+
 /// Audio-thread side of capture: owns the resampler and the accumulating
 /// buffers.
 ///
@@ -59,7 +63,7 @@ struct VoiceCapturedTake {
 /// real-time audio thread while the probe reads from the main actor. The lock is
 /// the actual synchronization; the annotation just tells the compiler so.
 @available(iOS 26.0, *)
-final class CaptureSink: @unchecked Sendable {
+final class CaptureSink: VoiceAudioBufferSink, @unchecked Sendable {
     private let lock = NSLock()
     private let converter = VoiceBufferConverter()
     private let outputFormat: AVAudioFormat
@@ -233,7 +237,9 @@ enum VoiceAudioLevel {
 /// precondition that traps as soon as the first microphone buffer arrives.
 @available(iOS 26.0, *)
 enum VoiceAudioCallbacks {
-    nonisolated static func tap(for sink: CaptureSink) -> AVAudioNodeTapBlock {
+    nonisolated static func tap<Sink: VoiceAudioBufferSink>(
+        for sink: Sink
+    ) -> AVAudioNodeTapBlock {
         { buffer, _ in sink.accept(buffer) }
     }
 
