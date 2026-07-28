@@ -32,6 +32,9 @@ final class VoiceEngineSidecar: @unchecked Sendable {
     // reach scheduleRestart from both handleTermination and a ready-timeout
     // path; this guard ensures exactly one restart is queued per dead process.
     private var restartScheduled = false
+    // When the live generation answered /health, or nil if it has not. Used to tell a good start
+    // from one that merely got far enough to answer once.
+    private var readyAt: Date?
     // Count of restarts actually dispatched. Test-observable so a unit test can
     // assert exactly one restart per induced exit without inferring from child
     // process spawn counts (which are noisy under xctest supervision). Read it
@@ -44,6 +47,9 @@ final class VoiceEngineSidecar: @unchecked Sendable {
     private static let readyTimeoutSeconds: TimeInterval = 20
     // Maximum backoff between restart attempts (seconds).
     private static let maxBackoffSeconds: TimeInterval = 16
+    // How long a generation must stay up after answering /health before its start counts as good
+    // and the backoff returns to its floor.
+    private static let stabilitySeconds: TimeInterval = 30
 
     init(launch: VoiceSidecarLaunch, port: UInt16) {
         self.launch = launch
@@ -141,6 +147,11 @@ final class VoiceEngineSidecar: @unchecked Sendable {
 
         while Date() < deadline {
             if stopped { return }
+            // A reply on this port is not evidence that OUR child is serving it. A sidecar
+            // orphaned by a host that died without running stop() keeps the port, so the child
+            // that just failed to bind and exited would otherwise be reported ready by the very
+            // process that displaced it. Require the child to still be alive before believing it.
+            guard let live = process, live.isRunning else { break }
             if let data = try? Data(contentsOf: candidate), !data.isEmpty {
                 reached = true
                 break
@@ -151,7 +162,9 @@ final class VoiceEngineSidecar: @unchecked Sendable {
         if reached {
             let url = URL(string: "http://127.0.0.1:\(port)")!
             baseURL = url
-            restartBackoffSeconds = 1
+            // Answering /health is not yet evidence of a good start, so the backoff is not reset
+            // here. See handleTermination: only a generation that then stays up earns that.
+            readyAt = Date()
             logger.notice("voice sidecar ready baseURL=\(url.absoluteString, privacy: .public)")
         } else {
             logger.error("voice sidecar did not become ready within \(Self.readyTimeoutSeconds, privacy: .public)s; will restart")
@@ -165,6 +178,16 @@ final class VoiceEngineSidecar: @unchecked Sendable {
         // The OS fired this for the live process; drop our reference to it so a
         // later teardown does not touch a dead Process.
         process = nil
+        // Reset the backoff only for a generation that actually stayed up.
+        //
+        // Resetting it on /health instead pins the delay at its floor for the one failure mode
+        // backoff exists to handle: a child that starts, answers health, and dies seconds later
+        // resets the delay every cycle, so escalation never happens. Observed as 1404 consecutive
+        // restarts at exactly 1.000000s, a python spawn every 1.4 seconds for over half an hour.
+        let livedLongEnough = readyAt.map { Date().timeIntervalSince($0) >= Self.stabilitySeconds }
+            ?? false
+        if livedLongEnough { restartBackoffSeconds = 1 }
+        readyAt = nil
         logger.notice("voice sidecar exited unexpectedly status=\(status, privacy: .public); scheduling restart")
         baseURL = nil
         scheduleRestart()
