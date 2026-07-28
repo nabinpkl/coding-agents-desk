@@ -4,6 +4,7 @@
   "type": "module",
   "description": "Bundled cross-platform workspace IDE and retained single-file viewer.",
   "scripts": {
+    "dev": "vite",
     "build": "node scripts/build-generated.mjs",
     "icons": "node scripts/generate-file-icons.mjs",
     "test": "node --test test/*.ts"
