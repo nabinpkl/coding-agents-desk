@@ -1020,6 +1020,26 @@ prepare-pty-runtime variant="stable": build-pty-runtime
         fi
     fi
 
+# Attach a debugger to the NEXT host launch, so a crash stops at the faulting frame instead of
+# vanishing.
+#
+# Reach for this when a crash needs a stack rather than a message. Three layers exist and they
+# catch different things:
+#   1. os_log (`just host-logs`) carries what the host chose to log, and nothing about a crash.
+#   2. Host stderr ({{host_stdio}}, kept by host-run) carries a Swift trap's own message, the
+#      "Fatal error: Index out of range" line and its file and line. Usually enough.
+#   3. This, for the stack that produced it, or for a crash that prints nothing at all.
+#
+# A .ips crash report is deliberately not on that list. Every crash report AgentDeskHost has ever
+# written on this machine is a code-signing SIGKILL from a stale signature; not one is an
+# application fault, so it is not a channel to rely on.
+#
+# Run this FIRST in its own terminal, it waits. Then `just host-run` in another. At the trap:
+# `bt` for the faulting thread, `bt all` for every thread, `continue` to let it proceed.
+# Works against the Release daily driver because development signing carries get-task-allow.
+host-debug:
+    lldb --wait-for --attach-name AgentDeskHost
+
 host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
