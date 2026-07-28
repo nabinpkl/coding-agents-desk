@@ -67,6 +67,13 @@ async fn main() -> anyhow::Result<()> {
         socket = %args.socket.display(),
         pid = std::process::id(),
         mode = if args.handover { "handover" } else { "cold" },
+        // Which build this is. Correlating a daemon's log with the host's decisions otherwise
+        // meant reading --runtime-digest out of its command line.
+        digest = args
+            .runtime_digest
+            .as_deref()
+            .map(|digest| &digest[..digest.len().min(12)])
+            .unwrap_or("none"),
         "pty manager starting"
     );
 
