@@ -415,7 +415,11 @@ fn process_exists(pid: u32) -> bool {
 }
 
 async fn wait_for_process_exit(pid: u32) {
-    for _ in 0..100 {
+    // `just check` runs this beside a full xcodebuild and the rest of the Rust suite, and a 1s
+    // budget was being missed under that load alone: these tests pass in isolation and report a
+    // bogus "did not exit" when run whole. The wait governs how long a correct implementation is
+    // allowed to take, so it should be generous; a real failure to exit still fails, just later.
+    for _ in 0..1_000 {
         if !process_exists(pid) {
             return;
         }

@@ -1,5 +1,6 @@
 #![cfg(target_os = "macos")]
 
+use std::os::unix::net::UnixStream as StdUnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -19,6 +20,20 @@ pub struct RunningVault {
 
 impl RunningVault {
     pub fn start(socket_path: PathBuf, max_sessions: usize) -> Self {
+        // Wait for any previous listener on this path to actually go away.
+        //
+        // Dropping a RunningVault joins its accept loop, but that is not the same as the socket
+        // being free: `handle_client` spawns a thread per connection holding an Arc to the runtime
+        // that owns the listener, so the socket stays bound until the last handler finishes. A
+        // replacement that binds on top of that fails with ManagerAlreadyListening, which is a
+        // race in this harness rather than a fault in the vault, and the manager polls its vault
+        // every 50-250ms so there is usually a handler in flight to lose it to.
+        for _ in 0..500 {
+            if StdUnixStream::connect(&socket_path).is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
         let shutdown = Arc::new(AtomicBool::new(false));
         let vault = Vault::new(VaultOptions {
             socket_path: socket_path.clone(),
