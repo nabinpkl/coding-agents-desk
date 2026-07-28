@@ -49,6 +49,7 @@ public enum KeyboardHandoffStoreError: Error, Equatable, LocalizedError {
     case missingAppGroupIdentifier
     case unavailableAppGroup(String)
     case invalidStoredReceipt
+    case unexpectedHandoffNonce
 
     public var errorDescription: String? {
         switch self {
@@ -58,6 +59,8 @@ public enum KeyboardHandoffStoreError: Error, Equatable, LocalizedError {
             "The keyboard App Group is unavailable."
         case .invalidStoredReceipt:
             "The saved keyboard handoff state is invalid."
+        case .unexpectedHandoffNonce:
+            "This keyboard handoff did not match the pending request."
         }
     }
 }
@@ -103,6 +106,19 @@ public struct KeyboardHandoffStore {
         let data = try JSONEncoder().encode(receipt)
         defaults.set(data, forKey: Self.receiptKey)
         return receipt
+    }
+
+    /// A containing app must only acknowledge a URL that was first requested
+    /// by this keyboard instance through the shared App Group.
+    @discardableResult
+    public func recordPendingHandoff(
+        nonce: UUID,
+        receivedAt: Date = Date()
+    ) throws -> KeyboardHandoffReceipt {
+        guard pendingNonce() == nonce else {
+            throw KeyboardHandoffStoreError.unexpectedHandoffNonce
+        }
+        return try record(nonce: nonce, receivedAt: receivedAt)
     }
 
     public func latestReceipt() throws -> KeyboardHandoffReceipt? {

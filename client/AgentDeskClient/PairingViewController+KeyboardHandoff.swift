@@ -12,7 +12,7 @@ extension PairingViewController {
         do {
             let appGroupIdentifier = try KeyboardDictationHandoff.appGroupIdentifier()
             let store = try KeyboardHandoffStore(appGroupIdentifier: appGroupIdentifier)
-            let receipt = try store.record(nonce: nonce)
+            let receipt = try store.recordPendingHandoff(nonce: nonce)
             ClientDiagnostics.shared.record(
                 type: "keyboardDictationHandoffReceived",
                 fields: ["nonce": nonce.uuidString],

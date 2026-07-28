@@ -119,7 +119,14 @@ final class KeyboardViewController: UIInputViewController {
             updateStatus("The keyboard App Group is unavailable.", color: .systemRed)
             return
         }
-        guard let receipt = try? handoffStore.latestReceipt() else {
+        let receipt: KeyboardHandoffReceipt?
+        do {
+            receipt = try handoffStore.latestReceipt()
+        } catch {
+            updateStatus("The saved keyboard handoff state is invalid.", color: .systemRed)
+            return
+        }
+        guard let receipt else {
             updateStatus("Ready. Tap Open AgentDesk, then swipe back here.", color: .secondaryLabel)
             return
         }

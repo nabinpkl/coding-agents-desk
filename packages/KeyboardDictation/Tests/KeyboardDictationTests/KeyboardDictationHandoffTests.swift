@@ -46,4 +46,18 @@ struct KeyboardDictationHandoffTests {
             try store.latestReceipt()
         }
     }
+
+    @Test func onlyThePendingKeyboardNonceCanBeAcknowledged() throws {
+        let suite = "KeyboardDictationTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = KeyboardHandoffStore(defaults: defaults)
+        let pendingNonce = UUID()
+        store.savePendingNonce(pendingNonce)
+
+        #expect(throws: KeyboardHandoffStoreError.unexpectedHandoffNonce) {
+            try store.recordPendingHandoff(nonce: UUID())
+        }
+        #expect(try store.recordPendingHandoff(nonce: pendingNonce).nonce == pendingNonce)
+    }
 }
