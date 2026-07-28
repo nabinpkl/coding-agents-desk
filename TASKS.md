@@ -744,6 +744,13 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
 - D154. Add an optional Recording prefix section to the iPhone dictation review sheet. It composes the
   visible prefix with the reviewed transcript only for the explicit remote-keyboard send; it never
   mutates the host-owned recording or stored transcript.
+- R155. Keep a development-only Custom Keyboard extension spike separate from the Voice and remote-input
+  products. With Full Access enabled, a visible keyboard button writes a pending nonce to the shared
+  App Group and asks iOS to open `agentdesk://keyboard-spike`. The containing app records a matching
+  receipt, and the returned keyboard reads it before offering a text-field insertion probe. This proves
+  only extension installation, user-initiated URL transition, and App Group return state on a physical
+  iPhone. It does not claim direct keyboard microphone access, background recording continuity, or
+  App Store submission safety.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -803,4 +810,5 @@ R151  implemented remaining  authorized Mac/iPhone reference playback acceptance
 D152  2026-07-27  landed     web-owned macOS dictation mini and retired Swift audio pipeline
 D153  2026-07-27  landed     reviewed iPhone dictation sheet via remote keyboard input
 D154  2026-07-27  landed     optional iPhone dictation recording prefix
+R155  implemented remaining  physical Full Access keyboard handoff and App Group return-path proof
 ```

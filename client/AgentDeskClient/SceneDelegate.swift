@@ -1,4 +1,5 @@
 import UIKit
+import KeyboardDictation
 
 final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
@@ -31,9 +32,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.makeKeyAndVisible()
         self.window = window
         if let url = connectionOptions.urlContexts.first?.url {
-            pairingVC.handleIncomingPairingURL(url)
+            handleIncomingURL(url, pairingViewController: pairingVC)
         } else if let url = Self.pairingURLFromLaunchArguments() {
-            pairingVC.handleIncomingPairingURL(url)
+            handleIncomingURL(url, pairingViewController: pairingVC)
         }
     }
 
@@ -75,7 +76,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             fields: ["scheme": url.scheme ?? "", "host": url.host ?? ""],
             level: .info
         )
-        pairingVC.handleIncomingPairingURL(url)
+        handleIncomingURL(url, pairingViewController: pairingVC)
     }
 
     func sceneWillEnterForeground(_ scene: UIScene) {
@@ -84,5 +85,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneDidEnterBackground(_ scene: UIScene) {
         ClientDiagnostics.shared.markCleanShutdown(reason: "sceneDidEnterBackground")
+    }
+
+    private func handleIncomingURL(_ url: URL, pairingViewController: PairingViewController) {
+        if pairingViewController.handleKeyboardDictationHandoffURL(url) {
+            return
+        }
+        pairingViewController.handleIncomingPairingURL(url)
     }
 }

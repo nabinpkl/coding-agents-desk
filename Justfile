@@ -21,6 +21,10 @@ sim_console_log := env_var_or_default("AGENTDESK_SIM_CONSOLE_LOG", "/tmp/agentde
 motion_host_oslog := env_var_or_default("AGENTDESK_MOTION_HOST_OSLOG", "/tmp/agentdesk-motion-host-oslog.log")
 motion_host_stdio := env_var_or_default("AGENTDESK_MOTION_HOST_STDIO", "/tmp/agentdesk-motion-host-stdio.log")
 motion_client_log := env_var_or_default("AGENTDESK_MOTION_CLIENT_LOG", "/tmp/agentdesk-motion-client.log")
+# The host's own stdout/stderr on an ordinary launch. A Swift trap prints its message here and
+# nowhere else: it never reaches os_log, and a crash that produces no .ips leaves no other trace.
+# Truncated per launch, so it holds the current host's output only.
+host_stdio := env_var_or_default("AGENTDESK_HOST_STDIO", "/tmp/agentdesk-host-stdio.log")
 motion_client_diagnostics := env_var_or_default("AGENTDESK_MOTION_CLIENT_DIAGNOSTICS", "/tmp/agentdesk-motion-client-diagnostics")
 iphone_log_device_udid := env_var_or_default("AGENTDESK_IOS_DEVICE_UDID", "")
 # Host-written automation files live under the host's Application Support dir,
@@ -778,6 +782,7 @@ check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar
     /usr/bin/python3 tools/voice-phone-calibration-contract-check.py
     sh tools/testflight-upload-tests.sh
     (cd packages/AgentDeskWire && swift test)
+    (cd packages/KeyboardDictation && swift test)
     (cd packages/BrowserProjection && swift test)
     (cd packages/WorkspaceKit && swift test)
     (cd packages/WorkspaceIDE && swift test)
@@ -1128,10 +1133,13 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
     cleanup_agent_feed_sidecar
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
+    # Capture the host's stdio. Without this a Swift trap message is discarded and a crash leaves
+    # nothing behind but a timestamp, which is exactly what happened to the close-all-sessions crash.
+    : > '{{host_stdio}}'
     if [ "${AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS:-0}" != "0" ]; then
-        open -g "$APP"
+        open -g --stdout '{{host_stdio}}' --stderr '{{host_stdio}}' "$APP"
     else
-        open "$APP"
+        open --stdout '{{host_stdio}}' --stderr '{{host_stdio}}' "$APP"
     fi
     HOST_PID=""
     for _ in $(seq 1 50); do
@@ -1268,10 +1276,13 @@ host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-ge
     cleanup_agent_feed_sidecar
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
+    # Capture the host's stdio. Without this a Swift trap message is discarded and a crash leaves
+    # nothing behind but a timestamp, which is exactly what happened to the close-all-sessions crash.
+    : > '{{host_stdio}}'
     if [ "${AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS:-0}" != "0" ]; then
-        open -g "$APP"
+        open -g --stdout '{{host_stdio}}' --stderr '{{host_stdio}}' "$APP"
     else
-        open "$APP"
+        open --stdout '{{host_stdio}}' --stderr '{{host_stdio}}' "$APP"
     fi
     HOST_PID=""
     for _ in $(seq 1 50); do
@@ -1389,7 +1400,7 @@ client-install variant="stable": voice-phone-model-check voice-zipa-model-check
     set -euo pipefail
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
     if [ "{{variant}}" = "dev" ]; then
-        xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{dev_derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$GIT_SHA" PRODUCT_BUNDLE_IDENTIFIER='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev' build >/dev/null
+        xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{dev_derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$GIT_SHA" AGENTDESK_CLIENT_BUNDLE_ID='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev' build >/dev/null
         xcrun devicectl device install app --device {{ios_device}} '{{client_dev_app}}'
     else
         xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$GIT_SHA" build >/dev/null
@@ -1956,7 +1967,7 @@ client-sim-install variant="stable": voice-phone-model-check voice-zipa-model-ch
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
     if [ "{{variant}}" = "dev" ]; then
         SIM='{{ios_sim_udid_dev}}'; DD='{{dev_derived_data}}'; APP='{{client_sim_dev_app}}'
-        EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev')
+        EXTRA=(AGENTDESK_CLIENT_BUNDLE_ID='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev')
     else
         SIM='{{ios_sim_udid}}'; DD='{{derived_data}}'; APP='{{client_sim_app}}'
         EXTRA=()
@@ -2189,7 +2200,7 @@ client-archive-release variant="stable": voice-phone-model-check voice-zipa-mode
     # bundle mid-run and break its keychain/TCC identity (pairing then fails to sign the offer).
     if [ "{{variant}}" = "dev" ]; then
         ARCHIVE='{{client_dev_archive_path}}'; DD='{{client_dev_archive_derived_data}}'
-        EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev')
+        EXTRA=(AGENTDESK_CLIENT_BUNDLE_ID='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev')
     else
         ARCHIVE='{{client_archive_path}}'; DD='{{client_archive_derived_data}}'
         EXTRA=()
