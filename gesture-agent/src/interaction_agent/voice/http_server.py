@@ -15,6 +15,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     Response,
     UploadFile,
     WebSocket,
@@ -72,6 +73,7 @@ from interaction_agent.voice.web_stream import (
     delete_recording,
     load_all_recordings,
     load_recording,
+    load_recording_by_client_session_id,
     parse_client_message,
     recording_id_from_result,
     recording_json_path,
@@ -452,6 +454,7 @@ async def finalize_session(
     started_at: datetime,
     source: Literal["macos", "iphone", "browserDev"],
     status: Literal["completed", "interrupted"],
+    client_session_id: str | None = None,
 ) -> Recording | None:
     audio = (
         np.concatenate(collected)
@@ -476,6 +479,7 @@ async def finalize_session(
         started_at,
         source=source,
         status=status,
+        client_session_id=client_session_id,
     )
     recording_id = recording_id_from_result(result)
 
@@ -543,6 +547,7 @@ async def run_voice_session(
     websocket: WebSocket,
     transcriber: MlxLiveChunkTranscriber,
     source: Literal["macos", "iphone", "browserDev"],
+    client_session_id: str | None = None,
 ) -> None:
     collected: list[FloatArray] = []
     sample_rate = DEFAULT_SAMPLE_RATE
@@ -593,6 +598,7 @@ async def run_voice_session(
                     started_at,
                     source,
                     "completed",
+                    client_session_id,
                 )
                 return
     except WebSocketDisconnect:
@@ -607,6 +613,7 @@ async def run_voice_session(
                 started_at,
                 source,
                 "interrupted",
+                client_session_id,
             )
     except VoiceWireError as exc:
         if session_open:
@@ -620,6 +627,7 @@ async def run_voice_session(
                 started_at,
                 source,
                 "interrupted",
+                client_session_id,
             )
         await websocket.close(code=1003, reason=str(exc)[:120])
     except Exception as exc:
@@ -638,6 +646,7 @@ async def run_voice_session(
                     started_at,
                     source,
                     "interrupted",
+                    client_session_id,
                 )
             except Exception:
                 logging.getLogger(__name__).exception(
@@ -650,6 +659,12 @@ async def run_voice_session(
 async def voice_websocket(
     websocket: WebSocket,
     source: Literal["macos", "iphone", "browserDev"] = "browserDev",
+    client_session_id: str | None = Query(
+        default=None,
+        alias="clientSessionID",
+        max_length=128,
+        pattern=r"^[A-Za-z0-9-]+$",
+    ),
 ) -> None:
     origin = websocket.headers.get("origin")
     if origin is None or origin not in ALLOWED_ORIGINS:
@@ -677,7 +692,12 @@ async def voice_websocket(
         return
 
     try:
-        await run_voice_session(websocket, transcriber, source)
+        await run_voice_session(
+            websocket,
+            transcriber,
+            source,
+            client_session_id,
+        )
     finally:
         lock.release()
 
@@ -761,6 +781,25 @@ async def create_recording(request: SaveRecordingRequest) -> Recording:
 async def list_recordings() -> RecordingListResponse:
     recordings = await run_in_threadpool(load_all_recordings)
     return RecordingListResponse(recordings=recordings)
+
+
+@app.get(
+    "/recordings/client-session/{client_session_id}",
+    response_model=Recording,
+)
+async def get_recording_by_client_session(
+    client_session_id: str,
+) -> Recording:
+    recording = await run_in_threadpool(
+        load_recording_by_client_session_id,
+        client_session_id,
+    )
+    if recording is None:
+        raise HTTPException(
+            status_code=404,
+            detail="recording not found for client session",
+        )
+    return recording
 
 
 @app.get("/recordings/{recording_id}", response_model=Recording)

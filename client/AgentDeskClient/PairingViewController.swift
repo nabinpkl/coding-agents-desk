@@ -14,6 +14,7 @@ import AgentDeskWire
 final class PairingViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate {
     private let sessionLogger = Logger(subsystem: Config.logSubsystem, category: "session-quic")
     let pairingClient = PairingClient()
+    var keyboardDictationCoordinator: KeyboardDictationCoordinator?
     // One replaceable root for the pairing flow and every host-backed
     // descendant. Voice is its sibling, so selecting Voice removes this
     // complete tree from rendering, accessibility, and hit testing
@@ -345,6 +346,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         stopOfferListener()
         ClientRuntimeTelemetry.shared.setSender(nil)
         ClientDiagnostics.shared.setLiveAnnouncementSender(nil)
+        if keyboardDictationCoordinator?.isArmed == true {
+            return
+        }
         // Closes the active QUIC session transport and flips state
         // .connected -> .pairedDisconnected. Idempotent for other
         // states.

@@ -174,6 +174,7 @@ def load_recording(recording_id: str) -> Recording:
 
     return Recording(
         id=recording_id,
+        client_session_id=payload.get("clientSessionID"),
         created_at=str(payload["createdAt"]),
         duration_seconds=float(summary["durationSeconds"]),
         source=payload.get("source", "browserDev"),
@@ -193,6 +194,17 @@ def load_recording(recording_id: str) -> Recording:
         reference_dictionary_hash=reference_dictionary_hash,
         sample_rate=int(summary["sampleRate"]),
     )
+
+
+def load_recording_by_client_session_id(
+    client_session_id: str,
+) -> Recording | None:
+    """Return the exact host recording correlated to one voice-lane take."""
+    for recording_id in reversed(list_recording_ids()):
+        recording = load_recording(recording_id)
+        if recording.client_session_id == client_session_id:
+            return recording
+    return None
 
 
 def list_recording_ids() -> list[str]:

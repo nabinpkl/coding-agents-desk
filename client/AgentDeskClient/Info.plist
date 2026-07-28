@@ -51,8 +51,12 @@
 			</array>
 		</dict>
 	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>AgentDesk records a short utterance for an on-device speech transcription experiment.</string>
+	<string>AgentDesk keeps the microphone ready while keyboard dictation is active and sends only explicit dictation audio to your paired Mac.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>AgentDesk compares two on-device transcriptions of the same recording.</string>
 	<key>NSCameraUsageDescription</key>

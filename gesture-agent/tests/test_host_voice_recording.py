@@ -71,7 +71,12 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.stack.close()
         self.temporary.cleanup()
 
-    async def _finalize(self, source: str, status: str = "completed"):
+    async def _finalize(
+        self,
+        source: str,
+        status: str = "completed",
+        client_session_id: str | None = None,
+    ):
         async def analyze(app, recording_id):
             del app
             update_recording_metadata(
@@ -106,6 +111,7 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
                 datetime(2026, 7, 26, tzinfo=UTC),
                 source,
                 status,
+                client_session_id,
             )
 
     async def test_macos_and_iphone_use_identical_finalization(self) -> None:
@@ -126,8 +132,20 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(phone.source, "iphone")
 
     async def test_interrupted_nonempty_audio_is_retained(self) -> None:
-        result = await self._finalize("iphone", "interrupted")
+        client_session_id = "11111111-2222-3333-4444-555555555555"
+        result = await self._finalize(
+            "iphone",
+            "interrupted",
+            client_session_id,
+        )
         self.assertEqual(result.status, "interrupted")
+        self.assertEqual(result.client_session_id, client_session_id)
+        self.assertEqual(
+            web_stream.load_recording_by_client_session_id(
+                client_session_id
+            ),
+            result,
+        )
         self.assertTrue(web_stream.recording_wav_path(result.id).exists())
 
     async def test_empty_interrupted_audio_is_discarded(self) -> None:

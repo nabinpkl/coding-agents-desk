@@ -121,6 +121,7 @@ class WordPhoneGroup(WireModel):
 
 class Recording(WireModel):
     id: str
+    client_session_id: str | None = None
     created_at: str
     duration_seconds: float
     source: Literal["macos", "iphone", "browserDev"]

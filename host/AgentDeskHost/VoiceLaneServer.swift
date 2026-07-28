@@ -109,7 +109,10 @@ final class VoiceLaneServer: @unchecked Sendable {
         switch message {
         case .socketOpen(let requestID, let sessionID):
             guard let baseURL = baseURLProvider(),
-                  let url = Self.websocketURL(baseURL: baseURL)
+                  let url = Self.websocketURL(
+                      baseURL: baseURL,
+                      recordingSessionID: sessionID
+                  )
             else {
                 try await writer.send(.error(
                     requestID: requestID,
@@ -385,13 +388,22 @@ final class VoiceLaneServer: @unchecked Sendable {
         }
     }
 
-    static func websocketURL(baseURL: URL) -> URL? {
+    static func websocketURL(
+        baseURL: URL,
+        recordingSessionID: String
+    ) -> URL? {
         var components = URLComponents(
             url: baseURL.appendingPathComponent("ws/voice"),
             resolvingAgainstBaseURL: false
         )
         components?.scheme = baseURL.scheme == "https" ? "wss" : "ws"
-        components?.queryItems = [URLQueryItem(name: "source", value: "iphone")]
+        components?.queryItems = [
+            URLQueryItem(name: "source", value: "iphone"),
+            URLQueryItem(
+                name: "clientSessionID",
+                value: recordingSessionID
+            ),
+        ]
         return components?.url
     }
 
@@ -403,6 +415,12 @@ final class VoiceLaneServer: @unchecked Sendable {
             return true
         }
         let components = path.split(separator: "/", omittingEmptySubsequences: true)
+        if method == .get,
+           components.count == 3,
+           components[0] == "recordings",
+           components[1] == "client-session" {
+            return UUID(uuidString: String(components[2])) != nil
+        }
         if components.first == "reference-speech" {
             switch (method, components.count) {
             case (.get, 2):

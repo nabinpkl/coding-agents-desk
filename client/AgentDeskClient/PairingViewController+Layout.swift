@@ -607,6 +607,9 @@ extension PairingViewController {
         settings.onUnpair = { [weak self] in
             self?.forgetHost()
         }
+        settings.onKeyboardDictation = { [weak self] in
+            self?.showKeyboardDictationService()
+        }
         let nav = UINavigationController(rootViewController: settings)
         present(nav, animated: true)
     }

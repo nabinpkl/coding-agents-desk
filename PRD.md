@@ -68,6 +68,10 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
     screenshot of the currently visible AgentDesk app window. The client remains foreground-only,
     shows an accessible disclosure after sharing, stores no screenshot, and supports one command that
     collects the image alone or beside bounded durable diagnostics.
+19. Enable an en-US AgentDesk system keyboard that remains a complete local QWERTY when the Mac is
+    unavailable. After explicitly activating Keyboard Dictation in the containing app, voice takes
+    use the paired Mac's existing recording, Whisper, and ZIPA pipeline. Automatic insertion is the
+    default; Explicit Review keeps the final transcript editable before insertion.
 
 ## What v0 is not
 
@@ -81,6 +85,10 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 - **No continuous client screenshot telemetry.** Paired-client screenshots are explicit, default-off,
   foreground-only debugging captures. There is no background capture, scheduled upload, client pixel
   history, cloud destination, or general host access to other iOS apps and system windows.
+- **No general background session.** Ordinary backgrounding still closes AgentDesk's media and input
+  session within one second. The only exception is a user-armed Keyboard Dictation lease: it keeps
+  one authenticated voice transport and an idle, locally discarded microphone tap alive until Turn
+  Off, permission loss, interruption, host loss, or service failure.
 
 ## Explicitly deferred
 

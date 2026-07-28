@@ -11,6 +11,7 @@
 		A0000000000000000000EE05 /* AgentDeskWire in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000EE04 /* AgentDeskWire */; };
 		B1550000000000000000000C /* AgentDeskKeyboard.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B15500000000000000000001 /* AgentDeskKeyboard.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		B15500000000000000000011 /* KeyboardDictation in Frameworks */ = {isa = PBXBuildFile; productRef = B15500000000000000000010 /* KeyboardDictation */; };
+		B15500000000000000000014 /* KeyboardDictation in Frameworks */ = {isa = PBXBuildFile; productRef = B15500000000000000000013 /* KeyboardDictation */; };
 		C0000000000000000000EE07 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE03 /* PtyClientSwift */; };
 		C0000000000000000000EE09 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE05 /* PtyClientSwift */; };
 		C0000000000000000000EE0B /* PtyTerminalSession in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE0F /* PtyTerminalSession */; };
@@ -138,6 +139,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B15500000000000000000014 /* KeyboardDictation in Frameworks */,
 				D0000000000000000000AF05 /* AgentPanel in Frameworks */,
 				D00000000000000000001C05 /* InteractionPanel in Frameworks */,
 				D0000000000000000000C505 /* WorkspaceKit in Frameworks */,
@@ -251,6 +253,7 @@
 				C0000000000000000000EE11 /* PtyTerminalSession */,
 				C0000000000000000000EE12 /* PtyTerminalWebView */,
 				E14000000000000000000004 /* onnxruntime */,
+				B15500000000000000000013 /* KeyboardDictation */,
 			);
 			productName = AgentDeskClientTests;
 			productReference = B00000000000000000000142 /* AgentDeskClientTests.xctest */;
@@ -761,6 +764,11 @@
 			productName = KeyboardDictation;
 		};
 		B15500000000000000000012 /* KeyboardDictation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B1550000000000000000000F /* XCLocalSwiftPackageReference "../packages/KeyboardDictation" */;
+			productName = KeyboardDictation;
+		};
+		B15500000000000000000013 /* KeyboardDictation */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = B1550000000000000000000F /* XCLocalSwiftPackageReference "../packages/KeyboardDictation" */;
 			productName = KeyboardDictation;

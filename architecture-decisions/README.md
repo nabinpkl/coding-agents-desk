@@ -119,3 +119,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0078 | A PTY session lives as long as its process, and only an explicit act ends it | accepted | 2026-07-27 |
 | ADR-0079 | Let the shared web voice session own macOS dictation audio | accepted | 2026-07-27 |
 | ADR-0080 | A code update never ends a PTY session | accepted | 2026-07-27 |
+| ADR-0081 | Let the containing app own keyboard dictation capture | accepted | 2026-07-28 |

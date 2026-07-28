@@ -25,15 +25,24 @@ struct VoiceLaneServerTests {
     func websocketURLForcesIPhoneSource() throws {
         let url = try #require(
             VoiceLaneServer.websocketURL(
-                baseURL: URL(string: "http://127.0.0.1:7692")!
+                baseURL: URL(string: "http://127.0.0.1:7692")!,
+                recordingSessionID: "11111111-2222-3333-4444-555555555555"
             )
         )
-        #expect(url.absoluteString == "ws://127.0.0.1:7692/ws/voice?source=iphone")
+        #expect(
+            url.absoluteString
+                == "ws://127.0.0.1:7692/ws/voice?source=iphone&clientSessionID=11111111-2222-3333-4444-555555555555"
+        )
     }
 
     @Test(
         arguments: [
             (VoiceRESTMethod.get, "/recordings"),
+            (
+                .get,
+                "/recordings/client-session/"
+                    + "11111111-2222-3333-4444-555555555555"
+            ),
             (.get, "/recordings/session-20260726-221100-123456"),
             (.get, "/recordings/session-20260726-221100-123456/audio"),
             (.delete, "/recordings/session-20260726-221100-123456"),

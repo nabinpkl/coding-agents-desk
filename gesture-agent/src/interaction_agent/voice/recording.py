@@ -276,6 +276,7 @@ def save_voice_recording(
     *,
     source: str = "browserDev",
     status: str = "completed",
+    client_session_id: str | None = None,
 ) -> VoiceRecordingResult:
     timestamp = started_at.strftime("%Y%m%d-%H%M%S-%f")
     VOICE_RECORDING_ROOT.mkdir(parents=True, exist_ok=True)
@@ -291,6 +292,7 @@ def save_voice_recording(
             "wavPath": str(wav_path),
             "source": source,
             "status": status,
+            "clientSessionID": client_session_id,
             "transcription": {
                 "status": "pending",
                 "text": None,

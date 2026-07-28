@@ -41,6 +41,7 @@ final class SettingsViewController: UIViewController {
     private var agentSayLanguages: [String] = []
     private let disconnectButton = UIButton(type: .system)
     private let unpairButton = UIButton(type: .system)
+    private let keyboardDictationButton = UIButton(type: .system)
 
     // Ends the current session but keeps the pairing: the phone stays paired and
     // the host shows "Paired but not currently connected". Set by the presenter.
@@ -48,6 +49,7 @@ final class SettingsViewController: UIViewController {
     // Forgets the host on this phone AND tells the host to drop the pairing, so both
     // sides forget each other and pairing must be redone. Set by the presenter.
     var onUnpair: (() -> Void)?
+    var onKeyboardDictation: (() -> Void)?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -152,6 +154,28 @@ final class SettingsViewController: UIViewController {
             footnote: "Off by default. When enabled, the paired Mac can request the visible AgentDesk app surface while the app is foregrounded. Screenshots may include sensitive text from terminal, browser, workspace, or remote desktop content."
         )
 
+        keyboardDictationButton.setTitle(
+            "Activate Keyboard Dictation",
+            for: .normal
+        )
+        keyboardDictationButton.titleLabel?.font = .preferredFont(
+            forTextStyle: .body
+        )
+        keyboardDictationButton.contentHorizontalAlignment = .leading
+        keyboardDictationButton.accessibilityIdentifier =
+            "keyboard-dictation-settings-button"
+        keyboardDictationButton.addTarget(
+            self,
+            action: #selector(keyboardDictationTapped),
+            for: .touchUpInside
+        )
+        let keyboardDictationSection = makeSection(
+            title: "Keyboard Dictation",
+            rows: [],
+            customRows: [keyboardDictationButton],
+            footnote: "Activates the AgentDesk microphone and Mac voice connection for the systemwide AgentDesk keyboard."
+        )
+
         // Connection: the only place to end a live session or unpair while
         // connected, since the connected screen shows just the gear button (the
         // pairing screen's controls are hidden once connected). Disconnect keeps the
@@ -176,7 +200,7 @@ final class SettingsViewController: UIViewController {
             footnote: "Disconnect ends the current session but stays paired, so you can reconnect with one tap. Unpair forgets this Mac and needs pairing again from the Mac."
         )
 
-        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, videoTouchSection, spacesSection, previewsSection, crispSection, hostCursorSection, mediaQualitySection, speechSection, accessorySection, diagnosticsSection, connectionSection])
+        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, videoTouchSection, spacesSection, previewsSection, crispSection, hostCursorSection, mediaQualitySection, speechSection, accessorySection, keyboardDictationSection, diagnosticsSection, connectionSection])
         stack.axis = .vertical
         stack.spacing = 28
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -262,6 +286,12 @@ final class SettingsViewController: UIViewController {
         accessoryGapSlider.addTarget(self, action: #selector(accessoryGapChanged), for: .valueChanged)
 
         configureSpeechMenus()
+    }
+
+    @objc private func keyboardDictationTapped() {
+        dismiss(animated: true) { [weak self] in
+            self?.onKeyboardDictation?()
+        }
     }
 
     private func loadFromStore() {

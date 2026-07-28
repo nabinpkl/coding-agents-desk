@@ -424,6 +424,49 @@ The host forces source `iphone`, accepts only recording list/detail/audio/delete
 proxies to the loopback sidecar; it never stores or analyzes voice in Swift. The input lane never
 carries PCM.
 
+## Systemwide keyboard dictation
+
+The `AgentDeskKeyboard` extension is a native UIKit en-US keyboard. It owns alphabet, number, and
+symbol layouts, Shift/Caps Lock, delete repeat, cursor movement on Space, Return presentation, and
+the next-keyboard control. Ordinary characters go directly to `UITextDocumentProxy`; they never
+enter App Group files or an AgentDesk network lane. The existing video-path `KeyboardSurface`
+remains an independent Apple-keyboard adapter for Mac input events.
+
+The `KeyboardDictation` Swift package owns a versioned cross-process contract. App-owned service
+snapshots and extension-owned single-flight commands/preferences use separate atomic JSON files
+under the shared App Group, with Darwin notifications as wakeups. Each command is fenced by a
+service generation and acknowledged by command ID. The extension verifies liveness with correlated
+pings rather than trusting persisted active state. Completed results are deduplicated by host
+recording ID and expire after 24 hours.
+
+Automatic mode inserts a final transcript only while the same keyboard controller remains active
+and its bounded before/after/selection fingerprint is unchanged. Any mismatch opens Explicit
+Review instead. Review uses a native expandable draft editor and routes the extension's own keys
+to its selected range. Insert and Dismiss consume the recording ID exactly once; edits never change
+the host recording.
+
+The containing app owns the only microphone. Activating Keyboard Dictation requires microphone
+permission and a reachable paired Mac, configures `AVAudioSession.playAndRecord` with
+`mixWithOthers`, and keeps one `AVAudioEngine` plus role-7 voice lane alive. Idle tap buffers return
+before conversion and are discarded. During a take, audio is resampled to 16 kHz mono Float32,
+framed in ordered 2,048-sample messages, and sent through a bounded 32-frame actor queue. Stop
+halts acceptance immediately, flushes the accepted sequence fence, then sends `sessionStop`.
+Conversion or queue overflow fails visibly and closes the take rather than dropping audio.
+
+Ordinary app backgrounding retains the existing one-second teardown. While the explicit keyboard
+lease is armed, UI/media consumers suspend but the authenticated session, voice lane, and audio
+engine survive. Turn Off, permission loss, audio interruption, unrecoverable host loss, and service
+failure close the engine and lease. The host appends the role-7 recording-session UUID as
+`clientSessionID` to the loopback WebSocket. Python persists it in recording metadata and exposes
+one allowlisted exact lookup, so an interrupted take can reconcile after the app restarts without
+timestamp matching.
+
+Current Apple App Review guideline 4.4.1 requires useful keyboard operation without Full Access and
+a next-keyboard control, and says keyboard extensions may not launch apps other than Settings. The
+native keyboard satisfies the typing requirements without Full Access, but its containing-app Link
+is restricted to this repository's one-device internal TestFlight posture. It is not represented as
+public-App-Store-safe without an Apple-approved exception or a later design. See ADR-0081.
+
 Python permits one active capture globally. Stop and transport loss both persist nonempty PCM as a
 host WAV, atomically create metadata, run full-file MLX Whisper, and run the pinned ZIPA ONNX
 recognizer against the same WAV. Transcript and phone failures are independent persisted stages and

@@ -744,14 +744,18 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
 - D154. Add an optional Recording prefix section to the iPhone dictation review sheet. It composes the
   visible prefix with the reviewed transcript only for the explicit remote-keyboard send; it never
   mutates the host-owned recording or stored transcript.
-- R155. Keep an unaccepted Custom Keyboard extension spike separate from the Voice and remote-input
-  products. With Full Access enabled, a visible keyboard button writes a pending nonce to the shared
-  App Group and asks iOS to open `agentdesk://keyboard-spike`. The containing app accepts only that
-  pending nonce, records a matching receipt, and the returned keyboard reads it before offering a
-  text-field insertion probe. This proves only extension installation, user-initiated URL transition,
-  and App Group return state on a physical iPhone. It does not claim direct keyboard microphone access,
-  background recording continuity, or App Store submission safety. It must not be included in a
-  TestFlight build until the physical result and release posture are explicitly accepted.
+- D155. Complete the Custom Keyboard extension spike: physical handoff and App Group return proved
+  viable for the one-device internal TestFlight posture. Retire its nonce receipt, probe insertion,
+  `keyboard-spike` route, and development naming rather than carrying a compatibility layer.
+- D156. Replace the spike with Production AgentDesk Keyboard Dictation (ADR-0081). Ship a native
+  en-US QWERTY that types without Full Access or a Mac, generation-fenced App Group service state,
+  Automatic and Explicit Review insertion, app-owned background microphone capture, a bounded
+  ordered role-7 audio queue, host-owned Whisper/ZIPA finalization, and exact `clientSessionID`
+  reconciliation. Keep the existing video-path keyboard and manual dictation sheet unchanged.
+- R157. At the explicit physical-device checkpoint, accept ordinary QWERTY without connectivity,
+  one-time activation and swipe-back, repeated Automatic and Explicit Review takes, exact host
+  recording correlation, other-audio mixing, busy/network/interruption/termination failures, and
+  complete Turn Off cleanup. Do not claim public App Store safety for the containing-app Link.
 
 ### D150 implementation checkpoint (2026-07-27)
 
