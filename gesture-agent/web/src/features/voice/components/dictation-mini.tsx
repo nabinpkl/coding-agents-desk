@@ -13,6 +13,7 @@ import { VuMeter } from "@/features/voice/components/vu-meter";
 import {
   DICTATION_TERMINAL_DISMISS_MS,
   applyDictationPrefix,
+  dictationClickAction,
   dictationErrorMessage,
   isDictationMiniExpanded,
   isDictationRunActive,
@@ -129,17 +130,17 @@ export function DictationMini() {
     return unsubscribe;
   }, [begin, end]);
 
+  // A hidden surface cannot be stopped by its own control, so it stops itself.
+  // Losing focus is NOT that case: clicking record and then clicking back into
+  // the app being dictated into is the normal path, and stopping on blur ended
+  // every such run the moment it started.
   useEffect(() => {
-    const stopForFocusLoss = () => {
+    const stopForVisibilityLoss = () => {
+      if (document.visibilityState === "visible") return;
       if (isDictationRunActive(useVoiceStore.getState().runState.status)) end();
     };
-    const stopForVisibilityLoss = () => {
-      if (document.visibilityState !== "visible") stopForFocusLoss();
-    };
-    window.addEventListener("blur", stopForFocusLoss);
     document.addEventListener("visibilitychange", stopForVisibilityLoss);
     return () => {
-      window.removeEventListener("blur", stopForFocusLoss);
       document.removeEventListener("visibilitychange", stopForVisibilityLoss);
     };
   }, [end]);
@@ -351,8 +352,9 @@ export function DictationMini() {
               className="flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-border bg-secondary px-4 text-base font-medium transition hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
               disabled={blocksNewPress}
               onClick={() => {
-                if (status === "capturing") end();
-                else begin(false);
+                const action = dictationClickAction(status);
+                if (action === "start") begin(false);
+                else if (action === "stop") end();
               }}
             >
               {status === "capturing" ? (
@@ -399,22 +401,14 @@ export function DictationMini() {
         type="button"
         aria-label={status === "capturing" ? "Stop dictation" : "Start dictation"}
         className="dictation-host-mini__control"
-        // Requesting permission stays enabled so the pointer that started a
-        // press-and-hold can still deliver its release and cancel the pending
-        // capture. Only server finalization blocks a new press.
+        // Requesting permission stays enabled so a second click can cancel a
+        // capture still waiting on WebKit. Only server finalization blocks it.
         disabled={blocksNewPress}
-        onPointerDown={(event) => {
-          if (status === "capturing") return;
-          event.currentTarget.setPointerCapture(event.pointerId);
-          begin(false);
+        onClick={() => {
+          const action = dictationClickAction(status);
+          if (action === "start") begin(false);
+          else if (action === "stop") end();
         }}
-        onPointerUp={(event) => {
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-            event.currentTarget.releasePointerCapture(event.pointerId);
-          }
-          end();
-        }}
-        onPointerCancel={end}
       >
         {status === "capturing" ? (
           <Square className="size-5 fill-current text-destructive" />

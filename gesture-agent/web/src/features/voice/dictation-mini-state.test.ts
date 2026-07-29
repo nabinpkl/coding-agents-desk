@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import {
   DICTATION_TERMINAL_DISMISS_MS,
   applyDictationPrefix,
+  dictationClickAction,
   dictationErrorMessage,
   isDictationMiniExpanded,
   isDictationRunActive,
@@ -26,6 +27,19 @@ test("dictation stays expanded for completion and errors before auto-collapse", 
   expect(isDictationMiniExpanded("complete")).toBe(true);
   expect(isDictationMiniExpanded("error")).toBe(true);
   expect(DICTATION_TERMINAL_DISMISS_MS).toBe(4_000);
+});
+
+test("the mic button toggles a run rather than holding it", () => {
+  expect(dictationClickAction("idle")).toBe("start");
+  expect(dictationClickAction("complete")).toBe("start");
+  expect(dictationClickAction("error")).toBe("start");
+  // A click that lands while WebKit is still resolving permission cancels the
+  // pending run; without this the only escape is waiting for it to fail.
+  expect(dictationClickAction("requestingMic")).toBe("stop");
+  expect(dictationClickAction("capturing")).toBe("stop");
+  expect(dictationClickAction("saving")).toBe("ignore");
+  expect(dictationClickAction("transcribing")).toBe("ignore");
+  expect(dictationClickAction("analyzing")).toBe("ignore");
 });
 
 test("only a nonempty, not-yet-committed recording can insert text", () => {

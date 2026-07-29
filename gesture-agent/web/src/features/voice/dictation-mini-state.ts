@@ -16,6 +16,31 @@ export function isDictationMiniExpanded(status: VoiceRunStatus): boolean {
   return status !== "idle";
 }
 
+/**
+ * The button is a toggle: one click starts a run, the next stops it. Holding
+ * belongs to Fn, which starts on press and stops on release; a pointer cannot
+ * express that without turning every ordinary click into an empty recording.
+ * Server finalization owns the run until it lands, so a click during it does
+ * nothing rather than queueing a second run.
+ */
+export function dictationClickAction(
+  status: VoiceRunStatus,
+): "start" | "stop" | "ignore" {
+  switch (status) {
+    case "requestingMic":
+    case "capturing":
+      return "stop";
+    case "saving":
+    case "transcribing":
+    case "analyzing":
+      return "ignore";
+    case "idle":
+    case "complete":
+    case "error":
+      return "start";
+  }
+}
+
 /** Returns whether a persisted recording may cause a native text insertion. */
 export function shouldCommitDictation(
   committedRecordingIDs: ReadonlySet<string>,
