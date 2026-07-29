@@ -578,11 +578,25 @@ extension PairingViewController {
         // edge for the whole height of the trackpad, and a centered rail lands on
         // top of it. Anchored to the top the rail sits above where the trackpad
         // starts, so the strip keeps its full length to be dragged along.
+        let railTop = surfaceControlRail.topAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.topAnchor,
+            constant: 8
+        )
+        // Yields to the bottom limit below. A collapsed rail is pushed down by
+        // most of a screen height, so rotating into a shorter safe area while it
+        // is closed would otherwise make the two required constraints
+        // unsatisfiable and let UIKit pick which one to break. At high rather
+        // than required the rail simply slides up to fit.
+        railTop.priority = .defaultHigh
+        // Collapsing shortens the rail, and a rail hung from the top would take
+        // the chevron up with it. The offset the rail reports is the height it
+        // just gave up, so adding it here leaves the chevron where the finger
+        // found it.
+        surfaceControlRail.onTopOffsetChange = { [weak railTop] offset in
+            railTop?.constant = 8 + offset
+        }
         NSLayoutConstraint.activate([
-            surfaceControlRail.topAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.topAnchor,
-                constant: 8
-            ),
+            railTop,
             surfaceControlRail.trailingAnchor.constraint(
                 equalTo: view.safeAreaLayoutGuide.trailingAnchor,
                 constant: -8

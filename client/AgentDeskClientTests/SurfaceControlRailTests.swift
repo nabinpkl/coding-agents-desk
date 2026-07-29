@@ -265,6 +265,65 @@ struct SurfaceControlRailTests {
         })
     }
 
+    /// The chevron is the one control a closed rail leaves on screen, so it must
+    /// not move when it is used. The rail hangs from its top and shrinks when it
+    /// closes, which on its own would drag the chevron upward out from under the
+    /// thumb, so it reports the height it gave up for its owner to add back below
+    /// the anchor.
+    @Test func collapsingLeavesTheChevronWhereTheFingerFoundIt() {
+        let rail = SurfaceControlRail(
+            gestureButton: utilityButton(label: "Gesture", identifier: "gesture-toggle"),
+            orientationButton: utilityButton(label: "Rotate", identifier: "orientation-toggle"),
+            voiceButton: utilityButton(label: "Voice", identifier: "voice-toggle"),
+            keyboardDictationButton: utilityButton(
+                label: "Keyboard Dictation",
+                identifier: "keyboard-dictation-service"
+            ),
+            settingsButton: utilityButton(label: "Settings", identifier: "settings-button")
+        )
+        rail.setSurfaces(
+            [.control, .agent, .terminal],
+            selected: .control,
+            onSelection: { _ in }
+        )
+        var reported: [CGFloat] = []
+        rail.onTopOffsetChange = { reported.append($0) }
+        let layOut = {
+            rail.frame = CGRect(
+                x: 0,
+                y: 0,
+                width: rail.intrinsicContentSize.width,
+                height: rail.intrinsicContentSize.height
+            )
+            rail.layoutIfNeeded()
+        }
+        layOut()
+        let expandedHeight = rail.bounds.height
+        let chevronBefore = rail.collapseButton.convert(rail.collapseButton.bounds, to: rail).minY
+
+        rail.collapseButtonPressed()
+        layOut()
+
+        // The chevron's place on screen is where the rail starts plus where it
+        // sits inside the rail. The first term grew by exactly what the second
+        // one lost, so the sum is unchanged.
+        let chevronAfter = rail.collapseButton.convert(rail.collapseButton.bounds, to: rail).minY
+        #expect(abs((rail.collapsedTopOffset + chevronAfter) - chevronBefore) < 1)
+        #expect(abs(rail.collapsedTopOffset - (expandedHeight - 60)) < 1)
+        #expect(reported == [rail.collapsedTopOffset])
+        #expect(rail.collapsedTopOffset > 0)
+
+        rail.collapseButtonPressed()
+        layOut()
+
+        // Reopening puts the rail back against its anchor, and the chevron back
+        // at the far end of a full-height rail.
+        #expect(rail.collapsedTopOffset == 0)
+        #expect(reported.last == 0)
+        let chevronReopened = rail.collapseButton.convert(rail.collapseButton.bounds, to: rail).minY
+        #expect(abs(chevronReopened - chevronBefore) < 1)
+    }
+
     /// Before the handshake the rail still lists every surface, so the app's shape
     /// is legible while unpaired, but the ones that read a lane off the session
     /// cannot be opened yet and must say so rather than opening onto nothing.

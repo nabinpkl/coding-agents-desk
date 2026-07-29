@@ -26,6 +26,20 @@ final class SurfaceControlRail: UIView {
     let collapseButton = UIButton(type: .system)
     let utilityButtons: [UIButton]
 
+    /// How far below its anchored top the rail must sit while collapsed.
+    ///
+    /// Collapsing drops every control except the chevron, so the rail shrinks.
+    /// It hangs from the top, so without this the chevron would ride up with it
+    /// and land under the thumb's starting position instead of staying where it
+    /// was tapped. Pushing the short rail down by the height it lost keeps the
+    /// chevron on the same pixel, which is what makes it read as one button that
+    /// opens and closes rather than a control that moves when used.
+    private(set) var collapsedTopOffset: CGFloat = 0
+
+    /// Fires when `collapsedTopOffset` changes. The rail cannot apply the offset
+    /// itself; its top constraint belongs to whoever placed it in a view.
+    var onTopOffsetChange: ((CGFloat) -> Void)?
+
     var axis: NSLayoutConstraint.Axis { stackView.axis }
 
     init(
@@ -257,8 +271,17 @@ final class SurfaceControlRail: UIView {
         return configuration
     }
 
+    /// The rail's height once only the chevron is left in it.
+    private var collapsedHeight: CGFloat { Self.buttonSide + (Self.contentInset * 2) }
+
     private func setCollapsed(_ collapsed: Bool, animated: Bool) {
         guard collapsed != isCollapsed else { return }
+        // Measured now, before the controls are hidden, because this is the last
+        // moment the rail still has its open height. The intrinsic height would
+        // be the wrong number whenever the rail is taller than the space it was
+        // given and is scrolling its own contents.
+        collapsedTopOffset = collapsed ? max(bounds.height - collapsedHeight, 0) : 0
+        onTopOffsetChange?(collapsedTopOffset)
         isCollapsed = collapsed
         applyCollapsedState(animated: animated)
     }
