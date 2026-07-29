@@ -62,6 +62,7 @@ from interaction_agent.voice.runtime import (
     format_vtt,
     transcribe_audio_path,
     transcript_text,
+    validate_transcription_result,
     validate_temperature,
 )
 from interaction_agent.voice.signals import analyze_audio
@@ -104,12 +105,13 @@ from interaction_agent.voice.wire import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Own the shared live transcriber and the session serialization lock.
+    """Own the shared live transcriber and recording-session lock.
 
     The MLX chunk transcriber is expensive to construct (it loads the Whisper
     model), so a single instance is built lazily on the first WebSocket
-    connection and reused across sessions. ``voice_session_lock`` serializes
-    sessions because the one transcriber runs a single decode worker at a time.
+    connection and reused across sessions. ``voice_session_lock`` rejects a
+    second recorder while a take is active; the process-wide executor in
+    ``voice.runtime`` serializes every live, final, and REST MLX inference.
     """
     app.state.voice_session_lock = asyncio.Lock()
     app.state.voice_transcriber_lock = asyncio.Lock()
@@ -286,9 +288,10 @@ async def create_transcription(
 
     try:
         try:
-            result = transcribe_audio_path(
-                audio_path=audio_path,
-                options=VoiceTranscriptionOptions(
+            result = await run_in_threadpool(
+                transcribe_audio_path,
+                audio_path,
+                VoiceTranscriptionOptions(
                     model=model,
                     language=language,
                     prompt=prompt,
@@ -455,7 +458,7 @@ async def send_progress_best_effort(
 
 
 async def finish_live_transcriber(transcriber: MlxLiveChunkTranscriber) -> None:
-    """Release preview state without making retained PCM depend on it."""
+    """Wait for preview inference ownership to end before the final pass."""
     try:
         await run_in_threadpool(transcriber.finish_session)
     except Exception:
@@ -521,7 +524,11 @@ async def finalize_session(
                 condition_on_previous_text=False,
             ),
         )
-        final_text = transcript_text(final_result)
+        final_text = validate_transcription_result(
+            final_result,
+            audio_duration_seconds=result.analysis.summary.duration_seconds,
+            require_usable_text=True,
+        )
         await run_in_threadpool(
             save_voice_recording_transcript,
             result,

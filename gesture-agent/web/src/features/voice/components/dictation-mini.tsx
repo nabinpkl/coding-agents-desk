@@ -18,6 +18,7 @@ import {
   isDictationMiniExpanded,
   isDictationRunActive,
   shouldCommitDictation,
+  usableDictationText,
 } from "@/features/voice/dictation-mini-state";
 import { useVoiceSession } from "@/features/voice/use-voice-session";
 import { getHostConfig, postToHost } from "@/lib/host-bridge";
@@ -78,7 +79,7 @@ export function DictationMini() {
 
   const { startRecording, stopRecording, reset } = useVoiceSession({
     onComplete: (recording) => {
-      const transcript = recording.transcript?.trim() ?? "";
+      const transcript = usableDictationText(recording.transcript);
       setCompletedTranscript(transcript);
       if (clientDictation) {
         setCompletedRecordingID(recording.id);

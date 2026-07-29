@@ -41,13 +41,24 @@ export function dictationClickAction(
   }
 }
 
+/** Normalize text only when it contains something dictation can safely insert. */
+export function usableDictationText(
+  transcript: string | null | undefined,
+): string {
+  const normalized = transcript?.trim() ?? "";
+  return /[\p{L}\p{N}]/u.test(normalized) ? normalized : "";
+}
+
 /** Returns whether a persisted recording may cause a native text insertion. */
 export function shouldCommitDictation(
   committedRecordingIDs: ReadonlySet<string>,
   recordingID: string,
   transcript: string | null | undefined,
 ): boolean {
-  return !!transcript?.trim() && !committedRecordingIDs.has(recordingID);
+  return (
+    usableDictationText(transcript).length > 0 &&
+    !committedRecordingIDs.has(recordingID)
+  );
 }
 
 /**

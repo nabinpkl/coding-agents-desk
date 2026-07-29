@@ -34,7 +34,6 @@ LOGGER = logging.getLogger("voice_agent.live_mlx")
 
 AudioQueueItem = tuple[int, FloatArray] | None
 QUEUE_BLOCKS: Final = 512
-STOP_JOIN_SECONDS: Final = 8.0
 
 
 @dataclass(frozen=True)
@@ -69,6 +68,8 @@ class MlxLiveChunkTranscriber:
         self.lock = threading.Lock()
         self.audio_queue: queue.Queue[AudioQueueItem] = queue.Queue(maxsize=QUEUE_BLOCKS)
         self.worker: threading.Thread | None = None
+        self.worker_done = threading.Event()
+        self.worker_done.set()
         self.is_active = False
         self.is_decoding = False
         self.preview_text = ""
@@ -79,6 +80,8 @@ class MlxLiveChunkTranscriber:
 
     def start_session(self) -> None:
         self.finish_session()
+        audio_queue: queue.Queue[AudioQueueItem] = queue.Queue(maxsize=QUEUE_BLOCKS)
+        worker_done = threading.Event()
         with self.lock:
             self.is_active = True
             self.is_decoding = False
@@ -87,25 +90,29 @@ class MlxLiveChunkTranscriber:
             self.dropped_blocks = 0
             self.last_decode_seconds = 0.0
             self.last_error = None
-
-        self.worker = threading.Thread(
-            target=self._run_worker,
-            name="mlx-live-chunk-transcriber",
-            daemon=True,
-        )
-        self.worker.start()
+            self.audio_queue = audio_queue
+            self.worker_done = worker_done
+            worker = threading.Thread(
+                target=self._run_worker,
+                args=(audio_queue, worker_done),
+                name="mlx-live-chunk-transcriber",
+                daemon=True,
+            )
+            self.worker = worker
+            worker.start()
 
     def submit_audio(self, samples: FloatArray, sample_rate: int) -> None:
         with self.lock:
             if not self.is_active:
                 return
+            audio_queue = self.audio_queue
 
         try:
-            self.audio_queue.put_nowait((sample_rate, samples.copy()))
+            audio_queue.put_nowait((sample_rate, samples.copy()))
         except queue.Full:
             try:
-                self.audio_queue.get_nowait()
-                self.audio_queue.put_nowait((sample_rate, samples.copy()))
+                audio_queue.get_nowait()
+                audio_queue.put_nowait((sample_rate, samples.copy()))
             except queue.Empty:
                 pass
             with self.lock:
@@ -122,24 +129,23 @@ class MlxLiveChunkTranscriber:
             return self.preamp_gain
 
     def finish_session(self) -> MlxLiveTranscriptSnapshot:
-        worker = self.worker
-        if worker is None:
-            with self.lock:
-                self.is_active = False
-            return self.snapshot()
-
         with self.lock:
+            worker = self.worker
+            worker_done = self.worker_done
+            audio_queue = self.audio_queue
             was_active = self.is_active
             self.is_active = False
 
+        if worker is None:
+            return self.snapshot()
+
         if was_active:
-            self._enqueue_stop()
-        worker.join(timeout=STOP_JOIN_SECONDS)
-        if worker.is_alive():
-            with self.lock:
-                self.last_error = "mlx preview worker is still decoding"
-        else:
-            self.worker = None
+            self._enqueue_stop(audio_queue)
+        worker_done.wait()
+        worker.join()
+        with self.lock:
+            if self.worker is worker:
+                self.worker = None
         return self.snapshot()
 
     def snapshot(self) -> MlxLiveTranscriptSnapshot:
@@ -158,14 +164,18 @@ class MlxLiveChunkTranscriber:
                 last_error=self.last_error,
             )
 
-    def _run_worker(self) -> None:
+    def _run_worker(
+        self,
+        audio_queue: queue.Queue[AudioQueueItem],
+        worker_done: threading.Event,
+    ) -> None:
         chunks: list[FloatArray] = []
         total_samples = 0
         sample_rate = DEFAULT_SAMPLE_RATE
         last_decode_started = 0.0
         try:
             while True:
-                item = self.audio_queue.get()
+                item = audio_queue.get()
                 if item is None:
                     self._decode_buffer(chunks, sample_rate)
                     return
@@ -193,6 +203,11 @@ class MlxLiveChunkTranscriber:
                 self.last_error = str(exc)
                 self.is_active = False
                 self.is_decoding = False
+        finally:
+            with self.lock:
+                self.is_active = False
+                self.is_decoding = False
+            worker_done.set()
 
     def _decode_buffer(self, chunks: list[FloatArray], sample_rate: int) -> None:
         if not chunks:
@@ -219,7 +234,7 @@ class MlxLiveChunkTranscriber:
             text = transcript_text(result)
             elapsed = time.monotonic() - started_at
             with self.lock:
-                if text:
+                if any(character.isalnum() for character in text):
                     self.preview_text = text
                 self.decoded_chunks += 1
                 self.last_decode_seconds = elapsed
@@ -233,14 +248,14 @@ class MlxLiveChunkTranscriber:
         finally:
             temp_path.unlink(missing_ok=True)
 
-    def _enqueue_stop(self) -> None:
+    def _enqueue_stop(self, audio_queue: queue.Queue[AudioQueueItem]) -> None:
         while True:
             try:
-                self.audio_queue.put_nowait(None)
+                audio_queue.put_nowait(None)
                 return
             except queue.Full:
                 try:
-                    self.audio_queue.get_nowait()
+                    audio_queue.get_nowait()
                 except queue.Empty:
                     return
 

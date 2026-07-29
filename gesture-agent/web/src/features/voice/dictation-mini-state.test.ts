@@ -46,8 +46,11 @@ test("only a nonempty, not-yet-committed recording can insert text", () => {
   const committed = new Set(["session-1"]);
   expect(shouldCommitDictation(committed, "session-1", "hello")).toBe(false);
   expect(shouldCommitDictation(committed, "session-2", "   ")).toBe(false);
+  expect(shouldCommitDictation(committed, "session-2", "!!!!!!!!")).toBe(false);
   expect(shouldCommitDictation(committed, "session-2", null)).toBe(false);
   expect(shouldCommitDictation(committed, "session-2", "hello")).toBe(true);
+  expect(shouldCommitDictation(committed, "session-2", "你好")).toBe(true);
+  expect(shouldCommitDictation(committed, "session-2", "123")).toBe(true);
 });
 
 test("recording prefix changes only an enabled explicit send", () => {

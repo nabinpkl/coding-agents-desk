@@ -22,6 +22,10 @@ import {
   subscribeHostAudioConfig,
 } from "@/features/voice/mic-audio-config";
 import {
+  microphoneTrackDiagnostics,
+  observeMicrophoneTrackHealth,
+} from "@/features/voice/mic-track-health";
+import {
   PCM_WORKLET_SOURCE,
   type PcmWorkletMessage,
 } from "@/features/voice/pcm-worklet";
@@ -230,10 +234,12 @@ export function useMicCapture(): MicCaptureController {
         worklet.onprocessorerror = () => {
           failCapture("microphone audio processor failed");
         };
-        const trackEndHandlers = stream.getTracks().map((track) => {
-          const onEnded = () => failCapture("microphone input ended unexpectedly");
-          track.addEventListener("ended", onEnded);
-          return () => track.removeEventListener("ended", onEnded);
+        const trackHealthObservers = stream.getAudioTracks().map((track) => {
+          console.info(
+            "voice microphone track acquired",
+            microphoneTrackDiagnostics(track),
+          );
+          return observeMicrophoneTrackHealth(track, failCapture);
         });
         const onContextStateChange = () => {
           if (graph.stopping || context.state === "running") return;
@@ -254,7 +260,7 @@ export function useMicCapture(): MicCaptureController {
         };
         context.addEventListener("statechange", onContextStateChange);
         removeHealthObservers = () => {
-          for (const remove of trackEndHandlers) remove();
+          for (const remove of trackHealthObservers) remove();
           context.removeEventListener("statechange", onContextStateChange);
         };
 

@@ -1,6 +1,8 @@
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from math import isfinite
+from numbers import Real
 from pathlib import Path
 from typing import Any, Final
 from uuid import uuid4
@@ -28,6 +30,12 @@ SUPPORTED_AUDIO_SUFFIXES = {
 }
 SUPPORTED_RESPONSE_FORMATS = {"json", "text", "srt", "verbose_json", "vtt"}
 SUPPORTED_TIMESTAMP_GRANULARITIES = {"segment", "word"}
+MAX_TRANSCRIPTION_COMPRESSION_RATIO: Final = 2.4
+TRANSCRIPTION_DURATION_TOLERANCE_SECONDS: Final = 1.0
+_MLX_INFERENCE_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="mlx-inference",
+)
 
 
 class VoiceRuntimeError(ValueError):
@@ -167,16 +175,33 @@ def transcribe_audio_path(
     audio_path: Path,
     options: VoiceTranscriptionOptions,
 ) -> dict[str, Any]:
-    import mlx_whisper
-
-    local_model = ensure_local_model(options.model)
-    temperature = validate_temperature(options.temperature)
+    """Run one transcription through the process-wide MLX inference owner."""
+    validate_model(options.model)
+    validate_temperature(options.temperature)
     if not isfinite(options.preamp_gain) or options.preamp_gain <= 0:
         raise VoiceRuntimeError("preamp_gain must be finite and greater than zero")
 
+    result = _MLX_INFERENCE_EXECUTOR.submit(
+        _transcribe_audio_path_owned,
+        audio_path,
+        options,
+    ).result()
+    validate_transcription_result(result)
+    return result
+
+
+def _transcribe_audio_path_owned(
+    audio_path: Path,
+    options: VoiceTranscriptionOptions,
+) -> dict[str, Any]:
+    """Perform MLX work on the executor's single worker thread."""
+    import mlx_whisper
+
+    local_model = ensure_local_model(options.model)
+
     whisper_options: dict[str, Any] = {
         "path_or_hf_repo": str(local_model),
-        "temperature": temperature,
+        "temperature": options.temperature,
         "word_timestamps": options.word_timestamps,
         "condition_on_previous_text": options.condition_on_previous_text,
     }
@@ -201,6 +226,110 @@ def transcribe_audio_path(
         raise VoiceRuntimeError("Unexpected transcription result")
 
     return result
+
+
+def validate_transcription_result(
+    result: dict[str, Any],
+    *,
+    audio_duration_seconds: float | None = None,
+    require_usable_text: bool = False,
+) -> str:
+    """Reject structurally corrupt or unusable Whisper output."""
+    text_value = result.get("text")
+    if not isinstance(text_value, str):
+        raise VoiceRuntimeError("Invalid transcription text")
+    text = text_value.strip()
+
+    duration_limit: float | None = None
+    if audio_duration_seconds is not None:
+        duration = _finite_transcription_number(
+            audio_duration_seconds,
+            "audio duration",
+        )
+        if duration < 0:
+            raise VoiceRuntimeError("Invalid transcription audio duration")
+        duration_limit = duration + TRANSCRIPTION_DURATION_TOLERANCE_SECONDS
+
+    result_duration = result.get("duration")
+    if result_duration is not None:
+        duration = _finite_transcription_number(
+            result_duration,
+            "duration",
+        )
+        if duration < 0 or (
+            duration_limit is not None and duration > duration_limit
+        ):
+            raise VoiceRuntimeError("Invalid transcription duration")
+
+    segments = result.get("segments")
+    if segments is not None:
+        if not isinstance(segments, list):
+            raise VoiceRuntimeError("Invalid transcription segments")
+        previous_start = 0.0
+        previous_end = 0.0
+        for index, segment in enumerate(segments):
+            if not isinstance(segment, dict):
+                raise VoiceRuntimeError(
+                    f"Invalid transcription segment {index}"
+                )
+            start = _finite_transcription_number(
+                segment.get("start"),
+                f"segment {index} start",
+            )
+            end = _finite_transcription_number(
+                segment.get("end"),
+                f"segment {index} end",
+            )
+            if (
+                start < 0
+                or end < start
+                or start < previous_start
+                or end < previous_end
+                or (duration_limit is not None and end > duration_limit)
+            ):
+                raise VoiceRuntimeError(
+                    f"Invalid transcription segment {index} timing"
+                )
+            previous_start = start
+            previous_end = end
+
+            if "avg_logprob" in segment:
+                _finite_transcription_number(
+                    segment["avg_logprob"],
+                    f"segment {index} average log probability",
+                )
+            if "compression_ratio" in segment:
+                compression_ratio = _finite_transcription_number(
+                    segment["compression_ratio"],
+                    f"segment {index} compression ratio",
+                )
+                if not 0 <= compression_ratio <= MAX_TRANSCRIPTION_COMPRESSION_RATIO:
+                    raise VoiceRuntimeError(
+                        f"Invalid transcription segment {index} compression ratio"
+                    )
+            if "no_speech_prob" in segment:
+                no_speech_probability = _finite_transcription_number(
+                    segment["no_speech_prob"],
+                    f"segment {index} no-speech probability",
+                )
+                if not 0 <= no_speech_probability <= 1:
+                    raise VoiceRuntimeError(
+                        f"Invalid transcription segment {index} no-speech probability"
+                    )
+
+    if require_usable_text and not any(character.isalnum() for character in text):
+        raise VoiceRuntimeError("The transcription contained no usable speech")
+
+    return text
+
+
+def _finite_transcription_number(value: object, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise VoiceRuntimeError(f"Invalid transcription {field}")
+    number = float(value)
+    if not isfinite(number):
+        raise VoiceRuntimeError(f"Invalid transcription {field}")
+    return number
 
 
 def load_audio_for_transcription(audio_path: Path) -> NDArray[np.float32]:

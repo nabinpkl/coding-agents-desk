@@ -346,6 +346,49 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(options.preamp_gain, 4.0)
         self.assertFalse(options.condition_on_previous_text)
 
+    async def test_corrupt_transcription_is_not_persisted_or_returned(self) -> None:
+        async def analyze(app, recording_id):
+            del app
+            return web_stream.load_recording(recording_id)
+
+        with (
+            patch.object(
+                http_server,
+                "transcribe_audio_path",
+                return_value={
+                    "text": "!!!!!!!!",
+                    "duration": 15.0,
+                    "segments": [
+                        {
+                            "start": 4.0,
+                            "end": 2.0,
+                            "text": "!!!!!!!!",
+                            "avg_logprob": None,
+                            "compression_ratio": 6.25,
+                        }
+                    ],
+                },
+            ),
+            patch.object(http_server, "analyze_recording_phones", analyze),
+        ):
+            result = await http_server.finalize_session(
+                test_app(),
+                None,
+                [np.full(43_136, 0.01, dtype=np.float32)],
+                16_000,
+                datetime(2026, 7, 29, tzinfo=UTC),
+                "macos",
+                "completed",
+            )
+
+        self.assertIsNone(result.transcript)
+        self.assertIn("transcription", result.transcription_error)
+        payload = json.loads(
+            web_stream.recording_json_path(result.id).read_text(encoding="utf-8")
+        )
+        self.assertEqual(payload["transcription"]["status"], "failed")
+        self.assertIsNone(payload["transcription"]["text"])
+
 
 class HostVoiceContinuityTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
