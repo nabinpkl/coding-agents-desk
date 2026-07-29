@@ -3,16 +3,16 @@
  * @license MIT
  */
 
-import { ICoreBrowserService, IRenderService, IThemeService } from 'browser/services/Services';
-import { ViewportConstants } from 'browser/shared/Constants';
-import { Disposable, toDisposable } from 'vs/base/common/lifecycle';
-import { IBufferService, ICoreMouseService, IOptionsService } from 'common/services/Services';
-import { CoreMouseEventType } from 'common/Types';
-import { scheduleAtNextAnimationFrame } from 'vs/base/browser/dom';
-import { SmoothScrollableElement } from 'vs/base/browser/ui/scrollbar/scrollableElement';
-import type { ScrollableElementChangeOptions } from 'vs/base/browser/ui/scrollbar/scrollableElementOptions';
-import { Emitter, Event } from 'vs/base/common/event';
-import { Scrollable, ScrollbarVisibility, type ScrollEvent } from 'vs/base/common/scrollable';
+import { ICoreBrowserService, IRenderService, IThemeService } from './services/Services';
+import { ViewportConstants } from './shared/Constants';
+import { Disposable, toDisposable } from '../common/Lifecycle';
+import { IBufferService, ICoreService, IMouseStateService, IOptionsService } from '../common/services/Services';
+import { CoreMouseEventType } from '../common/Types';
+import { scheduleAtNextAnimationFrame } from './Dom';
+import { SmoothScrollableElement } from './scrollable/scrollableElement';
+import type { IScrollableElementChangeOptions } from './scrollable/scrollableElementOptions';
+import { Emitter, EventUtils } from '../common/Event';
+import { Scrollable, ScrollbarVisibility, type IScrollEvent } from './scrollable/scrollable';
 
 export class Viewport extends Disposable {
 
@@ -27,13 +27,15 @@ export class Viewport extends Disposable {
   private _isSyncing: boolean = false;
   private _isHandlingScroll: boolean = false;
   private _suppressOnScrollHandler: boolean = false;
+  private _needsSyncOnRender: boolean = false;
 
   constructor(
     element: HTMLElement,
     screenElement: HTMLElement,
     @IBufferService private readonly _bufferService: IBufferService,
     @ICoreBrowserService coreBrowserService: ICoreBrowserService,
-    @ICoreMouseService coreMouseService: ICoreMouseService,
+    @ICoreService private readonly _coreService: ICoreService,
+    @IMouseStateService mouseStateService: IMouseStateService,
     @IThemeService themeService: IThemeService,
     @IOptionsService private readonly _optionsService: IOptionsService,
     @IRenderService private readonly _renderService: IRenderService
@@ -51,26 +53,28 @@ export class Viewport extends Disposable {
     }));
 
     this._scrollableElement = this._register(new SmoothScrollableElement(screenElement, {
-      vertical: ScrollbarVisibility.Auto,
-      horizontal: ScrollbarVisibility.Hidden,
+      vertical: ScrollbarVisibility.AUTO,
+      horizontal: ScrollbarVisibility.HIDDEN,
       useShadows: false,
       mouseWheelSmoothScroll: true,
+      verticalHasArrows: this._optionsService.rawOptions.scrollbar?.showArrows ?? false,
       ...this._getChangeOptions()
     }, scrollable));
     this._register(this._optionsService.onMultipleOptionChange([
       'scrollSensitivity',
       'fastScrollSensitivity',
-      'overviewRuler'
+      'scrollbar'
     ], () => this._scrollableElement.updateOptions(this._getChangeOptions())));
     // Don't handle mouse wheel if wheel events are supported by the current mouse prototcol
-    this._register(coreMouseService.onProtocolChange(type => {
+    this._register(mouseStateService.onProtocolChange(type => {
       this._scrollableElement.updateOptions({
         handleMouseWheel: !(type & CoreMouseEventType.WHEEL)
       });
     }));
 
     this._scrollableElement.setScrollDimensions({ height: 0, scrollHeight: 0 });
-    this._register(Event.runAndSubscribe(themeService.onChangeColors, () => {
+    this._register(EventUtils.runAndSubscribe(themeService.onChangeColors, () => {
+      element.style.backgroundColor = themeService.colors.background.css;
       this._scrollableElement.getDomNode().style.backgroundColor = themeService.colors.background.css;
     }));
     element.appendChild(this._scrollableElement.getDomNode());
@@ -79,15 +83,15 @@ export class Viewport extends Disposable {
     this._styleElement = coreBrowserService.mainDocument.createElement('style');
     screenElement.appendChild(this._styleElement);
     this._register(toDisposable(() => this._styleElement.remove()));
-    this._register(Event.runAndSubscribe(themeService.onChangeColors, () => {
+    this._register(EventUtils.runAndSubscribe(themeService.onChangeColors, () => {
       this._styleElement.textContent = [
-        `.xterm .xterm-scrollable-element > .scrollbar > .slider {`,
+        `.xterm .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider {`,
         `  background: ${themeService.colors.scrollbarSliderBackground.css};`,
         `}`,
-        `.xterm .xterm-scrollable-element > .scrollbar > .slider:hover {`,
+        `.xterm .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider:hover {`,
         `  background: ${themeService.colors.scrollbarSliderHoverBackground.css};`,
         `}`,
-        `.xterm .xterm-scrollable-element > .scrollbar > .slider.active {`,
+        `.xterm .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider.xterm-active {`,
         `  background: ${themeService.colors.scrollbarSliderActiveBackground.css};`,
         `}`
       ].join('\n');
@@ -102,7 +106,18 @@ export class Viewport extends Disposable {
     }));
     this._register(this._bufferService.onScroll(() => this._sync()));
 
+    // Flush deferred viewport sync after a render completes (e.g. after ESU ends
+    // synchronized output mode). This ensures DOM scroll position updates atomically
+    // with the canvas render.
+    this._register(this._renderService.onRender(() => {
+      if (this._needsSyncOnRender) {
+        this._needsSyncOnRender = false;
+        this._sync();
+      }
+    }));
+
     this._register(this._scrollableElement.onScroll(e => this._handleScroll(e)));
+
   }
 
   public scrollLines(disp: number): void {
@@ -123,11 +138,18 @@ export class Viewport extends Disposable {
     });
   }
 
-  private _getChangeOptions(): ScrollableElementChangeOptions {
+  private _getChangeOptions(): IScrollableElementChangeOptions {
+    const showScrollbar = this._optionsService.rawOptions.scrollbar?.showScrollbar ?? true;
+    const showArrows = this._optionsService.rawOptions.scrollbar?.showArrows ?? false;
+    const verticalScrollbarSize = showScrollbar
+      ? (this._optionsService.rawOptions.scrollbar?.width ?? ViewportConstants.DEFAULT_SCROLL_BAR_WIDTH)
+      : 0;
     return {
       mouseWheelScrollSensitivity: this._optionsService.rawOptions.scrollSensitivity,
       fastScrollSensitivity: this._optionsService.rawOptions.fastScrollSensitivity,
-      verticalScrollbarSize: this._optionsService.rawOptions.overviewRuler?.width || ViewportConstants.DEFAULT_SCROLL_BAR_WIDTH
+      vertical: showScrollbar ? ScrollbarVisibility.AUTO : ScrollbarVisibility.HIDDEN,
+      verticalScrollbarSize,
+      verticalHasArrows: showArrows
     };
   }
 
@@ -149,6 +171,12 @@ export class Viewport extends Disposable {
 
   private _sync(ydisp: number = this._bufferService.buffer.ydisp): void {
     if (!this._renderService || this._isSyncing) {
+      return;
+    }
+    // Defer DOM scroll updates during synchronized output to prevent visible
+    // scroll position flickering while the canvas content is frozen.
+    if (this._coreService.decPrivateModes.synchronizedOutput) {
+      this._needsSyncOnRender = true;
       return;
     }
     this._isSyncing = true;
@@ -173,7 +201,7 @@ export class Viewport extends Disposable {
     this._isSyncing = false;
   }
 
-  private _handleScroll(e: ScrollEvent): void {
+  private _handleScroll(e: IScrollEvent): void {
     if (!this._renderService) {
       return;
     }
@@ -188,5 +216,12 @@ export class Viewport extends Disposable {
       this._onRequestScrollLines.fire(diff);
     }
     this._isHandlingScroll = false;
+  }
+
+  public handleTouchScroll(translationY: number): void {
+    const pos = this._scrollableElement.getScrollPosition();
+    this._scrollableElement.setScrollPosition({
+      scrollTop: pos.scrollTop - translationY
+    });
   }
 }

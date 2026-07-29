@@ -3,15 +3,16 @@
  * @license MIT
  */
 
-import { Disposable } from 'vs/base/common/lifecycle';
-import { IAttributeData, IBufferLine } from 'common/Types';
-import { BufferSet } from 'common/buffer/BufferSet';
-import { IBuffer, IBufferSet } from 'common/buffer/Types';
-import { IBufferService, IOptionsService, type IBufferResizeEvent } from 'common/services/Services';
-import { Emitter } from 'vs/base/common/event';
+import { Disposable } from '../Lifecycle';
+import { IAttributeData, IBuffer, IBufferLine, IBufferSet } from '../buffer/Types';
+import { BufferSet } from '../buffer/BufferSet';
+import { IBufferService, ILogService, IOptionsService, type IBufferResizeEvent } from './Services';
+import { Emitter } from '../Event';
 
-export const MINIMUM_COLS = 2; // Less than 2 can mess with wide chars
-export const MINIMUM_ROWS = 1;
+export const enum BufferServiceConstants {
+  MINIMUM_COLS = 2, // Less than 2 can mess with wide chars
+  MINIMUM_ROWS = 1
+}
 
 export class BufferService extends Disposable implements IBufferService {
   public serviceBrand: any;
@@ -32,11 +33,14 @@ export class BufferService extends Disposable implements IBufferService {
   /** An IBufferline to clone/copy from for new blank lines */
   private _cachedBlankLine: IBufferLine | undefined;
 
-  constructor(@IOptionsService optionsService: IOptionsService) {
+  constructor(
+    @IOptionsService optionsService: IOptionsService,
+    @ILogService logService: ILogService
+  ) {
     super();
-    this.cols = Math.max(optionsService.rawOptions.cols || 0, MINIMUM_COLS);
-    this.rows = Math.max(optionsService.rawOptions.rows || 0, MINIMUM_ROWS);
-    this.buffers = this._register(new BufferSet(optionsService, this));
+    this.cols = Math.max(optionsService.rawOptions.cols || 0, BufferServiceConstants.MINIMUM_COLS);
+    this.rows = Math.max(optionsService.rawOptions.rows || 0, BufferServiceConstants.MINIMUM_ROWS);
+    this.buffers = this._register(new BufferSet(optionsService, this, logService));
     this._register(this.buffers.onBufferActivate(e => {
       this._onScroll.fire(e.activeBuffer.ydisp);
     }));

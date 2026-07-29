@@ -3,18 +3,19 @@
  * @license MIT
  */
 
-import { IBufferLine, ICellData, IColor } from 'common/Types';
-import { INVERTED_DEFAULT_COLOR } from 'browser/renderer/shared/Constants';
-import { WHITESPACE_CELL_CHAR, Attributes } from 'common/buffer/Constants';
-import { CellData } from 'common/buffer/CellData';
-import { ICoreService, IDecorationService, IOptionsService } from 'common/services/Services';
-import { channels, color } from 'common/Color';
-import { ICharacterJoinerService, ICoreBrowserService, IThemeService } from 'browser/services/Services';
-import { JoinedCellData } from 'browser/services/CharacterJoinerService';
-import { treatGlyphAsBackgroundColor } from 'browser/renderer/shared/RendererUtils';
-import { AttributeData } from 'common/buffer/AttributeData';
-import { WidthCache } from 'browser/renderer/dom/WidthCache';
-import { IColorContrastCache } from 'browser/Types';
+import { IColor } from '../../../common/Types';
+import { IBufferLine, ICellData } from '../../../common/buffer/Types';
+import { INVERTED_DEFAULT_COLOR } from '../shared/Constants';
+import { WHITESPACE_CELL_CHAR, Attributes } from '../../../common/buffer/Constants';
+import { CellData } from '../../../common/buffer/CellData';
+import { ICoreService, IDecorationService, IOptionsService } from '../../../common/services/Services';
+import { channels, color } from '../../../common/Color';
+import { ICharacterJoinerService, ICoreBrowserService, IThemeService } from '../../services/Services';
+import { JoinedCellData } from '../../services/CharacterJoinerService';
+import { treatGlyphAsBackgroundColor } from '../shared/RendererUtils';
+import { AttributeData } from '../../../common/buffer/AttributeData';
+import { WidthCache } from './WidthCache';
+import { IColorContrastCache } from '../../Types';
 
 
 export const enum RowCss {
@@ -24,6 +25,7 @@ export const enum RowCss {
   UNDERLINE_CLASS = 'xterm-underline',
   OVERLINE_CLASS = 'xterm-overline',
   STRIKETHROUGH_CLASS = 'xterm-strikethrough',
+  BLINK_HIDDEN_CLASS = 'xterm-blink-hidden',
   CURSOR_CLASS = 'xterm-cursor',
   CURSOR_BLINK_CLASS = 'xterm-cursor-blink',
   CURSOR_STYLE_BLOCK_CLASS = 'xterm-cursor-block',
@@ -66,13 +68,18 @@ export class DomRendererRowFactory {
     cursorInactiveStyle: string | undefined,
     cursorX: number,
     cursorBlink: boolean,
+    blinkOn: boolean,
     cellWidth: number,
     widthCache: WidthCache,
     linkStart: number,
-    linkEnd: number
+    linkEnd: number,
+    rowInfo?: { hasBlinkingCells: boolean }
   ): HTMLSpanElement[] {
 
     const elements: HTMLSpanElement[] = [];
+    if (rowInfo) {
+      rowInfo.hasBlinkingCells = false;
+    }
     const joinedRanges = this._characterJoinerService.getJoinedCharacters(row);
     const colors = this._themeService.colors;
 
@@ -84,14 +91,14 @@ export class DomRendererRowFactory {
     let charElement: HTMLSpanElement | undefined;
     let cellAmount = 0;
     let text = '';
-    let i = 0;
+    let i;
     let oldBg = 0;
     let oldFg = 0;
     let oldExt = 0;
     let oldLinkHover: number | boolean = false;
     let oldSpacing = 0;
     let oldIsInSelection: boolean = false;
-    let spacing = 0;
+    let spacing;
     let skipJoinedCheckUntilX = 0;
     const classes: string[] = [];
 
@@ -118,7 +125,7 @@ export class DomRendererRowFactory {
       // Process any joined character ranges as needed. Because of how the
       // ranges are produced, we know that they are valid for the characters
       // and attributes of our input.
-      let cell = this._workCell;
+      let cell: ICellData = this._workCell;
       if (joinedRanges.length > 0 && x === joinedRanges[0][0] && isValidJoinRange) {
         const range = joinedRanges.shift()!;
         // If the ligature's selection state is not consistent, don't join it. This helps the
@@ -153,6 +160,13 @@ export class DomRendererRowFactory {
       const isInSelection = this._isCellInSelection(x, row);
       const isCursorCell = isCursorRow && x === cursorX;
       const isLinkHover = hasHover && x >= linkStart && x <= linkEnd;
+      if (rowInfo && cell.isBlink()) {
+        rowInfo.hasBlinkingCells = true;
+      }
+      const isBlinkHidden = !blinkOn && cell.isBlink();
+      if (isBlinkHidden) {
+        classes.push(RowCss.BLINK_HIDDEN_CLASS);
+      }
 
       let isDecorated = false;
       this._decorationService.forEachDecorationAtCell(x, row, undefined, d => {
@@ -397,7 +411,7 @@ export class DomRendererRowFactory {
           break;
         case Attributes.CM_RGB:
           resolvedBg = channels.toColor(bg >> 16, bg >> 8 & 0xFF, bg & 0xFF);
-          this._addStyle(charElement, `background-color:#${padStart((bg >>> 0).toString(16), '0', 6)}`);
+          this._addStyle(charElement, `background-color:#${(bg >>> 0).toString(16).padStart(6, '0')}`);
           break;
         case Attributes.CM_DEFAULT:
         default:
@@ -434,7 +448,7 @@ export class DomRendererRowFactory {
             (fg      ) & 0xFF
           );
           if (!this._applyMinimumContrast(charElement, resolvedBg, color, cell, bgOverride, fgOverride)) {
-            this._addStyle(charElement, `color:#${padStart(fg.toString(16), '0', 6)}`);
+            this._addStyle(charElement, `color:#${fg.toString(16).padStart(6, '0')}`);
           }
           break;
         case Attributes.CM_DEFAULT:
@@ -494,8 +508,8 @@ export class DomRendererRowFactory {
       // Dim cells only require half the contrast, otherwise they wouldn't be distinguishable from
       // non-dim cells
       const ratio = this._optionsService.rawOptions.minimumContrastRatio / (cell.isDim() ? 2 : 1);
-      adjustedColor = color.ensureContrastRatio(bgOverride || bg, fgOverride || fg, ratio);
-      cache.setColor((bgOverride || bg).rgba, (fgOverride || fg).rgba, adjustedColor ?? null);
+      adjustedColor = color.ensureContrastRatio(bgOverride ?? bg, fgOverride ?? fg, ratio);
+      cache.setColor((bgOverride ?? bg).rgba, (fgOverride ?? fg).rgba, adjustedColor ?? null);
     }
 
     if (adjustedColor) {
@@ -536,11 +550,4 @@ export class DomRendererRowFactory {
         (start[1] < end[1] && y === end[1] && x < end[0]) ||
         (start[1] < end[1] && y === start[1] && x >= start[0]);
   }
-}
-
-function padStart(text: string, padChar: string, length: number): string {
-  while (text.length < length) {
-    text = padChar + text;
-  }
-  return text;
 }

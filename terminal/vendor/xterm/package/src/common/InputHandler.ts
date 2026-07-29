@@ -4,24 +4,26 @@
  * @license MIT
  */
 
-import { IInputHandler, IAttributeData, IDisposable, IWindowOptions, IColorEvent, IParseStack, ColorIndex, ColorRequestType, SpecialColorIndex } from 'common/Types';
-import { C0, C1 } from 'common/data/EscapeSequences';
-import { CHARSETS, DEFAULT_CHARSET } from 'common/data/Charsets';
-import { EscapeSequenceParser } from 'common/parser/EscapeSequenceParser';
-import { Disposable } from 'vs/base/common/lifecycle';
-import { StringToUtf32, stringFromCodePoint, Utf8ToUtf32 } from 'common/input/TextDecoder';
-import { BufferLine, DEFAULT_ATTR_DATA } from 'common/buffer/BufferLine';
-import { IParsingState, IEscapeSequenceParser, IParams, IFunctionIdentifier } from 'common/parser/Types';
-import { NULL_CELL_CODE, NULL_CELL_WIDTH, Attributes, FgFlags, BgFlags, Content, UnderlineStyle } from 'common/buffer/Constants';
-import { CellData } from 'common/buffer/CellData';
-import { AttributeData } from 'common/buffer/AttributeData';
-import { ICoreService, IBufferService, IOptionsService, ILogService, ICoreMouseService, ICharsetService, IUnicodeService, LogLevelEnum, IOscLinkService } from 'common/services/Services';
-import { UnicodeService } from 'common/services/UnicodeService';
-import { OscHandler } from 'common/parser/OscParser';
-import { DcsHandler } from 'common/parser/DcsParser';
-import { IBuffer } from 'common/buffer/Types';
-import { parseColor } from 'common/input/XParseColor';
-import { Emitter } from 'vs/base/common/event';
+import { IInputHandler, IDisposable, IWindowOptions, IColorEvent, IParseStack, ColorIndex, ColorRequestType, SpecialColorIndex } from './Types';
+import { IAttributeData, IBuffer } from './buffer/Types';
+import { C0, C1 } from './data/EscapeSequences';
+import { CHARSETS, DEFAULT_CHARSET } from './data/Charsets';
+import { EscapeSequenceParser } from './parser/EscapeSequenceParser';
+import { Disposable } from './Lifecycle';
+import { StringToUtf32, stringFromCodePoint, Utf8ToUtf32 } from './input/TextDecoder';
+import { BufferLine, DEFAULT_ATTR_DATA } from './buffer/BufferLine';
+import { IParsingState, IEscapeSequenceParser, IParams, IFunctionIdentifier } from './parser/Types';
+import { NULL_CELL_CODE, NULL_CELL_WIDTH, Attributes, FgFlags, BgFlags, Content, UnderlineStyle } from './buffer/Constants';
+import { CellData } from './buffer/CellData';
+import { AttributeData } from './buffer/AttributeData';
+import { ICoreService, IBufferService, IOptionsService, ILogService, IMouseStateService, ICharsetService, IUnicodeService, LogLevelEnum, IOscLinkService } from './services/Services';
+import { UnicodeService } from './services/UnicodeService';
+import { OscHandler } from './parser/OscParser';
+import { DcsHandler } from './parser/DcsParser';
+import { ApcHandler } from './parser/ApcParser';
+import { parseColor } from './input/XParseColor';
+import { Emitter } from './Event';
+import { XTERM_VERSION } from './Version';
 
 /**
  * Map collect to glevel. Used in `selectCharset`.
@@ -29,27 +31,8 @@ import { Emitter } from 'vs/base/common/event';
 const GLEVEL: { [key: string]: number } = { '(': 0, ')': 1, '*': 2, '+': 3, '-': 1, '.': 2 };
 
 /**
- * VT commands done by the parser - FIXME: move this to the parser?
- */
-// @vt: #Y   ESC   CSI   "Control Sequence Introducer"   "ESC ["   "Start of a CSI sequence."
-// @vt: #Y   ESC   OSC   "Operating System Command"      "ESC ]"   "Start of an OSC sequence."
-// @vt: #Y   ESC   DCS   "Device Control String"         "ESC P"   "Start of a DCS sequence."
-// @vt: #Y   ESC   ST    "String Terminator"             "ESC \"   "Terminator used for string type sequences."
-// @vt: #Y   ESC   PM    "Privacy Message"               "ESC ^"   "Start of a privacy message."
-// @vt: #Y   ESC   APC   "Application Program Command"   "ESC _"   "Start of an APC sequence."
-// @vt: #Y   C1    CSI   "Control Sequence Introducer"   "\x9B"    "Start of a CSI sequence."
-// @vt: #Y   C1    OSC   "Operating System Command"      "\x9D"    "Start of an OSC sequence."
-// @vt: #Y   C1    DCS   "Device Control String"         "\x90"    "Start of a DCS sequence."
-// @vt: #Y   C1    ST    "String Terminator"             "\x9C"    "Terminator used for string type sequences."
-// @vt: #Y   C1    PM    "Privacy Message"               "\x9E"    "Start of a privacy message."
-// @vt: #Y   C1    APC   "Application Program Command"   "\x9F"    "Start of an APC sequence."
-// @vt: #Y   C0    NUL   "Null"                          "\0, \x00"  "NUL is ignored."
-// @vt: #Y   C0    ESC   "Escape"                        "\e, \x1B"  "Start of a sequence. Cancels any other sequence."
-
-/**
  * Document xterm VT features here that are currently unsupported
  */
-// @vt: #E[Supported via @xterm/addon-image.]  DCS   SIXEL       "SIXEL Graphics"          "DCS Ps ; Ps ; Ps ; q 	Pt ST"  "Draw SIXEL image."
 // @vt: #N  DCS   DECUDK      "User Defined Keys"       "DCS Ps ; Ps \| Pt ST"           "Definitions for user-defined keys."
 // @vt: #N  DCS   XTGETTCAP   "Request Terminfo String" "DCS + q Pt ST"                 "Request Terminfo String."
 // @vt: #N  DCS   XTSETTCAP   "Set Terminfo Data"       "DCS + p Pt ST"                 "Set Terminfo Data."
@@ -58,12 +41,13 @@ const GLEVEL: { [key: string]: number } = { '(': 0, ')': 1, '*': 2, '+': 3, '-':
 /**
  * Max length of the UTF32 input buffer. Real memory consumption is 4 times higher.
  */
-const MAX_PARSEBUFFER_LENGTH = 131072;
-
-/**
- * Limit length of title and icon name stacks.
- */
-const STACK_LIMIT = 10;
+const enum Constants {
+  MAX_PARSEBUFFER_LENGTH = 131072,
+  /** Limit length of title and icon name stacks. */
+  STACK_LIMIT = 10,
+  // create a warning log if an async handler takes longer than the limit (in ms)
+  SLOW_ASYNC_LIMIT = 5000
+}
 
 // map params to window option
 function paramToWindowOption(n: number, opts: IWindowOptions): boolean {
@@ -101,9 +85,6 @@ export enum WindowsOptionsReportType {
   GET_WIN_SIZE_PIXELS = 0,
   GET_CELL_SIZE_PIXELS = 1
 }
-
-// create a warning log if an async handler takes longer than the limit (in ms)
-const SLOW_ASYNC_LIMIT = 5000;
 
 // Work variables to avoid garbage collection
 let $temp = 0;
@@ -158,6 +139,8 @@ export class InputHandler extends Disposable implements IInputHandler {
   public readonly onTitleChange = this._onTitleChange.event;
   private readonly _onColor = this._register(new Emitter<IColorEvent>());
   public readonly onColor = this._onColor.event;
+  private readonly _onRequestColorSchemeQuery = this._register(new Emitter<void>());
+  public readonly onRequestColorSchemeQuery = this._onRequestColorSchemeQuery.event;
 
   private _parseStack: IParseStack = {
     paused: false,
@@ -174,7 +157,7 @@ export class InputHandler extends Disposable implements IInputHandler {
     private readonly _logService: ILogService,
     private readonly _optionsService: IOptionsService,
     private readonly _oscLinkService: IOscLinkService,
-    private readonly _coreMouseService: ICoreMouseService,
+    private readonly _mouseStateService: IMouseStateService,
     private readonly _unicodeService: IUnicodeService,
     private readonly _parser: IEscapeSequenceParser = new EscapeSequenceParser()
   ) {
@@ -206,6 +189,9 @@ export class InputHandler extends Disposable implements IInputHandler {
         payload = payload.toArray();
       }
       this._logService.debug('Unknown DCS code: ', { identifier: this._parser.identToString(ident), action, payload });
+    });
+    this._parser.setApcHandlerFallback((ident, action, payload) => {
+      this._logService.debug('Unknown APC code: ', { identifier: this._parser.identToString(ident), action, payload });
     });
 
     /**
@@ -239,6 +225,7 @@ export class InputHandler extends Disposable implements IInputHandler {
     this._parser.registerCsiHandler({ final: 'T' }, params => this.scrollDown(params));
     this._parser.registerCsiHandler({ final: 'X' }, params => this.eraseChars(params));
     this._parser.registerCsiHandler({ final: 'Z' }, params => this.cursorBackwardTab(params));
+    this._parser.registerCsiHandler({ final: '^' }, params => this.scrollDown(params));
     this._parser.registerCsiHandler({ final: '`' }, params => this.charPosAbsolute(params));
     this._parser.registerCsiHandler({ final: 'a' }, params => this.hPositionRelative(params));
     this._parser.registerCsiHandler({ final: 'b' }, params => this.repeatPrecedingCharacter(params));
@@ -256,6 +243,7 @@ export class InputHandler extends Disposable implements IInputHandler {
     this._parser.registerCsiHandler({ final: 'n' }, params => this.deviceStatus(params));
     this._parser.registerCsiHandler({ prefix: '?', final: 'n' }, params => this.deviceStatusPrivate(params));
     this._parser.registerCsiHandler({ intermediates: '!', final: 'p' }, params => this.softReset(params));
+    this._parser.registerCsiHandler({ prefix: '>', final: 'q' }, params => this.sendXtVersion(params));
     this._parser.registerCsiHandler({ intermediates: ' ', final: 'q' }, params => this.setCursorStyle(params));
     this._parser.registerCsiHandler({ final: 'r' }, params => this.setScrollRegion(params));
     this._parser.registerCsiHandler({ final: 's' }, params => this.saveCursor(params));
@@ -266,6 +254,12 @@ export class InputHandler extends Disposable implements IInputHandler {
     this._parser.registerCsiHandler({ intermediates: '"', final: 'q' }, params => this.selectProtected(params));
     this._parser.registerCsiHandler({ intermediates: '$', final: 'p' }, params => this.requestMode(params, true));
     this._parser.registerCsiHandler({ prefix: '?', intermediates: '$', final: 'p' }, params => this.requestMode(params, false));
+
+    // Kitty keyboard protocol handlers
+    this._parser.registerCsiHandler({ prefix: '=', final: 'u' }, params => this.kittyKeyboardSet(params));
+    this._parser.registerCsiHandler({ prefix: '?', final: 'u' }, params => this.kittyKeyboardQuery(params));
+    this._parser.registerCsiHandler({ prefix: '>', final: 'u' }, params => this.kittyKeyboardPush(params));
+    this._parser.registerCsiHandler({ prefix: '<', final: 'u' }, params => this.kittyKeyboardPop(params));
 
     /**
      * execute handler
@@ -395,12 +389,23 @@ export class InputHandler extends Disposable implements IInputHandler {
   private _logSlowResolvingAsync(p: Promise<boolean>): void {
     // log a limited warning about an async handler taking too long
     if (this._logService.logLevel <= LogLevelEnum.WARN) {
-      Promise.race([p, new Promise((res, rej) => setTimeout(() => rej('#SLOW_TIMEOUT'), SLOW_ASYNC_LIMIT))])
-        .catch(err => {
+      let slowTimeout: ReturnType<typeof setTimeout> | undefined;
+      const slowPromise = new Promise<never>((_res, rej) => {
+        slowTimeout = setTimeout(() => rej('#SLOW_TIMEOUT'), Constants.SLOW_ASYNC_LIMIT);
+      });
+      Promise.race([p, slowPromise])
+        .then(() => {
+          if (slowTimeout !== undefined) {
+            clearTimeout(slowTimeout);
+          }
+        }, err => {
+          if (slowTimeout !== undefined) {
+            clearTimeout(slowTimeout);
+          }
           if (err !== '#SLOW_TIMEOUT') {
             throw err;
           }
-          console.warn(`async parser handler taking longer than ${SLOW_ASYNC_LIMIT} ms`);
+          console.warn(`async parser handler taking longer than ${Constants.SLOW_ASYNC_LIMIT} ms`);
         });
     }
   }
@@ -438,8 +443,8 @@ export class InputHandler extends Disposable implements IInputHandler {
       cursorStartX = this._parseStack.cursorStartX;
       cursorStartY = this._parseStack.cursorStartY;
       this._parseStack.paused = false;
-      if (data.length > MAX_PARSEBUFFER_LENGTH) {
-        start = this._parseStack.position + MAX_PARSEBUFFER_LENGTH;
+      if (data.length > Constants.MAX_PARSEBUFFER_LENGTH) {
+        start = this._parseStack.position + Constants.MAX_PARSEBUFFER_LENGTH;
       }
     }
 
@@ -456,8 +461,8 @@ export class InputHandler extends Disposable implements IInputHandler {
 
     // resize input buffer if needed
     if (this._parseBuffer.length < data.length) {
-      if (this._parseBuffer.length < MAX_PARSEBUFFER_LENGTH) {
-        this._parseBuffer = new Uint32Array(Math.min(data.length, MAX_PARSEBUFFER_LENGTH));
+      if (this._parseBuffer.length < Constants.MAX_PARSEBUFFER_LENGTH) {
+        this._parseBuffer = new Uint32Array(Math.min(data.length, Constants.MAX_PARSEBUFFER_LENGTH));
       }
     }
 
@@ -468,9 +473,9 @@ export class InputHandler extends Disposable implements IInputHandler {
     }
 
     // process big data in smaller chunks
-    if (data.length > MAX_PARSEBUFFER_LENGTH) {
-      for (let i = start; i < data.length; i += MAX_PARSEBUFFER_LENGTH) {
-        const end = i + MAX_PARSEBUFFER_LENGTH < data.length ? i + MAX_PARSEBUFFER_LENGTH : data.length;
+    if (data.length > Constants.MAX_PARSEBUFFER_LENGTH) {
+      for (let i = start; i < data.length; i += Constants.MAX_PARSEBUFFER_LENGTH) {
+        const end = i + Constants.MAX_PARSEBUFFER_LENGTH < data.length ? i + Constants.MAX_PARSEBUFFER_LENGTH : data.length;
         const len = (typeof data === 'string')
           ? this._stringDecoder.decode(data.substring(i, end), this._parseBuffer)
           : this._utf8Decoder.decode(data.subarray(i, end), this._parseBuffer);
@@ -518,7 +523,13 @@ export class InputHandler extends Disposable implements IInputHandler {
     const wraparoundMode = this._coreService.decPrivateModes.wraparound;
     const insertMode = this._coreService.modes.insertMode;
     const curAttr = this._curAttrData;
-    let bufferRow = this._activeBuffer.lines.get(this._activeBuffer.ybase + this._activeBuffer.y)!;
+    let bufferRow = this._activeBuffer.lines.get(this._activeBuffer.ybase + this._activeBuffer.y);
+
+    // Defensive check: bufferRow can be undefined if a resize occurred mid-write due to async
+    // scheduling gaps in WriteBuffer. See https://github.com/xtermjs/xterm.js/issues/5597
+    if (!bufferRow) {
+      return;
+    }
 
     this._dirtyRowTracker.markDirty(this._activeBuffer.y);
 
@@ -530,6 +541,12 @@ export class InputHandler extends Disposable implements IInputHandler {
     let precedingJoinState = this._parser.precedingJoinState;
     for (let pos = start; pos < end; ++pos) {
       code = data[pos];
+
+      // Soft hyphen's (U+00AD) behavior is ambiguous and differs across terminals. We opt to treat
+      // it as a zero-width hint to text layout engines and simply ignore it.
+      if (code === 0xAD) {
+        continue;
+      }
 
       // get charset replacement character
       // charset is only defined for ASCII, therefore we only
@@ -550,8 +567,9 @@ export class InputHandler extends Disposable implements IInputHandler {
       if (screenReaderMode) {
         this._onA11yChar.fire(stringFromCodePoint(code));
       }
-      if (this._getCurrentLinkId()) {
-        this._oscLinkService.addLineToLink(this._getCurrentLinkId(), this._activeBuffer.ybase + this._activeBuffer.y);
+      const linkId = this._getCurrentLinkId();
+      if (linkId) {
+        this._oscLinkService.addLineToLink(linkId, this._activeBuffer.ybase + this._activeBuffer.y);
       }
 
       // goto next line if ch would overflow
@@ -577,7 +595,10 @@ export class InputHandler extends Disposable implements IInputHandler {
             this._activeBuffer.lines.get(this._activeBuffer.ybase + this._activeBuffer.y)!.isWrapped = true;
           }
           // row changed, get it again
-          bufferRow = this._activeBuffer.lines.get(this._activeBuffer.ybase + this._activeBuffer.y)!;
+          bufferRow = this._activeBuffer.lines.get(this._activeBuffer.ybase + this._activeBuffer.y);
+          if (!bufferRow) {
+            return;
+          }
           if (oldWidth > 0 && bufferRow instanceof BufferLine) {
             // Combining character widens 1 column to 2.
             // Move old character to next line.
@@ -686,6 +707,13 @@ export class InputHandler extends Disposable implements IInputHandler {
    */
   public registerOscHandler(ident: number, callback: (data: string) => boolean | Promise<boolean>): IDisposable {
     return this._parser.registerOscHandler(ident, new OscHandler(callback));
+  }
+
+  /**
+   * Forward registerApcHandler from parser.
+   */
+  public registerApcHandler(id: IFunctionIdentifier, callback: (data: string) => boolean | Promise<boolean>): IDisposable {
+    return this._parser.registerApcHandler(id, new ApcHandler(callback));
   }
 
   /**
@@ -1145,7 +1173,10 @@ export class InputHandler extends Disposable implements IInputHandler {
    * @param respectProtect Whether to respect the protection attribute (DECSCA).
    */
   private _eraseInBufferLine(y: number, start: number, end: number, clearWrap: boolean = false, respectProtect: boolean = false): void {
-    const line = this._activeBuffer.lines.get(this._activeBuffer.ybase + y)!;
+    const line = this._activeBuffer.lines.get(this._activeBuffer.ybase + y);
+    if (!line) {
+      return;
+    }
     line.replaceCells(
       start,
       end,
@@ -1215,7 +1246,10 @@ export class InputHandler extends Disposable implements IInputHandler {
         this._eraseInBufferLine(j, 0, this._activeBuffer.x + 1, true, respectProtect);
         if (this._activeBuffer.x + 1 >= this._bufferService.cols) {
           // Deleted entire previous line. This next line can no longer be wrapped.
-          this._activeBuffer.lines.get(j + 1)!.isWrapped = false;
+          const nextLine = this._activeBuffer.lines.get(j + 1);
+          if (nextLine) {
+            nextLine.isWrapped = false;
+          }
         }
         while (j--) {
           this._resetBufferLine(j, respectProtect);
@@ -1722,11 +1756,27 @@ export class InputHandler extends Disposable implements IInputHandler {
   }
 
   /**
+   * CSI > Ps q
+   *   Ps = 0  => Report xterm name and version (XTVERSION).
+   *
+   * The response is a DCS sequence identifying the version: DCS > | text ST
+   *
+   * @vt: #Y CSI XTVERSION "Report Xterm Version" "CSI > q" "Report the terminal name and version."
+   */
+  public sendXtVersion(params: IParams): boolean {
+    if (params.params[0] > 0) {
+      return true;
+    }
+    this._coreService.triggerDataEvent(`${C0.ESC}P>|xterm.js(${XTERM_VERSION})${C0.ESC}\\`);
+    return true;
+  }
+
+  /**
    * Evaluate if the current terminal is the given argument.
    * @param term The terminal name to evaluate
    */
   private _is(term: string): boolean {
-    return (this._optionsService.rawOptions.termName + '').indexOf(term) === 0;
+    return (this._optionsService.rawOptions.termName + '').startsWith(term);
   }
 
   /**
@@ -1853,7 +1903,7 @@ export class InputHandler extends Disposable implements IInputHandler {
    * | 7     | Auto-wrap Mode (DECAWM).                                | #Y      |
    * | 8     | Auto-repeat Keys (DECARM). Always on.                   | #N      |
    * | 9     | X10 xterm mouse protocol.                               | #Y      |
-   * | 12    | Start Blinking Cursor.                                  | #Y      |
+   * | 12    | Start Blinking Cursor.                                  | #P[Requires the allowSetCursorBlink quirk option enabled.] |
    * | 25    | Show Cursor (DECTCEM).                                  | #Y      |
    * | 45    | Reverse wrap-around.                                    | #Y      |
    * | 47    | Use Alternate Screen Buffer.                            | #Y      |
@@ -1906,7 +1956,9 @@ export class InputHandler extends Disposable implements IInputHandler {
           this._coreService.decPrivateModes.wraparound = true;
           break;
         case 12:
-          this._optionsService.options.cursorBlink = true;
+          if (this._optionsService.rawOptions.quirks?.allowSetCursorBlink) {
+            this._optionsService.options.cursorBlink = true;
+          }
           break;
         case 45:
           this._coreService.decPrivateModes.reverseWraparound = true;
@@ -1918,19 +1970,19 @@ export class InputHandler extends Disposable implements IInputHandler {
           break;
         case 9: // X10 Mouse
           // no release, no motion, no wheel, no modifiers.
-          this._coreMouseService.activeProtocol = 'X10';
+          this._mouseStateService.activeProtocol = 'X10';
           break;
         case 1000: // vt200 mouse
           // no motion.
-          this._coreMouseService.activeProtocol = 'VT200';
+          this._mouseStateService.activeProtocol = 'VT200';
           break;
         case 1002: // button event mouse
-          this._coreMouseService.activeProtocol = 'DRAG';
+          this._mouseStateService.activeProtocol = 'DRAG';
           break;
         case 1003: // any event mouse
           // any event - sends motion events,
           // even if there is no button held down.
-          this._coreMouseService.activeProtocol = 'ANY';
+          this._mouseStateService.activeProtocol = 'ANY';
           break;
         case 1004: // send focusin/focusout events
           // focusin: ^[[I
@@ -1942,13 +1994,13 @@ export class InputHandler extends Disposable implements IInputHandler {
           this._logService.debug('DECSET 1005 not supported (see #2507)');
           break;
         case 1006: // sgr ext mode mouse
-          this._coreMouseService.activeEncoding = 'SGR';
+          this._mouseStateService.activeEncoding = 'SGR';
           break;
         case 1015: // urxvt ext mode mouse - removed in #2507
           this._logService.debug('DECSET 1015 not supported (see #2507)');
           break;
         case 1016: // sgr pixels mode mouse
-          this._coreMouseService.activeEncoding = 'SGR_PIXELS';
+          this._mouseStateService.activeEncoding = 'SGR_PIXELS';
           break;
         case 25: // show cursor
           this._coreService.isCursorHidden = false;
@@ -1961,6 +2013,12 @@ export class InputHandler extends Disposable implements IInputHandler {
         // FALL-THROUGH
         case 47: // alt screen buffer
         case 1047: // alt screen buffer
+          // Swap kitty keyboard flags: save main, restore alt
+          if (this._optionsService.rawOptions.vtExtensions?.kittyKeyboard) {
+            const state = this._coreService.kittyKeyboard;
+            state.mainFlags = state.flags;
+            state.flags = state.altFlags;
+          }
           this._bufferService.buffers.activateAltBuffer(this._eraseAttrData());
           this._coreService.isCursorInitialized = true;
           this._onRequestRefreshRows.fire(undefined);
@@ -1971,6 +2029,16 @@ export class InputHandler extends Disposable implements IInputHandler {
           break;
         case 2026: // synchronized output (https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md)
           this._coreService.decPrivateModes.synchronizedOutput = true;
+          break;
+        case 2031: // color scheme updates (https://contour-terminal.org/vt-extensions/color-palette-update-notifications/)
+          if (this._optionsService.rawOptions.vtExtensions?.colorSchemeQuery ?? true) {
+            this._coreService.decPrivateModes.colorSchemeUpdates = true;
+          }
+          break;
+        case 9001: // win32-input-mode (https://github.com/microsoft/terminal/blob/main/doc/specs/%234999%20-%20Improved%20keyboard%20handling%20in%20Conpty.md)
+          if (this._optionsService.rawOptions.vtExtensions?.win32InputMode) {
+            this._coreService.decPrivateModes.win32InputMode = true;
+          }
           break;
       }
     }
@@ -2101,7 +2169,7 @@ export class InputHandler extends Disposable implements IInputHandler {
    * | 7     | No Wraparound Mode (DECAWM).                            | #Y      |
    * | 8     | No Auto-repeat Keys (DECARM).                           | #N      |
    * | 9     | Don't send Mouse X & Y on button press.                 | #Y      |
-   * | 12    | Stop Blinking Cursor.                                   | #Y      |
+   * | 12    | Stop Blinking Cursor.                                   | #P[Requires the allowSetCursorBlink quirk option enabled.] |
    * | 25    | Hide Cursor (DECTCEM).                                  | #Y      |
    * | 45    | No reverse wrap-around.                                 | #Y      |
    * | 47    | Use Normal Screen Buffer.                               | #Y      |
@@ -2147,7 +2215,9 @@ export class InputHandler extends Disposable implements IInputHandler {
           this._coreService.decPrivateModes.wraparound = false;
           break;
         case 12:
-          this._optionsService.options.cursorBlink = false;
+          if (this._optionsService.rawOptions.quirks?.allowSetCursorBlink) {
+            this._optionsService.options.cursorBlink = false;
+          }
           break;
         case 45:
           this._coreService.decPrivateModes.reverseWraparound = false;
@@ -2161,7 +2231,7 @@ export class InputHandler extends Disposable implements IInputHandler {
         case 1000: // vt200 mouse
         case 1002: // button event mouse
         case 1003: // any event mouse
-          this._coreMouseService.activeProtocol = 'NONE';
+          this._mouseStateService.activeProtocol = 'NONE';
           break;
         case 1004: // send focusin/focusout events
           this._coreService.decPrivateModes.sendFocus = false;
@@ -2170,13 +2240,13 @@ export class InputHandler extends Disposable implements IInputHandler {
           this._logService.debug('DECRST 1005 not supported (see #2507)');
           break;
         case 1006: // sgr ext mode mouse
-          this._coreMouseService.activeEncoding = 'DEFAULT';
+          this._mouseStateService.activeEncoding = 'DEFAULT';
           break;
         case 1015: // urxvt ext mode mouse - removed in #2507
           this._logService.debug('DECRST 1015 not supported (see #2507)');
           break;
         case 1016: // sgr pixels mode mouse
-          this._coreMouseService.activeEncoding = 'DEFAULT';
+          this._mouseStateService.activeEncoding = 'DEFAULT';
           break;
         case 25: // hide cursor
           this._coreService.isCursorHidden = true;
@@ -2188,6 +2258,12 @@ export class InputHandler extends Disposable implements IInputHandler {
         // FALL-THROUGH
         case 47: // normal screen buffer
         case 1047: // normal screen buffer - clearing it first
+          // Swap kitty keyboard flags: save alt, restore main
+          if (this._optionsService.rawOptions.vtExtensions?.kittyKeyboard) {
+            const state = this._coreService.kittyKeyboard;
+            state.altFlags = state.flags;
+            state.flags = state.mainFlags;
+          }
           // Ensure the selection manager has the correct buffer
           this._bufferService.buffers.activateNormalBuffer();
           if (params.params[i] === 1049) {
@@ -2203,6 +2279,16 @@ export class InputHandler extends Disposable implements IInputHandler {
         case 2026: // synchronized output (https://github.com/contour-terminal/vt-extensions/blob/master/synchronized-output.md)
           this._coreService.decPrivateModes.synchronizedOutput = false;
           this._onRequestRefreshRows.fire(undefined);
+          break;
+        case 2031: // color scheme updates (https://contour-terminal.org/vt-extensions/color-palette-update-notifications/)
+          if (this._optionsService.rawOptions.vtExtensions?.colorSchemeQuery ?? true) {
+            this._coreService.decPrivateModes.colorSchemeUpdates = false;
+          }
+          break;
+        case 9001: // win32-input-mode
+          if (this._optionsService.rawOptions.vtExtensions?.win32InputMode) {
+            this._coreService.decPrivateModes.win32InputMode = false;
+          }
           break;
       }
     }
@@ -2254,7 +2340,7 @@ export class InputHandler extends Disposable implements IInputHandler {
 
     // access helpers
     const dm = this._coreService.decPrivateModes;
-    const { activeProtocol: mouseProtocol, activeEncoding: mouseEncoding } = this._coreMouseService;
+    const { activeProtocol: mouseProtocol, activeEncoding: mouseEncoding } = this._mouseStateService;
     const cs = this._coreService;
     const { buffers, cols } = this._bufferService;
     const { active, alt } = buffers;
@@ -2299,6 +2385,7 @@ export class InputHandler extends Disposable implements IInputHandler {
     if (p === 47 || p === 1047 || p === 1049) return f(p, b2v(active === alt));
     if (p === 2004) return f(p, b2v(dm.bracketedPasteMode));
     if (p === 2026) return f(p, b2v(dm.synchronizedOutput));
+    if (p === 9001) return this._optionsService.rawOptions.vtExtensions?.win32InputMode ? f(p, b2v(dm.win32InputMode)) : f(p, V.NOT_RECOGNIZED);
     return f(p, V.NOT_RECOGNIZED);
   }
 
@@ -2311,7 +2398,7 @@ export class InputHandler extends Disposable implements IInputHandler {
       color &= ~Attributes.RGB_MASK;
       color |= AttributeData.fromColorRGB([c1, c2, c3]);
     } else if (mode === 5) {
-      color &= ~(Attributes.CM_MASK | Attributes.PCOLOR_MASK);
+      color &= ~(Attributes.CM_MASK | Attributes.RGB_MASK);
       color |= Attributes.CM_P256 | (c1 & 0xff);
     }
     return color;
@@ -2476,6 +2563,8 @@ export class InputHandler extends Disposable implements IInputHandler {
    * | 53        | Overlined.                                               | #Y      |
    * | 55        | Not Overlined.                                           | #Y      |
    * | 58        | Underline color: Extended color.                         | #P[Support for RGB and indexed colors, see below.] |
+   * | 221       | Not bold (kitty extension).                              | #Y      |
+   * | 222       | Not faint (kitty extension).                             | #Y      |
    * | 90 - 97   | Bright foreground color (analogous to 30 - 37).          | #Y      |
    * | 100 - 107 | Bright background color (analogous to 40 - 47).          | #Y      |
    *
@@ -2502,10 +2591,6 @@ export class InputHandler extends Disposable implements IInputHandler {
    * | 3      | CMY color.                                                    | #N      |
    * | 4      | CMYK color.                                                   | #N      |
    * | 5      | Indexed (256 colors) as `Ps ; 5 ; INDEX` or `Ps : 5 : INDEX`. | #Y      |
-   *
-   *
-   * FIXME: blinking is implemented in attrs, but not working in renderers?
-   * FIXME: remove dead branch for p=100
    */
   public charAttributes(params: IParams): boolean {
     // Optimize a single SGR0.
@@ -2522,19 +2607,19 @@ export class InputHandler extends Disposable implements IInputHandler {
       p = params.params[i];
       if (p >= 30 && p <= 37) {
         // fg color 8
-        attr.fg &= ~(Attributes.CM_MASK | Attributes.PCOLOR_MASK);
+        attr.fg &= ~(Attributes.CM_MASK | Attributes.RGB_MASK);
         attr.fg |= Attributes.CM_P16 | (p - 30);
       } else if (p >= 40 && p <= 47) {
         // bg color 8
-        attr.bg &= ~(Attributes.CM_MASK | Attributes.PCOLOR_MASK);
+        attr.bg &= ~(Attributes.CM_MASK | Attributes.RGB_MASK);
         attr.bg |= Attributes.CM_P16 | (p - 40);
       } else if (p >= 90 && p <= 97) {
         // fg color 16
-        attr.fg &= ~(Attributes.CM_MASK | Attributes.PCOLOR_MASK);
+        attr.fg &= ~(Attributes.CM_MASK | Attributes.RGB_MASK);
         attr.fg |= Attributes.CM_P16 | (p - 90) | 8;
       } else if (p >= 100 && p <= 107) {
         // bg color 16
-        attr.bg &= ~(Attributes.CM_MASK | Attributes.PCOLOR_MASK);
+        attr.bg &= ~(Attributes.CM_MASK | Attributes.RGB_MASK);
         attr.bg |= Attributes.CM_P16 | (p - 100) | 8;
       } else if (p === 0) {
         // default
@@ -2594,11 +2679,11 @@ export class InputHandler extends Disposable implements IInputHandler {
       } else if (p === 39) {
         // reset fg
         attr.fg &= ~(Attributes.CM_MASK | Attributes.RGB_MASK);
-        attr.fg |= DEFAULT_ATTR_DATA.fg & (Attributes.PCOLOR_MASK | Attributes.RGB_MASK);
+        attr.fg |= DEFAULT_ATTR_DATA.fg & Attributes.RGB_MASK;
       } else if (p === 49) {
         // reset bg
         attr.bg &= ~(Attributes.CM_MASK | Attributes.RGB_MASK);
-        attr.bg |= DEFAULT_ATTR_DATA.bg & (Attributes.PCOLOR_MASK | Attributes.RGB_MASK);
+        attr.bg |= DEFAULT_ATTR_DATA.bg & Attributes.RGB_MASK;
       } else if (p === 38 || p === 48 || p === 58) {
         // fg color 256 and RGB
         i += this._extractColor(params, i, attr);
@@ -2608,16 +2693,16 @@ export class InputHandler extends Disposable implements IInputHandler {
       } else if (p === 55) {
         // not overline
         attr.bg &= ~BgFlags.OVERLINE;
+      } else if (p === 221 && (this._optionsService.rawOptions.vtExtensions?.kittySgrBoldFaintControl ?? true)) {
+        // not bold (kitty extension)
+        attr.fg &= ~FgFlags.BOLD;
+      } else if (p === 222 && (this._optionsService.rawOptions.vtExtensions?.kittySgrBoldFaintControl ?? true)) {
+        // not faint (kitty extension)
+        attr.bg &= ~BgFlags.DIM;
       } else if (p === 59) {
         attr.extended = attr.extended.clone();
         attr.extended.underlineColor = -1;
         attr.updateExtended();
-      } else if (p === 100) { // FIXME: dead branch, p=100 already handled above!
-        // reset fg/bg
-        attr.fg &= ~(Attributes.CM_MASK | Attributes.RGB_MASK);
-        attr.fg |= DEFAULT_ATTR_DATA.fg & (Attributes.PCOLOR_MASK | Attributes.RGB_MASK);
-        attr.bg &= ~(Attributes.CM_MASK | Attributes.RGB_MASK);
-        attr.bg |= DEFAULT_ATTR_DATA.bg & (Attributes.PCOLOR_MASK | Attributes.RGB_MASK);
       } else {
         this._logService.debug('Unknown SGR attribute: %d.', p);
       }
@@ -2692,6 +2777,12 @@ export class InputHandler extends Disposable implements IInputHandler {
       case 53:
         // no dec locator/mouse
         // this.handler(C0.ESC + '[?50n');
+        break;
+      case 996:
+        // color scheme query (https://contour-terminal.org/vt-extensions/color-palette-update-notifications/)
+        if (this._optionsService.rawOptions.vtExtensions?.colorSchemeQuery ?? true) {
+          this._onRequestColorSchemeQuery.fire();
+        }
         break;
     }
     return true;
@@ -2859,13 +2950,13 @@ export class InputHandler extends Disposable implements IInputHandler {
       case 22:  // PushTitle
         if (second === 0 || second === 2) {
           this._windowTitleStack.push(this._windowTitle);
-          if (this._windowTitleStack.length > STACK_LIMIT) {
+          if (this._windowTitleStack.length > Constants.STACK_LIMIT) {
             this._windowTitleStack.shift();
           }
         }
         if (second === 0 || second === 1) {
           this._iconNameStack.push(this._iconName);
-          if (this._iconNameStack.length > STACK_LIMIT) {
+          if (this._iconNameStack.length > Constants.STACK_LIMIT) {
             this._iconNameStack.shift();
           }
         }
@@ -2901,6 +2992,10 @@ export class InputHandler extends Disposable implements IInputHandler {
     this._activeBuffer.savedCurAttrData.fg = this._curAttrData.fg;
     this._activeBuffer.savedCurAttrData.bg = this._curAttrData.bg;
     this._activeBuffer.savedCharset = this._charsetService.charset;
+    this._activeBuffer.savedCharsets = this._charsetService.charsets.slice();
+    this._activeBuffer.savedGlevel = this._charsetService.glevel;
+    this._activeBuffer.savedOriginMode = this._coreService.decPrivateModes.origin;
+    this._activeBuffer.savedWraparoundMode = this._coreService.decPrivateModes.wraparound;
     return true;
   }
 
@@ -2918,14 +3013,15 @@ export class InputHandler extends Disposable implements IInputHandler {
     this._activeBuffer.y = Math.max(this._activeBuffer.savedY - this._activeBuffer.ybase, 0);
     this._curAttrData.fg = this._activeBuffer.savedCurAttrData.fg;
     this._curAttrData.bg = this._activeBuffer.savedCurAttrData.bg;
-    this._charsetService.charset = (this as any)._savedCharset;
-    if (this._activeBuffer.savedCharset) {
-      this._charsetService.charset = this._activeBuffer.savedCharset;
+    for (let i = 0; i < this._activeBuffer.savedCharsets.length; i++) {
+      this._charsetService.setgCharset(i, this._activeBuffer.savedCharsets[i]);
     }
+    this._charsetService.setgLevel(this._activeBuffer.savedGlevel);
+    this._coreService.decPrivateModes.origin = this._activeBuffer.savedOriginMode;
+    this._coreService.decPrivateModes.wraparound = this._activeBuffer.savedWraparoundMode;
     this._restrictCursor();
     return true;
   }
-
 
   /**
    * OSC 2; <data> ST (set window title)
@@ -2969,7 +3065,7 @@ export class InputHandler extends Disposable implements IInputHandler {
       const idx = slots.shift() as string;
       const spec = slots.shift() as string;
       if (/^\d+$/.exec(idx)) {
-        const index = parseInt(idx);
+        const index = parseInt(idx, 10);
         if (isValidColorIndex(index)) {
           if (spec === '?') {
             event.push({ type: ColorRequestType.REPORT, index });
@@ -3132,7 +3228,7 @@ export class InputHandler extends Disposable implements IInputHandler {
     const slots = data.split(';');
     for (let i = 0; i < slots.length; ++i) {
       if (/^\d+$/.exec(slots[i])) {
-        const index = parseInt(slots[i]);
+        const index = parseInt(slots[i], 10);
         if (isValidColorIndex(index)) {
           event.push({ type: ColorRequestType.RESTORE, index });
         }
@@ -3249,7 +3345,7 @@ export class InputHandler extends Disposable implements IInputHandler {
     if (collectAndFlag[0] === '/') {
       return true;  // TODO: Is this supported?
     }
-    this._charsetService.setgCharset(GLEVEL[collectAndFlag[0]], CHARSETS[collectAndFlag[1]] || DEFAULT_CHARSET);
+    this._charsetService.setgCharset(GLEVEL[collectAndFlag[0]], CHARSETS[collectAndFlag[1]] ?? DEFAULT_CHARSET);
     return true;
   }
 
@@ -3320,6 +3416,8 @@ export class InputHandler extends Disposable implements IInputHandler {
    * ESC c
    *   DEC mnemonic: RIS (https://vt100.net/docs/vt510-rm/RIS.html)
    *   Reset to initial state.
+   *
+   * @vt: #Y ESC  RIS "Full Reset" "ESC c"  "Reset to initial state."
    */
   public fullReset(): boolean {
     this._parser.reset();
@@ -3436,6 +3534,107 @@ export class InputHandler extends Disposable implements IInputHandler {
   public markRangeDirty(y1: number, y2: number): void {
     this._dirtyRowTracker.markRangeDirty(y1, y2);
   }
+
+  // #region Kitty keyboard
+
+  /**
+   * CSI = flags ; mode u
+   * Set Kitty keyboard protocol flags.
+   * mode: 1=set, 2=set-only-specified, 3=reset-only-specified
+   *
+   * @vt: #Y CSI KKBDSET "Kitty Keyboard Set" "CSI = Ps ; Pm u" "Set Kitty keyboard protocol flags."
+   */
+  public kittyKeyboardSet(params: IParams): boolean {
+    if (!this._optionsService.rawOptions.vtExtensions?.kittyKeyboard) {
+      return true;
+    }
+    const flags = params.params[0] || 0;
+    const mode = params.length > 1 ? (params.params[1] || 1) : 1;
+    const state = this._coreService.kittyKeyboard;
+
+    switch (mode) {
+      case 1: // Set all flags
+        state.flags = flags;
+        break;
+      case 2: // Set only specified flags (OR)
+        state.flags |= flags;
+        break;
+      case 3: // Reset only specified flags (AND NOT)
+        state.flags &= ~flags;
+        break;
+    }
+    return true;
+  }
+
+  /**
+   * CSI ? u
+   * Query Kitty keyboard protocol flags.
+   * Terminal responds with CSI ? flags u
+   *
+   * @vt: #Y CSI KKBDQUERY "Kitty Keyboard Query" "CSI ? u" "Query Kitty keyboard protocol flags."
+   */
+  public kittyKeyboardQuery(params: IParams): boolean {
+    if (!this._optionsService.rawOptions.vtExtensions?.kittyKeyboard) {
+      return true;
+    }
+    const flags = this._coreService.kittyKeyboard.flags;
+    this._coreService.triggerDataEvent(`${C0.ESC}[?${flags}u`);
+    return true;
+  }
+
+  /**
+   * CSI > flags u
+   * Push Kitty keyboard flags onto stack and set new flags.
+   *
+   * @vt: #Y CSI KKBDPUSH "Kitty Keyboard Push" "CSI > Ps u" "Push keyboard flags to stack and set new flags."
+   */
+  public kittyKeyboardPush(params: IParams): boolean {
+    if (!this._optionsService.rawOptions.vtExtensions?.kittyKeyboard) {
+      return true;
+    }
+    const flags = params.params[0] || 0;
+    const state = this._coreService.kittyKeyboard;
+    const isAlt = this._bufferService.buffer === this._bufferService.buffers.alt;
+    const stack = isAlt ? state.altStack : state.mainStack;
+
+    // Evict oldest entry if stack is full (DoS protection, limit of 16)
+    if (stack.length >= 16) {
+      stack.shift();
+    }
+
+    // Push current flags onto stack and set new flags
+    stack.push(state.flags);
+    state.flags = flags;
+    return true;
+  }
+
+  /**
+   * CSI < count u
+   * Pop Kitty keyboard flags from stack.
+   *
+   * @vt: #Y CSI KKBDPOP "Kitty Keyboard Pop" "CSI < Ps u" "Pop keyboard flags from stack."
+   */
+  public kittyKeyboardPop(params: IParams): boolean {
+    if (!this._optionsService.rawOptions.vtExtensions?.kittyKeyboard) {
+      return true;
+    }
+    const count = Math.max(1, params.params[0] || 1);
+    const state = this._coreService.kittyKeyboard;
+    const isAlt = this._bufferService.buffer === this._bufferService.buffers.alt;
+    const stack = isAlt ? state.altStack : state.mainStack;
+
+    // Pop specified number of entries from stack
+    for (let i = 0; i < count && stack.length > 0; i++) {
+      state.flags = stack.pop()!;
+    }
+    // If stack is empty after popping, reset to 0
+    if (stack.length === 0 && count > 0) {
+      state.flags = 0;
+    }
+    return true;
+  }
+
+  // #endregion
 }
 
 export interface IDirtyRowTracker {

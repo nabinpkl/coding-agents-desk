@@ -12,11 +12,14 @@ importers:
         specifier: link:../../vendor/xterm/package
         version: link:../../vendor/xterm/package
       '@xterm/addon-fit':
-        specifier: 0.11.0
-        version: 0.11.0
+        specifier: 0.12.0-beta.292
+        version: 0.12.0-beta.292(@xterm/xterm@..+vendor+xterm+package)
       '@xterm/addon-webgl':
-        specifier: 0.19.0
-        version: 0.19.0
+        specifier: 0.20.0-beta.291
+        version: 0.20.0-beta.291(@xterm/xterm@..+vendor+xterm+package)
+      '@xterm/xterm':
+        specifier: link:../../vendor/xterm/package
+        version: link:../../vendor/xterm/package
     devDependencies:
       esbuild:
         specifier: 0.28.1
@@ -180,11 +183,15 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@xterm/addon-fit@0.11.0':
-    resolution: {integrity: sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g==}
+  '@xterm/addon-fit@0.12.0-beta.292':
+    resolution: {integrity: sha512-SIuWR0KM2IpmumVqL4L43aOUeTEUeN82ItyrUFHGFtfj3veoAIbPapxJPj7O0tYngfiiHZqqm1+XsZp/Fc8LLA==}
+    peerDependencies:
+      '@xterm/xterm': ^6.1.0-beta.292
 
-  '@xterm/addon-webgl@0.19.0':
-    resolution: {integrity: sha512-b3fMOsyLVuCeNJWxolACEUED0vm7qC0cy4wRvf3oURSzDTYVQiGPhTnhWZwIHdvC48Y+oLhvYXnY4XDXPoJo6A==}
+  '@xterm/addon-webgl@0.20.0-beta.291':
+    resolution: {integrity: sha512-gH7r5g8f2NWMhBtaeApuwLQTJmX4uq7zT0okjeNWkFAD0nxzbUPB+kt6sogZZ5K90XYPt2OLu/bhuvF6DmKqOQ==}
+    peerDependencies:
+      '@xterm/xterm': ^6.1.0-beta.292
 
   esbuild@0.28.1:
     resolution: {integrity: sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==}
@@ -271,9 +278,13 @@ snapshots:
   '@esbuild/win32-x64@0.28.1':
     optional: true
 
-  '@xterm/addon-fit@0.11.0': {}
+  '@xterm/addon-fit@0.12.0-beta.292(@xterm/xterm@..+vendor+xterm+package)':
+    dependencies:
+      '@xterm/xterm': link:../../vendor/xterm/package
 
-  '@xterm/addon-webgl@0.19.0': {}
+  '@xterm/addon-webgl@0.20.0-beta.291(@xterm/xterm@..+vendor+xterm+package)':
+    dependencies:
+      '@xterm/xterm': link:../../vendor/xterm/package
 
   esbuild@0.28.1:
     optionalDependencies:

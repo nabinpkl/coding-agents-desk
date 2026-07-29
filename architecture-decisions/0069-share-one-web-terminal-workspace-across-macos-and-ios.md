@@ -37,12 +37,14 @@ AppKit and UIKit retain lifecycle, transport construction, clipboard writes, ext
 areas, keyboard dismissal, and accessibility activation. Workspace mode is used by full Terminal
 surfaces; embedded Agent and Workspace terminals use the same runtime in single-session mode.
 
-The maintained xterm.js 6.0.0 release is pinned at upstream revision
-`f447274f430fd22513f6adbf9862d19524471c04`. AgentDesk carries one narrow fork that exposes
-`onUserData` only when xterm's existing user-input provenance flag is true. Keyboard, IME, paste, and
-user mouse data reach the PTY. Parser-generated replies do not, so one Rust headless terminal answers
-each terminal query regardless of viewer count. The fork retains the upstream MIT license and a
-source/build audit.
+The maintained xterm.js 6.1 beta is pinned as package `6.1.0-beta.292` at upstream revision
+`904ae935269eef5ec6a1415b64463c3d02eff1eb`, with the coordinate validation from upstream PR
+`#6059` backported while that fix remains open. This revision supplies touch scrolling for normal
+scrollback, alternate buffers, and mouse-reporting terminal applications. AgentDesk carries one
+narrow fork that exposes `onUserData` only when xterm's existing user-input provenance flag is true.
+Keyboard, IME, paste, and user mouse data reach the PTY. Parser-generated replies do not, so one Rust
+headless terminal answers each terminal query regardless of viewer count. The fork retains the
+upstream MIT license and a source/build audit.
 
 Native-to-web delivery is serialized and bounded to 1 MiB of live output per terminal and 32 MiB per
 WKWebView. A renderer failure discards affected deltas, reloads the private nonpersistent runtime, and
@@ -76,5 +78,6 @@ the iOS visible pass remains behind the repository launch checkpoint.
 - ADR-0066 bounded Rust-owned replay
 - ADR-0067 readable follower fit and crop
 - ADR-0068 active-viewer source sizing
-- xterm.js 6.0.0 release, 2025-12-22: https://github.com/xtermjs/xterm.js/releases/tag/6.0.0
-- xterm.js revision `f447274`, 2025-12-22: https://github.com/xtermjs/xterm.js/commit/f447274f430fd22513f6adbf9862d19524471c04
+- xterm.js `6.1.0-beta.292` revision `904ae93`, 2026-07-27: https://github.com/xtermjs/xterm.js/commit/904ae935269eef5ec6a1415b64463c3d02eff1eb
+- xterm.js touch scrolling fix, 2026-02-08: https://github.com/xtermjs/xterm.js/commit/38913e4ae15289227b79da4f9004e1ccd608071c
+- xterm.js PR `#6059` coordinate hardening, 2026-07-22: https://github.com/xtermjs/xterm.js/pull/6059

@@ -3,8 +3,8 @@
  * @license MIT
  */
 
-import { ICharsetService } from 'common/services/Services';
-import { ICharset } from 'common/Types';
+import { ICharsetService } from './Services';
+import { ICharset } from '../Types';
 
 export class CharsetService implements ICharsetService {
   public serviceBrand: any;
@@ -13,6 +13,10 @@ export class CharsetService implements ICharsetService {
   public glevel: number = 0;
 
   private _charsets: (ICharset | undefined)[] = [];
+
+  public get charsets(): (ICharset | undefined)[] {
+    return this._charsets;
+  }
 
   public reset(): void {
     this.charset = undefined;

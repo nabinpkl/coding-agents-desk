@@ -3,10 +3,10 @@
  * @license MIT
  */
 
-import { IOptionsService } from 'common/services/Services';
-import { ICharSizeService } from 'browser/services/Services';
-import { Disposable } from 'vs/base/common/lifecycle';
-import { Emitter } from 'vs/base/common/event';
+import { IOptionsService } from '../../common/services/Services';
+import { ICharSizeService } from './Services';
+import { Disposable } from '../../common/Lifecycle';
+import { Emitter } from '../../common/Event';
 
 export class CharSizeService extends Disposable implements ICharSizeService {
   public serviceBrand: undefined;

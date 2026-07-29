@@ -3,12 +3,10 @@
  * @license MIT
  */
 
-import { IDisposable } from 'common/Types';
-import { ParserState } from 'common/parser/Constants';
+import { IDisposable, IParams, ParamsArray } from '../Types';
+import { ParserState } from './Constants';
 
-
-/** sequence params serialized to js arrays */
-export type ParamsArray = (number | number[])[];
+export type { IParams, ParamsArray };
 
 /** Params constructor type. */
 export interface IParamsConstructor {
@@ -16,27 +14,6 @@ export interface IParamsConstructor {
 
   /** create params from ParamsArray */
   fromArray(values: ParamsArray): IParams;
-}
-
-/** Interface of Params storage class. */
-export interface IParams {
-  /** from ctor */
-  maxLength: number;
-  maxSubParamsLength: number;
-
-  /** param values and its length */
-  params: Int32Array;
-  length: number;
-
-  /** methods */
-  clone(): IParams;
-  toArray(): ParamsArray;
-  reset(): void;
-  addParam(value: number): void;
-  addSubParam(value: number): void;
-  hasSubParams(idx: number): boolean;
-  getSubParams(idx: number): Int32Array | null;
-  getSubParamsAll(): {[idx: number]: Int32Array};
 }
 
 /**
@@ -107,7 +84,7 @@ export type EscFallbackHandlerType = (identifier: number) => void;
 /**
  * EXECUTE handler types.
  */
-export type ExecuteHandlerType = () => boolean;
+export type ExecuteHandlerType = (ident?: number) => boolean;
 export type ExecuteFallbackHandlerType = (ident: number) => void;
 
 /**
@@ -133,6 +110,29 @@ export interface IOscHandler {
   end(success: boolean): boolean | Promise<boolean>;
 }
 export type OscFallbackHandlerType = (ident: number, action: 'START' | 'PUT' | 'END', payload?: any) => void;
+
+/**
+ * APC handler types.
+ */
+export interface IApcHandler {
+  /**
+   * Announces start of this APC command.
+   * Prepare needed data structures here.
+   */
+  start(): void;
+  /**
+   * Incoming data chunk.
+   */
+  put(data: Uint32Array, start: number, end: number): void;
+  /**
+   * End of APC command. `success` indicates whether the
+   * command finished normally or got aborted, thus final
+   * execution of the command should depend on `success`.
+   * To save memory also cleanup data structures here.
+   */
+  end(success: boolean): boolean | Promise<boolean>;
+}
+export type ApcFallbackHandlerType = (ident: number, action: 'START' | 'PUT' | 'END', payload?: any) => void;
 
 /**
  * PRINT handler types.
@@ -196,6 +196,10 @@ export interface IEscapeSequenceParser extends IDisposable {
   clearOscHandler(ident: number): void;
   setOscHandlerFallback(handler: OscFallbackHandlerType): void;
 
+  registerApcHandler(id: IFunctionIdentifier, handler: IApcHandler): IDisposable;
+  clearApcHandler(id: IFunctionIdentifier): void;
+  setApcHandlerFallback(handler: ApcFallbackHandlerType): void;
+
   setErrorHandler(handler: (state: IParsingState) => IParsingState): void;
   clearErrorHandler(): void;
 }
@@ -223,10 +227,15 @@ export interface IDcsParser extends ISubParser<IDcsHandler, DcsFallbackHandlerTy
   unhook(success: boolean, promiseResult?: boolean): void | Promise<boolean>;
 }
 
+export interface IApcParser extends ISubParser<IApcHandler, ApcFallbackHandlerType> {
+  start(ident: number): void;
+  end(success: boolean, promiseResult?: boolean): void | Promise<boolean>;
+}
+
 /**
  * Interface to denote a specific ESC, CSI or DCS handler slot.
- * The values are used to create an integer respresentation during handler
- * regristation before passed to the subparsers as `ident`.
+ * The values are used to create an integer representation during handler
+ * registration before passed to the subparsers as `ident`.
  * The integer translation is made to allow a faster handler access
  * in `EscapeSequenceParser.parse`.
  */
@@ -252,7 +261,8 @@ export const enum ParserStackType {
   CSI,
   ESC,
   OSC,
-  DCS
+  DCS,
+  APC
 }
 
 // aggregate of resumable handler lists

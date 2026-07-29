@@ -3,10 +3,11 @@
  * @license MIT
  */
 
-import { IOscHandler, IHandlerCollection, OscFallbackHandlerType, IOscParser, ISubParserStackState } from 'common/parser/Types';
-import { OscState, PAYLOAD_LIMIT } from 'common/parser/Constants';
-import { utf32ToString } from 'common/input/TextDecoder';
-import { IDisposable } from 'common/Types';
+import { IOscHandler, IHandlerCollection, OscFallbackHandlerType, IOscParser, ISubParserStackState } from './Types';
+import { OscState, ParserConstants } from './Constants';
+import { utf32ToString } from '../input/TextDecoder';
+import { IDisposable } from '../Types';
+import { LimitedStringBuilder } from '../StringBuilder';
 
 const EMPTY_HANDLERS: IOscHandler[] = [];
 
@@ -23,9 +24,7 @@ export class OscParser implements IOscParser {
   };
 
   public registerHandler(ident: number, handler: IOscHandler): IDisposable {
-    if (this._handlers[ident] === undefined) {
-      this._handlers[ident] = [];
-    }
+    this._handlers[ident] ??= [];
     const handlerList = this._handlers[ident];
     handlerList.push(handler);
     return {
@@ -194,13 +193,15 @@ export class OscParser implements IOscParser {
  * as OSC handlers.
  */
 export class OscHandler implements IOscHandler {
-  private _data = '';
+  private static _payloadLimit = ParserConstants.PAYLOAD_LIMIT;
+
+  private _data = new LimitedStringBuilder(OscHandler._payloadLimit);
   private _hitLimit: boolean = false;
 
   constructor(private _handler: (data: string) => boolean | Promise<boolean>) { }
 
   public start(): void {
-    this._data = '';
+    this._data.reset();
     this._hitLimit = false;
   }
 
@@ -208,9 +209,7 @@ export class OscHandler implements IOscHandler {
     if (this._hitLimit) {
       return;
     }
-    this._data += utf32ToString(data, start, end);
-    if (this._data.length > PAYLOAD_LIMIT) {
-      this._data = '';
+    if (this._data.append(utf32ToString(data, start, end))) {
       this._hitLimit = true;
     }
   }
@@ -220,18 +219,18 @@ export class OscHandler implements IOscHandler {
     if (this._hitLimit) {
       ret = false;
     } else if (success) {
-      ret = this._handler(this._data);
+      ret = this._handler(this._data.toString());
       if (ret instanceof Promise) {
         // need to hold data until `ret` got resolved
         // dont care for errors, data will be freed anyway on next start
         return ret.then(res => {
-          this._data = '';
+          this._data.reset();
           this._hitLimit = false;
           return res;
         });
       }
     }
-    this._data = '';
+    this._data.reset();
     this._hitLimit = false;
     return ret;
   }

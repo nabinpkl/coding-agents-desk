@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { ColorZoneStore, IColorZone, IColorZoneStore } from 'browser/decorations/ColorZoneStore';
-import { ICoreBrowserService, IRenderService, IThemeService } from 'browser/services/Services';
-import { Disposable, toDisposable } from 'vs/base/common/lifecycle';
-import { IBufferService, IDecorationService, IOptionsService } from 'common/services/Services';
+import { ColorZoneStore, IColorZone, IColorZoneStore } from './ColorZoneStore';
+import { ICoreBrowserService, IRenderService, IThemeService } from '../services/Services';
+import { Disposable, toDisposable } from '../../common/Lifecycle';
+import { IBufferService, IDecorationService, IOptionsService } from '../../common/services/Services';
 
 const enum Constants {
   OVERVIEW_RULER_BORDER_WIDTH = 1
@@ -38,15 +38,18 @@ export class OverviewRulerRenderer extends Disposable {
   private readonly _ctx: CanvasRenderingContext2D;
   private readonly _colorZoneStore: IColorZoneStore = new ColorZoneStore();
   private get _width(): number {
-    return this._optionsService.options.overviewRuler?.width || 0;
+    const scrollbar = this._optionsService.rawOptions.scrollbar;
+    const showScrollbar = scrollbar?.showScrollbar ?? true;
+    if (!showScrollbar) {
+      return 0;
+    }
+    return scrollbar?.width ?? 0;
   }
   private _animationFrame: number | undefined;
 
   private _shouldUpdateDimensions: boolean | undefined = true;
   private _shouldUpdateAnchor: boolean | undefined = true;
   private _lastKnownBufferLength: number = 0;
-
-  private _containerHeight: number | undefined;
 
   constructor(
     private readonly _viewportElement: HTMLElement,
@@ -86,17 +89,17 @@ export class OverviewRulerRenderer extends Disposable {
       }
     }));
 
-    // Container height changed
-    this._register(this._renderService.onRender((): void => {
-      if (!this._containerHeight || this._containerHeight !== this._screenElement.clientHeight) {
-        this._queueRefresh(true);
-        this._containerHeight = this._screenElement.clientHeight;
-      }
-    }));
+    this._register(this._renderService.onDimensionsChange(() => this._queueRefresh(true)));
 
     this._register(this._coreBrowserService.onDprChange(() => this._queueRefresh(true)));
-    this._register(this._optionsService.onSpecificOptionChange('overviewRuler', () => this._queueRefresh(true)));
+    this._register(this._optionsService.onSpecificOptionChange('scrollbar', () => this._queueRefresh(true)));
     this._register(this._themeService.onChangeColors(() => this._queueRefresh()));
+    this._register(toDisposable(() => {
+      if (this._animationFrame !== undefined) {
+        this._coreBrowserService.window.cancelAnimationFrame(this._animationFrame);
+        this._animationFrame = undefined;
+      }
+    }));
     this._queueRefresh(true);
   }
 
@@ -139,15 +142,23 @@ export class OverviewRulerRenderer extends Disposable {
   }
 
   private _refreshCanvasDimensions(): void {
+    if (this._store.isDisposed || !this._renderService.hasRenderer()) {
+      return;
+    }
+    const cssCanvasHeight = this._renderService.dimensions.css.canvas.height;
+    const deviceCanvasHeight = this._renderService.dimensions.device.canvas.height;
     this._canvas.style.width = `${this._width}px`;
     this._canvas.width = Math.round(this._width * this._coreBrowserService.dpr);
-    this._canvas.style.height = `${this._screenElement.clientHeight}px`;
-    this._canvas.height = Math.round(this._screenElement.clientHeight * this._coreBrowserService.dpr);
+    this._canvas.style.height = `${cssCanvasHeight}px`;
+    this._canvas.height = deviceCanvasHeight;
     this._refreshDrawConstants();
     this._refreshColorZonePadding();
   }
 
   private _refreshDecorations(): void {
+    if (this._store.isDisposed || !this._renderService.hasRenderer()) {
+      return;
+    }
     if (this._shouldUpdateDimensions) {
       this._refreshCanvasDimensions();
     }
@@ -176,10 +187,10 @@ export class OverviewRulerRenderer extends Disposable {
   private _renderRulerOutline(): void {
     this._ctx.fillStyle = this._themeService.colors.overviewRulerBorder.css;
     this._ctx.fillRect(0, 0, Constants.OVERVIEW_RULER_BORDER_WIDTH, this._canvas.height);
-    if (this._optionsService.rawOptions.overviewRuler.showTopBorder) {
+    if (this._optionsService.rawOptions.scrollbar?.overviewRuler?.showTopBorder) {
       this._ctx.fillRect(Constants.OVERVIEW_RULER_BORDER_WIDTH, 0, this._canvas.width - Constants.OVERVIEW_RULER_BORDER_WIDTH, Constants.OVERVIEW_RULER_BORDER_WIDTH);
     }
-    if (this._optionsService.rawOptions.overviewRuler.showBottomBorder) {
+    if (this._optionsService.rawOptions.scrollbar?.overviewRuler?.showBottomBorder) {
       this._ctx.fillRect(Constants.OVERVIEW_RULER_BORDER_WIDTH, this._canvas.height - Constants.OVERVIEW_RULER_BORDER_WIDTH, this._canvas.width - Constants.OVERVIEW_RULER_BORDER_WIDTH, this._canvas.height);
     }
   }
@@ -201,13 +212,18 @@ export class OverviewRulerRenderer extends Disposable {
   }
 
   private _queueRefresh(updateCanvasDimensions?: boolean, updateAnchor?: boolean): void {
+    if (this._store.isDisposed) {
+      return;
+    }
     this._shouldUpdateDimensions = updateCanvasDimensions || this._shouldUpdateDimensions;
     this._shouldUpdateAnchor = updateAnchor || this._shouldUpdateAnchor;
     if (this._animationFrame !== undefined) {
       return;
     }
     this._animationFrame = this._coreBrowserService.window.requestAnimationFrame(() => {
-      this._refreshDecorations();
+      if (!this._store.isDisposed) {
+        this._refreshDecorations();
+      }
       this._animationFrame = undefined;
     });
   }

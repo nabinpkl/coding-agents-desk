@@ -4,12 +4,14 @@ import test from 'node:test';
 
 test('fork exposes user-only input without replacing onData', async () => {
   const core = await readFile(new URL('../package/src/common/services/CoreService.ts', import.meta.url), 'utf8');
+  const coreTerminal = await readFile(new URL('../package/src/common/CoreTerminal.ts', import.meta.url), 'utf8');
   const terminal = await readFile(new URL('../package/src/browser/public/Terminal.ts', import.meta.url), 'utf8');
   const typings = await readFile(new URL('../package/typings/xterm.d.ts', import.meta.url), 'utf8');
 
   assert.match(core, /if \(wasUserInput\)[\s\S]*_onUserData\.fire\(data\)/);
   assert.match(core, /_onData\.fire\(data\)/);
-  assert.match(terminal, /get onUserData\(\)/);
+  assert.match(coreTerminal, /forward\(this\.coreService\.onUserData, this\._onUserData\)/);
+  assert.match(terminal, /get onUserData\(\)[\s\S]*this\._core\.onUserData/);
   assert.match(typings, /onUserData: IEvent<string>/);
 });
 
@@ -18,9 +20,9 @@ test('keyboard, IME, paste, selection and text mouse reports are marked as user 
   const composition = await readFile(new URL('../package/src/browser/input/CompositionHelper.ts', import.meta.url), 'utf8');
   const clipboard = await readFile(new URL('../package/src/browser/Clipboard.ts', import.meta.url), 'utf8');
   const selection = await readFile(new URL('../package/src/browser/services/SelectionService.ts', import.meta.url), 'utf8');
-  const mouse = await readFile(new URL('../package/src/common/services/CoreMouseService.ts', import.meta.url), 'utf8');
+  const mouse = await readFile(new URL('../package/src/browser/services/MouseService.ts', import.meta.url), 'utf8');
 
-  assert.match(browser, /triggerDataEvent\(result\.key, true\)/);
+  assert.match(browser, /triggerDataEvent\(result\.key, !wasModifierOnly\)/);
   assert.match(browser, /triggerDataEvent\(key, true\)/);
   assert.match(browser, /triggerDataEvent\(text, true\)/);
   assert.ok(allCallsAreUserInput(composition), 'every IME data event must carry user provenance');
