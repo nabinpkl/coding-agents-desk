@@ -1057,12 +1057,12 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
     # host's own code default carries it (single source of truth). The native-messaging
     # bridge is wired at the end of this recipe so browser mode works out of the box.
     if [ "{{variant}}" = "dev" ]; then
-        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app}}'; SIGPORT=41988; FEEDPORT=7782
+        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app}}'; SIGPORT=41988; FEEDPORT=7782; VOICEPORT=7792
         PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_dev_support_dir}}/pty-vault.sock'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
-        DD='{{derived_data}}'; APP='{{host_app}}'; SIGPORT=41888; FEEDPORT=7682
+        DD='{{derived_data}}'; APP='{{host_app}}'; SIGPORT=41888; FEEDPORT=7682; VOICEPORT=7692
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
         EXTRA=()
@@ -1074,30 +1074,40 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
         ps -axo pid=,command= | awk -v manager="$PTY_SOCKET" -v vault="$PTY_VAULT_SOCKET" \
             '(index($0, "pty-manager --socket") && index($0, manager)) || (index($0, "pty-vault --socket") && index($0, vault)) { print $1 }'
     }
-    cleanup_agent_feed_sidecar() {
+    # Reclaim a host-owned loopback port from a sidecar the previous host left behind.
+    #
+    # A host that dies without running its teardown leaves its children running, and a sidecar
+    # still holding its port makes every later one fail to bind. This is generic on purpose:
+    # adding a service should be one call here, not a copied block, because the copy is the step
+    # that gets forgotten. It was forgotten for the voice server, and an orphan of it survived a
+    # host crash and spun the next host's supervisor into 1404 restarts.
+    #
+    # Refuses to kill anything that is not ours, so a stranger on the port is reported, not shot.
+    cleanup_sidecar_port() {
+        local label="$1" port="$2" expect="$3"
         local pids pid cmd live
-        pids="$(lsof -nP -iTCP:"$FEEDPORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+        pids="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
         [ -z "$pids" ] && return 0
         for pid in $pids; do
             cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-            if [[ "$cmd" != *"/AgentDeskHost.app/Contents/Resources/agent-feed-sidecar"* ]]; then
-                echo "ERROR: agent-feed sidecar port $FEEDPORT is held by a non-AgentDesk process: pid=$pid cmd=$cmd" >&2
+            if [[ "$cmd" != *"$expect"* ]]; then
+                echo "ERROR: $label port $port is held by a non-AgentDesk process: pid=$pid cmd=$cmd" >&2
                 return 1
             fi
         done
         kill $pids 2>/dev/null || true
         for _ in $(seq 1 40); do
-            live="$(lsof -nP -iTCP:"$FEEDPORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+            live="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
             [ -z "$live" ] && return 0
             sleep 0.05
         done
         kill -9 $live 2>/dev/null || true
         for _ in $(seq 1 40); do
-            live="$(lsof -nP -iTCP:"$FEEDPORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+            live="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
             [ -z "$live" ] && return 0
             sleep 0.05
         done
-        echo "ERROR: agent-feed sidecar port $FEEDPORT did not close" >&2
+        echo "ERROR: $label port $port did not close" >&2
         return 1
     }
     # Do not let an older running host execute its old applicationWillTerminate
@@ -1157,7 +1167,10 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
         [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill_host_pids "${SAFE_PIDS[@]}"
     fi
     FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
-    cleanup_agent_feed_sidecar
+    VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
+    cleanup_sidecar_port "agent-feed sidecar" "$FEEDPORT" \
+        "/AgentDeskHost.app/Contents/Resources/agent-feed-sidecar"
+    cleanup_sidecar_port "voice sidecar" "$VOICEPORT" "voice-venv/bin/voice-server"
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     # Capture the host's stdio. Without this a Swift trap message is discarded and a crash leaves
@@ -1207,12 +1220,12 @@ host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-ge
     set -euo pipefail
     # DOM mirror is baked on by default (see host-run-dev); no enable override injected here.
     if [ "{{variant}}" = "dev" ]; then
-        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app_release}}'; SIGPORT=41988; FEEDPORT=7782
+        DD='{{host_dev_derived_data}}'; APP='{{host_dev_app_release}}'; SIGPORT=41988; FEEDPORT=7782; VOICEPORT=7792
         PTY_SOCKET='{{host_dev_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_dev_support_dir}}/pty-vault.sock'
         EXTRA=(PRODUCT_BUNDLE_IDENTIFIER='{{host_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev)
     else
-        DD='{{derived_data}}'; APP='{{host_app_release}}'; SIGPORT=41888; FEEDPORT=7682
+        DD='{{derived_data}}'; APP='{{host_app_release}}'; SIGPORT=41888; FEEDPORT=7682; VOICEPORT=7692
         PTY_SOCKET='{{host_pty_manager_socket_path}}'
         PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
         EXTRA=()
@@ -1224,30 +1237,40 @@ host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-ge
         ps -axo pid=,command= | awk -v manager="$PTY_SOCKET" -v vault="$PTY_VAULT_SOCKET" \
             '(index($0, "pty-manager --socket") && index($0, manager)) || (index($0, "pty-vault --socket") && index($0, vault)) { print $1 }'
     }
-    cleanup_agent_feed_sidecar() {
+    # Reclaim a host-owned loopback port from a sidecar the previous host left behind.
+    #
+    # A host that dies without running its teardown leaves its children running, and a sidecar
+    # still holding its port makes every later one fail to bind. This is generic on purpose:
+    # adding a service should be one call here, not a copied block, because the copy is the step
+    # that gets forgotten. It was forgotten for the voice server, and an orphan of it survived a
+    # host crash and spun the next host's supervisor into 1404 restarts.
+    #
+    # Refuses to kill anything that is not ours, so a stranger on the port is reported, not shot.
+    cleanup_sidecar_port() {
+        local label="$1" port="$2" expect="$3"
         local pids pid cmd live
-        pids="$(lsof -nP -iTCP:"$FEEDPORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+        pids="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
         [ -z "$pids" ] && return 0
         for pid in $pids; do
             cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-            if [[ "$cmd" != *"/AgentDeskHost.app/Contents/Resources/agent-feed-sidecar"* ]]; then
-                echo "ERROR: agent-feed sidecar port $FEEDPORT is held by a non-AgentDesk process: pid=$pid cmd=$cmd" >&2
+            if [[ "$cmd" != *"$expect"* ]]; then
+                echo "ERROR: $label port $port is held by a non-AgentDesk process: pid=$pid cmd=$cmd" >&2
                 return 1
             fi
         done
         kill $pids 2>/dev/null || true
         for _ in $(seq 1 40); do
-            live="$(lsof -nP -iTCP:"$FEEDPORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+            live="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
             [ -z "$live" ] && return 0
             sleep 0.05
         done
         kill -9 $live 2>/dev/null || true
         for _ in $(seq 1 40); do
-            live="$(lsof -nP -iTCP:"$FEEDPORT" -sTCP:LISTEN -t 2>/dev/null || true)"
+            live="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
             [ -z "$live" ] && return 0
             sleep 0.05
         done
-        echo "ERROR: agent-feed sidecar port $FEEDPORT did not close" >&2
+        echo "ERROR: $label port $port did not close" >&2
         return 1
     }
     # Do not let an older running host execute its old applicationWillTerminate
@@ -1305,7 +1328,10 @@ host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-ge
         [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill_host_pids "${SAFE_PIDS[@]}"
     fi
     FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
-    cleanup_agent_feed_sidecar
+    VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
+    cleanup_sidecar_port "agent-feed sidecar" "$FEEDPORT" \
+        "/AgentDeskHost.app/Contents/Resources/agent-feed-sidecar"
+    cleanup_sidecar_port "voice sidecar" "$VOICEPORT" "voice-venv/bin/voice-server"
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     # Capture the host's stdio. Without this a Swift trap message is discarded and a crash leaves
