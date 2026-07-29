@@ -574,16 +574,13 @@ extension PairingViewController {
 
         surfaceControlRail.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(surfaceControlRail)
-        // Centered rather than hung from the top: the rail overlays the active
-        // surface and collapses to a single toggle, and that toggle has to be
-        // reachable one-handed. The top and bottom are inequalities so a rail too
-        // tall for the screen gives up the centering and scrolls instead.
+        // Hung from the top, not centered. The scroll strip owns the same right
+        // edge for the whole height of the trackpad, and a centered rail lands on
+        // top of it. Anchored to the top the rail sits above where the trackpad
+        // starts, so the strip keeps its full length to be dragged along.
         NSLayoutConstraint.activate([
-            surfaceControlRail.centerYAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.centerYAnchor
-            ),
             surfaceControlRail.topAnchor.constraint(
-                greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor,
+                equalTo: view.safeAreaLayoutGuide.topAnchor,
                 constant: 8
             ),
             surfaceControlRail.trailingAnchor.constraint(

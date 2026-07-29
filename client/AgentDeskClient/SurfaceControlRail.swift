@@ -192,14 +192,14 @@ final class SurfaceControlRail: UIView {
             stackView.removeArrangedSubview($0)
             $0.removeFromSuperview()
         }
-        // The toggle sits between the two groups rather than at either end. It is
-        // the one control a closed rail leaves on screen, and the rail is centered
-        // vertically, so the middle of the stack is the middle of the screen edge:
-        // the part of a tall phone a thumb reaches without regripping.
+        // The toggle goes last. It is the one control a closed rail leaves on
+        // screen, and the rail hangs from the top, so putting it at the end keeps
+        // the collapsed rail's single button as far from the top as the rail's
+        // own height allows, and stops it from splitting the two button groups.
         surfaceButtons.forEach(stackView.addArrangedSubview)
+        utilityButtons.forEach(stackView.addArrangedSubview)
         stackView.addArrangedSubview(separator)
         stackView.addArrangedSubview(collapseButton)
-        utilityButtons.forEach(stackView.addArrangedSubview)
         applyCollapsedState(animated: false)
     }
 

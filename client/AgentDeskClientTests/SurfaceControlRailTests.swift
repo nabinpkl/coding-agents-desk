@@ -221,11 +221,11 @@ struct SurfaceControlRailTests {
         #expect(agent.isSelected)
     }
 
-    /// The toggle is the only control a closed rail leaves on screen, and the rail
-    /// is centered vertically, so keeping the toggle between the two groups puts it
-    /// at the middle of the screen edge where a thumb reaches it one-handed. At
-    /// either end of the stack it would land in a corner.
-    @Test func theToggleSitsBetweenTheSurfaceAndUtilityGroupsForOneHandedReach() {
+    /// The rail hangs from the top of the right edge, where the scroll strip also
+    /// lives, so the toggle goes last: the collapsed rail's single button then
+    /// sits as far down the edge as the rail's own height allows, and the two
+    /// button groups stay adjacent instead of being split by it.
+    @Test func theToggleSitsBelowBothButtonGroups() {
         let rail = SurfaceControlRail(
             gestureButton: utilityButton(label: "Gesture", identifier: "gesture-toggle"),
             orientationButton: utilityButton(label: "Rotate", identifier: "orientation-toggle"),
@@ -254,7 +254,14 @@ struct SurfaceControlRailTests {
             $0.convert($0.bounds, to: rail).minY < toggleTop
         })
         #expect(rail.utilityButtons.allSatisfy {
-            $0.convert($0.bounds, to: rail).minY > toggleTop
+            $0.convert($0.bounds, to: rail).minY < toggleTop
+        })
+        // The surfaces still lead, so the groups did not merely swap places.
+        let firstUtilityTop = rail.utilityButtons
+            .map { $0.convert($0.bounds, to: rail).minY }
+            .min() ?? 0
+        #expect(rail.surfaceButtons.allSatisfy {
+            $0.convert($0.bounds, to: rail).minY < firstUtilityTop
         })
     }
 
