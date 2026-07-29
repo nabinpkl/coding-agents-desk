@@ -277,11 +277,9 @@ final class KeyboardDictationCoordinator {
         do {
             guard let command = try store.pendingCommand() else { return }
             guard command.generationID == generationID else {
-                try store.clearCommand(ifMatching: command.id)
                 return
             }
             guard snapshot.acknowledgedCommandID != command.id else {
-                try store.clearCommand(ifMatching: command.id)
                 return
             }
             commandTask = Task { [weak self] in

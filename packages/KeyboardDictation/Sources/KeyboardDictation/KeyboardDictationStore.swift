@@ -270,10 +270,17 @@ public struct KeyboardDictationStore: Sendable {
 
     private func remove(_ file: FileName) throws {
         let fileURL = url(for: file)
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+        } catch let error as NSError
+            where error.domain == NSCocoaErrorDomain
+                && error.code == NSFileNoSuchFileError
+        {
+            // An App Group peer can clear a file after it was observed but
+            // before this removal. Clearing is idempotent; every other
+            // filesystem failure still propagates.
             return
         }
-        try FileManager.default.removeItem(at: fileURL)
     }
 
     private func validateText(_ value: String?, name: String) throws {

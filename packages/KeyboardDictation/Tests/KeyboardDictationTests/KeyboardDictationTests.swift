@@ -80,6 +80,26 @@ struct KeyboardDictationTests {
         #expect(snapshot.phase == .ready)
     }
 
+    @Test func clearingACommandIsIdempotentAcrossConcurrentReaders() async throws {
+        let store = try makeStore()
+        let command = KeyboardDictationCommand(
+            generationID: UUID(),
+            kind: .ping
+        )
+        try store.saveCommand(command)
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<16 {
+                group.addTask {
+                    try store.clearCommand(ifMatching: command.id)
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        #expect(try store.pendingCommand() == nil)
+    }
+
     @Test func malformedAndOversizedStateFailsLoudly() throws {
         let store = try makeStore()
         try Data("not-json".utf8).write(
