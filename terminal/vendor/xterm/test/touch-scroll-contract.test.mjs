@@ -4,9 +4,11 @@ import test from 'node:test';
 
 test('touch gestures route through every terminal scrolling mode', async () => {
   const mouse = await readFile(new URL('../package/src/browser/services/MouseService.ts', import.meta.url), 'utf8');
+  const touch = await readFile(new URL('../package/src/browser/scrollable/touch.ts', import.meta.url), 'utf8');
   const viewport = await readFile(new URL('../package/src/browser/Viewport.ts', import.meta.url), 'utf8');
 
   assert.match(mouse, /register\(Gesture\.addTarget\(target\.screenElement\)\)/);
+  assert.match(touch, /export const TAP = '-xterm-gesturetap'/);
   assert.match(mouse, /GestureEventType\.START[\s\S]*_handleTouchStart/);
   assert.match(mouse, /GestureEventType\.CHANGE[\s\S]*_handleTouchChange/);
   assert.match(mouse, /requestedEvents\.wheel[\s\S]*_handleTouchScrollAsWheel/);

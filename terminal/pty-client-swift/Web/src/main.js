@@ -16,6 +16,7 @@ import { terminalOptions, terminalTheme } from './terminal-options.js';
 
 const protocolVersion = 1;
 const maximumInputBytes = 64 * 1024;
+const xtermGestureTapEvent = '-xterm-gesturetap';
 const bridge = window.webkit?.messageHandlers?.ptyTerminal;
 const root = document.querySelector('#terminal-workspace-root');
 const tabStrip = document.querySelector('#terminal-tabs');
@@ -114,6 +115,9 @@ function createPane(pane) {
   element.addEventListener('click', () => {
     if (nativeInputProxy) focusPane(pane.paneId, true);
   });
+  element.addEventListener(xtermGestureTapEvent, () => {
+    if (nativeInputProxy) focusPane(pane.paneId, true);
+  }, { capture: true });
 
   let entry = terminals.get(pane.terminalId);
   if (!entry) {

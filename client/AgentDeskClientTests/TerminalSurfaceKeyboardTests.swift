@@ -10,7 +10,7 @@ import WebKit
 @Suite(.serialized)
 struct TerminalSurfaceKeyboardTests {
     @Test
-    func nativeProxyRequestsKeyboardAfterTapRelease() async throws {
+    func nativeProxyRequestsKeyboardAfterXtermTouchTap() async throws {
         let surface = TerminalSurface()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let controller = UIViewController()
@@ -28,10 +28,7 @@ struct TerminalSurfaceKeyboardTests {
             """
             (() => {
               const pane = document.querySelector('.terminal-pane');
-              pane.dispatchEvent(new PointerEvent('pointerdown', {
-                bubbles: true,
-                pointerType: 'touch'
-              }));
+              pane.dispatchEvent(new CustomEvent('-xterm-gesturechange'));
             })()
             """
         )
@@ -42,11 +39,7 @@ struct TerminalSurfaceKeyboardTests {
             """
             (() => {
               const pane = document.querySelector('.terminal-pane');
-              pane.dispatchEvent(new PointerEvent('pointerup', {
-                bubbles: true,
-                pointerType: 'touch'
-              }));
-              pane.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+              pane.dispatchEvent(new CustomEvent('-xterm-gesturetap'));
             })()
             """
         )
