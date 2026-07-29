@@ -3,7 +3,11 @@ import UIKit
 import PtyTerminalWebView
 import WebKit
 
+// Every test owns a key window and a cold WKWebView. Keep those lifecycles
+// sequential so one test cannot hide another's window or contend with its
+// terminal WebContent launch.
 @MainActor
+@Suite(.serialized)
 struct TerminalSurfaceKeyboardTests {
     @Test
     func nativeProxyRequestsKeyboardAfterTapRelease() async throws {
@@ -131,15 +135,23 @@ struct TerminalSurfaceKeyboardTests {
         expression: String
     ) async throws -> Bool {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(10))
+        let deadline = clock.now.advanced(by: .seconds(30))
+        var lastEvaluationError: Error?
         while clock.now < deadline {
-            if let value = try? await webView.evaluateJavaScript(expression),
-               let boolean = value as? Bool {
-                return boolean
+            do {
+                if let value = try await webView.evaluateJavaScript(expression),
+                   let boolean = value as? Bool {
+                    return boolean
+                }
+            } catch {
+                lastEvaluationError = error
             }
             try await Task.sleep(for: .milliseconds(20))
         }
-        Issue.record("terminal web runtime did not expose its input textarea")
+        let errorDescription = String(describing: lastEvaluationError)
+        Issue.record(
+            "terminal web runtime did not expose its input textarea; last JavaScript error: \(errorDescription)"
+        )
         return false
     }
 

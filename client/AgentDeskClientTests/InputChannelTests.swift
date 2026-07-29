@@ -1653,6 +1653,10 @@ struct InputChannelTests {
             buildIdentity: { ("1.2.3", "456", "abcdef0") }
         )
         telemetry.setSender { checkpoint in
+            // A later checkpoint must not overtake a suspended earlier send.
+            if checkpoint.videoMilestone == .presentationAttempted {
+                try await Task.sleep(for: .milliseconds(50))
+            }
             recorder.append(checkpoint)
         }
         telemetry.updateUI(
@@ -1676,8 +1680,9 @@ struct InputChannelTests {
         telemetry.advanceVideoMilestone(.presentationAttempted)
         telemetry.resetVideoMilestone()
 
-        for _ in 0..<20 where recorder.count < 4 {
-            await Task.yield()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+        while recorder.count < 4, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
         }
         let checkpoints = recorder.values
         #expect(checkpoints.count == 4)

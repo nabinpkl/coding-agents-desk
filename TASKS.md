@@ -807,6 +807,10 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
 - R169. Add an explicit keyboard-time mouse control so video taps can target and click the Mac without
   dismissing the keyboard or restoring the relative trackpad and scroll-strip surfaces. Keep ordinary
   keyboard-time video taps dismissive until that interaction mode is deliberately enabled.
+- D170. Stabilize the client simulator gate by serializing terminal keyboard tests that each own a key
+  window and cold WebKit process, allowing bounded cold-start readiness under full-suite load, and
+  sending runtime checkpoints through one ordered persistence-and-wire lane so suspended sends cannot
+  overtake.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -881,4 +885,5 @@ D166  2026-07-28  landed     loss-detecting Voice capture and durable transport 
 D167  2026-07-28  landed     durable standalone terminal keyboard focus and accessory controls
 D168  2026-07-29  landed     keyboard-authoritative relative Control chrome
 R169  candidate   remaining  explicit keyboard-time video mouse control
+D170  2026-07-29  landed     deterministic terminal tests and ordered runtime checkpoints
 ```

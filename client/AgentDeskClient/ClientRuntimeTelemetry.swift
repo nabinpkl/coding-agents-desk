@@ -2,6 +2,65 @@ import Foundation
 import OSLog
 import AgentDeskWire
 
+private final class ClientRuntimeCheckpointEmitter: @unchecked Sendable {
+    typealias Sender = @Sendable (ClientRuntimeCheckpoint) async throws -> Void
+
+    private struct Emission: Sendable {
+        let checkpoint: ClientRuntimeCheckpoint
+        let sender: Sender?
+    }
+
+    private let continuation: AsyncStream<Emission>.Continuation
+    private let task: Task<Void, Never>
+
+    init(diagnostics: ClientDiagnosticsStore) {
+        let (stream, continuation) = AsyncStream<Emission>.makeStream()
+        self.continuation = continuation
+        // One consumer preserves checkpoint sequence across suspended sends.
+        // Independent Tasks can overtake each other on the same wire stream.
+        task = Task {
+            for await emission in stream {
+                let checkpoint = emission.checkpoint
+                diagnostics.record(
+                    type: "clientRuntimeCheckpoint",
+                    fields: [
+                        "sequence": String(checkpoint.sequence),
+                        "scenePhase": checkpoint.scenePhase.rawValue,
+                        "pairingState": checkpoint.pairingState.rawValue,
+                        "activeSurface": checkpoint.activeSurface.rawValue,
+                        "railConfigured": String(checkpoint.railConfigured),
+                        "railHidden": String(checkpoint.railHidden),
+                        "railLayoutReady": String(checkpoint.railLayoutReady),
+                        "hostSurfaceCount": String(checkpoint.hostSurfaceCount),
+                        "mediaState": checkpoint.mediaState.rawValue,
+                        "videoMilestone": checkpoint.videoMilestone.rawValue
+                    ],
+                    level: .info
+                )
+                guard let sender = emission.sender else { continue }
+                do {
+                    try await sender(checkpoint)
+                } catch {
+                    diagnostics.record(
+                        type: "clientRuntimeCheckpointSendFailed",
+                        fields: ["sequence": String(checkpoint.sequence)],
+                        level: .error
+                    )
+                }
+            }
+        }
+    }
+
+    deinit {
+        continuation.finish()
+        task.cancel()
+    }
+
+    func enqueue(_ checkpoint: ClientRuntimeCheckpoint, sender: Sender?) {
+        continuation.yield(Emission(checkpoint: checkpoint, sender: sender))
+    }
+}
+
 /// One content-free runtime snapshot shared by UIKit and the media pipeline.
 /// Every accepted transition is persisted before its best-effort wire send.
 final class ClientRuntimeTelemetry: @unchecked Sendable {
@@ -30,6 +89,7 @@ final class ClientRuntimeTelemetry: @unchecked Sendable {
 
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let diagnostics: ClientDiagnosticsStore
+    private let emitter: ClientRuntimeCheckpointEmitter
     private let now: @Sendable () -> Int
     private let buildIdentity: () -> (marketingVersion: String, buildNumber: String, gitSHA: String)
 
@@ -46,6 +106,7 @@ final class ClientRuntimeTelemetry: @unchecked Sendable {
         }
     ) {
         self.diagnostics = diagnostics
+        emitter = ClientRuntimeCheckpointEmitter(diagnostics: diagnostics)
         self.now = now
         self.buildIdentity = buildIdentity
     }
@@ -107,63 +168,32 @@ final class ClientRuntimeTelemetry: @unchecked Sendable {
     private func emitIfChanged() {
         let build = buildIdentity()
         let timestamp = now()
-        let emission: (ClientRuntimeCheckpoint, Sender?)? = state.withLock { locked in
+        state.withLock { locked in
             guard locked.lastEmitted != locked.snapshot,
                   let runId = diagnostics.currentRunId() else {
-                return nil
+                return
             }
             locked.sequence &+= 1
             locked.lastEmitted = locked.snapshot
             let snapshot = locked.snapshot
-            return (
-                ClientRuntimeCheckpoint(
-                    clientRunId: runId,
-                    sequence: locked.sequence,
-                    timestamp: timestamp,
-                    marketingVersion: build.marketingVersion,
-                    buildNumber: build.buildNumber,
-                    gitSHA: build.gitSHA,
-                    scenePhase: snapshot.scenePhase,
-                    pairingState: snapshot.pairingState,
-                    activeSurface: snapshot.activeSurface,
-                    railConfigured: snapshot.railConfigured,
-                    railHidden: snapshot.railHidden,
-                    railLayoutReady: snapshot.railLayoutReady,
-                    hostSurfaceCount: snapshot.hostSurfaceCount,
-                    mediaState: snapshot.mediaState,
-                    videoMilestone: snapshot.videoMilestone
-                ),
-                locked.sender
+            let checkpoint = ClientRuntimeCheckpoint(
+                clientRunId: runId,
+                sequence: locked.sequence,
+                timestamp: timestamp,
+                marketingVersion: build.marketingVersion,
+                buildNumber: build.buildNumber,
+                gitSHA: build.gitSHA,
+                scenePhase: snapshot.scenePhase,
+                pairingState: snapshot.pairingState,
+                activeSurface: snapshot.activeSurface,
+                railConfigured: snapshot.railConfigured,
+                railHidden: snapshot.railHidden,
+                railLayoutReady: snapshot.railLayoutReady,
+                hostSurfaceCount: snapshot.hostSurfaceCount,
+                mediaState: snapshot.mediaState,
+                videoMilestone: snapshot.videoMilestone
             )
-        }
-        guard let (checkpoint, sender) = emission else { return }
-        diagnostics.record(
-            type: "clientRuntimeCheckpoint",
-            fields: [
-                "sequence": String(checkpoint.sequence),
-                "scenePhase": checkpoint.scenePhase.rawValue,
-                "pairingState": checkpoint.pairingState.rawValue,
-                "activeSurface": checkpoint.activeSurface.rawValue,
-                "railConfigured": String(checkpoint.railConfigured),
-                "railHidden": String(checkpoint.railHidden),
-                "railLayoutReady": String(checkpoint.railLayoutReady),
-                "hostSurfaceCount": String(checkpoint.hostSurfaceCount),
-                "mediaState": checkpoint.mediaState.rawValue,
-                "videoMilestone": checkpoint.videoMilestone.rawValue
-            ],
-            level: .info
-        )
-        guard let sender else { return }
-        Task {
-            do {
-                try await sender(checkpoint)
-            } catch {
-                diagnostics.record(
-                    type: "clientRuntimeCheckpointSendFailed",
-                    fields: ["sequence": String(checkpoint.sequence)],
-                    level: .error
-                )
-            }
+            emitter.enqueue(checkpoint, sender: locked.sender)
         }
     }
 
