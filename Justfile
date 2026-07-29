@@ -778,6 +778,7 @@ check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar
     sh tools/media-architecture-guard.sh
     sh tools/exact-executable-pids-tests.sh
     sh tools/local-udp-port-pids-tests.sh
+    sh tools/reclaim-port-tests.sh
     sh tools/host-run-lifecycle-tests.sh
     sh tools/client-install-lifecycle-tests.sh
     sh tools/launch-env-tests.sh
@@ -1074,42 +1075,6 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
         ps -axo pid=,command= | awk -v manager="$PTY_SOCKET" -v vault="$PTY_VAULT_SOCKET" \
             '(index($0, "pty-manager --socket") && index($0, manager)) || (index($0, "pty-vault --socket") && index($0, vault)) { print $1 }'
     }
-    # Reclaim a host-owned loopback port from a sidecar the previous host left behind.
-    #
-    # A host that dies without running its teardown leaves its children running, and a sidecar
-    # still holding its port makes every later one fail to bind. This is generic on purpose:
-    # adding a service should be one call here, not a copied block, because the copy is the step
-    # that gets forgotten. It was forgotten for the voice server, and an orphan of it survived a
-    # host crash and spun the next host's supervisor into 1404 restarts.
-    #
-    # Refuses to kill anything that is not ours, so a stranger on the port is reported, not shot.
-    cleanup_sidecar_port() {
-        local label="$1" port="$2" expect="$3"
-        local pids pid cmd live
-        pids="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
-        [ -z "$pids" ] && return 0
-        for pid in $pids; do
-            cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-            if [[ "$cmd" != *"$expect"* ]]; then
-                echo "ERROR: $label port $port is held by a non-AgentDesk process: pid=$pid cmd=$cmd" >&2
-                return 1
-            fi
-        done
-        kill $pids 2>/dev/null || true
-        for _ in $(seq 1 40); do
-            live="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
-            [ -z "$live" ] && return 0
-            sleep 0.05
-        done
-        kill -9 $live 2>/dev/null || true
-        for _ in $(seq 1 40); do
-            live="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
-            [ -z "$live" ] && return 0
-            sleep 0.05
-        done
-        echo "ERROR: $label port $port did not close" >&2
-        return 1
-    }
     # Do not let an older running host execute its old applicationWillTerminate
     # hook, because pre-ADR-0072 hosts killed their PTY child processes.
     kill_host_pids() {
@@ -1153,24 +1118,28 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
                 sh tools/local-udp-port-pids.sh "$SIGPORT"
         } | sort -u
     )"
+    # A stranger on this port is still in our way, so it is reclaimed too, not
+    # reported. Only a host goes through kill_host_pids, whose child sweep is
+    # written for a host's process tree and would be over-broad for anyone else.
     if [ -n "$PORT_PIDS" ]; then
-        SAFE_PIDS=()
+        HOST_PORT_PIDS=()
+        STRANGER_PORT_PIDS=()
         for PID in $PORT_PIDS; do
             CMD="$(ps -p "$PID" -o command= 2>/dev/null || true)"
             if [[ "$CMD" == *"/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"* ]]; then
-                SAFE_PIDS+=("$PID")
+                HOST_PORT_PIDS+=("$PID")
             else
-                echo "ERROR: port $SIGPORT is held by a non-AgentDesk process: pid=$PID cmd=$CMD" >&2
-                exit 1
+                echo "reclaiming signaling port $SIGPORT from pid=$PID cmd=${CMD:-<already exited>}" >&2
+                STRANGER_PORT_PIDS+=("$PID")
             fi
         done
-        [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill_host_pids "${SAFE_PIDS[@]}"
+        [ "${#HOST_PORT_PIDS[@]}" -gt 0 ] && kill_host_pids "${HOST_PORT_PIDS[@]}"
+        [ "${#STRANGER_PORT_PIDS[@]}" -gt 0 ] && kill -9 "${STRANGER_PORT_PIDS[@]}" 2>/dev/null || true
     fi
     FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
     VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
-    cleanup_sidecar_port "agent-feed sidecar" "$FEEDPORT" \
-        "/AgentDeskHost.app/Contents/Resources/agent-feed-sidecar"
-    cleanup_sidecar_port "voice sidecar" "$VOICEPORT" "voice-venv/bin/voice-server"
+    sh tools/reclaim-port.sh "agent-feed sidecar" "$FEEDPORT"
+    sh tools/reclaim-port.sh "voice sidecar" "$VOICEPORT"
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     # Capture the host's stdio. Without this a Swift trap message is discarded and a crash leaves
@@ -1237,42 +1206,6 @@ host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-ge
         ps -axo pid=,command= | awk -v manager="$PTY_SOCKET" -v vault="$PTY_VAULT_SOCKET" \
             '(index($0, "pty-manager --socket") && index($0, manager)) || (index($0, "pty-vault --socket") && index($0, vault)) { print $1 }'
     }
-    # Reclaim a host-owned loopback port from a sidecar the previous host left behind.
-    #
-    # A host that dies without running its teardown leaves its children running, and a sidecar
-    # still holding its port makes every later one fail to bind. This is generic on purpose:
-    # adding a service should be one call here, not a copied block, because the copy is the step
-    # that gets forgotten. It was forgotten for the voice server, and an orphan of it survived a
-    # host crash and spun the next host's supervisor into 1404 restarts.
-    #
-    # Refuses to kill anything that is not ours, so a stranger on the port is reported, not shot.
-    cleanup_sidecar_port() {
-        local label="$1" port="$2" expect="$3"
-        local pids pid cmd live
-        pids="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
-        [ -z "$pids" ] && return 0
-        for pid in $pids; do
-            cmd="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-            if [[ "$cmd" != *"$expect"* ]]; then
-                echo "ERROR: $label port $port is held by a non-AgentDesk process: pid=$pid cmd=$cmd" >&2
-                return 1
-            fi
-        done
-        kill $pids 2>/dev/null || true
-        for _ in $(seq 1 40); do
-            live="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
-            [ -z "$live" ] && return 0
-            sleep 0.05
-        done
-        kill -9 $live 2>/dev/null || true
-        for _ in $(seq 1 40); do
-            live="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)"
-            [ -z "$live" ] && return 0
-            sleep 0.05
-        done
-        echo "ERROR: $label port $port did not close" >&2
-        return 1
-    }
     # Do not let an older running host execute its old applicationWillTerminate
     # hook, because pre-ADR-0072 hosts killed their PTY child processes.
     kill_host_pids() {
@@ -1314,24 +1247,28 @@ host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-ge
                 sh tools/local-udp-port-pids.sh "$SIGPORT"
         } | sort -u
     )"
+    # A stranger on this port is still in our way, so it is reclaimed too, not
+    # reported. Only a host goes through kill_host_pids, whose child sweep is
+    # written for a host's process tree and would be over-broad for anyone else.
     if [ -n "$PORT_PIDS" ]; then
-        SAFE_PIDS=()
+        HOST_PORT_PIDS=()
+        STRANGER_PORT_PIDS=()
         for PID in $PORT_PIDS; do
             CMD="$(ps -p "$PID" -o command= 2>/dev/null || true)"
             if [[ "$CMD" == *"/AgentDeskHost.app/Contents/MacOS/AgentDeskHost"* ]]; then
-                SAFE_PIDS+=("$PID")
+                HOST_PORT_PIDS+=("$PID")
             else
-                echo "ERROR: port $SIGPORT is held by a non-AgentDesk process: pid=$PID cmd=$CMD" >&2
-                exit 1
+                echo "reclaiming signaling port $SIGPORT from pid=$PID cmd=${CMD:-<already exited>}" >&2
+                STRANGER_PORT_PIDS+=("$PID")
             fi
         done
-        [ "${#SAFE_PIDS[@]}" -gt 0 ] && kill_host_pids "${SAFE_PIDS[@]}"
+        [ "${#HOST_PORT_PIDS[@]}" -gt 0 ] && kill_host_pids "${HOST_PORT_PIDS[@]}"
+        [ "${#STRANGER_PORT_PIDS[@]}" -gt 0 ] && kill -9 "${STRANGER_PORT_PIDS[@]}" 2>/dev/null || true
     fi
     FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
     VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
-    cleanup_sidecar_port "agent-feed sidecar" "$FEEDPORT" \
-        "/AgentDeskHost.app/Contents/Resources/agent-feed-sidecar"
-    cleanup_sidecar_port "voice sidecar" "$VOICEPORT" "voice-venv/bin/voice-server"
+    sh tools/reclaim-port.sh "agent-feed sidecar" "$FEEDPORT"
+    sh tools/reclaim-port.sh "voice sidecar" "$VOICEPORT"
     sleep 1
     env AGENTDESK_AUTO_APPROVE=1 AGENTDESK_DEV_ITERATION_RUN=1 tools/launch-env.sh set
     # Capture the host's stdio. Without this a Swift trap message is discarded and a crash leaves
