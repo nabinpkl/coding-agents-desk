@@ -13,7 +13,10 @@ public enum InteractionPanelRequest: Equatable, Sendable {
     case voiceREST(InteractionVoiceRESTRequest)
     case dictationReady
     case dictationLayout(InteractionDictationPanelLayout)
-    case dictationRunState(status: InteractionDictationRunStatus)
+    /// `message` carries the web mini's own failure text for an `.error`
+    /// status. Without it a native shell can only log that dictation failed,
+    /// never why.
+    case dictationRunState(status: InteractionDictationRunStatus, message: String?)
     case dictationCommit(recordingID: String, transcript: String)
 
     public static func decode(tag: String, body: [String: Any]) -> InteractionPanelRequest? {
@@ -88,11 +91,18 @@ public enum InteractionPanelRequest: Equatable, Sendable {
             else { return nil }
             return .dictationLayout(.init(width: width, height: height))
         case "dictationRunState":
-            guard body.count == 1,
+            guard Set(body.keys).isSubset(of: ["status", "message"]),
                   let rawStatus = body["status"] as? String,
                   let status = InteractionDictationRunStatus(rawValue: rawStatus)
             else { return nil }
-            return .dictationRunState(status: status)
+            let message: String?
+            if let rawMessage = body["message"] {
+                guard let text = rawMessage as? String else { return nil }
+                message = boundedRunStateMessage(text)
+            } else {
+                message = nil
+            }
+            return .dictationRunState(status: status, message: message)
         case "dictationCommit":
             guard body.count == 2,
                   let recordingID = body["recordingID"] as? String,
@@ -119,6 +129,14 @@ public enum InteractionPanelRequest: Equatable, Sendable {
     private static func isBoundedTranscript(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return !trimmed.isEmpty && trimmed.utf8.count <= 32_768
+    }
+
+    /// Diagnostic text only. It is truncated rather than rejected so an
+    /// overlong failure string never costs the shell the state change itself.
+    private static func boundedRunStateMessage(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return String(trimmed.prefix(512))
     }
 
     private static func boundedPanelDimension(

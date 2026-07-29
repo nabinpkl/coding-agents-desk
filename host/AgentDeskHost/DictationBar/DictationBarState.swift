@@ -10,6 +10,15 @@ struct DictationBarState {
         case stop
     }
 
+    /// Fn arrives as a raw modifier-flags stream, so most events carry no
+    /// edge at all. Naming why an event produced no command keeps the shell's
+    /// log able to separate "Fn never reached us" from "the mini was not ready".
+    enum CaptureDecision: Equatable {
+        case deliver(CaptureCommand)
+        case ignoredRepeatedFnState
+        case ignoredWebNotReady
+    }
+
     static let compactSize = CGSize(width: 68, height: 68)
 
     private(set) var isWebReady = false
@@ -34,11 +43,11 @@ struct DictationBarState {
         runStatus = status
     }
 
-    mutating func captureCommand(functionPressed: Bool) -> CaptureCommand? {
-        guard functionPressed != fnDown else { return nil }
+    mutating func captureDecision(functionPressed: Bool) -> CaptureDecision {
+        guard functionPressed != fnDown else { return .ignoredRepeatedFnState }
         fnDown = functionPressed
-        guard isWebReady else { return nil }
-        return functionPressed ? .start : .stop
+        guard isWebReady else { return .ignoredWebNotReady }
+        return .deliver(functionPressed ? .start : .stop)
     }
 
     mutating func shouldCommit(recordingID: String, transcript: String) -> Bool {

@@ -176,9 +176,16 @@ export function DictationMini() {
     };
   }, [clientDictation, reportHostLayout]);
 
+  // The failure text rides along so the native shell's log can name the cause
+  // instead of only recording that the run ended in error.
+  const failureDetail = runState.status === "error" ? runState.message : null;
   useEffect(() => {
-    postToHost("interaction", { t: "dictationRunState", status });
-  }, [status]);
+    postToHost("interaction", {
+      t: "dictationRunState",
+      status,
+      ...(failureDetail ? { message: failureDetail } : {}),
+    });
+  }, [failureDetail, status]);
 
   useEffect(() => {
     if (clientDictation) return;

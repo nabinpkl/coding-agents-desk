@@ -1,4 +1,6 @@
 import AppKit
+import AVFoundation
+import CoreGraphics
 import InteractionPanel
 import os
 import WebKit
@@ -85,20 +87,29 @@ final class DictationBarController: NSObject {
         self.userDefaults = userDefaults
         self.typeText = typeText
         super.init()
-        transport.onReady = { [weak self] in self?.state.markWebReady() }
+        transport.onReady = { [weak self] in self?.markWebReady() }
         transport.onLayout = { [weak self] layout in self?.resizePanel(to: layout) }
-        transport.onRunState = { [weak self] status in self?.applyRunState(status) }
+        transport.onRunState = { [weak self] status, message in
+            self?.applyRunState(status, message: message)
+        }
         transport.onCommit = { [weak self] recordingID, transcript in
             self?.commit(recordingID: recordingID, transcript: transcript)
         }
     }
 
     func start() {
-        guard panel == nil else { return }
+        guard panel == nil else {
+            logger.notice("dictation start ignored: panel already open")
+            return
+        }
         let size = DictationBarState.compactSize
+        let restored = restoredOrigin(size: size)
         let origin = avoiding(
-            origin: restoredOrigin(size: size) ?? bottomCenterOrigin(size: size),
+            origin: restored ?? bottomCenterOrigin(size: size),
             size: size
+        )
+        logger.notice(
+            "dictation panel opening origin=\(Int(origin.x), privacy: .public),\(Int(origin.y), privacy: .public) size=\(Int(size.width), privacy: .public)x\(Int(size.height), privacy: .public) placement=\(restored == nil ? "default" : "restored", privacy: .public) screens=\(NSScreen.screens.count, privacy: .public)"
         )
         let panel = DictationBarPanel(
             contentRect: CGRect(origin: origin, size: size),
@@ -134,6 +145,7 @@ final class DictationBarController: NSObject {
             webView.layer?.masksToBounds = true
             webView.uiDelegate = self
             panel.contentView = DictationPanelContentView(webView: webView)
+            logger.notice("dictation webview created; awaiting web ready")
         } catch {
             logger.error("dictation mini init failed: \(String(describing: error), privacy: .public)")
             panel.contentView = makeUnavailableView()
@@ -143,9 +155,17 @@ final class DictationBarController: NSObject {
         installFnKeyMonitor()
     }
 
+    private func markWebReady() {
+        state.markWebReady()
+        logger.notice("dictation web ready; Fn capture armed")
+    }
+
     func currentScreenFrame() -> CGRect? { panel?.frame }
 
     func stop() {
+        logger.notice(
+            "dictation panel closing busy=\(self.isBusy, privacy: .public) status=\(self.state.runStatus.rawValue, privacy: .public)"
+        )
         uninstallFnKeyMonitor()
         // Closing the webview during a live run drops the loopback socket. The
         // sidecar finalizes nonempty audio as an interrupted recording.
@@ -171,14 +191,29 @@ final class DictationBarController: NSObject {
         state.isBusy
     }
 
-    private func applyRunState(_ status: InteractionDictationRunStatus) {
+    private func applyRunState(_ status: InteractionDictationRunStatus, message: String?) {
+        let previous = state.runStatus
         state.applyRunStatus(status)
+        if status == .error {
+            logger.error(
+                "dictation run \(previous.rawValue, privacy: .public) -> error message=\(message ?? "(none reported)", privacy: .public)"
+            )
+        } else if previous != status {
+            logger.notice(
+                "dictation run \(previous.rawValue, privacy: .public) -> \(status.rawValue, privacy: .public) busy=\(self.isBusy, privacy: .public)"
+            )
+        }
         onBusyChanged?(isBusy)
     }
 
     private func commit(recordingID: String, transcript: String) {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard state.shouldCommit(recordingID: recordingID, transcript: trimmed) else { return }
+        guard state.shouldCommit(recordingID: recordingID, transcript: trimmed) else {
+            logger.notice(
+                "dictation commit skipped recording=\(recordingID, privacy: .public) reason=\(trimmed.isEmpty ? "empty-transcript" : "already-committed", privacy: .public)"
+            )
+            return
+        }
         logger.notice("dictation transcript committed recording=\(recordingID, privacy: .public) chars=\(trimmed.count, privacy: .public)")
         // This panel never activates the host app, so the focused external app
         // remains the insertion target while capture and finalization happen.
@@ -191,6 +226,11 @@ final class DictationBarController: NSObject {
             let pressed = event.modifierFlags.contains(.function)
             Task { @MainActor in self?.handleFnState(pressed) }
         }
+        // A global monitor silently delivers nothing without Input Monitoring,
+        // which looks exactly like "Fn does nothing". Say which case this is.
+        logger.notice(
+            "dictation Fn monitor installed=\(self.fnKeyMonitor != nil, privacy: .public) inputMonitoring=\(CGPreflightListenEventAccess(), privacy: .public)"
+        )
     }
 
     private func uninstallFnKeyMonitor() {
@@ -201,13 +241,33 @@ final class DictationBarController: NSObject {
     }
 
     private func handleFnState(_ pressed: Bool) {
-        guard let command = state.captureCommand(functionPressed: pressed) else { return }
-        deliverCapture(command)
+        switch state.captureDecision(functionPressed: pressed) {
+        case .deliver(let command):
+            logger.notice(
+                "dictation Fn edge pressed=\(pressed, privacy: .public) command=\(command.rawValue, privacy: .public)"
+            )
+            deliverCapture(command)
+        case .ignoredWebNotReady:
+            logger.notice(
+                "dictation Fn edge ignored pressed=\(pressed, privacy: .public) reason=web-not-ready"
+            )
+        case .ignoredRepeatedFnState:
+            // flagsChanged fires for every modifier, so this is the common,
+            // uninteresting case. Debug keeps the timeline without the noise.
+            logger.debug("dictation Fn event carried no edge pressed=\(pressed, privacy: .public)")
+        }
     }
 
     private func deliverCapture(_ command: DictationBarState.CaptureCommand) {
         let payload = #"{"type":"dictationCapture","payload":{"command":"\#(command.rawValue)"}}"#
-        panelController?.deliver(rawJSON: payload)
+        guard let panelController else {
+            logger.error(
+                "dictation capture \(command.rawValue, privacy: .public) dropped: no webview"
+            )
+            return
+        }
+        logger.notice("dictation capture \(command.rawValue, privacy: .public) sent to webview")
+        panelController.deliver(rawJSON: payload)
     }
 
     private func resizePanel(to layout: InteractionDictationPanelLayout) {
@@ -221,10 +281,11 @@ final class DictationBarController: NSObject {
             size: size,
             visibleFrames: NSScreen.screens.map(\.visibleFrame)
         )
-        panel.setFrame(
-            CGRect(origin: avoiding(origin: clamped, size: size), size: size),
-            display: true
+        let placed = avoiding(origin: clamped, size: size)
+        logger.debug(
+            "dictation panel resize \(Int(old.width), privacy: .public)x\(Int(old.height), privacy: .public) -> \(Int(size.width), privacy: .public)x\(Int(size.height), privacy: .public) origin=\(Int(placed.x), privacy: .public),\(Int(placed.y), privacy: .public)"
         )
+        panel.setFrame(CGRect(origin: placed, size: size), display: true)
         onFrameDidChange?()
     }
 
@@ -287,7 +348,11 @@ extension DictationBarController: WKUIDelegate {
         decisionHandler: @escaping @MainActor @Sendable (WKPermissionDecision) -> Void
     ) {
         let isBundledOrigin = origin.protocol == "interactionfeed" && origin.host == "app"
-        decisionHandler(isBundledOrigin && type == .microphone ? .grant : .deny)
+        let granted = isBundledOrigin && type == .microphone
+        logger.notice(
+            "dictation mic permission origin=\(origin.protocol, privacy: .public)://\(origin.host, privacy: .public) microphone=\(type == .microphone, privacy: .public) decision=\(granted ? "grant" : "deny", privacy: .public) systemMic=\(AVCaptureDevice.authorizationStatus(for: .audio).rawValue, privacy: .public)"
+        )
+        decisionHandler(granted ? .grant : .deny)
     }
 }
 

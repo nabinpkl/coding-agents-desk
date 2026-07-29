@@ -7,14 +7,14 @@ struct DictationBarStateTests {
     @Test func fnCommandsWaitForWebReadinessAndDeduplicateEdges() {
         var state = DictationBarState()
 
-        #expect(state.captureCommand(functionPressed: true) == nil)
-        #expect(state.captureCommand(functionPressed: false) == nil)
+        #expect(state.captureDecision(functionPressed: true) == .ignoredWebNotReady)
+        #expect(state.captureDecision(functionPressed: false) == .ignoredWebNotReady)
 
         state.markWebReady()
-        #expect(state.captureCommand(functionPressed: true) == .start)
-        #expect(state.captureCommand(functionPressed: true) == nil)
-        #expect(state.captureCommand(functionPressed: false) == .stop)
-        #expect(state.captureCommand(functionPressed: false) == nil)
+        #expect(state.captureDecision(functionPressed: true) == .deliver(.start))
+        #expect(state.captureDecision(functionPressed: true) == .ignoredRepeatedFnState)
+        #expect(state.captureDecision(functionPressed: false) == .deliver(.stop))
+        #expect(state.captureDecision(functionPressed: false) == .ignoredRepeatedFnState)
     }
 
     @Test func busyStateAndPanelSizeFollowMiniRunState() {

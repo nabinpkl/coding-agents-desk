@@ -212,7 +212,28 @@ struct InteractionPanelTests {
             InteractionPanelRequest.decode(
                 tag: "dictationRunState",
                 body: ["status": "transcribing"]
-            ) == .dictationRunState(status: .transcribing)
+            ) == .dictationRunState(status: .transcribing, message: nil)
+        )
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "dictationRunState",
+                body: ["status": "error", "message": "  microphone denied  "]
+            ) == .dictationRunState(status: .error, message: "microphone denied")
+        )
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "dictationRunState",
+                body: ["status": "error", "message": "   "]
+            ) == .dictationRunState(status: .error, message: nil)
+        )
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "dictationRunState",
+                body: ["status": "error", "message": String(repeating: "x", count: 600)]
+            ) == .dictationRunState(
+                status: .error,
+                message: String(repeating: "x", count: 512)
+            )
         )
         #expect(
             InteractionPanelRequest.decode(
@@ -247,6 +268,18 @@ struct InteractionPanelTests {
             ) == nil
         )
         #expect(InteractionPanelRequest.decode(tag: "dictationRunState", body: ["status": "bad"]) == nil)
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "dictationRunState",
+                body: ["status": "error", "message": 7]
+            ) == nil
+        )
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "dictationRunState",
+                body: ["status": "error", "extra": "x"]
+            ) == nil
+        )
         #expect(
             InteractionPanelRequest.decode(
                 tag: "dictationCommit",

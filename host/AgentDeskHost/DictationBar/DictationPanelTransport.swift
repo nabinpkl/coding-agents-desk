@@ -7,7 +7,7 @@ import InteractionPanel
 final class DictationPanelTransport: InteractionPanelTransport {
     var onReady: (() -> Void)?
     var onLayout: ((InteractionDictationPanelLayout) -> Void)?
-    var onRunState: ((InteractionDictationRunStatus) -> Void)?
+    var onRunState: ((InteractionDictationRunStatus, String?) -> Void)?
     var onCommit: ((String, String) -> Void)?
 
     func sendInteractionRequest(_ request: InteractionPanelRequest) {
@@ -16,8 +16,8 @@ final class DictationPanelTransport: InteractionPanelTransport {
             onReady?()
         case .dictationLayout(let layout):
             onLayout?(layout)
-        case .dictationRunState(let status):
-            onRunState?(status)
+        case .dictationRunState(let status, let message):
+            onRunState?(status, message)
         case .dictationCommit(let recordingID, let transcript):
             onCommit?(recordingID, transcript)
         case .spaceStep, .referenceAudioPlay, .referenceAudioStop,
