@@ -39,6 +39,7 @@ _MLX_INFERENCE_EXECUTOR = ThreadPoolExecutor(
     thread_name_prefix="mlx-inference",
 )
 _MLX_MODELS_SEEN: set[str] = set()
+_RUNTIME_READY_AT = time.perf_counter()
 
 
 class VoiceRuntimeError(ValueError):
@@ -201,8 +202,11 @@ def _transcribe_audio_path_owned(
 ) -> dict[str, Any]:
     """Perform MLX work on the executor's single worker thread."""
     started_at = time.perf_counter()
-    local_model_started_at = started_at
-    local_model_ms = 0.0
+    mlx_import_ms = 0.0
+    model_resolution_ms = 0.0
+    model_cache_hit: bool | None = None
+    model_resident_before_call: bool | None = None
+    model_resident_after_call: bool | None = None
     audio_prepare_ms = 0.0
     mlx_call_ms = 0.0
     validation_ms = 0.0
@@ -212,13 +216,24 @@ def _transcribe_audio_path_owned(
     error_type: str | None = None
 
     try:
+        mlx_import_started_at = time.perf_counter()
         import mlx_whisper
+        from mlx_whisper.transcribe import ModelHolder
 
+        mlx_import_ms = _elapsed_ms(mlx_import_started_at)
+        model_dir = local_model_dir(options.model)
+        model_cache_hit = (model_dir / MODEL_COMPLETE_MARKER).exists()
+        model_resolution_started_at = time.perf_counter()
         local_model = ensure_local_model(options.model)
-        local_model_ms = _elapsed_ms(local_model_started_at)
+        model_resolution_ms = _elapsed_ms(model_resolution_started_at)
+        model_path = str(local_model)
+        model_resident_before_call = (
+            ModelHolder.model is not None
+            and ModelHolder.model_path == model_path
+        )
 
         whisper_options: dict[str, Any] = {
-            "path_or_hf_repo": str(local_model),
+            "path_or_hf_repo": model_path,
             "temperature": options.temperature,
             "word_timestamps": options.word_timestamps,
             "condition_on_previous_text": options.condition_on_previous_text,
@@ -246,6 +261,10 @@ def _transcribe_audio_path_owned(
         mlx_started_at = time.perf_counter()
         result = mlx_whisper.transcribe(audio, **whisper_options)
         mlx_call_ms = _elapsed_ms(mlx_started_at)
+        model_resident_after_call = (
+            ModelHolder.model is not None
+            and ModelHolder.model_path == model_path
+        )
         if not isinstance(result, dict):
             raise VoiceRuntimeError("Unexpected transcription result")
 
@@ -275,7 +294,19 @@ def _transcribe_audio_path_owned(
             success=success,
             errorType=error_type,
             queueWaitMs=max(0.0, (started_at - submitted_at) * 1000),
-            localModelMs=local_model_ms,
+            runtimeAgeAtSubmitMs=max(
+                0.0,
+                (submitted_at - _RUNTIME_READY_AT) * 1000,
+            ),
+            runtimeAgeAtExecutorStartMs=max(
+                0.0,
+                (started_at - _RUNTIME_READY_AT) * 1000,
+            ),
+            mlxImportMs=mlx_import_ms,
+            modelResolutionMs=model_resolution_ms,
+            modelCacheHit=model_cache_hit,
+            modelResidentBeforeCall=model_resident_before_call,
+            modelResidentAfterCall=model_resident_after_call,
             audioPrepareMs=audio_prepare_ms,
             mlxCallMs=mlx_call_ms,
             validationMs=validation_ms,

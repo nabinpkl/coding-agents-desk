@@ -60,8 +60,18 @@ class VoiceTimingEventTests(unittest.TestCase):
         for event in mlx_events:
             self.assertTrue(event["success"])
             self.assertGreaterEqual(event["queueWaitMs"], 0)
+            self.assertGreaterEqual(event["mlxImportMs"], 0)
+            self.assertGreaterEqual(event["modelResolutionMs"], 0)
+            self.assertIsInstance(event["modelCacheHit"], bool)
+            self.assertIsInstance(event["modelResidentBeforeCall"], bool)
+            self.assertIsInstance(event["modelResidentAfterCall"], bool)
             self.assertGreaterEqual(event["mlxCallMs"], 0)
             self.assertGreaterEqual(event["totalMs"], event["mlxCallMs"])
+            self.assertGreaterEqual(event["runtimeAgeAtSubmitMs"], 0)
+            self.assertGreaterEqual(
+                event["runtimeAgeAtExecutorStartMs"],
+                event["runtimeAgeAtSubmitMs"],
+            )
 
 
 if __name__ == "__main__":
