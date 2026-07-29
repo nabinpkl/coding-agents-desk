@@ -8,7 +8,13 @@ final class KeyboardViewController: UIInputViewController {
     private let keyboardView = AgentDeskQWERTYView()
     private let draftEditor = KeyboardDraftTextView()
     private let rootStack = UIStackView()
-    private var keyboardHeightConstraint: NSLayoutConstraint?
+    private var inputHeightConstraint: NSLayoutConstraint?
+    private var deckHeightConstraint: NSLayoutConstraint?
+    private var toolbarHeightConstraint: NSLayoutConstraint?
+    private var rootTopConstraint: NSLayoutConstraint?
+    private var rootBottomConstraint: NSLayoutConstraint?
+    private var currentMetrics = KeyboardDeckMetrics.portrait
+    private var lastGeometryWidth: CGFloat = 0
     private var store: KeyboardDictationStore?
     private var preferences = KeyboardDictationPreferences()
     private var layoutState = KeyboardLayoutState()
@@ -24,6 +30,15 @@ final class KeyboardViewController: UIInputViewController {
     private var linkController: UIViewController?
     private var lastShiftTapAt: TimeInterval?
 
+    override func loadView() {
+        let keyboardInputView = UIInputView(
+            frame: .zero,
+            inputViewStyle: .keyboard
+        )
+        keyboardInputView.allowsSelfSizing = true
+        view = keyboardInputView
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         configureStore()
@@ -31,6 +46,13 @@ final class KeyboardViewController: UIInputViewController {
         configureCallbacks()
         installObservation()
         refreshAll()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if abs(view.bounds.width - lastGeometryWidth) > 0.5 {
+            updateKeyboardGeometry()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -70,7 +92,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func configureView() {
-        view.backgroundColor = .secondarySystemBackground
+        view.backgroundColor = .clear
         keyboardView.translatesAutoresizingMaskIntoConstraints = false
         voiceToolbar.translatesAutoresizingMaskIntoConstraints = false
 
@@ -91,38 +113,73 @@ final class KeyboardViewController: UIInputViewController {
         let height = view.heightAnchor.constraint(equalToConstant: 330)
         height.priority = .required
         height.isActive = true
-        keyboardHeightConstraint = height
+        inputHeightConstraint = height
+
+        let deckHeight = keyboardView.heightAnchor.constraint(
+            equalToConstant: currentMetrics.deckHeight
+        )
+        deckHeight.priority = .required
+        deckHeightConstraint = deckHeight
+
+        let toolbarHeight = voiceToolbar.heightAnchor.constraint(
+            equalToConstant: currentMetrics.toolbarMinimumHeight
+        )
+        toolbarHeight.priority = .required
+        toolbarHeightConstraint = toolbarHeight
+
+        let rootTop = rootStack.topAnchor.constraint(
+            equalTo: view.topAnchor,
+            constant: currentMetrics.inputTopInset
+        )
+        let rootBottom = rootStack.bottomAnchor.constraint(
+            equalTo: view.bottomAnchor,
+            constant: -currentMetrics.inputBottomInset
+        )
+        rootTopConstraint = rootTop
+        rootBottomConstraint = rootBottom
 
         NSLayoutConstraint.activate([
-            rootStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
+            rootTop,
             rootStack.leadingAnchor.constraint(
                 equalTo: view.leadingAnchor,
-                constant: 4
+                constant: 0
             ),
             rootStack.trailingAnchor.constraint(
                 equalTo: view.trailingAnchor,
-                constant: -4
+                constant: 0
             ),
-            rootStack.bottomAnchor.constraint(
-                equalTo: view.bottomAnchor,
-                constant: -6
-            ),
-            voiceToolbar.heightAnchor.constraint(
-                greaterThanOrEqualToConstant: 52
-            ),
+            rootBottom,
+            toolbarHeight,
+            deckHeight,
             draftEditor.heightAnchor.constraint(equalToConstant: 76),
         ])
+        registerForTraitChanges([UITraitVerticalSizeClass.self]) {
+            (controller: KeyboardViewController, _) in
+            controller.updateKeyboardGeometry()
+        }
+        updateKeyboardGeometry()
     }
 
     private func configureCallbacks() {
         keyboardView.onKey = { [weak self] key in
             self?.handleKey(key)
         }
-        keyboardView.onDeleteBegan = { [weak self] in
-            self?.deleteBackward()
+        keyboardView.onDelete = { [weak self] in
+            self?.deleteBackward(updateLayout: false)
+        }
+        keyboardView.onDeleteEnded = { [weak self] in
+            self?.updateTypingTraits()
         }
         keyboardView.onCursorDelta = { [weak self] delta in
             self?.moveCursor(by: delta)
+        }
+        keyboardView.configureInputModeSwitchKey = { [weak self] button in
+            guard let self else { return }
+            button.addTarget(
+                self,
+                action: #selector(handleInputModeList(from:with:)),
+                for: .allTouchEvents
+            )
         }
         voiceToolbar.onInsertionModeChanged = { [weak self] mode in
             self?.setInsertionMode(mode)
@@ -172,6 +229,7 @@ final class KeyboardViewController: UIInputViewController {
             preferences = try store.preferences()
             snapshot = try store.serviceSnapshot()
             voiceToolbar.insertionMode = preferences.insertionMode
+            keyboardView.hapticsEnabled = preferences.hapticsEnabled
             updateTypingTraits()
             render()
         } catch {
@@ -350,8 +408,8 @@ final class KeyboardViewController: UIInputViewController {
         draftEditor.setSelectionToEnd()
         draftEditor.isHidden = false
         layoutState.typingTarget = .draft(recordingID: recordingID)
-        keyboardHeightConstraint?.constant = 412
         voiceToolbar.showDraftActions(true)
+        updateKeyboardGeometry()
         UIAccessibility.post(
             notification: .layoutChanged,
             argument: draftEditor
@@ -409,8 +467,8 @@ final class KeyboardViewController: UIInputViewController {
         draftEditor.isHidden = true
         draftEditor.text = ""
         layoutState.typingTarget = .document
-        keyboardHeightConstraint?.constant = 330
         voiceToolbar.showDraftActions(false)
+        updateKeyboardGeometry()
         UIAccessibility.post(notification: .layoutChanged, argument: voiceToolbar)
     }
 
@@ -425,10 +483,9 @@ final class KeyboardViewController: UIInputViewController {
             keyboardView.render(layoutState)
             return
         case .delete:
-            deleteBackward()
+            deleteBackward(updateLayout: true)
             return
         case .globe:
-            advanceToNextInputMode()
             return
         default:
             lastShiftTapAt = nil
@@ -447,11 +504,13 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    private func deleteBackward() {
+    private func deleteBackward(updateLayout: Bool) {
         switch layoutState.typingTarget {
         case .document:
             textDocumentProxy.deleteBackward()
-            updateTypingTraits()
+            if updateLayout {
+                updateTypingTraits()
+            }
         case .draft:
             draftEditor.deleteFromKeyboard()
             persistDraft()
@@ -486,6 +545,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func updateTypingTraits() {
         keyboardView.returnKeyTitle = returnKeyTitle()
+        layoutState.showsInputModeSwitchKey = needsInputModeSwitchKey
         if case .document = layoutState.typingTarget {
             switch textDocumentProxy.keyboardType {
             case .some(.emailAddress):
@@ -552,8 +612,10 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func render() {
+        defer { updateKeyboardGeometry() }
         voiceToolbar.insertionMode = preferences.insertionMode
         voiceToolbar.isInteractionEnabled = pendingCommandID == nil
+        keyboardView.hapticsEnabled = preferences.hapticsEnabled
         keyboardView.render(layoutState)
 
         guard hasFullAccess else {
@@ -642,6 +704,7 @@ final class KeyboardViewController: UIInputViewController {
             voiceToolbar.installLinkView(controller.view)
             controller.didMove(toParent: self)
             linkController = controller
+            updateKeyboardGeometry()
         } catch {
             voiceToolbar.render(.unavailable(error.localizedDescription))
         }
@@ -654,5 +717,45 @@ final class KeyboardViewController: UIInputViewController {
         linkController.removeFromParent()
         self.linkController = nil
         voiceToolbar.installLinkView(nil)
+        updateKeyboardGeometry()
+    }
+
+    private func updateKeyboardGeometry() {
+        let metrics = traitCollection.verticalSizeClass == .compact
+            ? KeyboardDeckMetrics.compactLandscape
+            : .portrait
+        currentMetrics = metrics
+        lastGeometryWidth = view.bounds.width
+        rootStack.spacing = metrics.sectionSpacing
+        rootTopConstraint?.constant = metrics.inputTopInset
+        rootBottomConstraint?.constant = -metrics.inputBottomInset
+        deckHeightConstraint?.constant = metrics.deckHeight
+        keyboardView.apply(metrics)
+
+        let availableWidth = max(
+            view.bounds.width,
+            view.window?.windowScene?.screen.bounds.width ?? 0
+        )
+        guard availableWidth > 0 else { return }
+        let targetSize = CGSize(
+            width: availableWidth,
+            height: UIView.layoutFittingCompressedSize.height
+        )
+        toolbarHeightConstraint?.isActive = false
+        let fittedToolbarHeight = voiceToolbar.systemLayoutSizeFitting(
+            targetSize,
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel
+        ).height
+        toolbarHeightConstraint?.isActive = true
+        let toolbarHeight = max(
+            metrics.toolbarMinimumHeight,
+            ceil(fittedToolbarHeight)
+        )
+        toolbarHeightConstraint?.constant = toolbarHeight
+        inputHeightConstraint?.constant = metrics.inputHeight(
+            toolbarHeight: toolbarHeight,
+            reviewEditorHeight: draftEditor.isHidden ? nil : 76
+        )
     }
 }

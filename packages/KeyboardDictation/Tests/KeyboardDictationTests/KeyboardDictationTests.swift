@@ -47,14 +47,46 @@ struct KeyboardDictationTests {
         try store.saveCommand(command)
         try store.saveServiceSnapshot(snapshot)
         try store.savePreferences(KeyboardDictationPreferences(
-            insertionMode: .explicitReview
+            insertionMode: .explicitReview,
+            hapticsEnabled: false
         ))
 
         #expect(try store.pendingCommand() == command)
         #expect(try store.serviceSnapshot() == snapshot)
         #expect(try store.preferences().insertionMode == .explicitReview)
+        #expect(try store.preferences().hapticsEnabled == false)
         try store.clearCommand(ifMatching: command.id)
         #expect(try store.pendingCommand() == nil)
+    }
+
+    @Test func legacyPreferencesDefaultHapticsToEnabled() throws {
+        let preferences = try JSONDecoder().decode(
+            KeyboardDictationPreferences.self,
+            from: Data(
+                """
+                {"schemaVersion":1,"insertionMode":"explicitReview"}
+                """.utf8
+            )
+        )
+
+        #expect(preferences.insertionMode == .explicitReview)
+        #expect(preferences.hapticsEnabled)
+    }
+
+    @Test func hapticPreferenceEditPreservesExplicitReview() throws {
+        let store = try makeStore()
+        try store.savePreferences(KeyboardDictationPreferences(
+            insertionMode: .explicitReview,
+            hapticsEnabled: true
+        ))
+
+        var preferences = try store.preferences()
+        preferences.hapticsEnabled = false
+        try store.savePreferences(preferences)
+
+        let saved = try store.preferences()
+        #expect(saved.insertionMode == .explicitReview)
+        #expect(saved.hapticsEnabled == false)
     }
 
     @Test func commandGenerationAndAcknowledgementRemainCorrelated() {
@@ -209,6 +241,20 @@ struct KeyboardDictationTests {
         state.fieldKind = .url
         #expect(state.rows.last?.contains(.character("/")) == true)
         #expect(state.rows.last?.contains(.character(".")) == true)
+    }
+
+    @Test func bottomRowsFollowTheSystemInputModeSwitchRequirement() {
+        var state = KeyboardLayoutState(showsInputModeSwitchKey: true)
+        #expect(state.rows.last?.contains(.globe) == true)
+
+        state.showsInputModeSwitchKey = false
+        #expect(state.rows.last?.contains(.globe) == false)
+
+        _ = state.handle(.page(.numbers))
+        #expect(state.rows.last?.contains(.globe) == false)
+
+        _ = state.handle(.page(.symbols))
+        #expect(state.rows.last?.contains(.globe) == false)
     }
 
     @Test func automaticInsertionRequiresSameActiveContext() {

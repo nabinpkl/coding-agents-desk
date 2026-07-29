@@ -252,6 +252,12 @@ public struct KeyboardDictationStore: Sendable {
         } catch let error as KeyboardDictationStoreError {
             throw error
         } catch {
+            // An App Group peer can remove a command after this reader's
+            // existence check. Absence is the authoritative state; a file
+            // that still exists must continue to fail loudly as corrupt.
+            guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                return nil
+            }
             throw KeyboardDictationStoreError.invalidStoredValue(name)
         }
     }

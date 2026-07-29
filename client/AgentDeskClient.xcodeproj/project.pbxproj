@@ -12,6 +12,10 @@
 		B1550000000000000000000C /* AgentDeskKeyboard.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B15500000000000000000001 /* AgentDeskKeyboard.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		B15500000000000000000011 /* KeyboardDictation in Frameworks */ = {isa = PBXBuildFile; productRef = B15500000000000000000010 /* KeyboardDictation */; };
 		B15500000000000000000014 /* KeyboardDictation in Frameworks */ = {isa = PBXBuildFile; productRef = B15500000000000000000013 /* KeyboardDictation */; };
+		B15800000000000000000011 /* AgentDeskQWERTYView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15800000000000000000021 /* AgentDeskQWERTYView.swift */; };
+		B15800000000000000000012 /* KeyboardDeckMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15800000000000000000022 /* KeyboardDeckMetrics.swift */; };
+		B15800000000000000000013 /* KeyboardFeedbackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15800000000000000000023 /* KeyboardFeedbackEngine.swift */; };
+		B15800000000000000000014 /* KeyboardKeyAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15800000000000000000024 /* KeyboardKeyAppearance.swift */; };
 		C0000000000000000000EE07 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE03 /* PtyClientSwift */; };
 		C0000000000000000000EE09 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE05 /* PtyClientSwift */; };
 		C0000000000000000000EE0B /* PtyTerminalSession in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE0F /* PtyTerminalSession */; };
@@ -36,6 +40,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		B15800000000000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B00000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B00000000000000000000004;
+			remoteInfo = AgentDeskClient;
+		};
 		B1550000000000000000000D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = B00000000000000000000001 /* Project object */;
@@ -63,6 +74,10 @@
 		B00000000000000000000141 /* AgentDeskClient.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentDeskClient.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000142 /* AgentDeskClientTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentDeskClientTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B15500000000000000000001 /* AgentDeskKeyboard.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = AgentDeskKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		B15800000000000000000021 /* AgentDeskQWERTYView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeskKeyboard/AgentDeskQWERTYView.swift; sourceTree = SOURCE_ROOT; };
+		B15800000000000000000022 /* KeyboardDeckMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeskKeyboard/KeyboardDeckMetrics.swift; sourceTree = SOURCE_ROOT; };
+		B15800000000000000000023 /* KeyboardFeedbackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeskKeyboard/KeyboardFeedbackEngine.swift; sourceTree = SOURCE_ROOT; };
+		B15800000000000000000024 /* KeyboardKeyAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeskKeyboard/KeyboardKeyAppearance.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -171,6 +186,7 @@
 				DDD788322FF7B49000F8BB76 /* AgentDeskClient */,
 				DDD78B622FF82BFF00F8BB76 /* AgentDeskClientTests */,
 				B15500000000000000000002 /* AgentDeskKeyboard */,
+				B15800000000000000000020 /* Native Keyboard Test Sources */,
 				B00000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -183,6 +199,17 @@
 				B15500000000000000000001 /* AgentDeskKeyboard.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B15800000000000000000020 /* Native Keyboard Test Sources */ = {
+			isa = PBXGroup;
+			children = (
+				B15800000000000000000021 /* AgentDeskQWERTYView.swift */,
+				B15800000000000000000022 /* KeyboardDeckMetrics.swift */,
+				B15800000000000000000023 /* KeyboardFeedbackEngine.swift */,
+				B15800000000000000000024 /* KeyboardKeyAppearance.swift */,
+			);
+			name = "Native Keyboard Test Sources";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -235,6 +262,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				B15800000000000000000003 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				DDD788322FF7B49000F8BB76 /* AgentDeskClient */,
@@ -371,6 +399,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B15800000000000000000011 /* AgentDeskQWERTYView.swift in Sources */,
+				B15800000000000000000012 /* KeyboardDeckMetrics.swift in Sources */,
+				B15800000000000000000013 /* KeyboardFeedbackEngine.swift in Sources */,
+				B15800000000000000000014 /* KeyboardKeyAppearance.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -384,6 +416,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		B15800000000000000000003 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B00000000000000000000004 /* AgentDeskClient */;
+			targetProxy = B15800000000000000000002 /* PBXContainerItemProxy */;
+		};
 		B1550000000000000000000E /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = B15500000000000000000004 /* AgentDeskKeyboard */;

@@ -38,17 +38,20 @@ public struct KeyboardLayoutState: Equatable, Sendable {
     public private(set) var shift: KeyboardShiftState
     public var typingTarget: KeyboardTypingTarget
     public var fieldKind: KeyboardFieldKind
+    public var showsInputModeSwitchKey: Bool
 
     public init(
         page: KeyboardPage = .alphabet,
         shift: KeyboardShiftState = .off,
         typingTarget: KeyboardTypingTarget = .document,
-        fieldKind: KeyboardFieldKind = .standard
+        fieldKind: KeyboardFieldKind = .standard,
+        showsInputModeSwitchKey: Bool = true
     ) {
         self.page = page
         self.shift = shift
         self.typingTarget = typingTarget
         self.fieldKind = fieldKind
+        self.showsInputModeSwitchKey = showsInputModeSwitchKey
     }
 
     public var rows: [[KeyboardKey]] {
@@ -70,7 +73,10 @@ public struct KeyboardLayoutState: Equatable, Sendable {
                 [.page(.symbols)]
                     + [".", ",", "?", "!", "'"].map(KeyboardKey.character)
                     + [.delete],
-                [.page(.alphabet), .globe, .space, .return]
+                bottomRow(
+                    leading: [.page(.alphabet)],
+                    trailing: [.space, .return]
+                )
             ]
         case .symbols:
             [
@@ -81,7 +87,10 @@ public struct KeyboardLayoutState: Equatable, Sendable {
                 [.page(.numbers)]
                     + [".", ",", "?", "!", "'"].map(KeyboardKey.character)
                     + [.delete],
-                [.page(.alphabet), .globe, .space, .return]
+                bottomRow(
+                    leading: [.page(.alphabet)],
+                    trailing: [.space, .return]
+                )
             ]
         }
     }
@@ -89,26 +98,40 @@ public struct KeyboardLayoutState: Equatable, Sendable {
     private var alphabetBottomRow: [KeyboardKey] {
         switch fieldKind {
         case .standard:
-            [.page(.numbers), .globe, .space, .return]
+            bottomRow(
+                leading: [.page(.numbers)],
+                trailing: [.space, .return]
+            )
         case .email:
-            [
-                .page(.numbers),
-                .globe,
-                .character("@"),
-                .space,
-                .character("."),
-                .return,
-            ]
+            bottomRow(
+                leading: [.page(.numbers)],
+                trailing: [
+                    .character("@"),
+                    .space,
+                    .character("."),
+                    .return,
+                ]
+            )
         case .url:
-            [
-                .page(.numbers),
-                .globe,
-                .character("/"),
-                .space,
-                .character("."),
-                .return,
-            ]
+            bottomRow(
+                leading: [.page(.numbers)],
+                trailing: [
+                    .character("/"),
+                    .space,
+                    .character("."),
+                    .return,
+                ]
+            )
         }
+    }
+
+    private func bottomRow(
+        leading: [KeyboardKey],
+        trailing: [KeyboardKey]
+    ) -> [KeyboardKey] {
+        leading
+            + (showsInputModeSwitchKey ? [.globe] : [])
+            + trailing
     }
 
     public mutating func handle(_ key: KeyboardKey) -> String? {

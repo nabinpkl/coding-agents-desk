@@ -207,13 +207,35 @@ public enum KeyboardDictationInsertionMode: String, Codable, Equatable, Sendable
 public struct KeyboardDictationPreferences: Codable, Equatable, Sendable {
     public let schemaVersion: Int
     public var insertionMode: KeyboardDictationInsertionMode
+    public var hapticsEnabled: Bool
 
     public init(
         schemaVersion: Int = KeyboardDictationContract.schemaVersion,
-        insertionMode: KeyboardDictationInsertionMode = .automatic
+        insertionMode: KeyboardDictationInsertionMode = .automatic,
+        hapticsEnabled: Bool = true
     ) {
         self.schemaVersion = schemaVersion
         self.insertionMode = insertionMode
+        self.hapticsEnabled = hapticsEnabled
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case insertionMode
+        case hapticsEnabled
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        insertionMode = try container.decode(
+            KeyboardDictationInsertionMode.self,
+            forKey: .insertionMode
+        )
+        hapticsEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .hapticsEnabled
+        ) ?? true
     }
 }
 

@@ -756,6 +756,15 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   one-time activation and swipe-back, repeated Automatic and Explicit Review takes, exact host
   recording correlation, other-audio mixing, busy/network/interruption/termination failures, and
   complete Turn Off cleanup. Do not claim public App Store safety for the containing-app Link.
+- D158. Give the production keyboard one authoritative portrait and compact-landscape geometry,
+  fixed-height Apple-adjacent rows, raised dynamic key tokens, visible press restoration, standard
+  input clicks, optional device-local haptics, immediate nonduplicating delete repeat, cursor
+  selection feedback, and conditional system input-mode switching. Keep the typing and voice
+  transport contracts unchanged.
+- R159. At the explicit physical-device checkpoint, compare AgentDesk with the Apple keyboard in
+  light and dark appearance, verify uncompressed ready/inactive/review/recording layouts across
+  rotation, confirm click and haptic settings independently, and confirm Face ID devices render
+  only the system-owned globe.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -815,5 +824,9 @@ R151  implemented remaining  authorized Mac/iPhone reference playback acceptance
 D152  2026-07-27  landed     web-owned macOS dictation mini and retired Swift audio pipeline
 D153  2026-07-27  landed     reviewed iPhone dictation sheet via remote keyboard input
 D154  2026-07-27  landed     optional iPhone dictation recording prefix
-R155  implemented awaiting physical Full Access keyboard handoff and App Group return-path proof
+D155  2026-07-28  landed     physical keyboard handoff and App Group return-path spike
+D156  2026-07-28  landed     production host-owned systemwide keyboard dictation
+R157  implemented remaining  physical production keyboard dictation acceptance
+D158  2026-07-28  landed     fixed native-adjacent keyboard geometry and feedback
+R159  implemented remaining  physical keyboard appearance and interaction acceptance
 ```

@@ -1,5 +1,6 @@
 import AVFoundation
 import InteractionPanel
+import KeyboardDictation
 import UIKit
 
 // Modal settings screen presented from PairingViewController's gear icon.
@@ -7,6 +8,7 @@ import UIKit
 // effect immediately without a separate "save" step.
 final class SettingsViewController: UIViewController {
     private let store = SettingsStore.shared
+    private let keyboardDictationStore: KeyboardDictationStore?
 
     private let cursorSpeedSlider = UISlider()
     private let cursorSpeedLabel = UILabel()
@@ -42,6 +44,7 @@ final class SettingsViewController: UIViewController {
     private let disconnectButton = UIButton(type: .system)
     private let unpairButton = UIButton(type: .system)
     private let keyboardDictationButton = UIButton(type: .system)
+    private let keyHapticsSwitch = UISwitch()
 
     // Ends the current session but keeps the pairing: the phone stays paired and
     // the host shows "Paired but not currently connected". Set by the presenter.
@@ -50,6 +53,20 @@ final class SettingsViewController: UIViewController {
     // sides forget each other and pairing must be redone. Set by the presenter.
     var onUnpair: (() -> Void)?
     var onKeyboardDictation: (() -> Void)?
+
+    init(
+        keyboardDictationStore: KeyboardDictationStore? =
+            SettingsViewController.makeKeyboardDictationStore()
+    ) {
+        self.keyboardDictationStore = keyboardDictationStore
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        keyboardDictationStore =
+            SettingsViewController.makeKeyboardDictationStore()
+        super.init(coder: coder)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -169,11 +186,22 @@ final class SettingsViewController: UIViewController {
             action: #selector(keyboardDictationTapped),
             for: .touchUpInside
         )
+        keyHapticsSwitch.accessibilityIdentifier =
+            "keyboard-dictation-key-haptics"
+        keyHapticsSwitch.accessibilityLabel = "Key haptics"
+        keyHapticsSwitch.accessibilityHint =
+            "Controls AgentDesk keyboard vibration. Key clicks follow iOS Sounds settings."
+        keyHapticsSwitch.addTarget(
+            self,
+            action: #selector(keyHapticsChanged),
+            for: .valueChanged
+        )
         let keyboardDictationSection = makeSection(
             title: "Keyboard Dictation",
             rows: [],
+            switchRow: ("Key haptics", keyHapticsSwitch),
             customRows: [keyboardDictationButton],
-            footnote: "Activates the AgentDesk microphone and Mac voice connection for the systemwide AgentDesk keyboard."
+            footnote: "Key clicks follow the iOS Sounds setting. Key haptics controls only AgentDesk vibration. Activate Dictation to connect the systemwide keyboard to the Mac voice service."
         )
 
         // Connection: the only place to end a live session or unpair while
@@ -305,6 +333,7 @@ final class SettingsViewController: UIViewController {
         hostCursorSwitch.isOn = store.showHostCursorInVideo
         adaptiveMediaQualitySwitch.isOn = store.adaptiveMediaQualityEnabled
         diagnosticScreenshotsSwitch.isOn = store.diagnosticScreenshotsEnabled
+        loadKeyboardDictationPreferences()
         manualMediaBitrateSlider.value = Float(store.manualMediaBitrateKbps)
         manualMediaFpsControl.selectedSegmentIndex = index(for: store.manualMediaFps, in: manualFpsValues())
         manualMediaResolutionControl.selectedSegmentIndex = index(for: store.manualMediaResolutionScale, in: manualResolutionValues())
@@ -382,6 +411,21 @@ final class SettingsViewController: UIViewController {
 
     @objc private func diagnosticScreenshotsChanged() {
         store.diagnosticScreenshotsEnabled = diagnosticScreenshotsSwitch.isOn
+    }
+
+    @objc private func keyHapticsChanged() {
+        guard let keyboardDictationStore else {
+            keyHapticsSwitch.isOn = false
+            return
+        }
+        do {
+            var preferences = try keyboardDictationStore.preferences()
+            preferences.hapticsEnabled = keyHapticsSwitch.isOn
+            try keyboardDictationStore.savePreferences(preferences)
+        } catch {
+            loadKeyboardDictationPreferences()
+            presentKeyboardPreferenceError(error)
+        }
     }
 
     @objc private func manualMediaBitrateChanged() {
@@ -690,6 +734,49 @@ final class SettingsViewController: UIViewController {
         row.axis = .vertical
         row.spacing = 6
         return row
+    }
+
+    private func loadKeyboardDictationPreferences() {
+        guard let keyboardDictationStore else {
+            keyHapticsSwitch.isOn = false
+            keyHapticsSwitch.isEnabled = false
+            keyHapticsSwitch.accessibilityHint =
+                "The keyboard App Group is unavailable."
+            return
+        }
+        do {
+            keyHapticsSwitch.isOn =
+                try keyboardDictationStore.preferences().hapticsEnabled
+            keyHapticsSwitch.isEnabled = true
+        } catch {
+            keyHapticsSwitch.isOn = false
+            keyHapticsSwitch.isEnabled = false
+            keyHapticsSwitch.accessibilityHint = error.localizedDescription
+        }
+    }
+
+    private func presentKeyboardPreferenceError(_ error: any Error) {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: "Key haptics could not be saved",
+            message: error.localizedDescription,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
+    }
+
+    private static func makeKeyboardDictationStore()
+        -> KeyboardDictationStore?
+    {
+        do {
+            return try KeyboardDictationStore(
+                appGroupIdentifier: KeyboardDictationContract
+                    .appGroupIdentifier()
+            )
+        } catch {
+            return nil
+        }
     }
 
     private func roundedManualBitrate() -> Int {
