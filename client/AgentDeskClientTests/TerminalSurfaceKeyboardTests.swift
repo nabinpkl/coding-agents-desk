@@ -6,6 +6,53 @@ import WebKit
 @MainActor
 struct TerminalSurfaceKeyboardTests {
     @Test
+    func nativeProxyRequestsKeyboardAfterTapRelease() async throws {
+        let surface = TerminalSurface()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let controller = UIViewController()
+        controller.view.addSubview(surface)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        surface.setViewportPresented(true)
+
+        _ = try await waitForJavaScriptBoolean(
+            in: surface.terminalContent.webView,
+            expression: "document.querySelector('.terminal-pane') ? true : null"
+        )
+        try await surface.terminalContent.webView.evaluateJavaScript(
+            """
+            (() => {
+              const pane = document.querySelector('.terminal-pane');
+              pane.dispatchEvent(new PointerEvent('pointerdown', {
+                bubbles: true,
+                pointerType: 'touch'
+              }));
+            })()
+            """
+        )
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(!surface.terminalKeyboardSurface.isFirstResponder)
+
+        try await surface.terminalContent.webView.evaluateJavaScript(
+            """
+            (() => {
+              const pane = document.querySelector('.terminal-pane');
+              pane.dispatchEvent(new PointerEvent('pointerup', {
+                bubbles: true,
+                pointerType: 'touch'
+              }));
+              pane.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            })()
+            """
+        )
+        let becameFirstResponder = await waitForCondition {
+            surface.terminalKeyboardSurface.isFirstResponder
+        }
+        #expect(becameFirstResponder)
+    }
+
+    @Test
     func nativeProxyDisablesTheXtermTextareaResponder() async throws {
         let surface = TerminalSurface()
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
@@ -93,6 +140,16 @@ struct TerminalSurfaceKeyboardTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         Issue.record("terminal web runtime did not expose its input textarea")
+        return false
+    }
+
+    private func waitForCondition(_ condition: () -> Bool) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
         return false
     }
 

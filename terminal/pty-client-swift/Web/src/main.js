@@ -108,7 +108,12 @@ function createPane(pane) {
   setIdentifier(history, `terminal-session-history-truncated-${pane.paneId}`);
   footer.append(sync, ownership, source, view, history);
   element.append(header, viewport, footer);
-  element.addEventListener('pointerdown', () => focusPane(pane.paneId, true), { passive: true });
+  element.addEventListener('pointerdown', () => {
+    if (!nativeInputProxy) focusPane(pane.paneId, true);
+  }, { passive: true });
+  element.addEventListener('click', () => {
+    if (nativeInputProxy) focusPane(pane.paneId, true);
+  });
 
   let entry = terminals.get(pane.terminalId);
   if (!entry) {
