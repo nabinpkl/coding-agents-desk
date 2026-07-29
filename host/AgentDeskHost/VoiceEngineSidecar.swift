@@ -1,6 +1,38 @@
 import Foundation
 import os
 
+struct VoiceSidecarOutputFramer {
+    private var buffer = ""
+
+    static func isTimingEvent(_ line: String) -> Bool {
+        guard
+            let data = line.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let payload = object as? [String: Any]
+        else {
+            return false
+        }
+        return payload["event"] as? String == "voice-timing"
+    }
+
+    mutating func consume(_ data: Data) -> [String] {
+        buffer.append(String(decoding: data, as: UTF8.self))
+        let lines = buffer.split(
+            separator: "\n",
+            omittingEmptySubsequences: false
+        )
+        guard lines.count > 1 else { return [] }
+        buffer = String(lines.last ?? "")
+        return lines.dropLast().compactMap { line in
+            line.isEmpty ? nil : String(line)
+        }
+    }
+
+    mutating func reset() {
+        buffer = ""
+    }
+}
+
 // VoiceEngineSidecar spawns the host-owned voice server (`voice-server`), polls
 // until it answers /health on loopback, supervises the child (restarting on
 // unexpected exit with a small backoff), and tears down cleanly on stop.
@@ -26,6 +58,8 @@ final class VoiceEngineSidecar: @unchecked Sendable {
     private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).voice-engine-sidecar")
 
     private var process: Process?
+    private var outputPipe: Pipe?
+    private var outputFramer = VoiceSidecarOutputFramer()
     private var stopped = false
     private var restartBackoffSeconds: TimeInterval = 1
     // Collapses concurrent restart requests into one. A single induced exit can
@@ -111,11 +145,25 @@ final class VoiceEngineSidecar: @unchecked Sendable {
         overrides["VOICE_HOST"] = "127.0.0.1"
         proc.environment = ProcessInfo.processInfo.environment
             .merging(overrides) { _, new in new }
-        // Detach the child's stdio from the host's. The sidecar logs to its own
-        // stdout/stderr; inheriting the host's file handles would both pollute
-        // the host console and couple the child's lifetime to those handles.
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
+        // Capture newline-framed output without inheriting the host process's
+        // stdio descriptors. consumeOutput forwards only structured timing
+        // events, keeping transcripts and arbitrary dependency output out of
+        // the unified log.
+        let pipe = Pipe()
+        outputPipe = pipe
+        outputFramer.reset()
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
+            self?.queue.async { [weak self] in
+                self?.consumeOutput(data)
+            }
+        }
+        proc.standardOutput = pipe
+        proc.standardError = pipe
         // Dispatch onto our serial queue: Process invokes terminationHandler on
         // its own internal queue, but handleTermination reads+mutates stopped
         // and restartBackoffSeconds, which are owned by self.queue. Without this
@@ -133,6 +181,7 @@ final class VoiceEngineSidecar: @unchecked Sendable {
             logger.notice("voice sidecar started port=\(self.port, privacy: .public)")
         } catch {
             logger.error("voice sidecar launch failed: \(String(describing: error), privacy: .public)")
+            closeOutputPipe()
             scheduleRestart()
             return
         }
@@ -178,6 +227,7 @@ final class VoiceEngineSidecar: @unchecked Sendable {
         // The OS fired this for the live process; drop our reference to it so a
         // later teardown does not touch a dead Process.
         process = nil
+        closeOutputPipe()
         // Reset the backoff only for a generation that actually stayed up.
         //
         // Resetting it on /health instead pins the delay at its floor for the one failure mode
@@ -210,6 +260,7 @@ final class VoiceEngineSidecar: @unchecked Sendable {
     }
 
     private func terminateCurrentProcess() {
+        closeOutputPipe()
         guard let proc = process else { return }
         process = nil
         // Detach the termination handler so a deliberate teardown (stop() or the
@@ -227,6 +278,19 @@ final class VoiceEngineSidecar: @unchecked Sendable {
         if proc.isRunning {
             kill(proc.processIdentifier, SIGKILL)
         }
+    }
+
+    private func consumeOutput(_ data: Data) {
+        for line in outputFramer.consume(data)
+        where VoiceSidecarOutputFramer.isTimingEvent(line) {
+            logger.notice("voice sidecar \(line, privacy: .public)")
+        }
+    }
+
+    private func closeOutputPipe() {
+        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        outputPipe = nil
+        outputFramer.reset()
     }
 }
 

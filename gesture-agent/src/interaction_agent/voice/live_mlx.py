@@ -28,6 +28,7 @@ from interaction_agent.voice.runtime import (
     transcribe_audio_path,
     transcript_text,
 )
+from interaction_agent.voice.timing import emit_voice_timing
 
 
 LOGGER = logging.getLogger("voice_agent.live_mlx")
@@ -224,12 +225,17 @@ class MlxLiveChunkTranscriber:
             return
 
         started_at = time.monotonic()
+        success = False
+        error_type: str | None = None
         audio = prepare_audio_for_recognizer(audio, preamp_gain)
         temp_path = write_temp_wav(audio, sample_rate)
         try:
             result = transcribe_audio_path(
                 temp_path,
-                VoiceTranscriptionOptions(model=self.model),
+                VoiceTranscriptionOptions(
+                    model=self.model,
+                    purpose="livePreview",
+                ),
             )
             text = transcript_text(result)
             elapsed = time.monotonic() - started_at
@@ -240,13 +246,23 @@ class MlxLiveChunkTranscriber:
                 self.last_decode_seconds = elapsed
                 self.last_error = None
                 self.is_decoding = False
+            success = True
         except Exception as exc:
+            error_type = type(exc).__name__
             LOGGER.exception("mlx live preview decode failed")
             with self.lock:
                 self.last_error = str(exc)
                 self.is_decoding = False
         finally:
             temp_path.unlink(missing_ok=True)
+            emit_voice_timing(
+                "livePreviewDecode",
+                model=self.model,
+                audioSeconds=audio.size / max(1, sample_rate),
+                success=success,
+                errorType=error_type,
+                totalMs=(time.monotonic() - started_at) * 1000,
+            )
 
     def _enqueue_stop(self, audio_queue: queue.Queue[AudioQueueItem]) -> None:
         while True:

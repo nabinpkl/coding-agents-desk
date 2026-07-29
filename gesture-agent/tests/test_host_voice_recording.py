@@ -343,8 +343,48 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
             )
 
         options = transcribe.call_args.args[1]
+        self.assertEqual(options.purpose, "final")
         self.assertEqual(options.preamp_gain, 4.0)
         self.assertFalse(options.condition_on_previous_text)
+
+    async def test_finalization_emits_content_free_stage_and_total_timings(
+        self,
+    ) -> None:
+        events: list[dict[str, object]] = []
+
+        def capture(stage: str, **fields: object) -> None:
+            events.append({"stage": stage, **fields})
+
+        with patch.object(http_server, "emit_voice_timing", side_effect=capture):
+            result = await self._finalize("macos")
+
+        recording_events = [
+            event
+            for event in events
+            if event.get("recordingID") == result.id
+        ]
+        phases = {
+            event["phase"]
+            for event in recording_events
+            if event["stage"] == "voiceSessionStage"
+        }
+        self.assertEqual(
+            phases,
+            {"save", "finalTranscription", "phoneAnalysis", "delivery"},
+        )
+        summary = next(
+            event
+            for event in recording_events
+            if event["stage"] == "voiceSession"
+        )
+        self.assertGreaterEqual(summary["postStopMs"], summary["saveMs"])
+        self.assertGreaterEqual(
+            summary["finalizationMs"],
+            summary["finalTranscriptionMs"],
+        )
+        self.assertFalse(
+            any("text" in key.lower() for event in events for key in event)
+        )
 
     async def test_corrupt_transcription_is_not_persisted_or_returned(self) -> None:
         async def analyze(app, recording_id):

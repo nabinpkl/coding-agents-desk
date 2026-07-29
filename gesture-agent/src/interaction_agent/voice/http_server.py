@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -66,6 +67,7 @@ from interaction_agent.voice.runtime import (
     validate_temperature,
 )
 from interaction_agent.voice.signals import analyze_audio
+from interaction_agent.voice.timing import emit_voice_timing
 from interaction_agent.voice.web_stream import (
     FloatArray,
     VoiceWireError,
@@ -293,6 +295,7 @@ async def create_transcription(
                 audio_path,
                 VoiceTranscriptionOptions(
                     model=model,
+                    purpose="rest",
                     language=language,
                     prompt=prompt,
                     temperature=temperature,
@@ -391,14 +394,34 @@ async def send_wire(websocket: WebSocket, message: WireModel) -> None:
     await websocket.send_text(message.model_dump_json(by_alias=True))
 
 
+def _elapsed_ms(started_at: float) -> float:
+    return max(0.0, (time.perf_counter() - started_at) * 1000)
+
+
 async def get_phone_recognizer(app: FastAPI) -> ZIPAPhoneRecognizer:
     if app.state.voice_phone_recognizer is not None:
         return app.state.voice_phone_recognizer
     async with app.state.voice_phone_recognizer_lock:
         if app.state.voice_phone_recognizer is None:
-            app.state.voice_phone_recognizer = await run_in_threadpool(
-                ZIPAPhoneRecognizer
-            )
+            started_at = time.perf_counter()
+            success = False
+            error_type: str | None = None
+            try:
+                app.state.voice_phone_recognizer = await run_in_threadpool(
+                    ZIPAPhoneRecognizer
+                )
+                success = True
+            except Exception as exc:
+                error_type = type(exc).__name__
+                raise
+            finally:
+                emit_voice_timing(
+                    "zipaInitialization",
+                    coldStart=True,
+                    success=success,
+                    errorType=error_type,
+                    totalMs=_elapsed_ms(started_at),
+                )
     return app.state.voice_phone_recognizer
 
 
@@ -408,11 +431,36 @@ async def analyze_recording_phones(
 ) -> Recording:
     recognizer = await get_phone_recognizer(app)
     wav_path = recording_wav_path(recording_id)
+    submitted_at = time.perf_counter()
+    inference_ms = 0.0
+    success = False
+    error_type: str | None = None
     async with app.state.voice_phone_inference_lock:
-        result: PhoneRecognition = await run_in_threadpool(
-            recognizer.analyze_wav,
-            wav_path,
-        )
+        inference_started_at = time.perf_counter()
+        try:
+            result: PhoneRecognition = await run_in_threadpool(
+                recognizer.analyze_wav,
+                wav_path,
+            )
+            inference_ms = _elapsed_ms(inference_started_at)
+            success = True
+        except Exception as exc:
+            inference_ms = _elapsed_ms(inference_started_at)
+            error_type = type(exc).__name__
+            raise
+        finally:
+            emit_voice_timing(
+                "zipaInference",
+                recordingID=recording_id,
+                success=success,
+                errorType=error_type,
+                queueWaitMs=max(
+                    0.0,
+                    (inference_started_at - submitted_at) * 1000,
+                ),
+                inferenceMs=inference_ms,
+                totalMs=_elapsed_ms(submitted_at),
+            )
     await run_in_threadpool(
         update_recording_metadata,
         recording_json_path(recording_id),
@@ -457,14 +505,27 @@ async def send_progress_best_effort(
         return False
 
 
-async def finish_live_transcriber(transcriber: MlxLiveChunkTranscriber) -> None:
+async def finish_live_transcriber(transcriber: MlxLiveChunkTranscriber) -> float:
     """Wait for preview inference ownership to end before the final pass."""
+    started_at = time.perf_counter()
+    success = False
+    error_type: str | None = None
     try:
         await run_in_threadpool(transcriber.finish_session)
-    except Exception:
+        success = True
+    except Exception as exc:
+        error_type = type(exc).__name__
         logging.getLogger(__name__).exception(
             "live voice preview teardown failed; finalizing retained PCM"
         )
+    duration_ms = _elapsed_ms(started_at)
+    emit_voice_timing(
+        "livePreviewDrain",
+        success=success,
+        errorType=error_type,
+        totalMs=duration_ms,
+    )
+    return duration_ms
 
 
 async def finalize_session(
@@ -477,7 +538,13 @@ async def finalize_session(
     status: Literal["completed", "interrupted"],
     client_session_id: str | None = None,
     transport: dict[str, Any] | None = None,
+    *,
+    post_stop_started_at: float | None = None,
+    live_preview_drain_ms: float = 0.0,
 ) -> Recording | None:
+    finalization_started_at = time.perf_counter()
+    if post_stop_started_at is None:
+        post_stop_started_at = finalization_started_at
     audio = (
         np.concatenate(collected)
         if collected
@@ -492,18 +559,63 @@ async def finalize_session(
                     message="No audio was received; the recording was discarded.",
                 ),
             )
+        emit_voice_timing(
+            "voiceSession",
+            recordingID=None,
+            source=source,
+            status=status,
+            discarded=True,
+            audioSeconds=0.0,
+            livePreviewDrainMs=live_preview_drain_ms,
+            postStopMs=_elapsed_ms(post_stop_started_at),
+            success=False,
+        )
         return None
-    result = await run_in_threadpool(
-        save_voice_recording,
-        audio,
-        sample_rate,
-        started_at,
-        source=source,
-        status=status,
-        client_session_id=client_session_id,
-        transport=transport,
-    )
+    save_started_at = time.perf_counter()
+    try:
+        result = await run_in_threadpool(
+            save_voice_recording,
+            audio,
+            sample_rate,
+            started_at,
+            source=source,
+            status=status,
+            client_session_id=client_session_id,
+            transport=transport,
+        )
+    except Exception as exc:
+        save_ms = _elapsed_ms(save_started_at)
+        emit_voice_timing(
+            "voiceSessionStage",
+            phase="save",
+            recordingID=None,
+            success=False,
+            errorType=type(exc).__name__,
+            totalMs=save_ms,
+        )
+        emit_voice_timing(
+            "voiceSession",
+            recordingID=None,
+            source=source,
+            status=status,
+            discarded=False,
+            audioSeconds=audio.size / max(1, sample_rate),
+            livePreviewDrainMs=live_preview_drain_ms,
+            saveMs=save_ms,
+            postStopMs=_elapsed_ms(post_stop_started_at),
+            success=False,
+        )
+        raise
+    save_ms = _elapsed_ms(save_started_at)
     recording_id = recording_id_from_result(result)
+    emit_voice_timing(
+        "voiceSessionStage",
+        phase="save",
+        recordingID=recording_id,
+        success=True,
+        errorType=None,
+        totalMs=save_ms,
+    )
     if not await send_progress_best_effort(websocket, "saving"):
         websocket = None
 
@@ -514,12 +626,16 @@ async def finalize_session(
         websocket = None
     config = load_voice_runtime_config()
     final_text = ""
+    transcription_started_at = time.perf_counter()
+    transcription_success = False
+    transcription_error_type: str | None = None
     try:
         final_result = await run_in_threadpool(
             transcribe_audio_path,
             result.wav_path,
             VoiceTranscriptionOptions(
                 model=config.final_transcription_model,
+                purpose="final",
                 preamp_gain=config.transcription_preamp,
                 condition_on_previous_text=False,
             ),
@@ -535,7 +651,9 @@ async def finalize_session(
             final_text,
             f"mlx-whisper {config.final_transcription_model}",
         )
+        transcription_success = True
     except Exception as exc:
+        transcription_error_type = type(exc).__name__
         await run_in_threadpool(
             update_recording_metadata,
             result.json_path,
@@ -548,12 +666,26 @@ async def finalize_session(
                 }
             },
         )
+    transcription_ms = _elapsed_ms(transcription_started_at)
+    emit_voice_timing(
+        "voiceSessionStage",
+        phase="finalTranscription",
+        recordingID=recording_id,
+        success=transcription_success,
+        errorType=transcription_error_type,
+        totalMs=transcription_ms,
+    )
 
     if not await send_progress_best_effort(websocket, "analyzing"):
         websocket = None
+    phone_analysis_started_at = time.perf_counter()
+    phone_analysis_success = False
+    phone_analysis_error_type: str | None = None
     try:
         recording = await analyze_recording_phones(app, recording_id)
+        phone_analysis_success = True
     except Exception as exc:
+        phone_analysis_error_type = type(exc).__name__
         await run_in_threadpool(
             update_recording_metadata,
             result.json_path,
@@ -570,10 +702,57 @@ async def finalize_session(
             },
         )
         recording = await run_in_threadpool(load_recording, recording_id)
+    phone_analysis_ms = _elapsed_ms(phone_analysis_started_at)
+    emit_voice_timing(
+        "voiceSessionStage",
+        phase="phoneAnalysis",
+        recordingID=recording_id,
+        success=phone_analysis_success,
+        errorType=phone_analysis_error_type,
+        totalMs=phone_analysis_ms,
+    )
 
-    if websocket is not None:
-        await send_wire(websocket, FinalTranscriptMessage(text=final_text))
-        await send_wire(websocket, SessionCompleteMessage(recording=recording))
+    delivery_started_at = time.perf_counter()
+    delivery_success = True
+    delivery_error_type: str | None = None
+    try:
+        if websocket is not None:
+            await send_wire(websocket, FinalTranscriptMessage(text=final_text))
+            await send_wire(websocket, SessionCompleteMessage(recording=recording))
+    except Exception as exc:
+        delivery_success = False
+        delivery_error_type = type(exc).__name__
+        raise
+    finally:
+        delivery_ms = _elapsed_ms(delivery_started_at)
+        emit_voice_timing(
+            "voiceSessionStage",
+            phase="delivery",
+            recordingID=recording_id,
+            success=delivery_success,
+            errorType=delivery_error_type,
+            totalMs=delivery_ms,
+        )
+        emit_voice_timing(
+            "voiceSession",
+            recordingID=recording_id,
+            source=source,
+            status=status,
+            discarded=False,
+            audioSeconds=audio.size / max(1, sample_rate),
+            livePreviewDrainMs=live_preview_drain_ms,
+            saveMs=save_ms,
+            finalTranscriptionMs=transcription_ms,
+            phoneAnalysisMs=phone_analysis_ms,
+            deliveryMs=delivery_ms,
+            finalizationMs=_elapsed_ms(finalization_started_at),
+            postStopMs=_elapsed_ms(post_stop_started_at),
+            success=(
+                transcription_success
+                and phone_analysis_success
+                and delivery_success
+            ),
+        )
     return recording
 
 
@@ -698,7 +877,8 @@ async def run_voice_session(
                 # Close the streaming session first, then persist and hand off.
                 # session_open flips here so the except clauses below never
                 # double-finish if persistence or the final pass raises.
-                await finish_live_transcriber(transcriber)
+                post_stop_started_at = time.perf_counter()
+                live_preview_drain_ms = await finish_live_transcriber(transcriber)
                 session_open = False
                 await finalize_session(
                     websocket.app,
@@ -713,11 +893,14 @@ async def run_voice_session(
                         "interrupted" if continuity_error else "complete",
                         continuity_error,
                     ),
+                    post_stop_started_at=post_stop_started_at,
+                    live_preview_drain_ms=live_preview_drain_ms,
                 )
                 return
     except WebSocketDisconnect as exc:
         if session_open:
-            await finish_live_transcriber(transcriber)
+            post_stop_started_at = time.perf_counter()
+            live_preview_drain_ms = await finish_live_transcriber(transcriber)
             session_open = False
             await finalize_session(
                 websocket.app,
@@ -729,10 +912,13 @@ async def run_voice_session(
                 "interrupted",
                 client_session_id,
                 transport_audit("interrupted", f"websocket disconnected: {exc}"),
+                post_stop_started_at=post_stop_started_at,
+                live_preview_drain_ms=live_preview_drain_ms,
             )
     except VoiceWireError as exc:
         if session_open:
-            await finish_live_transcriber(transcriber)
+            post_stop_started_at = time.perf_counter()
+            live_preview_drain_ms = await finish_live_transcriber(transcriber)
             session_open = False
             await finalize_session(
                 websocket.app,
@@ -744,6 +930,8 @@ async def run_voice_session(
                 "interrupted",
                 client_session_id,
                 transport_audit("interrupted", str(exc)),
+                post_stop_started_at=post_stop_started_at,
+                live_preview_drain_ms=live_preview_drain_ms,
             )
         await websocket.close(code=1003, reason=str(exc)[:120])
     except Exception as exc:
@@ -751,7 +939,8 @@ async def run_voice_session(
         # must reach the client instead of hanging it: close loud with 1011 so
         # the browser transitions out of its finalization state.
         if session_open:
-            await finish_live_transcriber(transcriber)
+            post_stop_started_at = time.perf_counter()
+            live_preview_drain_ms = await finish_live_transcriber(transcriber)
             session_open = False
             try:
                 await finalize_session(
@@ -764,6 +953,8 @@ async def run_voice_session(
                     "interrupted",
                     client_session_id,
                     transport_audit("interrupted", str(exc)),
+                    post_stop_started_at=post_stop_started_at,
+                    live_preview_drain_ms=live_preview_drain_ms,
                 )
             except Exception:
                 logging.getLogger(__name__).exception(

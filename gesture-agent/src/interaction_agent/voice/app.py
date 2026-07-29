@@ -280,7 +280,10 @@ def transcribe_recording_offline(
     try:
         whisper_result = transcribe_audio_path(
             result.wav_path,
-            VoiceTranscriptionOptions(model=model),
+            VoiceTranscriptionOptions(
+                model=model,
+                purpose="desktop",
+            ),
         )
     except Exception:
         LOGGER.exception("offline transcription failed")

@@ -1,4 +1,5 @@
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from math import isfinite
@@ -11,6 +12,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from interaction_agent.paths import VOICE_MODEL_ROOT
+from interaction_agent.voice.timing import emit_voice_timing
 
 
 FAST_MODEL = "mlx-community/whisper-large-v3-turbo-q4"
@@ -36,6 +38,7 @@ _MLX_INFERENCE_EXECUTOR = ThreadPoolExecutor(
     max_workers=1,
     thread_name_prefix="mlx-inference",
 )
+_MLX_MODELS_SEEN: set[str] = set()
 
 
 class VoiceRuntimeError(ValueError):
@@ -45,6 +48,7 @@ class VoiceRuntimeError(ValueError):
 @dataclass(frozen=True)
 class VoiceTranscriptionOptions:
     model: str
+    purpose: str = "unspecified"
     language: str | None = "en"
     prompt: str | None = None
     temperature: float = 0.0
@@ -181,51 +185,125 @@ def transcribe_audio_path(
     if not isfinite(options.preamp_gain) or options.preamp_gain <= 0:
         raise VoiceRuntimeError("preamp_gain must be finite and greater than zero")
 
-    result = _MLX_INFERENCE_EXECUTOR.submit(
+    submitted_at = time.perf_counter()
+    return _MLX_INFERENCE_EXECUTOR.submit(
         _transcribe_audio_path_owned,
         audio_path,
         options,
+        submitted_at,
     ).result()
-    validate_transcription_result(result)
-    return result
 
 
 def _transcribe_audio_path_owned(
     audio_path: Path,
     options: VoiceTranscriptionOptions,
+    submitted_at: float,
 ) -> dict[str, Any]:
     """Perform MLX work on the executor's single worker thread."""
-    import mlx_whisper
+    started_at = time.perf_counter()
+    local_model_started_at = started_at
+    local_model_ms = 0.0
+    audio_prepare_ms = 0.0
+    mlx_call_ms = 0.0
+    validation_ms = 0.0
+    cold_start = options.model not in _MLX_MODELS_SEEN
+    mlx_attempted = False
+    success = False
+    error_type: str | None = None
 
-    local_model = ensure_local_model(options.model)
+    try:
+        import mlx_whisper
 
-    whisper_options: dict[str, Any] = {
-        "path_or_hf_repo": str(local_model),
-        "temperature": options.temperature,
-        "word_timestamps": options.word_timestamps,
-        "condition_on_previous_text": options.condition_on_previous_text,
-    }
+        local_model = ensure_local_model(options.model)
+        local_model_ms = _elapsed_ms(local_model_started_at)
 
-    if options.language is not None:
-        whisper_options["language"] = options.language
+        whisper_options: dict[str, Any] = {
+            "path_or_hf_repo": str(local_model),
+            "temperature": options.temperature,
+            "word_timestamps": options.word_timestamps,
+            "condition_on_previous_text": options.condition_on_previous_text,
+        }
 
-    if options.prompt is not None:
-        whisper_options["initial_prompt"] = options.prompt
+        if options.language is not None:
+            whisper_options["language"] = options.language
 
-    audio: str | NDArray[np.float32] = str(audio_path)
-    if options.preamp_gain != 1:
-        loaded_audio = load_audio_for_transcription(audio_path)
-        audio = np.clip(
-            loaded_audio * options.preamp_gain,
-            -1,
-            1,
-        ).astype(np.float32)
+        if options.prompt is not None:
+            whisper_options["initial_prompt"] = options.prompt
 
-    result = mlx_whisper.transcribe(audio, **whisper_options)
-    if not isinstance(result, dict):
-        raise VoiceRuntimeError("Unexpected transcription result")
+        audio_prepare_started_at = time.perf_counter()
+        audio: str | NDArray[np.float32] = str(audio_path)
+        if options.preamp_gain != 1:
+            loaded_audio = load_audio_for_transcription(audio_path)
+            audio = np.clip(
+                loaded_audio * options.preamp_gain,
+                -1,
+                1,
+            ).astype(np.float32)
+        audio_prepare_ms = _elapsed_ms(audio_prepare_started_at)
 
-    return result
+        _MLX_MODELS_SEEN.add(options.model)
+        mlx_attempted = True
+        mlx_started_at = time.perf_counter()
+        result = mlx_whisper.transcribe(audio, **whisper_options)
+        mlx_call_ms = _elapsed_ms(mlx_started_at)
+        if not isinstance(result, dict):
+            raise VoiceRuntimeError("Unexpected transcription result")
+
+        validation_started_at = time.perf_counter()
+        validate_transcription_result(result)
+        validation_ms = _elapsed_ms(validation_started_at)
+        success = True
+        return result
+    except Exception as exc:
+        error_type = type(exc).__name__
+        raise
+    finally:
+        memory_fields = (
+            _mlx_memory_fields()
+            if mlx_attempted
+            else {
+                "activeMemoryBytes": None,
+                "cacheMemoryBytes": None,
+                "peakMemoryBytes": None,
+            }
+        )
+        emit_voice_timing(
+            "mlxTranscription",
+            purpose=options.purpose,
+            model=options.model,
+            coldStart=cold_start,
+            success=success,
+            errorType=error_type,
+            queueWaitMs=max(0.0, (started_at - submitted_at) * 1000),
+            localModelMs=local_model_ms,
+            audioPrepareMs=audio_prepare_ms,
+            mlxCallMs=mlx_call_ms,
+            validationMs=validation_ms,
+            executorMs=_elapsed_ms(started_at),
+            totalMs=_elapsed_ms(submitted_at),
+            **memory_fields,
+        )
+
+
+def _elapsed_ms(started_at: float) -> float:
+    return max(0.0, (time.perf_counter() - started_at) * 1000)
+
+
+def _mlx_memory_fields() -> dict[str, int | None]:
+    try:
+        import mlx.core as mx
+
+        return {
+            "activeMemoryBytes": int(mx.get_active_memory()),
+            "cacheMemoryBytes": int(mx.get_cache_memory()),
+            "peakMemoryBytes": int(mx.get_peak_memory()),
+        }
+    except Exception:
+        return {
+            "activeMemoryBytes": None,
+            "cacheMemoryBytes": None,
+            "peakMemoryBytes": None,
+        }
 
 
 def validate_transcription_result(
