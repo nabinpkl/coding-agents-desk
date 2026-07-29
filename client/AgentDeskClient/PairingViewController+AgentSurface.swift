@@ -444,12 +444,8 @@ extension PairingViewController {
             terminalSurface?.setViewportPresented(!v.terminalHidden)
         }
 
-        // Suppress the interactive control surfaces when a non-control surface
-        // is active so gesture recognizers do not fight the webview scroll.
-        trackpadView.isHidden = v.controlChromeHidden
-        trackpadHint.isHidden = v.controlChromeHidden
-        scrollStripView.isHidden = v.controlChromeHidden
-        scrollStripHint.isHidden = v.controlChromeHidden
+        // The combined selected-surface, layout-mode, and keyboard policy
+        // below owns relative-control visibility and interaction.
         buttonRow.isHidden = v.controlChromeHidden
         displayRailView.isHidden = v.controlChromeHidden
         // The keyboard surface is a first-responder helper; just disable it.

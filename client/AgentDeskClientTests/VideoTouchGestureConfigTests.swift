@@ -7,7 +7,11 @@ import AgentDeskWire
 // (isScrollEnabled must never be false — that was the original pinch bug).
 struct VideoTouchGestureConfigTests {
     @Test func asIsLayoutWithTouchModeOffKeepsControlsAndLocalVideoGestures() {
-        let config = videoTouchGestureConfig(videoTouchEnabled: false, layoutMode: .asIs)
+        let config = videoTouchGestureConfig(
+            videoTouchEnabled: false,
+            layoutMode: .asIs,
+            keyboardIsShown: false
+        )
         #expect(config.videoTouchTapRecognizerEnabled == false)
         #expect(config.videoTouchScrollRecognizerEnabled == false)
         #expect(config.doubleTapZoomRecognizerEnabled)
@@ -20,7 +24,11 @@ struct VideoTouchGestureConfigTests {
     }
 
     @Test func asIsLayoutWithTouchModeOnKeepsControlsAndRoutesVideoTouchToHost() {
-        let config = videoTouchGestureConfig(videoTouchEnabled: true, layoutMode: .asIs)
+        let config = videoTouchGestureConfig(
+            videoTouchEnabled: true,
+            layoutMode: .asIs,
+            keyboardIsShown: false
+        )
         #expect(config.videoTouchTapRecognizerEnabled)
         #expect(config.videoTouchScrollRecognizerEnabled)
         #expect(config.doubleTapZoomRecognizerEnabled == false)
@@ -33,7 +41,11 @@ struct VideoTouchGestureConfigTests {
     }
 
     @Test func fullLayoutWithTouchModeOffHidesControlsAndKeepsLocalVideoGestures() {
-        let config = videoTouchGestureConfig(videoTouchEnabled: false, layoutMode: .full)
+        let config = videoTouchGestureConfig(
+            videoTouchEnabled: false,
+            layoutMode: .full,
+            keyboardIsShown: false
+        )
         #expect(config.videoTouchTapRecognizerEnabled == false)
         #expect(config.videoTouchScrollRecognizerEnabled == false)
         #expect(config.doubleTapZoomRecognizerEnabled)
@@ -46,7 +58,11 @@ struct VideoTouchGestureConfigTests {
     }
 
     @Test func fullLayoutWithTouchModeOnHidesControlsAndRoutesVideoTouchToHost() {
-        let config = videoTouchGestureConfig(videoTouchEnabled: true, layoutMode: .full)
+        let config = videoTouchGestureConfig(
+            videoTouchEnabled: true,
+            layoutMode: .full,
+            keyboardIsShown: false
+        )
         #expect(config.videoTouchTapRecognizerEnabled)
         #expect(config.videoTouchScrollRecognizerEnabled)
         #expect(config.doubleTapZoomRecognizerEnabled == false)
@@ -62,8 +78,31 @@ struct VideoTouchGestureConfigTests {
     // disables pinch-zoom on a UIScrollView.
     @Test func scrollViewStaysZoomCapableInEveryLayoutAndTouchModeState() {
         for layoutMode in VideoLayoutMode.allCases {
-            #expect(videoTouchGestureConfig(videoTouchEnabled: false, layoutMode: layoutMode).scrollViewScrollEnabled == true)
-            #expect(videoTouchGestureConfig(videoTouchEnabled: true, layoutMode: layoutMode).scrollViewScrollEnabled == true)
+            #expect(videoTouchGestureConfig(
+                videoTouchEnabled: false,
+                layoutMode: layoutMode,
+                keyboardIsShown: false
+            ).scrollViewScrollEnabled == true)
+            #expect(videoTouchGestureConfig(
+                videoTouchEnabled: true,
+                layoutMode: layoutMode,
+                keyboardIsShown: false
+            ).scrollViewScrollEnabled == true)
+        }
+    }
+
+    @Test func shownKeyboardHidesAndDisablesRelativeControlsWithoutChangingVideoTouchRouting() {
+        for videoTouchEnabled in [false, true] {
+            let config = videoTouchGestureConfig(
+                videoTouchEnabled: videoTouchEnabled,
+                layoutMode: .asIs,
+                keyboardIsShown: true
+            )
+            #expect(config.videoTouchTapRecognizerEnabled == videoTouchEnabled)
+            #expect(config.videoTouchScrollRecognizerEnabled == videoTouchEnabled)
+            #expect(config.relativeControlsHidden)
+            #expect(config.relativeControlsInteractionEnabled == false)
+            #expect(config.usesFullLayout == false)
         }
     }
 

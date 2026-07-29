@@ -800,6 +800,13 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   events through the shared xterm runtime, size the terminal above `UIKeyboardLayoutGuide`, and close
   only through the explicit accessory control or surface teardown. Reconcile metadata-only workspace
   snapshots without replacing the focused terminal DOM.
+- D168. Keep the Control surface's full action row and local text echo while its keyboard is shown,
+  but make keyboard, selected-surface, and video-layout state feed one relative-control visibility
+  policy. Trackpad, scroll strip, display rail, and Spaces strip must stay hidden and noninteractive
+  through settings and surface refreshes until the keyboard closes.
+- R169. Add an explicit keyboard-time mouse control so video taps can target and click the Mac without
+  dismissing the keyboard or restoring the relative trackpad and scroll-strip surfaces. Keep ordinary
+  keyboard-time video taps dismissive until that interaction mode is deliberately enabled.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -872,4 +879,6 @@ D164  2026-07-28  landed     nonblocking in-app keyboard dictation activation an
 D165  2026-07-28  landed     stable long final transcription and initialism passage playback
 D166  2026-07-28  landed     loss-detecting Voice capture and durable transport continuity audit
 D167  2026-07-28  landed     durable standalone terminal keyboard focus and accessory controls
+D168  2026-07-29  landed     keyboard-authoritative relative Control chrome
+R169  candidate   remaining  explicit keyboard-time video mouse control
 ```

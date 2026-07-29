@@ -169,28 +169,17 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
             keyboardSurface.setVisible(false)
             keyboardSurface.isHidden = true
             keyboardSurface.text = ""
-            setTrackpadHidden(!isControlSurfaceActive())
             showKeyboardButton.setTitle("Show keyboard", for: .normal)
         case .shown:
             keyboardSurface.isHidden = false
-            setTrackpadHidden(true)
             keyboardSurface.setVisible(true)
             showKeyboardButton.setTitle("Hide keyboard", for: .normal)
         }
-    }
-
-    // Trackpad and scroll-strip serve no purpose while the keyboard is
-    // up (the user is typing, not pointing). Leaving them visible
-    // caused the trackpad's "Trackpad" hint and the scroll strip's
-    // chevron to bleed through behind the text-echo field.
-    func setTrackpadHidden(_ hidden: Bool) {
-        trackpadView.isHidden = hidden
-        scrollStripView.isHidden = hidden
-        if hidden {
-            thumbnailStripView.isHidden = true
-        } else {
-            refreshThumbnailStripVisibility()
-        }
+        // Keyboard, layout mode, and selected surface all contribute to one
+        // relative-control policy. Reapply it after every presentation
+        // transition so a later settings refresh cannot reveal the trackpad
+        // or scroll strip over the text echo.
+        applyVideoTouchState()
     }
 
     @objc func keyboardWillChangeFrame(_ note: Notification) {

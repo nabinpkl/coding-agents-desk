@@ -255,15 +255,17 @@ extension PairingViewController {
 
     // Applies the current Touch mode state: gate the recognizers and route the
     // scroll view's own pan so it does not fight ours when video touch input
-    // is enabled. Full layout independently hides the relative controls.
+    // is enabled. Full layout and shown keyboard state independently hide the
+    // relative controls.
     // Idempotent; called on attach, on entering the session, and on every
-    // settings change.
+    // settings or keyboard-presentation change.
     func applyVideoTouchState() {
         let enabled = SettingsStore.shared.videoTouchEnabled
         let layoutMode = SettingsStore.shared.videoLayoutMode
         let config = videoTouchGestureConfig(
             videoTouchEnabled: enabled,
-            layoutMode: layoutMode
+            layoutMode: layoutMode,
+            keyboardIsShown: keyboardPresentationState == .shown
         )
         videoTouchTapRecognizer?.isEnabled = config.videoTouchTapRecognizerEnabled
         videoTouchScrollRecognizer?.isEnabled = config.videoTouchScrollRecognizerEnabled
@@ -281,8 +283,7 @@ extension PairingViewController {
         remoteInputModeControl.layoutMode = layoutMode
         remoteInputModeControl.videoTouchEnabled = enabled
         remoteInputModeControl.autoKeyboardEnabled = SettingsStore.shared.autoKeyboardEnabled
-        let controlSurfaceActive = isControlSurfaceActive()
-        let relativeControlsHidden = !controlSurfaceActive || config.relativeControlsHidden
+        let relativeControlsHidden = !isControlSurfaceActive() || config.relativeControlsHidden
         for control in [trackpadView, scrollStripView] {
             control.alpha = CGFloat(config.relativeControlsAlpha)
             control.isUserInteractionEnabled = config.relativeControlsInteractionEnabled

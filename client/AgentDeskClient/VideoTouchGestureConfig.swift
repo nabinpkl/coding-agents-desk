@@ -60,7 +60,8 @@ struct VideoTouchGestureConfig: Equatable {
 
 func videoTouchGestureConfig(
     videoTouchEnabled: Bool,
-    layoutMode: VideoLayoutMode
+    layoutMode: VideoLayoutMode,
+    keyboardIsShown: Bool
 ) -> VideoTouchGestureConfig {
     let full = layoutMode == .full
     return VideoTouchGestureConfig(
@@ -69,9 +70,9 @@ func videoTouchGestureConfig(
         doubleTapZoomRecognizerEnabled: !videoTouchEnabled,
         scrollViewScrollEnabled: true,
         scrollViewPanMinimumTouches: videoTouchEnabled ? 2 : 1,
-        relativeControlsHidden: full,
+        relativeControlsHidden: full || keyboardIsShown,
         relativeControlsAlpha: 1.0,
-        relativeControlsInteractionEnabled: !full,
+        relativeControlsInteractionEnabled: !full && !keyboardIsShown,
         usesFullLayout: full
     )
 }
