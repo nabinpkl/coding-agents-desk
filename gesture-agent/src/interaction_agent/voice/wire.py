@@ -19,7 +19,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 from pydantic.json_schema import models_json_schema
 
@@ -121,7 +121,10 @@ class WordPhoneGroup(WireModel):
 
 class Recording(WireModel):
     id: str
-    client_session_id: str | None = None
+    client_session_id: str | None = Field(
+        default=None,
+        alias="clientSessionID",
+    )
     created_at: str
     duration_seconds: float
     source: Literal["macos", "iphone", "browserDev"]

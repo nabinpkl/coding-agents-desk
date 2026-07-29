@@ -148,6 +148,26 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(web_stream.recording_wav_path(result.id).exists())
 
+    async def test_recording_wire_preserves_client_session_id_acronym(
+        self,
+    ) -> None:
+        client_session_id = "11111111-2222-3333-4444-555555555555"
+        result = await self._finalize(
+            "iphone",
+            "completed",
+            client_session_id,
+        )
+
+        payload = http_server.SessionCompleteMessage(
+            recording=result
+        ).model_dump(by_alias=True)
+
+        self.assertEqual(
+            payload["recording"]["clientSessionID"],
+            client_session_id,
+        )
+        self.assertNotIn("clientSessionId", payload["recording"])
+
     async def test_progress_failure_cannot_precede_wav_persistence(self) -> None:
         persisted = False
 

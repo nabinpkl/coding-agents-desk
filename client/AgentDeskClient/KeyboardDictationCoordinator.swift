@@ -6,6 +6,7 @@ enum KeyboardDictationCoordinatorError: LocalizedError {
     case hostUnavailable
     case staleCommand
     case invalidTransition
+    case uncorrelatedCompletion
     case audioQueueOverflow
     case audioQueueClosed
     case requestTimedOut
@@ -18,6 +19,8 @@ enum KeyboardDictationCoordinatorError: LocalizedError {
             "The keyboard command belongs to an older AgentDesk session."
         case .invalidTransition:
             "Keyboard dictation received a command in the wrong state."
+        case .uncorrelatedCompletion:
+            "The Mac returned a recording without the active dictation session ID."
         case .audioQueueOverflow:
             "The Mac connection could not keep up with microphone audio."
         case .audioQueueClosed:
@@ -546,7 +549,7 @@ final class KeyboardDictationCoordinator {
                       let sessionID = currentSessionID,
                       recording.clientSessionID == sessionID.uuidString
                 else {
-                    throw KeyboardDictationCoordinatorError.invalidTransition
+                    throw KeyboardDictationCoordinatorError.uncorrelatedCompletion
                 }
                 currentSessionID = nil
                 publish(KeyboardDictationServiceSnapshot(

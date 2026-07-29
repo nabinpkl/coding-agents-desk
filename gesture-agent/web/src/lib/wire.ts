@@ -97,7 +97,7 @@ export interface PronunciationFrameCostPayload {
  */
 export interface Recording {
   id: string;
-  clientSessionId?: string | null;
+  clientSessionID?: string | null;
   createdAt: string;
   durationSeconds: number;
   source: "macos" | "iphone" | "browserDev";
