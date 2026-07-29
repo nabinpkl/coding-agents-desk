@@ -801,11 +801,19 @@ enum Config {
         .appendingPathComponent("voice-data", isDirectory: true)
     static let voiceModelDirectory = applicationSupportDirectory
         .appendingPathComponent("voice-models", isDirectory: true)
+    /// Where the Python sidecar finds the ZIPA graph.
+    ///
+    /// The same directory this Mac serves to the phone, rather than a second
+    /// copy in the host bundle: it is the identical 67MB file, and bundling it
+    /// charged every host build for a resource copy and a code signature to
+    /// duplicate something already on disk.
     static var voiceZIPAResourceURL: URL? {
-        Bundle.main.url(
-            forResource: "VoiceZIPAModelManifest",
-            withExtension: "json"
-        )?.deletingLastPathComponent()
+        guard let root = voiceAssetRootURL,
+              FileManager.default.fileExists(
+                atPath: root.appendingPathComponent("VoiceZIPAModel.onnx").path
+              )
+        else { return nil }
+        return root
     }
     static let voiceSourceResourceName = "voice-src"
     static var voiceSourceURL: URL? {

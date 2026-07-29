@@ -169,6 +169,10 @@ voice_assets_src := justfile_directory() + "/voice-assets"
 # reason. Config.voiceAssetRootURL resolves this exact path and honours the same
 # override, so the two stay in step.
 voice_assets_root := env_var_or_default("AGENTDESK_VOICE_ASSET_ROOT", env_var_or_default("HOME", "") + "/Library/Application Support/AgentDeskVoiceAssets")
+# Where `just voice-phone-model` / `just voice-zipa-model` generate. A staging
+# root, not a bundle: nothing ships from here, `voice-assets-publish` copies the
+# runtime subset out of it.
+voice_assets_staged := justfile_directory() + "/.build/voice-assets"
 # Content-hash stamps that gate the bundled-artifact builds so host-run skips a
 # rebuild when inputs are unchanged (see tools/source-hash.sh). Gitignored (.build).
 stamps_dir := justfile_directory() + "/.build/stamps"
@@ -834,7 +838,7 @@ wire-test:
 
 # Client simulator tests. Boots the iPhone simulator and is the slow leg split
 # out of `check`. Run before committing client-side changes.
-sim-test: ensure-webview-placeholder voice-assets-stage-client voice-phone-model-check voice-zipa-model-check
+sim-test: ensure-webview-placeholder voice-assets-stage-tests
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
 
 # Full gate: the fast host-side check plus the client simulator tests.
@@ -877,54 +881,42 @@ voice-zipa-model-check:
         exit 1
     }
 
-# Stage the tracked voice inputs into the client resource root so the app bundle
-# carries the exact bytes the sidecar and the calibration harness use. The staged
-# copies are gitignored; `voice-assets/` is the only tracked home.
-voice-assets-stage-client:
+# Copy the exact set the phone reads at runtime into `target`, and nothing else.
+# The .mlpackage is a build intermediate that the Mac compiles away here, and the
+# phone map is compiled into Swift rather than read, so neither is published.
+voice-assets-publish target: voice-phone-model-check voice-zipa-model-check
     #!/usr/bin/env bash
     set -euo pipefail
-    SRC='{{voice_assets_src}}'
-    OUT='{{justfile_directory()}}/client/AgentDeskClient'
-    for NAME in VoiceCMUDictionary.txt VoiceCMUDictionaryLicense.txt; do
-        if [ ! -f "$SRC/$NAME" ]; then
-            echo "voice-assets-stage-client: missing $SRC/$NAME" >&2
-            exit 1
-        fi
-        # Only rewrite on change: the dictionary is 3.6 MB and an unconditional
-        # copy would re-stamp it every build and re-trigger the resource copy.
-        if ! cmp -s "$SRC/$NAME" "$OUT/$NAME"; then
-            cp -f "$SRC/$NAME" "$OUT/$NAME"
-        fi
-    done
-
-# Publish the voice models to this Mac so the host can serve them to a paired
-# phone. One-time machine setup, not a build step: nothing in `just check` or any
-# app build depends on it, and re-running it is idempotent.
-voice-assets-install: voice-phone-model-check voice-zipa-model-check
-    #!/usr/bin/env bash
-    set -euo pipefail
-    ROOT='{{voice_assets_root}}'
-    SRC='{{justfile_directory()}}/client/AgentDeskClient'
+    OUT='{{target}}'
+    STAGED='{{voice_assets_staged}}'
     SHARED='{{voice_assets_src}}'
-    mkdir -p "$ROOT"
-    # The phone gets the COMPILED model. Compiling a 152 MB Core ML package on
-    # device is the one step that would make first use of the Voice surface feel
-    # broken; the Mac does it in under a second, so it does it once here.
-    echo "voice-assets-install: compiling VoicePhoneModel.mlmodelc"
-    rm -rf "$ROOT/VoicePhoneModel.mlmodelc"
-    "$(xcrun --find coremlcompiler)" compile "$SRC/VoicePhoneModel.mlpackage" "$ROOT"
-    # Everything the phone reads at runtime, and nothing else. The .mlpackage is
-    # a build intermediate and publishing it would double the transfer; the
-    # phone map is compiled into Swift, not read.
+    mkdir -p "$OUT"
+    # The consumer gets the COMPILED model. Compiling a 152 MB Core ML package on
+    # an iPhone is the one step that would make first use of the Voice surface
+    # feel broken; the Mac does it in under a second, so it does it once here.
+    rm -rf "$OUT/VoicePhoneModel.mlmodelc"
+    "$(xcrun --find coremlcompiler)" compile "$STAGED/VoicePhoneModel.mlpackage" "$OUT"
     for NAME in VoicePhoneModelManifest.json VoicePhoneVocabulary.json \
                 VoiceZIPAModel.onnx VoiceZIPAModelManifest.json \
                 VoiceZIPATokens.txt VoiceZIPALicense.txt; do
-        cp -f "$SRC/$NAME" "$ROOT/$NAME"
+        cp -f "$STAGED/$NAME" "$OUT/$NAME"
     done
     for NAME in VoiceCMUDictionary.txt VoiceCMUDictionaryLicense.txt; do
-        cp -f "$SHARED/$NAME" "$ROOT/$NAME"
+        cp -f "$SHARED/$NAME" "$OUT/$NAME"
     done
-    echo "voice-assets-install: $(find "$ROOT" -type f | wc -l | tr -d ' ') files, $(du -sh "$ROOT" | cut -f1) at $ROOT"
+    echo "voice-assets-publish: $(find "$OUT" -type f | wc -l | tr -d ' ') files, $(du -sh "$OUT" | cut -f1) -> $OUT"
+
+# Publish the voice models to this Mac so the host can serve them to a paired
+# phone, and so the host's own Python sidecar can read the ZIPA graph. One-time
+# machine setup, not a build step: no app build depends on it, and re-running it
+# is idempotent.
+voice-assets-install: (voice-assets-publish voice_assets_root)
+
+# The same set, staged into the client test resource root. The models are not in
+# the app any more, so without this the tests that run real inference and assert
+# exact phone sequences would quietly become tests of a missing-asset error.
+# Gitignored, and paid only by `just sim-test`, never by a client build.
+voice-assets-stage-tests: (voice-assets-publish (justfile_directory() + "/client/AgentDeskClientTests"))
 
 # One authoritative CMUdict-to-model-phone mapping feeds the iPhone and the
 # offline calibration harness.
@@ -1458,7 +1450,7 @@ pty-live-update-verify base="HEAD~1":
 # variant: "stable" (default) or "dev" (the experimental side-by-side install:
 # bundle id {{client_dev_bundle_id}}, DEV icon, "AgentDesk Dev" name, separate
 # build dir). The dev variant overrides the three identity build settings inline.
-client-install variant="stable": voice-assets-stage-client voice-phone-model-check voice-zipa-model-check
+client-install variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
@@ -1481,7 +1473,7 @@ client-reinstall variant="stable":
 # experimental dev side-by-side variant stays Debug). Device install uses the same
 # automatic development signing as the Debug path, so no distribution provisioning
 # is needed. Used by the fresh-install feel-test composite.
-client-install-release: voice-assets-stage-client voice-phone-model-check voice-zipa-model-check
+client-install-release:
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     xcrun devicectl device install app --device {{ios_device}} '{{client_app_release}}'
 
@@ -1631,7 +1623,7 @@ voice-phone-evidence-pull variant="stable":
     done
     /usr/bin/python3 tools/voice-phone-evidence-summary.py \
       "$OUT_DIR" \
-      --model-manifest client/AgentDeskClient/VoicePhoneModelManifest.json \
+      --model-manifest .build/voice-assets/VoicePhoneModelManifest.json \
       | tee "$OUT_DIR/summary.txt"
     echo "Voice phone evidence directory: $OUT_DIR"
 
@@ -2024,7 +2016,7 @@ motion-verify variant="dev" video="1" seconds="60" fixed_profile="180,1,0.5":
 # variant: stable (default) | dev. The dev variant builds the dev-bundle-id client
 # (DEV icon, separate derived-data) onto the dev simulator ({{ios_sim_udid_dev}}),
 # so a full dev stack (dev host + dev client) runs beside the stable stack.
-client-sim-install variant="stable": voice-assets-stage-client voice-phone-model-check voice-zipa-model-check
+client-sim-install variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
@@ -2047,7 +2039,7 @@ client-sim-reinstall variant="stable":
 
 # Release-configuration twins of client-sim-install / the historical update alias, used by
 # the sim-fresh-install feel-test composite. No signing concerns on the simulator.
-client-sim-install-release: voice-assets-stage-client voice-phone-model-check voice-zipa-model-check
+client-sim-install-release:
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     xcrun simctl install {{ios_sim_udid}} "{{client_sim_app_release}}"
@@ -2252,7 +2244,7 @@ client-build-number:
 # Build a signed iOS Release archive for TestFlight export/upload.
 # variant: "stable" (default) or "dev" (the experimental record, bundle id
 # {{client_dev_bundle_id}}, separate archive path; identity overridden inline).
-client-archive-release variant="stable": voice-assets-stage-client voice-phone-model-check voice-zipa-model-check
+client-archive-release variant="stable":
     #!/usr/bin/env bash
     # Override per upload: AGENTDESK_CLIENT_VERSION=1.0 AGENTDESK_CLIENT_BUILD=20260621173045 just client-archive-release
     set -euo pipefail

@@ -401,8 +401,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output",
-        default="client/AgentDeskClient",
-        help="Repo-relative directory for generated Xcode resources.",
+        default=".build/voice-assets",
+        help=(
+            "Repo-relative staging directory. Not a bundle: `just "
+            "voice-assets-install` publishes from here to the directory the "
+            "host serves, and the phone fetches from there."
+        ),
     )
     parser.add_argument(
         "--workers",

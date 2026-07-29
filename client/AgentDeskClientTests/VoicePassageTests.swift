@@ -3,6 +3,16 @@ import Foundation
 import Testing
 import UIKit
 
+/// The models are no longer in the app, so the fixtures that let these tests run
+/// real inference are staged into the TEST bundle by `just
+/// voice-assets-stage-tests`. Reading them from the app bundle, as this used to,
+/// would now silently degrade every assertion below into a missing-asset error.
+private final class VoicePassageFixtureBundleMarker: NSObject {}
+
+private func voiceAssetFixtures() -> VoiceAssetCache {
+    VoiceAssetCache(root: Bundle(for: VoicePassageFixtureBundleMarker.self).bundleURL)
+}
+
 struct VoicePassagePronunciationTests {
     @Test
     func longTranscriptUsesFirstDictionaryPronunciationAndReportsUnknownWords()
@@ -61,10 +71,9 @@ struct VoicePassagePronunciationTests {
     }
 
     @Test
-    func bundledPinnedDictionaryGeneratesReferencePhones() async throws {
-        let bundle = Bundle(for: VoicePassageSurface.self)
+    func pinnedDictionaryGeneratesReferencePhones() async throws {
         let result = try await VoicePassagePronouncer(
-            assets: VoiceAssetCache(root: bundle.bundleURL)
+            assets: voiceAssetFixtures()
         ).pronunciation(
             for: "I thought about walking through the quiet garden."
         )
@@ -496,7 +505,7 @@ struct VoicePassagePhoneModelTests {
     }
 
     @Test
-    func bundledZIPAModelDecodesTheSavedPassageAudio() async throws {
+    func fetchedZIPAModelDecodesTheSavedPassageAudio() async throws {
         let bundle = Bundle(for: VoicePassageSurface.self)
         let audioURL = try #require(
             bundle.url(
@@ -505,7 +514,7 @@ struct VoicePassagePhoneModelTests {
             )
         )
         let observation = try await VoiceZIPAPhoneAnalyzer(
-            assets: VoiceAssetCache(root: bundle.bundleURL)
+            assets: voiceAssetFixtures()
         ).analyze(
             analysisID: VoicePassageBundledSample.id,
             audioURL: audioURL
@@ -536,7 +545,7 @@ struct VoicePassagePhoneModelTests {
             )
         )
         let observation = try await VoicePassagePhoneAnalyzer(
-            assets: VoiceAssetCache(root: bundle.bundleURL)
+            assets: voiceAssetFixtures()
         ).analyze(
             model: .wav2vec2,
             analysisID: VoicePassageBundledSample.id,

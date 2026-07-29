@@ -35,8 +35,8 @@ def main() -> int:
     model = json.loads(
         (
             root
-            / "client"
-            / "AgentDeskClient"
+            / ".build"
+            / "voice-assets"
             / "VoicePhoneModelManifest.json"
         ).read_text(encoding="utf-8")
     )

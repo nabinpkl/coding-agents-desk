@@ -216,8 +216,9 @@ def parse_args() -> argparse.Namespace:
         "--output",
         action="append",
         help=(
-            "Repo-relative generated resource directory. Repeat for multiple "
-            "consumers; defaults to the iOS and host resource roots."
+            "Repo-relative staging directory. Repeat for multiple consumers; "
+            "defaults to the one staging root that `just voice-assets-install` "
+            "publishes from."
         ),
     )
     parser.add_argument(
@@ -232,10 +233,7 @@ if __name__ == "__main__":
     try:
         arguments = parse_args()
         root = Path(__file__).resolve().parent.parent
-        outputs = arguments.output or [
-            "client/AgentDeskClient",
-            "host/AgentDeskHost/VoiceZIPAHostAssets",
-        ]
+        outputs = arguments.output or [".build/voice-assets"]
         if arguments.check_only:
             for output in outputs:
                 check_generated(root, output)

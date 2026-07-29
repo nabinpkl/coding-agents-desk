@@ -225,7 +225,7 @@ def load_mapping(repo_root: Path) -> dict[str, str]:
 
 
 def load_vocabulary(repo_root: Path) -> tuple[list[str], dict[str, int]]:
-    path = repo_root / "client" / "AgentDeskClient" / "VoicePhoneVocabulary.json"
+    path = repo_root / ".build" / "voice-assets" / "VoicePhoneVocabulary.json"
     if sha256(path) != VOCABULARY_SHA256:
         raise calibration.CalibrationError("Pinned phone vocabulary hash changed")
     vocabulary = json.loads(path.read_text(encoding="utf-8"))

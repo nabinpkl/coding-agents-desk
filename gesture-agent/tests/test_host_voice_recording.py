@@ -610,7 +610,10 @@ class ZIPAParityTests(unittest.TestCase):
     def test_bundled_passage_matches_native_zipa_fixture(self) -> None:
         repo = Path(__file__).resolve().parents[2]
         source = repo / "client/AgentDeskClient/VoicePassageSample.caf"
-        assets = repo / "host/AgentDeskHost/VoiceZIPAHostAssets"
+        # The staging root the model generators write to. The host no longer
+        # bundles its own copy: it reads the same directory it serves to the
+        # phone, and this is where that directory is published from.
+        assets = repo / ".build/voice-assets"
         with tempfile.TemporaryDirectory() as temporary:
             wav = Path(temporary) / "sample.wav"
             subprocess.run(
