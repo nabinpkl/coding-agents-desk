@@ -23,6 +23,19 @@ struct WebPanelKitTests {
     }
 
     @MainActor
+    @Test func deliveredBodyCarriesPayloadFieldsWithoutTheEnvelopeTag() {
+        let payload = WebPanelWebViewController.payload(
+            from: ["t": "dictationLayout", "width": 480, "height": 156]
+        )
+
+        #expect(payload.count == 2)
+        #expect(payload["t"] == nil)
+        #expect(payload["width"] as? Int == 480)
+        #expect(payload["height"] as? Int == 156)
+        #expect(WebPanelWebViewController.payload(from: ["t": "dictationReady"]).isEmpty)
+    }
+
+    @MainActor
     @Test func queuedPushesFlushInOrderAfterWebReadiness() {
         var delivered: [String] = []
         let queue = WebPanelDeliveryQueue { delivered.append($0) }

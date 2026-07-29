@@ -190,7 +190,18 @@ extension WebPanelWebViewController: WKScriptMessageHandler {
               let tag = body["t"] as? String else {
             return
         }
-        messageSink?.webPanel(didReceiveTag: tag, body: body)
+        messageSink?.webPanel(didReceiveTag: tag, body: Self.payload(from: body))
+    }
+
+    /// JS posts the tag inside the same dictionary it labels. Dropping it here
+    /// gives that key exactly one owner, so a panel's decoder sees payload
+    /// fields only and can reject an unexpected one without also having to know
+    /// about the envelope. A decoder that counts its keys is otherwise wrong by
+    /// exactly one, and its request is dropped with no error anywhere.
+    static func payload(from body: [String: Any]) -> [String: Any] {
+        var payload = body
+        payload.removeValue(forKey: "t")
+        return payload
     }
 
     private func handleDiagnostics(_ body: Any) {

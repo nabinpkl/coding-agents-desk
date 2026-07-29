@@ -1,4 +1,5 @@
 import Foundation
+import os
 import WebKit
 import WebPanelKit
 
@@ -13,6 +14,10 @@ public final class InteractionPanelWebViewController: NSObject, WebPanelMessageS
     }
 
     private let core: WebPanelWebViewController
+    private let logger = Logger(
+        subsystem: "com.example.agentdesk.InteractionPanel",
+        category: "web-panel-request"
+    )
 
     public var webView: WKWebView { core.webView }
     public weak var transport: (any InteractionPanelTransport)?
@@ -63,6 +68,11 @@ public final class InteractionPanelWebViewController: NSObject, WebPanelMessageS
 
     public func webPanel(didReceiveTag tag: String, body: [String: Any]) {
         guard let request = InteractionPanelRequest.decode(tag: tag, body: body) else {
+            // A rejected request used to vanish here, which is indistinguishable
+            // from a webview that never posted at all.
+            logger.error(
+                "dropped undecodable request tag=\(tag, privacy: .public) fields=\(body.keys.sorted().joined(separator: ","), privacy: .public)"
+            )
             return
         }
         transport?.sendInteractionRequest(request)
