@@ -56,6 +56,7 @@ from interaction_agent.voice.web_stream import load_recording
 ARTIFACT_SCHEMA_VERSION: Final = 1
 ARTIFACT_ID_PATTERN: Final = re.compile(r"^[0-9a-f]{64}$")
 CHUNK_PAUSE_SECONDS: Final = 0.05
+KOKORO_PREWARM_IPA: Final = "həlˈoʊ"
 
 
 class ReferenceSpeechError(RuntimeError):
@@ -99,6 +100,8 @@ class ReferenceSpeechSynthesizer(Protocol):
     @property
     def error(self) -> str | None: ...
 
+    def prewarm(self) -> bool: ...
+
     def synthesize(
         self,
         chunks: tuple[str, ...],
@@ -119,6 +122,7 @@ class KokoroDirectSynthesizer:
         self._model: KModel | None = None
         self._vocabulary: frozenset[str] | None = None
         self._voice_packs: dict[str, torch.FloatTensor] = {}
+        self._inference_warm = False
 
     @property
     def status(self) -> Literal["unavailable", "preparing", "ready", "failed"]:
@@ -127,6 +131,18 @@ class KokoroDirectSynthesizer:
     @property
     def error(self) -> str | None:
         return self._error
+
+    def prewarm(self) -> bool:
+        """Exercise the retained model and default voice once."""
+        if self._inference_warm:
+            return False
+        voice = KOKORO_VOICE_BY_IDENTIFIER[DEFAULT_KOKORO_VOICE]
+        self.synthesize(
+            (KOKORO_PREWARM_IPA,),
+            voice,
+            DEFAULT_KOKORO_SPEED,
+        )
+        return True
 
     def synthesize(
         self,
@@ -137,6 +153,7 @@ class KokoroDirectSynthesizer:
         try:
             self._prepare_model()
             voice_pack = self._prepare_voice(voice)
+            import torch
             from kokoro import KPipeline
 
             assert self._model is not None
@@ -149,12 +166,13 @@ class KokoroDirectSynthesizer:
                     raise ReferenceSpeechError(
                         f"Kokoro does not support IPA symbols: {formatted}"
                     )
-                output = KPipeline.infer(
-                    self._model,
-                    chunk,
-                    voice_pack,
-                    speed,
-                )
+                with torch.inference_mode():
+                    output = KPipeline.infer(
+                        self._model,
+                        chunk,
+                        voice_pack,
+                        speed,
+                    )
                 audio = output.audio.detach().cpu().numpy().astype(np.float32)
                 if audio.size == 0:
                     raise ReferenceSpeechError("Kokoro returned empty audio")
@@ -166,6 +184,9 @@ class KokoroDirectSynthesizer:
                         )
                     )
                 audio_chunks.append(audio)
+            self._inference_warm = True
+            self._status = "ready"
+            self._error = None
             return np.concatenate(audio_chunks)
         except Exception as exc:
             self._status = "failed"
@@ -263,6 +284,11 @@ class ReferenceSpeechArtifactStore:
             else load_voice_runtime_config().reference_speech_cache_bytes
         )
         self._lock = threading.Lock()
+
+    def prewarm(self) -> bool:
+        """Warm the retained synthesizer without creating a durable artifact."""
+        with self._lock:
+            return self._synthesizer.prewarm()
 
     def state(self) -> dict[str, object]:
         return {

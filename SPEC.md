@@ -404,11 +404,14 @@ messages through `__interactionDeliver` and native Swift, which opens authentica
 
 FastAPI lifespan schedules one silent in-memory inference for the configured final Whisper model
 through the same process-wide MLX executor used by live, final, and REST transcription (ADR-0082).
-The HTTP server remains live while prewarm runs. An immediate dictation queues behind it, so model
-loading and real inference cannot race. The model then remains resident for the sidecar process
-lifetime. `mlxPrewarm` records import, model resolution, inference, residency, and MLX memory fields;
-R172 retains the later idle-eviction or on-demand reload optimization if measured host memory
-pressure makes lifetime residency too expensive.
+It concurrently schedules one direct-IPA Kokoro inference through the retained reference-speech
+store (ADR-0083). The store lock serializes prewarm with immediate artifact creation and the warmup
+audio is discarded without entering the durable artifact cache. The HTTP server remains live while
+both prewarms run. Immediate work queues behind its corresponding model owner, so loading and real
+inference cannot race. Both models remain resident for the sidecar process lifetime. `mlxPrewarm`
+records import, model resolution, inference, residency, and MLX memory fields; `kokoroPrewarm`
+records cold work, success, error type, and total time. R172 and R174 retain later measured
+idle-eviction or on-demand reload policies if lifetime residency harms ordinary host use.
 
 Browser Stop first fences the capture worklet, emits its final short PCM tail, and waits for the
 flush acknowledgement before sending `sessionStop`. Worklet, track, and audio-context failures abort

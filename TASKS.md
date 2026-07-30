@@ -819,6 +819,13 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   policy only if host memory-pressure evidence shows the accepted prewarm footprint harms ordinary
   AgentDesk use. Preserve first-dictation latency as an explicit acceptance gate and do not trade it
   away for an unmeasured memory saving.
+- D173. Prewarm the retained Kokoro reference-speech synthesizer after voice-server startup without
+  blocking HTTP liveness (ADR-0083). Exercise the default direct-IPA voice under the same store lock
+  used by real artifact creation, discard warmup audio, emit bounded timing, and prevent duplicate
+  model loading when an immediate request overlaps startup.
+- R174. Replace process-lifetime Kokoro residency with a measured idle-eviction or on-demand reload
+  policy only if the accepted reference-speech footprint harms ordinary AgentDesk use. Preserve
+  first-playback latency as an explicit acceptance gate.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -896,4 +903,6 @@ R169  candidate   remaining  explicit keyboard-time video mouse control
 D170  2026-07-29  landed     deterministic terminal tests and ordered runtime checkpoints
 D171  2026-07-29  landed     startup Whisper prewarm through the single MLX executor
 R172  captured    remaining  measured idle eviction or on-demand reload if memory pressure warrants
+D173  2026-07-29  landed     startup Kokoro prewarm through the retained reference-speech store
+R174  captured    remaining  measured Kokoro idle eviction or on-demand reload if warranted
 ```

@@ -590,6 +590,11 @@ class HostVoiceBusyTests(unittest.TestCase):
         with (
             patch.object(http_server, "get_transcriber", fake_get_transcriber),
             patch.object(http_server, "prewarm_transcription_model"),
+            patch.object(
+                http_server.ReferenceSpeechArtifactStore,
+                "prewarm",
+                return_value=False,
+            ),
             TestClient(http_server.app) as client,
         ):
             headers = {"origin": "interactionfeed://app"}
@@ -606,21 +611,38 @@ class HostVoiceBusyTests(unittest.TestCase):
 
 
 class VoiceModelPrewarmTests(unittest.TestCase):
-    def test_lifespan_starts_model_prewarm_without_blocking_health(self) -> None:
-        started = threading.Event()
+    def test_lifespan_starts_model_prewarms_without_blocking_health(self) -> None:
+        whisper_started = threading.Event()
+        kokoro_started = threading.Event()
         release = threading.Event()
 
-        def prewarm(model: str) -> None:
+        def prewarm_whisper(model: str) -> None:
             self.assertEqual(model, runtime.FAST_MODEL)
-            started.set()
+            whisper_started.set()
             self.assertTrue(release.wait(timeout=1))
 
-        with patch.object(
-            http_server,
-            "prewarm_transcription_model",
-            side_effect=prewarm,
-        ), TestClient(http_server.app) as client:
-            self.assertTrue(started.wait(timeout=1))
+        def prewarm_kokoro(store) -> bool:
+            del store
+            kokoro_started.set()
+            self.assertTrue(release.wait(timeout=1))
+            return True
+
+        with (
+            patch.object(
+                http_server,
+                "prewarm_transcription_model",
+                side_effect=prewarm_whisper,
+            ),
+            patch.object(
+                http_server.ReferenceSpeechArtifactStore,
+                "prewarm",
+                autospec=True,
+                side_effect=prewarm_kokoro,
+            ),
+            TestClient(http_server.app) as client,
+        ):
+            self.assertTrue(whisper_started.wait(timeout=1))
+            self.assertTrue(kokoro_started.wait(timeout=1))
             response = client.get("/health")
             self.assertEqual(response.status_code, 200)
             release.set()
@@ -691,6 +713,11 @@ class ReferenceSpeechHTTPTests(unittest.TestCase):
             fake = FakeStore(audio_path)
             with (
                 patch.object(http_server, "prewarm_transcription_model"),
+                patch.object(
+                    http_server.ReferenceSpeechArtifactStore,
+                    "prewarm",
+                    return_value=False,
+                ),
                 TestClient(http_server.app) as client,
             ):
                 http_server.app.state.reference_speech_store = fake

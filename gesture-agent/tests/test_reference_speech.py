@@ -13,6 +13,8 @@ import numpy as np
 
 from interaction_agent.voice.reference_speech import (
     KOKORO_MAX_PHONEME_CHARACTERS,
+    KOKORO_PREWARM_IPA,
+    KokoroDirectSynthesizer,
     ReferenceSpeechArtifactStore,
     ReferenceSpeechError,
     ReferenceSpeechScope,
@@ -25,7 +27,12 @@ class FakeSynthesizer:
     error = None
 
     def __init__(self) -> None:
+        self.prewarm_calls = 0
         self.calls: list[tuple[tuple[str, ...], str, float]] = []
+
+    def prewarm(self):
+        self.prewarm_calls += 1
+        return True
 
     def synthesize(self, chunks, voice, speed):
         self.calls.append((chunks, voice.identifier, speed))
@@ -33,6 +40,43 @@ class FakeSynthesizer:
 
 
 class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
+    def test_direct_prewarm_exercises_default_voice_once(self) -> None:
+        class ProbeSynthesizer(KokoroDirectSynthesizer):
+            def __init__(self) -> None:
+                super().__init__()
+                self.received = None
+
+            def synthesize(self, chunks, voice, speed):
+                self.received = (chunks, voice.identifier, speed)
+                self._inference_warm = True
+                return np.ones(24, dtype=np.float32)
+
+        synth = ProbeSynthesizer()
+
+        self.assertTrue(synth.prewarm())
+        self.assertFalse(synth.prewarm())
+        self.assertEqual(
+            synth.received,
+            ((KOKORO_PREWARM_IPA,), "af_heart", 1.0),
+        )
+
+    def test_prewarm_uses_the_retained_synthesizer_without_writing_an_artifact(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            synth = FakeSynthesizer()
+            root = Path(temporary_directory)
+            store = ReferenceSpeechArtifactStore(
+                root=root,
+                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                synthesizer=synth,
+                cache_max_bytes=10_000_000,
+            )
+
+            self.assertTrue(store.prewarm())
+            self.assertEqual(synth.prewarm_calls, 1)
+            self.assertFalse((root / "artifacts").exists())
+
     def test_passage_uses_direct_cmu_ipa_and_reuses_atomic_cache(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             synth = FakeSynthesizer()

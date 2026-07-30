@@ -110,11 +110,10 @@ from interaction_agent.voice.wire import (
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Own model prewarm, the shared transcriber, and recording-session locks.
 
-    The MLX chunk transcriber is expensive to construct (it loads the Whisper
-    model), so startup schedules one silent inference before the user records.
-    The task uses the same process-wide executor as every live, final, and REST
-    MLX inference, so an immediate recording queues behind prewarm rather than
-    racing it. The HTTP server remains live while model files are prepared.
+    Startup schedules silent Whisper and Kokoro inference before the user first
+    needs either model. Each task uses the retained owner and serialization
+    boundary also used by real work, so immediate requests queue behind prewarm
+    rather than racing it. The HTTP server remains live while models prepare.
     ``voice_session_lock`` rejects a second recorder while a take is active.
     """
     app.state.voice_session_lock = asyncio.Lock()
@@ -123,14 +122,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.voice_phone_recognizer_lock = asyncio.Lock()
     app.state.voice_phone_inference_lock = asyncio.Lock()
     app.state.voice_phone_recognizer = None
-    app.state.reference_speech_store = ReferenceSpeechArtifactStore()
-    prewarm_task = asyncio.create_task(prewarm_voice_model())
-    app.state.voice_model_prewarm_task = prewarm_task
+    reference_speech_store = ReferenceSpeechArtifactStore()
+    app.state.reference_speech_store = reference_speech_store
+    whisper_prewarm_task = asyncio.create_task(prewarm_voice_model())
+    kokoro_prewarm_task = asyncio.create_task(
+        prewarm_reference_speech(reference_speech_store)
+    )
+    app.state.voice_model_prewarm_task = whisper_prewarm_task
+    app.state.reference_speech_prewarm_task = kokoro_prewarm_task
+    prewarm_tasks = (whisper_prewarm_task, kokoro_prewarm_task)
     try:
         yield
     finally:
-        if not prewarm_task.done():
-            prewarm_task.cancel()
+        for prewarm_task in prewarm_tasks:
+            if not prewarm_task.done():
+                prewarm_task.cancel()
+        for prewarm_task in prewarm_tasks:
             with suppress(asyncio.CancelledError):
                 await prewarm_task
         transcriber = app.state.voice_transcriber
@@ -149,6 +156,33 @@ async def prewarm_voice_model() -> None:
     except Exception:
         logging.getLogger(__name__).exception(
             "voice model prewarm failed; the first transcription will retry"
+        )
+
+
+async def prewarm_reference_speech(store: ReferenceSpeechArtifactStore) -> None:
+    """Prewarm the retained Kokoro synthesizer without blocking liveness."""
+    started_at = time.perf_counter()
+    cold_start: bool | None = None
+    success = False
+    error_type: str | None = None
+    try:
+        cold_start = await run_in_threadpool(store.prewarm)
+        success = True
+    except asyncio.CancelledError:
+        error_type = "CancelledError"
+        raise
+    except Exception as exc:
+        error_type = type(exc).__name__
+        logging.getLogger(__name__).exception(
+            "reference speech prewarm failed; the first synthesis will retry"
+        )
+    finally:
+        emit_voice_timing(
+            "kokoroPrewarm",
+            coldStart=cold_start,
+            success=success,
+            errorType=error_type,
+            totalMs=_elapsed_ms(started_at),
         )
 
 
