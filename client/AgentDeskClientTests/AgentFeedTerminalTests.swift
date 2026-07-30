@@ -1246,17 +1246,28 @@ struct AgentFeedTerminalTests {
         return nil
     }
 
+    /// Yields until `condition` holds, counting scheduling steps rather than elapsed time.
+    ///
+    /// Everything these tests await is cooperative Swift concurrency on this actor: the session
+    /// under test owns no timers, threads, or dispatch queues, and the fakes cooperate by yielding
+    /// too. Progress therefore depends on how many times the executor gets to run, which a busy
+    /// machine does not change. A wall-clock deadline measured the wrong thing and made every
+    /// assertion a race against load: at 15s it expired on a full-suite run while the same test
+    /// passed in isolation. The step budget is generous because each yield costs nanoseconds, so it
+    /// bounds a real hang without pacing the healthy path, and a genuinely stuck condition now fails
+    /// in a fraction of a second instead of fifteen.
+    ///
+    /// Some of these tests hold a fake in a `Task.yield()` spin (`shouldDelayAttached`,
+    /// `delayedOpen`), which consumes steps alongside this loop. The budget is sized for that.
     private func waitUntil(
-        timeout: Duration = .seconds(15),
+        steps: Int = 20_000,
         _ condition: @MainActor () -> Bool
     ) async throws {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while clock.now < deadline {
+        for _ in 0..<steps {
             if condition() { return }
-            try await Task.sleep(for: .milliseconds(10))
+            await Task.yield()
         }
-        Issue.record("condition did not become true")
+        Issue.record("condition did not become true within \(steps) scheduling steps")
     }
 
     private func drainTasks() async {

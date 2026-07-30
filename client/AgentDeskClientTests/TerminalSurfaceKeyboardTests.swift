@@ -20,10 +20,12 @@ struct TerminalSurfaceKeyboardTests {
         defer { window.isHidden = true }
         surface.setViewportPresented(true)
 
-        _ = try await waitForJavaScriptBoolean(
+        // Required, not incidental: every step below dispatches on the pane, so a missing one has to
+        // fail here rather than as a null-dereference inside the next evaluateJavaScript.
+        try #require(await waitForJavaScriptBoolean(
             in: surface.terminalContent.webView,
             expression: "document.querySelector('.terminal-pane') ? true : null"
-        )
+        ))
         try await surface.terminalContent.webView.evaluateJavaScript(
             """
             (() => {
@@ -32,6 +34,12 @@ struct TerminalSurfaceKeyboardTests {
             })()
             """
         )
+        // A settle window, not a wait for something: the assertion is that a gesturechange produces
+        // NO focus request, and absence has no arrival to subscribe to. Making it deterministic would
+        // need an ordered flush message through the same bridge (a later message proving the earlier
+        // one was delivered and consumed), which the terminal protocol does not expose. Left as a
+        // bounded settle; if the surface ever focuses on gesturechange, the assertion below catches
+        // it as long as this window covers ordinary delivery.
         try await Task.sleep(for: .milliseconds(100))
         #expect(!surface.terminalKeyboardSurface.isFirstResponder)
 
@@ -123,12 +131,28 @@ struct TerminalSurfaceKeyboardTests {
         #expect(!surface.terminalKeyboardSurface.isFirstResponder)
     }
 
+    /// Polls the page until `expression` answers a boolean rather than null.
+    ///
+    /// This one cannot be event-driven from the test side, and the attempt is worth recording so it
+    /// is not retried: moving the wait into the page as a `MutationObserver` promise awaited through
+    /// `callAsyncJavaScript` fails with "Completion handler for function call is no longer reachable",
+    /// because the terminal runtime reloads its page during boot and a reload destroys any pending
+    /// in-page promise. Swallowing the error and asking again across page generations, which is what
+    /// this loop does, is therefore the mechanism rather than a shortcut.
+    ///
+    /// The deadline is a failure bound, not a pace. It was 30s and still expired once, on a machine
+    /// running four simulator suites at once; 60s keeps that bound clear of ordinary load without
+    /// affecting the healthy path, where the answer arrives in a few hundred milliseconds.
+    ///
+    /// `expression` must answer `true`/`false` once its subject exists and `null` until then, which
+    /// is what distinguishes "not rendered yet" from "rendered, and the answer is false".
     private func waitForJavaScriptBoolean(
         in webView: WKWebView,
-        expression: String
+        expression: String,
+        timeout: Duration = .seconds(60)
     ) async throws -> Bool {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(30))
+        let deadline = clock.now.advanced(by: timeout)
         var lastEvaluationError: Error?
         while clock.now < deadline {
             do {
@@ -137,20 +161,28 @@ struct TerminalSurfaceKeyboardTests {
                     return boolean
                 }
             } catch {
+                // Expected across a boot-time reload: the frame that owned the evaluation went away.
                 lastEvaluationError = error
             }
             try await Task.sleep(for: .milliseconds(20))
         }
-        let errorDescription = String(describing: lastEvaluationError)
+        let lastError = String(describing: lastEvaluationError)
         Issue.record(
-            "terminal web runtime did not expose its input textarea; last JavaScript error: \(errorDescription)"
+            "terminal web runtime did not settle \(expression) within \(timeout); last JavaScript error: \(lastError)"
         )
         return false
     }
 
-    private func waitForCondition(_ condition: () -> Bool) async -> Bool {
+    /// Polls, deliberately: this waits on state a WKScriptMessage sets after crossing from the web
+    /// content process, and no amount of yielding on this side advances another process. Sleeping is
+    /// the only way to let that delivery happen, so the budget here is a failure bound rather than a
+    /// pace, and it is generous for that reason. At 2s it was tight enough to be a load bet.
+    private func waitForCondition(
+        timeout: Duration = .seconds(30),
+        _ condition: () -> Bool
+    ) async -> Bool {
         let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: .seconds(2))
+        let deadline = clock.now.advanced(by: timeout)
         while clock.now < deadline {
             if condition() { return true }
             try? await Task.sleep(for: .milliseconds(20))
