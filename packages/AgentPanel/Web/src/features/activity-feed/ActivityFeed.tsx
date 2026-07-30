@@ -29,6 +29,7 @@ import {
   UserRow,
   type EventRowContext,
 } from "./ActivityEventRows";
+import { TokenMeter } from "./TokenMeter";
 import type { AgentSource } from "./data-source/AgentDataSource";
 
 /** Fallback for the sticky bar's height before it has rendered once. */
@@ -49,7 +50,7 @@ export function ActivityFeed({
    */
   controlsHost: HTMLElement | null;
 }) {
-  const { events, loadOlder, windowStart, loading, error } =
+  const { events, loadOlder, windowStart, usage, loading, error } =
     useSessionEventsStream(source, sessionId);
   const parentRef = useRef<HTMLDivElement>(null);
   const sizedRef = useRef<HTMLDivElement>(null);
@@ -273,22 +274,28 @@ export function ActivityFeed({
     prevWindowStartRef.current = windowStart;
   }, [windowStart, totalSize]);
 
-  const foldControl = controlsHost
+  // The thread's controls all live in the shell header, so the transcript spends
+  // no band of its own on them. One portal, not one per control: they share a
+  // row and their order is a layout decision, which belongs in one place.
+  const threadControls = controlsHost
     ? createPortal(
-        <button
-          type="button"
-          onClick={allCollapsed ? expandAll : collapseAll}
-          disabled={allEventIds.length === 0}
-          title={allCollapsed ? "Expand all agent sections" : "Collapse all agent sections"}
-          aria-label={allCollapsed ? "expand all" : "collapse all"}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 disabled:opacity-40"
-        >
-          {allCollapsed ? (
-            <UnfoldVertical className="h-4 w-4" aria-hidden />
-          ) : (
-            <FoldVertical className="h-4 w-4" aria-hidden />
-          )}
-        </button>,
+        <>
+          <TokenMeter usage={usage} />
+          <button
+            type="button"
+            onClick={allCollapsed ? expandAll : collapseAll}
+            disabled={allEventIds.length === 0}
+            title={allCollapsed ? "Expand all agent sections" : "Collapse all agent sections"}
+            aria-label={allCollapsed ? "expand all" : "collapse all"}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 disabled:opacity-40"
+          >
+            {allCollapsed ? (
+              <UnfoldVertical className="h-4 w-4" aria-hidden />
+            ) : (
+              <FoldVertical className="h-4 w-4" aria-hidden />
+            )}
+          </button>
+        </>,
         controlsHost,
       )
     : null;
@@ -317,7 +324,7 @@ export function ActivityFeed({
 
   return (
     <div className="relative h-full overflow-hidden">
-      {foldControl}
+      {threadControls}
       <div ref={parentRef} onScroll={handleScroll} className="h-full overflow-y-auto">
         <div
           ref={sizedRef}

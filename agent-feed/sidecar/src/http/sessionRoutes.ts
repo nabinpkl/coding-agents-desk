@@ -4,6 +4,7 @@ import {
   discardIndexIfUnused,
   ensureIndexed,
   getEventCount,
+  getSessionUsage,
   readEventRaw,
   readEvents,
   RawEventTooLargeError,
@@ -139,6 +140,7 @@ async function paginatedEvents(
     return jsonResponse({
       events,
       total: getEventCount(source, sessionId),
+      usage: getSessionUsage(source, sessionId),
     });
   } finally {
     releaseIndex(source, sessionId);
@@ -189,6 +191,16 @@ function eventStream(
   return startServerSentEventStream(request, server, (write) => {
     let cancelled = false;
     let unsubscribeEvents: (() => void) | null = null;
+    // Occupancy rides every event message instead of getting a message type of
+    // its own: the thread stream already pushes once per event, so the panel's
+    // meter goes live with no extra plumbing and the host decodes one optional
+    // field. Read per write rather than captured, so it is never stale.
+    const writeEvent = (event: ActivityEvent): void => {
+      write(encodeServerSentEvent({
+        ...event,
+        usage: getSessionUsage(source, sessionId),
+      }));
+    };
     acquireIndex(source, sessionId);
     const watcher = chokidar.watch(session.transcriptPath, {
       ignoreInitial: true,
@@ -226,13 +238,9 @@ function eventStream(
           discardIndexIfUnused(source, sessionId);
           return;
         }
-        for (const event of backfill) write(encodeServerSentEvent(event));
+        for (const event of backfill) writeEvent(event);
       }
-      unsubscribeEvents = subscribeEvents(
-        source,
-        sessionId,
-        (event: ActivityEvent) => write(encodeServerSentEvent(event)),
-      );
+      unsubscribeEvents = subscribeEvents(source, sessionId, writeEvent);
       await syncIndex(source, sessionId, session.transcriptPath);
       if (cancelled) discardIndexIfUnused(source, sessionId);
     })().catch((error) => {

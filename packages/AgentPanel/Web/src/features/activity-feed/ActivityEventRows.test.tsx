@@ -19,7 +19,7 @@ import type { ActivityEvent } from "./useSessionEventsStream";
 vi.mock("./DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
 
 const DATA_SOURCE: AgentDataSource = {
-  fetchEventsPage: async () => ({ events: [], total: 0 }),
+  fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
   subscribeSessionEvents: () => () => {},
   fetchRawEvent: async () => "",
 };

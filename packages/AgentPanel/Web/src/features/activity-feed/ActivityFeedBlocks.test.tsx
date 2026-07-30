@@ -15,7 +15,7 @@ import type { ActivityEvent } from "./useSessionEventsStream";
 
 function source(fetchRawEvent: AgentDataSource["fetchRawEvent"]): AgentDataSource {
   return {
-    fetchEventsPage: async () => ({ events: [], total: 0 }),
+    fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
     subscribeSessionEvents: () => () => {},
     fetchRawEvent,
   };

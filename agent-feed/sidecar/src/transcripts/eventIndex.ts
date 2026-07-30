@@ -2,11 +2,13 @@ import { stat } from "node:fs/promises";
 import { state } from "./transcriptState.ts";
 import { adapterFor } from "./sources/sourceAdapters.ts";
 import { sessionKey } from "./transcriptCatalog.ts";
+import { mergeUsage } from "./usageState.ts";
 import type {
   ActivityEvent,
   ParsedLine,
   SourceAdapter,
   SourceId,
+  TokenUsage,
 } from "./sources/transcriptTypes.ts";
 
 export type { ActivityEvent, ActivityBlock } from "./sources/transcriptTypes.ts";
@@ -23,6 +25,21 @@ export class RawEventTooLargeError extends Error {
     this.name = "RawEventTooLargeError";
     this.byteCount = byteCount;
   }
+}
+
+// One home for dropping a session's index. Every entry keyed by `key` in
+// transcriptState belongs here, so a new per-index map gains its teardown once
+// instead of in each of the four callers that used to repeat this block.
+//
+// `keepBuild` is for the one caller that runs INSIDE the build promise (the
+// truncation reset): forgetting the in-flight entry there would let a concurrent
+// request start a second build over the same file.
+function dropIndexState(key: string, options: { keepBuild?: boolean } = {}): void {
+  state.eventByteOffsets.delete(key);
+  state.indexedSizes.delete(key);
+  state.indexed.delete(key);
+  state.sessionUsage.delete(key);
+  if (!options.keepBuild) state.indexBuilds.delete(key);
 }
 
 function emitParsedRaw(key: string, byteOffset: number, parsed: ParsedLine): void {
@@ -67,6 +84,17 @@ async function scanFrom(
       if (index > lineStart) {
         const line = decoder.decode(combined.subarray(lineStart, index));
         const result = adapter.processLine(line);
+        // Folded BEFORE the event is emitted, so a live subscriber reading the
+        // session's occupancy while handling this event sees the value this very
+        // line reported rather than the previous one. Replaying an already
+        // indexed line is harmless: the merge overwrites `current`, it does not
+        // accumulate.
+        if (result?.usage) {
+          state.sessionUsage.set(
+            key,
+            mergeUsage(state.sessionUsage.get(key), result.usage),
+          );
+        }
         if (result?.event) emitParsedRaw(key, carryStart + lineStart, result.event);
       }
       lineStart = index + 1;
@@ -98,9 +126,7 @@ async function buildOrSyncIndex(
     }
     let startOffset = state.indexedSizes.get(key) ?? 0;
     if (metadata.size < startOffset) {
-      state.eventByteOffsets.delete(key);
-      state.indexedSizes.delete(key);
-      state.indexed.delete(key);
+      dropIndexState(key, { keepBuild: true });
       startOffset = 0;
     }
     if (metadata.size > startOffset) {
@@ -153,30 +179,35 @@ export function releaseIndex(source: SourceId, sessionId: string): void {
     return;
   }
   state.indexReferences.delete(key);
-  state.eventByteOffsets.delete(key);
-  state.indexedSizes.delete(key);
-  state.indexed.delete(key);
-  state.indexBuilds.delete(key);
+  dropIndexState(key);
 }
 
 export function resetIndex(source: SourceId, sessionId: string): void {
-  const key = sessionKey(source, sessionId);
-  state.eventByteOffsets.delete(key);
-  state.indexedSizes.delete(key);
-  state.indexed.delete(key);
+  dropIndexState(sessionKey(source, sessionId), { keepBuild: true });
 }
 
 export function discardIndexIfUnused(source: SourceId, sessionId: string): void {
   const key = sessionKey(source, sessionId);
   if ((state.indexReferences.get(key) ?? 0) > 0) return;
-  state.eventByteOffsets.delete(key);
-  state.indexedSizes.delete(key);
-  state.indexed.delete(key);
-  state.indexBuilds.delete(key);
+  dropIndexState(key);
 }
 
 export function getEventCount(source: SourceId, sessionId: string): number {
   return (state.eventByteOffsets.get(sessionKey(source, sessionId)) ?? []).length;
+}
+
+/**
+ * Latest context-window occupancy for an indexed session, or null when the
+ * transcript has published none yet.
+ *
+ * Read at response time rather than pushed: the indexing pass folds every line
+ * it sees, so whatever this returns is as current as the index is.
+ */
+export function getSessionUsage(
+  source: SourceId,
+  sessionId: string,
+): TokenUsage | null {
+  return state.sessionUsage.get(sessionKey(source, sessionId)) ?? null;
 }
 
 export async function readEvents(

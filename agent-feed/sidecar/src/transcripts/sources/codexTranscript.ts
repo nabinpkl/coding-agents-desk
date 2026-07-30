@@ -297,6 +297,15 @@ function normalizedLine(line: string): NormalizedCodexLine | null {
     if (pe.type === 'token_count') {
       const last = pe.info?.last_token_usage?.total_tokens;
       if (typeof last === 'number' && last > 0) {
+        // No `model` on the usage: `token_count` does not name one, and Codex
+        // needs no name to produce a limit -- it publishes the window itself,
+        // and the published value is authoritative (three distinct windows
+        // appear across this project's rollouts). The name lives on a separate
+        // `turn_context` line, which carries no occupancy, so reaching it would
+        // mean threading a second cross-line signal for a cosmetic label.
+        // Leaving `model` absent also makes the session merge treat a
+        // window-less record as "inherit", which is what the 124 such records
+        // in this project need.
         const limit = typeof pe.info?.model_context_window === 'number'
           ? pe.info.model_context_window
           : null;

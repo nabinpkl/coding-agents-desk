@@ -1,6 +1,6 @@
 import type { FSWatcher } from "chokidar";
 import type { EventSubscriber } from "./eventIndex.ts";
-import type { Session } from "./sources/transcriptTypes.ts";
+import type { Session, TokenUsage } from "./sources/transcriptTypes.ts";
 
 export type WatcherState = "idle" | "reconciling" | "live";
 
@@ -20,6 +20,11 @@ export interface TranscriptState {
   indexed: Set<string>;
   indexBuilds: Map<string, Promise<void>>;
   indexReferences: Map<string, number>;
+  // Latest context-window occupancy per indexed session, folded line by line as
+  // the index is built and extended. Lives here rather than in the catalog
+  // because the indexing pass is the one place that already reads every line;
+  // its lifetime is the index's, and it is dropped with it.
+  sessionUsage: Map<string, TokenUsage>;
   eventSubscribers: Map<string, Set<EventSubscriber>>;
   openStreams: Set<OpenStream>;
   shuttingDown: boolean;
@@ -36,6 +41,7 @@ export const state: TranscriptState = {
   indexed: new Set(),
   indexBuilds: new Map(),
   indexReferences: new Map(),
+  sessionUsage: new Map(),
   eventSubscribers: new Map(),
   openStreams: new Set(),
   shuttingDown: false,

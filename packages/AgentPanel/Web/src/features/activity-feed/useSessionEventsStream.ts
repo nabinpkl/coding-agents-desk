@@ -36,12 +36,40 @@ export interface ActivityEvent {
   blocks: ActivityBlock[];
 }
 
+/**
+ * Latest context-window occupancy for the session.
+ *
+ * `limit` arrives already resolved -- the sidecar reads Codex's published window
+ * and looks Claude's up in its own model table -- so nothing here maps a model
+ * name to a number. `null` means the sidecar has no window for the model, and
+ * the meter shows a bare count instead of a fraction of a guess.
+ */
+export interface TokenUsage {
+  current: number;
+  limit: number | null;
+  updatedAt: number;
+  model?: string;
+}
+
 interface State {
   events: Map<number, ActivityEvent>;
   total: number;
   windowStart: number;
+  usage: TokenUsage | null;
   loading: boolean;
   error: string | null;
+}
+
+/** Whichever occupancy report is more recent, by the timestamp on the line that
+ *  produced it. Both are already-resolved snapshots, so this picks rather than
+ *  merges. */
+export function newerUsage(
+  left: TokenUsage | null,
+  right: TokenUsage | null,
+): TokenUsage | null {
+  if (!left) return right;
+  if (!right) return left;
+  return right.updatedAt >= left.updatedAt ? right : left;
 }
 
 export function useSessionEventsStream(
@@ -58,6 +86,7 @@ export function useSessionEventsStream(
     events: new Map(),
     total: 0,
     windowStart: 0,
+    usage: null,
     loading: true,
     error: null,
   });
@@ -88,6 +117,15 @@ export function useSessionEventsStream(
           };
         });
       },
+      // Occupancy is session state, so it arrives on the chunk rather than on an
+      // event, and it must land even while the seed is still in flight: on a
+      // live thread the newest usage-bearing line is often the one that arrives
+      // before the seed resolves.
+      onUsage: (usage) =>
+        setState((current) => ({
+          ...current,
+          usage: newerUsage(current.usage, usage),
+        })),
       onOpen: () => setConnected(true),
       onError: () => setConnected(false),
     });
@@ -100,10 +138,12 @@ export function useSessionEventsStream(
 
         const { offset, limit } = seedRange(total);
         let initial: ActivityEvent[] = [];
+        let seedUsage = probe.usage;
         if (limit > 0) {
           const data = await ds.fetchEventsPage(session, offset, limit);
           if (cancelled) return;
           initial = data.events;
+          seedUsage = data.usage;
         }
         if (cancelled) return;
 
@@ -111,13 +151,17 @@ export function useSessionEventsStream(
         for (const ev of initial) map.set(ev.index, ev);
         for (const event of pendingLive.values()) map.set(event.index, event);
         seeded = true;
-        setState({
+        setState((current) => ({
           events: map,
           total: Math.max(total, ...Array.from(map.keys(), (index) => index + 1), 0),
           windowStart: offset,
+          // A live chunk can land before the seed resolves, so this cannot just
+          // take the page's value: `updatedAt` decides, which makes the outcome
+          // independent of which of the two arrives first.
+          usage: newerUsage(current.usage, seedUsage),
           loading: false,
           error: null,
-        });
+        }));
       } catch (e) {
         if (!cancelled) setState((s) => ({ ...s, error: String((e as Error).message ?? e), loading: false }));
       }
@@ -157,6 +201,7 @@ export function useSessionEventsStream(
     events,
     total: state.total,
     windowStart: state.windowStart,
+    usage: state.usage,
     loadOlder,
     loading: state.loading,
     error: state.error,

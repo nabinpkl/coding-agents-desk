@@ -157,6 +157,9 @@ function makeFixtureSeedChunk(source: Source, sessionId: string) {
     ws: 0,
     tot: 7,
     lv: false,
+    // Occupancy on the seed. Claude publishes no window in the transcript, so the
+    // sidecar resolves it; this is the resolved shape the panel actually sees.
+    u: { cur: 68_272, lim: 200_000, ua: Date.now() - 190_000, mdl: "claude-opus-5" },
   };
 }
 
@@ -181,6 +184,9 @@ function makeFixtureLiveChunk(source: Source, sessionId: string) {
     ws: 0,
     tot: 7,
     lv: true,
+    // A later, larger reading on the live chunk, so the fixture exercises the
+    // thing the whole stage is for: the meter moving without a reload.
+    u: { cur: 152_940, lim: 200_000, ua: Date.now(), mdl: "claude-opus-5" },
   };
 }
 

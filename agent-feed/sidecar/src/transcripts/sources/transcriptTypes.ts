@@ -66,13 +66,24 @@ export interface ActivityEvent extends ParsedLine {
 // (Claude: assistant.message.usage input + cache_creation + cache_read +
 // output; Codex: event_msg.token_count info.last_token_usage.total_tokens).
 // Compaction is implicit: post-compaction turns report a smaller `current`
-// automatically. `limit` is the model's context window when published in
-// the transcript (Codex), otherwise null and the Agent Panel supplies a
-// per-model default.
+// automatically.
+//
+// `limit` arrives RESOLVED. Codex publishes `model_context_window` in the
+// transcript; Claude does not, so the adapter resolves it from the config table
+// keyed on `message.model`. Either way the panel receives one shape and holds no
+// model knowledge of its own. Null means this build has no window for the model,
+// and the meter shows a count with no bar rather than a guessed fraction.
+//
+// `model` is absent on lines that name no model -- Codex `token_count` records,
+// and Claude lines the harness marked `<synthetic>`. Such a line still reports
+// occupancy, so the session-level merge carries the last known model and limit
+// forward instead of blanking the meter (124 Codex records in this project
+// publish occupancy with no window).
 export interface TokenUsage {
   current: number;
   limit: number | null;
   updatedAt: number;
+  model?: string;
 }
 
 export interface LineResult {

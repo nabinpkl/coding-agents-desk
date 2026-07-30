@@ -51,6 +51,33 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
     }
 }
 
+/// Latest context-window occupancy for a session, for the panel's header meter.
+///
+/// `limit` arrives RESOLVED: Codex publishes its window in the transcript, and the sidecar resolves
+/// Claude's from its own model table, so neither the host nor either panel holds model knowledge.
+/// Nil means the sidecar has no window for the model, and the panel shows a count with no fill bar
+/// rather than a fraction of a guessed denominator.
+public struct TokenUsage: Codable, Equatable, Sendable {
+    public let current: Int
+    public let limit: Int?
+    public let updatedAt: Double
+    public let model: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case current = "cur"
+        case limit = "lim"
+        case updatedAt = "ua"
+        case model = "mdl"
+    }
+
+    public init(current: Int, limit: Int? = nil, updatedAt: Double, model: String? = nil) {
+        self.current = current
+        self.limit = limit
+        self.updatedAt = updatedAt
+        self.model = model
+    }
+}
+
 public struct AgentProjectSourceCounts: Codable, Equatable, Sendable {
     public let claude: Int
     public let codex: Int
@@ -255,6 +282,10 @@ public struct AgentThreadChunk: Codable, Equatable, Sendable {
     public let windowStart: Int
     public let total: Int
     public let isLive: Bool
+    /// Session occupancy as of this chunk. Carried on the chunk rather than on each event because it
+    /// is session state, and the chunk stream already fires per event, so the meter updates live
+    /// without a message type of its own. Nil when the transcript has published no occupancy yet.
+    public let usage: TokenUsage?
     public enum CodingKeys: String, CodingKey {
         case type = "t"
         case source = "src"
@@ -263,14 +294,24 @@ public struct AgentThreadChunk: Codable, Equatable, Sendable {
         case windowStart = "ws"
         case total = "tot"
         case isLive = "lv"
+        case usage = "u"
     }
-    public init(source: String, sessionId: String, events: [ActivityEvent], windowStart: Int, total: Int, isLive: Bool) {
+    public init(
+        source: String,
+        sessionId: String,
+        events: [ActivityEvent],
+        windowStart: Int,
+        total: Int,
+        isLive: Bool,
+        usage: TokenUsage? = nil
+    ) {
         self.source = source
         self.sessionId = sessionId
         self.events = events
         self.windowStart = windowStart
         self.total = total
         self.isLive = isLive
+        self.usage = usage
     }
 }
 

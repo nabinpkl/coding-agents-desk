@@ -1,4 +1,8 @@
-import type { ActivityBlock, ActivityEvent } from "../useSessionEventsStream";
+import type {
+  ActivityBlock,
+  ActivityEvent,
+  TokenUsage,
+} from "../useSessionEventsStream";
 import { normalizeActivityEvent } from "../activityNormalization";
 import type {
   AgentDataSource,
@@ -68,6 +72,13 @@ interface WireProjectSessionsError {
   r: string;
 }
 
+interface WireTokenUsage {
+  cur: number;
+  lim?: number | null;
+  ua: number;
+  mdl?: string;
+}
+
 interface WireThreadChunk {
   t: "agent-thread-chunk";
   src: AgentSource;
@@ -76,6 +87,7 @@ interface WireThreadChunk {
   ws: number;
   tot: number;
   lv: boolean;
+  u?: WireTokenUsage | null;
 }
 
 interface WireThreadError {
@@ -168,6 +180,7 @@ interface SessionBuffer {
   events: Map<number, ActivityEvent>;
   total: number;
   windowStart: number;
+  usage: TokenUsage | null;
   seeded: boolean;
 }
 
@@ -211,6 +224,25 @@ function mapBlock(wire: WireActivityBlock): ActivityBlock {
     summary: wire.sm,
     preview: wire.pv,
     callId: wire.ci,
+  };
+}
+
+// Validated rather than cast: the numbers drive a fill bar, and a malformed
+// `cur` would render a NaN-wide element rather than failing anywhere visible.
+// An absent `lim` and an explicit null are the same answer -- no window known.
+function mapUsage(wire: WireTokenUsage | null | undefined): TokenUsage | null {
+  if (!wire || typeof wire.cur !== "number" || !Number.isFinite(wire.cur)) {
+    return null;
+  }
+  const limit =
+    typeof wire.lim === "number" && Number.isFinite(wire.lim) && wire.lim > 0
+      ? wire.lim
+      : null;
+  return {
+    current: wire.cur,
+    limit,
+    updatedAt: typeof wire.ua === "number" ? wire.ua : 0,
+    ...(typeof wire.mdl === "string" && wire.mdl ? { model: wire.mdl } : {}),
   };
 }
 
@@ -537,6 +569,7 @@ export class BridgeDataSource implements AgentDataSource {
       events: new Map(),
       total: 0,
       windowStart: 0,
+      usage: null,
       seeded: false,
     });
     this.bridge.postToHost({
@@ -665,6 +698,19 @@ export class BridgeDataSource implements AgentDataSource {
     buffer.windowStart = buffer.seeded
       ? Math.min(buffer.windowStart, chunk.ws)
       : chunk.ws;
+
+    // Announced on every chunk that carries it, live or not, and before the
+    // seed/older branching below returns. The seed page reads it off the buffer;
+    // a subscriber that is already listening gets it pushed. A chunk with no
+    // usage leaves the last value alone rather than clearing it -- the transcript
+    // publishes occupancy only on some lines.
+    const usage = mapUsage(chunk.u);
+    if (usage) {
+      buffer.usage = usage;
+      for (const listener of this.liveListeners.get(key) ?? []) {
+        listener.onUsage?.(usage);
+      }
+    }
 
     if (!chunk.lv) {
       if (this.reconnectingThreads.has(key) && buffer.seeded) {
@@ -805,6 +851,7 @@ export class BridgeDataSource implements AgentDataSource {
                 events: new Map(),
                 total: chunk.tot,
                 windowStart: chunk.ws,
+                usage: mapUsage(chunk.u),
                 seeded: true,
               },
               chunk.ws,
@@ -838,7 +885,7 @@ export class BridgeDataSource implements AgentDataSource {
           event.index >= offset && event.index < offset + limit,
       )
       .sort((left, right) => left.index - right.index);
-    return { events, total: buffer.total };
+    return { events, total: buffer.total, usage: buffer.usage };
   }
 
   private rejectSessionWaiters(key: string, error: Error): void {

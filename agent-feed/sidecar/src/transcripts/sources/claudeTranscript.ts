@@ -7,13 +7,14 @@
 //
 import { open } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import { config } from '../../config.ts';
+import { config, contextWindowFor } from '../../config.ts';
 import type {
   ActivityBlock,
   Header,
   LineResult,
   ParsedLine,
   SourceAdapter,
+  TokenUsage,
 } from './transcriptTypes.ts';
 import {
   metadataBlock,
@@ -172,15 +173,33 @@ function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
     : [{ block: plainBlock(content), raw: stringifyForDisplay(content) }];
 }
 
+// The harness stamps `<synthetic>` as the model on lines it injected itself.
+// That is not a model switch and not an unknown model, so it must not resolve to
+// a null window: the merge in the event index carries the last real model and
+// limit forward for any line that names no model.
+const SYNTHETIC_MODEL = '<synthetic>';
+
+function assistantModel(message: Record<string, unknown>): string | undefined {
+  const model = typeof message.model === 'string' ? message.model.trim() : '';
+  if (!model || model === SYNTHETIC_MODEL) return undefined;
+  return model;
+}
+
 // Pull total token occupancy off an assistant line. Sum of input +
 // cache_creation + cache_read + output gives "what the model held in
 // context at the end of this turn", which is what the Agent Panel meter
 // shows. Post-compaction turns report a much smaller sum automatically,
 // so no compaction-specific math is needed.
+//
+// Claude does not publish the context window in the transcript, so the limit is
+// resolved HERE from the config table rather than left null for the panel to
+// guess at. The model changes mid-session (13 of 129 sessions in this project),
+// so it is read per line, not once per session.
 function extractClaudeUsage(
   usage: unknown,
+  model: string | undefined,
   ts: number,
-): { current: number; limit: number | null; updatedAt: number } | null {
+): TokenUsage | null {
   if (!usage || typeof usage !== 'object') return null;
   const u = usage as Record<string, unknown>;
   const input = typeof u.input_tokens === 'number' ? u.input_tokens : 0;
@@ -189,9 +208,12 @@ function extractClaudeUsage(
   const output = typeof u.output_tokens === 'number' ? u.output_tokens : 0;
   const current = input + cacheCreate + cacheRead + output;
   if (current <= 0) return null;
-  // Claude does not publish model_context_window in the transcript.
-  // Agent Panel supplies a per-model default keyed off session.source.
-  return { current, limit: null, updatedAt: ts || Date.now() };
+  return {
+    current,
+    limit: contextWindowFor(model),
+    updatedAt: ts || Date.now(),
+    ...(model ? { model } : {}),
+  };
 }
 
 function timestampMs(value: unknown): number {
@@ -308,7 +330,9 @@ function normalizedLine(line: string): NormalizedClaudeLine | null {
 
   const contentBlocks = normalizeBlocks(message.content);
   const stateBlocks: NormalizedClaudeBlock[] = [];
-  const usage = t === 'assistant' ? extractClaudeUsage(message.usage, ts) : null;
+  const usage = t === 'assistant'
+    ? extractClaudeUsage(message.usage, assistantModel(message), ts)
+    : null;
   if (usage) stateBlocks.push({ block: metadataBlock('Token Usage', `${usage.current.toLocaleString()} tokens`), raw: null });
   if (typeof message.stop_reason === 'string' && message.stop_reason) {
     stateBlocks.push({ block: metadataBlock('Stop Reason', message.stop_reason), raw: null });

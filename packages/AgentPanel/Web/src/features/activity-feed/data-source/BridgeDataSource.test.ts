@@ -137,3 +137,70 @@ describe("BridgeDataSource visibility lifecycle", () => {
     expect(onEvent.mock.calls[0]?.[0]).toMatchObject({ index: 1 });
   });
 });
+
+describe("BridgeDataSource context occupancy", () => {
+  const session = { source: "claude" as const, sessionId: "thread" };
+
+  function chunk(
+    overrides: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return {
+      t: "agent-thread-chunk",
+      src: "claude",
+      sid: "thread",
+      ev: [],
+      ws: 0,
+      tot: 1,
+      lv: true,
+      ...overrides,
+    };
+  }
+
+  it("announces occupancy to a live subscriber as chunks arrive", () => {
+    const { host, source } = makeSource();
+    const onUsage = vi.fn();
+    source.subscribeSessionEvents(session, 0, { onEvent: vi.fn(), onUsage });
+
+    host.deliver(chunk({ u: { cur: 40_000, lim: 200_000, ua: 10 } }));
+    host.deliver(chunk({ u: { cur: 52_000, lim: 200_000, ua: 11 } }));
+
+    // The whole point of the stage: the readout moves without a refetch, which
+    // is what lets 7,197 token_count rows leave the transcript entirely.
+    expect(onUsage.mock.calls.map(([usage]) => usage?.current)).toEqual([
+      40_000,
+      52_000,
+    ]);
+  });
+
+  it("keeps the last reading when a chunk publishes none", async () => {
+    const { host, source } = makeSource();
+    const onUsage = vi.fn();
+    source.subscribeSessionEvents(session, 0, { onEvent: vi.fn(), onUsage });
+
+    host.deliver(chunk({ lv: false, u: { cur: 40_000, lim: 200_000, ua: 10 } }));
+    host.deliver(chunk({ u: undefined }));
+
+    // Most transcript lines publish no occupancy, so clearing on their arrival
+    // would blank the meter between readings rather than hold the last one.
+    expect(onUsage).toHaveBeenCalledTimes(1);
+    await expect(source.fetchEventsPage(session, 0, 1)).resolves.toMatchObject({
+      usage: { current: 40_000, limit: 200_000 },
+    });
+  });
+
+  it("reports no window rather than a malformed one", () => {
+    const { host, source } = makeSource();
+    const onUsage = vi.fn();
+    source.subscribeSessionEvents(session, 0, { onEvent: vi.fn(), onUsage });
+
+    host.deliver(chunk({ u: { cur: 40_000, lim: null, ua: 10 } }));
+
+    // null limit is a real answer -- the sidecar has no window for the model --
+    // and the meter must render a bare count instead of dividing by it.
+    expect(onUsage.mock.calls[0]?.[0]).toEqual({
+      current: 40_000,
+      limit: null,
+      updatedAt: 10,
+    });
+  });
+});

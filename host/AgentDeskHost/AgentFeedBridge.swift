@@ -134,7 +134,8 @@ final class AgentFeedBridge: @unchecked Sendable {
                     events: page.events.map(Self.wireEvent),
                     windowStart: offset,
                     total: page.total,
-                    isLive: false
+                    isLive: false,
+                    usage: Self.wireUsage(page.usage)
                 ))
             } catch {
                 sendCodable(AgentThreadError(
@@ -204,7 +205,8 @@ final class AgentFeedBridge: @unchecked Sendable {
                     events: [Self.wireEvent(event)],
                     windowStart: event.index,
                     total: event.index + 1,
-                    isLive: true
+                    isLive: true,
+                    usage: Self.wireUsage(event.usage)
                 ))
             },
             onError: { [weak self] error in
@@ -248,7 +250,7 @@ final class AgentFeedBridge: @unchecked Sendable {
                     offset: offset,
                     limit: probe.total - offset
                 )
-                : AgentFeedEventsPage(events: [], total: probe.total)
+                : AgentFeedEventsPage(events: [], total: probe.total, usage: probe.usage)
             guard isCurrentThread(key: key, generation: generation) else { return }
             sendCodable(AgentThreadChunk(
                 source: source,
@@ -256,7 +258,8 @@ final class AgentFeedBridge: @unchecked Sendable {
                 events: page.events.map(Self.wireEvent),
                 windowStart: offset,
                 total: page.total,
-                isLive: false
+                isLive: false,
+                usage: Self.wireUsage(page.usage)
             ))
             openThreadStream(
                 source: source,
@@ -370,6 +373,16 @@ final class AgentFeedBridge: @unchecked Sendable {
             title: session.title,
             lastEventAt: session.lastEventAt,
             activity: session.activity
+        )
+    }
+
+    private static func wireUsage(_ usage: AgentFeedTokenUsage?) -> TokenUsage? {
+        guard let usage else { return nil }
+        return TokenUsage(
+            current: usage.current,
+            limit: usage.limit,
+            updatedAt: usage.updatedAt,
+            model: usage.model
         )
     }
 

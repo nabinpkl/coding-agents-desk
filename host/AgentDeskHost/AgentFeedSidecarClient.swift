@@ -21,16 +21,52 @@ struct AgentFeedActivityBlock: Codable {
     }
 }
 
+/// Latest context-window occupancy for a session. `limit` arrives already resolved by the sidecar
+/// (Codex publishes it, Claude's comes from the sidecar's model table), so nothing on this side holds
+/// model knowledge; nil means the sidecar has no window for the model and the panel shows a bare
+/// count rather than a guessed fraction.
+struct AgentFeedTokenUsage: Codable {
+    let current: Int
+    let limit: Int?
+    let updatedAt: Double
+    let model: String?
+}
+
 struct AgentFeedActivityEvent: Codable {
     let index: Int
     let ts: Double
     let type: String
     let blocks: [AgentFeedActivityBlock]
+    /// Occupancy as of this event. Session state, not event state: it rides the per-event stream
+    /// message because that stream already fires once per event, so the meter goes live without a
+    /// message type of its own.
+    let usage: AgentFeedTokenUsage?
+
+    init(
+        index: Int,
+        ts: Double,
+        type: String,
+        blocks: [AgentFeedActivityBlock],
+        usage: AgentFeedTokenUsage? = nil
+    ) {
+        self.index = index
+        self.ts = ts
+        self.type = type
+        self.blocks = blocks
+        self.usage = usage
+    }
 }
 
 struct AgentFeedEventsPage {
     let events: [AgentFeedActivityEvent]
     let total: Int
+    let usage: AgentFeedTokenUsage?
+
+    init(events: [AgentFeedActivityEvent], total: Int, usage: AgentFeedTokenUsage? = nil) {
+        self.events = events
+        self.total = total
+        self.usage = usage
+    }
 }
 
 struct AgentFeedProjectSourceCounts: Codable {
@@ -151,6 +187,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         struct Envelope: Decodable {
             let events: [AgentFeedActivityEvent]
             let total: Int
+            let usage: AgentFeedTokenUsage?
         }
         let envelope = try await fetchJSON(
             Envelope.self,
@@ -162,7 +199,11 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
                 ]
             )
         )
-        return AgentFeedEventsPage(events: envelope.events, total: envelope.total)
+        return AgentFeedEventsPage(
+            events: envelope.events,
+            total: envelope.total,
+            usage: envelope.usage
+        )
     }
 
     func fetchRawEvent(source: String, sessionId: String, eventIndex: Int) async throws -> String {
