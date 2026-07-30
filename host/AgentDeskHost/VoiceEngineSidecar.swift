@@ -59,6 +59,7 @@ final class VoiceEngineSidecar: @unchecked Sendable {
 
     private var process: Process?
     private var outputPipe: Pipe?
+    private var importTimeTraceHandle: FileHandle?
     private var outputFramer = VoiceSidecarOutputFramer()
     private var stopped = false
     private var restartBackoffSeconds: TimeInterval = 1
@@ -136,15 +137,6 @@ final class VoiceEngineSidecar: @unchecked Sendable {
         if let workingDirectory = launch.workingDirectory {
             proc.currentDirectoryURL = workingDirectory
         }
-        // Merge into the inherited env rather than replacing it. Setting
-        // Process.environment replaces the whole child env, which would strip
-        // PATH/HOME and break uv's own subprocess resolution. Inherit the
-        // parent env and override only ours (force loopback + the host port).
-        var overrides = launch.environment
-        overrides["VOICE_PORT"] = String(port)
-        overrides["VOICE_HOST"] = "127.0.0.1"
-        proc.environment = ProcessInfo.processInfo.environment
-            .merging(overrides) { _, new in new }
         // Capture newline-framed output without inheriting the host process's
         // stdio descriptors. consumeOutput forwards only structured timing
         // events, keeping transcripts and arbitrary dependency output out of
@@ -163,7 +155,28 @@ final class VoiceEngineSidecar: @unchecked Sendable {
             }
         }
         proc.standardOutput = pipe
-        proc.standardError = pipe
+        let importTraceEnabled: Bool
+        if let traceURL = launch.importTimeTraceURL,
+           let traceHandle = openImportTimeTrace(at: traceURL) {
+            importTimeTraceHandle = traceHandle
+            proc.standardError = traceHandle
+            importTraceEnabled = true
+        } else {
+            proc.standardError = pipe
+            importTraceEnabled = false
+        }
+        // Merge into the inherited env rather than replacing it. Setting
+        // Process.environment replaces the whole child env, which would strip
+        // PATH/HOME and break uv's own subprocess resolution. Inherit the
+        // parent env and override only ours (force loopback + the host port).
+        var overrides = launch.environment
+        overrides["VOICE_PORT"] = String(port)
+        overrides["VOICE_HOST"] = "127.0.0.1"
+        if importTraceEnabled {
+            overrides["PYTHONPROFILEIMPORTTIME"] = "2"
+        }
+        proc.environment = ProcessInfo.processInfo.environment
+            .merging(overrides) { _, new in new }
         // Dispatch onto our serial queue: Process invokes terminationHandler on
         // its own internal queue, but handleTermination reads+mutates stopped
         // and restartBackoffSeconds, which are owned by self.queue. Without this
@@ -287,9 +300,39 @@ final class VoiceEngineSidecar: @unchecked Sendable {
         }
     }
 
+    private func openImportTimeTrace(at url: URL) -> FileHandle? {
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if !FileManager.default.fileExists(atPath: url.path) {
+                guard FileManager.default.createFile(
+                    atPath: url.path,
+                    contents: nil
+                ) else {
+                    throw CocoaError(.fileWriteUnknown)
+                }
+            }
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.seekToEnd()
+            logger.notice(
+                "voice sidecar Python import trace enabled path=\(url.path, privacy: .public)"
+            )
+            return handle
+        } catch {
+            logger.error(
+                "voice sidecar Python import trace unavailable path=\(url.path, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+    }
+
     private func closeOutputPipe() {
         outputPipe?.fileHandleForReading.readabilityHandler = nil
         outputPipe = nil
+        try? importTimeTraceHandle?.close()
+        importTimeTraceHandle = nil
         outputFramer.reset()
     }
 }
@@ -310,4 +353,8 @@ struct VoiceSidecarLaunch {
     /// pointing at writable Application-Support paths). Merged over the inherited
     /// env; VOICE_PORT / VOICE_HOST are always forced by the supervisor.
     var environment: [String: String] = [:]
+    /// When set, enable Python's import-time profiler and append the child's
+    /// raw stderr to this file. Normal launches keep stderr on the filtered
+    /// timing-event pipe.
+    var importTimeTraceURL: URL? = nil
 }

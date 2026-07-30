@@ -763,6 +763,22 @@ enum Config {
         environmentKey: "AGENTDESK_VOICE_SIDECAR_PORT",
         defaultValue: tieredPort(stable: 7692, dev: 7792)
     )
+    // Opt-in Python import-time trace for diagnosing cold voice starts. The
+    // sidecar keeps structured timing events on stdout while raw dependency
+    // stderr goes to this file, avoiding unified-log noise.
+    static var voiceImportTimeTraceURL: URL? {
+        guard
+            let rawPath = ProcessInfo.processInfo.environment[
+                "AGENTDESK_VOICE_IMPORTTIME_TRACE_PATH"
+            ]?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !rawPath.isEmpty
+        else {
+            return nil
+        }
+        return URL(
+            fileURLWithPath: NSString(string: rawPath).expandingTildeInPath
+        )
+    }
     // The command that launches the voice server. Env-driven until the
     // Application-Support venv provisioning lands (Phase 3d): a developer sets
     // AGENTDESK_VOICE_UV_PATH (the `uv` binary) and AGENTDESK_VOICE_PROJECT_DIR
@@ -783,7 +799,8 @@ enum Config {
         return VoiceSidecarLaunch(
             executableURL: URL(fileURLWithPath: uvPath),
             arguments: args,
-            workingDirectory: URL(fileURLWithPath: projectDir, isDirectory: true)
+            workingDirectory: URL(fileURLWithPath: projectDir, isDirectory: true),
+            importTimeTraceURL: voiceImportTimeTraceURL
         )
     }
 
@@ -909,7 +926,8 @@ enum Config {
             executableURL: voiceServerExecutable,
             arguments: [],
             workingDirectory: voiceSourceURL,
-            environment: environment
+            environment: environment,
+            importTimeTraceURL: voiceImportTimeTraceURL
         )
     }
     static let ptyManagerResourceName = "pty-manager"
