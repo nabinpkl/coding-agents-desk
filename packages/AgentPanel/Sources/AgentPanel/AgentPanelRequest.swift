@@ -1,16 +1,20 @@
 import Foundation
 
-public enum AgentPanelTerminalSource: String, Equatable, Sendable {
+/// The harness a request addresses. One validated type for every source-carrying request, terminal
+/// intents included: the decoder is the only boundary between webview-supplied text and the host's
+/// transcript and PTY paths, so an unrecognized harness has to die here rather than travel as a
+/// string that each consumer re-checks (or forgets to).
+public enum AgentPanelAgentSource: String, Equatable, Sendable {
     case claude
     case codex
 }
 
 public struct AgentPanelTerminalContext: Equatable, Sendable {
     public let projectPath: String
-    public let source: AgentPanelTerminalSource
+    public let source: AgentPanelAgentSource
     public let sessionID: String
 
-    public init(projectPath: String, source: AgentPanelTerminalSource, sessionID: String) {
+    public init(projectPath: String, source: AgentPanelAgentSource, sessionID: String) {
         self.projectPath = projectPath
         self.source = source
         self.sessionID = sessionID
@@ -28,10 +32,10 @@ public enum AgentPanelRequest: Equatable, Sendable {
     case projectsUnwatch(subscriptionId: String)
     case projectSessionsWatch(subscriptionId: String, projectPath: String)
     case projectSessionsUnwatch(subscriptionId: String)
-    case threadSubscribe(source: String, sessionId: String)
-    case threadLoadOlder(source: String, sessionId: String, beforeIndex: Int, limit: Int)
-    case threadUnsubscribe(source: String, sessionId: String)
-    case rawEvent(requestId: String, source: String, sessionId: String, eventIndex: Int)
+    case threadSubscribe(source: AgentPanelAgentSource, sessionId: String)
+    case threadLoadOlder(source: AgentPanelAgentSource, sessionId: String, beforeIndex: Int, limit: Int)
+    case threadUnsubscribe(source: AgentPanelAgentSource, sessionId: String)
+    case rawEvent(requestId: String, source: AgentPanelAgentSource, sessionId: String, eventIndex: Int)
     case terminal(AgentPanelTerminalIntent)
 
     public static func decode(tag: String, body: [String: Any]) -> AgentPanelRequest? {
@@ -54,10 +58,17 @@ public enum AgentPanelRequest: Equatable, Sendable {
                   let sessionId = nonemptyString(body["sid"]) else { return nil }
             return .threadSubscribe(source: source, sessionId: sessionId)
         case "agent-thread-older":
+            // Both bounds are enforced here because the host derives the sidecar page from them as
+            // `offset = max(0, bi - lim)` / `limit = bi - offset`. A negative `bi` or a non-positive
+            // `lim` therefore produces a negative sidecar limit, which comes back as an HTTP 400 the
+            // panel surfaces as a thread error. The window the page can cover is still bounded
+            // downstream by `bi` and the sidecar's own limit cap, so no upper bound belongs here.
             guard let source = agentSource(body["src"]),
                   let sessionId = nonemptyString(body["sid"]),
                   let beforeIndex = body["bi"] as? Int,
-                  let limit = body["lim"] as? Int else {
+                  beforeIndex >= 0,
+                  let limit = body["lim"] as? Int,
+                  limit >= 1 else {
                 return nil
             }
             return .threadLoadOlder(source: source, sessionId: sessionId, beforeIndex: beforeIndex, limit: limit)
@@ -93,11 +104,9 @@ public enum AgentPanelRequest: Equatable, Sendable {
         return value
     }
 
-    private static func agentSource(_ value: Any?) -> String? {
-        guard let value = nonemptyString(value), value == "claude" || value == "codex" else {
-            return nil
-        }
-        return value
+    private static func agentSource(_ value: Any?) -> AgentPanelAgentSource? {
+        guard let value = nonemptyString(value) else { return nil }
+        return AgentPanelAgentSource(rawValue: value)
     }
 
     private static func decodeTerminalIntent(
@@ -109,8 +118,7 @@ public enum AgentPanelRequest: Equatable, Sendable {
               let rawContext = body["ctx"] as? [String: Any],
               let projectPath = rawContext["pp"] as? String,
               !projectPath.isEmpty,
-              let rawSource = rawContext["src"] as? String,
-              let source = AgentPanelTerminalSource(rawValue: rawSource),
+              let source = agentSource(rawContext["src"]),
               let sessionID = rawContext["sid"] as? String,
               !sessionID.isEmpty else {
             return nil

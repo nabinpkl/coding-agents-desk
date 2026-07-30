@@ -37,7 +37,7 @@ struct AgentFeedSurfaceTests {
     @Test func bridgesThreadAndRawIdentityExactly() {
         #expect(
             AgentFeedRequest(.threadSubscribe(
-                source: "claude",
+                source: .claude,
                 sessionId: "same"
             )) == .threadSubscribe(AgentThreadSubscribe(
                 source: "claude",
@@ -46,7 +46,7 @@ struct AgentFeedSurfaceTests {
         )
         #expect(
             AgentFeedRequest(.threadLoadOlder(
-                source: "codex",
+                source: .codex,
                 sessionId: "same",
                 beforeIndex: 50,
                 limit: 25
@@ -59,7 +59,7 @@ struct AgentFeedSurfaceTests {
         )
         #expect(
             AgentFeedRequest(.threadUnsubscribe(
-                source: "codex",
+                source: .codex,
                 sessionId: "same"
             )) == .threadUnsubscribe(AgentThreadUnsubscribe(
                 source: "codex",
@@ -69,7 +69,7 @@ struct AgentFeedSurfaceTests {
         #expect(
             AgentFeedRequest(.rawEvent(
                 requestId: "raw",
-                source: "claude",
+                source: .claude,
                 sessionId: "same",
                 eventIndex: 7
             )) == .rawEvent(AgentRawEventRequest(
@@ -88,7 +88,7 @@ struct AgentFeedSurfaceTests {
 
         surface.sendAgentPanelRequest(.projectsWatch(subscriptionId: "p"))
         surface.sendAgentPanelRequest(.threadUnsubscribe(
-            source: "codex",
+            source: .codex,
             sessionId: "s"
         ))
 

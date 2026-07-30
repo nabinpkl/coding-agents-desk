@@ -371,9 +371,11 @@ agent-feed-sidecar-smoke: build-agent-feed-sidecar
     grep '"event":"agent-feed-' "$LOG_FILE"
     echo "agent-feed-sidecar-smoke: PASS"
 
-# Keep the legacy recipe name while builds migrate to AgentPanel resources. A
-# clean checkout uses AgentPanelFixture; this recipe only verifies that fallback
-# and prepares the ignored Vite output directory without shadowing the fixture.
+# Makes the package's resource declarations valid without running the web build,
+# for test lanes (sim-test) that never present the panel: it checks the fixture
+# stub is present and prepares the ignored Vite output directory. The fixture is
+# NOT a serving fallback -- AgentPanel refuses to load it (missingWebviewBuild),
+# so any lane that shows a panel must depend on build-agent-webview instead.
 ensure-webview-placeholder:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -1450,7 +1452,12 @@ pty-live-update-verify base="HEAD~1":
 # variant: "stable" (default) or "dev" (the experimental side-by-side install:
 # bundle id {{client_dev_bundle_id}}, DEV icon, "AgentDesk Dev" name, separate
 # build dir). The dev variant overrides the three identity build settings inline.
-client-install variant="stable":
+# Depends on build-agent-webview for the same reason host-run does: the client
+# bundles AgentPanel's package resources, and without the Vite output the only
+# bundled tree is the inert fixture. AgentPanel now refuses to serve that, so an
+# install without this dependency ships an "Agent view unavailable" panel. The
+# recipe is stamp-cached, so it is a no-op when the web source has not changed.
+client-install variant="stable": build-agent-webview
     #!/usr/bin/env bash
     set -euo pipefail
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
@@ -1473,7 +1480,7 @@ client-reinstall variant="stable":
 # experimental dev side-by-side variant stays Debug). Device install uses the same
 # automatic development signing as the Debug path, so no distribution provisioning
 # is needed. Used by the fresh-install feel-test composite.
-client-install-release:
+client-install-release: build-agent-webview
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     xcrun devicectl device install app --device {{ios_device}} '{{client_app_release}}'
 
@@ -2016,7 +2023,7 @@ motion-verify variant="dev" video="1" seconds="60" fixed_profile="180,1,0.5":
 # variant: stable (default) | dev. The dev variant builds the dev-bundle-id client
 # (DEV icon, separate derived-data) onto the dev simulator ({{ios_sim_udid_dev}}),
 # so a full dev stack (dev host + dev client) runs beside the stable stack.
-client-sim-install variant="stable":
+client-sim-install variant="stable": build-agent-webview
     #!/usr/bin/env bash
     set -euo pipefail
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
@@ -2039,7 +2046,7 @@ client-sim-reinstall variant="stable":
 
 # Release-configuration twins of client-sim-install / the historical update alias, used by
 # the sim-fresh-install feel-test composite. No signing concerns on the simulator.
-client-sim-install-release:
+client-sim-install-release: build-agent-webview
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
     xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
     xcrun simctl install {{ios_sim_udid}} "{{client_sim_app_release}}"

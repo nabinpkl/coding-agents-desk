@@ -347,20 +347,26 @@ enum AgentFeedRequest: Equatable {
         case .projectSessionsUnwatch(let subscriptionId):
             self = .projectSessionsUnwatch(AgentProjectSessionsUnwatch(subscriptionId: subscriptionId))
         case .threadSubscribe(let source, let sessionId):
-            self = .threadSubscribe(AgentThreadSubscribe(source: source, sessionId: sessionId))
+            self = .threadSubscribe(AgentThreadSubscribe(
+                source: source.rawValue,
+                sessionId: sessionId
+            ))
         case .threadLoadOlder(let source, let sessionId, let beforeIndex, let limit):
             self = .threadLoadOlder(AgentThreadLoadOlder(
-                source: source,
+                source: source.rawValue,
                 sessionId: sessionId,
                 beforeIndex: beforeIndex,
                 limit: limit
             ))
         case .threadUnsubscribe(let source, let sessionId):
-            self = .threadUnsubscribe(AgentThreadUnsubscribe(source: source, sessionId: sessionId))
+            self = .threadUnsubscribe(AgentThreadUnsubscribe(
+                source: source.rawValue,
+                sessionId: sessionId
+            ))
         case .rawEvent(let requestId, let source, let sessionId, let eventIndex):
             self = .rawEvent(AgentRawEventRequest(
                 requestId: requestId,
-                source: source,
+                source: source.rawValue,
                 sessionId: sessionId,
                 eventIndex: eventIndex
             ))
