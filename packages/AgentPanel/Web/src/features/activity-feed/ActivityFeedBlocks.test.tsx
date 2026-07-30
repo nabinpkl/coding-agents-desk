@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DataSourceProvider } from "./data-source/AgentDataSourceContext";
 import type { AgentDataSource } from "./data-source/AgentDataSource";
 import {
   buildFeedLayout,
   eventPreview,
+  leadEvent,
   isFlowBlock,
   partitionEventBlocks,
   shellCommand,
@@ -37,7 +38,13 @@ describe("complete activity blocks", () => {
 
   it("keeps Raw JSON collapsed and fetches the exact line only when opened", async () => {
     const exact = '{"type":"future","html":"<b>literal</b>"}';
-    const fetchRawEvent = vi.fn(async () => exact);
+    // The fetch is held open and released by hand rather than resolved on a microtask
+    // that a `waitFor` poll then chases, so the render step waits on this test's own
+    // signal instead of the scheduler's.
+    let release: ((text: string) => void) | null = null;
+    const fetchRawEvent = vi.fn(
+      () => new Promise<string>((resolve) => { release = resolve; }),
+    );
     const { container } = render(
       <DataSourceProvider source={source(fetchRawEvent)}>
         <RawJsonBlock
@@ -47,17 +54,26 @@ describe("complete activity blocks", () => {
       </DataSourceProvider>,
     );
 
-    expect(container.querySelector("details")?.hasAttribute("open")).toBe(false);
+    const details = container.querySelector("details")!;
+    expect(details.hasAttribute("open")).toBe(false);
     expect(fetchRawEvent).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByText("Raw JSON"));
-    await waitFor(() =>
-      // The mode travels WITH the index, because the index is counted in it: a
-      // fetch that dropped it would read a different line.
-      expect(fetchRawEvent).toHaveBeenCalledWith(
-        { source: "claude", sessionId: "session", mode: "raw" },
-        7,
-      ),
+
+    // The disclosure is opened and its `toggle` dispatched directly, because jsdom
+    // schedules `toggle` after a click as a task: waiting for it took 1027ms of a
+    // 1000ms poll under full-suite load. `open` + `toggle` IS the contract this
+    // component listens on, so dispatching it exercises the same path with no clock
+    // in the loop.
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+
+    // The mode travels WITH the index, because the index is counted in it: a fetch
+    // that dropped it would read a different line.
+    expect(fetchRawEvent).toHaveBeenCalledWith(
+      { source: "claude", sessionId: "session", mode: "raw" },
+      7,
     );
+
+    await act(async () => { release!(exact); });
     expect(screen.getByText(exact)).toBeTruthy();
     expect(container.querySelector("b")).toBeNull();
   });
@@ -90,7 +106,7 @@ describe("feed layout", () => {
     ];
 
     const layout = buildFeedLayout(events);
-    expect(layout.items.map((item) => item.ev.index)).toEqual([10]);
+    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([10]);
     expect(layout.allEventIds).toEqual([10]);
 
     // The result event surrendered its row, so its metadata and raw line ride
@@ -150,7 +166,7 @@ describe("feed layout", () => {
       },
     ]);
 
-    expect(layout.items.map((item) => item.ev.index)).toEqual([30, 31]);
+    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([30, 31]);
     expect(layout.pairedToolResults.size).toBe(0);
   });
 
@@ -164,7 +180,7 @@ describe("feed layout", () => {
       },
     ]);
 
-    expect(layout.items.map((item) => item.ev.index)).toEqual([40]);
+    expect(layout.items.map((item) => leadEvent(item).index)).toEqual([40]);
     expect(layout.pairedToolResults.size).toBe(0);
   });
 
@@ -387,7 +403,10 @@ describe("shell command extraction", () => {
 describe("raw drawer", () => {
   it("holds the metadata and only fetches the raw line from the nested disclosure", async () => {
     const exact = '{"type":"assistant"}';
-    const fetchRawEvent = vi.fn(async () => exact);
+    let release: ((text: string) => void) | null = null;
+    const fetchRawEvent = vi.fn(
+      () => new Promise<string>((resolve) => { release = resolve; }),
+    );
     const { container } = render(
       <DataSourceProvider source={source(fetchRawEvent)}>
         <RawDetails
@@ -408,11 +427,20 @@ describe("raw drawer", () => {
     expect(screen.getByText("Token Usage")).toBeTruthy();
     expect(screen.getByText("Working Directory")).toBeTruthy();
 
-    fireEvent.click(screen.getByText("Raw"));
+    // Opening the OUTER drawer must not fetch: that is what makes the nested Raw
+    // JSON lazy. Dispatched directly for the same reason as above -- waiting on
+    // jsdom to schedule `toggle` is a bet on the scheduler, and `open` + `toggle` is
+    // the contract these drawers listen on.
+    const [outer, inner] = [drawers[0]!, drawers[1]!];
+    outer.open = true;
+    fireEvent(outer, new Event("toggle"));
     expect(fetchRawEvent).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByText("Raw JSON"));
-    await waitFor(() => expect(fetchRawEvent).toHaveBeenCalledTimes(1));
+    inner.open = true;
+    fireEvent(inner, new Event("toggle"));
+    expect(fetchRawEvent).toHaveBeenCalledTimes(1);
+
+    await act(async () => { release!(exact); });
     expect(screen.getByText(exact)).toBeTruthy();
   });
 

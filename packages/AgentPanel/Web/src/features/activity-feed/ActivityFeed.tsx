@@ -13,6 +13,8 @@ import {
   buildFeedLayout,
   displayRole,
   eventPreview,
+  itemKey,
+  leadEvent,
   type DisplayItem,
   type DisplayRole,
 } from "./activityDisplayItems";
@@ -22,6 +24,7 @@ import {
   selectStickyUserIndex,
 } from "./activityStickyHeaders";
 import {
+  ClusterRow,
   CompactionRow,
   ROLE_BORDER,
   ROLE_STYLES,
@@ -152,12 +155,26 @@ export function ActivityFeed({
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
   }, []);
 
-  const { items, allEventIds, pairedToolResults } = useMemo(
-    () => buildFeedLayout(events),
-    [events],
+  // Membership means EXPANDED, the opposite of `collapsed`, because a cluster's
+  // default is folded and a row's default is open. One set cannot carry both
+  // defaults without every read having to know which kind of row it is looking at.
+  const [expandedClusters, setExpandedClusters] = useState<Set<number>>(new Set());
+  const expandCluster = useCallback((leadIndex: number) => {
+    pause();
+    setExpandedClusters((previous) => new Set(previous).add(leadIndex));
+  }, [pause]);
+
+  const { items, allEventIds, clusterLeadIds, pairedToolResults } = useMemo(
+    // Clustering is the nice view's alone. The raw view stays one row per line,
+    // which is what makes it the fidelity guarantee the nice view leans on.
+    () => buildFeedLayout(events, { cluster: mode === "nice", expandedClusters }),
+    [events, mode, expandedClusters],
   );
 
-  const allCollapsed = allEventIds.length > 0 && allEventIds.every((id) => collapsed.has(id));
+  const allCollapsed =
+    allEventIds.length > 0 &&
+    allEventIds.every((id) => collapsed.has(id)) &&
+    expandedClusters.size === 0;
 
   const toggleEvent = useCallback((eventIdx: number) => {
     pause();
@@ -171,11 +188,13 @@ export function ActivityFeed({
   const collapseAll = useCallback(() => {
     pause();
     setCollapsed(new Set(allEventIds));
+    setExpandedClusters(new Set());
   }, [allEventIds, pause]);
   const expandAll = useCallback(() => {
     pause();
     setCollapsed(new Set());
-  }, [pause]);
+    setExpandedClusters(new Set(clusterLeadIds));
+  }, [clusterLeadIds, pause]);
 
   const rowContext: EventRowContext = useMemo(
     () => ({
@@ -195,6 +214,8 @@ export function ActivityFeed({
     estimateSize: (i) => {
       const it = items[i];
       if (!it) return 88;
+      // A folded cluster is always one line, whatever it holds.
+      if (it.kind === "cluster") return 32;
       if (collapsed.has(it.ev.index)) return 32;
       return 88;
     },
@@ -207,7 +228,7 @@ export function ActivityFeed({
     getItemKey: (i) => {
       const it = items[i];
       if (!it) return i;
-      return `${it.kind}-${it.ev.index}`;
+      return itemKey(it);
     },
   });
 
@@ -229,8 +250,13 @@ export function ActivityFeed({
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollTop, virtualItems, items]);
-  const stickyUser: ActivityEvent | null =
-    stickyUserIndex === null ? null : items[stickyUserIndex]?.ev ?? null;
+  // Only ever a user row, which is always a single event, but resolved through the
+  // shared accessor so this does not have to be revisited if another multi-event row
+  // kind appears.
+  const stickyUserItem = stickyUserIndex === null ? null : items[stickyUserIndex];
+  const stickyUser: ActivityEvent | null = stickyUserItem
+    ? leadEvent(stickyUserItem)
+    : null;
 
   // Event row currently straddling the top of the viewport: its heading has
   // scrolled past, but its content is still on screen. Drives the secondary
@@ -260,7 +286,7 @@ export function ActivityFeed({
       if (!el || !measurement || !item) return;
       pause();
       el.scrollTop = jumpScrollTop(measurement, reservedHeight);
-      flashHighlight(item.ev.index);
+      flashHighlight(leadEvent(item).index);
     },
     [items, rowVirtualizer, flashHighlight, pause],
   );
@@ -376,7 +402,7 @@ export function ActivityFeed({
             if (!it) return null;
             return (
               <div
-                key={`${it.kind}-${it.ev.index}`}
+                key={itemKey(it)}
                 ref={rowVirtualizer.measureElement}
                 data-index={virtualRow.index}
                 style={{
@@ -387,7 +413,17 @@ export function ActivityFeed({
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                {it.kind === "user" ? (
+                {it.kind === "cluster" ? (
+                  <ClusterRow
+                    events={it.events}
+                    // A folded run is a self-contained band, so it takes both
+                    // rounded ends rather than joining the segment's border run:
+                    // the rows it stands for are not on screen to join to.
+                    isFirst
+                    isLast
+                    onExpand={() => expandCluster(it.events[0]!.index)}
+                  />
+                ) : it.kind === "user" ? (
                   <UserRow
                     ev={it.ev}
                     ctx={rowContext}
@@ -503,8 +539,11 @@ function StickyEventHeader({
   item: DisplayItem;
   onClick: () => void;
 }) {
-  const ev = item.ev;
-  const role: DisplayRole = item.kind === "user" ? "user" : displayRole(ev);
+  const ev = leadEvent(item);
+  // A folded run is tool work by construction, so it names itself `tool` rather than
+  // taking the role of whichever of its members happens to be first.
+  const role: DisplayRole =
+    item.kind === "user" ? "user" : item.kind === "cluster" ? "tool" : displayRole(ev);
   return (
     <button
       type="button"

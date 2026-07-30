@@ -144,6 +144,52 @@ const FIXTURE_LINES: FixtureLine[] = [
       { k: "raw" },
     ],
   },
+  // A run of tool work with nothing between it, which is what the nice view folds
+  // into one row. Tool calls and their output are 54 of every 100 rows in this
+  // project's largest Codex session, and a fixture without a run of them could not
+  // show what clustering does.
+  {
+    age: 186_000,
+    tp: "assistant",
+    b: [{ k: "tool_use", tl: "Read", ci: "call-003", sm: "Read AgentPanelApp.tsx" }],
+  },
+  {
+    age: 185_000,
+    tp: "user",
+    b: [{ k: "tool_result", ci: "call-003", pv: "export function App() {" }],
+  },
+  {
+    age: 184_000,
+    tp: "assistant",
+    b: [{ k: "tool_use", tl: "Edit", ci: "call-004", sm: "Edit AgentPanelApp.tsx" }],
+  },
+  {
+    age: 183_000,
+    tp: "user",
+    b: [{ k: "tool_result", ci: "call-004", pv: "applied" }],
+  },
+  {
+    age: 182_000,
+    tp: "assistant",
+    b: [{ k: "tool_use", tl: "Read", ci: "call-005", sm: "Read fixture.ts" }],
+  },
+  // A skill activation inside the run, which never folds: it changes what the agent
+  // is doing, and hiding it would hide the line that explains the next twenty.
+  {
+    age: 181_000,
+    tp: "assistant",
+    b: [{ k: "tool_use", tl: "Skill", ci: "call-006", sm: "Skill codebase-onboarding" }],
+  },
+  {
+    age: 180_000,
+    tp: "assistant",
+    b: [{ k: "tool_use", tl: "Grep", ci: "call-007", sm: 'pattern "buildFeedLayout"' }],
+  },
+  {
+    age: 179_000,
+    tp: "assistant",
+    b: [{ k: "tool_use", tl: "Bash", ci: "call-008", sm: "just check" }],
+  },
   {
     machinery: true,
     age: 150_000,
