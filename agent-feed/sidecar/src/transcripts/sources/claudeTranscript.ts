@@ -51,6 +51,25 @@ function truncate(s: string, n: number): string {
   return flat.length > n ? flat.slice(0, n) + '…' : flat;
 }
 
+// Input keys worth putting in a row label, most specific first. Consulted for any
+// tool without a hand-written rule below, which before this list existed meant every
+// tool but six -- `Skill` (42 calls here) and `Agent` (139) rendered with a blank
+// label, because there was no fallback at all. The Codex adapter has always had one,
+// which is why only Claude went blank.
+const CLAUDE_SUMMARY_KEYS = [
+  'skill',
+  'description',
+  'query',
+  'url',
+  'pattern',
+  'command',
+  'subject',
+  'title',
+  'path',
+  'file_path',
+  'prompt',
+] as const;
+
 // Per-tool summary string used as the row's chip label in the activity feed.
 function summarizeToolUse(name: string, input?: Record<string, unknown>): string {
   const i = input ?? {};
@@ -59,7 +78,18 @@ function summarizeToolUse(name: string, input?: Record<string, unknown>): string
   if (name === 'Bash' && typeof i.command === 'string') return (i.command as string).slice(0, 200);
   if (name === 'Grep' && typeof i.pattern === 'string') return `pattern "${i.pattern}"`;
   if (name === 'Glob' && typeof i.pattern === 'string') return i.pattern as string;
-  return '';
+  for (const key of CLAUDE_SUMMARY_KEYS) {
+    const value = i[key];
+    if (typeof value === 'string' && value.trim()) return `${name} ${value.trim().slice(0, 200)}`;
+  }
+  // Any string input at all beats a blank chip. Keys are read off the transcript, so
+  // this walks the object's OWN entries rather than indexing by a name from it.
+  for (const [key, value] of Object.entries(i)) {
+    if (key && typeof value === 'string' && value.trim()) {
+      return `${name} ${value.trim().slice(0, 200)}`;
+    }
+  }
+  return name;
 }
 
 // Arrow-prefixed snippet for the rail summary.
@@ -229,6 +259,58 @@ interface NormalizedClaudeLine {
   rawBlocks: NormalizedClaudeBlock[];
 }
 
+// `attachment` is one record type carrying twenty unrelated things, and labelling
+// them all `Attachment` is what made 978 `diagnostics` rows -- real type errors --
+// indistinguishable from 4,891 rows of hook telemetry in this project's transcripts.
+// The subtype is the label.
+const CLAUDE_ATTACHMENT_LABELS: Readonly<Record<string, string>> = {
+  diagnostics: 'Diagnostics',
+  queued_command: 'Queued Command',
+  edited_text_file: 'Edited File',
+  file: 'File',
+  compact_file_reference: 'Compacted File',
+  structured_output: 'Structured Output',
+  goal_status: 'Goal Status',
+  nested_memory: 'Memory',
+  plan_mode: 'Plan Mode',
+  plan_mode_exit: 'Plan Mode Exit',
+  plan_mode_reentry: 'Plan Mode Re-entry',
+  plan_file_reference: 'Plan File',
+  invoked_skills: 'Skills Invoked',
+  task_status: 'Task Status',
+  task_reminder: 'Task Reminder',
+  async_hook_response: 'Hook',
+  hook_success: 'Hook',
+  hook_failure: 'Hook Failed',
+  hook_additional_context: 'Hook Context',
+  deferred_tools_delta: 'Deferred Tools',
+  agent_listing_delta: 'Agent Listing',
+  mcp_instructions_delta: 'MCP Instructions',
+  command_permissions: 'Command Permissions',
+  skill_listing: 'Skill Listing',
+  date_change: 'Date Change',
+  auto_mode: 'Auto Mode',
+  max_turns_reached: 'Max Turns Reached',
+  opened_file_in_ide: 'Opened In IDE',
+};
+
+/**
+ * Label for one `attachment` record, from its subtype.
+ *
+ * An unmapped subtype keeps the subtype itself rather than collapsing back to
+ * `Attachment`: a name we have not seen before is still more use than none, and a
+ * future harness release adding one should read as unfamiliar, not as generic.
+ */
+function attachmentLabel(record: Record<string, unknown>): string {
+  const attachment = record.attachment;
+  if (!attachment || typeof attachment !== 'object' || Array.isArray(attachment)) {
+    return 'Attachment';
+  }
+  const subtype = (attachment as Record<string, unknown>).type;
+  if (typeof subtype !== 'string' || !subtype) return 'Attachment';
+  return CLAUDE_ATTACHMENT_LABELS[subtype] ?? `Attachment: ${subtype}`;
+}
+
 const CLAUDE_METADATA_LABELS: Readonly<Record<string, string>> = {
   attachment: 'Attachment',
   'last-prompt': 'Last Prompt',
@@ -302,7 +384,7 @@ function normalizedRecord(
         rawBlocks,
       };
     }
-    const label = CLAUDE_METADATA_LABELS[t];
+    const label = t === 'attachment' ? attachmentLabel(ev) : CLAUDE_METADATA_LABELS[t];
     if (label) {
       const titleCandidate = t === 'custom-title'
         ? [ev.customTitle, ev.title, ev.value].find((value) => typeof value === 'string' && value.trim()) as string | undefined

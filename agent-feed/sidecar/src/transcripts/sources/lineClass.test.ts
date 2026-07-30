@@ -141,12 +141,12 @@ test('reasoning is content when it carries a trace and machinery when encrypted'
   expect(codex(encrypted)).toBe('machinery');
 
   // The classifier and the renderer share one text scan, so these two assertions
-  // cannot come apart: whatever renders as reasoning is content, and whatever
-  // falls back to a ciphertext dump is not.
-  expect(codexAdapter.processLine(JSON.stringify(withText))?.event?.blocks[0]?.kind)
-    .toBe('reasoning');
-  expect(codexAdapter.processLine(JSON.stringify(encrypted))?.event?.blocks[0]?.kind)
-    .toBe('plain');
+  // cannot come apart: whatever renders as a reasoning block is content, and whatever
+  // renders as the named encrypted placeholder is not.
+  expect(codexAdapter.processLine(JSON.stringify(withText))?.event?.blocks[0])
+    .toEqual({ kind: 'reasoning', text: 'Check the parser.' });
+  expect(codexAdapter.processLine(JSON.stringify(encrypted))?.event?.blocks[0])
+    .toEqual({ kind: 'metadata', label: 'Reasoning', text: 'encrypted, no readable trace' });
 });
 
 test('claude thinking with no readable trace is machinery, with one is content', () => {

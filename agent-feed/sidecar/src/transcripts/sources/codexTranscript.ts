@@ -355,7 +355,19 @@ function normalizedRecord(
 
   if (pr.type === 'reasoning') {
     const text = extractReasoningText(pr);
-    if (!text) return plain();
+    // Named rather than dumped. 81,905 reasoning items across this project's
+    // rollouts carry no readable trace -- Codex exposes `summary` only when
+    // configured to, and otherwise the record holds an end-to-end encrypted
+    // `encrypted_content` blob. Sending that through `plainBlock` printed the
+    // ciphertext as a Plain card, several KB of base64 per row, which is both
+    // useless and the largest single thing in the raw view. The Raw JSON drawer
+    // still has the exact line for anyone who wants it.
+    if (!text) {
+      return finish('system', [{
+        block: metadataBlock('Reasoning', 'encrypted, no readable trace'),
+        raw: null,
+      }]);
+    }
     return finish('reasoning', [{ block: { kind: 'reasoning', text }, raw: text }]);
   }
 

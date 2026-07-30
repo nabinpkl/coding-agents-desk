@@ -99,9 +99,11 @@ const FIXTURE_LINES: FixtureLine[] = [
     age: 193_000,
     tp: "system",
     b: [
+      // `Hook`, not `Attachment`: the adapter labels these by subtype now, which is
+      // what made 978 diagnostics rows findable among 4,891 hook dumps.
       {
         k: "metadata",
-        lb: "Attachment: hook_success",
+        lb: "Hook",
         tx: '{"exitCode":0,"stdout":"","hookName":"PostToolUse"}',
       },
       { k: "raw" },

@@ -265,6 +265,58 @@ describe("event preview", () => {
     ).toBe("ls -la");
   });
 
+  it("names a harness state line by its label, not '(no content)'", () => {
+    // A metadata block IS the content of these lines -- the whole event is one
+    // labelled dump. Scanning only text, tool and reasoning blocks made every such
+    // row in the raw view read as a chip beside "(no content)", which is exactly the
+    // rows the raw view exists to show.
+    expect(
+      eventPreview({
+        index: 4,
+        ts: 1,
+        type: "system",
+        blocks: [
+          { kind: "metadata", label: "Hook", text: '{"exitCode":0}' },
+          { kind: "raw" },
+        ],
+      }),
+    ).toBe('Hook: {"exitCode":0}');
+
+    // Label alone when there is no body, and body alone when there is no label.
+    expect(
+      eventPreview({
+        index: 5,
+        ts: 1,
+        type: "system",
+        blocks: [{ kind: "metadata", label: "Date Change" }],
+      }),
+    ).toBe("Date Change");
+    expect(
+      eventPreview({
+        index: 6,
+        ts: 1,
+        type: "system",
+        blocks: [{ kind: "plain", text: "unrecognized record" }],
+      }),
+    ).toBe("unrecognized record");
+  });
+
+  it("prefers real content over a metadata block on the same event", () => {
+    // The adapters append Working Directory to nearly every Claude line, so a
+    // metadata-first scan would label half the thread with a file path.
+    expect(
+      eventPreview({
+        index: 7,
+        ts: 1,
+        type: "assistant",
+        blocks: [
+          { kind: "text", text: "Done." },
+          { kind: "metadata", label: "Working Directory", text: "/repo" },
+        ],
+      }),
+    ).toBe("Done.");
+  });
+
   it("caps the line so one long paragraph cannot stretch a row", () => {
     const preview = eventPreview({
       index: 3,

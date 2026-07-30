@@ -184,7 +184,7 @@ test('codex event reasoning and repeated compaction signals keep their semantic 
   expect(compacted.blocks[0]).toEqual({ kind: 'compaction' });
 });
 
-test('codex invalid and encrypted-only reasoning records become Plain', () => {
+test('codex invalid records become Plain and encrypted reasoning is named', () => {
   const invalid = expectRawLast(codexAdapter.processLine('not json'));
   expect(invalid.blocks[0]).toMatchObject({ kind: 'plain', label: 'Plain' });
 
@@ -193,8 +193,15 @@ test('codex invalid and encrypted-only reasoning records become Plain', () => {
     type: 'response_item',
     payload: { type: 'reasoning', encrypted_content: 'opaque' },
   })));
-  expect(encrypted.blocks[0]).toMatchObject({ kind: 'plain', label: 'Plain' });
-  expect(encrypted.blocks[0]?.text).toContain('encrypted_content');
+  // Named, not dumped: these hold several KB of base64 each and 81,905 of them
+  // exist across this project's rollouts. The Raw drawer still has the exact line,
+  // which is what the trailing raw block asserted above is for.
+  expect(encrypted.blocks[0]).toEqual({
+    kind: 'metadata',
+    label: 'Reasoning',
+    text: 'encrypted, no readable trace',
+  });
+  expect(encrypted.blocks[0]?.text).not.toContain('opaque');
 
   const unsupportedRole = expectRawLast(codexAdapter.processLine(JSON.stringify({
     timestamp: 'invalid',
