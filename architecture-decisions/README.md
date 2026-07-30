@@ -121,4 +121,5 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0080 | A code update never ends a PTY session | accepted | 2026-07-27 |
 | ADR-0081 | Let the containing app own keyboard dictation capture | accepted | 2026-07-28 |
 | ADR-0082 | Prewarm host Whisper when the voice sidecar starts | accepted | 2026-07-29 |
-| ADR-0083 | Prewarm host Kokoro when the voice sidecar starts | accepted | 2026-07-29 |
+| ADR-0083 | Prewarm host Kokoro when the voice sidecar starts | partially superseded by ADR-0084 | 2026-07-29 |
+| ADR-0084 | Separate reference cache access from Kokoro model serialization | accepted | 2026-07-29 |

@@ -654,6 +654,7 @@ class ReferenceSpeechHTTPTests(unittest.TestCase):
             def __init__(self, audio_path: Path) -> None:
                 self.audio_path_value = audio_path
                 self.received: dict[str, object] | None = None
+                self.audio_release_calls = 0
 
             def state(self) -> dict[str, object]:
                 return {
@@ -707,6 +708,17 @@ class ReferenceSpeechHTTPTests(unittest.TestCase):
                 self.last_audio_id = artifact_id
                 return self.audio_path_value
 
+            def lease_audio(self, artifact_id: str):
+                self.last_audio_id = artifact_id
+
+                def release() -> None:
+                    self.audio_release_calls += 1
+
+                return SimpleNamespace(
+                    path=self.audio_path_value,
+                    release=release,
+                )
+
         with tempfile.TemporaryDirectory() as temporary:
             audio_path = Path(temporary) / "reference.wav"
             audio_path.write_bytes(b"RIFF-test")
@@ -741,6 +753,7 @@ class ReferenceSpeechHTTPTests(unittest.TestCase):
         self.assertEqual(fake.received["voice_identifier"], "af_heart")
         self.assertEqual(audio.status_code, 200)
         self.assertEqual(audio.content, b"RIFF-test")
+        self.assertEqual(fake.audio_release_calls, 1)
 
 
 class ZIPAParityTests(unittest.TestCase):

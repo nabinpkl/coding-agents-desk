@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
+import threading
 import time
 import unittest
 import wave
@@ -11,6 +13,7 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from interaction_agent.voice.config import DEFAULT_REFERENCE_SPEECH_CACHE_BYTES
 from interaction_agent.voice.reference_speech import (
     KOKORO_MAX_PHONEME_CHARACTERS,
     KOKORO_PREWARM_IPA,
@@ -18,6 +21,7 @@ from interaction_agent.voice.reference_speech import (
     ReferenceSpeechArtifactStore,
     ReferenceSpeechError,
     ReferenceSpeechScope,
+    ReferenceSpeechSynthesisError,
     chunk_kokoro_ipa,
 )
 
@@ -40,6 +44,9 @@ class FakeSynthesizer:
 
 
 class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
+    def test_default_cache_bound_is_256_mib(self) -> None:
+        self.assertEqual(DEFAULT_REFERENCE_SPEECH_CACHE_BYTES, 256 * 1024 * 1024)
+
     def test_direct_prewarm_exercises_default_voice_once(self) -> None:
         class ProbeSynthesizer(KokoroDirectSynthesizer):
             def __init__(self) -> None:
@@ -76,6 +83,256 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             self.assertTrue(store.prewarm())
             self.assertEqual(synth.prewarm_calls, 1)
             self.assertFalse((root / "artifacts").exists())
+
+    def test_cached_artifact_remains_available_while_model_prewarm_is_blocked(
+        self,
+    ) -> None:
+        prewarm_started = threading.Event()
+        release_prewarm = threading.Event()
+
+        class BlockingPrewarmSynthesizer(FakeSynthesizer):
+            def prewarm(self):
+                self.prewarm_calls += 1
+                prewarm_started.set()
+                if not release_prewarm.wait(timeout=1):
+                    raise AssertionError("prewarm was not released")
+                return True
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            synth = BlockingPrewarmSynthesizer()
+            store = ReferenceSpeechArtifactStore(
+                root=Path(temporary_directory),
+                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                synthesizer=synth,
+                cache_max_bytes=10_000_000,
+            )
+            first = store.create(
+                recording_id="session-20260727-010101-000001",
+                scope=ReferenceSpeechScope(kind="passage"),
+                voice_identifier="af_heart",
+                speed=1,
+            )
+
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                prewarm_future = executor.submit(store.prewarm)
+                self.assertTrue(prewarm_started.wait(timeout=1))
+                cached_future = executor.submit(
+                    store.create,
+                    recording_id="session-20260727-010101-000001",
+                    scope=ReferenceSpeechScope(kind="passage"),
+                    voice_identifier="af_heart",
+                    speed=1,
+                )
+                try:
+                    cached = cached_future.result(timeout=0.5)
+                finally:
+                    release_prewarm.set()
+                self.assertTrue(prewarm_future.result(timeout=1))
+
+            self.assertEqual(cached.id, first.id)
+            self.assertTrue(cached.cache_hit)
+            self.assertEqual(len(synth.calls), 1)
+
+    def test_startup_prewarm_prunes_oldest_artifact_to_configured_bound(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            seed_store = ReferenceSpeechArtifactStore(
+                root=root,
+                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                synthesizer=FakeSynthesizer(),
+                cache_max_bytes=10_000_000,
+            )
+            oldest = seed_store.create(
+                recording_id="session-20260727-010101-000001",
+                scope=ReferenceSpeechScope(kind="passage"),
+                voice_identifier="af_heart",
+                speed=1,
+            )
+            newest = seed_store.create(
+                recording_id="session-20260727-010101-000001",
+                scope=ReferenceSpeechScope(kind="passage"),
+                voice_identifier="af_heart",
+                speed=1.1,
+            )
+            artifact_root = root / "artifacts"
+            old_timestamp = 1_700_000_000
+            for suffix in (".json", ".wav"):
+                os.utime(
+                    artifact_root / f"{oldest.id}{suffix}",
+                    (old_timestamp, old_timestamp),
+                )
+            newest_size = sum(
+                (artifact_root / f"{newest.id}{suffix}").stat().st_size
+                for suffix in (".json", ".wav")
+            )
+            store = ReferenceSpeechArtifactStore(
+                root=root,
+                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                synthesizer=FakeSynthesizer(),
+                cache_max_bytes=newest_size,
+            )
+
+            store.prewarm()
+
+            with self.assertRaisesRegex(
+                ReferenceSpeechError,
+                "artifact not found",
+            ):
+                store.audio_path(oldest.id)
+            self.assertTrue(store.audio_path(newest.id).is_file())
+            self.assertLessEqual(store.state()["cacheBytes"], newest_size)
+
+    def test_new_artifact_evicts_the_oldest_accessed_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            seed_store = ReferenceSpeechArtifactStore(
+                root=root,
+                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                synthesizer=FakeSynthesizer(),
+                cache_max_bytes=10_000_000,
+            )
+            oldest = seed_store.create(
+                recording_id="session-20260727-010101-000001",
+                scope=ReferenceSpeechScope(kind="passage"),
+                voice_identifier="af_heart",
+                speed=1,
+            )
+            artifact_root = root / "artifacts"
+            oldest_size = sum(
+                (artifact_root / f"{oldest.id}{suffix}").stat().st_size
+                for suffix in (".json", ".wav")
+            )
+            old_timestamp = 1_700_000_000
+            for suffix in (".json", ".wav"):
+                os.utime(
+                    artifact_root / f"{oldest.id}{suffix}",
+                    (old_timestamp, old_timestamp),
+                )
+            store = ReferenceSpeechArtifactStore(
+                root=root,
+                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                synthesizer=FakeSynthesizer(),
+                cache_max_bytes=oldest_size + 100,
+            )
+
+            newest = store.create(
+                recording_id="session-20260727-010101-000001",
+                scope=ReferenceSpeechScope(kind="passage"),
+                voice_identifier="af_heart",
+                speed=1.1,
+            )
+
+            with self.assertRaisesRegex(
+                ReferenceSpeechError,
+                "artifact not found",
+            ):
+                store.audio_path(oldest.id)
+            self.assertTrue(store.audio_path(newest.id).is_file())
+            self.assertLessEqual(store.state()["cacheBytes"], oldest_size + 100)
+
+    def test_audio_lease_defers_eviction_until_the_response_releases_it(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            seed_store = ReferenceSpeechArtifactStore(
+                root=root,
+                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                synthesizer=FakeSynthesizer(),
+                cache_max_bytes=10_000_000,
+            )
+            oldest = seed_store.create(
+                recording_id="session-20260727-010101-000001",
+                scope=ReferenceSpeechScope(kind="passage"),
+                voice_identifier="af_heart",
+                speed=1,
+            )
+            artifact_root = root / "artifacts"
+            oldest_size = sum(
+                (artifact_root / f"{oldest.id}{suffix}").stat().st_size
+                for suffix in (".json", ".wav")
+            )
+            store = ReferenceSpeechArtifactStore(
+                root=root,
+                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                synthesizer=FakeSynthesizer(),
+                cache_max_bytes=oldest_size + 100,
+            )
+            lease = store.lease_audio(oldest.id)
+            old_timestamp = 1_700_000_000
+            for suffix in (".json", ".wav"):
+                os.utime(
+                    artifact_root / f"{oldest.id}{suffix}",
+                    (old_timestamp, old_timestamp),
+                )
+
+            newest = store.create(
+                recording_id="session-20260727-010101-000001",
+                scope=ReferenceSpeechScope(kind="passage"),
+                voice_identifier="af_heart",
+                speed=1.1,
+            )
+
+            self.assertTrue(lease.path.is_file())
+            self.assertTrue(store.audio_path(newest.id).is_file())
+            self.assertGreater(store.state()["cacheBytes"], oldest_size + 100)
+            lease.release()
+            with self.assertRaisesRegex(
+                ReferenceSpeechError,
+                "artifact not found",
+            ):
+                store.audio_path(oldest.id)
+            self.assertLessEqual(store.state()["cacheBytes"], oldest_size + 100)
+
+    def test_startup_prewarm_removes_orphan_and_temporary_cache_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            artifact_root = root / "artifacts"
+            artifact_root.mkdir(parents=True)
+            orphan_id = "a" * 64
+            (artifact_root / f"{orphan_id}.wav").write_bytes(b"orphan")
+            (artifact_root / ".partial-reference.wav").write_bytes(b"partial")
+            (artifact_root / "unexpected.txt").write_text(
+                "unexpected",
+                encoding="utf-8",
+            )
+            store = ReferenceSpeechArtifactStore(
+                root=root,
+                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                synthesizer=FakeSynthesizer(),
+                cache_max_bytes=10_000_000,
+            )
+
+            store.prewarm()
+
+            self.assertEqual(list(artifact_root.iterdir()), [])
+
+    def test_artifact_larger_than_cache_limit_fails_without_leaving_files(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            store = ReferenceSpeechArtifactStore(
+                root=root,
+                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                synthesizer=FakeSynthesizer(),
+                cache_max_bytes=1,
+            )
+
+            with self.assertRaisesRegex(
+                ReferenceSpeechSynthesisError,
+                "exceeds the reference-speech cache limit",
+            ):
+                store.create(
+                    recording_id="session-20260727-010101-000001",
+                    scope=ReferenceSpeechScope(kind="passage"),
+                    voice_identifier="af_heart",
+                    speed=1,
+                )
+
+            self.assertEqual(list((root / "artifacts").iterdir()), [])
 
     def test_passage_uses_direct_cmu_ipa_and_reuses_atomic_cache(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

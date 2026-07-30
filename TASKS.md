@@ -820,12 +820,16 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   AgentDesk use. Preserve first-dictation latency as an explicit acceptance gate and do not trade it
   away for an unmeasured memory saving.
 - D173. Prewarm the retained Kokoro reference-speech synthesizer after voice-server startup without
-  blocking HTTP liveness (ADR-0083). Exercise the default direct-IPA voice under the same store lock
-  used by real artifact creation, discard warmup audio, emit bounded timing, and prevent duplicate
-  model loading when an immediate request overlaps startup.
+  blocking HTTP liveness (ADR-0083). Exercise the default direct-IPA voice under the retained
+  synthesizer's serialization boundary, discard warmup audio, emit bounded timing, and prevent
+  duplicate model loading when an immediate uncached request overlaps startup.
 - R174. Replace process-lifetime Kokoro residency with a measured idle-eviction or on-demand reload
   policy only if the accepted reference-speech footprint harms ordinary AgentDesk use. Preserve
   first-playback latency as an explicit acceptance gate.
+- D175. Separate reference-cache access from Kokoro model serialization so cached playback remains
+  available during prewarm (ADR-0084). Bound generated artifacts at 256 MiB, maintain the cache at
+  startup and after writes, reject oversized artifacts, remove orphan files, and lease active audio
+  responses against concurrent eviction.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -838,9 +842,11 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   Direct synthesis validates tokens against Kokoro's actual vocabulary and calls the model with the
   IPA plus voice pack, bypassing Kokoro's text G2P. Unknown CMUdict words and unsupported symbols are
   explicit errors. Long passages split only between words at Kokoro's 510-character limit.
-- Generated 24 kHz mono PCM WAV and metadata pairs are atomic and retained under a configurable 2 GiB
-  LRU cache. Cache keys include all pronunciation and executor inputs; cached audio is rehashed before
-  playback, so a missing, partial, or corrupt pair is regenerated rather than trusted.
+- Generated 24 kHz mono PCM WAV and metadata pairs are atomic and retained under a configurable
+  256 MiB LRU cache. Cache keys include all pronunciation and executor inputs; cached audio is
+  rehashed before playback, so a missing, partial, or corrupt pair is regenerated rather than
+  trusted. Startup and post-write maintenance remove incomplete or unmanaged files, and active
+  responses lease their WAV against eviction until delivery finishes.
 - The strict voice REST allowlist now includes reference state, artifact creation, and artifact audio.
   Mac uses direct loopback audio. iPhone reassembles ordered bounded chunks, writes a temporary WAV,
   verifies its SHA-256, plays it under a spoken-audio session, reports
@@ -905,4 +911,5 @@ D171  2026-07-29  landed     startup Whisper prewarm through the single MLX exec
 R172  captured    remaining  measured idle eviction or on-demand reload if memory pressure warrants
 D173  2026-07-29  landed     startup Kokoro prewarm through the retained reference-speech store
 R174  captured    remaining  measured Kokoro idle eviction or on-demand reload if warranted
+D175  2026-07-29  landed     independent cache access and bounded reference-speech maintenance
 ```

@@ -93,6 +93,30 @@ class ReferenceSpeechArtifact:
     synthesized_at: str
 
 
+@dataclass(frozen=True)
+class _CacheEntry:
+    artifact_id: str
+    metadata_path: Path
+    audio_path: Path
+    size: int
+    last_accessed: float
+
+
+@dataclass
+class _ReferenceSpeechAudioLease:
+    """Keep one cached WAV present until its response finishes."""
+
+    path: Path
+    _release_callback: Callable[[], None]
+    _released: bool = False
+
+    def release(self) -> None:
+        if self._released:
+            return
+        self._released = True
+        self._release_callback()
+
+
 class ReferenceSpeechSynthesizer(Protocol):
     @property
     def status(self) -> Literal["unavailable", "preparing", "ready", "failed"]: ...
@@ -283,14 +307,22 @@ class ReferenceSpeechArtifactStore:
             if cache_max_bytes is not None
             else load_voice_runtime_config().reference_speech_cache_bytes
         )
-        self._lock = threading.Lock()
+        if self._cache_max_bytes <= 0:
+            raise ValueError("reference-speech cache limit must be greater than zero")
+        self._cache_lock = threading.Lock()
+        self._synthesis_lock = threading.Lock()
+        self._leased_artifacts: dict[str, int] = {}
 
     def prewarm(self) -> bool:
-        """Warm the retained synthesizer without creating a durable artifact."""
-        with self._lock:
+        """Maintain the cache, then warm the retained synthesizer."""
+        with self._cache_lock:
+            self._prune()
+        with self._synthesis_lock:
             return self._synthesizer.prewarm()
 
     def state(self) -> dict[str, object]:
+        with self._cache_lock:
+            cache_size = self._cache_size()
         return {
             "schemaVersion": ARTIFACT_SCHEMA_VERSION,
             "status": self._synthesizer.status,
@@ -314,7 +346,7 @@ class ReferenceSpeechArtifactStore:
             "modelHash": KOKORO_MODEL_SHA256,
             "runtimeIdentifier": f"kokoro-python {KOKORO_PACKAGE_VERSION}",
             "license": KOKORO_LICENSE,
-            "cacheBytes": self._cache_size(),
+            "cacheBytes": cache_size,
             "cacheMaximumBytes": self._cache_max_bytes,
         }
 
@@ -399,10 +431,16 @@ class ReferenceSpeechArtifactStore:
                 separators=(",", ":"),
             ).encode("utf-8")
         ).hexdigest()
-        with self._lock:
+        with self._cache_lock:
             cached = self._load_cached(artifact_id)
             if cached is not None:
                 return cached
+
+        with self._synthesis_lock:
+            with self._cache_lock:
+                cached = self._load_cached(artifact_id)
+                if cached is not None:
+                    return cached
             audio = self._synthesizer.synthesize(chunks, voice, speed)
             synthesized_at = datetime.now(UTC).isoformat()
             duration = audio.size / KOKORO_SAMPLE_RATE
@@ -412,17 +450,58 @@ class ReferenceSpeechArtifactStore:
                 "durationSeconds": duration,
                 "synthesizedAt": synthesized_at,
             }
-            self._persist(artifact_id, audio, metadata)
-            self._prune()
+            with self._cache_lock:
+                self._persist(artifact_id, audio, metadata)
+                metadata_path = self._artifact_root / f"{artifact_id}.json"
+                audio_path = self._artifact_root / f"{artifact_id}.wav"
+                artifact_size = (
+                    metadata_path.stat().st_size + audio_path.stat().st_size
+                )
+                if artifact_size > self._cache_max_bytes:
+                    metadata_path.unlink(missing_ok=True)
+                    audio_path.unlink(missing_ok=True)
+                    raise ReferenceSpeechSynthesisError(
+                        "Generated reference speech exceeds the "
+                        f"reference-speech cache limit of {self._cache_max_bytes} bytes"
+                    )
+                self._prune(protected_artifact_ids=frozenset({artifact_id}))
             return self._artifact_from_metadata(metadata, cache_hit=False)
 
     def audio_path(self, artifact_id: str) -> Path:
+        """Resolve a cached WAV for local inspection without a response lease."""
         if ARTIFACT_ID_PATTERN.fullmatch(artifact_id) is None:
             raise ReferenceSpeechError("Invalid reference-speech artifact ID")
-        with self._lock:
+        with self._cache_lock:
             if self._load_cached(artifact_id) is None:
                 raise ReferenceSpeechError("Reference-speech artifact not found")
             return self._artifact_root / f"{artifact_id}.wav"
+
+    def lease_audio(self, artifact_id: str) -> _ReferenceSpeechAudioLease:
+        """Resolve a WAV and defer its eviction until the caller releases it."""
+        if ARTIFACT_ID_PATTERN.fullmatch(artifact_id) is None:
+            raise ReferenceSpeechError("Invalid reference-speech artifact ID")
+        with self._cache_lock:
+            if self._load_cached(artifact_id) is None:
+                raise ReferenceSpeechError("Reference-speech artifact not found")
+            self._leased_artifacts[artifact_id] = (
+                self._leased_artifacts.get(artifact_id, 0) + 1
+            )
+            path = self._artifact_root / f"{artifact_id}.wav"
+        return _ReferenceSpeechAudioLease(
+            path=path,
+            _release_callback=lambda: self._release_audio(artifact_id),
+        )
+
+    def _release_audio(self, artifact_id: str) -> None:
+        with self._cache_lock:
+            lease_count = self._leased_artifacts.get(artifact_id)
+            if lease_count is None:
+                raise RuntimeError("reference-speech audio lease was not active")
+            if lease_count == 1:
+                del self._leased_artifacts[artifact_id]
+            else:
+                self._leased_artifacts[artifact_id] = lease_count - 1
+            self._prune()
 
     def _load_cached(self, artifact_id: str) -> ReferenceSpeechArtifact | None:
         metadata_path = self._artifact_root / f"{artifact_id}.json"
@@ -539,27 +618,57 @@ class ReferenceSpeechArtifactStore:
             if path.is_file()
         )
 
-    def _prune(self) -> None:
-        total = self._cache_size()
-        if total <= self._cache_max_bytes:
+    def _prune(
+        self,
+        *,
+        protected_artifact_ids: frozenset[str] = frozenset(),
+    ) -> None:
+        """Remove incomplete files, then evict complete pairs by last access."""
+        if not self._artifact_root.is_dir():
             return
-        metadata_paths = sorted(
-            self._artifact_root.glob("*.json"),
-            key=lambda path: path.stat().st_mtime,
-        )
-        for metadata_path in metadata_paths:
-            artifact_id = metadata_path.stem
-            audio_path = self._artifact_root / f"{artifact_id}.wav"
-            removed_bytes = sum(
-                path.stat().st_size
-                for path in (metadata_path, audio_path)
-                if path.exists()
+
+        paths_by_artifact: dict[str, dict[str, Path]] = {}
+        for path in tuple(self._artifact_root.iterdir()):
+            if not path.is_file():
+                continue
+            if (
+                path.suffix not in {".json", ".wav"}
+                or ARTIFACT_ID_PATTERN.fullmatch(path.stem) is None
+            ):
+                path.unlink()
+                continue
+            paths_by_artifact.setdefault(path.stem, {})[path.suffix] = path
+
+        entries: list[_CacheEntry] = []
+        for artifact_id, paths in paths_by_artifact.items():
+            metadata_path = paths.get(".json")
+            audio_path = paths.get(".wav")
+            if metadata_path is None or audio_path is None:
+                for path in paths.values():
+                    path.unlink(missing_ok=True)
+                continue
+            entries.append(
+                _CacheEntry(
+                    artifact_id=artifact_id,
+                    metadata_path=metadata_path,
+                    audio_path=audio_path,
+                    size=metadata_path.stat().st_size + audio_path.stat().st_size,
+                    last_accessed=metadata_path.stat().st_mtime,
+                )
             )
-            metadata_path.unlink(missing_ok=True)
-            audio_path.unlink(missing_ok=True)
-            total -= removed_bytes
+
+        total = sum(entry.size for entry in entries)
+        for entry in sorted(entries, key=lambda candidate: candidate.last_accessed):
             if total <= self._cache_max_bytes:
-                return
+                break
+            if (
+                entry.artifact_id in protected_artifact_ids
+                or entry.artifact_id in self._leased_artifacts
+            ):
+                continue
+            entry.metadata_path.unlink(missing_ok=True)
+            entry.audio_path.unlink(missing_ok=True)
+            total -= entry.size
 
 
 def chunk_kokoro_ipa(ipa: str) -> tuple[str, ...]:

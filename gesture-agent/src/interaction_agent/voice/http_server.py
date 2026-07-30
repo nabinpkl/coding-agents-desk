@@ -25,6 +25,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from interaction_agent.paths import VOICE_UPLOAD_ROOT
@@ -111,9 +112,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Own model prewarm, the shared transcriber, and recording-session locks.
 
     Startup schedules silent Whisper and Kokoro inference before the user first
-    needs either model. Each task uses the retained owner and serialization
-    boundary also used by real work, so immediate requests queue behind prewarm
-    rather than racing it. The HTTP server remains live while models prepare.
+    needs either model. Each task uses the retained model owner and synthesis
+    boundary also used by real work, so immediate uncached inference queues
+    behind prewarm rather than racing it. Cached reference audio stays
+    independently available. The HTTP server remains live while models prepare.
     ``voice_session_lock`` rejects a second recorder while a take is active.
     """
     app.state.voice_session_lock = asyncio.Lock()
@@ -1106,18 +1108,23 @@ async def create_reference_speech_artifact(
 @app.get("/reference-speech/artifacts/{artifact_id}/audio")
 async def get_reference_speech_audio(artifact_id: str) -> FileResponse:
     try:
-        path = await run_in_threadpool(
-            app.state.reference_speech_store.audio_path,
+        lease = await run_in_threadpool(
+            app.state.reference_speech_store.lease_audio,
             artifact_id,
         )
     except ReferenceSpeechError as exc:
         status = 400 if "Invalid" in str(exc) else 404
         raise HTTPException(status_code=status, detail=str(exc)) from exc
-    return FileResponse(
-        path,
-        media_type="audio/wav",
-        filename=f"{artifact_id}.wav",
-    )
+    try:
+        return FileResponse(
+            lease.path,
+            media_type="audio/wav",
+            filename=f"{artifact_id}.wav",
+            background=BackgroundTask(lease.release),
+        )
+    except Exception:
+        lease.release()
+        raise
 
 
 @app.post("/recordings", response_model=Recording)

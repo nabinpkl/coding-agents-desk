@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: partially superseded by ADR-0084
 date: 2026-07-29
+partially-superseded-by: ADR-0084 (store-wide lock only; background prewarm and retained model ownership stand)
 ---
 
 # Prewarm host Kokoro when the voice sidecar starts
