@@ -86,11 +86,23 @@ export interface TokenUsage {
   model?: string;
 }
 
+// Whether the nice view lets a line through. `machinery` means everything the
+// line would render is a harness state dump or a value a later record of the same
+// kind supersedes; `content` is everything a person wrote, a model produced, or a
+// tool did. Content is the DEFAULT, so a record type a future harness release
+// invents shows up as an unfamiliar row rather than silently vanishing. See
+// lineClass.ts for the rule and the per-source tables.
+export type LineClass = 'content' | 'machinery';
+
 export interface LineResult {
   event?: ParsedLine;
   turnClosed?: boolean;
   title?: string;
   usage?: TokenUsage;
+  // Set by the adapter, which is the only layer that knows its own record layout.
+  // Absent means 'content': the raw view renders every line regardless, and this
+  // only gates the nice index.
+  lineClass?: LineClass;
   // Latest top-level cwd observed on this transcript line.
   cwd?: string;
 }

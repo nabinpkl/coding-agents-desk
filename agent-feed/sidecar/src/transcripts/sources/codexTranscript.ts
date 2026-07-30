@@ -25,6 +25,8 @@ import {
   rawBlock,
   stringifyForDisplay,
 } from './plainActivity.ts';
+import { extractReasoningText, joinTextContent } from './codexReasoning.ts';
+import { classifyCodexLine } from './lineClass.ts';
 
 const CODEX_HOME = config.codexHomeDirectory;
 
@@ -74,20 +76,6 @@ function makeToolResultBlock(raw: string): ActivityBlock {
     hiddenChars: dropped.length,
     hiddenLines: (dropped.match(/\n/g) || []).length,
   };
-}
-
-// Codex content blocks are typed by `type: 'input_text' | 'output_text'`.
-// Both carry the prose in `.text`.
-function joinTextContent(content: unknown): string {
-  if (!Array.isArray(content)) return '';
-  const parts: string[] = [];
-  for (const b of content as Array<Record<string, unknown>>) {
-    const t = b?.type;
-    if ((t === 'input_text' || t === 'output_text') && typeof b.text === 'string') {
-      parts.push(b.text as string);
-    }
-  }
-  return parts.join('\n\n');
 }
 
 // function_call_output.output is either a plain string (exec_command,
@@ -163,25 +151,6 @@ interface EventMsgPayload {
   };
 }
 
-function extractReasoning(p: ResponseItemPayload): string {
-  // Codex emits the reasoning trace as `summary` (array of text parts) when
-  // configured to expose it. `content` is sometimes populated too. The
-  // encrypted_content blob is end-to-end encrypted and unreadable; skip it.
-  let text = '';
-  if (Array.isArray(p.summary)) {
-    const parts: string[] = [];
-    for (const s of p.summary as unknown[]) {
-      if (typeof s === 'string') parts.push(s);
-      else if (s && typeof s === 'object' && typeof (s as { text?: unknown }).text === 'string') {
-        parts.push((s as { text: string }).text);
-      }
-    }
-    text = parts.join('\n\n').trim();
-  }
-  if (!text && Array.isArray(p.content)) text = joinTextContent(p.content).trim();
-  return text;
-}
-
 interface NormalizedCodexBlock {
   block: ActivityBlock;
   raw: string | null;
@@ -254,6 +223,20 @@ function normalizedLine(line: string): NormalizedCodexLine | null {
     const blocks = [{ block: plainBlock(line), raw: line }, { block: rawBlock(), raw: line }];
     return { result: { event: plainEvent(line) }, rawBlocks: blocks };
   }
+  const normalized = normalizedRecord(line, ev);
+  // Stamped here, once, from the parsed record rather than the rendered blocks:
+  // `normalizedRecord` returns from a dozen branches, and a new branch that forgot
+  // this would silently leak a machinery row into the nice view. An unparseable
+  // line above keeps the default, which is content -- we cannot tell what it is,
+  // so it stays visible.
+  normalized.result.lineClass = classifyCodexLine(ev);
+  return normalized;
+}
+
+function normalizedRecord(
+  line: string,
+  ev: { timestamp?: string; type?: string; payload?: Record<string, unknown> },
+): NormalizedCodexLine {
   const ts = tsMs(ev);
   const top = ev.type;
   const p = ev.payload;
@@ -371,7 +354,7 @@ function normalizedLine(line: string): NormalizedCodexLine | null {
   }
 
   if (pr.type === 'reasoning') {
-    const text = extractReasoning(pr);
+    const text = extractReasoningText(pr);
     if (!text) return plain();
     return finish('reasoning', [{ block: { kind: 'reasoning', text }, raw: text }]);
   }

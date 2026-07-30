@@ -24,6 +24,8 @@ import {
   rawBlock,
   stringifyForDisplay,
 } from './plainActivity.ts';
+import { classifyClaudeLine } from './lineClass.ts';
+import { thinkingText } from './claudeThinking.ts';
 
 const PROJECTS_ROOT = config.claudeProjectsDirectory;
 const HEADER_EDGE_BYTES = 32 * 1024;
@@ -94,8 +96,8 @@ function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
     const t = b?.type;
     if (t === 'text' && typeof b.text === 'string' && (b.text as string).trim()) {
       out.push({ block: { kind: 'text', text: b.text as string }, raw: b.text as string });
-    } else if (t === 'thinking' && typeof b.thinking === 'string' && b.thinking.trim()) {
-      out.push({ block: { kind: 'reasoning', text: b.thinking }, raw: b.thinking });
+    } else if (thinkingText(b)) {
+      out.push({ block: { kind: 'reasoning', text: b.thinking as string }, raw: b.thinking as string });
     } else if (t === 'tool_use' && typeof b.name === 'string') {
       const input = (b.input as Record<string, unknown> | undefined) ?? {};
       const id = typeof b.id === 'string' ? (b.id as string) : undefined;
@@ -250,6 +252,20 @@ function normalizedLine(line: string): NormalizedClaudeLine | null {
   } catch {
     return { result: { event: plainEvent(line) }, rawBlocks: [{ block: plainBlock(line), raw: line }, { block: rawBlock(), raw: line }] };
   }
+  const normalized = normalizedRecord(line, ev);
+  // Stamped here, once, from the parsed record rather than the rendered blocks:
+  // `normalizedRecord` returns from a dozen branches, and a new branch that
+  // forgot this would silently leak a machinery row into the nice view. An
+  // unparseable line above keeps the default, which is content -- we cannot tell
+  // what it is, so it stays visible.
+  normalized.result.lineClass = classifyClaudeLine(ev);
+  return normalized;
+}
+
+function normalizedRecord(
+  line: string,
+  ev: Record<string, unknown>,
+): NormalizedClaudeLine {
   const t = ev.type;
   const cwd = typeof ev.cwd === 'string' && ev.cwd.trim() ? ev.cwd.trim() : undefined;
   const ts = timestampMs(ev.timestamp);
