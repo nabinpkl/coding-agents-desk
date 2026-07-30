@@ -5,6 +5,7 @@ import base64
 import json
 import subprocess
 import tempfile
+import threading
 import unittest
 from contextlib import ExitStack
 from datetime import UTC, datetime
@@ -586,20 +587,43 @@ class HostVoiceBusyTests(unittest.TestCase):
             del app
             return FakeTranscriber()
 
-        with patch.object(http_server, "get_transcriber", fake_get_transcriber):
-            with TestClient(http_server.app) as client:
-                headers = {"origin": "interactionfeed://app"}
-                with client.websocket_connect(
-                    "/ws/voice?source=macos",
-                    headers=headers,
-                ):
-                    with client.websocket_connect(
-                        "/ws/voice?source=iphone",
-                        headers=headers,
-                    ) as second:
-                        message = second.receive_json()
+        with (
+            patch.object(http_server, "get_transcriber", fake_get_transcriber),
+            patch.object(http_server, "prewarm_transcription_model"),
+            TestClient(http_server.app) as client,
+        ):
+            headers = {"origin": "interactionfeed://app"}
+            with client.websocket_connect(
+                "/ws/voice?source=macos",
+                headers=headers,
+            ), client.websocket_connect(
+                "/ws/voice?source=iphone",
+                headers=headers,
+            ) as second:
+                message = second.receive_json()
         self.assertEqual(message["type"], "sessionError")
         self.assertEqual(message["code"], "recorderBusy")
+
+
+class VoiceModelPrewarmTests(unittest.TestCase):
+    def test_lifespan_starts_model_prewarm_without_blocking_health(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+
+        def prewarm(model: str) -> None:
+            self.assertEqual(model, runtime.FAST_MODEL)
+            started.set()
+            self.assertTrue(release.wait(timeout=1))
+
+        with patch.object(
+            http_server,
+            "prewarm_transcription_model",
+            side_effect=prewarm,
+        ), TestClient(http_server.app) as client:
+            self.assertTrue(started.wait(timeout=1))
+            response = client.get("/health")
+            self.assertEqual(response.status_code, 200)
+            release.set()
 
 
 class ReferenceSpeechHTTPTests(unittest.TestCase):
@@ -665,7 +689,10 @@ class ReferenceSpeechHTTPTests(unittest.TestCase):
             audio_path = Path(temporary) / "reference.wav"
             audio_path.write_bytes(b"RIFF-test")
             fake = FakeStore(audio_path)
-            with TestClient(http_server.app) as client:
+            with (
+                patch.object(http_server, "prewarm_transcription_model"),
+                TestClient(http_server.app) as client,
+            ):
                 http_server.app.state.reference_speech_store = fake
                 state = client.get("/reference-speech/state")
                 created = client.post(

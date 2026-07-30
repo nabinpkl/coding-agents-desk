@@ -811,6 +811,14 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   window and cold WebKit process, allowing bounded cold-start readiness under full-suite load, and
   sending runtime checkpoints through one ordered persistence-and-wire lane so suspended sends cannot
   overtake.
+- D171. Prewarm the configured Whisper model after voice-server startup through the existing
+  process-wide MLX executor (ADR-0082). Run one silent in-memory inference without blocking HTTP
+  liveness, emit bounded import/inference/residency/memory timing, and make immediate real
+  transcription queue behind the same owner.
+- R172. Replace process-lifetime Whisper residency with a measured idle-eviction or on-demand reload
+  policy only if host memory-pressure evidence shows the accepted prewarm footprint harms ordinary
+  AgentDesk use. Preserve first-dictation latency as an explicit acceptance gate and do not trade it
+  away for an unmeasured memory saving.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -886,4 +894,6 @@ D167  2026-07-28  landed     durable standalone terminal keyboard focus and acce
 D168  2026-07-29  landed     keyboard-authoritative relative Control chrome
 R169  candidate   remaining  explicit keyboard-time video mouse control
 D170  2026-07-29  landed     deterministic terminal tests and ordered runtime checkpoints
+D171  2026-07-29  landed     startup Whisper prewarm through the single MLX executor
+R172  captured    remaining  measured idle eviction or on-demand reload if memory pressure warrants
 ```

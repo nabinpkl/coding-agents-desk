@@ -14,7 +14,6 @@ from numpy.typing import NDArray
 from interaction_agent.paths import VOICE_MODEL_ROOT
 from interaction_agent.voice.timing import emit_voice_timing
 
-
 FAST_MODEL = "mlx-community/whisper-large-v3-turbo-q4"
 BEST_MODEL = "mlx-community/whisper-large-v3-turbo"
 SUPPORTED_MODELS = {FAST_MODEL, BEST_MODEL}
@@ -34,6 +33,8 @@ SUPPORTED_RESPONSE_FORMATS = {"json", "text", "srt", "verbose_json", "vtt"}
 SUPPORTED_TIMESTAMP_GRANULARITIES = {"segment", "word"}
 MAX_TRANSCRIPTION_COMPRESSION_RATIO: Final = 2.4
 TRANSCRIPTION_DURATION_TOLERANCE_SECONDS: Final = 1.0
+PREWARM_SAMPLE_RATE: Final = 16_000
+PREWARM_SAMPLE_COUNT: Final = PREWARM_SAMPLE_RATE
 _MLX_INFERENCE_EXECUTOR = ThreadPoolExecutor(
     max_workers=1,
     thread_name_prefix="mlx-inference",
@@ -195,6 +196,114 @@ def transcribe_audio_path(
     ).result()
 
 
+def prewarm_transcription_model(model: str) -> None:
+    """Load and exercise one model on the process-wide MLX inference owner."""
+    validate_model(model)
+    submitted_at = time.perf_counter()
+    _MLX_INFERENCE_EXECUTOR.submit(
+        _prewarm_transcription_model_owned,
+        model,
+        submitted_at,
+    ).result()
+
+
+def _prewarm_transcription_model_owned(
+    model: str,
+    submitted_at: float,
+) -> None:
+    """Run one silent inference so model weights and MLX kernels are resident."""
+    started_at = time.perf_counter()
+    mlx_import_ms = 0.0
+    model_resolution_ms = 0.0
+    model_cache_hit: bool | None = None
+    model_resident_before_call: bool | None = None
+    model_resident_after_call: bool | None = None
+    inference_ms = 0.0
+    mlx_runtime_imported = False
+    success = False
+    error_type: str | None = None
+
+    try:
+        mlx_import_started_at = time.perf_counter()
+        import mlx_whisper
+        from mlx_whisper.transcribe import ModelHolder
+
+        mlx_runtime_imported = True
+        mlx_import_ms = _elapsed_ms(mlx_import_started_at)
+        model_dir = local_model_dir(model)
+        model_cache_hit = (model_dir / MODEL_COMPLETE_MARKER).exists()
+        model_resolution_started_at = time.perf_counter()
+        local_model = ensure_local_model(model)
+        model_resolution_ms = _elapsed_ms(model_resolution_started_at)
+        model_path = str(local_model)
+        model_resident_before_call = (
+            ModelHolder.model is not None
+            and ModelHolder.model_path == model_path
+        )
+
+        if not model_resident_before_call:
+            inference_started_at = time.perf_counter()
+            result = mlx_whisper.transcribe(
+                np.zeros(PREWARM_SAMPLE_COUNT, dtype=np.float32),
+                path_or_hf_repo=model_path,
+                language="en",
+                temperature=0.0,
+                word_timestamps=False,
+                condition_on_previous_text=False,
+                verbose=None,
+            )
+            inference_ms = _elapsed_ms(inference_started_at)
+            if not isinstance(result, dict):
+                raise VoiceRuntimeError("Unexpected prewarm transcription result")
+            validate_transcription_result(result)
+
+        model_resident_after_call = (
+            ModelHolder.model is not None
+            and ModelHolder.model_path == model_path
+        )
+        if not model_resident_after_call:
+            raise VoiceRuntimeError("MLX model was not resident after prewarm")
+
+        _MLX_MODELS_SEEN.add(model)
+        success = True
+    except Exception as exc:
+        error_type = type(exc).__name__
+        raise
+    finally:
+        memory_fields = (
+            _mlx_memory_fields()
+            if mlx_runtime_imported
+            else {
+                "activeMemoryBytes": None,
+                "cacheMemoryBytes": None,
+                "peakMemoryBytes": None,
+            }
+        )
+        emit_voice_timing(
+            "mlxPrewarm",
+            model=model,
+            success=success,
+            errorType=error_type,
+            queueWaitMs=max(0.0, (started_at - submitted_at) * 1000),
+            runtimeAgeAtSubmitMs=max(
+                0.0,
+                (submitted_at - _RUNTIME_READY_AT) * 1000,
+            ),
+            runtimeAgeAtExecutorStartMs=max(
+                0.0,
+                (started_at - _RUNTIME_READY_AT) * 1000,
+            ),
+            mlxImportMs=mlx_import_ms,
+            modelResolutionMs=model_resolution_ms,
+            modelCacheHit=model_cache_hit,
+            modelResidentBeforeCall=model_resident_before_call,
+            modelResidentAfterCall=model_resident_after_call,
+            inferenceMs=inference_ms,
+            totalMs=_elapsed_ms(submitted_at),
+            **memory_fields,
+        )
+
+
 def _transcribe_audio_path_owned(
     audio_path: Path,
     options: VoiceTranscriptionOptions,
@@ -256,7 +365,6 @@ def _transcribe_audio_path_owned(
             ).astype(np.float32)
         audio_prepare_ms = _elapsed_ms(audio_prepare_started_at)
 
-        _MLX_MODELS_SEEN.add(options.model)
         mlx_attempted = True
         mlx_started_at = time.perf_counter()
         result = mlx_whisper.transcribe(audio, **whisper_options)
@@ -271,6 +379,7 @@ def _transcribe_audio_path_owned(
         validation_started_at = time.perf_counter()
         validate_transcription_result(result)
         validation_ms = _elapsed_ms(validation_started_at)
+        _MLX_MODELS_SEEN.add(options.model)
         success = True
         return result
     except Exception as exc:

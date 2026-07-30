@@ -3,7 +3,7 @@ import logging
 import os
 import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -61,10 +61,11 @@ from interaction_agent.voice.runtime import (
     duration_from_segments,
     format_srt,
     format_vtt,
+    prewarm_transcription_model,
     transcribe_audio_path,
     transcript_text,
-    validate_transcription_result,
     validate_temperature,
+    validate_transcription_result,
 )
 from interaction_agent.voice.signals import analyze_audio
 from interaction_agent.voice.timing import emit_voice_timing
@@ -107,13 +108,14 @@ from interaction_agent.voice.wire import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Own the shared live transcriber and recording-session lock.
+    """Own model prewarm, the shared transcriber, and recording-session locks.
 
     The MLX chunk transcriber is expensive to construct (it loads the Whisper
-    model), so a single instance is built lazily on the first WebSocket
-    connection and reused across sessions. ``voice_session_lock`` rejects a
-    second recorder while a take is active; the process-wide executor in
-    ``voice.runtime`` serializes every live, final, and REST MLX inference.
+    model), so startup schedules one silent inference before the user records.
+    The task uses the same process-wide executor as every live, final, and REST
+    MLX inference, so an immediate recording queues behind prewarm rather than
+    racing it. The HTTP server remains live while model files are prepared.
+    ``voice_session_lock`` rejects a second recorder while a take is active.
     """
     app.state.voice_session_lock = asyncio.Lock()
     app.state.voice_transcriber_lock = asyncio.Lock()
@@ -122,12 +124,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.voice_phone_inference_lock = asyncio.Lock()
     app.state.voice_phone_recognizer = None
     app.state.reference_speech_store = ReferenceSpeechArtifactStore()
+    prewarm_task = asyncio.create_task(prewarm_voice_model())
+    app.state.voice_model_prewarm_task = prewarm_task
     try:
         yield
     finally:
+        if not prewarm_task.done():
+            prewarm_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await prewarm_task
         transcriber = app.state.voice_transcriber
         if transcriber is not None:
             transcriber.finish_session()
+
+
+async def prewarm_voice_model() -> None:
+    """Prewarm the configured Whisper model without blocking server liveness."""
+    try:
+        config = load_voice_runtime_config()
+        await run_in_threadpool(
+            prewarm_transcription_model,
+            config.final_transcription_model,
+        )
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "voice model prewarm failed; the first transcription will retry"
+        )
 
 
 app = FastAPI(
