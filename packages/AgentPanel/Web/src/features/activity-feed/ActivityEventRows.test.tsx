@@ -25,8 +25,7 @@ const DATA_SOURCE: AgentDataSource = {
 };
 
 const CTX: EventRowContext = {
-  source: "claude",
-  sessionId: "session-1",
+  session: { source: "claude", sessionId: "session-1", mode: "raw" },
   expandedTools: new Set(),
   onToggleTool: () => {},
   pairedToolResults: new Map(),

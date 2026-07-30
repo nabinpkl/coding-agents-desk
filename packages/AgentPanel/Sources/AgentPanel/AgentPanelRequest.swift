@@ -9,6 +9,18 @@ public enum AgentPanelAgentSource: String, Equatable, Sendable {
     case codex
 }
 
+/// Which view of a transcript a request addresses: `raw` is every line in file order, `nice` is
+/// content lines only, renumbered contiguously.
+///
+/// Validated at the decoder for the same reason as the harness name, and with more at stake: an
+/// event index is mode-relative, so the SAME integer names a different line in the two views.
+/// Defaulting an unrecognized value to `raw` would answer a nice-mode request with raw-mode indices,
+/// and every index in the reply would address the wrong line with nothing to signal it.
+public enum AgentPanelEventMode: String, Equatable, Sendable {
+    case raw
+    case nice
+}
+
 public struct AgentPanelTerminalContext: Equatable, Sendable {
     public let projectPath: String
     public let source: AgentPanelAgentSource
@@ -32,10 +44,22 @@ public enum AgentPanelRequest: Equatable, Sendable {
     case projectsUnwatch(subscriptionId: String)
     case projectSessionsWatch(subscriptionId: String, projectPath: String)
     case projectSessionsUnwatch(subscriptionId: String)
-    case threadSubscribe(source: AgentPanelAgentSource, sessionId: String)
-    case threadLoadOlder(source: AgentPanelAgentSource, sessionId: String, beforeIndex: Int, limit: Int)
+    case threadSubscribe(source: AgentPanelAgentSource, sessionId: String, mode: AgentPanelEventMode)
+    case threadLoadOlder(
+        source: AgentPanelAgentSource,
+        sessionId: String,
+        beforeIndex: Int,
+        limit: Int,
+        mode: AgentPanelEventMode
+    )
     case threadUnsubscribe(source: AgentPanelAgentSource, sessionId: String)
-    case rawEvent(requestId: String, source: AgentPanelAgentSource, sessionId: String, eventIndex: Int)
+    case rawEvent(
+        requestId: String,
+        source: AgentPanelAgentSource,
+        sessionId: String,
+        eventIndex: Int,
+        mode: AgentPanelEventMode
+    )
     case terminal(AgentPanelTerminalIntent)
 
     public static func decode(tag: String, body: [String: Any]) -> AgentPanelRequest? {
@@ -55,8 +79,9 @@ public enum AgentPanelRequest: Equatable, Sendable {
             return .projectSessionsUnwatch(subscriptionId: subscriptionId)
         case "agent-thread-sub":
             guard let source = agentSource(body["src"]),
-                  let sessionId = nonemptyString(body["sid"]) else { return nil }
-            return .threadSubscribe(source: source, sessionId: sessionId)
+                  let sessionId = nonemptyString(body["sid"]),
+                  let mode = eventMode(body["md"]) else { return nil }
+            return .threadSubscribe(source: source, sessionId: sessionId, mode: mode)
         case "agent-thread-older":
             // Both bounds are enforced here because the host derives the sidecar page from them as
             // `offset = max(0, bi - lim)` / `limit = bi - offset`. A negative `bi` or a non-positive
@@ -68,10 +93,17 @@ public enum AgentPanelRequest: Equatable, Sendable {
                   let beforeIndex = body["bi"] as? Int,
                   beforeIndex >= 0,
                   let limit = body["lim"] as? Int,
-                  limit >= 1 else {
+                  limit >= 1,
+                  let mode = eventMode(body["md"]) else {
                 return nil
             }
-            return .threadLoadOlder(source: source, sessionId: sessionId, beforeIndex: beforeIndex, limit: limit)
+            return .threadLoadOlder(
+                source: source,
+                sessionId: sessionId,
+                beforeIndex: beforeIndex,
+                limit: limit,
+                mode: mode
+            )
         case "agent-thread-unsub":
             guard let source = agentSource(body["src"]),
                   let sessionId = nonemptyString(body["sid"]) else {
@@ -84,10 +116,17 @@ public enum AgentPanelRequest: Equatable, Sendable {
                   let source = agentSource(body["src"]),
                   let sessionId = nonemptyString(body["sid"]),
                   let eventIndex = body["ei"] as? Int,
-                  eventIndex >= 0 else {
+                  eventIndex >= 0,
+                  let mode = eventMode(body["md"]) else {
                 return nil
             }
-            return .rawEvent(requestId: requestId, source: source, sessionId: sessionId, eventIndex: eventIndex)
+            return .rawEvent(
+                requestId: requestId,
+                source: source,
+                sessionId: sessionId,
+                eventIndex: eventIndex,
+                mode: mode
+            )
         case "agent-terminal-open":
             return decodeTerminalIntent(body: body, make: AgentPanelTerminalIntent.open)
         case "agent-terminal-close":
@@ -107,6 +146,15 @@ public enum AgentPanelRequest: Equatable, Sendable {
     private static func agentSource(_ value: Any?) -> AgentPanelAgentSource? {
         guard let value = nonemptyString(value) else { return nil }
         return AgentPanelAgentSource(rawValue: value)
+    }
+
+    /// An ABSENT mode means `raw`, which is the fidelity view and the behavior every caller had
+    /// before modes existed. A PRESENT but unrecognized mode is rejected: the caller meant something
+    /// specific and we cannot tell what, and guessing renumbers every index in the reply.
+    private static func eventMode(_ value: Any?) -> AgentPanelEventMode? {
+        guard let value else { return .raw }
+        guard let raw = value as? String, !raw.isEmpty else { return nil }
+        return AgentPanelEventMode(rawValue: raw)
     }
 
     private static func decodeTerminalIntent(

@@ -12,6 +12,9 @@ describe("normalizeActivityEvent", () => {
       index: 4,
       ts: 5,
       type: "system",
+      // Null, not absent: this function rebuilds the event field by field, so an
+      // input without a counterpart index has to come out saying so explicitly.
+      otherModeIndex: null,
       blocks: [{
         kind: "metadata",
         label: "Token Usage",

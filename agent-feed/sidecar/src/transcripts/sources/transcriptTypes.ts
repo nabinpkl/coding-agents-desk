@@ -49,7 +49,16 @@ export interface ParsedLine {
 }
 
 export interface ActivityEvent extends ParsedLine {
+  // Position in the mode this event was read in.
   index: number;
+  // Position of the same line in the OTHER mode, or null when it has none -- a
+  // machinery line read in raw mode is absent from the nice view entirely.
+  //
+  // Carried so the panel can switch modes without losing the viewer's place: the
+  // index it is looking at means a different line in the other view, and this is
+  // the only translation available without a round trip. Absent on events read
+  // through a path that does not resolve it.
+  otherModeIndex?: number | null;
 }
 
 // Per-line result. Any field may be absent.
@@ -93,6 +102,13 @@ export interface TokenUsage {
 // invents shows up as an unfamiliar row rather than silently vanishing. See
 // lineClass.ts for the rule and the per-source tables.
 export type LineClass = 'content' | 'machinery';
+
+// Which view of a transcript an index, count, page or stream addresses.
+//   raw  -- every line, in file order. The fidelity guarantee.
+//   nice -- content lines only, renumbered contiguously from 0.
+// Event indices are mode-relative, so a mode has to travel with every request
+// that names one: the same integer means different lines in the two views.
+export type EventMode = 'raw' | 'nice';
 
 export interface LineResult {
   event?: ParsedLine;

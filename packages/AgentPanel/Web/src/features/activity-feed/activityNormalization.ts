@@ -75,6 +75,13 @@ export function normalizeActivityEvent(value: unknown): ActivityEvent {
         ? (rawType as ActivityEvent["type"])
         : "system",
     blocks,
+    // Absent and non-numeric both mean "no counterpart in the other view", which is
+    // the truthful answer for a machinery line and the safe one for a peer that
+    // predates modes. This function rebuilds the event field by field, so a field it
+    // does not name is silently dropped -- which for this one would leave the mode
+    // toggle with nothing to map the viewer's position through.
+    otherModeIndex:
+      typeof source?.otherModeIndex === "number" ? source.otherModeIndex : null,
   };
 }
 

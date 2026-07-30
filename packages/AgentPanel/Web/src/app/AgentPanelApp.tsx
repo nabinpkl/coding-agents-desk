@@ -8,9 +8,11 @@ import type {
   BridgeProject,
   BridgeSessionSummary,
 } from "../features/activity-feed/data-source/BridgeDataSource";
+import type { EventMode } from "../features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "../features/activity-feed/data-source/AgentDataSourceContext";
 import { ActivityFeed } from "../features/activity-feed/ActivityFeed";
 import { FontSizeRoot } from "../features/activity-feed/fontStore";
+import { loadEventMode, storeEventMode } from "../features/activity-feed/eventModeStore";
 
 type NavState =
   | { view: "projects" }
@@ -56,6 +58,17 @@ export function App({ bridge }: Props) {
   // feed does not spend a band of its own on them. Held in state, not a ref,
   // because the feed has to re-render once the node exists.
   const [threadControlsHost, setThreadControlsHost] = useState<HTMLDivElement | null>(null);
+  // Owned here rather than in the feed so the choice survives switching threads, and
+  // so the feed can remount on a change -- every event index it holds is counted in
+  // the mode, so none of them survives a switch.
+  const [eventMode, setEventMode] = useState<EventMode>(loadEventMode);
+  const toggleEventMode = useCallback(() => {
+    setEventMode((current) => {
+      const next = current === "nice" ? "raw" : "nice";
+      storeEventMode(next);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     setLoadingLayer(true);
@@ -276,10 +289,20 @@ export function App({ bridge }: Props) {
             // The bottom safe-area inset lives here now that the terminal
             // footer is gone: it is what keeps the last row clear of the iOS
             // home indicator.
-            <div key={nav.session.sessionId} className="h-full">
+            // The mode is part of the key: switching it renumbers every event, so
+            // the feed's collapsed set, sticky selection, virtualizer measurements
+            // and paging window are all addressed in the mode they were built in
+            // and none of them can carry across. A remount is the honest answer,
+            // and it lands at the tail exactly as switching threads does.
+            <div
+              key={`${nav.session.sessionId}:${eventMode}`}
+              className="h-full"
+            >
               <ActivityFeed
                 source={nav.session.source}
                 sessionId={nav.session.sessionId}
+                mode={eventMode}
+                onToggleMode={toggleEventMode}
                 controlsHost={threadControlsHost}
               />
             </div>

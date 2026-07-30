@@ -13,6 +13,13 @@ public struct AgentRawEventRequest: Codable, Equatable, Sendable {
     public let source: String
     public let sessionId: String
     public let eventIndex: Int
+    /// Which view `eventIndex` is counted in. Absent means `raw`, the same rule this field follows at
+    /// every boundary it crosses, so a peer that predates modes keeps working and means the fidelity
+    /// view when it says nothing.
+    ///
+    /// Only the request carries it. The reply is matched by `requestId`, which is unique per request,
+    /// so a reply can never be confused with one from the other mode.
+    public let mode: String?
 
     public enum CodingKeys: String, CodingKey {
         case type = "t"
@@ -20,13 +27,21 @@ public struct AgentRawEventRequest: Codable, Equatable, Sendable {
         case source = "src"
         case sessionId = "sid"
         case eventIndex = "ei"
+        case mode = "md"
     }
 
-    public init(requestId: String, source: String, sessionId: String, eventIndex: Int) {
+    public init(
+        requestId: String,
+        source: String,
+        sessionId: String,
+        eventIndex: Int,
+        mode: String? = nil
+    ) {
         self.requestId = requestId
         self.source = source
         self.sessionId = sessionId
         self.eventIndex = eventIndex
+        self.mode = mode
     }
 }
 

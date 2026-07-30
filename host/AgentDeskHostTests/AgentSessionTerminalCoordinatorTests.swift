@@ -972,12 +972,18 @@ private struct SessionsSidecarClient: SidecarClient, @unchecked Sendable {
         source: String,
         sessionId: String,
         offset: Int,
-        limit: Int
+        limit: Int,
+        mode: AgentFeedEventMode
     ) async throws -> AgentFeedEventsPage {
         AgentFeedEventsPage(events: [], total: 0)
     }
 
-    func fetchRawEvent(source: String, sessionId: String, eventIndex: Int) async throws -> String {
+    func fetchRawEvent(
+        source: String,
+        sessionId: String,
+        eventIndex: Int,
+        mode: AgentFeedEventMode
+    ) async throws -> String {
         ""
     }
 
@@ -1000,6 +1006,7 @@ private struct SessionsSidecarClient: SidecarClient, @unchecked Sendable {
         source: String,
         sessionId: String,
         after: Int,
+        mode: AgentFeedEventMode,
         onEvent: @escaping @Sendable (AgentFeedActivityEvent) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {

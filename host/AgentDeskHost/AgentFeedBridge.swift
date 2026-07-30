@@ -102,6 +102,10 @@ final class AgentFeedBridge: @unchecked Sendable {
             sendCodable(AgentThreadError(source: source, sessionId: sessionId, reason: "invalid source"))
             return
         }
+        guard let mode = Self.eventMode(request.mode) else {
+            sendCodable(AgentThreadError(source: source, sessionId: sessionId, reason: "invalid mode"))
+            return
+        }
         let key = threadKey(source: source, sessionId: sessionId)
         let generation = UUID()
         queue.sync {
@@ -112,6 +116,7 @@ final class AgentFeedBridge: @unchecked Sendable {
                 await self?.bootstrapThread(
                     source: source,
                     sessionId: sessionId,
+                    mode: mode,
                     generation: generation
                 )
             }
@@ -119,6 +124,14 @@ final class AgentFeedBridge: @unchecked Sendable {
     }
 
     func handleThreadLoadOlder(_ request: AgentThreadLoadOlder) {
+        guard let mode = Self.eventMode(request.mode) else {
+            sendCodable(AgentThreadError(
+                source: request.source,
+                sessionId: request.sessionId,
+                reason: "invalid mode"
+            ))
+            return
+        }
         Task {
             do {
                 let offset = max(0, request.beforeIndex - request.limit)
@@ -126,7 +139,8 @@ final class AgentFeedBridge: @unchecked Sendable {
                     source: request.source,
                     sessionId: request.sessionId,
                     offset: offset,
-                    limit: request.beforeIndex - offset
+                    limit: request.beforeIndex - offset,
+                    mode: mode
                 )
                 sendCodable(AgentThreadChunk(
                     source: request.source,
@@ -135,7 +149,8 @@ final class AgentFeedBridge: @unchecked Sendable {
                     windowStart: offset,
                     total: page.total,
                     isLive: false,
-                    usage: Self.wireUsage(page.usage)
+                    usage: Self.wireUsage(page.usage),
+                    mode: mode.rawValue
                 ))
             } catch {
                 sendCodable(AgentThreadError(
@@ -167,12 +182,23 @@ final class AgentFeedBridge: @unchecked Sendable {
             ))
             return
         }
+        guard let mode = Self.eventMode(request.mode) else {
+            sendCodable(AgentRawEventError(
+                requestId: request.requestId,
+                source: request.source,
+                sessionId: request.sessionId,
+                eventIndex: request.eventIndex,
+                reason: "invalid mode"
+            ))
+            return
+        }
         Task {
             do {
                 let text = try await client.fetchRawEvent(
                     source: request.source,
                     sessionId: request.sessionId,
-                    eventIndex: request.eventIndex
+                    eventIndex: request.eventIndex,
+                    mode: mode
                 )
                 try sendRawEvent(text, request: request)
             } catch {
@@ -191,6 +217,7 @@ final class AgentFeedBridge: @unchecked Sendable {
         source: String,
         sessionId: String,
         after: Int,
+        mode: AgentFeedEventMode,
         generation: UUID
     ) {
         let key = threadKey(source: source, sessionId: sessionId)
@@ -198,6 +225,7 @@ final class AgentFeedBridge: @unchecked Sendable {
             source: source,
             sessionId: sessionId,
             after: after,
+            mode: mode,
             onEvent: { [weak self] event in
                 self?.sendCodable(AgentThreadChunk(
                     source: source,
@@ -206,7 +234,8 @@ final class AgentFeedBridge: @unchecked Sendable {
                     windowStart: event.index,
                     total: event.index + 1,
                     isLive: true,
-                    usage: Self.wireUsage(event.usage)
+                    usage: Self.wireUsage(event.usage),
+                    mode: mode.rawValue
                 ))
             },
             onError: { [weak self] error in
@@ -231,6 +260,7 @@ final class AgentFeedBridge: @unchecked Sendable {
     private func bootstrapThread(
         source: String,
         sessionId: String,
+        mode: AgentFeedEventMode,
         generation: UUID
     ) async {
         let key = threadKey(source: source, sessionId: sessionId)
@@ -239,7 +269,8 @@ final class AgentFeedBridge: @unchecked Sendable {
                 source: source,
                 sessionId: sessionId,
                 offset: 0,
-                limit: 1
+                limit: 1,
+                mode: mode
             )
             guard isCurrentThread(key: key, generation: generation) else { return }
             let offset = max(0, probe.total - Self.pageSize)
@@ -248,7 +279,8 @@ final class AgentFeedBridge: @unchecked Sendable {
                     source: source,
                     sessionId: sessionId,
                     offset: offset,
-                    limit: probe.total - offset
+                    limit: probe.total - offset,
+                    mode: mode
                 )
                 : AgentFeedEventsPage(events: [], total: probe.total, usage: probe.usage)
             guard isCurrentThread(key: key, generation: generation) else { return }
@@ -259,12 +291,14 @@ final class AgentFeedBridge: @unchecked Sendable {
                 windowStart: offset,
                 total: page.total,
                 isLive: false,
-                usage: Self.wireUsage(page.usage)
+                usage: Self.wireUsage(page.usage),
+                mode: mode.rawValue
             ))
             openThreadStream(
                 source: source,
                 sessionId: sessionId,
                 after: page.total,
+                mode: mode,
                 generation: generation
             )
         } catch {
@@ -376,6 +410,14 @@ final class AgentFeedBridge: @unchecked Sendable {
         )
     }
 
+    /// An ABSENT mode means `raw`, the fidelity view and what every caller meant before modes existed.
+    /// A PRESENT but unrecognized mode is rejected rather than defaulted: the reply's indices would be
+    /// counted in a view the caller did not ask for, and nothing downstream could tell.
+    private static func eventMode(_ raw: String?) -> AgentFeedEventMode? {
+        guard let raw else { return .raw }
+        return AgentFeedEventMode(rawValue: raw)
+    }
+
     private static func wireUsage(_ usage: AgentFeedTokenUsage?) -> TokenUsage? {
         guard let usage else { return nil }
         return TokenUsage(
@@ -401,7 +443,8 @@ final class AgentFeedBridge: @unchecked Sendable {
                     preview: $0.preview,
                     callId: $0.callId
                 )
-            }
+            },
+            otherModeIndex: event.otherModeIndex
         )
     }
 }

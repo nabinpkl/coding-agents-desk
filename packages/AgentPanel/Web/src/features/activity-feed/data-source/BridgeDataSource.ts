@@ -7,6 +7,7 @@ import { normalizeActivityEvent } from "../activityNormalization";
 import type {
   AgentDataSource,
   AgentSource,
+  EventMode,
   EventsPage,
   SessionEventsHandlers,
   SessionReference,
@@ -28,6 +29,7 @@ interface WireActivityEvent {
   ts: number;
   tp: string;
   b: WireActivityBlock[];
+  xi?: number | null;
 }
 
 interface WireProjectSummary {
@@ -88,6 +90,7 @@ interface WireThreadChunk {
   tot: number;
   lv: boolean;
   u?: WireTokenUsage | null;
+  md?: EventMode;
 }
 
 interface WireThreadError {
@@ -181,6 +184,8 @@ interface SessionBuffer {
   total: number;
   windowStart: number;
   usage: TokenUsage | null;
+  /** The view every index in this buffer is counted in. */
+  mode: EventMode;
   seeded: boolean;
 }
 
@@ -252,9 +257,16 @@ function mapEvent(wire: WireActivityEvent): ActivityEvent {
     ts: wire.ts,
     type: wire.tp,
     blocks: wire.b.map(mapBlock),
+    otherModeIndex: typeof wire.xi === "number" ? wire.xi : null,
   });
 }
 
+// Deliberately NOT keyed by mode. The host keys its thread streams by source and
+// session too, so a key that included the mode would let the panel believe it holds
+// two independent subscriptions while the host has replaced one with the other. The
+// panel runs one mode at a time; a chunk answering the mode it just left is dropped
+// by comparing `chunk.md` against the buffer's, which is the check that actually
+// prevents two views' indices from merging.
 function sessionKey(session: SessionReference): string {
   return `${session.source}:${session.sessionId}`;
 }
@@ -484,6 +496,7 @@ export class BridgeDataSource implements AgentDataSource {
         src: session.source,
         sid: session.sessionId,
         ei: eventIndex,
+        md: session.mode,
       });
     });
   }
@@ -557,6 +570,7 @@ export class BridgeDataSource implements AgentDataSource {
         t: "agent-thread-sub",
         src: session.source,
         sid: session.sessionId,
+        md: session.mode,
       });
     }
   }
@@ -570,12 +584,14 @@ export class BridgeDataSource implements AgentDataSource {
       total: 0,
       windowStart: 0,
       usage: null,
+      mode: session.mode,
       seeded: false,
     });
     this.bridge.postToHost({
       t: "agent-thread-sub",
       src: session.source,
       sid: session.sessionId,
+      md: session.mode,
     });
   }
 
@@ -686,10 +702,16 @@ export class BridgeDataSource implements AgentDataSource {
     const session: SessionReference = {
       source: chunk.src,
       sessionId: chunk.sid,
+      mode: chunk.md ?? "raw",
     };
     const key = sessionKey(session);
     const buffer = this.buffers.get(key);
     if (!buffer) return;
+    // A chunk for the view we just left. Its indices are counted in that view, so
+    // merging it would shift every row by however many lines the other mode omits
+    // before them -- and nothing would report an error. An absent `md` means raw, the
+    // rule this field follows at every boundary.
+    if ((chunk.md ?? "raw") !== buffer.mode) return;
 
     const previousTotal = buffer.total;
     const events = chunk.ev.map(mapEvent);
@@ -756,6 +778,7 @@ export class BridgeDataSource implements AgentDataSource {
     const key = sessionKey({
       source: message.src,
       sessionId: message.sid,
+      mode: "raw",
     });
     this.reconnectingThreads.delete(key);
     for (const listener of this.liveListeners.get(key) ?? []) {
@@ -770,9 +793,12 @@ export class BridgeDataSource implements AgentDataSource {
   private handleRawEvent(message: WireRawEvent | WireRawEventError): void {
     const waiter = this.rawEventWaiters.get(message.rid);
     if (!waiter) return;
-    const expected = {
+    // The mode is irrelevant to matching: `sessionKey` ignores it, and the reply is
+    // already pinned by a request id unique to one request in one mode.
+    const expected: SessionReference = {
       source: message.src,
       sessionId: message.sid,
+      mode: "raw",
     };
     if (
       waiter.sessionKey !== sessionKey(expected) ||
@@ -837,6 +863,7 @@ export class BridgeDataSource implements AgentDataSource {
       sid: session.sessionId,
       bi: beforeIndex,
       lim: limit,
+      md: session.mode,
     });
     const waiterKey = `${key}:${beforeIndex}`;
     return new Promise<EventsPage>((resolve, reject) => {
@@ -852,6 +879,7 @@ export class BridgeDataSource implements AgentDataSource {
                 total: chunk.tot,
                 windowStart: chunk.ws,
                 usage: mapUsage(chunk.u),
+                mode: chunk.md ?? "raw",
                 seeded: true,
               },
               chunk.ws,

@@ -36,14 +36,14 @@ describe("BridgeDataSource visibility lifecycle", () => {
     closeSessions();
 
     const closeThread = source.subscribeSessionEvents(
-      { source: "codex", sessionId: "shared" },
+      { source: "codex", sessionId: "shared", mode: "raw" },
       0,
       { onEvent: vi.fn() },
     );
     const beforeThreadReconnect = host.posted.length;
     source.resumeAfterSessionReconnect();
     expect(host.posted.slice(beforeThreadReconnect)).toEqual([
-      { t: "agent-thread-sub", src: "codex", sid: "shared" },
+      { t: "agent-thread-sub", src: "codex", sid: "shared", md: "raw" },
     ]);
     closeThread();
   });
@@ -53,12 +53,12 @@ describe("BridgeDataSource visibility lifecycle", () => {
     source.subscribeProjects(vi.fn());
     source.subscribeProjectSessions("/project", vi.fn());
     source.subscribeSessionEvents(
-      { source: "claude", sessionId: "shared" },
+      { source: "claude", sessionId: "shared", mode: "raw" },
       0,
       { onEvent: vi.fn() },
     );
     source.subscribeSessionEvents(
-      { source: "codex", sessionId: "shared" },
+      { source: "codex", sessionId: "shared", mode: "raw" },
       0,
       { onEvent: vi.fn() },
     );
@@ -87,7 +87,7 @@ describe("BridgeDataSource visibility lifecycle", () => {
 
   it("releases thread state after the final listener closes", () => {
     const { host, source } = makeSource();
-    const session = { source: "codex" as const, sessionId: "thread" };
+    const session = { source: "codex" as const, sessionId: "thread", mode: "raw" as const };
     const close = source.subscribeSessionEvents(session, 0, {
       onEvent: vi.fn(),
     });
@@ -105,7 +105,7 @@ describe("BridgeDataSource visibility lifecycle", () => {
     const { host, source } = makeSource();
     const onEvent = vi.fn();
     source.subscribeSessionEvents(
-      { source: "codex", sessionId: "thread" },
+      { source: "codex", sessionId: "thread", mode: "raw" },
       0,
       { onEvent },
     );
@@ -139,7 +139,7 @@ describe("BridgeDataSource visibility lifecycle", () => {
 });
 
 describe("BridgeDataSource context occupancy", () => {
-  const session = { source: "claude" as const, sessionId: "thread" };
+  const session = { source: "claude" as const, sessionId: "thread", mode: "raw" as const };
 
   function chunk(
     overrides: Record<string, unknown>,

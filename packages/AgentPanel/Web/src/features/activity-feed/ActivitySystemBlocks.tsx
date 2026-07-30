@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import type { AgentSource } from "./data-source/AgentDataSource";
+import type { SessionReference } from "./data-source/AgentDataSource";
 import { useDataSource } from "./data-source/AgentDataSourceContext";
 import type { ActivityBlock } from "./useSessionEventsStream";
 
@@ -43,15 +43,16 @@ export function LabeledTextBlock({ block }: { block: ActivityBlock }) {
  */
 export function RawDetails({
   metadata,
-  source,
-  sessionId,
+  session,
   eventIndex,
   includesRawJson,
   label = "Raw",
 }: {
   metadata: ActivityBlock[];
-  source: AgentSource;
-  sessionId: string;
+  /** Carries the mode alongside the identity, because `eventIndex` is counted in
+   *  it: the same integer names a different line in the other view, so the two
+   *  cannot travel separately. */
+  session: SessionReference;
   eventIndex: number;
   includesRawJson: boolean;
   label?: string;
@@ -69,11 +70,7 @@ export function RawDetails({
           <LabeledTextBlock key={index} block={block} />
         ))}
         {includesRawJson ? (
-          <RawJsonBlock
-            source={source}
-            sessionId={sessionId}
-            eventIndex={eventIndex}
-          />
+          <RawJsonBlock session={session} eventIndex={eventIndex} />
         ) : null}
       </div>
     </details>
@@ -81,12 +78,10 @@ export function RawDetails({
 }
 
 export function RawJsonBlock({
-  source,
-  sessionId,
+  session,
   eventIndex,
 }: {
-  source: AgentSource;
-  sessionId: string;
+  session: SessionReference;
   eventIndex: number;
 }) {
   const dataSource = useDataSource();
@@ -99,13 +94,13 @@ export function RawJsonBlock({
     setLoading(true);
     setError(null);
     try {
-      setRaw(await dataSource.fetchRawEvent({ source, sessionId }, eventIndex));
+      setRaw(await dataSource.fetchRawEvent(session, eventIndex));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "raw event fetch failed");
     } finally {
       setLoading(false);
     }
-  }, [dataSource, eventIndex, loading, raw, sessionId, source]);
+  }, [dataSource, eventIndex, loading, raw, session]);
 
   return (
     <details

@@ -40,7 +40,10 @@ describe("complete activity blocks", () => {
     const fetchRawEvent = vi.fn(async () => exact);
     const { container } = render(
       <DataSourceProvider source={source(fetchRawEvent)}>
-        <RawJsonBlock source="claude" sessionId="session" eventIndex={7} />
+        <RawJsonBlock
+          session={{ source: "claude", sessionId: "session", mode: "raw" }}
+          eventIndex={7}
+        />
       </DataSourceProvider>,
     );
 
@@ -48,8 +51,10 @@ describe("complete activity blocks", () => {
     expect(fetchRawEvent).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Raw JSON"));
     await waitFor(() =>
+      // The mode travels WITH the index, because the index is counted in it: a
+      // fetch that dropped it would read a different line.
       expect(fetchRawEvent).toHaveBeenCalledWith(
-        { source: "claude", sessionId: "session" },
+        { source: "claude", sessionId: "session", mode: "raw" },
         7,
       ),
     );
@@ -338,8 +343,7 @@ describe("raw drawer", () => {
             { kind: "metadata", label: "Token Usage", text: "1,234 tokens" },
             { kind: "metadata", label: "Working Directory", text: "/repo" },
           ]}
-          source="claude"
-          sessionId="session"
+          session={{ source: "claude", sessionId: "session", mode: "raw" }}
           eventIndex={12}
           includesRawJson
         />
@@ -365,8 +369,7 @@ describe("raw drawer", () => {
       <DataSourceProvider source={source(async () => "")}>
         <RawDetails
           metadata={[]}
-          source="claude"
-          sessionId="session"
+          session={{ source: "claude", sessionId: "session", mode: "raw" }}
           eventIndex={12}
           includesRawJson
           label="Raw result"
@@ -383,8 +386,7 @@ describe("raw drawer", () => {
       <DataSourceProvider source={source(async () => "")}>
         <RawDetails
           metadata={[]}
-          source="claude"
-          sessionId="session"
+          session={{ source: "claude", sessionId: "session", mode: "raw" }}
           eventIndex={12}
           includesRawJson={false}
         />

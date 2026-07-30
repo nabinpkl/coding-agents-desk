@@ -346,29 +346,32 @@ enum AgentFeedRequest: Equatable {
             ))
         case .projectSessionsUnwatch(let subscriptionId):
             self = .projectSessionsUnwatch(AgentProjectSessionsUnwatch(subscriptionId: subscriptionId))
-        case .threadSubscribe(let source, let sessionId):
+        case .threadSubscribe(let source, let sessionId, let mode):
             self = .threadSubscribe(AgentThreadSubscribe(
                 source: source.rawValue,
-                sessionId: sessionId
+                sessionId: sessionId,
+                mode: mode.rawValue
             ))
-        case .threadLoadOlder(let source, let sessionId, let beforeIndex, let limit):
+        case .threadLoadOlder(let source, let sessionId, let beforeIndex, let limit, let mode):
             self = .threadLoadOlder(AgentThreadLoadOlder(
                 source: source.rawValue,
                 sessionId: sessionId,
                 beforeIndex: beforeIndex,
-                limit: limit
+                limit: limit,
+                mode: mode.rawValue
             ))
         case .threadUnsubscribe(let source, let sessionId):
             self = .threadUnsubscribe(AgentThreadUnsubscribe(
                 source: source.rawValue,
                 sessionId: sessionId
             ))
-        case .rawEvent(let requestId, let source, let sessionId, let eventIndex):
+        case .rawEvent(let requestId, let source, let sessionId, let eventIndex, let mode):
             self = .rawEvent(AgentRawEventRequest(
                 requestId: requestId,
                 source: source.rawValue,
                 sessionId: sessionId,
-                eventIndex: eventIndex
+                eventIndex: eventIndex,
+                mode: mode.rawValue
             ))
         case .terminal:
             preconditionFailure("Terminal intents must route through AgentFeedSurface.onTerminalIntent")

@@ -34,26 +34,32 @@ final class AgentPanelBridgeTransport: AgentPanelTransport {
             ))
         case .projectSessionsUnwatch(let subscriptionId):
             bridge.handleProjectSessionsUnwatch(AgentProjectSessionsUnwatch(subscriptionId: subscriptionId))
-        case .threadSubscribe(let source, let sessionId):
+        case .threadSubscribe(let source, let sessionId, let mode):
             bridge.handleThreadSubscribe(AgentThreadSubscribe(
                 source: source.rawValue,
-                sessionId: sessionId
+                sessionId: sessionId,
+                mode: mode.rawValue
             ))
-        case .threadLoadOlder(let source, let sessionId, let beforeIndex, let limit):
+        case .threadLoadOlder(let source, let sessionId, let beforeIndex, let limit, let mode):
             bridge.handleThreadLoadOlder(AgentThreadLoadOlder(
-                source: source.rawValue, sessionId: sessionId, beforeIndex: beforeIndex, limit: limit
+                source: source.rawValue,
+                sessionId: sessionId,
+                beforeIndex: beforeIndex,
+                limit: limit,
+                mode: mode.rawValue
             ))
         case .threadUnsubscribe(let source, let sessionId):
             bridge.handleThreadUnsubscribe(AgentThreadUnsubscribe(
                 source: source.rawValue,
                 sessionId: sessionId
             ))
-        case .rawEvent(let requestId, let source, let sessionId, let eventIndex):
+        case .rawEvent(let requestId, let source, let sessionId, let eventIndex, let mode):
             bridge.handleRawEvent(AgentRawEventRequest(
                 requestId: requestId,
                 source: source.rawValue,
                 sessionId: sessionId,
-                eventIndex: eventIndex
+                eventIndex: eventIndex,
+                mode: mode.rawValue
             ))
         case .terminal(let intent):
             onTerminalIntent?(intent)

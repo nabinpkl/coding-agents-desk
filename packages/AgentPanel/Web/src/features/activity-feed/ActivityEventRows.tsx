@@ -15,12 +15,14 @@ import {
   type PairedToolResult,
 } from "./activityDisplayItems";
 import type { ActivityBlock, ActivityEvent } from "./useSessionEventsStream";
-import type { AgentSource } from "./data-source/AgentDataSource";
+import type { SessionReference } from "./data-source/AgentDataSource";
 
 /** What every row and block needs from the feed, bundled to stop prop drift. */
 export interface EventRowContext {
-  source: AgentSource;
-  sessionId: string;
+  /** Identity AND mode together: every event index in these rows is counted in the
+   *  mode, so a Raw fetch that knew one without the other would read a different
+   *  line. */
+  session: SessionReference;
   /** Tool-call keys whose body is open. */
   expandedTools: Set<string>;
   onToggleTool: (key: string) => void;
@@ -146,8 +148,7 @@ function EventBody({ ev, ctx }: { ev: ActivityEvent; ctx: EventRowContext }) {
       <div className="clear-left">
         <RawDetails
           metadata={folded}
-          source={ctx.source}
-          sessionId={ctx.sessionId}
+          session={ctx.session}
           eventIndex={ev.index}
           includesRawJson={hasRawJson}
         />
@@ -319,8 +320,7 @@ function ToolResultContent({
           source line, which sits in the same row once the two are paired. */}
       <RawDetails
         metadata={result.metadata}
-        source={ctx.source}
-        sessionId={ctx.sessionId}
+        session={ctx.session}
         eventIndex={result.eventIndex}
         includesRawJson={result.includesRawEvent}
         label="Raw result"
@@ -511,8 +511,7 @@ export function CompactionRow({
       <div className="mt-1">
         <RawDetails
           metadata={folded}
-          source={ctx.source}
-          sessionId={ctx.sessionId}
+          session={ctx.session}
           eventIndex={ev.index}
           includesRawJson={hasRawJson}
         />

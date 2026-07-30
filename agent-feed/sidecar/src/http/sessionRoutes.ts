@@ -12,6 +12,7 @@ import {
   subscribeEvents,
   syncIndex,
   type ActivityEvent,
+  type EventNotice,
 } from "../transcripts/eventIndex.ts";
 import {
   canonicalProjectPath,
@@ -21,7 +22,10 @@ import {
   sessionSummaries,
   subscribeCatalog,
 } from "../transcripts/transcriptCatalog.ts";
-import type { SourceId } from "../transcripts/sources/transcriptTypes.ts";
+import type {
+  EventMode,
+  SourceId,
+} from "../transcripts/sources/transcriptTypes.ts";
 import {
   CORS_HEADERS,
   encodeServerSentEvent,
@@ -37,6 +41,16 @@ const STREAM_ROUTE = /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/stream$
 
 function sourceId(value: string): SourceId {
   return value.toLowerCase() as SourceId;
+}
+
+// Rejected rather than defaulted when unrecognized. A mode decides what an event
+// index means, so silently falling back to raw for a typo would answer a nice-mode
+// request with raw-mode indices, and every index in the response would point at the
+// wrong line with nothing to signal it.
+function modeQuery(url: URL): EventMode | null {
+  const raw = url.searchParams.get("mode");
+  if (raw === null) return "raw";
+  return raw === "raw" || raw === "nice" ? raw : null;
 }
 
 function integerQuery(
@@ -125,6 +139,7 @@ async function paginatedEvents(
   sessionId: string,
   offset: number,
   limit: number,
+  mode: EventMode,
 ): Promise<Response> {
   const session = findSession(source, sessionId);
   if (!session) return jsonResponse({ error: "session not found" }, 404);
@@ -136,10 +151,14 @@ async function paginatedEvents(
       session.transcriptPath,
       offset,
       limit,
+      mode,
     );
     return jsonResponse({
       events,
-      total: getEventCount(source, sessionId),
+      // Per mode, so the panel's paging arithmetic is in the same units as the
+      // indices it just received.
+      total: getEventCount(source, sessionId, mode),
+      mode,
       usage: getSessionUsage(source, sessionId),
     });
   } finally {
@@ -151,6 +170,7 @@ async function rawEvent(
   source: SourceId,
   sessionId: string,
   eventIndex: number,
+  mode: EventMode,
 ): Promise<Response> {
   const session = findSession(source, sessionId);
   if (!session) return jsonResponse({ error: "session not found" }, 404);
@@ -161,6 +181,7 @@ async function rawEvent(
       sessionId,
       session.transcriptPath,
       eventIndex,
+      mode,
     );
     if (raw === null) return jsonResponse({ error: "event not found" }, 404);
     return new Response(raw, {
@@ -185,6 +206,7 @@ function eventStream(
   source: SourceId,
   sessionId: string,
   after: number,
+  mode: EventMode,
 ): Response {
   const session = findSession(source, sessionId);
   if (!session) return jsonResponse({ error: "session not found" }, 404);
@@ -198,8 +220,20 @@ function eventStream(
     const writeEvent = (event: ActivityEvent): void => {
       write(encodeServerSentEvent({
         ...event,
+        mode,
         usage: getSessionUsage(source, sessionId),
       }));
+    };
+    // A stream is opened for ONE mode, so a machinery line is not an event this
+    // subscriber has: it is skipped rather than renumbered, and the nice indices
+    // stay contiguous exactly as the index assigned them.
+    const onNotice = ({ event, niceIndex }: EventNotice): void => {
+      if (mode === "raw") {
+        writeEvent({ ...event, otherModeIndex: niceIndex });
+        return;
+      }
+      if (niceIndex === null) return;
+      writeEvent({ ...event, index: niceIndex, otherModeIndex: event.index });
     };
     acquireIndex(source, sessionId);
     const watcher = chokidar.watch(session.transcriptPath, {
@@ -225,7 +259,7 @@ function eventStream(
         discardIndexIfUnused(source, sessionId);
         return;
       }
-      const total = getEventCount(source, sessionId);
+      const total = getEventCount(source, sessionId, mode);
       if (after < total) {
         const backfill = await readEvents(
           source,
@@ -233,6 +267,7 @@ function eventStream(
           session.transcriptPath,
           after,
           total - after,
+          mode,
         );
         if (cancelled) {
           discardIndexIfUnused(source, sessionId);
@@ -240,7 +275,7 @@ function eventStream(
         }
         for (const event of backfill) writeEvent(event);
       }
-      unsubscribeEvents = subscribeEvents(source, sessionId, writeEvent);
+      unsubscribeEvents = subscribeEvents(source, sessionId, onNotice);
       await syncIndex(source, sessionId, session.transcriptPath);
       if (cancelled) discardIndexIfUnused(source, sessionId);
     })().catch((error) => {
@@ -271,6 +306,8 @@ export const handleSessionRoutes: RouteHandler = (request, url, server) => {
     return sessionSnapshotStream(request, url, server);
   }
 
+  const mode = modeQuery(url);
+
   const eventMatch = EVENT_ROUTE.exec(url.pathname);
   if (eventMatch) {
     const offset = integerQuery(url, "offset", 0);
@@ -278,12 +315,14 @@ export const handleSessionRoutes: RouteHandler = (request, url, server) => {
     if (offset === null || limit === null || limit < 1) {
       return jsonResponse({ error: "invalid pagination" }, 400);
     }
-    return paginatedEvents(sourceId(eventMatch[1]!), eventMatch[2]!, offset, limit);
+    if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
+    return paginatedEvents(sourceId(eventMatch[1]!), eventMatch[2]!, offset, limit, mode);
   }
 
   const rawMatch = RAW_EVENT_ROUTE.exec(url.pathname);
   if (rawMatch) {
-    return rawEvent(sourceId(rawMatch[1]!), rawMatch[2]!, Number(rawMatch[3]!));
+    if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
+    return rawEvent(sourceId(rawMatch[1]!), rawMatch[2]!, Number(rawMatch[3]!), mode);
   }
 
   const streamMatch = STREAM_ROUTE.exec(url.pathname);
@@ -292,12 +331,14 @@ export const handleSessionRoutes: RouteHandler = (request, url, server) => {
     if (after === null) {
       return jsonResponse({ error: "invalid after" }, 400);
     }
+    if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
     return eventStream(
       request,
       server,
       sourceId(streamMatch[1]!),
       streamMatch[2]!,
       after,
+      mode,
     );
   }
 

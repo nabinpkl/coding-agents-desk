@@ -4,6 +4,23 @@ import AgentDeskWire
 
 @testable import AgentDeskHost
 
+// Named structs rather than tuples so a test can read `.mode` without every call site
+// depending on positional order.
+struct EventRequest {
+    let source: String
+    let sessionId: String
+    let offset: Int
+    let limit: Int
+    let mode: AgentFeedEventMode
+}
+
+struct RawRequest {
+    let source: String
+    let sessionId: String
+    let eventIndex: Int
+    let mode: AgentFeedEventMode
+}
+
 final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     var projects = AgentFeedProjectsSnapshot(projects: [])
     var sessions = AgentFeedSessionsSnapshot(projectPath: "/project", sessions: [])
@@ -19,17 +36,15 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     private var eventCallbacks: [String: @Sendable (AgentFeedActivityEvent) -> Void] = [:]
     private var eventErrors: [String: @Sendable (Error) -> Void] = [:]
     private var _cancelledStreams = 0
-    private var _eventRequests: [(source: String, sessionId: String, offset: Int, limit: Int)] = []
-    private var _rawRequests: [(source: String, sessionId: String, eventIndex: Int)] = []
+    private var _eventRequests: [EventRequest] = []
+    private var _rawRequests: [RawRequest] = []
     private var _openedEventStreams = 0
+    private var _streamModes: [AgentFeedEventMode] = []
 
     var cancelledStreams: Int { lock.withLock { _cancelledStreams } }
-    var eventRequests: [(source: String, sessionId: String, offset: Int, limit: Int)] {
-        lock.withLock { _eventRequests }
-    }
-    var rawRequests: [(source: String, sessionId: String, eventIndex: Int)] {
-        lock.withLock { _rawRequests }
-    }
+    var eventRequests: [EventRequest] { lock.withLock { _eventRequests } }
+    var rawRequests: [RawRequest] { lock.withLock { _rawRequests } }
+    var streamModes: [AgentFeedEventMode] { lock.withLock { _streamModes } }
     var openedEventStreams: Int { lock.withLock { _openedEventStreams } }
 
     func fetchProjects() async throws -> AgentFeedProjectsSnapshot {
@@ -44,10 +59,13 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
         source: String,
         sessionId: String,
         offset: Int,
-        limit: Int
+        limit: Int,
+        mode: AgentFeedEventMode
     ) async throws -> AgentFeedEventsPage {
         lock.withLock {
-            _eventRequests.append((source, sessionId, offset, limit))
+            _eventRequests.append(EventRequest(
+                source: source, sessionId: sessionId, offset: offset, limit: limit, mode: mode
+            ))
         }
         if eventFetchDelayMilliseconds > 0 {
             try await Task.sleep(for: .milliseconds(eventFetchDelayMilliseconds))
@@ -55,9 +73,16 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
         return eventsPage
     }
 
-    func fetchRawEvent(source: String, sessionId: String, eventIndex: Int) async throws -> String {
+    func fetchRawEvent(
+        source: String,
+        sessionId: String,
+        eventIndex: Int,
+        mode: AgentFeedEventMode
+    ) async throws -> String {
         lock.withLock {
-            _rawRequests.append((source, sessionId, eventIndex))
+            _rawRequests.append(RawRequest(
+                source: source, sessionId: sessionId, eventIndex: eventIndex, mode: mode
+            ))
         }
         return rawEvent
     }
@@ -89,11 +114,13 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
         source: String,
         sessionId: String,
         after: Int,
+        mode: AgentFeedEventMode,
         onEvent: @escaping @Sendable (AgentFeedActivityEvent) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
         lock.withLock {
             _openedEventStreams += 1
+            _streamModes.append(mode)
             eventCallbacks["\(source):\(sessionId)"] = onEvent
             eventErrors["\(source):\(sessionId)"] = onError
         }
@@ -379,6 +406,7 @@ struct AgentFeedBridgeTests {
                 source: "codex",
                 sessionId: "session",
                 after: 0,
+                mode: .raw,
                 onEvent: { _ in },
                 onError: { continuation.resume(returning: $0) }
             )

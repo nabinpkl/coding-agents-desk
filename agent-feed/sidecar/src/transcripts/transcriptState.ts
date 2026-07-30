@@ -15,7 +15,17 @@ export interface TranscriptState {
   sourceWatchers: FSWatcher[];
   discoveryTimer: ReturnType<typeof setInterval> | null;
   watcherState: WatcherState;
+  // Raw event index -> byte offset of its line.
   eventByteOffsets: Map<string, number[]>;
+  // Nice event index -> RAW event index, not a byte offset. Nice event N's byte
+  // offset is therefore `eventByteOffsets[niceToRaw[N]]`, which makes switching
+  // modes an array read instead of a search. Built in the same pass as
+  // eventByteOffsets so the two cannot come apart.
+  //
+  // There is deliberately no reverse map: raw -> nice is a binary search in this
+  // array plus a local counter over the window being read, which costs nothing at
+  // read time and removes a second copy that could drift from this one.
+  niceToRaw: Map<string, number[]>;
   indexedSizes: Map<string, number>;
   indexed: Set<string>;
   indexBuilds: Map<string, Promise<void>>;
@@ -37,6 +47,7 @@ export const state: TranscriptState = {
   discoveryTimer: null,
   watcherState: "idle",
   eventByteOffsets: new Map(),
+  niceToRaw: new Map(),
   indexedSizes: new Map(),
   indexed: new Set(),
   indexBuilds: new Map(),

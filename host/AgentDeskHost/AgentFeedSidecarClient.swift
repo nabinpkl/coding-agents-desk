@@ -37,6 +37,9 @@ struct AgentFeedActivityEvent: Codable {
     let ts: Double
     let type: String
     let blocks: [AgentFeedActivityBlock]
+    /// Position of the same line in the other mode, or nil when it has none. See the wire
+    /// `ActivityEvent.otherModeIndex`.
+    let otherModeIndex: Int?
     /// Occupancy as of this event. Session state, not event state: it rides the per-event stream
     /// message because that stream already fires once per event, so the meter goes live without a
     /// message type of its own.
@@ -47,12 +50,14 @@ struct AgentFeedActivityEvent: Codable {
         ts: Double,
         type: String,
         blocks: [AgentFeedActivityBlock],
+        otherModeIndex: Int? = nil,
         usage: AgentFeedTokenUsage? = nil
     ) {
         self.index = index
         self.ts = ts
         self.type = type
         self.blocks = blocks
+        self.otherModeIndex = otherModeIndex
         self.usage = usage
     }
 }
@@ -111,11 +116,29 @@ final class SidecarStreamHandle: @unchecked Sendable {
     }
 }
 
+/// Which view of a transcript a sidecar call addresses. Event indices are mode-relative, so this
+/// travels with every call that names one.
+enum AgentFeedEventMode: String, Sendable {
+    case raw
+    case nice
+}
+
 protocol SidecarClient: Sendable {
     func fetchProjects() async throws -> AgentFeedProjectsSnapshot
     func fetchSessions(projectPath: String) async throws -> AgentFeedSessionsSnapshot
-    func fetchEventsPage(source: String, sessionId: String, offset: Int, limit: Int) async throws -> AgentFeedEventsPage
-    func fetchRawEvent(source: String, sessionId: String, eventIndex: Int) async throws -> String
+    func fetchEventsPage(
+        source: String,
+        sessionId: String,
+        offset: Int,
+        limit: Int,
+        mode: AgentFeedEventMode
+    ) async throws -> AgentFeedEventsPage
+    func fetchRawEvent(
+        source: String,
+        sessionId: String,
+        eventIndex: Int,
+        mode: AgentFeedEventMode
+    ) async throws -> String
     func openProjectsStream(
         onSnapshot: @escaping @Sendable (AgentFeedProjectsSnapshot) -> Void,
         onError: @escaping @Sendable (Error) -> Void
@@ -129,6 +152,7 @@ protocol SidecarClient: Sendable {
         source: String,
         sessionId: String,
         after: Int,
+        mode: AgentFeedEventMode,
         onEvent: @escaping @Sendable (AgentFeedActivityEvent) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle
@@ -183,7 +207,13 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         )
     }
 
-    func fetchEventsPage(source: String, sessionId: String, offset: Int, limit: Int) async throws -> AgentFeedEventsPage {
+    func fetchEventsPage(
+        source: String,
+        sessionId: String,
+        offset: Int,
+        limit: Int,
+        mode: AgentFeedEventMode
+    ) async throws -> AgentFeedEventsPage {
         struct Envelope: Decodable {
             let events: [AgentFeedActivityEvent]
             let total: Int
@@ -196,6 +226,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
                 query: [
                     URLQueryItem(name: "offset", value: String(offset)),
                     URLQueryItem(name: "limit", value: String(limit)),
+                    URLQueryItem(name: "mode", value: mode.rawValue),
                 ]
             )
         )
@@ -206,8 +237,16 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         )
     }
 
-    func fetchRawEvent(source: String, sessionId: String, eventIndex: Int) async throws -> String {
-        let url = try requestURL(path: "/api/sessions/\(source)/\(sessionId)/events/\(eventIndex)/raw")
+    func fetchRawEvent(
+        source: String,
+        sessionId: String,
+        eventIndex: Int,
+        mode: AgentFeedEventMode
+    ) async throws -> String {
+        let url = try requestURL(
+            path: "/api/sessions/\(source)/\(sessionId)/events/\(eventIndex)/raw",
+            query: [URLQueryItem(name: "mode", value: mode.rawValue)]
+        )
         let (data, response) = try await session.data(from: url)
         try validateHTTP(response, url: url)
         guard data.count <= 100 * 1024 * 1024 else {
@@ -251,13 +290,17 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         source: String,
         sessionId: String,
         after: Int,
+        mode: AgentFeedEventMode,
         onEvent: @escaping @Sendable (AgentFeedActivityEvent) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
         openJSONStream(
             url: try? requestURL(
                 path: "/api/sessions/\(source)/\(sessionId)/stream",
-                query: [URLQueryItem(name: "after", value: String(after))]
+                query: [
+                    URLQueryItem(name: "after", value: String(after)),
+                    URLQueryItem(name: "mode", value: mode.rawValue),
+                ]
             ),
             type: AgentFeedActivityEvent.self,
             onValue: onEvent,

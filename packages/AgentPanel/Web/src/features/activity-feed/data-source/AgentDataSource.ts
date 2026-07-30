@@ -2,9 +2,24 @@ import type { ActivityEvent, TokenUsage } from "../useSessionEventsStream";
 
 export type AgentSource = "claude" | "codex";
 
+/**
+ * Which view of a transcript to read.
+ *
+ * `raw` is every line in file order, the fidelity guarantee. `nice` omits harness
+ * machinery and renumbers what is left contiguously from 0.
+ *
+ * Part of the session reference rather than a per-call argument because an event
+ * index is mode-relative: the same integer names a different line in the two views,
+ * so every call that carries an index has to carry the mode too, and a data source
+ * that could be asked for one mode's page while holding the other's buffer would
+ * silently mix them.
+ */
+export type EventMode = "raw" | "nice";
+
 export interface SessionReference {
   source: AgentSource;
   sessionId: string;
+  mode: EventMode;
 }
 
 export interface EventsPage {

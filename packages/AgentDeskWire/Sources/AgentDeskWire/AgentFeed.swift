@@ -31,23 +31,37 @@ public struct ActivityBlock: Codable, Equatable, Sendable {
 }
 
 public struct ActivityEvent: Codable, Equatable, Sendable {
+    /// Position in the mode this event was read in.
     public let index: Int
     public let ts: Double
     public let type: String
     public let blocks: [ActivityBlock]
+    /// Position of the same line in the OTHER mode, or nil when it has none -- a machinery line read
+    /// in raw mode is absent from the nice view entirely. Carried so a mode switch can keep the
+    /// viewer's place: the index is mode-relative, and this is the only translation the panel has
+    /// without another round trip.
+    public let otherModeIndex: Int?
 
     public enum CodingKeys: String, CodingKey {
         case index = "i"
         case ts
         case type = "tp"
         case blocks = "b"
+        case otherModeIndex = "xi"
     }
 
-    public init(index: Int, ts: Double, type: String, blocks: [ActivityBlock]) {
+    public init(
+        index: Int,
+        ts: Double,
+        type: String,
+        blocks: [ActivityBlock],
+        otherModeIndex: Int? = nil
+    ) {
         self.index = index
         self.ts = ts
         self.type = type
         self.blocks = blocks
+        self.otherModeIndex = otherModeIndex
     }
 }
 
@@ -235,10 +249,19 @@ public struct AgentThreadSubscribe: Codable, Equatable, Sendable {
     public let type = "agent-thread-sub"
     public let source: String
     public let sessionId: String
-    public enum CodingKeys: String, CodingKey { case type = "t"; case source = "src"; case sessionId = "sid" }
-    public init(source: String, sessionId: String) {
+    /// Which view to stream. Absent means `raw`, the fidelity view, which is also what every caller
+    /// meant before modes existed.
+    public let mode: String?
+    public enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case source = "src"
+        case sessionId = "sid"
+        case mode = "md"
+    }
+    public init(source: String, sessionId: String, mode: String? = nil) {
         self.source = source
         self.sessionId = sessionId
+        self.mode = mode
     }
 }
 
@@ -248,18 +271,22 @@ public struct AgentThreadLoadOlder: Codable, Equatable, Sendable {
     public let sessionId: String
     public let beforeIndex: Int
     public let limit: Int
+    /// Which view `beforeIndex` is counted in. Absent means `raw`.
+    public let mode: String?
     public enum CodingKeys: String, CodingKey {
         case type = "t"
         case source = "src"
         case sessionId = "sid"
         case beforeIndex = "bi"
         case limit = "lim"
+        case mode = "md"
     }
-    public init(source: String, sessionId: String, beforeIndex: Int, limit: Int) {
+    public init(source: String, sessionId: String, beforeIndex: Int, limit: Int, mode: String? = nil) {
         self.source = source
         self.sessionId = sessionId
         self.beforeIndex = beforeIndex
         self.limit = limit
+        self.mode = mode
     }
 }
 
@@ -286,6 +313,10 @@ public struct AgentThreadChunk: Codable, Equatable, Sendable {
     /// is session state, and the chunk stream already fires per event, so the meter updates live
     /// without a message type of its own. Nil when the transcript has published no occupancy yet.
     public let usage: TokenUsage?
+    /// The view this chunk answers, so the panel can discard one that is still in flight from the mode
+    /// it just left. Without it, indices counted in the old view would merge into the new one and every
+    /// row would be off. Absent means `raw`.
+    public let mode: String?
     public enum CodingKeys: String, CodingKey {
         case type = "t"
         case source = "src"
@@ -295,6 +326,7 @@ public struct AgentThreadChunk: Codable, Equatable, Sendable {
         case total = "tot"
         case isLive = "lv"
         case usage = "u"
+        case mode = "md"
     }
     public init(
         source: String,
@@ -303,7 +335,8 @@ public struct AgentThreadChunk: Codable, Equatable, Sendable {
         windowStart: Int,
         total: Int,
         isLive: Bool,
-        usage: TokenUsage? = nil
+        usage: TokenUsage? = nil,
+        mode: String? = nil
     ) {
         self.source = source
         self.sessionId = sessionId
@@ -312,6 +345,7 @@ public struct AgentThreadChunk: Codable, Equatable, Sendable {
         self.total = total
         self.isLive = isLive
         self.usage = usage
+        self.mode = mode
     }
 }
 

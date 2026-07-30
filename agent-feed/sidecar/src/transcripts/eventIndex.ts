@@ -5,14 +5,33 @@ import { sessionKey } from "./transcriptCatalog.ts";
 import { mergeUsage } from "./usageState.ts";
 import type {
   ActivityEvent,
+  EventMode,
+  LineClass,
   ParsedLine,
   SourceAdapter,
   SourceId,
   TokenUsage,
 } from "./sources/transcriptTypes.ts";
 
-export type { ActivityEvent, ActivityBlock } from "./sources/transcriptTypes.ts";
-export type EventSubscriber = (event: ActivityEvent) => void;
+export type {
+  ActivityEvent,
+  ActivityBlock,
+  EventMode,
+} from "./sources/transcriptTypes.ts";
+
+/**
+ * One newly indexed line, addressed in both views.
+ *
+ * A subscriber is opened for a particular mode, so it needs both numbers: the raw
+ * event carries its raw index, and `niceIndex` is null for a machinery line, which
+ * a nice-mode subscriber then skips entirely.
+ */
+export interface EventNotice {
+  event: ActivityEvent;
+  niceIndex: number | null;
+}
+
+export type EventSubscriber = (notice: EventNotice) => void;
 
 export const MAX_RAW_EVENT_BYTES = 100 * 1024 * 1024;
 const INDEX_READ_BYTES = 1024 * 1024;
@@ -36,13 +55,38 @@ export class RawEventTooLargeError extends Error {
 // request start a second build over the same file.
 function dropIndexState(key: string, options: { keepBuild?: boolean } = {}): void {
   state.eventByteOffsets.delete(key);
+  state.niceToRaw.delete(key);
   state.indexedSizes.delete(key);
   state.indexed.delete(key);
   state.sessionUsage.delete(key);
   if (!options.keepBuild) state.indexBuilds.delete(key);
 }
 
-function emitParsedRaw(key: string, byteOffset: number, parsed: ParsedLine): void {
+/**
+ * Index of the first nice event whose raw index is >= `rawIndex`.
+ *
+ * Doubles as the raw -> nice translation: when `niceToRaw[result] === rawIndex` the
+ * line IS nice event `result`, and otherwise it is machinery and `result` names the
+ * nearest content event after it. Binary search over the ascending array, so no
+ * reverse map has to be stored and kept in step.
+ */
+export function niceInsertionPoint(niceToRaw: number[], rawIndex: number): number {
+  let low = 0;
+  let high = niceToRaw.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (niceToRaw[middle]! < rawIndex) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function emitParsedRaw(
+  key: string,
+  byteOffset: number,
+  parsed: ParsedLine,
+  lineClass: LineClass | undefined,
+): void {
   let offsets = state.eventByteOffsets.get(key);
   if (!offsets) {
     offsets = [];
@@ -50,11 +94,27 @@ function emitParsedRaw(key: string, byteOffset: number, parsed: ParsedLine): voi
   }
   const last = offsets.length > 0 ? offsets[offsets.length - 1]! : -1;
   if (byteOffset <= last) return;
-  const event: ActivityEvent = { index: offsets.length, ...parsed };
+  let niceToRaw = state.niceToRaw.get(key);
+  if (!niceToRaw) {
+    niceToRaw = [];
+    state.niceToRaw.set(key, niceToRaw);
+  }
+  const rawIndex = offsets.length;
+  // Absent means content: the classifier's default, and the same default the raw
+  // view applies, so an adapter that has not learned about a record type yet keeps
+  // it visible in both.
+  const isContent = lineClass !== "machinery";
+  const niceIndex = isContent ? niceToRaw.length : null;
   offsets.push(byteOffset);
+  if (isContent) niceToRaw.push(rawIndex);
+  const event: ActivityEvent = {
+    index: rawIndex,
+    otherModeIndex: niceIndex,
+    ...parsed,
+  };
   for (const subscriber of state.eventSubscribers.get(key) ?? []) {
     try {
-      subscriber(event);
+      subscriber({ event, niceIndex });
     } catch (error) {
       console.error("agent feed event subscriber failed", error);
     }
@@ -95,7 +155,9 @@ async function scanFrom(
             mergeUsage(state.sessionUsage.get(key), result.usage),
           );
         }
-        if (result?.event) emitParsedRaw(key, carryStart + lineStart, result.event);
+        if (result?.event) {
+          emitParsedRaw(key, carryStart + lineStart, result.event, result.lineClass);
+        }
       }
       lineStart = index + 1;
     }
@@ -192,8 +254,34 @@ export function discardIndexIfUnused(source: SourceId, sessionId: string): void 
   dropIndexState(key);
 }
 
-export function getEventCount(source: SourceId, sessionId: string): number {
-  return (state.eventByteOffsets.get(sessionKey(source, sessionId)) ?? []).length;
+export function getEventCount(
+  source: SourceId,
+  sessionId: string,
+  mode: EventMode = "raw",
+): number {
+  const key = sessionKey(source, sessionId);
+  const table = mode === "nice" ? state.niceToRaw : state.eventByteOffsets;
+  return (table.get(key) ?? []).length;
+}
+
+/**
+ * Translate an event index from one mode to the other.
+ *
+ * Returns null when there is no counterpart, which happens in exactly one
+ * direction: a machinery line addressed in raw mode is absent from the nice view.
+ * Used to keep the viewer's place across a mode switch.
+ */
+export function translateEventIndex(
+  source: SourceId,
+  sessionId: string,
+  eventIndex: number,
+  from: EventMode,
+): number | null {
+  const niceToRaw = state.niceToRaw.get(sessionKey(source, sessionId)) ?? [];
+  if (eventIndex < 0) return null;
+  if (from === "nice") return niceToRaw[eventIndex] ?? null;
+  const point = niceInsertionPoint(niceToRaw, eventIndex);
+  return niceToRaw[point] === eventIndex ? point : null;
 }
 
 /**
@@ -210,32 +298,67 @@ export function getSessionUsage(
   return state.sessionUsage.get(sessionKey(source, sessionId)) ?? null;
 }
 
+/**
+ * Read one page of events in the requested mode.
+ *
+ * The mode changes what an index MEANS, and this is the function where getting
+ * that wrong is invisible. It reads the byte span between two indexed lines and
+ * re-parses everything inside it, and in nice mode the omitted lines are still
+ * physically interleaved in that span -- so the same classification the index
+ * applied has to be applied again here. Skip that and row N stops being event N,
+ * which does not fail anywhere: it surfaces as a Raw drawer showing a different
+ * line, a paging anchor landing in the wrong place, and a sticky jump to the wrong
+ * row.
+ */
 export async function readEvents(
   source: SourceId,
   sessionId: string,
   transcriptPath: string,
   offset: number,
   limit: number,
+  mode: EventMode = "raw",
 ): Promise<ActivityEvent[]> {
   await ensureIndexed(source, sessionId, transcriptPath);
   const key = sessionKey(source, sessionId);
   const offsets = state.eventByteOffsets.get(key) ?? [];
+  const niceToRaw = state.niceToRaw.get(key) ?? [];
+  const nice = mode === "nice";
+  const total = nice ? niceToRaw.length : offsets.length;
   const startIndex = Math.max(0, offset);
-  if (startIndex >= offsets.length || limit <= 0) return [];
-  const endIndex = Math.min(offsets.length, startIndex + limit);
-  const startByte = offsets[startIndex]!;
+  if (startIndex >= total || limit <= 0) return [];
+  const endIndex = Math.min(total, startIndex + limit);
+
+  // Both bounds resolve through the raw index, because byte offsets are only
+  // stored per raw line: nice event N lives at `offsets[niceToRaw[N]]`.
+  const startRaw = nice ? niceToRaw[startIndex]! : startIndex;
+  const endRaw = nice
+    ? (endIndex < total ? niceToRaw[endIndex]! : offsets.length)
+    : endIndex;
+  const startByte = offsets[startRaw]!;
   const metadata = await stat(transcriptPath);
-  const endByte = endIndex < offsets.length ? offsets[endIndex]! : metadata.size;
+  const endByte = endRaw < offsets.length ? offsets[endRaw]! : metadata.size;
   const text = await Bun.file(transcriptPath).slice(startByte, endByte).text();
   const adapter = adapterFor(source);
   const events: ActivityEvent[] = [];
+  // Counters for the two views, advanced independently: raw counts every line with
+  // an event, nice counts only the content ones. Seeded from the index so both stay
+  // absolute rather than window-relative.
+  let rawCursor = startRaw;
+  let niceCursor = nice ? startIndex : niceInsertionPoint(niceToRaw, startRaw);
   for (const line of text.split("\n")) {
     if (events.length >= limit) break;
     if (!line) continue;
     const parsed = adapter.processLine(line);
-    if (parsed?.event) {
-      events.push({ index: startIndex + events.length, ...parsed.event });
-    }
+    if (!parsed?.event) continue;
+    const isContent = parsed.lineClass !== "machinery";
+    const rawIndex = rawCursor++;
+    const niceIndex = isContent ? niceCursor++ : null;
+    if (nice && !isContent) continue;
+    events.push({
+      index: nice ? niceIndex! : rawIndex,
+      otherModeIndex: nice ? rawIndex : niceIndex,
+      ...parsed.event,
+    });
   }
   return events;
 }
@@ -245,13 +368,18 @@ export async function readEventRaw(
   sessionId: string,
   transcriptPath: string,
   eventIndex: number,
+  mode: EventMode = "raw",
 ): Promise<string | null> {
   await ensureIndexed(source, sessionId, transcriptPath);
-  const offsets = state.eventByteOffsets.get(sessionKey(source, sessionId)) ?? [];
-  if (eventIndex < 0 || eventIndex >= offsets.length) return null;
+  const key = sessionKey(source, sessionId);
+  const offsets = state.eventByteOffsets.get(key) ?? [];
+  const rawIndex = mode === "nice"
+    ? translateEventIndex(source, sessionId, eventIndex, "nice")
+    : eventIndex;
+  if (rawIndex === null || rawIndex < 0 || rawIndex >= offsets.length) return null;
   const metadata = await stat(transcriptPath);
-  const startByte = offsets[eventIndex]!;
-  const endByte = eventIndex + 1 < offsets.length ? offsets[eventIndex + 1]! : metadata.size;
+  const startByte = offsets[rawIndex]!;
+  const endByte = rawIndex + 1 < offsets.length ? offsets[rawIndex + 1]! : metadata.size;
   const byteCount = endByte - startByte;
   if (byteCount > MAX_RAW_EVENT_BYTES + 1) throw new RawEventTooLargeError(byteCount);
   const bytes = await Bun.file(transcriptPath).slice(startByte, endByte).bytes();
@@ -267,10 +395,11 @@ export async function readBlockRaw(
   transcriptPath: string,
   eventIndex: number,
   blockIndex: number,
+  mode: EventMode = "raw",
 ): Promise<string | null> {
   const adapter = adapterFor(source);
   if (!adapter.extractBlockRaw) return null;
-  const raw = await readEventRaw(source, sessionId, transcriptPath, eventIndex);
+  const raw = await readEventRaw(source, sessionId, transcriptPath, eventIndex, mode);
   if (raw === null) return null;
   return adapter.extractBlockRaw(raw, blockIndex);
 }

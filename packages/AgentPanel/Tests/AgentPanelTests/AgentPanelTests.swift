@@ -70,7 +70,7 @@ struct AgentPanelTests {
             AgentPanelRequest.decode(
                 tag: "agent-thread-sub",
                 body: ["sid": "session-1", "src": "codex"]
-            ) == .threadSubscribe(source: .codex, sessionId: "session-1")
+            ) == .threadSubscribe(source: .codex, sessionId: "session-1", mode: .raw)
         )
         #expect(
             AgentPanelRequest.decode(
@@ -80,7 +80,8 @@ struct AgentPanelTests {
                 source: .claude,
                 sessionId: "session-1",
                 beforeIndex: 100,
-                limit: 25
+                limit: 25,
+                mode: .raw
             )
         )
         #expect(AgentPanelRequest.decode(tag: "agent-thread-sub", body: [:]) == nil)
@@ -132,8 +133,56 @@ struct AgentPanelTests {
             source: .claude,
             sessionId: "session-1",
             beforeIndex: 0,
-            limit: 1
+            limit: 1,
+            mode: .raw
         ))
+    }
+
+    /// A mode decides what an event index MEANS, so the same integer names a different line in the two
+    /// views. An absent mode is the fidelity view, which is what every caller meant before modes
+    /// existed; a present but unrecognized one is refused, because guessing would answer with indices
+    /// counted in a view the caller did not ask for and nothing downstream could tell.
+    @Test func requestDecoderDefaultsAnAbsentModeToRawAndRefusesAnUnknownOne() {
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-thread-sub",
+            body: ["sid": "session-1", "src": "codex", "md": "nice"]
+        ) == .threadSubscribe(source: .codex, sessionId: "session-1", mode: .nice))
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-thread-older",
+            body: ["src": "claude", "sid": "session-1", "bi": 100, "lim": 25, "md": "nice"]
+        ) == .threadLoadOlder(
+            source: .claude,
+            sessionId: "session-1",
+            beforeIndex: 100,
+            limit: 25,
+            mode: .nice
+        ))
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-raw-event-get",
+            body: ["rid": "r1", "src": "codex", "sid": "s1", "ei": 9, "md": "nice"]
+        ) == .rawEvent(
+            requestId: "r1",
+            source: .codex,
+            sessionId: "s1",
+            eventIndex: 9,
+            mode: .nice
+        ))
+
+        for body: [String: Any] in [
+            ["sid": "session-1", "src": "codex", "md": "pretty"],
+            ["sid": "session-1", "src": "codex", "md": ""],
+            ["sid": "session-1", "src": "codex", "md": 3],
+        ] {
+            #expect(AgentPanelRequest.decode(tag: "agent-thread-sub", body: body) == nil)
+        }
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-thread-older",
+            body: ["src": "claude", "sid": "session-1", "bi": 100, "lim": 25, "md": "pretty"]
+        ) == nil)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-raw-event-get",
+            body: ["rid": "r1", "src": "codex", "sid": "s1", "ei": 9, "md": "pretty"]
+        ) == nil)
     }
 
     @Test func requestDecoderPreservesRawEventIdentity() {
@@ -144,7 +193,8 @@ struct AgentPanelTests {
             requestId: "r1",
             source: .codex,
             sessionId: "s1",
-            eventIndex: 9
+            eventIndex: 9,
+            mode: .raw
         ))
         #expect(AgentPanelRequest.decode(
             tag: "agent-raw-event-get",

@@ -30,7 +30,7 @@ import {
   type EventRowContext,
 } from "./ActivityEventRows";
 import { TokenMeter } from "./TokenMeter";
-import type { AgentSource } from "./data-source/AgentDataSource";
+import type { AgentSource, EventMode } from "./data-source/AgentDataSource";
 
 /** Fallback for the sticky bar's height before it has rendered once. */
 const STICKY_HEIGHT_ESTIMATE = 44;
@@ -38,20 +38,30 @@ const STICKY_HEIGHT_ESTIMATE = 44;
 export function ActivityFeed({
   source,
   sessionId,
+  mode,
+  onToggleMode,
   controlsHost,
 }: {
   source: AgentSource;
   sessionId: string;
   /**
-   * Where to render the fold-all control, supplied by the shell so the thread
-   * spends no row of its own on it. `null` only while the shell's header is
+   * Which view to render. Owned by the shell rather than here so the choice
+   * survives switching threads, and so this component remounts when it changes --
+   * every index it holds is counted in the mode, so none of them survives a
+   * switch.
+   */
+  mode: EventMode;
+  onToggleMode: () => void;
+  /**
+   * Where to render the thread's controls, supplied by the shell so the thread
+   * spends no row of its own on them. `null` only while the shell's header is
    * still mounting; required rather than optional so a shell cannot drop the
-   * control by forgetting to pass it.
+   * controls by forgetting to pass it.
    */
   controlsHost: HTMLElement | null;
 }) {
   const { events, loadOlder, windowStart, usage, loading, error } =
-    useSessionEventsStream(source, sessionId);
+    useSessionEventsStream(source, sessionId, mode);
   const parentRef = useRef<HTMLDivElement>(null);
   const sizedRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLButtonElement>(null);
@@ -168,8 +178,13 @@ export function ActivityFeed({
   }, [pause]);
 
   const rowContext: EventRowContext = useMemo(
-    () => ({ source, sessionId, expandedTools, onToggleTool: toggleTool, pairedToolResults }),
-    [source, sessionId, expandedTools, toggleTool, pairedToolResults],
+    () => ({
+      session: { source, sessionId, mode },
+      expandedTools,
+      onToggleTool: toggleTool,
+      pairedToolResults,
+    }),
+    [source, sessionId, mode, expandedTools, toggleTool, pairedToolResults],
   );
 
   const rowVirtualizer = useVirtualizer({
@@ -281,6 +296,28 @@ export function ActivityFeed({
     ? createPortal(
         <>
           <TokenMeter usage={usage} />
+          {/* The nice view omits harness machinery, so the raw view has to stay one
+              press away: it is the fidelity guarantee that makes omitting allowed at
+              all, and a viewer who wants to know what was dropped here needs it. */}
+          <button
+            type="button"
+            onClick={onToggleMode}
+            title={
+              mode === "nice"
+                ? "Showing content only. Switch to every transcript line"
+                : "Showing every transcript line. Switch to content only"
+            }
+            aria-label={mode === "nice" ? "show every line" : "show content only"}
+            aria-pressed={mode === "raw"}
+            className={
+              "flex h-8 items-center justify-center rounded-lg px-1.5 font-mono text-(length:--agent-panel-fs-tile-chip,12px) uppercase tracking-wider transition-colors " +
+              (mode === "raw"
+                ? "bg-primary/20 text-primary hover:bg-primary/30"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80")
+            }
+          >
+            {mode === "raw" ? "raw" : "nice"}
+          </button>
           <button
             type="button"
             onClick={allCollapsed ? expandAll : collapseAll}

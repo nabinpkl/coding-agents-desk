@@ -43,119 +43,177 @@ export const FIXTURE_SESSIONS = [
   },
 ];
 
-function makeFixtureSeedChunk(source: Source, sessionId: string) {
+type Mode = "raw" | "nice";
+
+/**
+ * The thread's lines in file order, tagged with whether the nice view keeps them.
+ *
+ * One list, both views derived from it, because that is how the sidecar works: the
+ * nice view is this list filtered and renumbered, and every index the panel receives
+ * is counted in the view it asked for. A fixture that hardcoded two lists could
+ * disagree with itself about which line index 4 is, which is exactly the failure the
+ * real index has to avoid.
+ */
+interface FixtureLine {
+  /** Present when the nice view omits this line. */
+  machinery?: true;
+  age: number;
+  tp: "user" | "assistant" | "reasoning" | "system";
+  b: Array<Record<string, unknown>>;
+}
+
+const FIXTURE_LINES: FixtureLine[] = [
+  {
+    age: 200_000,
+    tp: "user",
+    b: [
+      {
+        k: "text",
+        tx: "Please implement the webview Vite bundle for the iPhone surface.",
+      },
+    ],
+  },
+  {
+    age: 195_000,
+    tp: "assistant",
+    b: [
+      { k: "text", tx: "I’ll set up the Vite toolchain and create the webview app." },
+      { k: "tool_use", tl: "Write", ci: "call-001", sm: "vite.webview.config.ts" },
+    ],
+  },
+  // Harness state dumps, which is what the nice view exists to drop. Together they
+  // are 42% of a real Claude transcript and 26% of a Codex one; the fixture had
+  // none, so the only host-free surface for judging this panel could not show what
+  // the mode toggle does.
+  {
+    machinery: true,
+    age: 194_000,
+    tp: "system",
+    b: [
+      { k: "metadata", lb: "Token Usage", tx: "41,220 / 200,000 tokens" },
+      { k: "raw" },
+    ],
+  },
+  {
+    machinery: true,
+    age: 193_000,
+    tp: "system",
+    b: [
+      {
+        k: "metadata",
+        lb: "Attachment: hook_success",
+        tx: '{"exitCode":0,"stdout":"","hookName":"PostToolUse"}',
+      },
+      { k: "raw" },
+    ],
+  },
+  // A shell call carrying the state metadata the adapters append to nearly every
+  // assistant line. Exercises the Raw drawer and the command code block: the summary
+  // is deliberately wider than a phone row, and `input` is absent here exactly as
+  // the iOS wire delivers it.
+  {
+    age: 190_000,
+    tp: "assistant",
+    b: [
+      {
+        k: "tool_use",
+        tl: "Bash",
+        ci: "call-002",
+        sm: 'ls && echo "---TASKS---" && ls tasks 2>/dev/null | head -30 && git log --oneline --decorate | head -40',
+      },
+      { k: "metadata", lb: "Token Usage", tx: "68,272 tokens" },
+      { k: "metadata", lb: "Stop Reason", tx: "tool_use" },
+      { k: "metadata", lb: "Working Directory", tx: PROJECT_PATH },
+      { k: "raw" },
+    ],
+  },
+  // Claude delivers a tool result as its own user line, again with the appended
+  // metadata. It pairs into the call above rather than taking a row of its own.
+  {
+    age: 188_000,
+    tp: "user",
+    b: [
+      {
+        k: "tool_result",
+        ci: "call-002",
+        pv: "AGENTS.md\nPRD.md\nSPEC.md\n---TASKS---\n2026-07-18-v12-complete-jsonl-activity-feed.md",
+      },
+      { k: "metadata", lb: "Working Directory", tx: PROJECT_PATH },
+      { k: "raw" },
+    ],
+  },
+  {
+    machinery: true,
+    age: 150_000,
+    tp: "system",
+    b: [
+      { k: "metadata", lb: "Mode", tx: '{"mode":"acceptEdits"}' },
+      { k: "raw" },
+    ],
+  },
+  // Context compaction, carrying the same appended metadata.
+  {
+    age: 120_000,
+    tp: "system",
+    b: [
+      { k: "compaction" },
+      { k: "metadata", lb: "Working Directory", tx: PROJECT_PATH },
+      { k: "raw" },
+    ],
+  },
+  // A reasoning trace, with the bolded topic line these routinely open with. The
+  // fixture had no reasoning event at all, which is how reasoning came to be the one
+  // content kind rendered as raw text.
+  {
+    age: 100_000,
+    tp: "reasoning",
+    b: [
+      {
+        k: "reasoning",
+        tx: "**Adjusting skip parameter handling**\n\nThe offset is clamped before paging, so a negative `beforeIndex` can never reach the reader.",
+      },
+    ],
+  },
+];
+
+/**
+ * Renumber the fixture lines for one view, the way the sidecar's two indices do.
+ *
+ * Raw keeps every line and reports each one's nice index (null for machinery); nice
+ * keeps only content and reports each one's raw index. Both derived from the single
+ * list above, so the fixture cannot disagree with itself about which line an index
+ * names -- which is exactly the failure the real index has to avoid.
+ */
+function fixtureEvents(mode: Mode) {
+  const now = Date.now();
+  let niceIndex = 0;
+  const rows = FIXTURE_LINES.map((line, rawIndex) => ({
+    line,
+    rawIndex,
+    niceIndex: line.machinery ? null : niceIndex++,
+  }));
+  return rows
+    .filter(({ line }) => mode === "raw" || !line.machinery)
+    .map(({ line, rawIndex, niceIndex: nice }) => ({
+      i: mode === "raw" ? rawIndex : nice!,
+      xi: mode === "raw" ? nice : rawIndex,
+      ts: now - line.age,
+      tp: line.tp,
+      b: line.b,
+    }));
+}
+
+function makeFixtureSeedChunk(source: Source, sessionId: string, mode: Mode) {
+  const events = fixtureEvents(mode);
   return {
     t: "agent-thread-chunk",
     src: source,
     sid: sessionId,
-    ev: [
-      {
-        i: 0,
-        ts: Date.now() - 200_000,
-        tp: "user" as const,
-        b: [
-          {
-            k: "text" as const,
-            tx: "Please implement the webview Vite bundle for the iPhone surface.",
-          },
-        ],
-      },
-      {
-        i: 1,
-        ts: Date.now() - 195_000,
-        tp: "assistant" as const,
-        b: [
-          {
-            k: "text" as const,
-            tx: "I’ll set up the Vite toolchain and create the webview app.",
-          },
-          {
-            k: "tool_use" as const,
-            tl: "Write",
-            ci: "call-001",
-            sm: "vite.webview.config.ts",
-          },
-        ],
-      },
-      // A shell call carrying the state metadata the adapters append to nearly
-      // every assistant line. Exercises the Raw drawer and the command code
-      // block: the summary is deliberately wider than a phone row, and `input`
-      // is absent here exactly as the iOS wire delivers it.
-      {
-        i: 2,
-        ts: Date.now() - 190_000,
-        tp: "assistant" as const,
-        b: [
-          {
-            k: "tool_use" as const,
-            tl: "Bash",
-            ci: "call-002",
-            sm: 'ls && echo "---TASKS---" && ls tasks 2>/dev/null | head -30 && git log --oneline --decorate | head -40',
-          },
-          { k: "metadata" as const, lb: "Token Usage", tx: "68,272 tokens" },
-          { k: "metadata" as const, lb: "Stop Reason", tx: "tool_use" },
-          {
-            k: "metadata" as const,
-            lb: "Working Directory",
-            tx: "/Users/dev/projects/agent-desk",
-          },
-          { k: "raw" as const },
-        ],
-      },
-      // Claude delivers a tool result as its own user line, again with the
-      // appended metadata. It pairs into the call above rather than taking a
-      // row of its own.
-      {
-        i: 3,
-        ts: Date.now() - 188_000,
-        tp: "user" as const,
-        b: [
-          {
-            k: "tool_result" as const,
-            ci: "call-002",
-            pv: "AGENTS.md\nPRD.md\nSPEC.md\n---TASKS---\n2026-07-18-v12-complete-jsonl-activity-feed.md",
-          },
-          {
-            k: "metadata" as const,
-            lb: "Working Directory",
-            tx: "/Users/dev/projects/agent-desk",
-          },
-          { k: "raw" as const },
-        ],
-      },
-      // Context compaction, carrying the same appended metadata.
-      {
-        i: 4,
-        ts: Date.now() - 120_000,
-        tp: "system" as const,
-        b: [
-          { k: "compaction" as const },
-          {
-            k: "metadata" as const,
-            lb: "Working Directory",
-            tx: "/Users/dev/projects/agent-desk",
-          },
-          { k: "raw" as const },
-        ],
-      },
-      // A reasoning trace, with the bolded topic line these routinely open
-      // with. The fixture had no reasoning event at all, which is how reasoning
-      // came to be the one content kind rendered as raw text: the only host-free
-      // surface for judging the panel could not show the bug.
-      {
-        i: 5,
-        ts: Date.now() - 100_000,
-        tp: "reasoning" as const,
-        b: [
-          {
-            k: "reasoning" as const,
-            tx: "**Adjusting skip parameter handling**\n\nThe offset is clamped before paging, so a negative `beforeIndex` can never reach the reader.",
-          },
-        ],
-      },
-    ],
+    md: mode,
+    ev: events,
     ws: 0,
-    tot: 7,
+    // One past the seed, because a live chunk follows.
+    tot: events.length + 1,
     lv: false,
     // Occupancy on the seed. Claude publishes no window in the transcript, so the
     // sidecar resolves it; this is the resolved shape the panel actually sees.
@@ -163,14 +221,20 @@ function makeFixtureSeedChunk(source: Source, sessionId: string) {
   };
 }
 
-function makeFixtureLiveChunk(source: Source, sessionId: string) {
+function makeFixtureLiveChunk(source: Source, sessionId: string, mode: Mode) {
+  // Appended after the seed, so its index is counted in the requested view exactly as
+  // the sidecar's live subscriber counts it.
+  const seedCount = fixtureEvents(mode).length;
+  const rawCount = FIXTURE_LINES.length;
   return {
     t: "agent-thread-chunk",
     src: source,
     sid: sessionId,
+    md: mode,
     ev: [
       {
-        i: 6,
+        i: seedCount,
+        xi: mode === "raw" ? seedCount - (rawCount - seedCount) : rawCount,
         ts: Date.now(),
         tp: "assistant" as const,
         b: [
@@ -181,8 +245,8 @@ function makeFixtureLiveChunk(source: Source, sessionId: string) {
         ],
       },
     ],
-    ws: 0,
-    tot: 7,
+    ws: seedCount,
+    tot: seedCount + 1,
     lv: true,
     // A later, larger reading on the live chunk, so the fixture exercises the
     // thing the whole stage is for: the meter moving without a reload.
@@ -219,6 +283,7 @@ export function installFixture(): void {
             sid?: string;
             rid?: string;
             ei?: number;
+            md?: Mode;
           };
           switch (value.t) {
             case "agent-projects-watch":
@@ -242,19 +307,23 @@ export function installFixture(): void {
                 });
               }, 30);
               break;
-            case "agent-thread-sub":
+            case "agent-thread-sub": {
               if (!value.src || !value.sid) return;
+              // Absent means raw, the same rule this field follows at every real
+              // boundary it crosses.
+              const mode: Mode = value.md === "nice" ? "nice" : "raw";
               setTimeout(() => {
                 window.__agentFeedDeliver?.(
-                  makeFixtureSeedChunk(value.src!, value.sid!),
+                  makeFixtureSeedChunk(value.src!, value.sid!, mode),
                 );
                 setTimeout(() => {
                   window.__agentFeedDeliver?.(
-                    makeFixtureLiveChunk(value.src!, value.sid!),
+                    makeFixtureLiveChunk(value.src!, value.sid!, mode),
                   );
                 }, 80);
               }, 40);
               break;
+            }
             case "agent-raw-event-get":
               if (!value.rid || !value.src || !value.sid) return;
               setTimeout(() => {

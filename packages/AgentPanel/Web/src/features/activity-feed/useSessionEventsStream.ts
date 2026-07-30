@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDataSource } from "./data-source/AgentDataSourceContext";
 import { seedRange, olderRange } from "./data-source/eventPaging";
-import type { AgentSource } from "./data-source/AgentDataSource";
+import type { AgentSource, EventMode } from "./data-source/AgentDataSource";
 
 export interface ActivityBlock {
   kind:
@@ -30,10 +30,14 @@ export interface ActivityBlock {
 }
 
 export interface ActivityEvent {
+  /** Position in the mode this event was read in. */
   index: number;
   ts: number;
   type: "user" | "assistant" | "reasoning" | "system";
   blocks: ActivityBlock[];
+  /** Position of the same line in the other mode, or null when it has none: a
+   *  machinery line read in raw mode is absent from the nice view. */
+  otherModeIndex?: number | null;
 }
 
 /**
@@ -75,11 +79,12 @@ export function newerUsage(
 export function useSessionEventsStream(
   source: AgentSource,
   sessionId: string,
+  mode: EventMode,
 ) {
   const ds = useDataSource();
   const session = useMemo(
-    () => ({ source, sessionId }),
-    [source, sessionId],
+    () => ({ source, sessionId, mode }),
+    [source, sessionId, mode],
   );
 
   const [state, setState] = useState<State>({
