@@ -140,6 +140,16 @@ struct TerminalSurfaceKeyboardTests {
     /// in-page promise. Swallowing the error and asking again across page generations, which is what
     /// this loop does, is therefore the mechanism rather than a shortcut.
     ///
+    /// Adding a native render signal does not help either, which is worth stating because it is the
+    /// obvious next idea. `PtyTerminalWebView` has one `delegate` and `TerminalSurface` assigns
+    /// itself to it, so a render callback reaches the surface rather than the test; taking the slot
+    /// would break the focus routing these tests verify, and a forwarding spy would have to mirror
+    /// every method of a protocol whose default implementations are empty, so it would silently stop
+    /// forwarding whenever one was added. Renders also arrive by IPC from the web content process,
+    /// which yielding here cannot advance, so waiting on native render state would still sleep
+    /// between checks. `appliedRevision` and `isSynchronizing` are not that signal in any case: they
+    /// are session state set from PTY checkpoints, not a web render acknowledgement.
+    ///
     /// The deadline is a failure bound, not a pace. It was 30s and still expired once, on a machine
     /// running four simulator suites at once; 60s keeps that bound clear of ordinary load without
     /// affecting the healthy path, where the answer arrives in a few hundred milliseconds.
