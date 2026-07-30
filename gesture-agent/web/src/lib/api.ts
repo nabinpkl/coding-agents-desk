@@ -11,6 +11,9 @@ import type {
   AnalyzePronunciationRequest,
   AnalyzeSignalsRequest,
   PronunciationComparison,
+  PracticePassage,
+  PracticePassageAttemptsResponse,
+  PracticePassageListResponse,
   Recording,
   RecordingListResponse,
   CreateReferenceSpeechArtifactRequest,
@@ -18,6 +21,8 @@ import type {
   ReferenceSpeechState,
   SaveRecordingRequest,
   SignalAnalysis,
+  UpdatePracticePassageBaselineRequest,
+  UpdatePracticePassageTextRequest,
 } from "@/lib/wire";
 
 export class ApiError extends Error {
@@ -136,6 +141,39 @@ function postJson<T>(path: string, payload: unknown): Promise<T> {
   return request<T>(path, { method: "POST", body: JSON.stringify(payload) });
 }
 
+function queryPath(
+  path: string,
+  options: { readonly cursor?: string; readonly limit?: number },
+): string {
+  const query = new URLSearchParams();
+  if (options.cursor) query.set("cursor", options.cursor);
+  if (options.limit !== undefined) query.set("limit", String(options.limit));
+  const encoded = query.toString();
+  return encoded ? `${path}?${encoded}` : path;
+}
+
+async function deleteRequest(path: string): Promise<void> {
+  if (getHostConfig()?.voiceTransport === "native") {
+    const response = await nativeRequest(path, { method: "DELETE" });
+    if (response.status < 200 || response.status >= 300) {
+      throw new ApiError(
+        response.status,
+        "Native proxy error",
+        new TextDecoder().decode(response.body),
+      );
+    }
+    return;
+  }
+  const response = await fetch(`${apiBase()}${path}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      response.statusText,
+      await response.text(),
+    );
+  }
+}
+
 export async function listRecordings(): Promise<Recording[]> {
   // GET /recordings returns the wire RecordingListResponse ({ recordings: [...] });
   // unwrap here so callers keep a bare Recording[] to iterate.
@@ -173,27 +211,7 @@ export async function loadRecordingAudioURL(id: string): Promise<string> {
 
 /** Delete a recording and its audio. Answers 204, so there is no body to read. */
 export async function deleteRecording(id: string): Promise<void> {
-  if (getHostConfig()?.voiceTransport === "native") {
-    const response = await nativeRequest(
-      `/recordings/${encodeURIComponent(id)}`,
-      { method: "DELETE" },
-    );
-    if (response.status < 200 || response.status >= 300) {
-      throw new ApiError(response.status, "Native proxy error", "delete failed");
-    }
-    return;
-  }
-  const response = await fetch(
-    `${apiBase()}/recordings/${encodeURIComponent(id)}`,
-    { method: "DELETE" },
-  );
-  if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      response.statusText,
-      await response.text(),
-    );
-  }
+  return deleteRequest(`/recordings/${encodeURIComponent(id)}`);
 }
 
 export function reanalyzeRecording(id: string): Promise<Recording> {
@@ -205,6 +223,71 @@ export function reanalyzeRecording(id: string): Promise<Recording> {
 
 export function getReferenceSpeechState(): Promise<ReferenceSpeechState> {
   return request<ReferenceSpeechState>("/reference-speech/state");
+}
+
+export function listPracticePassages(
+  options: { readonly cursor?: string; readonly limit?: number } = {},
+): Promise<PracticePassageListResponse> {
+  return request<PracticePassageListResponse>(
+    queryPath("/practice-passages", options),
+  );
+}
+
+export function getPracticePassage(
+  passageID: string,
+): Promise<PracticePassage> {
+  return request<PracticePassage>(
+    `/practice-passages/${encodeURIComponent(passageID)}`,
+  );
+}
+
+export function listPracticePassageAttempts(
+  passageID: string,
+  options: { readonly cursor?: string; readonly limit?: number } = {},
+): Promise<PracticePassageAttemptsResponse> {
+  return request<PracticePassageAttemptsResponse>(
+    queryPath(
+      `/practice-passages/${encodeURIComponent(passageID)}/attempts`,
+      options,
+    ),
+  );
+}
+
+export function updatePracticePassageText(
+  passageID: string,
+  payload: UpdatePracticePassageTextRequest,
+): Promise<PracticePassage> {
+  return postJson<PracticePassage>(
+    `/practice-passages/${encodeURIComponent(passageID)}/intended-text`,
+    payload,
+  );
+}
+
+export function updatePracticePassageBaseline(
+  passageID: string,
+  payload: UpdatePracticePassageBaselineRequest,
+): Promise<PracticePassage> {
+  return postJson<PracticePassage>(
+    `/practice-passages/${encodeURIComponent(passageID)}/baseline`,
+    payload,
+  );
+}
+
+export function deletePracticePassageAttempt(
+  passageID: string,
+  recordingID: string,
+): Promise<PracticePassage> {
+  return request<PracticePassage>(
+    `/practice-passages/${encodeURIComponent(passageID)}/attempts/` +
+      encodeURIComponent(recordingID),
+    { method: "DELETE" },
+  );
+}
+
+export function deletePracticePassage(passageID: string): Promise<void> {
+  return deleteRequest(
+    `/practice-passages/${encodeURIComponent(passageID)}`,
+  );
 }
 
 export function createReferenceSpeechArtifact(

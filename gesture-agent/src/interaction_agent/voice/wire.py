@@ -44,6 +44,8 @@ class WireModel(BaseModel):
 class SessionStartMessage(WireModel):
     type: Literal["sessionStart"] = "sessionStart"
     preamp_gain: float | None = None
+    passage_id: str | None = None
+    passage_revision: int | None = Field(default=None, ge=1)
 
 
 class AudioFrameMessage(WireModel):
@@ -139,6 +141,8 @@ class RecordingTransportAudit(WireModel):
 
 class Recording(WireModel):
     id: str
+    passage_id: str
+    passage_revision: int = Field(ge=1)
     client_session_id: str | None = Field(
         default=None,
         alias="clientSessionID",
@@ -147,7 +151,8 @@ class Recording(WireModel):
     duration_seconds: float
     source: Literal["macos", "iphone", "browserDev"]
     status: Literal["completed", "interrupted"]
-    transcript: str | None = None
+    machine_transcript: str | None = None
+    intended_text: str
     transcription_error: str | None = None
     observed_phones: list[str]
     phone_analysis_error: str | None = None
@@ -166,6 +171,31 @@ class Recording(WireModel):
 
 class RecordingListResponse(WireModel):
     recordings: list[Recording]
+
+
+class PracticePassage(WireModel):
+    id: str
+    intended_text: str
+    revision: int = Field(ge=1)
+    created_at: str
+    updated_at: str
+    baseline_recording_id: str | None = Field(
+        default=None,
+        alias="baselineRecordingID",
+    )
+    attempt_count: int = Field(ge=0)
+    latest_attempt_created_at: str | None = None
+
+
+class PracticePassageListResponse(WireModel):
+    passages: list[PracticePassage]
+    next_cursor: str | None = None
+
+
+class PracticePassageAttemptsResponse(WireModel):
+    passage: PracticePassage
+    attempts: list[Recording]
+    next_cursor: str | None = None
 
 
 class ReferenceSpeechVoice(WireModel):
@@ -202,7 +232,8 @@ class ReferenceSpeechScopeRequest(WireModel):
 
 
 class CreateReferenceSpeechArtifactRequest(WireModel):
-    recording_id: str
+    passage_id: str
+    passage_revision: int = Field(ge=1)
     scope: ReferenceSpeechScopeRequest
     voice_identifier: str
     speed: float
@@ -289,8 +320,18 @@ class SaveRecordingRequest(WireModel):
     sample_rate: int
     pcm: str
     """Base64-encoded PCM of the full utterance in the ``encoding`` below."""
-    transcript: str | None = None
+    machine_transcript: str | None = None
     encoding: Literal["int16", "float32"] = "int16"
+
+
+class UpdatePracticePassageTextRequest(WireModel):
+    intended_text: str = Field(max_length=4_000)
+    expected_revision: int = Field(ge=1)
+
+
+class UpdatePracticePassageBaselineRequest(WireModel):
+    recording_id: str | None = None
+    expected_revision: int = Field(ge=1)
 
 
 class AnalyzeSignalsRequest(WireModel):
@@ -318,12 +359,17 @@ MODELS: Final[list[type[BaseModel]]] = [
     WordPhoneGroup,
     Recording,
     RecordingListResponse,
+    PracticePassage,
+    PracticePassageListResponse,
+    PracticePassageAttemptsResponse,
     ReferenceSpeechVoice,
     ReferenceSpeechSpeedState,
     ReferenceSpeechState,
     ReferenceSpeechScopeRequest,
     CreateReferenceSpeechArtifactRequest,
     ReferenceSpeechArtifact,
+    UpdatePracticePassageTextRequest,
+    UpdatePracticePassageBaselineRequest,
     VoiceSignalFramePayload,
     VoiceSignalSummaryPayload,
     SignalAnalysis,

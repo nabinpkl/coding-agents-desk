@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useMicCapture } from "@/features/voice/use-mic-capture";
-import { RECORDINGS_QUERY_KEY } from "@/features/voice/use-recordings";
+import { invalidateVoiceTruth } from "@/features/voice/use-practice-passages";
 import { useVoiceStore } from "@/stores/voice-store";
 import { VoiceSocket } from "@/lib/ws";
 import type { Recording, ServerWireMessage } from "@/lib/wire";
@@ -38,6 +38,11 @@ export interface VoiceSessionOptions {
    * dictation mini, must use this rather than a partial transcript.
    */
   readonly onComplete?: (recording: Recording) => void;
+  /** Existing passage targeted by a retake. Omit to create a new passage. */
+  readonly passage?: {
+    readonly id: string;
+    readonly revision: number;
+  };
 }
 
 export function useVoiceSession(
@@ -51,7 +56,11 @@ export function useVoiceSession(
   const nextFrameSequenceRef = useRef(0);
   const capturedSampleCountRef = useRef(0);
   const onCompleteRef = useRef(options.onComplete);
-  onCompleteRef.current = options.onComplete;
+  const passageRef = useRef(options.passage);
+  useEffect(() => {
+    onCompleteRef.current = options.onComplete;
+    passageRef.current = options.passage;
+  }, [options.onComplete, options.passage]);
 
   const teardownSocket = useCallback(() => {
     unsubscribeRef.current?.();
@@ -78,9 +87,7 @@ export function useVoiceSession(
         case "sessionComplete":
           // Momentum -> truth: the recording is persisted, so refetch the
           // truth cache and let the store clear its live transcript.
-          void queryClient.invalidateQueries({
-            queryKey: RECORDINGS_QUERY_KEY,
-          });
+          void invalidateVoiceTruth(queryClient);
           try {
             onCompleteRef.current?.(message.recording);
           } catch (error) {
@@ -174,6 +181,12 @@ export function useVoiceSession(
       socket.sendControl({
         type: "sessionStart",
         preampGain: store.preampGain,
+        ...(passageRef.current
+          ? {
+              passageId: passageRef.current.id,
+              passageRevision: passageRef.current.revision,
+            }
+          : {}),
       });
       nextFrameSequenceRef.current = 0;
       capturedSampleCountRef.current = 0;

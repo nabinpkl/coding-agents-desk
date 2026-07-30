@@ -7,7 +7,7 @@ import type { Recording } from "@/lib/wire";
 
 /** Short, human-scannable label for a recording in a picker. */
 export function recordingLabel(recording: Recording): string {
-  const transcript = recording.transcript?.trim();
+  const transcript = recording.machineTranscript?.trim();
   const head = transcript
     ? truncate(transcript, 42)
     : `Recording ${recording.id.slice(0, 8)}`;

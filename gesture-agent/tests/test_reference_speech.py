@@ -20,6 +20,7 @@ from interaction_agent.voice.reference_speech import (
     KokoroDirectSynthesizer,
     ReferenceSpeechArtifactStore,
     ReferenceSpeechError,
+    ReferenceSpeechRevisionConflict,
     ReferenceSpeechScope,
     ReferenceSpeechSynthesisError,
     chunk_kokoro_ipa,
@@ -44,6 +45,25 @@ class FakeSynthesizer:
 
 
 class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
+    def test_stale_passage_revision_is_a_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            store = ReferenceSpeechArtifactStore(
+                root=Path(temporary),
+                passage_loader=lambda _: SimpleNamespace(
+                    revision=2,
+                    intended_text="Thank",
+                ),
+                synthesizer=FakeSynthesizer(),
+            )
+            with self.assertRaises(ReferenceSpeechRevisionConflict):
+                store.create(
+                    passage_id="passage-11111111111111111111111111111111",
+                    passage_revision=1,
+                    scope=ReferenceSpeechScope(kind="passage"),
+                    voice_identifier="af_heart",
+                    speed=1.0,
+                )
+
     def test_default_cache_bound_is_256_mib(self) -> None:
         self.assertEqual(DEFAULT_REFERENCE_SPEECH_CACHE_BYTES, 256 * 1024 * 1024)
 
@@ -75,7 +95,7 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             root = Path(temporary_directory)
             store = ReferenceSpeechArtifactStore(
                 root=root,
-                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Thank"),
                 synthesizer=synth,
                 cache_max_bytes=10_000_000,
             )
@@ -102,12 +122,13 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             synth = BlockingPrewarmSynthesizer()
             store = ReferenceSpeechArtifactStore(
                 root=Path(temporary_directory),
-                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Thank"),
                 synthesizer=synth,
                 cache_max_bytes=10_000_000,
             )
             first = store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=1,
@@ -118,7 +139,8 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
                 self.assertTrue(prewarm_started.wait(timeout=1))
                 cached_future = executor.submit(
                     store.create,
-                    recording_id="session-20260727-010101-000001",
+                    passage_id="session-20260727-010101-000001",
+                    passage_revision=1,
                     scope=ReferenceSpeechScope(kind="passage"),
                     voice_identifier="af_heart",
                     speed=1,
@@ -140,18 +162,20 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             root = Path(temporary_directory)
             seed_store = ReferenceSpeechArtifactStore(
                 root=root,
-                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Thank"),
                 synthesizer=FakeSynthesizer(),
                 cache_max_bytes=10_000_000,
             )
             oldest = seed_store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=1,
             )
             newest = seed_store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=1.1,
@@ -169,7 +193,7 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             )
             store = ReferenceSpeechArtifactStore(
                 root=root,
-                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Thank"),
                 synthesizer=FakeSynthesizer(),
                 cache_max_bytes=newest_size,
             )
@@ -189,12 +213,13 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             root = Path(temporary_directory)
             seed_store = ReferenceSpeechArtifactStore(
                 root=root,
-                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Thank"),
                 synthesizer=FakeSynthesizer(),
                 cache_max_bytes=10_000_000,
             )
             oldest = seed_store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=1,
@@ -212,13 +237,14 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
                 )
             store = ReferenceSpeechArtifactStore(
                 root=root,
-                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Thank"),
                 synthesizer=FakeSynthesizer(),
                 cache_max_bytes=oldest_size + 100,
             )
 
             newest = store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=1.1,
@@ -239,12 +265,13 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             root = Path(temporary_directory)
             seed_store = ReferenceSpeechArtifactStore(
                 root=root,
-                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Thank"),
                 synthesizer=FakeSynthesizer(),
                 cache_max_bytes=10_000_000,
             )
             oldest = seed_store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=1,
@@ -256,7 +283,7 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             )
             store = ReferenceSpeechArtifactStore(
                 root=root,
-                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Thank"),
                 synthesizer=FakeSynthesizer(),
                 cache_max_bytes=oldest_size + 100,
             )
@@ -269,7 +296,8 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
                 )
 
             newest = store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=1.1,
@@ -300,7 +328,7 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             )
             store = ReferenceSpeechArtifactStore(
                 root=root,
-                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Thank"),
                 synthesizer=FakeSynthesizer(),
                 cache_max_bytes=10_000_000,
             )
@@ -316,7 +344,7 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             root = Path(temporary_directory)
             store = ReferenceSpeechArtifactStore(
                 root=root,
-                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Thank"),
                 synthesizer=FakeSynthesizer(),
                 cache_max_bytes=1,
             )
@@ -326,7 +354,8 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
                 "exceeds the reference-speech cache limit",
             ):
                 store.create(
-                    recording_id="session-20260727-010101-000001",
+                    passage_id="session-20260727-010101-000001",
+                    passage_revision=1,
                     scope=ReferenceSpeechScope(kind="passage"),
                     voice_identifier="af_heart",
                     speed=1,
@@ -339,18 +368,20 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             synth = FakeSynthesizer()
             store = ReferenceSpeechArtifactStore(
                 root=Path(temporary_directory),
-                recording_loader=lambda _: SimpleNamespace(transcript="Think, thank."),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Think, thank."),
                 synthesizer=synth,
                 cache_max_bytes=10_000_000,
             )
             first = store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=0.85,
             )
             second = store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=0.85,
@@ -380,24 +411,27 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             synth = FakeSynthesizer()
             store = ReferenceSpeechArtifactStore(
                 root=Path(temporary_directory),
-                recording_loader=lambda _: SimpleNamespace(transcript="Think thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Think thank"),
                 synthesizer=synth,
                 cache_max_bytes=10_000_000,
             )
             think = store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="word", index=0),
                 voice_identifier="af_heart",
                 speed=1,
             )
             thank = store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="word", index=1),
                 voice_identifier="af_heart",
                 speed=1,
             )
             faster = store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="word", index=1),
                 voice_identifier="af_heart",
                 speed=1.1,
@@ -406,12 +440,49 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             self.assertNotEqual(think.id, thank.id)
             self.assertNotEqual(thank.id, faster.id)
 
+    def test_intended_text_revision_changes_reference_artifact_identity(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            synth = FakeSynthesizer()
+            passage = SimpleNamespace(
+                revision=1,
+                intended_text="Hello. How would you?",
+            )
+            store = ReferenceSpeechArtifactStore(
+                root=Path(temporary_directory),
+                passage_loader=lambda _: passage,
+                synthesizer=synth,
+                cache_max_bytes=10_000_000,
+            )
+            original = store.create(
+                passage_id=f"passage-{'1' * 32}",
+                passage_revision=1,
+                scope=ReferenceSpeechScope(kind="passage"),
+                voice_identifier="af_heart",
+                speed=1,
+            )
+
+            passage.revision = 2
+            passage.intended_text = "Hello. How are you?"
+            corrected = store.create(
+                passage_id=f"passage-{'1' * 32}",
+                passage_revision=2,
+                scope=ReferenceSpeechScope(kind="passage"),
+                voice_identifier="af_heart",
+                speed=1,
+            )
+
+            self.assertNotEqual(original.id, corrected.id)
+            self.assertNotEqual(original.ipa, corrected.ipa)
+            self.assertEqual(len(synth.calls), 2)
+
     def test_unknown_word_fails_without_calling_synthesizer(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             synth = FakeSynthesizer()
             store = ReferenceSpeechArtifactStore(
                 root=Path(temporary_directory),
-                recording_loader=lambda _: SimpleNamespace(transcript="xyzzynotaword"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="xyzzynotaword"),
                 synthesizer=synth,
                 cache_max_bytes=10_000_000,
             )
@@ -420,7 +491,8 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
                 "CMUdict has no pronunciation",
             ):
                 store.create(
-                    recording_id="session-20260727-010101-000001",
+                    passage_id="session-20260727-010101-000001",
+                    passage_revision=1,
                     scope=ReferenceSpeechScope(kind="passage"),
                     voice_identifier="af_heart",
                     speed=1,
@@ -432,14 +504,16 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             synth = FakeSynthesizer()
             store = ReferenceSpeechArtifactStore(
                 root=Path(temporary_directory),
-                recording_loader=lambda _: SimpleNamespace(
-                    transcript="Choose auto-ACS."
+                passage_loader=lambda _: SimpleNamespace(
+                    revision=1,
+                    intended_text="Choose auto-ACS.",
                 ),
                 synthesizer=synth,
                 cache_max_bytes=10_000_000,
             )
             artifact = store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=1,
@@ -453,12 +527,13 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             synth = FakeSynthesizer()
             store = ReferenceSpeechArtifactStore(
                 root=Path(temporary_directory),
-                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Thank"),
                 synthesizer=synth,
                 cache_max_bytes=10_000_000,
             )
             artifact = store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=1,
@@ -468,7 +543,8 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
                 encoding="utf-8",
             )
             replaced = store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=1,
@@ -481,19 +557,21 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             synth = FakeSynthesizer()
             store = ReferenceSpeechArtifactStore(
                 root=Path(temporary_directory),
-                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Thank"),
                 synthesizer=synth,
                 cache_max_bytes=10_000_000,
             )
             artifact = store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=1,
             )
             store.audio_path(artifact.id).write_bytes(b"corrupt")
             replaced = store.create(
-                recording_id="session-20260727-010101-000001",
+                passage_id="session-20260727-010101-000001",
+                passage_revision=1,
                 scope=ReferenceSpeechScope(kind="passage"),
                 voice_identifier="af_heart",
                 speed=1,
@@ -511,14 +589,15 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
             synth = SlowSynthesizer()
             store = ReferenceSpeechArtifactStore(
                 root=Path(temporary_directory),
-                recording_loader=lambda _: SimpleNamespace(transcript="Thank"),
+                passage_loader=lambda _: SimpleNamespace(revision=1, intended_text="Thank"),
                 synthesizer=synth,
                 cache_max_bytes=10_000_000,
             )
 
             def create():
                 return store.create(
-                    recording_id="session-20260727-010101-000001",
+                    passage_id="session-20260727-010101-000001",
+                    passage_revision=1,
                     scope=ReferenceSpeechScope(kind="passage"),
                     voice_identifier="af_heart",
                     speed=1,

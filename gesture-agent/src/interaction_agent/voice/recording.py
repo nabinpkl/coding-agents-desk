@@ -288,9 +288,10 @@ def save_voice_recording(
     write_recording_metadata(
         json_path,
         {
-            "schemaVersion": 3,
+            "schemaVersion": 4,
             "createdAt": started_at.isoformat(),
             "wavPath": str(wav_path),
+            "passageID": None,
             "source": source,
             "status": status,
             "clientSessionID": client_session_id,

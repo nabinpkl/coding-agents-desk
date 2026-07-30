@@ -37,6 +37,11 @@ from interaction_agent.voice.phone_recognizer import (
     PhoneRecognition,
     ZIPAPhoneRecognizer,
 )
+from interaction_agent.voice.practice_passages import (
+    PassageRevisionConflict,
+    PracticePassageError,
+    PracticePassageStore,
+)
 from interaction_agent.voice.pronunciation import compare_recordings, load_wav
 from interaction_agent.voice.recording import (
     DEFAULT_SAMPLE_RATE,
@@ -47,6 +52,7 @@ from interaction_agent.voice.recording import (
 from interaction_agent.voice.reference_speech import (
     ReferenceSpeechArtifactStore,
     ReferenceSpeechError,
+    ReferenceSpeechRevisionConflict,
     ReferenceSpeechScope,
     ReferenceSpeechSynthesisError,
 )
@@ -92,6 +98,9 @@ from interaction_agent.voice.wire import (
     FinalTranscriptMessage,
     MeterMessage,
     PartialTranscriptMessage,
+    PracticePassage,
+    PracticePassageAttemptsResponse,
+    PracticePassageListResponse,
     PronunciationComparison,
     Recording,
     RecordingListResponse,
@@ -103,6 +112,8 @@ from interaction_agent.voice.wire import (
     SessionProgressMessage,
     SessionStartMessage,
     SignalAnalysis,
+    UpdatePracticePassageBaselineRequest,
+    UpdatePracticePassageTextRequest,
     WireModel,
 )
 
@@ -119,6 +130,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     ``voice_session_lock`` rejects a second recorder while a take is active.
     """
     app.state.voice_session_lock = asyncio.Lock()
+    app.state.active_practice_passage_id = None
+    app.state.active_voice_analyses = {}
+    app.state.practice_passage_store = PracticePassageStore()
+    await run_in_threadpool(
+        app.state.practice_passage_store.migrate_legacy_recordings,
+        recover_unattached_current=True,
+    )
     app.state.voice_transcriber_lock = asyncio.Lock()
     app.state.voice_transcriber = None
     app.state.voice_phone_recognizer_lock = asyncio.Lock()
@@ -597,6 +615,7 @@ async def finalize_session(
     client_session_id: str | None = None,
     transport: dict[str, Any] | None = None,
     *,
+    passage_id: str | None = None,
     post_stop_started_at: float | None = None,
     live_preview_drain_ms: float = 0.0,
 ) -> Recording | None:
@@ -734,6 +753,20 @@ async def finalize_session(
         totalMs=transcription_ms,
     )
 
+    passage_store: PracticePassageStore | None = getattr(
+        app.state,
+        "practice_passage_store",
+        None,
+    )
+    if passage_store is None:
+        passage_store = PracticePassageStore()
+    await run_in_threadpool(
+        passage_store.attach_recording,
+        recording_id,
+        passage_id=passage_id,
+        machine_transcript=final_text or None,
+    )
+
     if not await send_progress_best_effort(websocket, "analyzing"):
         websocket = None
     phone_analysis_started_at = time.perf_counter()
@@ -831,6 +864,7 @@ async def run_voice_session(
     stop_received_at: str | None = None
     client_final_sequence: int | None = None
     client_captured_sample_count: int | None = None
+    passage_id: str | None = None
 
     def transport_audit(
         continuity_status: Literal["complete", "interrupted"],
@@ -858,6 +892,24 @@ async def run_voice_session(
             if isinstance(message, SessionStartMessage):
                 if session_open:
                     raise VoiceWireError("sessionStart received while a session is active")
+                if (message.passage_id is None) != (
+                    message.passage_revision is None
+                ):
+                    raise VoiceWireError(
+                        "sessionStart passage id and revision must appear together"
+                    )
+                if message.passage_id is not None:
+                    passage = websocket.app.state.practice_passage_store.get_passage(
+                        message.passage_id
+                    )
+                    if passage.revision != message.passage_revision:
+                        raise VoiceWireError(
+                            "practice passage changed before recording started"
+                        )
+                    passage_id = passage.id
+                    websocket.app.state.active_practice_passage_id = passage.id
+                else:
+                    passage_id = None
                 started_at = datetime.now()
                 collected = []
                 sample_rate = DEFAULT_SAMPLE_RATE
@@ -951,6 +1003,7 @@ async def run_voice_session(
                         "interrupted" if continuity_error else "complete",
                         continuity_error,
                     ),
+                    passage_id=passage_id,
                     post_stop_started_at=post_stop_started_at,
                     live_preview_drain_ms=live_preview_drain_ms,
                 )
@@ -970,6 +1023,7 @@ async def run_voice_session(
                 "interrupted",
                 client_session_id,
                 transport_audit("interrupted", f"websocket disconnected: {exc}"),
+                passage_id=passage_id,
                 post_stop_started_at=post_stop_started_at,
                 live_preview_drain_ms=live_preview_drain_ms,
             )
@@ -988,6 +1042,7 @@ async def run_voice_session(
                 "interrupted",
                 client_session_id,
                 transport_audit("interrupted", str(exc)),
+                passage_id=passage_id,
                 post_stop_started_at=post_stop_started_at,
                 live_preview_drain_ms=live_preview_drain_ms,
             )
@@ -1011,6 +1066,7 @@ async def run_voice_session(
                     "interrupted",
                     client_session_id,
                     transport_audit("interrupted", str(exc)),
+                    passage_id=passage_id,
                     post_stop_started_at=post_stop_started_at,
                     live_preview_drain_ms=live_preview_drain_ms,
                 )
@@ -1019,6 +1075,17 @@ async def run_voice_session(
                     "failed to finalize interrupted voice recording"
                 )
         await websocket.close(code=1011, reason=str(exc)[:120])
+    finally:
+        if (
+            passage_id is not None
+            and getattr(
+                websocket.app.state,
+                "active_practice_passage_id",
+                None,
+            )
+            == passage_id
+        ):
+            websocket.app.state.active_practice_passage_id = None
 
 
 @app.websocket("/ws/voice")
@@ -1088,7 +1155,8 @@ async def create_reference_speech_artifact(
     try:
         artifact = await run_in_threadpool(
             app.state.reference_speech_store.create,
-            recording_id=request.recording_id,
+            passage_id=request.passage_id,
+            passage_revision=request.passage_revision,
             scope=ReferenceSpeechScope(
                 kind=request.scope.kind,
                 index=request.scope.index,
@@ -1100,6 +1168,8 @@ async def create_reference_speech_artifact(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ReferenceSpeechSynthesisError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ReferenceSpeechRevisionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ReferenceSpeechError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return ReferenceSpeechArtifact.model_validate(asdict(artifact))
@@ -1136,16 +1206,193 @@ async def create_recording(request: SaveRecordingRequest) -> Recording:
         request.sample_rate,
         datetime.now(),
     )
-    if request.transcript is not None:
+    if request.machine_transcript is not None:
         await run_in_threadpool(
             save_voice_recording_transcript,
             result,
-            request.transcript,
+            request.machine_transcript,
         )
+    passage_store = PracticePassageStore()
+    await run_in_threadpool(
+        passage_store.attach_recording,
+        recording_id_from_result(result),
+        passage_id=None,
+        machine_transcript=request.machine_transcript,
+    )
     return await run_in_threadpool(
         load_recording,
         recording_id_from_result(result),
     )
+
+
+def passage_http_exception(exc: Exception) -> HTTPException:
+    if isinstance(exc, FileNotFoundError):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, PassageRevisionConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get(
+    "/practice-passages",
+    response_model=PracticePassageListResponse,
+)
+async def list_practice_passages(
+    cursor: str | None = Query(default=None, max_length=128),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> PracticePassageListResponse:
+    try:
+        passages, next_cursor = await run_in_threadpool(
+            app.state.practice_passage_store.list_passages,
+            limit=limit,
+            cursor=cursor,
+        )
+    except (PracticePassageError, FileNotFoundError) as exc:
+        raise passage_http_exception(exc) from exc
+    return PracticePassageListResponse(
+        passages=passages,
+        next_cursor=next_cursor,
+    )
+
+
+@app.get(
+    "/practice-passages/{passage_id}",
+    response_model=PracticePassage,
+)
+async def get_practice_passage(passage_id: str) -> PracticePassage:
+    try:
+        return await run_in_threadpool(
+            app.state.practice_passage_store.get_passage,
+            passage_id,
+        )
+    except (PracticePassageError, FileNotFoundError) as exc:
+        raise passage_http_exception(exc) from exc
+
+
+@app.get(
+    "/practice-passages/{passage_id}/attempts",
+    response_model=PracticePassageAttemptsResponse,
+)
+async def list_practice_passage_attempts(
+    passage_id: str,
+    cursor: str | None = Query(default=None, max_length=128),
+    limit: int = Query(default=50, ge=1, le=100),
+) -> PracticePassageAttemptsResponse:
+    try:
+        passage, attempts, next_cursor = await run_in_threadpool(
+            app.state.practice_passage_store.list_attempts,
+            passage_id,
+            limit=limit,
+            cursor=cursor,
+        )
+    except (PracticePassageError, FileNotFoundError) as exc:
+        raise passage_http_exception(exc) from exc
+    return PracticePassageAttemptsResponse(
+        passage=passage,
+        attempts=attempts,
+        next_cursor=next_cursor,
+    )
+
+
+@app.post(
+    "/practice-passages/{passage_id}/intended-text",
+    response_model=PracticePassage,
+)
+async def update_practice_passage_text(
+    passage_id: str,
+    request: UpdatePracticePassageTextRequest,
+) -> PracticePassage:
+    if app.state.active_practice_passage_id == passage_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Finish the active retake before editing intended text",
+        )
+    try:
+        return await run_in_threadpool(
+            app.state.practice_passage_store.update_intended_text,
+            passage_id,
+            expected_revision=request.expected_revision,
+            intended_text=request.intended_text,
+        )
+    except (PracticePassageError, FileNotFoundError) as exc:
+        raise passage_http_exception(exc) from exc
+
+
+@app.post(
+    "/practice-passages/{passage_id}/baseline",
+    response_model=PracticePassage,
+)
+async def update_practice_passage_baseline(
+    passage_id: str,
+    request: UpdatePracticePassageBaselineRequest,
+) -> PracticePassage:
+    if app.state.active_practice_passage_id == passage_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Finish the active retake before changing its baseline",
+        )
+    try:
+        return await run_in_threadpool(
+            app.state.practice_passage_store.update_baseline,
+            passage_id,
+            expected_revision=request.expected_revision,
+            recording_id=request.recording_id,
+        )
+    except (PracticePassageError, FileNotFoundError) as exc:
+        raise passage_http_exception(exc) from exc
+
+
+@app.delete(
+    "/practice-passages/{passage_id}/attempts/{recording_id}",
+    response_model=PracticePassage,
+)
+async def remove_practice_passage_attempt(
+    passage_id: str,
+    recording_id: str,
+) -> PracticePassage:
+    if app.state.active_practice_passage_id == passage_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Finish the active retake before deleting an attempt",
+        )
+    if recording_id in app.state.active_voice_analyses:
+        raise HTTPException(
+            status_code=409,
+            detail="Finish reanalysis before deleting this attempt",
+        )
+    try:
+        updated_passage = await run_in_threadpool(
+            app.state.practice_passage_store.delete_attempt,
+            passage_id,
+            recording_id,
+        )
+    except (PracticePassageError, FileNotFoundError) as exc:
+        raise passage_http_exception(exc) from exc
+    if updated_passage is None:
+        raise HTTPException(status_code=404, detail="recording not found")
+    return updated_passage
+
+
+@app.delete("/practice-passages/{passage_id}", status_code=204)
+async def remove_practice_passage(passage_id: str) -> Response:
+    if app.state.active_practice_passage_id == passage_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Finish the active retake before deleting this passage",
+        )
+    if passage_id in app.state.active_voice_analyses.values():
+        raise HTTPException(
+            status_code=409,
+            detail="Finish reanalysis before deleting this passage",
+        )
+    try:
+        await run_in_threadpool(
+            app.state.practice_passage_store.delete_passage,
+            passage_id,
+        )
+    except (PracticePassageError, FileNotFoundError) as exc:
+        raise passage_http_exception(exc) from exc
+    return Response(status_code=204)
 
 
 @app.get("/recordings", response_model=RecordingListResponse)
@@ -1197,6 +1444,23 @@ async def get_recording_audio(recording_id: str) -> FileResponse:
 
 @app.delete("/recordings/{recording_id}", status_code=204)
 async def remove_recording(recording_id: str) -> Response:
+    try:
+        recording = await run_in_threadpool(load_recording, recording_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"recording not found: {recording_id}",
+        ) from exc
+    if app.state.active_practice_passage_id == recording.passage_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Finish the active retake before deleting an attempt",
+        )
+    if recording_id in app.state.active_voice_analyses:
+        raise HTTPException(
+            status_code=409,
+            detail="Finish reanalysis before deleting this attempt",
+        )
     deleted = await run_in_threadpool(delete_recording, recording_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"recording not found: {recording_id}")
@@ -1208,25 +1472,36 @@ async def reanalyze_recording(recording_id: str) -> Recording:
     wav_path = recording_wav_path(recording_id)
     if not wav_path.exists():
         raise HTTPException(status_code=404, detail=f"recording not found: {recording_id}")
-    try:
-        return await analyze_recording_phones(app, recording_id)
-    except Exception as exc:
-        await run_in_threadpool(
-            update_recording_metadata,
-            recording_json_path(recording_id),
-            {
-                "phoneAnalysis": {
-                    "status": "failed",
-                    "phones": [],
-                    "error": str(exc),
-                    "modelIdentifier": None,
-                    "modelHash": None,
-                    "runtimeIdentifier": None,
-                    "analyzedAt": datetime.now().isoformat(),
-                }
-            },
+    recording = await run_in_threadpool(load_recording, recording_id)
+    active_analyses: dict[str, str] = app.state.active_voice_analyses
+    if recording_id in active_analyses:
+        raise HTTPException(
+            status_code=409,
+            detail="This attempt is already being reanalyzed",
         )
-        return await run_in_threadpool(load_recording, recording_id)
+    active_analyses[recording_id] = recording.passage_id
+    try:
+        try:
+            return await analyze_recording_phones(app, recording_id)
+        except Exception as exc:
+            await run_in_threadpool(
+                update_recording_metadata,
+                recording_json_path(recording_id),
+                {
+                    "phoneAnalysis": {
+                        "status": "failed",
+                        "phones": [],
+                        "error": str(exc),
+                        "modelIdentifier": None,
+                        "modelHash": None,
+                        "runtimeIdentifier": None,
+                        "analyzedAt": datetime.now().isoformat(),
+                    }
+                },
+            )
+            return await run_in_threadpool(load_recording, recording_id)
+    finally:
+        active_analyses.pop(recording_id, None)
 
 
 # --- Analysis REST ---------------------------------------------------------

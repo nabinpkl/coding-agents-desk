@@ -17,6 +17,7 @@ from numpy.typing import NDArray
 from pydantic import ValidationError
 
 from interaction_agent.paths import VOICE_RECORDING_ROOT
+from interaction_agent.voice.practice_passages import PracticePassageStore
 from interaction_agent.voice.recording import VoiceRecordingResult
 from interaction_agent.voice.reference_pronunciation import (
     ReferencePronunciationError,
@@ -124,17 +125,18 @@ def load_recording(recording_id: str) -> Recording:
 
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     summary = payload["summary"]
+    passage_id = payload.get("passageID")
+    if not isinstance(passage_id, str):
+        raise VoiceWireError(
+            f"recording has no practice passage: {recording_id}"
+        )
+    passage = PracticePassageStore().get_passage(passage_id)
     transcription = payload.get("transcription")
-    legacy_transcript = payload.get("transcript")
     if isinstance(transcription, dict):
         transcript_text = transcription.get("text")
         transcription_error = transcription.get("error")
     else:
-        transcript_text = (
-            legacy_transcript.get("text")
-            if isinstance(legacy_transcript, dict)
-            else None
-        )
+        transcript_text = None
         transcription_error = None
     phone_analysis = payload.get("phoneAnalysis")
     phone_analysis = phone_analysis if isinstance(phone_analysis, dict) else {}
@@ -150,9 +152,12 @@ def load_recording(recording_id: str) -> Recording:
     reference_pronunciation_error: str | None = None
     reference_dictionary_identifier: str | None = None
     reference_dictionary_hash: str | None = None
-    if isinstance(transcript_text, str) and transcript_text.strip():
+    if passage.intended_text:
         try:
-            alignment = reference_alignment(transcript_text, observed_phones)
+            alignment = reference_alignment(
+                passage.intended_text,
+                observed_phones,
+            )
             word_phone_groups = [
                 WordPhoneGroup(
                     word=group.word,
@@ -181,12 +186,15 @@ def load_recording(recording_id: str) -> Recording:
 
     return Recording(
         id=recording_id,
+        passage_id=passage.id,
+        passage_revision=passage.revision,
         client_session_id=payload.get("clientSessionID"),
         created_at=str(payload["createdAt"]),
         duration_seconds=float(summary["durationSeconds"]),
         source=payload.get("source", "browserDev"),
         status=payload.get("status", "completed"),
-        transcript=transcript_text,
+        machine_transcript=transcript_text,
+        intended_text=passage.intended_text,
         transcription_error=transcription_error,
         observed_phones=observed_phones,
         phone_analysis_error=phone_analysis.get("error"),
@@ -208,7 +216,10 @@ def load_recording_by_client_session_id(
     client_session_id: str,
 ) -> Recording | None:
     """Return the exact host recording correlated to one voice-lane take."""
+    PracticePassageStore().migrate_legacy_recordings()
     for recording_id in reversed(list_recording_ids()):
+        if not recording_has_passage(recording_id):
+            continue
         recording = load_recording(recording_id)
         if recording.client_session_id == client_session_id:
             return recording
@@ -235,9 +246,22 @@ def load_all_recordings() -> list[Recording]:
     ``createdAt`` rather than the id keeps this honest if the id format ever
     stops being timestamp-ordered.
     """
-    recordings = [load_recording(recording_id) for recording_id in list_recording_ids()]
+    PracticePassageStore().migrate_legacy_recordings()
+    recordings = [
+        load_recording(recording_id)
+        for recording_id in list_recording_ids()
+        if recording_has_passage(recording_id)
+    ]
     recordings.sort(key=lambda recording: recording.created_at, reverse=True)
     return recordings
+
+
+def recording_has_passage(recording_id: str) -> bool:
+    payload = json.loads(
+        recording_json_path(recording_id).read_text(encoding="utf-8")
+    )
+    passage_id = payload.get("passageID")
+    return isinstance(passage_id, str) and bool(passage_id)
 
 
 def delete_recording(recording_id: str) -> bool:
@@ -247,10 +271,20 @@ def delete_recording(recording_id: str) -> bool:
     in the list with no audio behind it: the json is the one the list reads, so
     it is removed last.
     """
-    wav_path = recording_wav_path(recording_id)
     json_path = recording_json_path(recording_id)
     if not json_path.exists():
         return False
-    wav_path.unlink(missing_ok=True)
-    json_path.unlink()
-    return True
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    passage_id = payload.get("passageID")
+    if not isinstance(passage_id, str):
+        PracticePassageStore().migrate_legacy_recordings()
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+        passage_id = payload.get("passageID")
+    if not isinstance(passage_id, str):
+        raise VoiceWireError(
+            f"recording has no practice passage: {recording_id}"
+        )
+    return (
+        PracticePassageStore().delete_attempt(passage_id, recording_id)
+        is not None
+    )

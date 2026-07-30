@@ -861,6 +861,226 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   client tests. No app was launched because manual runtime acceptance is the explicit R151
   checkpoint.
 
+## v15 Phase 10: human-owned passages and retake history
+
+### Position
+
+The shared host-owned Voice library is recording-first today. One saved `transcript` is both
+Whisper's observation and the text used to group heard phones, derive CMUdict reference phones, and
+generate Kokoro speech. When Whisper stores `Hello. How would you?` for audio whose speaker intended
+`Hello. How are you?`, the reference surface repeats the recognition error and gives the learner no
+way to retain the original observation while correcting the exercise.
+
+The user model is passage-first:
+
+- A **practice passage** owns the human-approved **intended text**.
+- An **attempt** owns one immutable recording, its original **machine transcript**, its raw observed
+  phones, provenance, and transport audit.
+- Reference phones and Kokoro speech derive from intended text. Transcript-guided heard-phone
+  grouping derives from intended text plus the attempt's unchanged raw phone stream.
+- A retake creates another attempt under the same passage. It never overwrites an earlier attempt.
+- Recognition differences and phone evidence are observations, not proof of a pronunciation error
+  or improvement.
+
+This phase is the concrete shared-Voice execution plan for the attempt-history direction captured by
+R134. It covers the host-authoritative InteractionPanel on Mac and iPhone. The separate native
+on-device Passage experiment remains independent until a later decision explicitly converges or
+retires it.
+
+### Authoritative facts
+
+| Fact | Owner | Mutation rule |
+|---|---|---|
+| Intended text | Practice passage, edited by the user | Versioned host update |
+| Machine transcript | Attempt, written by Whisper | Immutable after finalization |
+| Recording WAV | Attempt | Immutable until deletion |
+| Raw observed phones and model provenance | Attempt analysis | Replaced only by explicit Reanalyze |
+| Heard-phone word grouping | Derived from intended text plus raw phones | Recomputed after text edit or reanalysis |
+| Reference phones | Derived from intended text plus pinned dictionary | Recomputed after text edit |
+| Reference speech | Content-addressed Kokoro cache | Generated on demand from current intended text |
+| Baseline selection | Practice passage | User-changeable attempt reference |
+
+### Interaction direction
+
+Use inline disclosure rather than a separate details route. The passage header stays visible and
+owns intended-text editing, reference playback, attempt count, and **Record another take**. Expanding
+it reveals attempt disclosures; the newest attempt opens by default and older attempts remain
+collapsed. Each attempt shows the immutable machine transcript, a word-level machine-versus-intended
+diff, learner/reference playback, and one word-oriented heard/reference phone comparison. Model,
+dictionary, transport, and timing provenance remain under one secondary **Technical details**
+disclosure.
+
+The labels are **Intended text**, **Machine heard**, **Your recording**, and **Reference**. Do not use
+**corrected transcript**, because the user owns intent while the audio and recognizer observation
+remain evidence. A text difference says only that recognition differed.
+
+### Rejected shortcuts and reopen triggers
+
+| Option | Decision | Reason | Reopen trigger |
+|---|---|---|---|
+| Overwrite the saved machine transcript | Rejected | Destroys the original ASR observation and makes later diagnosis impossible | Never for retained evidence |
+| Add editable intended text to otherwise unrelated recording cards | Rejected | Fixes one recording but leaves retakes fragmented and duplicates passage text | Only if retakes leave scope |
+| Group recordings by normalized text | Rejected | Punctuation or a later edit can split one exercise or merge unrelated exercises | Never; use an opaque passage ID |
+| Add a dedicated recording details page now | Deferred | Hides attempt context and adds navigation before the inline comparison is crowded | Reopen when time-aligned traces or calibrated scoring cannot fit one disclosure |
+| Automatically claim improvement from transcript or phone differences | Rejected | Neither signal is calibrated pronunciation quality | Reopen only after R131/R133 acceptance |
+
+### Ordered implementation plan
+
+- R176. Lock the passage-attempt contract before UI work.
+  - Write the technical decision for one host-owned practice-passage record with an opaque ID,
+    intended text, edit revision, timestamps, and optional baseline attempt ID. Attempts retain their
+    existing recording IDs and add one passage ID plus an immutable machine transcript.
+  - Define a one-time atomic upgrade: every legacy recording becomes a one-attempt passage whose
+    intended text and machine transcript both start from the legacy transcript. Replace the old
+    read shape after migration; do not retain dual compatibility paths.
+  - Record length, Unicode normalization, empty-text, missing-attempt, and revision-conflict
+    invariants. An interrupted nonempty attempt is valid evidence; an empty capture is not.
+  - Update the Python wire authority, generated TypeScript/Swift contracts where applicable, SPEC,
+    and focused migration/round-trip tests.
+  - Exit gate: legacy fixtures upgrade idempotently, intended text has one authoritative home, and
+    `just check` passes.
+
+- R177. Add bounded host persistence and mutation APIs.
+  - Add cursor-bounded passage summaries and cursor-bounded attempt retrieval so attempt history does
+    not turn the current all-recordings response into an unbounded payload.
+  - Add exact passage read, intended-text update with `expectedRevision`, baseline selection, attempt
+    deletion, and passage deletion. Return the authoritative updated revision after every mutation.
+  - Extend recording-session start with an optional passage ID. The host validates it before capture
+    and associates every completed or interrupted nonempty result with that passage.
+  - Change reference-speech creation to resolve a passage ID plus its current revision rather than an
+    attempt's machine transcript. Reject a stale revision so a word index from old intended text
+    cannot synthesize a different word after an edit.
+  - Keep REST and native voice-lane allowlists identical, reject stale or malformed requests loudly,
+    and leave the existing single active-recorder invariant unchanged.
+  - Exit gate: Python API, native-proxy, pagination, stale-write, migration, and deletion tests pass,
+    followed by `just check`.
+
+- R178. Make intended-text correction recompute only the facts that depend on text.
+  - On edit, preserve the machine transcript, WAV hash, raw observed phones, analysis provenance, and
+    transport audit byte-for-byte.
+  - Rebuild CMUdict reference words and transcript-guided heard-phone grouping from the new intended
+    text. Reanalysis still reads the immutable WAV and changes only raw phone analysis plus its
+    derived grouping.
+  - Fence displayed derivations by passage revision so a slow response for old text cannot replace a
+    newer edit. Stop stale reference playback when text changes.
+  - Let the existing content-addressed Kokoro identity generate audio for the new text without
+    mutating or aliasing the old cache entry. Unknown dictionary words and synthesis failures remain
+    visible per current behavior.
+  - Exit gate: the `would` to `are` fixture changes reference phones, grouping anchors, and synthesized
+    artifact identity while the attempt evidence hashes remain unchanged; focused Python/web tests
+    and `just check` pass.
+
+- R179. Replace the flat recordings list with the collapsible passage-and-attempt surface.
+  - A collapsed passage shows intended text, attempt count, baseline/latest status, and last activity.
+    Expanding lazily loads attempts. The newest attempt expands after capture; older attempts stay
+    collapsed.
+  - Put an explicit Edit action beside intended text. Edit mode has Save and Cancel, preserves the
+    server revision it began from, disables reference playback, and presents a recoverable conflict
+    when another Mac/iPhone surface saved first.
+  - Each attempt shows **Machine heard**, an accessible word diff against **Intended text**, **Your
+    recording** and **Reference** playback, completion/source badges, and error states.
+  - Replace the distant heard/reference card stacks with word-oriented comparison rows. Keep the
+    disclaimer that heard phones are sequence-aligned to intended words rather than acoustic word
+    boundaries. Unknown and unassigned phones remain visible.
+  - Use one outer passage disclosure, one disclosure per attempt, and one nested Technical details
+    disclosure. Disclosure names, expanded state, focus return, diff meaning, playback controls, and
+    errors must not depend on color alone.
+  - Exit gate: component tests cover empty/loading/error/conflict/edit/cancel/unknown-word states,
+    responsive Mac/iPhone layouts, keyboard and VoiceOver names, then `just check`.
+
+- R180. Add the complete retake lifecycle.
+  - **Record another take** enters capture with the passage's current intended text visibly pinned and
+    the passage ID and revision captured at start. While that passage owns the active recorder, the
+    host rejects intended-text edits from either surface so the target cannot change underneath the
+    take.
+  - Stop creates the next attempt under that passage and expands it after finalization. Cancellation
+    before any accepted audio creates nothing. Disconnect or failure after nonempty audio retains one
+    interrupted attempt with its transport audit.
+  - **New passage** remains the free-form entry. Its first finalized attempt creates a draft passage
+    with intended text seeded from the machine transcript and immediately asks the user to review the
+    text. A missing transcript leaves an explicit empty intended-text editor rather than inventing
+    words.
+  - Reference or learner playback stops before capture. Capture, navigation, collapse, transport loss,
+    and teardown retain the existing microphone and audio-session cleanup guarantees.
+  - Exit gate: first take, repeated retake, empty cancel, interrupted retake, busy recorder, missing
+    transcript, navigation, and teardown tests pass on loopback and native transports, followed by
+    `just check`.
+
+- R181. Add attempt history and honest A/B comparison.
+  - Default the first completed attempt as the passage baseline while allowing the user to choose or
+    clear another baseline. Interrupted attempts remain playable evidence but are never selected
+    automatically.
+  - Compare one selected attempt with the baseline through mutually exclusive A/B playback, machine
+    transcript differences, and word-oriented heard/reference phone evidence. Keep timestamps,
+    source, duration, model provenance, and interruption status visible.
+  - Do not synchronize audio, normalize duration, calculate a score, rank attempts, color one as
+    better, or claim improvement. Those behaviors remain blocked on the calibrated R131/R133 signals.
+  - Paginate older attempts behind **Show earlier attempts** while keeping the passage and comparison
+    selection stable.
+  - Exit gate: baseline creation/change/clear, cross-page selection, interrupted-attempt handling,
+    deletion fallout, and no-score copy tests pass, followed by `just check`.
+
+- R182. Complete destructive, concurrent, and cross-device behavior.
+  - Deleting one attempt atomically removes its WAV, attempt metadata, and attempt-owned derived
+    results. If it was the baseline, clear the baseline visibly. Keep the empty passage so the user
+    can retake or delete it explicitly.
+  - Deleting a passage requires confirmation with its attempt count and removes all owned attempts.
+    The bounded content-addressed Kokoro cache remains global rebuildable cache, not passage truth;
+    the UI must not claim that passage deletion purges shared cached synthesis.
+  - A successful mutation updates the initiating TanStack Query cache immediately and the other
+    surface through the existing host-authoritative refresh path. Revision conflicts never silently
+    overwrite text or baseline state.
+  - Stop and release any learner/reference audio whose attempt or passage is deleted. Restore focus
+    to the next stable passage header and provide accessible terminal success/error status.
+  - Exit gate: atomic failure injection, concurrent Mac/iPhone edits, deletion during playback,
+    baseline deletion, empty-passage retention, whole-passage deletion, and relaunch persistence tests
+    pass, followed by `just check`.
+
+- R183. Accept the complete loop on the real shared surfaces.
+  - Run the full package, Python, web, host, Rust, and client gates and re-read the complete diff for
+    contract, naming, revision, lifecycle, cache, deletion, and documentation agreement.
+  - Stop at the device checkpoint. After explicit approval, launch current-sha Release builds and
+    verify the same host library from Mac and physical iPhone.
+  - Acceptance script: use the retained `Hello. How would you?` recording when available, otherwise
+    seed the same deterministic mismatch fixture; edit intended text to `Hello. How are you?`; verify
+    the original machine transcript remains; verify the reference word and passage phones use `are`;
+    verify Kokoro says `are`; replay the unchanged learner WAV; make at least two live retakes under
+    that intended text; select a baseline; compare attempts; edit from the second surface to exercise
+    a revision conflict; delete one attempt; relaunch both surfaces; then delete the passage.
+  - Preserve host unified logs and attached iPhone logs for the same run, verify exact build SHA on
+    both surfaces, and record any unaccepted behavior without promoting the task.
+  - Exit gate: all automated gates and the complete physical script pass; promote R176-R183 and the
+    R134 attempt-history objective with their code, tests, ADR/SPEC updates, and ledger transitions in
+    the same landed commits.
+
+### Dependency and landing order
+
+```text
+R176 contract and migration
+  -> R177 persistence and APIs
+  -> R178 correction derivations
+  -> R179 collapsible passage UI
+  -> R180 retake lifecycle
+  -> R181 baseline and A/B history
+  -> R182 deletion and concurrency hardening
+  -> R183 automated and physical acceptance
+```
+
+Each task is one coherent landing arc and runs `just check` before its R-to-D transition. Contract
+work lands before consumers; no feature flag or parallel legacy path is planned. If one task cannot
+meet its exit gate, revert that task's commit while leaving the last green contract-compatible task
+landed.
+
+### Implementation checkpoint
+
+R176-R182 are implemented across Python persistence and APIs, generated web wire types, the shared
+InteractionPanel, the native Voice REST allowlist, and keyboard-dictation result decoding. Focused
+verification passes: 51 Python passage/reference/HTTP tests, 32 web tests including the interactive
+passage surface, TypeScript, focused ESLint, the production embedded bundle, and five
+VoiceLaneServer tests. The repository-wide `just check` passes, including 630 Swift tests plus the
+package, Python, web, Rust, host, and client build gates. R183 remains the explicit real-surface
+checkpoint; no host or device app has been launched.
+
 ## Promotion log
 
 ```text
@@ -912,4 +1132,12 @@ R172  captured    remaining  measured idle eviction or on-demand reload if memor
 D173  2026-07-29  landed     startup Kokoro prewarm through the retained reference-speech store
 R174  captured    remaining  measured Kokoro idle eviction or on-demand reload if warranted
 D175  2026-07-29  landed     independent cache access and bounded reference-speech maintenance
+D176  2026-07-30  landed     host-owned practice-passage contract and deterministic migration
+D177  2026-07-30  landed     bounded revision-fenced passage persistence and APIs
+D178  2026-07-30  landed     intended-text-derived phone grouping and reference speech
+D179  2026-07-30  landed     collapsible shared passage and attempt library
+D180  2026-07-30  landed     revision-pinned retake and new-passage lifecycle
+D181  2026-07-30  landed     baseline selection and honest paginated A/B evidence
+D182  2026-07-30  landed     atomic deletion and cross-surface conflict handling
+R183  checkpoint  remaining  complete shared-surface runtime acceptance
 ```

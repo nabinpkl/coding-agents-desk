@@ -429,20 +429,40 @@ final class VoiceLaneServer: @unchecked Sendable {
     }
 
     static func isAllowed(method: VoiceRESTMethod, path: String) -> Bool {
-        guard !path.contains("?"), !path.contains("#"), !path.contains("..") else {
+        guard let request = URLComponents(string: path),
+              request.scheme == nil,
+              request.host == nil,
+              request.fragment == nil,
+              request.path.hasPrefix("/"),
+              !request.path.contains("..")
+        else {
             return false
         }
-        if method == .get, path == "/recordings" {
+        let components = request.path.split(
+            separator: "/",
+            omittingEmptySubsequences: true
+        )
+        if method == .get,
+           request.path == "/recordings",
+           request.queryItems == nil {
             return true
         }
-        let components = path.split(separator: "/", omittingEmptySubsequences: true)
         if method == .get,
            components.count == 3,
            components[0] == "recordings",
-           components[1] == "client-session" {
+           components[1] == "client-session",
+           request.queryItems == nil {
             return UUID(uuidString: String(components[2])) != nil
         }
+        if components.first == "practice-passages" {
+            return isAllowedPracticePassageRequest(
+                method: method,
+                components: components,
+                queryItems: request.queryItems
+            )
+        }
         if components.first == "reference-speech" {
+            guard request.queryItems == nil else { return false }
             switch (method, components.count) {
             case (.get, 2):
                 return components[1] == "state"
@@ -458,7 +478,8 @@ final class VoiceLaneServer: @unchecked Sendable {
         }
         guard components.count >= 2,
               components[0] == "recordings",
-              isRecordingID(String(components[1]))
+              isRecordingID(String(components[1])),
+              request.queryItems == nil
         else {
             return false
         }
@@ -472,9 +493,77 @@ final class VoiceLaneServer: @unchecked Sendable {
         }
     }
 
+    private static func isAllowedPracticePassageRequest(
+        method: VoiceRESTMethod,
+        components: [Substring],
+        queryItems: [URLQueryItem]?
+    ) -> Bool {
+        if components.count == 1 {
+            return method == .get && isAllowedListQuery(
+                queryItems,
+                cursorValidator: isPassageID
+            )
+        }
+        guard components.count >= 2,
+              isPassageID(String(components[1]))
+        else {
+            return false
+        }
+        switch (method, components.count, components.last) {
+        case (.get, 2, _), (.delete, 2, _):
+            return queryItems == nil
+        case (.post, 3, "intended-text"), (.post, 3, "baseline"):
+            return queryItems == nil
+        case (.get, 3, "attempts"):
+            return isAllowedListQuery(
+                queryItems,
+                cursorValidator: isRecordingID
+            )
+        case (.delete, 4, _):
+            return components[2] == "attempts"
+                && isRecordingID(String(components[3]))
+                && queryItems == nil
+        default:
+            return false
+        }
+    }
+
+    private static func isAllowedListQuery(
+        _ queryItems: [URLQueryItem]?,
+        cursorValidator: (String) -> Bool
+    ) -> Bool {
+        guard let queryItems else { return true }
+        var names = Set<String>()
+        for item in queryItems {
+            guard names.insert(item.name).inserted,
+                  let value = item.value
+            else {
+                return false
+            }
+            switch item.name {
+            case "cursor":
+                guard cursorValidator(value) else { return false }
+            case "limit":
+                guard let limit = Int(value), (1 ... 100).contains(limit) else {
+                    return false
+                }
+            default:
+                return false
+            }
+        }
+        return true
+    }
+
     private static func isRecordingID(_ value: String) -> Bool {
         value.range(
             of: #"^session-\d{8}-\d{6}-\d{6}$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func isPassageID(_ value: String) -> Bool {
+        value.range(
+            of: #"^passage-[0-9a-f]{32}$"#,
             options: .regularExpression
         ) != nil
     }

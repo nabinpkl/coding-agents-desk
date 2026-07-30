@@ -17,7 +17,13 @@ import numpy as np
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from interaction_agent.voice import http_server, recording, runtime, web_stream
+from interaction_agent.voice import (
+    http_server,
+    practice_passages,
+    recording,
+    runtime,
+    web_stream,
+)
 from interaction_agent.voice.phone_recognizer import ZIPAPhoneRecognizer
 from interaction_agent.voice.recording import update_recording_metadata
 from interaction_agent.voice.reference_speech import ReferenceSpeechArtifact
@@ -70,6 +76,8 @@ def test_app() -> SimpleNamespace:
             voice_phone_recognizer=None,
             voice_phone_recognizer_lock=asyncio.Lock(),
             voice_phone_inference_lock=asyncio.Lock(),
+            practice_passage_store=practice_passages.PracticePassageStore(),
+            active_practice_passage_id=None,
         )
     )
 
@@ -84,6 +92,13 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.stack.enter_context(
             patch.object(web_stream, "VOICE_RECORDING_ROOT", self.root)
+        )
+        self.stack.enter_context(
+            patch.object(
+                practice_passages,
+                "VOICE_RECORDING_ROOT",
+                self.root,
+            )
         )
 
     def tearDown(self) -> None:
@@ -138,7 +153,7 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
     async def test_macos_and_iphone_use_identical_finalization(self) -> None:
         mac = await self._finalize("macos")
         phone = await self._finalize("iphone")
-        self.assertEqual(mac.transcript, phone.transcript)
+        self.assertEqual(mac.machine_transcript, phone.machine_transcript)
         self.assertEqual(mac.observed_phones, phone.observed_phones)
         self.assertEqual(mac.word_phone_groups, phone.word_phone_groups)
         self.assertEqual(mac.word_phone_groups[0].word, "thank")
@@ -190,7 +205,7 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(
             web_stream.recording_json_path(result.id).read_text(encoding="utf-8")
         )
-        self.assertEqual(payload["schemaVersion"], 3)
+        self.assertEqual(payload["schemaVersion"], 4)
         self.assertEqual(payload["transport"], audit)
 
     async def test_recording_wire_preserves_client_session_id_acronym(
@@ -251,7 +266,7 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(persisted)
-        self.assertEqual(result.transcript, "thank")
+        self.assertEqual(result.machine_transcript, "thank")
         self.assertTrue(web_stream.recording_wav_path(result.id).exists())
 
     async def test_empty_interrupted_audio_is_discarded(self) -> None:
@@ -422,7 +437,7 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
                 "completed",
             )
 
-        self.assertIsNone(result.transcript)
+        self.assertIsNone(result.machine_transcript)
         self.assertIn("transcription", result.transcription_error)
         payload = json.loads(
             web_stream.recording_json_path(result.id).read_text(encoding="utf-8")
@@ -737,7 +752,8 @@ class ReferenceSpeechHTTPTests(unittest.TestCase):
                 created = client.post(
                     "/reference-speech/artifacts",
                     json={
-                        "recordingId": "session-20260727-010101-000001",
+                        "passageId": "passage-11111111111111111111111111111111",
+                        "passageRevision": 1,
                         "scope": {"kind": "word", "index": 0},
                         "voiceIdentifier": "af_heart",
                         "speed": 0.85,
@@ -750,10 +766,121 @@ class ReferenceSpeechHTTPTests(unittest.TestCase):
         self.assertEqual(state.json()["defaultVoiceIdentifier"], "af_heart")
         self.assertEqual(created.status_code, 200)
         self.assertEqual(created.json()["ipa"], "θˈæŋk")
+        self.assertEqual(fake.received["passage_revision"], 1)
         self.assertEqual(fake.received["voice_identifier"], "af_heart")
         self.assertEqual(audio.status_code, 200)
         self.assertEqual(audio.content, b"RIFF-test")
         self.assertEqual(fake.audio_release_calls, 1)
+
+
+class PracticePassageHTTPTests(unittest.TestCase):
+    def test_passage_edit_conflict_attempts_and_deletion(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (
+                patch.object(recording, "VOICE_RECORDING_ROOT", root),
+                patch.object(web_stream, "VOICE_RECORDING_ROOT", root),
+                patch.object(
+                    practice_passages,
+                    "VOICE_RECORDING_ROOT",
+                    root,
+                ),
+            ):
+                saved = recording.save_voice_recording(
+                    np.full(2_048, 0.1, dtype=np.float32),
+                    16_000,
+                    datetime(2026, 7, 30, tzinfo=UTC),
+                )
+                recording.save_voice_recording_transcript(
+                    saved,
+                    "Hello. How would you?",
+                )
+                with (
+                    patch.object(http_server, "prewarm_transcription_model"),
+                    patch.object(
+                        http_server.ReferenceSpeechArtifactStore,
+                        "prewarm",
+                        return_value=False,
+                    ),
+                    TestClient(http_server.app) as client,
+                ):
+                    listed = client.get("/practice-passages")
+                    passage = listed.json()["passages"][0]
+                    passage_id = passage["id"]
+                    attempts = client.get(
+                        f"/practice-passages/{passage_id}/attempts"
+                    )
+                    edited = client.post(
+                        f"/practice-passages/{passage_id}/intended-text",
+                        json={
+                            "intendedText": "Hello. How are you?",
+                            "expectedRevision": passage["revision"],
+                        },
+                    )
+                    stale = client.post(
+                        f"/practice-passages/{passage_id}/intended-text",
+                        json={
+                            "intendedText": "Stale",
+                            "expectedRevision": passage["revision"],
+                        },
+                    )
+                    http_server.app.state.active_practice_passage_id = (
+                        passage_id
+                    )
+                    blocked_baseline = client.post(
+                        f"/practice-passages/{passage_id}/baseline",
+                        json={
+                            "recordingId": saved.wav_path.stem,
+                            "expectedRevision": edited.json()["revision"],
+                        },
+                    )
+                    blocked_active_attempt_delete = client.delete(
+                        f"/practice-passages/{passage_id}/attempts/"
+                        f"{saved.wav_path.stem}"
+                    )
+                    blocked_active_passage_delete = client.delete(
+                        f"/practice-passages/{passage_id}"
+                    )
+                    http_server.app.state.active_practice_passage_id = None
+                    http_server.app.state.active_voice_analyses[
+                        saved.wav_path.stem
+                    ] = passage_id
+                    blocked_analysis_delete = client.delete(
+                        f"/practice-passages/{passage_id}/attempts/"
+                        f"{saved.wav_path.stem}"
+                    )
+                    http_server.app.state.active_voice_analyses.clear()
+                    removed_attempt = client.delete(
+                        f"/practice-passages/{passage_id}/attempts/"
+                        f"{saved.wav_path.stem}"
+                    )
+                    empty = client.get(f"/practice-passages/{passage_id}")
+                    removed_passage = client.delete(
+                        f"/practice-passages/{passage_id}"
+                    )
+
+        self.assertEqual(listed.status_code, 200)
+        self.assertIsNone(listed.json()["nextCursor"])
+        self.assertEqual(attempts.status_code, 200)
+        self.assertEqual(
+            attempts.json()["attempts"][0]["machineTranscript"],
+            "Hello. How would you?",
+        )
+        self.assertEqual(edited.status_code, 200)
+        self.assertEqual(
+            edited.json()["intendedText"],
+            "Hello. How are you?",
+        )
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(blocked_baseline.status_code, 409)
+        self.assertEqual(blocked_active_attempt_delete.status_code, 409)
+        self.assertEqual(blocked_active_passage_delete.status_code, 409)
+        self.assertEqual(blocked_analysis_delete.status_code, 409)
+        self.assertEqual(removed_attempt.status_code, 200)
+        self.assertEqual(removed_attempt.json()["attemptCount"], 0)
+        self.assertIsNone(removed_attempt.json()["baselineRecordingID"])
+        self.assertEqual(empty.json()["attemptCount"], 0)
+        self.assertEqual(removed_passage.status_code, 204)
 
 
 class ZIPAParityTests(unittest.TestCase):

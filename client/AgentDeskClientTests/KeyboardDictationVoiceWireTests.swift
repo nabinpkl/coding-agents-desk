@@ -34,7 +34,7 @@ struct KeyboardDictationVoiceWireTests {
               "recording": {
                 "id": "session-20260728-132735-170223",
                 "clientSessionID": "\(sessionID)",
-                "transcript": "thank"
+                "machineTranscript": "thank"
               }
             }
             """.utf8

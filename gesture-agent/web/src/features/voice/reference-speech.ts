@@ -83,7 +83,8 @@ export function referenceSpeechPlaybackSnapshot(): ReferenceSpeechPlaybackState 
 }
 
 export async function speakReference(
-  recordingID: string,
+  passageID: string,
+  passageRevision: number,
   scope: ReferenceSpeechScopeRequest,
   preferences: ReferenceSpeechPreferences,
 ): Promise<void> {
@@ -91,12 +92,13 @@ export async function speakReference(
   const requestGeneration = ++generation;
   const requestKey =
     scope.kind === "passage"
-      ? `${recordingID}:passage`
-      : `${recordingID}:word:${scope.index ?? -1}`;
+      ? `${passageID}:${passageRevision}:passage`
+      : `${passageID}:${passageRevision}:word:${scope.index ?? -1}`;
   publish({ status: "preparing", requestKey });
   try {
     const artifact = await createReferenceSpeechArtifact({
-      recordingId: recordingID,
+      passageId: passageID,
+      passageRevision,
       scope,
       voiceIdentifier: preferences.voiceIdentifier,
       speed: preferences.speed,

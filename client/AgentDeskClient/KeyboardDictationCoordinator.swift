@@ -213,7 +213,7 @@ final class KeyboardDictationCoordinator {
                         generationID: generationID,
                         phase: .completed,
                         captureSessionID: unresolvedSessionID,
-                        finalTranscript: recording.transcript,
+                        finalTranscript: recording.machineTranscript,
                         recordingID: recording.id
                     ))
                 } else {
@@ -578,7 +578,7 @@ final class KeyboardDictationCoordinator {
                     generationID: generationID,
                     phase: .completed,
                     captureSessionID: sessionID,
-                    finalTranscript: recording.transcript,
+                    finalTranscript: recording.machineTranscript,
                     recordingID: recording.id
                 ))
             default:

@@ -6,7 +6,9 @@
 
 "use client";
 
-import { RecordingsList } from "@/features/voice/components/recordings-list";
+import { useState } from "react";
+
+import { PracticePassagesList } from "@/features/voice/components/practice-passages-list";
 import { VoiceRecorder } from "@/features/voice/components/voice-recorder";
 import {
   Card,
@@ -15,8 +17,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import type { PracticePassage, Recording } from "@/lib/wire";
 
 export function VoicePanel() {
+  const [retakePassage, setRetakePassage] = useState<PracticePassage>();
+  const [completedPassageID, setCompletedPassageID] = useState<string>();
+
+  function completed(recording: Recording): void {
+    setCompletedPassageID(recording.passageId);
+    setRetakePassage(undefined);
+  }
+
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <Card>
@@ -28,12 +39,22 @@ export function VoicePanel() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <VoiceRecorder />
+          <VoiceRecorder
+            onComplete={completed}
+            onNewPassage={() => setRetakePassage(undefined)}
+            passage={retakePassage}
+          />
         </CardContent>
       </Card>
 
       <div className="flex min-w-0 flex-col gap-6">
-        <RecordingsList />
+        <PracticePassagesList
+          completedPassageID={completedPassageID}
+          onRetake={(passage) => {
+            setCompletedPassageID(undefined);
+            setRetakePassage(passage);
+          }}
+        />
       </div>
     </div>
   );

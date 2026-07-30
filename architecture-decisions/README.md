@@ -123,3 +123,5 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0082 | Prewarm host Whisper when the voice sidecar starts | accepted | 2026-07-29 |
 | ADR-0083 | Prewarm host Kokoro when the voice sidecar starts | partially superseded by ADR-0084 | 2026-07-29 |
 | ADR-0084 | Separate reference cache access from Kokoro model serialization | accepted | 2026-07-29 |
+| ADR-0085 | Make practice passages the shared Voice library authority | accepted | 2026-07-30 |
+| ADR-0086 | Give the agent feed two views, with the raw one as the fidelity guarantee | accepted | 2026-07-30 |

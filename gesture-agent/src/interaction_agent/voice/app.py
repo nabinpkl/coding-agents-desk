@@ -17,6 +17,7 @@ from interaction_agent.voice.live_mlx import (
     MlxLiveChunkTranscriber,
     MlxLiveTranscriptSnapshot,
 )
+from interaction_agent.voice.practice_passages import PracticePassageStore
 from interaction_agent.voice.recording import (
     FloatArray,
     VoiceInputRecorder,
@@ -198,6 +199,11 @@ def run_voice_app() -> int:
                             selector_ui.set_message("final transcript saved")
                         else:
                             selector_ui.set_message("no final transcript detected")
+                        PracticePassageStore().attach_recording(
+                            result.wav_path.stem,
+                            passage_id=None,
+                            machine_transcript=final_transcript or None,
+                        )
                         LOGGER.info(
                             "voice recording saved wav=%s json=%s frames=%s transcript_chars=%s",
                             result.wav_path,

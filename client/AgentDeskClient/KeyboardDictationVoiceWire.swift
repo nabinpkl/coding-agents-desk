@@ -24,7 +24,7 @@ struct KeyboardVoiceAudioFrame: Encodable {
 struct KeyboardVoiceServerMessage: Decodable {
     struct Recording: Decodable {
         let id: String
-        let transcript: String?
+        let machineTranscript: String?
         let clientSessionID: String?
     }
 

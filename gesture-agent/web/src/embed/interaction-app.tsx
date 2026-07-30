@@ -22,7 +22,7 @@ import { GestureView } from "@/features/gesture/gesture-view";
 import { VoicePanel } from "@/features/voice/voice-panel";
 import { getHostConfig } from "@/lib/host-bridge";
 import { subscribeInteractionDelivery } from "@/lib/interaction-delivery";
-import { RECORDINGS_QUERY_KEY } from "@/features/voice/use-recordings";
+import { invalidateVoiceTruth } from "@/features/voice/use-practice-passages";
 
 type InteractionView = "gesture" | "voice";
 
@@ -79,7 +79,7 @@ export function InteractionApp() {
         if (nextView !== "voice" && nextView !== "gesture") return;
         setView(nextView);
         if (nextView === "voice" && refreshRecordings) {
-          void queryClient.invalidateQueries({ queryKey: RECORDINGS_QUERY_KEY });
+          void invalidateVoiceTruth(queryClient);
         }
       }),
     [queryClient],

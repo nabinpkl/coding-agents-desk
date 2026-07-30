@@ -28,13 +28,25 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
+import type { PracticePassage, Recording } from "@/lib/wire";
 
 function firstValue(value: number | readonly number[]): number {
   return Array.isArray(value) ? value[0] : (value as number);
 }
 
-export function VoiceRecorder() {
-  const { startRecording, stopRecording, reset } = useVoiceSession();
+export function VoiceRecorder({
+  passage,
+  onNewPassage,
+  onComplete,
+}: {
+  readonly passage?: PracticePassage;
+  readonly onNewPassage: () => void;
+  readonly onComplete: (recording: Recording) => void;
+}) {
+  const { startRecording, stopRecording, reset } = useVoiceSession({
+    passage: passage ? { id: passage.id, revision: passage.revision } : undefined,
+    onComplete,
+  });
 
   const runState = useVoiceStore((state) => state.runState);
   const meter = useVoiceStore((state) => state.meter);
@@ -54,6 +66,31 @@ export function VoiceRecorder() {
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="rounded-lg border border-border bg-muted/40 p-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {passage ? "Retake intended text" : "New passage"}
+            </span>
+            <p className="mt-1 text-base leading-relaxed">
+              {passage?.intendedText ||
+                "Record freely. The machine transcript will seed intended text for your review."}
+            </p>
+          </div>
+          {passage ? (
+            <Button
+              disabled={isBusy}
+              onClick={() => {
+                reset();
+                onNewPassage();
+              }}
+              variant="outline"
+            >
+              New passage
+            </Button>
+          ) : null}
+        </div>
+      </div>
       <div className="flex flex-wrap items-center gap-3">
         {isCapturing ? (
           <Button variant="destructive" size="lg" onClick={stopRecording}>

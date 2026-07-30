@@ -88,4 +88,41 @@ struct VoiceLaneServerTests {
     ) {
         #expect(!VoiceLaneServer.isAllowed(method: method, path: path))
     }
+
+    @Test
+    func practicePassageRoutesAreNarrowlyAllowlisted() {
+        let passage = "/practice-passages/passage-"
+            + String(repeating: "1", count: 32)
+        let allowed: [(VoiceRESTMethod, String)] = [
+            (.get, "/practice-passages?limit=50"),
+            (
+                .get,
+                "/practice-passages?cursor=passage-"
+                    + String(repeating: "1", count: 32)
+                    + "&limit=20"
+            ),
+            (.get, passage),
+            (.delete, passage),
+            (.post, passage + "/intended-text"),
+            (.post, passage + "/baseline"),
+            (.get, passage + "/attempts?limit=20"),
+            (
+                .delete,
+                passage + "/attempts/session-20260726-221100-123456"
+            ),
+        ]
+        for (method, path) in allowed {
+            #expect(VoiceLaneServer.isAllowed(method: method, path: path))
+        }
+
+        let rejected = [
+            "/practice-passages?limit=0",
+            "/practice-passages?unknown=true",
+            "/practice-passages?limit=20&limit=21",
+            "/practice-passages/not-a-passage",
+        ]
+        for path in rejected {
+            #expect(!VoiceLaneServer.isAllowed(method: .get, path: path))
+        }
+    }
 }

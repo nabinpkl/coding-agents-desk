@@ -27,6 +27,9 @@ ADR-0001 records the original v0 stack decision. ADR-0015 records the owned sing
 ADR-0068 raises the inner PTY protocol to `7`, removes manual terminal sizing, and lets the last
 selected or interacted-with active terminal viewer own the shared source grid dimensions.
 
+ADR-0085 makes a human-owned practice passage, rather than a machine transcript, the shared Voice
+library authority.
+
 ADR-0069 replaces SwiftTerm and platform-specific terminal workspace chrome with one bounded
 WKWebView and xterm.js runtime while retaining PTY protocol `7`, AgentDesk protocol `13`, and the Rust
 manager's state authority.
@@ -440,13 +443,13 @@ keyboard, preserving the focused Mac target and `InputDispatcher` path. It refus
 keyboard character before any input frame is sent. This is a UI adapter over the shared host recorder,
 never an iOS PCM/transcription fallback.
 
-The lane carries typed socket open/message/close envelopes and correlated allowlisted recording REST
+The lane carries typed socket open/message/close envelopes and correlated allowlisted Voice REST
 requests. JSON is limited to 192 KiB and complete lane frames to 256 KiB. Recording audio playback
 responses are split into 96 KiB chunks with per-request sequence and final markers. REST work may run
 concurrently with the socket so list polling or WAV playback cannot stop the lane from receiving PCM.
-The host forces source `iphone`, accepts only recording list/detail/audio/delete/reanalyze paths, and
-proxies to the loopback sidecar; it never stores or analyzes voice in Swift. The input lane never
-carries PCM.
+The host forces source `iphone`, accepts only recording, practice-passage, and reference-speech paths
+with validated IDs and bounded list queries, and proxies to the loopback sidecar; it never stores or
+analyzes voice in Swift. The input lane never carries PCM.
 
 ## Systemwide keyboard dictation
 
@@ -498,15 +501,33 @@ never delete the audio. Empty disconnects are discarded; an empty explicit Stop 
 error. Reanalysis reads the retained WAV and updates only phone-analysis metadata. The ONNX session is
 hash-verified, cached for the sidecar lifetime, and inference is serialized. The fullscreen native
 Voice/Passage surface remains a separate on-device experiment and is not a fallback for this flow.
-Recording responses derive a Passage view from the saved transcript, flat ZIPA phone sequence, pinned
-CMUdict revision, and the shared ARPABET-to-model-phone mapping. The host aligns the unconstrained
-phones to reference words for display while retaining unanchored phones explicitly; the web panel
-shows separate transcript, heard-phone, and reference-phone cards. These word groups are presentation
-alignment, not acoustic word boundaries, and are not a second persisted analysis authority.
-The reference card's whole-passage and per-word speaker actions ask Python for one host-owned
-reference-speech artifact by saved recording ID and scope. Python resolves the same pinned CMUdict
-entry shown in the reference-phone card, maps stressed ARPABET to Kokoro-compatible IPA, validates
-every symbol against the pinned model vocabulary, and passes the IPA directly to Kokoro. Kokoro's
+The host-owned library is passage-first (ADR-0085). A practice passage owns one opaque ID, normalized
+human-approved intended text, revision, timestamps, and optional baseline attempt. An attempt owns
+one immutable WAV, the original Whisper machine transcript, flat ZIPA phone sequence, model
+provenance, and transport audit. Legacy recording schema upgrades once to schema 4: each recording
+gets a deterministic one-attempt passage whose intended text and machine transcript start from the
+old transcript. New free-form recordings seed intended text from Whisper for explicit review;
+retakes carry the selected passage ID and revision.
+
+Passage and attempt lists use cursor-bounded pages. Intended-text and baseline updates require the
+expected passage revision. While a retake is active, intended-text edits and whole-passage deletion
+for that passage fail with a conflict. Attempt deletion removes the WAV and attempt metadata while
+retaining an explicit empty passage; deleting the passage removes all owned attempts. The global
+content-addressed Kokoro cache remains rebuildable cache rather than passage truth.
+
+Recording responses derive word-oriented heard/reference groups from current intended text, the
+attempt's unchanged ZIPA phone sequence, the pinned CMUdict revision, and the shared
+ARPABET-to-model-phone mapping. Unanchored phones remain explicit. These groups are presentation
+alignment, not acoustic word boundaries, and are not a second persisted analysis authority. The
+shared web panel shows editable intended text, immutable **Machine heard**, an accessible word diff,
+learner/reference playback, collapsible attempts, baseline selection, and unscored A/B playback.
+Technical model, dictionary, timing, and transport details stay under secondary disclosure.
+
+Whole-passage and per-word speaker actions ask Python for one host-owned reference-speech artifact by
+passage ID, current revision, and scope. Python resolves the current intended text and rejects stale
+revisions so an old word index cannot synthesize a different word after an edit. It maps the same
+pinned CMUdict entry shown in the phone comparison to Kokoro-compatible IPA, validates every symbol
+against the pinned model vocabulary, and passes IPA directly to Kokoro. Kokoro's
 text-to-pronunciation frontend is not constructed and there is no native TTS fallback. An unknown
 dictionary word fails visibly instead of synthesizing an inferred pronunciation.
 

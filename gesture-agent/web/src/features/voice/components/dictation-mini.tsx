@@ -29,7 +29,7 @@ type DictationCapture = { readonly command: "start" | "stop" };
 
 function DictationMicArtwork() {
   return (
-    <picture aria-hidden="true">
+    <picture>
       <source media="(prefers-color-scheme: dark)" srcSet="./dictation-mic-dark.png" />
       <img className="size-8 object-contain" src="./dictation-mic.png" alt="" />
     </picture>
@@ -79,7 +79,7 @@ export function DictationMini() {
 
   const { startRecording, stopRecording, reset } = useVoiceSession({
     onComplete: (recording) => {
-      const transcript = usableDictationText(recording.transcript);
+      const transcript = usableDictationText(recording.machineTranscript);
       setCompletedTranscript(transcript);
       if (clientDictation) {
         setCompletedRecordingID(recording.id);
@@ -125,9 +125,11 @@ export function DictationMini() {
   // be: when they last churned, the mini re-announced itself and re-subscribed
   // on every meter tick, eight times a second for a whole recording.
   const beginRef = useRef(begin);
-  beginRef.current = begin;
   const endRef = useRef(end);
-  endRef.current = end;
+  useEffect(() => {
+    beginRef.current = begin;
+    endRef.current = end;
+  }, [begin, end]);
 
   useEffect(() => {
     const unsubscribe = subscribeInteractionDelivery<DictationCapture>(

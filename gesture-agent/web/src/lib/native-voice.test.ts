@@ -1,13 +1,19 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 
-import { listRecordings } from "@/lib/api";
+import {
+  deletePracticePassageAttempt,
+  listRecordings,
+} from "@/lib/api";
 import {
   referenceSpeechPlaybackSnapshot,
   speakReference,
   stopReferenceSpeech,
 } from "@/features/voice/reference-speech";
 import { VoiceSocket } from "@/lib/ws";
-import type { RecordingListResponse } from "@/lib/wire";
+import type {
+  PracticePassage,
+  RecordingListResponse,
+} from "@/lib/wire";
 
 type TestWindow = typeof globalThis & {
   __interactionConfig?: { voiceTransport: "native" };
@@ -53,7 +59,8 @@ function deliver(payload: Record<string, unknown>): void {
 test("reference speech generates on the Mac then asks native to play the artifact", async () => {
   posted.length = 0;
   const pending = speakReference(
-    "session-20260726-221100-123456",
+    "passage-11111111111111111111111111111111",
+    4,
     { kind: "word", index: 0 },
     { voiceIdentifier: "af_heart", speed: 0.85 },
   );
@@ -63,7 +70,8 @@ test("reference speech generates on the Mac then asks native to play the artifac
   expect(
     JSON.parse(atob(request?.bodyBase64 as string)),
   ).toMatchObject({
-    recordingId: "session-20260726-221100-123456",
+    passageId: "passage-11111111111111111111111111111111",
+    passageRevision: 4,
     scope: { kind: "word", index: 0 },
     voiceIdentifier: "af_heart",
     speed: 0.85,
@@ -132,10 +140,14 @@ test("native REST reassembles bounded response chunks", async () => {
     recordings: [
       {
         id: "session-20260726-221100-123456",
+        passageId: "passage-11111111111111111111111111111111",
+        passageRevision: 1,
         createdAt: "2026-07-26T22:11:00Z",
         durationSeconds: 4.2,
         source: "iphone",
         status: "completed",
+        machineTranscript: "thank",
+        intendedText: "thank",
         observedPhones: ["θ", "æ", "ŋ", "k"],
         wordPhoneGroups: [
           {
@@ -169,6 +181,41 @@ test("native REST reassembles bounded response chunks", async () => {
     });
   }
   await expect(pending).resolves.toEqual(response.recordings);
+});
+
+test("native attempt deletion returns the authoritative passage revision", async () => {
+  posted.length = 0;
+  const passageID = `passage-${"1".repeat(32)}`;
+  const recordingID = "session-20260726-221100-123456";
+  const pending = deletePracticePassageAttempt(passageID, recordingID);
+  const request = posted.at(-1);
+  expect(request).toMatchObject({
+    t: "voiceREST",
+    method: "DELETE",
+    path: `/practice-passages/${passageID}/attempts/${recordingID}`,
+  });
+  const response: PracticePassage = {
+    id: passageID,
+    intendedText: "thank",
+    revision: 5,
+    createdAt: "2026-07-26T22:11:00Z",
+    updatedAt: "2026-07-30T01:00:00Z",
+    baselineRecordingID: null,
+    attemptCount: 0,
+    latestAttemptCreatedAt: null,
+  };
+  deliver({
+    t: "rest",
+    r: {
+      requestID: request?.requestID,
+      status: 200,
+      contentType: "application/json",
+      sequence: 0,
+      isFinal: true,
+      body: Buffer.from(JSON.stringify(response)).toString("base64"),
+    },
+  });
+  await expect(pending).resolves.toEqual(response);
 });
 
 test("native socket uses the shared browser wire messages", async () => {

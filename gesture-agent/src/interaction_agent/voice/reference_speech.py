@@ -1,7 +1,7 @@
 """Host-owned CMUdict-to-Kokoro reference speech artifacts.
 
 `ReferenceSpeechArtifactStore` is the external interface. Callers identify a
-saved recording and a passage/word scope; the module owns pronunciation,
+versioned practice passage and a passage/word scope; the module owns pronunciation,
 direct-token synthesis, provenance, atomic persistence, and cache reuse.
 """
 
@@ -51,7 +51,7 @@ from interaction_agent.voice.reference_pronunciation import (
     ReferencePronunciationError,
     reference_pronunciation,
 )
-from interaction_agent.voice.web_stream import load_recording
+from interaction_agent.voice.practice_passages import PracticePassageStore
 
 ARTIFACT_SCHEMA_VERSION: Final = 1
 ARTIFACT_ID_PATTERN: Final = re.compile(r"^[0-9a-f]{64}$")
@@ -65,6 +65,10 @@ class ReferenceSpeechError(RuntimeError):
 
 class ReferenceSpeechSynthesisError(ReferenceSpeechError):
     """The validated request could not be executed by the pinned runtime."""
+
+
+class ReferenceSpeechRevisionConflict(ReferenceSpeechError):
+    """A caller used a word scope from an older intended-text revision."""
 
 
 @dataclass(frozen=True)
@@ -288,19 +292,23 @@ class KokoroDirectSynthesizer:
 
 
 class ReferenceSpeechArtifactStore:
-    """Resolve a saved recording scope into one durable host WAV."""
+    """Resolve a versioned practice-passage scope into one durable host WAV."""
 
     def __init__(
         self,
         *,
         root: Path = VOICE_REFERENCE_SPEECH_ROOT,
-        recording_loader: Callable[[str], object] = load_recording,
+        passage_loader: Callable[[str], object] | None = None,
         synthesizer: ReferenceSpeechSynthesizer | None = None,
         cache_max_bytes: int | None = None,
     ) -> None:
         self._root = root
         self._artifact_root = root / "artifacts"
-        self._recording_loader = recording_loader
+        self._passage_loader = (
+            passage_loader
+            if passage_loader is not None
+            else PracticePassageStore().get_passage
+        )
         self._synthesizer = synthesizer or KokoroDirectSynthesizer()
         self._cache_max_bytes = (
             cache_max_bytes
@@ -353,7 +361,8 @@ class ReferenceSpeechArtifactStore:
     def create(
         self,
         *,
-        recording_id: str,
+        passage_id: str,
+        passage_revision: int,
         scope: ReferenceSpeechScope,
         voice_identifier: str,
         speed: float,
@@ -368,14 +377,19 @@ class ReferenceSpeechArtifactStore:
                 f"Reference speed must be between {MINIMUM_KOKORO_SPEED} and "
                 f"{MAXIMUM_KOKORO_SPEED}"
             )
-        recording = self._recording_loader(recording_id)
-        transcript = getattr(recording, "transcript", None)
-        if not isinstance(transcript, str) or not transcript.strip():
+        passage = self._passage_loader(passage_id)
+        current_revision = getattr(passage, "revision", None)
+        if current_revision != passage_revision:
+            raise ReferenceSpeechRevisionConflict(
+                "The practice passage changed; refresh before playing reference speech"
+            )
+        intended_text = getattr(passage, "intended_text", None)
+        if not isinstance(intended_text, str) or not intended_text.strip():
             raise ReferenceSpeechError(
-                "This recording has no saved transcript to pronounce"
+                "This practice passage has no intended text to pronounce"
             )
         try:
-            pronunciation = reference_pronunciation(transcript)
+            pronunciation = reference_pronunciation(intended_text)
         except ReferencePronunciationError as exc:
             raise ReferenceSpeechError(str(exc)) from exc
 

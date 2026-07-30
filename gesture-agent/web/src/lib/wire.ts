@@ -33,7 +33,8 @@ export interface AudioFrameMessage {
  * via the `definition` "CreateReferenceSpeechArtifactRequest".
  */
 export interface CreateReferenceSpeechArtifactRequest {
-  recordingId: string;
+  passageId: string;
+  passageRevision: number;
   scope: ReferenceSpeechScopeRequest;
   voiceIdentifier: string;
   speed: number;
@@ -73,25 +74,26 @@ export interface PartialTranscriptMessage {
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema
- * via the `definition` "PronunciationComparison".
+ * via the `definition` "PracticePassage".
  */
-export interface PronunciationComparison {
-  distance: number;
-  closeness: number;
-  referenceFrameCount: number;
-  learnerFrameCount: number;
-  pathLength: number;
-  coefficientCount: number;
-  trace: PronunciationFrameCostPayload[];
+export interface PracticePassage {
+  id: string;
+  intendedText: string;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+  baselineRecordingID?: string | null;
+  attemptCount: number;
+  latestAttemptCreatedAt?: string | null;
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema
- * via the `definition` "PronunciationFrameCostPayload".
+ * via the `definition` "PracticePassageAttemptsResponse".
  */
-export interface PronunciationFrameCostPayload {
-  referenceSeconds: number;
-  learnerSeconds: number;
-  cost: number;
+export interface PracticePassageAttemptsResponse {
+  passage: PracticePassage;
+  attempts: Recording[];
+  nextCursor?: string | null;
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema
@@ -99,12 +101,15 @@ export interface PronunciationFrameCostPayload {
  */
 export interface Recording {
   id: string;
+  passageId: string;
+  passageRevision: number;
   clientSessionID?: string | null;
   createdAt: string;
   durationSeconds: number;
   source: "macos" | "iphone" | "browserDev";
   status: "completed" | "interrupted";
-  transcript?: string | null;
+  machineTranscript?: string | null;
+  intendedText: string;
   transcriptionError?: string | null;
   observedPhones: string[];
   phoneAnalysisError?: string | null;
@@ -146,6 +151,36 @@ export interface RecordingTransportAudit {
   lastFrameReceivedAt?: string | null;
   stopReceivedAt?: string | null;
   interruptionReason?: string | null;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "PracticePassageListResponse".
+ */
+export interface PracticePassageListResponse {
+  passages: PracticePassage[];
+  nextCursor?: string | null;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "PronunciationComparison".
+ */
+export interface PronunciationComparison {
+  distance: number;
+  closeness: number;
+  referenceFrameCount: number;
+  learnerFrameCount: number;
+  pathLength: number;
+  coefficientCount: number;
+  trace: PronunciationFrameCostPayload[];
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "PronunciationFrameCostPayload".
+ */
+export interface PronunciationFrameCostPayload {
+  referenceSeconds: number;
+  learnerSeconds: number;
+  cost: number;
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema
@@ -220,7 +255,7 @@ export interface ReferenceSpeechVoice {
 export interface SaveRecordingRequest {
   sampleRate: number;
   pcm: string;
-  transcript?: string | null;
+  machineTranscript?: string | null;
   encoding?: "int16" | "float32";
 }
 /**
@@ -255,6 +290,8 @@ export interface SessionProgressMessage {
 export interface SessionStartMessage {
   type?: "sessionStart";
   preampGain?: number | null;
+  passageId?: string | null;
+  passageRevision?: number | null;
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema
@@ -306,6 +343,22 @@ export interface VoiceSignalFramePayload {
   lowBandRatio: number;
   midBandRatio: number;
   highBandRatio: number;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "UpdatePracticePassageBaselineRequest".
+ */
+export interface UpdatePracticePassageBaselineRequest {
+  recordingId?: string | null;
+  expectedRevision: number;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "UpdatePracticePassageTextRequest".
+ */
+export interface UpdatePracticePassageTextRequest {
+  intendedText: string;
+  expectedRevision: number;
 }
 
 export type ClientWireMessage =
