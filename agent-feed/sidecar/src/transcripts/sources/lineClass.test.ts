@@ -127,6 +127,43 @@ test('codex config dumps and superseded occupancy are machinery', () => {
   })).toBe('machinery');
 });
 
+test('the agent-message notification is machinery, its response-item record is not', () => {
+  // One message written twice: 6,934 pairs across the six largest rollouts here, 6,842
+  // byte-identical, and where they differ the response_item is a strict superset. The
+  // notification renders dim and the record bright, so keeping both showed the same
+  // paragraph twice at two weights.
+  expect(codex({
+    type: 'event_msg',
+    payload: { type: 'agent_message', message: 'Fixed and pushed.', phase: 'commentary' },
+  })).toBe('machinery');
+
+  // The record itself stays, because it is the one the prose is read from.
+  expect(codex({
+    type: 'response_item',
+    payload: {
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'Fixed and pushed.' }],
+    },
+  })).toBe('content');
+
+  // A DIFFERENT record that happens to share the name: 453 of these against 72,324
+  // notifications, and nothing shows it duplicating anything, so it keeps the content
+  // default rather than being swept up by the name.
+  expect(codex({
+    type: 'response_item',
+    payload: { type: 'agent_message', message: 'sub-agent finished' },
+  })).toBe('content');
+
+  // The user's own message is the same notification/record shape and is deliberately
+  // NOT omitted: it has not been measured, and a person's words are the last thing to
+  // drop on an unverified hunch.
+  expect(codex({
+    type: 'event_msg',
+    payload: { type: 'user_message', message: 'try again' },
+  })).toBe('content');
+});
+
 test('reasoning is content when it carries a trace and machinery when encrypted', () => {
   const withText = {
     type: 'response_item',

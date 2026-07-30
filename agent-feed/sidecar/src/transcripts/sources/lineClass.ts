@@ -145,6 +145,23 @@ export function classifyCodexLine(record: {
   // live header readout instead.
   if (top === 'event_msg' && inner === 'token_count') return 'machinery';
 
+  // One message written twice. `event_msg.agent_message` is the notification as the
+  // text is produced; the `response_item.message` assistant record that ALWAYS
+  // follows it is the record of it. Across the six largest rollouts here, 6,934
+  // pairs, 6,842 byte-identical (98.7%); in the 85 that differ the record is a
+  // strict superset, and in none does the notification carry text the record lacks.
+  //
+  // Omitting it is a per-type rule about a duplicated stream, not dedup by content:
+  // no line is compared to another, and the raw view still renders both. Worth doing
+  // beyond the row count -- the notification renders as a DIM labelled row and the
+  // record as bright prose, so today the same paragraph appears twice at two
+  // weights.
+  //
+  // Scoped to the `event_msg` form. `response_item.agent_message` is a different
+  // record (453 here against 72,324) and has not been shown to duplicate anything,
+  // so it keeps the content default.
+  if (top === 'event_msg' && inner === 'agent_message') return 'machinery';
+
   // A reasoning item whose trace is encrypted renders as the JSON of a Fernet
   // blob and says nothing. 81,905 rows / 7.2 MB here. The text check is shared
   // with the adapter so the two cannot disagree about which items those are.
