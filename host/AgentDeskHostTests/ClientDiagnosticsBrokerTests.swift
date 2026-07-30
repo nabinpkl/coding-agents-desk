@@ -77,7 +77,16 @@ struct ClientDiagnosticsBrokerTests {
         let collection = Task {
             try await broker.collect(request)
         }
-        await Task.yield()
+        // The close has to land on a collector that is already registered, which a single
+        // `Task.yield()` does not guarantee. `collect` registers its pending entry before it pushes
+        // the request, so an observed request proves registration. Closing too early means the
+        // collector never sees the lane end and instead reports `.timedOut` when the 2s timeout
+        // fires, which is what this test then read as an unexpected error.
+        guard await waitForRequests([request.requestId], from: server) else {
+            Issue.record("collector did not register before the lane closed")
+            broker.cancel()
+            return
+        }
         server.finishDiagnostics()
 
         do {

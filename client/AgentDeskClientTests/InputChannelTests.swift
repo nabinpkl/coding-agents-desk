@@ -1652,10 +1652,14 @@ struct InputChannelTests {
             now: { 701 },
             buildIdentity: { ("1.2.3", "456", "abcdef0") }
         )
+        // A later checkpoint must not overtake a suspended earlier send. The suspension is a gate the
+        // test opens rather than a fixed sleep, so the window is exact: by the time it opens, the
+        // reset checkpoint is provably already enqueued behind the in-flight one. A 50ms sleep only
+        // made that likely, and lost the bet under a full-suite run.
+        let inFlight = AsyncGate()
         telemetry.setSender { checkpoint in
-            // A later checkpoint must not overtake a suspended earlier send.
             if checkpoint.videoMilestone == .presentationAttempted {
-                try await Task.sleep(for: .milliseconds(50))
+                await inFlight.wait()
             }
             recorder.append(checkpoint)
         }
@@ -1679,11 +1683,11 @@ struct InputChannelTests {
         )
         telemetry.advanceVideoMilestone(.presentationAttempted)
         telemetry.resetVideoMilestone()
+        // Both milestone calls enqueue synchronously (`emitIfChanged` yields to the emitter stream
+        // under its lock), so releasing here is releasing a send that already has a successor queued.
+        inFlight.open()
 
-        let deadline = ContinuousClock.now.advanced(by: .seconds(1))
-        while recorder.count < 4, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        await recorder.wait(forCount: 4)
         let checkpoints = recorder.values
         #expect(checkpoints.count == 4)
         #expect(checkpoints[1].activeSurface == .terminal)
@@ -1872,9 +1876,46 @@ struct InputChannelTests {
     }
 }
 
+/// A one-shot suspension point a test controls, standing in for a fixed sleep where the point of the
+/// delay is to hold one async operation in flight while later work queues up behind it. A duration
+/// cannot express that; it only bets that the chosen number of milliseconds outlasts however long
+/// the machine takes, and a loaded full-suite run wins that bet.
+private final class AsyncGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let alreadyOpen: Bool = lock.withLock {
+                if isOpen { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if alreadyOpen { continuation.resume() }
+        }
+    }
+
+    func open() {
+        let resumable: [CheckedContinuation<Void, Never>] = lock.withLock {
+            isOpen = true
+            let pending = waiters
+            waiters.removeAll()
+            return pending
+        }
+        for continuation in resumable { continuation.resume() }
+    }
+}
+
 private final class CheckpointRecorder: @unchecked Sendable {
+    private struct Waiter {
+        let target: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
     private let lock = NSLock()
     private var checkpoints: [ClientRuntimeCheckpoint] = []
+    private var waiters: [Waiter] = []
 
     var count: Int {
         lock.withLock { checkpoints.count }
@@ -1885,9 +1926,43 @@ private final class CheckpointRecorder: @unchecked Sendable {
     }
 
     func append(_ checkpoint: ClientRuntimeCheckpoint) {
-        lock.withLock {
+        let resumable: [CheckedContinuation<Void, Never>] = lock.withLock {
             checkpoints.append(checkpoint)
+            let reached = checkpoints.count
+            let satisfied = waiters.filter { $0.target <= reached }
+            waiters.removeAll { $0.target <= reached }
+            return satisfied.map(\.continuation)
         }
+        for continuation in resumable { continuation.resume() }
+    }
+
+    /// Returns as soon as `target` checkpoints have arrived. The timeout is a regression backstop, not
+    /// the waiting mechanism: a wall-clock poll budget IS the mechanism when the test polls, and a 1s
+    /// one here reported 2 and then 3 of 4 checkpoints under a full-suite run while passing in
+    /// isolation. On a real regression this gives up and the assertion reports the count it saw.
+    func wait(forCount target: Int, timeout: Duration = .seconds(30)) async {
+        let backstop = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            self?.abandonWaiters()
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let satisfied: Bool = lock.withLock {
+                if checkpoints.count >= target { return true }
+                waiters.append(Waiter(target: target, continuation: continuation))
+                return false
+            }
+            if satisfied { continuation.resume() }
+        }
+        backstop.cancel()
+    }
+
+    private func abandonWaiters() {
+        let resumable: [CheckedContinuation<Void, Never>] = lock.withLock {
+            let pending = waiters
+            waiters.removeAll()
+            return pending.map(\.continuation)
+        }
+        for continuation in resumable { continuation.resume() }
     }
 }
 
