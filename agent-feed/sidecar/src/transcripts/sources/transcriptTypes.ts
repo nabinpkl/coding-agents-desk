@@ -3,7 +3,8 @@
 // Agent Panel) consumes only these.
 //
 // The seam: each adapter knows its own JSONL layout and translates one line
-// into an optional ActivityEvent plus an optional turn-boundary signal.
+// into an optional ActivityEvent plus whatever state that line updates -- turn
+// boundary, title, cwd, context occupancy, and whether the nice view keeps it.
 // The sidecar owns catalog watching, on-demand byte indexing, and streaming.
 //
 // Liveness is never stored. A selected-project probe combines transcript
@@ -148,8 +149,8 @@ export interface SourceAdapter {
   id: SourceId;
 
   // Parse one JSONL line. Every nonempty physical record returns an activity
-  // event, optionally alongside state updates such as turn, title, cwd, and
-  // usage. Only an empty physical line returns null.
+  // event, optionally alongside state updates such as turn, title, cwd, usage,
+  // and its line class. Only an empty physical line returns null.
   processLine(line: string): LineResult | null;
 
   // Build a one-line summary snippet from a parsed event for the rail row.
