@@ -5,6 +5,17 @@ import type { AgentSource } from "./data-source/AgentDataSource";
 import { useDataSource } from "./data-source/AgentDataSourceContext";
 import type { ActivityBlock } from "./useSessionEventsStream";
 
+/**
+ * A collapsed transcript drawer, sized as a chip.
+ *
+ * `display: list-item` stays: an `inline-flex` or `flex` summary drops the
+ * disclosure triangle in WebKit, and the triangle is the only thing marking
+ * these as openable.
+ */
+const DRAWER_CLASS = "text-(length:--agent-panel-fs-tile-chip,12px)";
+const DRAWER_SUMMARY_CLASS =
+  "cursor-pointer py-0.5 font-mono leading-none text-muted-foreground hover:text-foreground";
+
 export function LabeledTextBlock({ block }: { block: ActivityBlock }) {
   return (
     <div className="rounded-sm border border-border/60 bg-card/50">
@@ -47,11 +58,13 @@ export function RawDetails({
 }) {
   if (metadata.length === 0 && !includesRawJson) return null;
   return (
-    <details className="rounded-sm border border-border/50 bg-muted/20">
-      <summary className="cursor-pointer px-2 py-1 font-mono text-foreground/65">
-        {label}
-      </summary>
-      <div className="space-y-1.5 border-t border-border/50 p-1.5">
+    // Closed, this is plumbing, so it gets a chip's worth of space rather than a
+    // bordered full-width band: four of these were spending 97px of a 535px
+    // viewport on drawers nobody had opened. The border moves to the open body,
+    // where there is actually something to enclose.
+    <details className={DRAWER_CLASS}>
+      <summary className={DRAWER_SUMMARY_CLASS}>{label}</summary>
+      <div className="mt-1 space-y-1.5 rounded-sm border border-border/50 bg-muted/20 p-1.5">
         {metadata.map((block, index) => (
           <LabeledTextBlock key={index} block={block} />
         ))}
@@ -96,18 +109,16 @@ export function RawJsonBlock({
 
   return (
     <details
-      className="rounded-sm border border-border/50 bg-muted/20"
+      className={DRAWER_CLASS}
       onToggle={(event) => {
         if (event.currentTarget.open) void load();
       }}
     >
-      <summary className="cursor-pointer px-2 py-1 font-mono text-foreground/65">
-        Raw JSON
-      </summary>
-      {loading ? <div className="px-2 py-1 text-muted-foreground">Loading…</div> : null}
-      {error ? <div className="px-2 py-1 text-destructive">{error}</div> : null}
+      <summary className={DRAWER_SUMMARY_CLASS}>Raw JSON</summary>
+      {loading ? <div className="py-1 text-muted-foreground">Loading…</div> : null}
+      {error ? <div className="py-1 text-destructive">{error}</div> : null}
       {raw !== null ? (
-        <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words border-t border-border/50 px-2 py-1.5 font-mono text-foreground/75">
+        <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border/50 bg-muted/20 px-2 py-1.5 font-mono text-foreground/75">
           {raw}
         </pre>
       ) : null}

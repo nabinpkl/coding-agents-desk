@@ -138,9 +138,24 @@ function makeFixtureSeedChunk(source: Source, sessionId: string) {
           { k: "raw" as const },
         ],
       },
+      // A reasoning trace, with the bolded topic line these routinely open
+      // with. The fixture had no reasoning event at all, which is how reasoning
+      // came to be the one content kind rendered as raw text: the only host-free
+      // surface for judging the panel could not show the bug.
+      {
+        i: 5,
+        ts: Date.now() - 100_000,
+        tp: "reasoning" as const,
+        b: [
+          {
+            k: "reasoning" as const,
+            tx: "**Adjusting skip parameter handling**\n\nThe offset is clamped before paging, so a negative `beforeIndex` can never reach the reader.",
+          },
+        ],
+      },
     ],
     ws: 0,
-    tot: 6,
+    tot: 7,
     lv: false,
   };
 }
@@ -152,7 +167,7 @@ function makeFixtureLiveChunk(source: Source, sessionId: string) {
     sid: sessionId,
     ev: [
       {
-        i: 5,
+        i: 6,
         ts: Date.now(),
         tp: "assistant" as const,
         b: [
@@ -164,7 +179,7 @@ function makeFixtureLiveChunk(source: Source, sessionId: string) {
       },
     ],
     ws: 0,
-    tot: 6,
+    tot: 7,
     lv: true,
   };
 }

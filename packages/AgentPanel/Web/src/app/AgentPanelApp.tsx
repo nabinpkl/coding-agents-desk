@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { LoaderCircle, Terminal as TerminalIcon, X } from "lucide-react";
+import { LoaderCircle, Terminal as TerminalIcon } from "lucide-react";
 import type {
   AgentTerminalContext,
   AgentTerminalRequest,
@@ -10,6 +10,7 @@ import type {
 } from "../features/activity-feed/data-source/BridgeDataSource";
 import { DataSourceProvider } from "../features/activity-feed/data-source/AgentDataSourceContext";
 import { ActivityFeed } from "../features/activity-feed/ActivityFeed";
+import { FontSizeRoot } from "../features/activity-feed/fontStore";
 
 type NavState =
   | { view: "projects" }
@@ -51,6 +52,10 @@ export function App({ bridge }: Props) {
   const [loadingLayer, setLoadingLayer] = useState(true);
   const [layerError, setLayerError] = useState<string | null>(null);
   const [terminal, setTerminal] = useState<TerminalState>({ kind: "idle" });
+  // The thread's own controls render into the header through this node, so the
+  // feed does not spend a band of its own on them. Held in state, not a ref,
+  // because the feed has to re-render once the node exists.
+  const [threadControlsHost, setThreadControlsHost] = useState<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setLoadingLayer(true);
@@ -173,18 +178,29 @@ export function App({ bridge }: Props) {
 
   return (
     <DataSourceProvider source={bridge}>
-      <div className="flex h-dvh flex-col bg-background text-foreground">
-        {/* Header */}
-        {/* The native client insets this webview below its Control/Agent toggle,
-            which owns the top safe area. So the header uses a plain top pad (no
-            safe-area inset) and sits directly under that native switcher. */}
-        <header className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-4 py-3">
+      {/* One home for the bottom safe-area inset. It used to be repeated on
+          each leaf view and on the terminal footer, which double-inset any
+          combination of the two. Applying it to the column means every view,
+          and the notice below main, clears the iOS home indicator. */}
+      <div className="flex h-dvh flex-col bg-background pb-[env(safe-area-inset-bottom)] text-foreground">
+        {/* Every chosen font token becomes a CSS variable on <html>. Without
+            this mounted, all ~20 `var(--agent-panel-fs-*)` readers silently fall
+            back to their inline literals and the token system does nothing. */}
+        <FontSizeRoot />
+        {/* The one row of app chrome. It used to be three (this header, the
+            feed's own fold bar, a terminal footer), which cost 157px of a 692px
+            panel before any transcript. The title is left-aligned rather than
+            centred because centring it needed a matching spacer opposite the
+            back button, and that spacer is what truncated real session titles.
+            The native client insets this webview below its Control/Agent toggle,
+            which owns the top safe area, so no safe-area inset here. */}
+        <header className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-2 py-1.5">
           {nav.view !== "projects" ? (
             <button
               type="button"
               onClick={goBack}
               aria-label="Go back"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
             >
               <svg
                 width="20"
@@ -202,18 +218,23 @@ export function App({ bridge }: Props) {
                 />
               </svg>
             </button>
-          ) : (
-            <div className="h-9 w-9" aria-hidden />
-          )}
-          <h1 className="flex-1 truncate text-center text-[15px] font-semibold leading-none text-foreground">
+          ) : null}
+          <h1 className="min-w-0 flex-1 truncate px-1 text-[15px] font-semibold leading-none text-foreground">
             {nav.view === "projects"
               ? "Agent Feed"
               : nav.view === "sessions"
                 ? nav.project.displayName ?? nav.project.projectPath.split("/").pop()
                 : nav.session.title ?? nav.session.sessionId}
           </h1>
-          {/* Right spacer to center the title */}
-          <div className="h-9 w-9" aria-hidden />
+          <div ref={setThreadControlsHost} className="flex shrink-0 items-center" />
+          {nav.view === "thread" ? (
+            <TerminalControl
+              source={nav.session.source}
+              state={terminal}
+              onOpen={openTerminal}
+              onClose={closeTerminal}
+            />
+          ) : null}
         </header>
 
         {/* Content. `main` is NOT a scroll container: each leaf view owns its
@@ -225,7 +246,7 @@ export function App({ bridge }: Props) {
             last row clears the iOS home indicator). */}
         <main className="min-h-0 flex-1 overflow-hidden">
           {nav.view === "projects" ? (
-            <div className="h-full overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+            <div className="h-full overflow-y-auto">
               <ProjectList
                 projects={projects}
                 onSelect={openProject}
@@ -234,7 +255,7 @@ export function App({ bridge }: Props) {
               />
             </div>
           ) : nav.view === "sessions" ? (
-            <div className="h-full overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+            <div className="h-full overflow-y-auto">
               <SessionList
                 sessions={sessions}
                 loading={loadingLayer}
@@ -246,32 +267,46 @@ export function App({ bridge }: Props) {
             // key on sessionId so switching sessions mounts a fresh
             // ActivityFeed: its internal UI state (collapsed/expandedTools/
             // sticky/scroll) resets per thread instead of carrying over.
-            // px-4 gives the thread a screen-edge gutter (matching the project
-            // and session list rows) so the reused (desktop-dense) ActivityFeed
-            // prose and rows are not flush against the phone bezel. Padding the
-            // wrapper keeps the shared component untouched.
-            <div key={nav.session.sessionId} className="h-full px-4">
+            //
+            // No horizontal padding here. The rows own their gutter, and
+            // stacking a wrapper pad on top of the row pad, the card pad, and
+            // the body indent put the first character of prose 68px from the
+            // left edge of a 480px panel.
+            //
+            // The bottom safe-area inset lives here now that the terminal
+            // footer is gone: it is what keeps the last row clear of the iOS
+            // home indicator.
+            <div key={nav.session.sessionId} className="h-full">
               <ActivityFeed
                 source={nav.session.source}
                 sessionId={nav.session.sessionId}
+                controlsHost={threadControlsHost}
               />
             </div>
           )}
         </main>
         {nav.view === "thread" ? (
-          <TerminalBand
-            source={nav.session.source}
-            state={terminal}
-            onOpen={openTerminal}
-            onClose={closeTerminal}
-          />
+          <TerminalNotice source={nav.session.source} state={terminal} />
         ) : null}
       </div>
     </DataSourceProvider>
   );
 }
 
-function TerminalBand({
+function harnessName(source: "claude" | "codex"): string {
+  return source === "claude" ? "Claude" : "Codex";
+}
+
+/**
+ * The terminal's open/close affordance, as one icon in the header.
+ *
+ * This replaces a permanent 45px footer band that spent a full row on a single
+ * button. Progress and ready are carried by the icon itself and announced
+ * through an off-screen live region, so those states now cost no layout at all;
+ * failure and exit are the only states that still claim pixels, via
+ * `TerminalNotice`, because those are the ones the viewer has to read.
+ */
+function TerminalControl({
   source,
   state,
   onOpen,
@@ -282,69 +317,83 @@ function TerminalBand({
   onOpen: () => void;
   onClose: () => void;
 }) {
-  const harness = source === "claude" ? "Claude" : "Codex";
-  const launcher = (
-    <button
-      type="button"
-      onClick={onOpen}
-      aria-label={`Open ${harness} terminal`}
-      className="flex min-h-11 items-center gap-2 px-4 text-[14px] font-medium text-foreground transition-colors hover:bg-muted active:bg-muted/80"
-    >
-      <TerminalIcon className="h-4 w-4" aria-hidden />
-      <span>Open {harness}</span>
-    </button>
+  const harness = harnessName(source);
+  const busy = state.kind === "loading" || state.kind === "closing";
+  const ready = state.kind === "ready";
+  const label = ready ? `Close ${harness} terminal` : `Open ${harness} terminal`;
+  const announcement =
+    state.kind === "loading"
+      ? `Opening ${harness}`
+      : state.kind === "closing"
+        ? `Closing ${harness}`
+        : ready
+          ? `${harness} terminal ready`
+          : null;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={ready ? onClose : onOpen}
+        disabled={busy}
+        aria-label={label}
+        title={label}
+        className={
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors disabled:opacity-60 " +
+          (ready
+            ? "bg-primary/20 text-primary hover:bg-primary/30"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80")
+        }
+      >
+        {busy ? (
+          <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
+        ) : (
+          <TerminalIcon className="h-4 w-4" aria-hidden />
+        )}
+      </button>
+      {/* Announced, not drawn. The icon is the visual state; a sighted viewer
+          reading a spinner does not also need a sentence about it. */}
+      {announcement ? (
+        <span role="status" className="sr-only">
+          {announcement}
+        </span>
+      ) : null}
+    </>
   );
+}
 
-  let status: React.ReactNode = null;
-  if (state.kind === "loading" || state.kind === "closing") {
-    status = (
-      <div role="status" className="flex min-h-11 items-center gap-2 px-4 text-[14px] text-muted-foreground">
-        <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden />
-        <span>{state.kind === "loading" ? `Opening ${harness}` : `Closing ${harness}`}</span>
-      </div>
-    );
-  } else if (state.kind === "ready") {
-    status = (
-      <div className="flex min-h-11 items-center gap-2 px-4">
-        <div role="status" className="flex min-w-0 flex-1 items-center gap-2 text-[14px] text-foreground">
-          <TerminalIcon className="h-4 w-4 shrink-0" aria-hidden />
-          <span className="truncate">{harness} terminal ready</span>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={`Close ${harness} terminal`}
-          className="flex h-9 w-9 shrink-0 items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80"
-        >
-          <X className="h-4 w-4" aria-hidden />
-        </button>
-      </div>
-    );
-  } else if (state.kind === "error") {
-    status = (
-      <div className="flex min-h-11 items-center justify-between gap-3">
-        <div role="status" className="min-w-0 flex-1 px-4 text-[13px] text-destructive">
-          {harness} terminal unavailable: {state.code}
-        </div>
-        {launcher}
-      </div>
-    );
-  } else if (state.kind === "ended") {
-    status = (
-      <div className="flex min-h-11 items-center justify-between gap-3">
-        <div role="status" className="min-w-0 flex-1 px-4 text-[13px] text-muted-foreground">
-          {harness} terminal ended
-        </div>
-        {launcher}
+/**
+ * The only terminal states that get a visible row: the ones the viewer has to
+ * act on. Everything else is announced by `TerminalControl` and costs no space.
+ */
+function TerminalNotice({
+  source,
+  state,
+}: {
+  source: "claude" | "codex";
+  state: TerminalState;
+}) {
+  const harness = harnessName(source);
+  if (state.kind === "error") {
+    return (
+      <div
+        role="status"
+        className="shrink-0 border-t border-border bg-destructive/10 px-3 py-1 text-[12px] text-destructive"
+      >
+        {harness} terminal unavailable: {state.code}
       </div>
     );
   }
-
-  return (
-    <footer className="shrink-0 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]">
-      {state.kind === "idle" ? launcher : status}
-    </footer>
-  );
+  if (state.kind === "ended") {
+    return (
+      <div
+        role="status"
+        className="shrink-0 border-t border-border px-3 py-1 text-[12px] text-muted-foreground"
+      >
+        {harness} terminal ended
+      </div>
+    );
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

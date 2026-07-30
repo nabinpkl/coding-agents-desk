@@ -1,36 +1,53 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ChevronRight, FoldVertical, UnfoldVertical } from "lucide-react";
 import {
   useSessionEventsStream,
-  type ActivityBlock,
   type ActivityEvent,
 } from "./useSessionEventsStream";
-import { DiffBlock } from "./DiffBlock";
-import { Markdown } from "./markdown/Markdown";
-import { useDataSource } from "./data-source/AgentDataSourceContext";
 import { useStickToBottom } from "./useStickToBottom";
 import {
   buildFeedLayout,
   displayRole,
-  partitionEventBlocks,
-  shellCommand,
+  eventPreview,
   type DisplayItem,
   type DisplayRole,
-  type PairedToolResult,
 } from "./activityDisplayItems";
-import { LabeledTextBlock, RawDetails, RawJsonBlock } from "./ActivitySystemBlocks";
-import { CodeBlock } from "./markdown/CodeBlock";
+import {
+  jumpScrollTop,
+  selectStickyCurrentIndex,
+  selectStickyUserIndex,
+} from "./activityStickyHeaders";
+import {
+  CompactionRow,
+  ROLE_BORDER,
+  ROLE_STYLES,
+  SegmentEventRow,
+  UserRow,
+  type EventRowContext,
+} from "./ActivityEventRows";
 import type { AgentSource } from "./data-source/AgentDataSource";
+
+/** Fallback for the sticky bar's height before it has rendered once. */
+const STICKY_HEIGHT_ESTIMATE = 44;
 
 export function ActivityFeed({
   source,
   sessionId,
+  controlsHost,
 }: {
   source: AgentSource;
   sessionId: string;
+  /**
+   * Where to render the fold-all control, supplied by the shell so the thread
+   * spends no row of its own on it. `null` only while the shell's header is
+   * still mounting; required rather than optional so a shell cannot drop the
+   * control by forgetting to pass it.
+   */
+  controlsHost: HTMLElement | null;
 }) {
   const { events, loadOlder, windowStart, loading, error } =
     useSessionEventsStream(source, sessionId);
@@ -54,6 +71,20 @@ export function ActivityFeed({
     sizedRef,
     events.length > 0,
   );
+
+  // Scroll offset the sticky bars are computed from.
+  //
+  // This has to be state, not a read of `scrollTop` inside a memo keyed on the
+  // virtualizer's visible range. That range only changes identity when the
+  // window of rendered rows changes, so on a thread short enough to fit inside
+  // the overscan it never changes at all -- and the bars, computed once at
+  // mount, then never updated again for the life of the thread.
+  const [scrollTop, setScrollTop] = useState(0);
+  const handleScroll = useCallback(() => {
+    onScroll();
+    const el = parentRef.current;
+    if (el) setScrollTop(el.scrollTop);
+  }, [onScroll]);
 
   // Per-event collapse: each agent/result event has its own toggle. Set
   // contains event indices currently collapsed (heading-only).
@@ -110,7 +141,6 @@ export function ActivityFeed({
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
   }, []);
 
-
   const { items, allEventIds, pairedToolResults } = useMemo(
     () => buildFeedLayout(events),
     [events],
@@ -136,14 +166,21 @@ export function ActivityFeed({
     setCollapsed(new Set());
   }, [pause]);
 
+  const rowContext: EventRowContext = useMemo(
+    () => ({ source, sessionId, expandedTools, onToggleTool: toggleTool, pairedToolResults }),
+    [source, sessionId, expandedTools, toggleTool, pairedToolResults],
+  );
+
   const rowVirtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef.current,
+    // Rough, and only used before a row has been measured: a collapsed row is
+    // now one line beside its chip, an expanded one a short block.
     estimateSize: (i) => {
       const it = items[i];
-      if (!it) return 96;
-      if (collapsed.has(it.ev.index)) return 40;
-      return 96;
+      if (!it) return 88;
+      if (collapsed.has(it.ev.index)) return 32;
+      return 88;
     },
     overscan: 8,
     // Key by event identity (not index) so that when loadOlder prepends a
@@ -161,82 +198,56 @@ export function ActivityFeed({
   const virtualItems = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
 
-  // Most recent USER event that has scrolled past the top of the viewport.
-  // Recomputed whenever the virtualizer reports new visible items (i.e., on
-  // every scroll). Reads scrollTop directly rather than tracking it in state
-  // to keep scroll re-renders cheap.
-  const stickyUser = useMemo<ActivityEvent | null>(() => {
-    const el = parentRef.current;
-    if (!el || items.length === 0) return null;
-    const scrollTop = el.scrollTop;
-    // measurementsCache is the public mirror of the private getMeasurements();
-    // it's refreshed by the getVirtualItems() call above on every render, so
-    // it holds current start/size for every row, including those scrolled off.
-    const measurements = rowVirtualizer.measurementsCache;
-    // Threshold = "anything whose top has reached the bottom edge of the
-    // sticky bar". As the user msg approaches the top of the viewport, the
-    // sticky flips to it the moment its top would slip behind the bar; on
-    // scroll-up, it flips back to the previous user once that row's top
-    // re-emerges below the bar. Falls back to a 52px estimate before the
-    // sticky has rendered for the first time so the math is stable on cold
-    // start.
-    const stickyH = stickyHeaderRef.current?.offsetHeight ?? 52;
-    const threshold = scrollTop + stickyH;
-    let bestEv: ActivityEvent | null = null;
-    for (let i = 0; i < measurements.length && i < items.length; i++) {
-      const m = measurements[i];
-      if (!m) continue;
-      if (m.start > threshold) break;
-      const it = items[i];
-      if (it && it.kind === "user") bestEv = it.ev;
-    }
-    return bestEv;
-    // virtualItems is the proxy for "scroll position changed".
+  // Most recent USER event whose own heading has scrolled out of view.
+  // `measurementsCache` is the public mirror of the private getMeasurements();
+  // the getVirtualItems() call above refreshes it every render, so it holds
+  // current geometry for every row, including those scrolled off. `virtualItems`
+  // stays a dependency so a re-measure is picked up even without a scroll.
+  const stickyUserIndex = useMemo<number | null>(() => {
+    if (items.length === 0) return null;
+    return selectStickyUserIndex(
+      items,
+      rowVirtualizer.measurementsCache,
+      scrollTop,
+      stickyHeaderRef.current?.offsetHeight ?? STICKY_HEIGHT_ESTIMATE,
+    );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [virtualItems, items]);
+  }, [scrollTop, virtualItems, items]);
+  const stickyUser: ActivityEvent | null =
+    stickyUserIndex === null ? null : items[stickyUserIndex]?.ev ?? null;
 
-  // Event row currently straddling the top of the viewport: its header has
+  // Event row currently straddling the top of the viewport: its heading has
   // scrolled past, but its content is still on screen. Drives the secondary
   // sticky which lets the viewer jump back to that row's start.
-  const stickyCurrent = useMemo<{ item: DisplayItem; index: number } | null>(() => {
-    const el = parentRef.current;
-    if (!el || items.length === 0) return null;
-    const scrollTop = el.scrollTop;
-    const measurements = rowVirtualizer.measurementsCache;
-    const userStickyH = stickyUser ? (stickyHeaderRef.current?.offsetHeight ?? 52) : 0;
-    const threshold = scrollTop + userStickyH;
-    for (let i = 0; i < measurements.length && i < items.length; i++) {
-      const m = measurements[i];
-      if (!m) continue;
-      if (m.start > threshold) break;
-      if (m.start + m.size <= threshold) continue;
-      // Row straddles threshold. Require >=24px hidden so the row's own
-      // header is actually obscured, else the secondary would just duplicate
-      // what's already on screen.
-      if (threshold - m.start < 24) return null;
-      const it = items[i];
-      if (!it) return null;
-      // Compaction banners are milestones, not turns — never pin them as
-      // the secondary sticky (the role chip would be meaningless).
-      if (it.kind === "compaction") return null;
-      // Primary sticky already represents this row.
-      if (it.kind === "user" && stickyUser && stickyUser.index === it.ev.index) return null;
-      return { item: it, index: i };
-    }
-    return null;
+  const stickyCurrentIndex = useMemo<number | null>(() => {
+    if (items.length === 0) return null;
+    return selectStickyCurrentIndex(
+      items,
+      rowVirtualizer.measurementsCache,
+      scrollTop,
+      stickyUser ? (stickyHeaderRef.current?.offsetHeight ?? STICKY_HEIGHT_ESTIMATE) : 0,
+      stickyUserIndex,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [virtualItems, items, stickyUser]);
+  }, [scrollTop, virtualItems, items, stickyUser, stickyUserIndex]);
+  const stickyCurrent: DisplayItem | null =
+    stickyCurrentIndex === null ? null : items[stickyCurrentIndex] ?? null;
 
-  const jumpToStickyCurrent = useCallback(() => {
-    if (!stickyCurrent) return;
-    const el = parentRef.current;
-    const m = rowVirtualizer.measurementsCache[stickyCurrent.index];
-    if (!el || !m) return;
-    const userStickyH = stickyUser ? (stickyHeaderRef.current?.offsetHeight ?? 0) : 0;
-    pause();
-    el.scrollTop = Math.max(0, m.start - userStickyH);
-    flashHighlight(stickyCurrent.item.ev.index);
-  }, [stickyCurrent, stickyUser, rowVirtualizer, flashHighlight, pause]);
+  // One synchronous scroll write per jump. The earlier two-step (jump to the
+  // row top, then rAF-correct for the bar) showed the row under the bar before
+  // it slid into place.
+  const jumpTo = useCallback(
+    (rowIndex: number, reservedHeight: number) => {
+      const el = parentRef.current;
+      const measurement = rowVirtualizer.measurementsCache[rowIndex];
+      const item = items[rowIndex];
+      if (!el || !measurement || !item) return;
+      pause();
+      el.scrollTop = jumpScrollTop(measurement, reservedHeight);
+      flashHighlight(item.ev.index);
+    },
+    [items, rowVirtualizer, flashHighlight, pause],
+  );
 
   useEffect(() => {
     if (virtualItems.length === 0) return;
@@ -262,6 +273,26 @@ export function ActivityFeed({
     prevWindowStartRef.current = windowStart;
   }, [windowStart, totalSize]);
 
+  const foldControl = controlsHost
+    ? createPortal(
+        <button
+          type="button"
+          onClick={allCollapsed ? expandAll : collapseAll}
+          disabled={allEventIds.length === 0}
+          title={allCollapsed ? "Expand all agent sections" : "Collapse all agent sections"}
+          aria-label={allCollapsed ? "expand all" : "collapse all"}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 disabled:opacity-40"
+        >
+          {allCollapsed ? (
+            <UnfoldVertical className="h-4 w-4" aria-hidden />
+          ) : (
+            <FoldVertical className="h-4 w-4" aria-hidden />
+          )}
+        </button>,
+        controlsHost,
+      )
+    : null;
+
   if (loading && events.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
@@ -285,155 +316,101 @@ export function ActivityFeed({
   }
 
   return (
-    <div className="relative flex h-full flex-col">
-      <div
-        className="flex shrink-0 items-center gap-3 border-b border-border bg-muted/10 px-4 py-2.5 font-mono"
-        style={{ fontSize: "var(--agent-panel-fs-tile-chip, 12px)" }}
-      >
+    <div className="relative h-full overflow-hidden">
+      {foldControl}
+      <div ref={parentRef} onScroll={handleScroll} className="h-full overflow-y-auto">
+        <div
+          ref={sizedRef}
+          style={{
+            height: rowVirtualizer.getTotalSize(),
+            position: "relative",
+            width: "100%",
+          }}
+        >
+          {virtualItems.map((virtualRow) => {
+            const it = items[virtualRow.index];
+            if (!it) return null;
+            return (
+              <div
+                key={`${it.kind}-${it.ev.index}`}
+                ref={rowVirtualizer.measureElement}
+                data-index={virtualRow.index}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                {it.kind === "user" ? (
+                  <UserRow
+                    ev={it.ev}
+                    ctx={rowContext}
+                    isCollapsed={collapsed.has(it.ev.index)}
+                    onToggle={() => toggleEvent(it.ev.index)}
+                    isHighlighted={highlightedEvIdx === it.ev.index}
+                  />
+                ) : it.kind === "compaction" ? (
+                  <CompactionRow ev={it.ev} ctx={rowContext} />
+                ) : (
+                  <SegmentEventRow
+                    ev={it.ev}
+                    ctx={rowContext}
+                    isFirst={it.isFirst}
+                    isLast={it.isLast}
+                    isCollapsed={collapsed.has(it.ev.index)}
+                    onToggle={() => toggleEvent(it.ev.index)}
+                    isHighlighted={highlightedEvIdx === it.ev.index}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {(stickyUser || stickyCurrent) ? (
+        <div className="absolute inset-x-0 top-0 z-20 flex flex-col">
+          {stickyUser && stickyUserIndex !== null ? (
+            <StickyUserHeader
+              ev={stickyUser}
+              buttonRef={stickyHeaderRef}
+              // Jumping to a user row disengages its own bar, so no space is
+              // reserved: the row lands flush with the top of the viewport.
+              onClick={() => jumpTo(stickyUserIndex, 0)}
+            />
+          ) : null}
+          {stickyCurrent && stickyCurrentIndex !== null ? (
+            <StickyEventHeader
+              item={stickyCurrent}
+              // The user bar stays up when jumping to a row below it, so that
+              // height has to stay clear.
+              onClick={() =>
+                jumpTo(
+                  stickyCurrentIndex,
+                  stickyUser ? (stickyHeaderRef.current?.offsetHeight ?? 0) : 0,
+                )
+              }
+            />
+          ) : null}
+        </div>
+      ) : null}
+      {!following ? (
         <button
           type="button"
-          onClick={allCollapsed ? expandAll : collapseAll}
-          disabled={allEventIds.length === 0}
-          title={allCollapsed ? "Expand all agent sections" : "Collapse all agent sections"}
-          className="flex items-center gap-2 rounded-md px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+          onClick={scrollToBottom}
+          title="Jump to live tail"
+          aria-label="scroll to bottom"
+          className="absolute bottom-3 right-3 z-30 flex items-center gap-1.5 rounded-full border border-border bg-card/95 px-3 py-1.5 font-mono text-foreground/80 shadow-md backdrop-blur transition-colors hover:bg-muted hover:text-foreground"
+          style={{ fontSize: "var(--agent-panel-fs-tile-chip, 12px)" }}
         >
-          {allCollapsed ? <UnfoldVertical className="size-[1.2em]" aria-hidden /> : <FoldVertical className="size-[1.2em]" aria-hidden />}
-          {allCollapsed ? "expand all" : "collapse all"}
+          <ArrowDown className="size-[1.1em]" aria-hidden />
+          <span>Scroll down</span>
         </button>
-      </div>
-      <div className="relative flex-1 overflow-hidden">
-        <div ref={parentRef} onScroll={onScroll} className="h-full overflow-y-auto">
-          <div
-            ref={sizedRef}
-            style={{
-              height: rowVirtualizer.getTotalSize(),
-              position: "relative",
-              width: "100%",
-            }}
-          >
-            {virtualItems.map((virtualRow) => {
-              const it = items[virtualRow.index];
-              if (!it) return null;
-              return (
-                <div
-                  key={`${it.kind}-${it.ev.index}`}
-                  ref={rowVirtualizer.measureElement}
-                  data-index={virtualRow.index}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
-                >
-                  {it.kind === "user" ? (
-                    <UserRow
-                      ev={it.ev}
-                      source={source}
-                      sessionId={sessionId}
-                      isCollapsed={collapsed.has(it.ev.index)}
-                      onToggle={() => toggleEvent(it.ev.index)}
-                      isHighlighted={highlightedEvIdx === it.ev.index}
-                      expandedTools={expandedTools}
-                      onToggleTool={toggleTool}
-                      pairedToolResults={pairedToolResults}
-                    />
-                  ) : it.kind === "compaction" ? (
-                    <CompactionRow
-                      ev={it.ev}
-                      source={source}
-                      sessionId={sessionId}
-                    />
-                  ) : (
-                    <SegmentEventRow
-                      ev={it.ev}
-                      source={source}
-                      sessionId={sessionId}
-                      isFirst={it.isFirst}
-                      isLast={it.isLast}
-                      isCollapsed={collapsed.has(it.ev.index)}
-                      onToggle={() => toggleEvent(it.ev.index)}
-                      isHighlighted={highlightedEvIdx === it.ev.index}
-                      expandedTools={expandedTools}
-                      onToggleTool={toggleTool}
-                      pairedToolResults={pairedToolResults}
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-        {(stickyUser || stickyCurrent) ? (
-          <div className="absolute inset-x-0 top-0 z-20 flex flex-col">
-            {stickyUser ? (
-              <StickyUserHeader
-                ev={stickyUser}
-                buttonRef={stickyHeaderRef}
-                onClick={() => {
-                  const idx = items.findIndex(
-                    (it) => it.kind === "user" && it.ev.index === stickyUser.index,
-                  );
-                  if (idx < 0) return;
-                  const el = parentRef.current;
-                  const m = rowVirtualizer.measurementsCache[idx];
-                  if (!el || !m) return;
-                  // Land the row's top exactly stickyH pixels into the viewport
-                  // in one synchronous scroll write. The previous two-step (jump
-                  // to row top, then rAF-correct by stickyH) showed the row
-                  // briefly under the bar before sliding into place.
-                  const stickyH = stickyHeaderRef.current?.offsetHeight ?? 0;
-                  pause();
-                  el.scrollTop = Math.max(0, m.start - stickyH);
-                  flashHighlight(stickyUser.index);
-                }}
-              />
-            ) : null}
-            {stickyCurrent ? (
-              <StickyEventHeader item={stickyCurrent.item} onClick={jumpToStickyCurrent} />
-            ) : null}
-          </div>
-        ) : null}
-        {!following ? (
-          <button
-            type="button"
-            onClick={scrollToBottom}
-            title="Jump to live tail"
-            aria-label="scroll to bottom"
-            className="absolute bottom-3 right-3 z-30 flex items-center gap-1.5 rounded-full border border-border bg-card/95 px-3 py-1.5 font-mono text-foreground/80 shadow-md backdrop-blur transition-colors hover:bg-muted hover:text-foreground"
-            style={{ fontSize: "var(--agent-panel-fs-tile-chip, 12px)" }}
-          >
-            <ArrowDown className="size-[1.1em]" aria-hidden />
-            <span>Scroll down</span>
-          </button>
-        ) : null}
-      </div>
+      ) : null}
     </div>
   );
 }
-
-const ROLE_STYLES: Record<DisplayRole, string> = {
-  user: "bg-primary/15 text-primary",
-  assistant: "bg-muted text-foreground/80",
-  tool: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
-  result: "bg-foreground/10 text-foreground/70",
-  // Reasoning is the model's internal thought; muted so it reads as
-  // commentary, not headline.
-  reasoning: "bg-violet-500/15 text-violet-600 dark:text-violet-300",
-  system: "bg-sky-500/15 text-sky-700 dark:text-sky-300",
-};
-
-// Solid accent line per role, used as the left border on the secondary
-// sticky so the role is recognizable at a glance.
-const ROLE_BORDER: Record<DisplayRole, string> = {
-  user: "border-l-primary",
-  assistant: "border-l-muted-foreground/50",
-  tool: "border-l-amber-500",
-  result: "border-l-foreground/40",
-  reasoning: "border-l-violet-500",
-  system: "border-l-sky-500",
-};
 
 // Compact pinned header for the most recent USER event the viewer scrolled
 // past. Full-width opaque strip flush with the top of the scroll area, so
@@ -447,6 +424,10 @@ function StickyUserHeader({
   onClick: () => void;
   buttonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
+  // Deliberately not `eventPreview`: this bar stands for a person's message, so
+  // it reaches past any leading tool_result for the prose they actually typed.
+  // `eventPreview` takes whichever content block comes first, which is right for
+  // an agent row and wrong here.
   const text = ev.blocks.find((b) => b.kind === "text")?.text ?? "";
   const preview = text.split("\n")[0]!.trim().slice(0, 200);
   return (
@@ -455,10 +436,10 @@ function StickyUserHeader({
       type="button"
       onClick={onClick}
       title="jump to message"
-      className="flex w-full items-center gap-3 border-b border-primary/40 bg-card px-4 py-3 text-left shadow-sm transition-colors hover:bg-muted"
+      className="flex w-full items-center gap-2 border-b border-primary/40 bg-card px-3 py-2 text-left shadow-sm transition-colors hover:bg-muted"
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
     >
-      <span className="shrink-0 rounded-md bg-primary/30 px-2 py-1 font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-semibold uppercase tracking-wider text-primary">
+      <span className="shrink-0 rounded-md bg-primary/30 px-1.5 py-0.5 font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-semibold uppercase tracking-wider text-primary">
         user #{ev.index}
       </span>
       <span className="min-w-0 flex-1 truncate leading-snug text-foreground">
@@ -470,7 +451,7 @@ function StickyUserHeader({
 
 // Secondary sticky for the event row currently being scrolled through. Sits
 // directly below the primary user sticky and reflects the most recent row
-// whose header has scrolled behind the bar while its content is still on
+// whose heading has scrolled behind the bar while its content is still on
 // screen. Click jumps to that row's start.
 function StickyEventHeader({
   item, onClick,
@@ -480,21 +461,13 @@ function StickyEventHeader({
 }) {
   const ev = item.ev;
   const role: DisplayRole = item.kind === "user" ? "user" : displayRole(ev);
-  let preview = "";
-  for (const b of ev.blocks) {
-    if (b.kind === "text" && b.text) { preview = b.text; break; }
-    if (b.kind === "tool_use") { preview = b.summary || b.tool || ""; break; }
-    if (b.kind === "tool_result" && b.preview) { preview = b.preview; break; }
-    if (b.kind === "reasoning" && b.text) { preview = b.text; break; }
-  }
-  preview = preview.split("\n")[0]!.trim().slice(0, 200);
   return (
     <button
       type="button"
       onClick={onClick}
       title="jump to event start"
       className={
-        "flex w-full items-center gap-[0.55em] border-b border-l-[3px] border-border bg-card/95 px-4 py-2 text-left shadow-sm backdrop-blur transition-colors hover:bg-muted " +
+        "flex w-full items-center gap-[0.4em] border-b border-l-[3px] border-border bg-card/95 px-3 py-1.5 text-left shadow-sm backdrop-blur transition-colors hover:bg-muted " +
         ROLE_BORDER[role]
       }
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
@@ -505,476 +478,15 @@ function StickyEventHeader({
       />
       <span
         className={
-          "shrink-0 rounded-sm px-[0.55em] py-[0.15em] font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-bold uppercase tracking-wider " +
+          "shrink-0 rounded-sm px-[0.4em] py-[0.1em] font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-bold uppercase tracking-wider " +
           ROLE_STYLES[role]
         }
       >
         {role}
       </span>
-      <span className="shrink-0 font-mono text-(length:--agent-panel-fs-tile-chip,12px) text-muted-foreground">
-        #{ev.index}
-      </span>
       <span className="min-w-0 flex-1 truncate text-muted-foreground">
-        {preview}
+        {eventPreview(ev)}
       </span>
     </button>
-  );
-}
-
-function UserRow({
-  ev, source, sessionId, isCollapsed, onToggle, isHighlighted, expandedTools, onToggleTool,
-  pairedToolResults,
-}: {
-  ev: ActivityEvent;
-  source: AgentSource;
-  sessionId: string;
-  isCollapsed: boolean;
-  onToggle: () => void;
-  isHighlighted: boolean;
-  expandedTools: Set<string>;
-  onToggleTool: (key: string) => void;
-  pairedToolResults: ReadonlyMap<string, PairedToolResult>;
-}) {
-  return (
-    <div
-      className="px-[0.85em] py-[0.85em]"
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
-    >
-      <div
-        className={
-          "rounded-md border border-primary/30 bg-primary/10 px-[1.15em] py-[0.55em] transition-shadow duration-300 " +
-          (isHighlighted ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : "")
-        }
-      >
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={!isCollapsed}
-          aria-label={isCollapsed ? "expand event" : "collapse event"}
-          className="flex w-full items-center gap-[0.55em] rounded-sm py-[0.3em] text-left transition-colors hover:bg-foreground/5"
-        >
-          <ChevronRight
-            className={
-              "size-[1.1em] shrink-0 text-muted-foreground transition-transform " +
-              (isCollapsed ? "" : "rotate-90")
-            }
-            aria-hidden
-          />
-          <span
-            className={
-              "rounded-sm px-[0.55em] py-[0.15em] font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-bold uppercase tracking-wider " +
-              ROLE_STYLES.user
-            }
-          >
-            user
-          </span>
-          <span className="font-mono text-(length:--agent-panel-fs-tile-chip,12px) text-muted-foreground">#{ev.index}</span>
-          <span className="font-mono text-(length:--agent-panel-fs-tile-chip,12px) text-muted-foreground">
-            {ev.ts ? new Date(ev.ts).toLocaleTimeString() : "–"}
-          </span>
-        </button>
-        {!isCollapsed ? (
-          <EventBody
-            ev={ev}
-            source={source}
-            sessionId={sessionId}
-            expandedTools={expandedTools}
-            onToggleTool={onToggleTool}
-            pairedToolResults={pairedToolResults}
-          />
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-// The expanded body of one event: its content blocks, then the single Raw
-// drawer holding the metadata and the raw transcript line.
-function EventBody({
-  ev, source, sessionId, expandedTools, onToggleTool, pairedToolResults,
-}: {
-  ev: ActivityEvent;
-  source: AgentSource;
-  sessionId: string;
-  expandedTools: Set<string>;
-  onToggleTool: (key: string) => void;
-  pairedToolResults: ReadonlyMap<string, PairedToolResult>;
-}) {
-  const { inline, folded, hasRawJson } = partitionEventBlocks(ev);
-  return (
-    <div className="space-y-[0.55em] pl-[1.65em] pt-[0.3em]">
-      {inline.map(({ block, index }) => (
-        <Block
-          key={index}
-          b={block}
-          source={source}
-          sessionId={sessionId}
-          eventIndex={ev.index}
-          blockIndex={index}
-          eventType={ev.type}
-          expandedTools={expandedTools}
-          onToggleTool={onToggleTool}
-          pairedToolResults={pairedToolResults}
-        />
-      ))}
-      <RawDetails
-        metadata={folded}
-        source={source}
-        sessionId={sessionId}
-        eventIndex={ev.index}
-        includesRawJson={hasRawJson}
-      />
-    </div>
-  );
-}
-
-function SegmentEventRow({
-  ev, source, sessionId, isFirst, isLast, isCollapsed, onToggle, isHighlighted, expandedTools, onToggleTool,
-  pairedToolResults,
-}: {
-  ev: ActivityEvent;
-  source: AgentSource;
-  sessionId: string;
-  isFirst: boolean;
-  isLast: boolean;
-  isCollapsed: boolean;
-  onToggle: () => void;
-  isHighlighted: boolean;
-  expandedTools: Set<string>;
-  onToggleTool: (key: string) => void;
-  pairedToolResults: ReadonlyMap<string, PairedToolResult>;
-}) {
-  const role = displayRole(ev);
-  const wrapperClass =
-    "border-x border-border bg-muted/60 px-[0.85em] transition-shadow duration-300 " +
-    (isFirst ? "rounded-t-md border-t pt-[0.55em] " : "pt-[0.4em] ") +
-    (isLast ? "rounded-b-md border-b pb-[0.55em] " : "pb-[0.4em] ") +
-    (!isLast ? "border-b border-dashed border-border/60 " : "") +
-    (isHighlighted ? "ring-2 ring-primary ring-offset-2 ring-offset-background " : "");
-  return (
-    <div
-      className={"px-[0.85em] " + (isFirst ? "pt-[0.55em] " : "") + (isLast ? "pb-[0.55em]" : "")}
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
-    >
-      <div className={wrapperClass}>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={!isCollapsed}
-          aria-label={isCollapsed ? "expand event" : "collapse event"}
-          className="flex w-full items-center gap-[0.55em] rounded-sm py-[0.3em] text-left transition-colors hover:bg-foreground/5"
-        >
-          <ChevronRight
-            className={
-              "size-[1.1em] shrink-0 text-muted-foreground transition-transform " +
-              (isCollapsed ? "" : "rotate-90")
-            }
-            aria-hidden
-          />
-          <span
-            className={
-              "rounded-sm px-[0.55em] py-[0.15em] font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-bold uppercase tracking-wider " +
-              ROLE_STYLES[role]
-            }
-          >
-            {role}
-          </span>
-          <span className="font-mono text-(length:--agent-panel-fs-tile-chip,12px) text-muted-foreground">#{ev.index}</span>
-          <span className="font-mono text-(length:--agent-panel-fs-tile-chip,12px) text-muted-foreground">
-            {ev.ts ? new Date(ev.ts).toLocaleTimeString() : "–"}
-          </span>
-        </button>
-        {!isCollapsed ? (
-          <EventBody
-            ev={ev}
-            source={source}
-            sessionId={sessionId}
-            expandedTools={expandedTools}
-            onToggleTool={onToggleTool}
-            pairedToolResults={pairedToolResults}
-          />
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-// `.md` / `.mdx` file detection for tool calls whose body should render as
-// formatted Markdown rather than raw source.
-function isMarkdownPath(p: unknown): p is string {
-  return typeof p === "string" && /\.mdx?$/i.test(p);
-}
-
-// Claude `Read` results are `cat -n` output: every line is prefixed with
-// optional leading spaces, the line number, then a tab. Strip that prefix to
-// recover the source Markdown. (Repo convention documents the "line number +
-// tab" shape.) Non-prefixed lines pass through untouched.
-function stripReadLineNumbers(text: string): string {
-  return text
-    .split("\n")
-    .map((line) => line.replace(/^\s*\d+\t/, ""))
-    .join("\n");
-}
-
-function ToolResultBlock({
-  block,
-  renderMarkdown,
-}: {
-  block: ActivityBlock;
-  renderMarkdown?: boolean;
-}) {
-  const showing = block.preview ?? "";
-
-  return (
-    <div
-      className="rounded-sm border border-border/50 bg-muted/30"
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
-    >
-      {renderMarkdown ? (
-        <div className="px-2 py-1.5">
-          <Markdown content={stripReadLineNumbers(showing)} />
-        </div>
-      ) : (
-        <pre className="whitespace-pre-wrap wrap-break-word px-2 py-1.5 font-mono text-foreground/70">
-          {showing}
-        </pre>
-      )}
-    </div>
-  );
-}
-
-function ToolResultContent({
-  result,
-  source,
-  sessionId,
-}: {
-  result: PairedToolResult;
-  source: AgentSource;
-  sessionId: string;
-}) {
-  const content = result.block.preview ? (
-    <ToolResultBlock
-      block={result.block}
-    />
-  ) : (
-    <LabeledTextBlock
-      block={{ ...result.block, kind: "plain", label: "Tool Result", text: "(empty result)" }}
-    />
-  );
-
-  return (
-    <div className="space-y-1.5">
-      {content}
-      {/* Named apart from the call's own drawer: this one is the result's
-          source line, which sits in the same row once the two are paired. */}
-      <RawDetails
-        metadata={result.metadata}
-        source={source}
-        sessionId={sessionId}
-        eventIndex={result.eventIndex}
-        includesRawJson={result.includesRawEvent}
-        label="Raw result"
-      />
-    </div>
-  );
-}
-
-function Block({
-  b, source, sessionId, eventIndex, blockIndex, eventType, expandedTools, onToggleTool,
-  pairedToolResults,
-}: {
-  b: ActivityBlock;
-  source: AgentSource;
-  sessionId: string;
-  eventIndex: number;
-  blockIndex: number;
-  eventType: ActivityEvent["type"];
-  expandedTools: Set<string>;
-  onToggleTool: (key: string) => void;
-  pairedToolResults: ReadonlyMap<string, PairedToolResult>;
-}) {
-  if (b.kind === "text") {
-    // Assistant text is the model's prose response; it conventionally
-    // contains markdown (headings, code fences, lists, tables) that should
-    // render rather than show as raw source. User text and tool textual
-    // payloads stay plain so escaping characters survive.
-    if (eventType === "assistant" && b.text) {
-      return (
-        <div
-          className="leading-snug text-foreground"
-          style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
-        >
-          <Markdown content={b.text} />
-        </div>
-      );
-    }
-    return (
-      <div
-        className="whitespace-pre-wrap break-words leading-snug text-foreground"
-        style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
-      >
-        {b.text}
-      </div>
-    );
-  }
-  if (b.kind === "tool_use") {
-    const toolKey = b.callId ?? `${eventIndex}-${blockIndex}`;
-    const pairedResult = b.callId ? pairedToolResults.get(b.callId) : undefined;
-    const isExpanded = expandedTools.has(toolKey);
-    // Edit tool gets a custom header (filename) and a diff body. Generic
-    // tools get chip+summary as header. A matching result expands inside this
-    // same block instead of consuming a second source-line row.
-    const isEditDiff =
-      b.tool === "Edit" &&
-      b.input &&
-      typeof b.input.file_path === "string" &&
-      ((typeof b.input.old_string === "string" && b.input.old_string.length > 0) ||
-        (typeof b.input.new_string === "string" && b.input.new_string.length > 0));
-    const isMarkdownWrite =
-      b.tool === "Write" && isMarkdownPath(b.input?.file_path) && typeof b.input?.content === "string";
-    const isFileBody = isEditDiff || isMarkdownWrite;
-    // The header truncates the command to one line. Expanding shows it as a
-    // shell code block, which highlights it and scrolls horizontally rather
-    // than cutting it off at the row's width.
-    const command = shellCommand(b);
-    const hasBody = isFileBody || command !== null || pairedResult !== undefined;
-    const headerLabel = isFileBody
-      ? (typeof b.input?.file_path === "string" ? b.input.file_path.split("/").pop() ?? "" : "")
-      : (b.summary || "");
-    const headerChip = isEditDiff ? "Edit" : b.tool;
-    return (
-      <div className="space-y-1.5">
-        <button
-          type="button"
-          onClick={() => hasBody && onToggleTool(toolKey)}
-          aria-expanded={isExpanded}
-          disabled={!hasBody}
-          className={
-            "flex w-full items-baseline gap-2 rounded-sm font-mono text-left transition-colors " +
-            (hasBody ? "hover:bg-foreground/5 " : "cursor-default ")
-          }
-          style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
-        >
-          {hasBody ? (
-            <ChevronRight
-              className={
-                "size-[1em] shrink-0 self-center text-muted-foreground transition-transform " +
-                (isExpanded ? "rotate-90" : "")
-              }
-              aria-hidden
-            />
-          ) : (
-            <span className="size-[1em] shrink-0" aria-hidden />
-          )}
-          <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-(length:--agent-panel-fs-tile-chip,12px) font-semibold text-foreground/80">
-            {headerChip}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-foreground/80">
-            {headerLabel}
-          </span>
-        </button>
-        {isExpanded ? (
-          <>
-            {command !== null ? <CodeBlock code={command} lang="bash" /> : null}
-            {isEditDiff ? (
-              <DiffBlock
-                filePath={b.input!.file_path as string}
-                oldString={(b.input!.old_string as string | undefined) ?? ""}
-                newString={(b.input!.new_string as string | undefined) ?? ""}
-              />
-            ) : null}
-            {isMarkdownWrite ? (
-              <Markdown content={b.input!.content as string} />
-            ) : null}
-            {pairedResult ? (
-              <ToolResultContent
-                result={pairedResult}
-                source={source}
-                sessionId={sessionId}
-              />
-            ) : null}
-          </>
-        ) : null}
-      </div>
-    );
-  }
-  if (b.kind === "tool_result") {
-    return (
-      <ToolResultContent
-        // An unpaired result renders inside its own event row, whose EventBody
-        // already owns that event's Raw drawer.
-        result={{
-          block: b,
-          eventIndex,
-          blockIndex,
-          includesRawEvent: false,
-          metadata: [],
-        }}
-        source={source}
-        sessionId={sessionId}
-      />
-    );
-  }
-  if (b.kind === "reasoning") {
-    if (!b.text) return null;
-    return (
-      <div
-        className="whitespace-pre-wrap break-words italic leading-snug text-foreground/65"
-        style={{ fontSize: "var(--agent-panel-fs-tile-reasoning, 13px)" }}
-      >
-        {b.text}
-      </div>
-    );
-  }
-  if (b.kind === "metadata" || b.kind === "plain") {
-    return <LabeledTextBlock block={b} />;
-  }
-  // Raw blocks never reach here: partitionEventBlocks routes every one of them
-  // into the event's Raw drawer. Compaction blocks render as a full-row banner
-  // via CompactionRow, not inline. Returning null keeps both paths silent.
-  return null;
-}
-
-// Horizontal milestone banner that marks where the harness compacted the
-// model's context. Sits between turn clusters so the viewer can see the
-// reset point; the actual context-size drop is already visible in the
-// header token meter.
-function CompactionRow({
-  ev,
-  source,
-  sessionId,
-}: {
-  ev: ActivityEvent;
-  source: AgentSource;
-  sessionId: string;
-}) {
-  const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : "";
-  const { folded, hasRawJson } = partitionEventBlocks(ev);
-  return (
-    <div
-      className="px-[0.85em] py-[0.85em]"
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
-    >
-      <div className="flex items-center gap-3 text-muted-foreground">
-        <span className="h-px flex-1 bg-border" aria-hidden />
-        <span
-          className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-0.5 font-mono uppercase tracking-wider text-foreground/70"
-          style={{ fontSize: "var(--agent-panel-fs-tile-chip, 12px)" }}
-        >
-          <span>Context compacted</span>
-          {when ? <span className="text-muted-foreground/70">{when}</span> : null}
-        </span>
-        <span className="h-px flex-1 bg-border" aria-hidden />
-      </div>
-      <div className="mt-2">
-        <RawDetails
-          metadata={folded}
-          source={source}
-          sessionId={sessionId}
-          eventIndex={ev.index}
-          includesRawJson={hasRawJson}
-        />
-      </div>
-    </div>
   );
 }

@@ -40,6 +40,57 @@ export function displayRole(ev: ActivityEvent): DisplayRole {
   return hasToolResult && !hasText ? "result" : "user";
 }
 
+/**
+ * Blocks that render as flowing text rather than a bordered card.
+ *
+ * Load-bearing for the event heading: the heading floats so the first line of
+ * prose sits beside it instead of below it, and a floated box overlaps a
+ * following block box (only its LINE boxes are pushed aside). Flow blocks are
+ * therefore the ones safe to place next to the float; everything else has to
+ * clear it.
+ */
+export function isFlowBlock(block: ActivityBlock): boolean {
+  return block.kind === "text" || block.kind === "reasoning";
+}
+
+/**
+ * Drop inline Markdown markers from a single line of preview text.
+ *
+ * A preview is one truncated line, so it is never rendered as Markdown -- which
+ * meant a reasoning trace opening with `**Topic**` put its asterisks on screen,
+ * the same defect as rendering the body as plain text. Stripping is the right
+ * answer rather than rendering: the line is already lossy, and a half-parsed
+ * fragment (an unclosed fence, a cut-off link) is worse than plain words.
+ */
+export function stripInlineMarkdown(line: string): string {
+  return line
+    .replace(/^\s{0,3}#{1,6}\s+/, "")
+    .replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+/, "")
+    .replace(/^\s{0,3}>\s?/, "")
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .replace(/(?<![*\w])\*(?!\s)([^*]+?)(?<!\s)\*(?!\w)/g, "$1")
+    .replace(/`+([^`]+)`+/g, "$1")
+    .trim();
+}
+
+/**
+ * One-line gist of an event, for the collapsed row and the sticky bar.
+ *
+ * Shared so those two can never disagree about what an event "is" -- they were
+ * two independent copies of this scan, which is exactly the drift this repo's
+ * one-authoritative-home rule exists to stop.
+ */
+export function eventPreview(ev: ActivityEvent): string {
+  let preview = "";
+  for (const block of ev.blocks) {
+    if (block.kind === "text" && block.text) { preview = block.text; break; }
+    if (block.kind === "tool_use") { preview = block.summary || block.tool || ""; break; }
+    if (block.kind === "tool_result" && block.preview) { preview = block.preview; break; }
+    if (block.kind === "reasoning" && block.text) { preview = block.text; break; }
+  }
+  return stripInlineMarkdown(preview.split("\n")[0]!).slice(0, 200);
+}
+
 export function buildActivityDisplayItems(events: ActivityEvent[]): DisplayItem[] {
   const items: DisplayItem[] = [];
   let segmentEvents: ActivityEvent[] = [];

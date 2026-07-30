@@ -4,8 +4,11 @@ import { DataSourceProvider } from "./data-source/AgentDataSourceContext";
 import type { AgentDataSource } from "./data-source/AgentDataSource";
 import {
   buildFeedLayout,
+  eventPreview,
+  isFlowBlock,
   partitionEventBlocks,
   shellCommand,
+  stripInlineMarkdown,
 } from "./activityDisplayItems";
 import { LabeledTextBlock, RawDetails, RawJsonBlock } from "./ActivitySystemBlocks";
 import type { ActivityEvent } from "./useSessionEventsStream";
@@ -228,6 +231,68 @@ describe("event block partition", () => {
     });
 
     expect(layout.inline.map(({ index }) => index)).toEqual([0, 2]);
+  });
+});
+
+describe("event preview", () => {
+  it("strips the markers a one-line preview cannot render", () => {
+    // A reasoning trace opening with a bolded topic put `**` on screen in the
+    // collapsed row and the sticky bar -- the same defect as rendering the body
+    // as plain text, one layer out.
+    expect(
+      eventPreview({
+        index: 1,
+        ts: 1,
+        type: "reasoning",
+        blocks: [{ kind: "reasoning", text: "**Adjusting skip handling**\n\nmore" }],
+      }),
+    ).toBe("Adjusting skip handling");
+  });
+
+  it("takes the first content block, whatever kind it is", () => {
+    expect(
+      eventPreview({
+        index: 2,
+        ts: 1,
+        type: "assistant",
+        blocks: [{ kind: "tool_use", tool: "Bash", summary: "ls -la" }],
+      }),
+    ).toBe("ls -la");
+  });
+
+  it("caps the line so one long paragraph cannot stretch a row", () => {
+    const preview = eventPreview({
+      index: 3,
+      ts: 1,
+      type: "assistant",
+      blocks: [{ kind: "text", text: "x".repeat(400) }],
+    });
+    expect(preview).toHaveLength(200);
+  });
+
+  it("leaves prose that merely contains asterisks alone", () => {
+    expect(stripInlineMarkdown("2 * 3 * 4 equals 24")).toBe("2 * 3 * 4 equals 24");
+  });
+
+  it("unwraps headings, bullets, quotes, emphasis and code spans", () => {
+    expect(stripInlineMarkdown("## Heading")).toBe("Heading");
+    expect(stripInlineMarkdown("- a bullet")).toBe("a bullet");
+    expect(stripInlineMarkdown("> quoted")).toBe("quoted");
+    expect(stripInlineMarkdown("_underscored_ and *starred*")).toBe("_underscored_ and starred");
+    expect(stripInlineMarkdown("call `render()` now")).toBe("call render() now");
+  });
+});
+
+describe("flow blocks", () => {
+  it("names exactly the kinds that may sit beside the floated heading", () => {
+    // Anything else is a bordered box, which a float overlaps rather than
+    // flows around, so it has to clear.
+    expect(isFlowBlock({ kind: "text", text: "x" })).toBe(true);
+    expect(isFlowBlock({ kind: "reasoning", text: "x" })).toBe(true);
+    expect(isFlowBlock({ kind: "tool_use", tool: "Bash" })).toBe(false);
+    expect(isFlowBlock({ kind: "tool_result", preview: "x" })).toBe(false);
+    expect(isFlowBlock({ kind: "metadata", label: "m", text: "x" })).toBe(false);
+    expect(isFlowBlock({ kind: "plain", label: "p", text: "x" })).toBe(false);
   });
 });
 

@@ -27,14 +27,20 @@ vi.mock("../features/activity-feed/ActivityFeed", () => ({
   ActivityFeed: ({
     source,
     sessionId,
+    controlsHost,
   }: {
     source: string;
     sessionId: string;
+    controlsHost: HTMLElement | null;
   }) => (
     <div
       data-testid="activity-feed"
       data-source={source}
       data-session-id={sessionId}
+      // The feed portals its fold control into the shell's header instead of
+      // spending a band of its own on it, so the host node is part of the
+      // contract between them.
+      data-controls-host={controlsHost ? "attached" : "missing"}
     >
       Thread for {sessionId}
     </div>
@@ -359,6 +365,72 @@ describe("App shell", () => {
       t: "agent-project-sessions-unwatch",
       sub: sessionsSub,
     });
+    unmount();
+  });
+
+  it("gives the thread a header slot for its own controls", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute(
+      "data-controls-host",
+      "attached",
+    );
+    unmount();
+  });
+
+  it("drops the centring spacer so a long title uses the full row", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+
+    // The spacer opposite the back button existed only to centre the title, and
+    // cost it 36px plus a gap -- enough to truncate real session titles.
+    const heading = screen.getByRole("heading", { level: 1 });
+    const header = heading.parentElement!;
+    const emptySpacers = [...header.children].filter(
+      (child) => child.tagName === "DIV" && child.getAttribute("aria-hidden") === "true",
+    );
+    expect(emptySpacers).toHaveLength(0);
+    expect(heading.className).toContain("flex-1");
+    unmount();
+  });
+
+  it("announces terminal progress without spending a row on it", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
+
+    // Progress and ready are carried by the header icon; the sentence is for
+    // assistive tech only. A permanent 45px band for one button is what this
+    // replaced.
+    expect(screen.getByRole("status")).toHaveClass("sr-only");
+
+    act(() => {
+      fake.deliver({
+        t: "agent-terminal-ready",
+        rid: "request-1",
+        ctx: { pp: "/projects/alpha", src: "claude", sid: "sid-claude-01" },
+        psn: "agent-resume-claude-sid-claude-01",
+      });
+    });
+    expect(screen.getByRole("status")).toHaveClass("sr-only");
+    unmount();
+  });
+
+  it("keeps failure and exit visible, because those need reading", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
+
+    act(() => {
+      fake.deliver({
+        t: "agent-terminal-error",
+        rid: "request-1",
+        ctx: { pp: "/projects/alpha", src: "claude", sid: "sid-claude-01" },
+        c: "activeElsewhere",
+      });
+    });
+    expect(screen.getByRole("status")).not.toHaveClass("sr-only");
     unmount();
   });
 
