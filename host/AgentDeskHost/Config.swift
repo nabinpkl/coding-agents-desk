@@ -351,6 +351,31 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_STALL_RECOVERY_MIN_INTERVAL_MS",
         defaultValue: 5_000
     )
+    // ADR-0088: how long an ack round-trip sample stays eligible to be the path's minimum.
+    // This sets what "the floor" means, and both failure modes are real. Too short and the
+    // floor follows the queue up, so a path that is filling reports no inflation at all --
+    // the exact blindness this replaces. Too long and a genuine move to a slower link is
+    // reported as permanent inflation forever. 30s comfortably outlives the 6-12s freezes
+    // being diagnosed (so the pre-freeze floor is still in window to compare against) while
+    // still letting a real path change settle within half a minute.
+    static let ownedMediaRoundTripMinimumWindowMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_ROUND_TRIP_MINIMUM_WINDOW_MS",
+        defaultValue: 30_000
+    )
+    // ADR-0088: the host's belief about how often the client reports, used ONLY as the
+    // threshold for reading a client report ("no datagrams for at least one report interval"
+    // is a stall; a shorter quiet stretch inside one window is not).
+    //
+    // This mirrors the client's own `ownedMediaLinkHealthIntervalMs`, which the host cannot
+    // read: it is a separate app with a separate config, and the value is not negotiated at
+    // the handshake. Keeping it as an explicit host-side threshold is deliberate -- the
+    // alternative is deriving it from the arrival cadence, which is exactly the thing that
+    // breaks during the freeze we are trying to detect. If the client's cadence ever changes,
+    // this must change with it or a stall goes unrecognised.
+    static let ownedMediaClientReportIntervalMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CLIENT_REPORT_INTERVAL_MS",
+        defaultValue: 500
+    )
     // ADR-0087: how long the host waits for a client link-health report before evaluating
     // a window on its own clock. Client reports arrived every ~500ms on device, so 1s is
     // one missed report. Without this the quality window is driven ONLY by inbound client

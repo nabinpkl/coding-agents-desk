@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import Network
 import Security
+import OSLog
 import AgentDeskWire
 
 @MainActor
@@ -297,6 +298,16 @@ final class SessionDialer {
             })
         )
         try await waitUntilReady(connection)
+        // ADR-0088: the one platform report that DOES work on the new API. Unlike
+        // `dataTransferReport()` (which returns a zero-length window and all-zero fields),
+        // `establishmentReport()` describes a completed fact rather than an interval, and the
+        // gate harness measured it returning real values. One shot per session: how long the
+        // connect took and how many attempts it needed is a cheap prior for reading everything
+        // that follows on a link we already suspect.
+        if let report = try? await connection.establishmentReport() {
+            Logger(subsystem: Config.logSubsystem, category: "link-telemetry")
+                .notice("session established durationMs=\(report.duration * 1000, format: .fixed(precision: 1), privacy: .public) previousAttempts=\(report.previousAttemptCount, privacy: .public) handshakes=\(report.handshakes.count, privacy: .public) resolutions=\(report.resolutions.count, privacy: .public)")
+        }
         return connection
     }
 

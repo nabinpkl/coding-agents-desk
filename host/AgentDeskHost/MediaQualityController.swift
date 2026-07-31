@@ -79,6 +79,11 @@ struct MediaQualityControllerInput: Equatable {
     /// silent client and a calm screen both produce a zero-frame window, and only one of
     /// them is a reason to climb.
     let clientReportMissing: Bool
+    // ADR-0088: the client reported, and what it reported is that its own link is stalled --
+    // a non-viable path, or a receive loop that collected nothing for a full window. A window
+    // like this is evidence AGAINST link health, not the absence of evidence that
+    // `clientReportMissing` describes.
+    let clientLinkStalled: Bool
 
     init(
         sample: MediaQualitySample,
@@ -89,9 +94,11 @@ struct MediaQualityControllerInput: Equatable {
         inFlightBytes: Int = 0,
         oldestInflightMs: Double? = nil,
         staleRecoveryCount: Int = 0,
-        clientReportMissing: Bool = false
+        clientReportMissing: Bool = false,
+        clientLinkStalled: Bool = false
     ) {
         self.clientReportMissing = clientReportMissing
+        self.clientLinkStalled = clientLinkStalled
         self.sample = sample
         self.productionSummary = productionSummary
         self.ackCount = max(0, ackCount)
@@ -286,6 +293,37 @@ struct MediaQualityControllerConfig: Equatable {
 }
 
 struct MediaQualityController {
+    /// ADR-0088: does this client report describe a stalled link?
+    ///
+    /// Lives here, with the rest of signal interpretation, rather than on the state that
+    /// happens to call it: it reads a report and returns a judgement, holding no state of
+    /// its own.
+    ///
+    /// Two independent grounds, because they fail differently:
+    ///
+    /// - the path is not satisfied, which the client learns from `NWPathMonitor` and the host
+    ///   cannot see from its own side of a one-way datagram carrier;
+    /// - the receive loop collected nothing for at least a full report interval, which is the
+    ///   12.79s-freeze signature (every counter zero, including pending frame depth).
+    ///
+    /// Deliberately NOT grounds: a zero completed-frame count on its own. A calm screen
+    /// legitimately produces no frames, and treating that as a stall would block the idle
+    /// recovery this branch exists to grant.
+    static func clientLinkStalled(
+        telemetry: OwnedMediaLinkTelemetry?,
+        reportIntervalMs: Int
+    ) -> Bool {
+        guard let telemetry else { return false }
+        if let status = telemetry.pathStatus, status != "satisfied" { return true }
+        if let arrivals = telemetry.datagramsReceived,
+           arrivals == 0,
+           let gapMs = telemetry.maxArrivalGapMs,
+           gapMs >= Double(max(1, reportIntervalMs)) {
+            return true
+        }
+        return false
+    }
+
     private let config: MediaQualityControllerConfig
     private(set) var target: MediaQualityTarget
     private var cleanRecoveryMs = 0
@@ -345,7 +383,17 @@ struct MediaQualityController {
             // the opposite of evidence that the link is healthy. Without this the synthetic
             // tick would read a silent client with an empty in-flight list as a calm screen
             // and climb the ladder into a stall.
+            //
+            // ADR-0088 tightens this from "who sent the window" to "what the window says".
+            // The old test rested on a side effect: a stalled client happened to be silent
+            // because the client suppressed zero-count reports, so silence stood in for
+            // "stalled". Now that reports are sent unconditionally, a stalled client sends a
+            // zero-count window with `clientReportMissing == false`, which would have reached
+            // this branch and climbed the ladder mid-freeze. `clientLinkStalled` reads the
+            // telemetry the report now carries, so the judgement no longer depends on the
+            // messenger.
             let idleLinkClean = !input.clientReportMissing
+                && !input.clientLinkStalled
                 && input.inFlightFrames == 0
                 && input.staleRecoveryCount == 0
                 && !signals.lossPressure
@@ -884,6 +932,9 @@ struct QuicSessionHostMediaState {
     // limit window it never used.
     private var lastStallRecoveryKeyframeNs: UInt64?
     private let stallRecoveryMinIntervalNs: UInt64
+    // ADR-0088: cross-window smoothed/minimum round-trip, the queueing detector. Distinct
+    // from the per-window ack percentiles, which cannot see inflation.
+    private(set) var roundTrip: AckRoundTripTracker
 
     init(
         maxInflightFrames: Int = Config.ownedMediaBackpressureMaxInflightFrames,
@@ -892,9 +943,11 @@ struct QuicSessionHostMediaState {
         qualityControllerConfig: MediaQualityControllerConfig = .fromConfig(),
         qualityController: MediaQualityController? = nil,
         resendRingFrames: Int = Config.ownedMediaResendRingFrames,
-        stallRecoveryMinIntervalMs: Int = Config.ownedMediaStallRecoveryMinIntervalMs
+        stallRecoveryMinIntervalMs: Int = Config.ownedMediaStallRecoveryMinIntervalMs,
+        roundTripMinimumWindowMs: Int = Config.ownedMediaRoundTripMinimumWindowMs
     ) {
         self.stallRecoveryMinIntervalNs = UInt64(max(0, stallRecoveryMinIntervalMs)) * 1_000_000
+        self.roundTrip = AckRoundTripTracker(minimumWindowMs: roundTripMinimumWindowMs)
         self.backpressure = GraphicsBackpressure(
             maxUnacked: maxInflightFrames,
             maxUnackedBytes: maxInflightBytes
@@ -994,6 +1047,10 @@ struct QuicSessionHostMediaState {
         let ageNs = nowNs >= sentAtUptimeNs ? nowNs - sentAtUptimeNs : 0
         let ageMs = Double(ageNs) / 1_000_000.0
         ackAgesMs.append(ageMs)
+        // ADR-0088: the same sample feeds the cross-window queueing detector. The per-window
+        // percentiles above describe the current level; only the tracker knows whether that
+        // level is inflated relative to the path's own floor.
+        roundTrip.record(rttMs: ageMs, nowNs: nowNs)
         return ageMs
     }
 
@@ -1032,9 +1089,16 @@ struct QuicSessionHostMediaState {
         expiredFrames: Int,
         productionSummary: MediaProductionSummary?,
         clientReportMissing: Bool = false,
+        clientTelemetry: OwnedMediaLinkTelemetry? = nil,
+        reportIntervalMs: Int = Config.ownedMediaClientReportIntervalMs,
         nowNs: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) -> MediaQualityDecision {
         qualityWindowId &+= 1
+        // ADR-0088: age the round-trip floor on the window boundary, not only on new samples.
+        // A freeze produces no acks at all, so a floor that could only expire inside
+        // `record` would stay pinned to a pre-freeze value for the whole stall -- the one
+        // stretch where the ratio most needs to be honest about how old its baseline is.
+        roundTrip.expireMinimumCandidates(nowNs: nowNs)
         let ackStats = ackAgeStats()
         let sample = MediaQualitySample(
             completedFrames: completedFrames,
@@ -1060,7 +1124,11 @@ struct QuicSessionHostMediaState {
             inFlightBytes: backpressure.bytesInFlight,
             oldestInflightMs: oldestInflightMs,
             staleRecoveryCount: staleRecoveryCountInWindow,
-            clientReportMissing: clientReportMissing
+            clientReportMissing: clientReportMissing,
+            clientLinkStalled: MediaQualityController.clientLinkStalled(
+                telemetry: clientTelemetry,
+                reportIntervalMs: reportIntervalMs
+            )
         )
 
         if !adaptiveQualityEnabled {

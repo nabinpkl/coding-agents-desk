@@ -1,0 +1,117 @@
+---
+status: accepted
+date: 2026-07-31
+---
+
+# Measure link health from our own ack loop, not the platform data-transfer report
+
+## Context and Problem Statement
+
+Video freezes reproduce on cellular and not on WiFi. Host logs cannot tell a stalled path
+from a stalled client, and the quality ladder in `MediaQualityController` measures loss only
+(completed vs expired frames), so a path that *delays* rather than *drops* is invisible to
+it: a frame that arrives 12s late still counts as completed. A measured freeze showed 49
+frames completing in a single 500ms window after a 12.79s stall, meaning every packet
+arrived. That is queueing, not loss, and nothing in the current telemetry can see it.
+
+This ADR records what platform link metadata is actually usable, after measuring it, and
+where the transport-quality signal comes from instead. Scope: `OwnedMediaTransport` on both
+sides, `MediaQualityController`, and the `.linkHealth` control message in
+`packages/AgentDeskWire/Sources/AgentDeskWire/OwnedMedia.swift`.
+
+## Decision Drivers
+
+- The signal must distinguish queueing, loss, path outage, radio handover, and a starved
+  client receive loop. Those have different fixes and currently look identical.
+- It must not require migrating the media transport off `NetworkConnection<QUIC>`.
+- It must cost close to nothing in a healthy session, and must not perturb the decode path
+  it is measuring.
+- Availability must be verified against the SDK, not assumed. Two earlier planning rounds in
+  this arc asserted API facts that turned out to be wrong in both directions.
+
+## Considered Options
+
+- **Option A**: sample `NetworkConnection.dataTransferReport()` per window for smoothed and
+  minimum RTT, retransmitted bytes, and radio type.
+- **Option B**: migrate the media connection to legacy `NWConnection` to get the windowed
+  `startDataTransferReport()` / `collect()` pair that does populate those fields.
+- **Option C**: derive round-trip statistics from the frame-ack loop we already run, and take
+  path and radio metadata from `NWPathMonitor` and CoreTelephony.
+
+## Decision Outcome
+
+Chose **Option C**.
+
+Option A was measured and does not work. A loopback QUIC harness
+(`r195gate`, throwaway) called `dataTransferReport()` after 50 and again after 250 datagrams.
+Both returned `duration: 0.0` with every field zero: smoothed RTT, minimum RTT, retransmitted
+bytes, packet counts, application bytes. The `async` form creates and collects the report in
+one call, so it captures a zero-length window and reports nothing. This is not a loopback
+artifact and not a QUIC limitation: the legacy windowed API over the **same** loopback QUIC
+connection returned `duration: 0.311`, `smoothedRTT 0.003`, `sentApplicationByteCount 250000`
+(exactly the 250 x 1000 bytes sent). The metrics exist; the streamlined call cannot reach them.
+
+Option B would reach them, but it trades the whole session transport for a diagnostic, and a
+second connection opened purely to measure would traverse a different flow and measure the
+wrong thing. The "must not require migrating the transport" driver knocks it out.
+
+Option C is better than a workaround. `noteAck` in `MediaQualityController` already returns
+each acked frame's send timestamp, so we already hold true round-trip samples for the traffic
+we actually care about. Application-level RTT includes our own queueing and the client's
+processing, which transport RTT excludes; for diagnosing *our* freeze it is the more relevant
+number. The bufferbloat test is unchanged in form: smoothed RTT rising while minimum RTT stays
+flat means the path is queueing. What the host lacked was not samples but a persistent
+minimum baseline to compare against, since it only kept per-window p50/p95/max.
+
+### Consequences
+
+- Good, because the queueing signal needs no new platform API, no transport migration, and no
+  new network traffic. It is arithmetic over samples we already collect.
+- Good, because path metadata via `NWPathMonitor` gives `status`, `unsatisfiedReason`,
+  interface type, `isExpensive`, `isConstrained`, `isUltraConstrained`, and `linkQuality` on
+  both platforms, all edge-triggered and free when nothing changes.
+- Neutral, and worth recording so it is not re-attempted: `NetworkConnection` does have
+  `onPathUpdate`, `onViabilityUpdate`, and `onBetterPathUpdate`, but they are declared in an
+  extension constrained to `ApplicationProtocol: OneToOneProtocol`, and **QUIC does not
+  conform**. There is no per-connection viability callback available to us at all. The
+  process-level monitor carries the same `NWPath`; `connection.currentPath` is available and
+  is polled separately, and it can disagree with the monitor (the gate harness saw
+  `linkQuality=good` from the monitor and `unknown` from `currentPath` in the same instant),
+  which is itself a reason to record both rather than pick one.
+- Bad, because we lose retransmitted and out-of-order byte counts, which would have separated
+  loss from queueing directly. We infer loss from our own expired-frame counters instead,
+  which is coarser.
+- Bad, because application RTT conflates network delay with client-side processing delay. That
+  is acceptable here only because a starved client receive loop is separately instrumented
+  (datagram inter-arrival gap), so the two can still be told apart.
+- Neutral, because `establishmentReport()` on the new API *does* work (`duration: 0.028`,
+  `handshakes: 1`) and is kept as a one-shot per session.
+
+### Confirmation
+
+`AckRoundTripTrackerTests` asserts that a step change in sample RTT moves smoothed RTT while
+minimum RTT holds, and that the minimum can rise again after its window ages out. The
+`.linkHealth` message carries the telemetry, so a device run on cellular shows both ends in the
+host log; a freeze with flat minimum RTT, climbing smoothed RTT, and a live datagram arrival
+counter is queueing, and a freeze with a stalled arrival counter is not.
+
+## Pros and Cons of the Options
+
+### Option A: platform data-transfer report on the new API
+
+- Good, because it would have been a few lines and needed no new state.
+- Bad, because it returns all zeros. Measured, twice, against a working legacy control.
+
+### Option B: migrate media to legacy `NWConnection`
+
+- Good, because the windowed report demonstrably works and carries retransmission counts and
+  `radioType` that Option C cannot.
+- Bad, because it reverses the transport modernisation for a diagnostic, and a
+  measurement-only second connection would measure a different path.
+
+## Links
+
+- ADR-0027 congestion-adaptive video (the loss-only ladder this extends)
+- ADR-0073 freshness-first owned media
+- ADR-0087 stall recovery is transport, not quality policy
+- Verified against the iOS 26.5 / macOS 26 SDK on 2026-07-31 by compiled harness, not docs.

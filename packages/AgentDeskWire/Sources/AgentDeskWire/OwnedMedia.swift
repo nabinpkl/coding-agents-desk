@@ -203,6 +203,9 @@ public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
     // in the report window. Present only on a .linkHealth message.
     public let linkHealthCompletedFrames: Int?
     public let linkHealthExpiredFrames: Int?
+    // ADR-0088: the client's view of the link (path, radio, receive-loop liveness) for the
+    // same window the frame counts describe. Present only on a .linkHealth message.
+    public let linkTelemetry: OwnedMediaLinkTelemetry?
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case type = "t"
@@ -217,6 +220,7 @@ public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
         case reason = "r"
         case linkHealthCompletedFrames = "lc"
         case linkHealthExpiredFrames = "le"
+        case linkTelemetry = "lt"
     }
 
     public init(
@@ -231,7 +235,8 @@ public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
         graphicsSurfaceGeneration: UInt32? = nil,
         reason: String? = nil,
         linkHealthCompletedFrames: Int? = nil,
-        linkHealthExpiredFrames: Int? = nil
+        linkHealthExpiredFrames: Int? = nil,
+        linkTelemetry: OwnedMediaLinkTelemetry? = nil
     ) {
         self.type = "owned-media-control"
         self.kind = kind
@@ -246,6 +251,7 @@ public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
         self.reason = reason
         self.linkHealthCompletedFrames = linkHealthCompletedFrames
         self.linkHealthExpiredFrames = linkHealthExpiredFrames
+        self.linkTelemetry = linkTelemetry
     }
 
     public init(from decoder: Decoder) throws {
@@ -263,6 +269,7 @@ public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
         reason = try container.decodeIfPresent(String.self, forKey: .reason)
         linkHealthCompletedFrames = try container.decodeIfPresent(Int.self, forKey: .linkHealthCompletedFrames)
         linkHealthExpiredFrames = try container.decodeIfPresent(Int.self, forKey: .linkHealthExpiredFrames)
+        linkTelemetry = try container.decodeIfPresent(OwnedMediaLinkTelemetry.self, forKey: .linkTelemetry)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -281,6 +288,7 @@ public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
         try container.encodeIfPresent(reason, forKey: .reason)
         try container.encodeIfPresent(linkHealthCompletedFrames, forKey: .linkHealthCompletedFrames)
         try container.encodeIfPresent(linkHealthExpiredFrames, forKey: .linkHealthExpiredFrames)
+        try container.encodeIfPresent(linkTelemetry, forKey: .linkTelemetry)
     }
 }
 public enum MediaTimingMath: Sendable {

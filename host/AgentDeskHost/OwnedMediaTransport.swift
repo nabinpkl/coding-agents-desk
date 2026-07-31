@@ -43,6 +43,17 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     // every report and must not contend with the encode drain for that.
     private let lastLinkHealthGate = OSAllocatedUnfairLock<UInt64?>(initialState: nil)
     private var linkHealthTickTask: Task<Void, Never>?
+    // ADR-0088: the host's own view of its path, so a client-reported change can be checked
+    // against whether the Mac saw anything move at the same moment.
+    //
+    // A plain `let`, not `lazy var`: it is read from `logLinkTelemetry` on whichever thread
+    // delivered the client's control message, and lazy initialisation is not atomic. It
+    // builds its own Logger rather than capturing this type's, so the initialiser needs no
+    // reference to self.
+    private let pathObserver = LinkPathObserver { snapshot in
+        Logger(subsystem: Config.logSubsystem, category: "owned-media")
+            .notice("owned media host path changed \(snapshot.logDescription, privacy: .public)")
+    }
     // ADR-0034 crisp-repair: per-tile crisp emitter and its reliable lane. Guarded by
     // its own lock because crisp runs alongside the video encode in the drain loop.
     private struct CrispState {
@@ -127,6 +138,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     private func startLinkHealthTickLoop() {
+        pathObserver.start(queue: DispatchQueue(label: "\(Config.dispatchQueuePrefix).link-telemetry"))
         let intervalNs = UInt64(Config.ownedMediaLinkHealthTickMs) * 1_000_000
         linkHealthTickTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -196,6 +208,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         controlTask = nil
         linkHealthTickTask?.cancel()
         linkHealthTickTask = nil
+        pathObserver.stop()
         source.stop()
         crispGate.withLock { state in
             state.lane?.close()
@@ -778,11 +791,31 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             return state.mediaState.observeLinkHealth(
                 completedFrames: completed,
                 expiredFrames: expired,
-                productionSummary: productionSummary
+                productionSummary: productionSummary,
+                clientTelemetry: message.linkTelemetry
             )
         }
         logQualityDecision(decision)
+        logLinkTelemetry(decision, clientTelemetry: message.linkTelemetry)
         applyQualityDecision(decision, completed: completed, expired: expired)
+    }
+
+    /// ADR-0088: one line carrying BOTH ends' view of the link for this window.
+    ///
+    /// Both sides are on the same line on purpose. The freeze signatures are differences
+    /// between the ends -- host path satisfied while the client's is not, or the client's
+    /// receive loop alive while nothing arrives -- and a reader correlating two log streams
+    /// by timestamp during an incident will not spot those.
+    private func logLinkTelemetry(
+        _ decision: MediaQualityDecision,
+        clientTelemetry: OwnedMediaLinkTelemetry?
+    ) {
+        let hostPath = pathObserver.drainForReport()
+        let roundTrip = encodeGate.withLock { $0.mediaState.roundTrip }
+        let inflation = roundTrip.inflationRatio.map { String(format: "%.1f", $0) } ?? "n/a"
+        let smoothed = roundTrip.smoothedMs.map { String(format: "%.1f", $0) } ?? "n/a"
+        let minimum = roundTrip.minimumMs.map { String(format: "%.1f", $0) } ?? "n/a"
+        logger.notice("owned media link telemetry windowId=\(decision.observation.windowId, privacy: .public) rttSmoothedMs=\(smoothed, privacy: .public) rttMinMs=\(minimum, privacy: .public) rttInflation=\(inflation, privacy: .public) rttSamples=\(roundTrip.sampleCount, privacy: .public) host[\(hostPath.snapshot?.logDescription ?? "unknown", privacy: .public) pathChanges=\(hostPath.changes, privacy: .public)] client[\(clientTelemetry?.logDescription ?? "absent", privacy: .public)]")
     }
 
     /// ADR-0087: flush the jammed in-flight accounting and, when the rate limit allows,
@@ -839,6 +872,11 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         }
         guard let decision else { return }
         logQualityDecision(decision)
+        // ADR-0088: a host-raised window is the MOST important one to log telemetry for. The
+        // client is silent, so its half reads `absent` -- and that absence next to a host path
+        // that is still satisfied is itself the finding: the Mac's link is fine and the phone
+        // has stopped speaking.
+        logLinkTelemetry(decision, clientTelemetry: nil)
         applyQualityDecision(decision, completed: 0, expired: 0)
     }
 

@@ -46,6 +46,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     let closed: AsyncStream<Void>
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
     let connectionState: AsyncStream<MediaConnectionState>
+    // ADR-0088: link telemetry. Both are edge-triggered, so they cost nothing while the link
+    // is stable and only produce work during the transitions we are trying to catch.
+    private let pathObserver: LinkPathObserver
+    private let radioObserver = RadioAccessObserver()
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
     private let rawEventReassembly = OSAllocatedUnfairLock<AgentRawEventReassembler>(
         initialState: AgentRawEventReassembler()
@@ -77,6 +81,15 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         self.datagrams = datagrams
         self.activeSession = activeSession
         self.mediaKey = mediaKey
+
+        // ADR-0088: records every path transition as it happens, independent of the 500ms
+        // report cadence, so a transition that lands mid-window is timestamped where it
+        // actually occurred rather than smeared to the window boundary. Captures its own
+        // logger rather than self, which is not yet initialised here.
+        let telemetryLogger = Logger(subsystem: Config.logSubsystem, category: "link-telemetry")
+        pathObserver = LinkPathObserver { snapshot in
+            telemetryLogger.notice("link path changed \(snapshot.logDescription, privacy: .public)")
+        }
 
         var dsCont: AsyncStream<DesktopState>.Continuation!
         desktopStateUpdates = AsyncStream { dsCont = $0 }
@@ -147,6 +160,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                     }
                 }
             }
+            pathObserver.start(queue: DispatchQueue(label: "\(Config.logSubsystem).link-telemetry"))
+            radioObserver.start()
             startLinkHealthReporting()
             // Now that the sink is installed, announce and run the graphics lane.
             startGraphicsReceiveLoop()
@@ -316,6 +331,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         inputReceiveTask?.cancel()
         graphicsReceiveTask?.cancel()
         linkHealthTask?.cancel()
+        pathObserver.stop()
+        radioObserver.stop()
         desktopStateContinuation.finish()
         thumbnailsContinuation.finish()
         topWindowsContinuation.finish()
@@ -428,8 +445,16 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         datagramReceiveTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
+                // ADR-0088: bumped BEFORE the await, so an iteration that blocks forever in
+                // receive() still counts. Counting after would make a wedged receive
+                // indistinguishable from a task that never ran, which is the exact
+                // distinction this exists to draw.
+                lock.withLock { $0.arrivals.noteLoopIteration() }
                 do {
                     let message = try await datagrams.receive()
+                    lock.withLock {
+                        $0.arrivals.noteArrival(atNs: DispatchTime.now().uptimeNanoseconds)
+                    }
                     handleVideoDatagram(message.content)
                 } catch {
                     logger.notice("video datagram receive ended: \(String(describing: error), privacy: .public)")
@@ -688,19 +713,28 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     }
 
     private func flushLinkHealth() {
+        let intervalMs = Config.ownedMediaLinkHealthIntervalMs
+        let nowNs = DispatchTime.now().uptimeNanoseconds
         let counts = lock.withLock { state -> (
             completed: Int,
             skipped: Int,
             discardedRecoveryDeltas: Int,
             keyframeRecoveries: Int,
-            maxPendingFrameDepth: Int
+            maxPendingFrameDepth: Int,
+            arrivals: Int,
+            maxArrivalGapMs: Double,
+            loopIterations: Int
         ) in
+            let arrivals = state.arrivals.drain(nowNs: nowNs)
             let counts = (
                 state.completedFrames,
                 state.expiredFrames,
                 state.discardedRecoveryDeltas,
                 state.keyframeRecoveries,
-                state.maxPendingFrameDepth
+                state.maxPendingFrameDepth,
+                arrivals.arrivals,
+                arrivals.maxGapMs,
+                arrivals.loopIterations
             )
             state.completedFrames = 0
             state.expiredFrames = 0
@@ -709,11 +743,59 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             state.maxPendingFrameDepth = 0
             return counts
         }
+        let (pathSnapshot, pathChanges) = pathObserver.drainForReport()
+        let (radio, radioChanges) = radioObserver.drainForReport()
+        let telemetry = OwnedMediaLinkTelemetry(
+            interfaceType: pathSnapshot?.interfaceType,
+            expensive: pathSnapshot?.expensive,
+            constrained: pathSnapshot?.constrained,
+            ultraConstrained: pathSnapshot?.ultraConstrained,
+            linkQuality: pathSnapshot?.linkQuality,
+            pathStatus: pathSnapshot?.status,
+            unsatisfiedReason: pathSnapshot?.unsatisfiedReason,
+            pathChanges: pathChanges,
+            radioAccess: radio,
+            radioChanges: radioChanges,
+            datagramsReceived: counts.arrivals,
+            maxArrivalGapMs: counts.maxArrivalGapMs,
+            receiveLoopIterations: counts.loopIterations
+        )
+
+        // ADR-0088: the report goes out unconditionally.
+        //
+        // This used to return early when all five frame counters were zero, on the reasoning
+        // that there was nothing to say. That reasoning stopped being true twice over. First,
+        // a zero-count window now carries path, radio, and receive-loop state, which is never
+        // "nothing" -- it is the most informative report we send, because it is the one that
+        // arrives during a freeze. Second, suppressing it made "the client is stalled" and
+        // "the client is gone" identical on the wire, which is precisely the distinction the
+        // host needs to respond correctly.
+        //
+        // The cost is bounded and was measured: across a clean 8-minute session not one
+        // report was suppressed, so in healthy operation this adds nothing. Suppression
+        // concentrated in the freezes (84 of 94 lost reports in one session), which is
+        // exactly where the extra ~2 messages/sec buy the most.
+        sendVideoControl(OwnedMediaControlMessage(
+            kind: .linkHealth,
+            frameId: 0,
+            linkHealthCompletedFrames: counts.completed,
+            linkHealthExpiredFrames: counts.skipped,
+            linkTelemetry: telemetry
+        ))
+
+        // The LOCAL record stays gated. It writes to the client console log, which is the log
+        // we read during an incident; 2 lines/sec of "nothing happened" would bury the traces
+        // we are looking for. A transition or a stalled receive loop still forces a line, so
+        // nothing interesting is dropped -- only the genuinely idle windows.
+        let receiveLoopStalled = counts.arrivals == 0 && counts.maxArrivalGapMs >= Double(intervalMs)
         guard counts.completed > 0
             || counts.skipped > 0
             || counts.discardedRecoveryDeltas > 0
             || counts.keyframeRecoveries > 0
             || counts.maxPendingFrameDepth > 0
+            || pathChanges > 0
+            || radioChanges > 0
+            || receiveLoopStalled
         else { return }
         ClientDiagnostics.shared.record(
             type: "mediaLinkHealthSummary",
@@ -723,16 +805,11 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                 "gapSkips": String(counts.skipped),
                 "discardedRecoveryDeltas": String(counts.discardedRecoveryDeltas),
                 "keyframeRecoveries": String(counts.keyframeRecoveries),
-                "maxPendingFrameDepth": String(counts.maxPendingFrameDepth)
+                "maxPendingFrameDepth": String(counts.maxPendingFrameDepth),
+                "telemetry": telemetry.logDescription
             ],
             level: .info
         )
-        sendVideoControl(OwnedMediaControlMessage(
-            kind: .linkHealth,
-            frameId: 0,
-            linkHealthCompletedFrames: counts.completed,
-            linkHealthExpiredFrames: counts.skipped
-        ))
     }
 
     private func sendVideoControl(_ message: OwnedMediaControlMessage) {
@@ -774,6 +851,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         var mediaRecovery = MediaFrameRecoveryGate(
             keyframeRequestMinGapNs: UInt64(Config.ownedMediaKeyframeRequestMinGapMs) * 1_000_000
         )
+        // ADR-0088: receive-loop liveness. Lives in the same lock as the frame counters so a
+        // report is one consistent snapshot of the window rather than two racing ones.
+        var arrivals = DatagramArrivalTracker()
     }
 
     private struct InputFrameHeader: Decodable {
