@@ -284,6 +284,10 @@ public final class PtyTerminalWebView: PtyTerminalWebPlatformView {
         #endif
     }
 
+    /// The size the web terminal renders at before any zoom. Lives here rather than in each window
+    /// that zooms one, so two terminals at "100%" are the same size.
+    public static let defaultFontPointSize: CGFloat = 14
+
     public func setFontSize(_ pointSize: CGFloat) {
         deliver(["type": "fontSize", "pointSize": min(48, max(8, pointSize))])
     }

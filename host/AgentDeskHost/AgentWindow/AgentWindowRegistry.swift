@@ -15,12 +15,14 @@ protocol AgentWindowControlling: AnyObject {
     /// restore at all.
     func show(activating: Bool)
 
-    /// Reports the window's frame whenever the user moves or resizes it, and its terminal pane's
-    /// attachment as that opens and closes, so the registry keeps the remembered presentation
-    /// current without polling and without depending on a clean exit to write it.
+    /// Reports the window's frame whenever the user moves or resizes it, its terminal pane's
+    /// attachment as that opens and closes, and its zoom step as the user changes it, so the
+    /// registry keeps the remembered presentation current without polling and without depending on
+    /// a clean exit to write it.
     func observePresentation(
         frameChanged: @escaping (CGRect) -> Void,
-        terminalChanged: @escaping (AgentWindowTerminalAttachment?) -> Void
+        terminalChanged: @escaping (AgentWindowTerminalAttachment?) -> Void,
+        zoomChanged: @escaping (Int) -> Void
     )
 
     /// Reopens the terminal pane against an attachment a previous host run left behind.
@@ -39,6 +41,7 @@ final class AgentWindowRegistry {
     typealias ControllerFactory = @MainActor (
         _ id: UUID,
         _ frame: CGRect,
+        _ zoomStep: Int,
         _ endpoint: AgentSessionTerminalEndpoint,
         _ onClosed: @escaping @MainActor () -> Void
     ) -> any AgentWindowControlling
@@ -50,16 +53,17 @@ final class AgentWindowRegistry {
         let controller: any AgentWindowControlling
         var frame: CGRect
         var terminal: AgentWindowTerminalAttachment?
+        var zoomStep: Int
     }
 
     private let store: AgentWindowPresentationStore
     private let endpointFactory: EndpointFactory
     private let controllerFactory: ControllerFactory
     private let cascadeStep: CGFloat
-    private let framePersistDelay: Duration
+    private let presentationPersistDelay: Duration
     private var entries: [UUID: Entry] = [:]
     private var endpointShutdownTasks: [UUID: Task<Void, Never>] = [:]
-    private var frameTasks: [UUID: Task<Void, Never>] = [:]
+    private var persistTasks: [UUID: Task<Void, Never>] = [:]
     private var stopTask: Task<Void, Never>?
     private var hasRestored = false
     private var shuttingDown = false
@@ -67,13 +71,13 @@ final class AgentWindowRegistry {
     init(
         store: AgentWindowPresentationStore,
         cascadeStep: CGFloat = 24,
-        framePersistDelay: Duration = .milliseconds(200),
+        presentationPersistDelay: Duration = .milliseconds(200),
         endpointFactory: @escaping EndpointFactory,
         controllerFactory: @escaping ControllerFactory
     ) {
         self.store = store
         self.cascadeStep = cascadeStep
-        self.framePersistDelay = framePersistDelay
+        self.presentationPersistDelay = presentationPersistDelay
         self.endpointFactory = endpointFactory
         self.controllerFactory = controllerFactory
     }
@@ -95,12 +99,13 @@ final class AgentWindowRegistry {
                     tombstoneLimit: terminalTombstoneLimit
                 )
             },
-            controllerFactory: { _, frame, endpoint, onClosed in
+            controllerFactory: { _, frame, zoomStep, endpoint, onClosed in
                 AgentWindowController(
                     sidecarClient: sidecarClient,
                     localTerminalEndpoint: endpoint,
                     terminalPtyClient: makeTerminalPtyClient(),
                     initialFrame: frame,
+                    initialZoomStep: zoomStep,
                     onClosed: onClosed
                 )
             }
@@ -151,6 +156,7 @@ final class AgentWindowRegistry {
                     within: visibleFrames
                 ),
                 terminal: descriptor.terminal,
+                zoomStep: descriptor.zoomStep,
                 activating: false
             )
         }
@@ -162,10 +168,11 @@ final class AgentWindowRegistry {
         cascadeOrdinal: Int,
         frame: CGRect,
         terminal: AgentWindowTerminalAttachment? = nil,
+        zoomStep: Int = 0,
         activating: Bool
     ) {
         let endpoint = endpointFactory(id)
-        let controller = controllerFactory(id, frame, endpoint) { [weak self] in
+        let controller = controllerFactory(id, frame, zoomStep, endpoint) { [weak self] in
             self?.removeWindow(id)
         }
         entries[id] = Entry(
@@ -174,7 +181,8 @@ final class AgentWindowRegistry {
             endpoint: endpoint,
             controller: controller,
             frame: frame,
-            terminal: terminal
+            terminal: terminal,
+            zoomStep: zoomStep
         )
         persist(id: id)
         controller.observePresentation(
@@ -183,6 +191,9 @@ final class AgentWindowRegistry {
             },
             terminalChanged: { [weak self] attachment in
                 self?.recordTerminal(attachment, id: id)
+            },
+            zoomChanged: { [weak self] step in
+                self?.scheduleZoom(step, id: id)
             }
         )
         controller.show(activating: activating)
@@ -191,18 +202,33 @@ final class AgentWindowRegistry {
         }
     }
 
-    /// Coalesces a drag or resize into one write. A live drag emits a frame per event, and the
-    /// store rewrites the whole document each time.
     private func scheduleFrame(_ frame: CGRect, id: UUID) {
-        guard !shuttingDown else { return }
-        frameTasks[id]?.cancel()
-        let delay = framePersistDelay
-        frameTasks[id] = Task { [weak self] in
+        guard !shuttingDown, entries[id] != nil else { return }
+        entries[id]?.frame = frame
+        schedulePersist(id: id)
+    }
+
+    private func scheduleZoom(_ step: Int, id: UUID) {
+        guard !shuttingDown, entries[id]?.zoomStep != step else { return }
+        entries[id]?.zoomStep = step
+        schedulePersist(id: id)
+    }
+
+    /// Coalesces a burst into one write. A live drag emits a frame per event and a held zoom key
+    /// emits a step per repeat, and the store rewrites the whole document each time.
+    ///
+    /// One task per window rather than one per field: both describe the same descriptor, so a drag
+    /// and a zoom that overlap should land as one write instead of racing to be last. The value is
+    /// taken at report time and only the WRITE is deferred, so a cancelled task never loses a
+    /// change -- the next one persists everything recorded since.
+    private func schedulePersist(id: UUID) {
+        persistTasks[id]?.cancel()
+        let delay = presentationPersistDelay
+        persistTasks[id] = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self, self.entries[id] != nil else { return }
-            self.entries[id]?.frame = frame
             self.persist(id: id)
-            self.frameTasks[id] = nil
+            self.persistTasks[id] = nil
         }
     }
 
@@ -221,7 +247,8 @@ final class AgentWindowRegistry {
             frame: AgentWindowFrame(entry.frame),
             desktopSpaceID: entry.desktopSpaceID,
             cascadeOrdinal: entry.cascadeOrdinal,
-            terminal: entry.terminal
+            terminal: entry.terminal,
+            zoomStep: entry.zoomStep
         ))
     }
 
@@ -240,8 +267,13 @@ final class AgentWindowRegistry {
         // here on `removeWindow` keeps the stored placement instead of clearing it, so quitting
         // does not erase the very state this restores.
         shuttingDown = true
-        for task in frameTasks.values { task.cancel() }
-        frameTasks.removeAll()
+        // Flushed, not just cancelled. The entries already hold every reported value, so writing
+        // them here is what makes the debounce window safe to quit inside -- a zoom keystroke or a
+        // drag in the last fraction of a second would otherwise be dropped by the cancel below,
+        // which is exactly the state a restart is supposed to bring back.
+        for task in persistTasks.values { task.cancel() }
+        persistTasks.removeAll()
+        for id in entries.keys { persist(id: id) }
         let entries = Array(entries.values)
         let controllerTasks = entries.map { $0.controller.beginStop() }
         let existingEndpointShutdownTasks = Array(endpointShutdownTasks.values)
@@ -262,7 +294,7 @@ final class AgentWindowRegistry {
 
     private func removeWindow(_ id: UUID) {
         guard let entry = entries.removeValue(forKey: id) else { return }
-        frameTasks.removeValue(forKey: id)?.cancel()
+        persistTasks.removeValue(forKey: id)?.cancel()
         // Only a window the user closed forfeits its place, and with it the agent terminal it was
         // running; on the way out every window closes without meaning to.
         guard !shuttingDown else { return }

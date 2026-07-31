@@ -300,14 +300,16 @@ struct AgentWindowControllerTests {
 
 }
 
+/// Shared with `AgentWindowZoomTests`, hence not private.
 @MainActor
-private final class FakeAgentWindowTerminalController: AgentWindowTerminalControlling {
+final class FakeAgentWindowTerminalController: AgentWindowTerminalControlling {
     let terminalView = NSView()
     var handledIntents: [AgentPanelTerminalIntent] = []
     var closeReasons: [AgentWindowTerminalExplicitCloseReason] = []
     var suspendClose = false
     private(set) var preservingDetachCount = 0
     private(set) var resumed: [AgentWindowTerminalAttachment] = []
+    private(set) var zoomScales: [Double] = []
 
     private var closeTask: Task<Void, Never>?
     private var closeContinuation: CheckedContinuation<Void, Never>?
@@ -316,6 +318,10 @@ private final class FakeAgentWindowTerminalController: AgentWindowTerminalContro
 
     func handle(_ intent: AgentPanelTerminalIntent) {
         handledIntents.append(intent)
+    }
+
+    func setZoomScale(_ scale: Double) {
+        zoomScales.append(scale)
     }
 
     func observeAttachment(_ observer: @escaping (AgentWindowTerminalAttachment?) -> Void) {

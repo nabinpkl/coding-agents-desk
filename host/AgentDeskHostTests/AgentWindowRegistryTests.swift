@@ -84,6 +84,74 @@ struct AgentWindowRegistryTests {
         #expect(after.controllers.map(\.activations) == [[false], [false]])
     }
 
+    @Test func aZoomedWindowComesBackAtTheSizeItWasLeftAt() async {
+        // Zoom rides the same descriptor as the frame, so it survives on the same terms: a restart
+        // restores it, and the write is on disk as it happens rather than at quit.
+        let storeURL = AgentWindowRegistryFixture.makeStoreURL()
+        let before = AgentWindowRegistryFixture(storeURL: storeURL)
+        defer { before.remove() }
+        let placement = AgentWindowPlacement(
+            desktopSpaceID: 41,
+            frame: CGRect(x: 100, y: 200, width: 480, height: 720)
+        )
+        before.registry.open(placement)
+        before.registry.open(placement)
+        before.controllers[0].reportZoom(step: 3)
+        await settleZoomPersist(before, contains: 3)
+
+        await before.registry.beginStopAll().value
+
+        let after = AgentWindowRegistryFixture(storeURL: storeURL)
+        after.registry.startRestoration(visibleFrames: [CGRect(x: 0, y: 0, width: 1_920, height: 1_080)])
+
+        #expect(after.controllers.count == 2)
+        // The window that was zoomed comes back zoomed; the one that was not comes back at 1.0.
+        #expect(Set(after.controllers.map(\.zoomStep)) == [3, 0])
+    }
+
+    @Test func aDragAndAZoomInOneWindowLandAsASingleWrite() async {
+        // Both describe the same descriptor, so they share one debounce. The bug this pins is one
+        // overwriting the other: whichever wrote last used to carry a stale copy of the other field.
+        let storeURL = AgentWindowRegistryFixture.makeStoreURL()
+        let fixture = AgentWindowRegistryFixture(storeURL: storeURL)
+        defer { fixture.remove() }
+        fixture.registry.open(AgentWindowPlacement(
+            desktopSpaceID: 41,
+            frame: CGRect(x: 100, y: 200, width: 480, height: 720)
+        ))
+        let dragged = CGRect(x: 640, y: 80, width: 520, height: 600)
+        fixture.controllers[0].moveTo(dragged)
+        fixture.controllers[0].reportZoom(step: -2)
+        await settleZoomPersist(fixture, contains: -2)
+
+        #expect(fixture.storedFrames == [dragged])
+        #expect(fixture.storedZoomSteps == [-2])
+    }
+
+    @Test func aZoomInTheLastMomentBeforeQuittingIsStillThereOnRestart() async {
+        // The persist is debounced, and quitting cancels pending tasks. A delay long enough that it
+        // cannot have fired proves the flush on the way out is what saves this, not the timer.
+        let storeURL = AgentWindowRegistryFixture.makeStoreURL()
+        let before = AgentWindowRegistryFixture(storeURL: storeURL, presentationPersistDelay: .seconds(30))
+        defer { before.remove() }
+        before.registry.open(AgentWindowPlacement(
+            desktopSpaceID: 41,
+            frame: CGRect(x: 100, y: 200, width: 480, height: 720)
+        ))
+        let dragged = CGRect(x: 640, y: 80, width: 520, height: 600)
+        before.controllers[0].moveTo(dragged)
+        before.controllers[0].reportZoom(step: 5)
+
+        await before.registry.beginStopAll().value
+
+        #expect(before.storedZoomSteps == [5])
+        #expect(before.storedFrames == [dragged])
+
+        let after = AgentWindowRegistryFixture(storeURL: storeURL)
+        after.registry.startRestoration(visibleFrames: [CGRect(x: 0, y: 0, width: 1_920, height: 1_080)])
+        #expect(after.controllers.map(\.zoomStep) == [5])
+    }
+
     @Test func aWindowTheUserClosedStaysClosedAcrossRestart() async {
         let storeURL = AgentWindowRegistryFixture.makeStoreURL()
         let before = AgentWindowRegistryFixture(storeURL: storeURL)
@@ -241,6 +309,15 @@ struct AgentWindowRegistryTests {
             try? await Task.sleep(for: .milliseconds(10))
         }
     }
+
+    private func settleZoomPersist(
+        _ fixture: AgentWindowRegistryFixture,
+        contains step: Int
+    ) async {
+        for _ in 0..<200 where !fixture.storedZoomSteps.contains(step) {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
 }
 
 @MainActor
@@ -255,6 +332,9 @@ private final class AgentWindowRegistryFixture {
     var storedFrames: [CGRect] {
         AgentWindowPresentationStore(url: storeURL).descriptors.map(\.frame.cgRect)
     }
+    var storedZoomSteps: [Int] {
+        AgentWindowPresentationStore(url: storeURL).descriptors.map(\.zoomStep)
+    }
 
     static func makeStoreURL() -> URL {
         FileManager.default.temporaryDirectory
@@ -265,7 +345,7 @@ private final class AgentWindowRegistryFixture {
     init(
         suspendStop: Bool = false,
         storeURL: URL = AgentWindowRegistryFixture.makeStoreURL(),
-        framePersistDelay: Duration = .milliseconds(1)
+        presentationPersistDelay: Duration = .milliseconds(1)
     ) {
         let coordinator = AgentWindowRegistryTerminalCoordinator()
         let recorder = AgentWindowRegistryRecorder()
@@ -274,7 +354,7 @@ private final class AgentWindowRegistryFixture {
         self.storeURL = storeURL
         registry = AgentWindowRegistry(
             store: AgentWindowPresentationStore(url: storeURL),
-            framePersistDelay: framePersistDelay,
+            presentationPersistDelay: presentationPersistDelay,
             endpointFactory: { id in
                 AgentSessionTerminalEndpoint(
                     coordinator: coordinator,
@@ -283,9 +363,10 @@ private final class AgentWindowRegistryFixture {
                     tombstoneLimit: 8
                 )
             },
-            controllerFactory: { id, frame, _, onClosed in
+            controllerFactory: { id, frame, zoomStep, _, onClosed in
                 let controller = FakeManagedAgentWindow(
                     frame: frame,
+                    zoomStep: zoomStep,
                     suspendStop: suspendStop,
                     onClosed: onClosed
                 )
@@ -310,10 +391,13 @@ private final class AgentWindowRegistryRecorder {
 @MainActor
 private final class FakeManagedAgentWindow: AgentWindowControlling {
     let frame: CGRect
+    /// The level the registry restored this window at, so a test can assert the round trip.
+    let zoomStep: Int
     private let suspendStop: Bool
     private var onClosed: (@MainActor () -> Void)?
     private var onFrameChanged: ((CGRect) -> Void)?
     private var onTerminalChanged: ((AgentWindowTerminalAttachment?) -> Void)?
+    private var onZoomChanged: ((Int) -> Void)?
     private var stopTask: Task<Void, Never>?
     private var stopContinuation: CheckedContinuation<Void, Never>?
     private(set) var showCount = 0
@@ -323,10 +407,12 @@ private final class FakeManagedAgentWindow: AgentWindowControlling {
 
     init(
         frame: CGRect,
+        zoomStep: Int,
         suspendStop: Bool,
         onClosed: @escaping @MainActor () -> Void
     ) {
         self.frame = frame
+        self.zoomStep = zoomStep
         self.suspendStop = suspendStop
         self.onClosed = onClosed
     }
@@ -338,10 +424,12 @@ private final class FakeManagedAgentWindow: AgentWindowControlling {
 
     func observePresentation(
         frameChanged: @escaping (CGRect) -> Void,
-        terminalChanged: @escaping (AgentWindowTerminalAttachment?) -> Void
+        terminalChanged: @escaping (AgentWindowTerminalAttachment?) -> Void,
+        zoomChanged: @escaping (Int) -> Void
     ) {
         onFrameChanged = frameChanged
         onTerminalChanged = terminalChanged
+        onZoomChanged = zoomChanged
     }
 
     func resumeTerminal(_ attachment: AgentWindowTerminalAttachment) {
@@ -356,6 +444,11 @@ private final class FakeManagedAgentWindow: AgentWindowControlling {
     /// Stands in for the panel opening or ending a terminal in this window.
     func reportTerminal(_ attachment: AgentWindowTerminalAttachment?) {
         onTerminalChanged?(attachment)
+    }
+
+    /// Stands in for the user pressing Command+minus or Command+equals in this window.
+    func reportZoom(step: Int) {
+        onZoomChanged?(step)
     }
 
     func close() {

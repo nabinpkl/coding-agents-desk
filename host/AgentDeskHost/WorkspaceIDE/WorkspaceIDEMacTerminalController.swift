@@ -75,7 +75,7 @@ final class WorkspaceIDEMacTerminalController: NSObject, PtyTerminalWebViewDeleg
     }
 
     func setZoomScale(_ scale: Double) {
-        contentView.setFontSize(14 * CGFloat(scale))
+        contentView.setFontSize(PtyTerminalWebView.defaultFontPointSize * CGFloat(scale))
     }
 
     func stop() {

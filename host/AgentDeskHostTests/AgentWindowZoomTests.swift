@@ -140,6 +140,75 @@ struct AgentWindowZoomTests {
         await controller.beginStop().value
     }
 
+    @Test func bothHalvesOfTheWindowMoveTogether() async throws {
+        let terminal = FakeAgentWindowTerminalController()
+        let controller = AgentWindowController(
+            sidecarClient: FakeSidecarClient(),
+            terminalControllerForTesting: terminal,
+            initialFrame: CGRect(x: 80, y: 120, width: 480, height: 720)
+        )
+        controller.show()
+        let window = try #require(controller.windowForTesting)
+        window.concealFromTheDesktopUnderTest()
+        let contentView = try #require(window.contentView as? AgentWindowContentView)
+
+        _ = contentView.performKeyEquivalent(with: keyEvent("="))
+        _ = contentView.performKeyEquivalent(with: keyEvent("="))
+        _ = contentView.performKeyEquivalent(with: keyEvent("-"))
+
+        // The terminal gets the same level, which it turns into a font size rather than a page
+        // scale. Zooming half a window is worse than not zooming it.
+        #expect(terminal.zoomScales == [1.1, 1.2, 1.1])
+
+        await controller.beginStop().value
+    }
+
+    @Test func aRestoredWindowOpensAtItsRememberedLevelAndReportsEveryChange() async throws {
+        let terminal = FakeAgentWindowTerminalController()
+        var reported: [Int] = []
+        let controller = AgentWindowController(
+            sidecarClient: FakeSidecarClient(),
+            terminalControllerForTesting: terminal,
+            initialFrame: CGRect(x: 80, y: 120, width: 480, height: 720),
+            initialZoomStep: 4
+        )
+        controller.observePresentation(
+            frameChanged: { _ in },
+            terminalChanged: { _ in },
+            zoomChanged: { reported.append($0) }
+        )
+        controller.show()
+        let window = try #require(controller.windowForTesting)
+        window.concealFromTheDesktopUnderTest()
+        let contentView = try #require(window.contentView as? AgentWindowContentView)
+
+        #expect(controller.zoomScaleForTesting == 1.4)
+        if let webView = firstWebView(in: contentView) {
+            // Built at the restored level, not zoomed up to it afterwards.
+            #expect(webView.pageZoom == 1.4)
+        }
+        // The terminal is NOT told here, and should not be: its pane has not opened. The real
+        // controller sends the level from its `setTerminalOpen` hook, which is the only moment a
+        // restored pane has a renderer to receive it. The injected fake bypasses that hook.
+        #expect(terminal.zoomScales.isEmpty)
+
+        _ = contentView.performKeyEquivalent(with: keyEvent("-"))
+        _ = contentView.performKeyEquivalent(with: keyEvent("0"))
+        // Only changes are reported: the registry writes on each one, and a step that clamped to
+        // where it already was is not a change.
+        #expect(reported == [3, 0])
+
+        await controller.beginStop().value
+    }
+
+    @Test func aStepFromOutsideTheSupportedRangeIsClampedOnTheWayIn() {
+        // The store is the untrusted input here: a build with a wider range, or a hand-edited file,
+        // must not land a window at a size its own keys cannot walk back from.
+        #expect(AgentWindowZoom(step: 99).scale == 2)
+        #expect(AgentWindowZoom(step: -99).scale == 0.6)
+        #expect(AgentWindowZoom(step: 3).scale == 1.3)
+    }
+
     private func firstWebView(in view: NSView) -> WKWebView? {
         if let webView = view as? WKWebView { return webView }
         for subview in view.subviews {

@@ -16,10 +16,16 @@ enum AgentWindowZoomCommand: Equatable {
 struct AgentWindowZoom: Equatable {
     static let stepRange = -4...10
 
-    private(set) var step: Int = 0
+    private(set) var step: Int
 
     /// 0.6 through 2.0, in tenths.
     var scale: Double { Double(10 + step) / 10 }
+
+    /// Clamps on the way in as well as on every change, so a step read back from an older store --
+    /// or from a build whose range was wider -- cannot put the window at a size it cannot leave.
+    init(step: Int = 0) {
+        self.step = Self.clamp(step)
+    }
 
     mutating func apply(_ command: AgentWindowZoomCommand) {
         switch command {

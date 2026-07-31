@@ -46,19 +46,25 @@ struct AgentWindowPresentationDescriptor: Codable, Equatable, Identifiable, Send
     let cascadeOrdinal: Int
     /// Absent when the window had no terminal pane open, which is also what a window restores to.
     var terminal: AgentWindowTerminalAttachment?
+    /// How far the window was zoomed, as `AgentWindowZoom`'s step. Belongs here for the same reason
+    /// the frame does: it is how big the window's contents were, and a restart that puts the window
+    /// back at the wrong size has not really put it back.
+    var zoomStep: Int
 
     init(
         id: UUID,
         frame: AgentWindowFrame,
         desktopSpaceID: UInt64?,
         cascadeOrdinal: Int,
-        terminal: AgentWindowTerminalAttachment? = nil
+        terminal: AgentWindowTerminalAttachment? = nil,
+        zoomStep: Int = 0
     ) {
         self.id = id
         self.frame = frame
         self.desktopSpaceID = desktopSpaceID
         self.cascadeOrdinal = cascadeOrdinal
         self.terminal = terminal
+        self.zoomStep = zoomStep
     }
 }
 

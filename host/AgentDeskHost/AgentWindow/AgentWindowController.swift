@@ -35,6 +35,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     private var onClosed: (@MainActor () -> Void)?
     private var onFrameChanged: ((CGRect) -> Void)?
     private var onTerminalChanged: ((AgentWindowTerminalAttachment?) -> Void)?
+    private var onZoomChanged: ((Int) -> Void)?
     private var window: NSWindow?
     private var panelController: AgentPanelWebViewController?
     private var transport: AgentPanelBridgeTransport?
@@ -42,10 +43,10 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     private var splitView: AgentWindowSplitView?
     private var terminalController: (any AgentWindowTerminalControlling)?
     private var stopTask: Task<Void, Never>?
-    /// Lives exactly as long as this window does. Closing the Agents window drops its controller --
-    /// the registry removes the entry -- so a reopened window starts back at 1.0, and nothing
-    /// persists the level beside the frame in `AgentWindowPresentationStore`.
-    private var zoom = AgentWindowZoom()
+    /// Restored from `AgentWindowPresentationStore` at launch and reported back on every change, so
+    /// a window comes back at the size it was left at. A window the user CLOSED forfeits its whole
+    /// stored presentation, zoom with it, exactly as it forfeits its frame.
+    private var zoom: AgentWindowZoom
 
     init(
         sidecarClient: any SidecarClient,
@@ -53,6 +54,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         terminalPtyClient: PtyClient? = nil,
         terminalControllerForTesting: (any AgentWindowTerminalControlling)? = nil,
         initialFrame: CGRect? = nil,
+        initialZoomStep: Int = 0,
         onClosed: (@MainActor () -> Void)? = nil
     ) {
         self.sidecarClient = sidecarClient
@@ -60,6 +62,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         self.terminalPtyClient = terminalPtyClient
         self.terminalControllerForTesting = terminalControllerForTesting
         self.initialFrame = initialFrame
+        self.zoom = AgentWindowZoom(step: initialZoomStep)
         self.onClosed = onClosed
         super.init()
     }
@@ -69,10 +72,12 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
 
     func observePresentation(
         frameChanged: @escaping (CGRect) -> Void,
-        terminalChanged: @escaping (AgentWindowTerminalAttachment?) -> Void
+        terminalChanged: @escaping (AgentWindowTerminalAttachment?) -> Void,
+        zoomChanged: @escaping (Int) -> Void
     ) {
         onFrameChanged = frameChanged
         onTerminalChanged = terminalChanged
+        onZoomChanged = zoomChanged
     }
 
     func show(activating: Bool = true) {
@@ -159,6 +164,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         stopTask = nil
         onFrameChanged = nil
         onTerminalChanged = nil
+        onZoomChanged = nil
         let onClosed = onClosed
         self.onClosed = nil
         onClosed?()
@@ -202,7 +208,12 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
                     ),
                     attacher: PtyClientAgentWindowTerminalAttacher(client: terminalPtyClient),
                     setTerminalOpen: { [weak self] open in
-                        self?.splitView?.setTerminalOpen(open)
+                        guard let self else { return }
+                        self.splitView?.setTerminalOpen(open)
+                        // Re-sent on open rather than relied on from the keystroke: a pane opened
+                        // after the window was zoomed has a renderer that never saw that level, and
+                        // a renderer recovery clears anything still queued for it.
+                        if open { self.terminalController?.setZoomScale(self.zoom.scale) }
                     },
                     deliverStatus: { [weak self] message in
                         self?.deliverTerminalStatus(message)
@@ -249,13 +260,15 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         return view
     }
 
-    /// Scales the feed webview only. The terminal pane keeps its own font size: its text is sized by
-    /// the terminal's own metrics, and page zoom over a canvas-backed grid reflows nothing.
+    /// Scales both halves of the window by one level, through the mechanism each one wants: page
+    /// zoom for the feed, font size for the terminal, whose character grid page zoom would blur.
     private func applyZoom(_ command: AgentWindowZoomCommand) {
         let previous = zoom
         zoom.apply(command)
         guard zoom != previous else { return }
         panelController?.webView.pageZoom = zoom.scale
+        terminalController?.setZoomScale(zoom.scale)
+        onZoomChanged?(zoom.step)
     }
 
     /// Test seam: the level the next webview would be built at.

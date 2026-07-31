@@ -17,6 +17,11 @@ protocol AgentWindowTerminalControlling: AnyObject {
     var terminalView: NSView { get }
     func handle(_ intent: AgentPanelTerminalIntent)
     func claimViewportOwnership()
+
+    /// Scales the pane's text with the rest of the window. Font size rather than page zoom: the
+    /// terminal is a character grid, and scaling the page would blur the cells and leave the column
+    /// count describing a width that is no longer true.
+    func setZoomScale(_ scale: Double)
     @discardableResult
     func beginExplicitClose(
         reason: AgentWindowTerminalExplicitCloseReason
@@ -979,5 +984,11 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
     func claimViewportOwnership() {
         guard isTerminalPresented else { return }
         contentView.claimViewportOwnership()
+    }
+
+    /// Unguarded by presentation, unlike the viewport claim above: the window re-sends the level
+    /// when a pane opens, and the delivery queue holds it until the renderer is ready.
+    func setZoomScale(_ scale: Double) {
+        contentView.setFontSize(PtyTerminalWebView.defaultFontPointSize * CGFloat(scale))
     }
 }
