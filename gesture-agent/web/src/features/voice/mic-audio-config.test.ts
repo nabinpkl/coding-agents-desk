@@ -38,6 +38,9 @@ test("capture constraints carry the host's echo cancellation answer", () => {
     autoGainControl: false,
   });
   expect(micAudioConstraints(true).echoCancellation).toBe(true);
+  expect(micAudioConstraints(true, "external-mic").deviceId).toEqual({
+    exact: "external-mic",
+  });
 });
 
 test("a plain browser with no host config cancels echo", () => {

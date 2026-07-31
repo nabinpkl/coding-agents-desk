@@ -22,6 +22,10 @@ import {
   subscribeHostAudioConfig,
 } from "@/features/voice/mic-audio-config";
 import {
+  notifyMicrophoneAccessGranted,
+  selectedMicrophoneDeviceID,
+} from "@/features/voice/microphone-selection";
+import {
   microphoneTrackDiagnostics,
   observeMicrophoneTrackHealth,
 } from "@/features/voice/mic-track-health";
@@ -165,9 +169,30 @@ export function useMicCapture(): MicCaptureController {
         throw new MicCaptureError("microphone capture is not available");
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: micAudioConstraints(currentEchoCancellation()),
-      });
+      const selectedDeviceID = selectedMicrophoneDeviceID();
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: micAudioConstraints(
+            currentEchoCancellation(),
+            selectedDeviceID,
+          ),
+        });
+      } catch (error) {
+        if (
+          selectedDeviceID &&
+          error instanceof DOMException &&
+          (error.name === "NotFoundError" || error.name === "OverconstrainedError")
+        ) {
+          throw new MicCaptureError(
+            "The selected microphone is unavailable. Choose another microphone.",
+          );
+        }
+        throw error instanceof Error
+          ? new MicCaptureError(error.message)
+          : new MicCaptureError("failed to acquire microphone");
+      }
+      notifyMicrophoneAccessGranted();
 
       const context = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
       const moduleUrl = URL.createObjectURL(

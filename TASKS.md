@@ -1135,6 +1135,28 @@ or WAV and invokes no capture or synthesis path. Focused verification passes: 73
 build gates. R194 remains the explicit real-surface checkpoint; no host or device app has been
 launched.
 
+## v15 Phase 12: explicit microphone choice and recorder reset
+
+### Position
+
+The shared browser recorder previously always opened the browser's default input, and Reset existed
+only after completion or failure. A learner switching between the Mac microphone, a headset, and an
+external interface needs an explicit device-local choice before capture. Reset must also be a stable
+way back to free-form **New passage** without deleting the selected practice passage from the
+host-owned library.
+
+### Implementation checkpoint
+
+- **D195** Persist one browser microphone selection, enumerate and refresh available `audioinput`
+  devices, and apply an explicit selection as an exact `getUserMedia` device constraint through the
+  shared capture hook. Keep system default as an explicit fallback and surface an unavailable saved
+  device instead of silently recording from another input.
+- **D196** Keep Reset visible on the recorder outside active finalization and make it clear both the
+  ephemeral voice run and the selected passage target. Reset does not call a passage deletion API;
+  durable passages and attempts remain library truth.
+- Focused selection, constraints, and recorder tests pass. Repository-wide acceptance and a real
+  microphone-switch run remain the gates before claiming the physical inputs were exercised.
+
 ## v16 Phase 1: stall recovery on a manually pinned stream
 
 ### Position
@@ -1321,4 +1343,13 @@ D191  2026-07-30  landed     typed-reference wire and native proxy
 D192  2026-07-30  landed     shared typed-reference and first-practice UI
 D193  2026-07-30  landed     automated typed-reference acceptance
 R194  checkpoint  remaining  typed-reference Mac/iPhone runtime acceptance
+D195  2026-07-31  landed     persisted browser microphone selection at the shared capture seam
+D196  2026-07-31  landed     stable recorder reset that clears the next-passage target
+D197  2026-07-31  landed     measured which link metrics the platform actually gives us
+D198  2026-07-31  landed     link telemetry on the existing link-health message
+D199  2026-07-31  landed     client path, radio, and receive-loop observers
+D200  2026-07-31  landed     unconditional link-health report carrying telemetry
+D201  2026-07-31  landed     host path observer and round-trip inflation on one correlated line
+D202  2026-07-31  landed     recovery credit judged on what a report says, not who sent it
+R203  checkpoint  remaining  authorized cellular device acceptance with telemetry live
 ```

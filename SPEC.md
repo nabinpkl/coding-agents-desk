@@ -417,6 +417,13 @@ residency, and MLX memory fields; `kokoroPrewarm` records cold work, success, er
 time. R172 and R174 retain later measured idle-eviction or on-demand reload policies if lifetime
 residency harms ordinary host use.
 
+The full Voice recorder enumerates browser `audioinput` devices and stores one device-local
+preference in Web storage. System default stores no device ID; an explicit input becomes an exact
+`deviceId` constraint for the shared browser capture hook, so the same preference also applies to
+the compact Dictation Bar. Device labels refresh after microphone access and on `devicechange`.
+When a persisted input disappears, the recorder visibly returns to system default rather than
+silently retaining an unusable constraint.
+
 Browser Stop first fences the capture worklet, emits its final short PCM tail, and waits for the
 flush acknowledgement before sending `sessionStop`. Worklet, track, and audio-context failures abort
 the take visibly. Direct WebSockets enforce a bounded buffered-byte ceiling. On iPhone, native bridge
@@ -524,6 +531,9 @@ alignment, not acoustic word boundaries, and are not a second persisted analysis
 shared web panel shows editable intended text, immutable **Machine heard**, an accessible word diff,
 learner/reference playback, collapsible attempts, baseline selection, and unscored A/B playback.
 Technical model, dictionary, timing, and transport details stay under secondary disclosure.
+The recorder's Reset control remains present outside active finalization. It clears ephemeral
+capture state and any passage selected as the next recording target, returning to **New passage**;
+it never deletes the host-owned passage or attempt history.
 
 An expanded passage asks Python for revision-fenced reference-pronunciation data independently of
 attempt retrieval. The response carries current reference words, display phones, unknown words, and

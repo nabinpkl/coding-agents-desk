@@ -59,9 +59,11 @@ export function subscribeHostAudioConfig(): () => void {
 
 export function micAudioConstraints(
   echoCancellationEnabled: boolean,
+  deviceID?: string,
 ): MediaTrackConstraints {
   return {
     channelCount: 1,
+    ...(deviceID ? { deviceId: { exact: deviceID } } : {}),
     echoCancellation: echoCancellationEnabled,
     noiseSuppression: true,
     autoGainControl: false,

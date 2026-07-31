@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { LiveTranscript } from "@/features/voice/components/live-transcript";
+import { MicrophoneSelector } from "@/features/voice/components/microphone-selector";
 import { stopReferenceSpeech } from "@/features/voice/reference-speech";
 import { VuMeter } from "@/features/voice/components/vu-meter";
 import { useVoiceSession } from "@/features/voice/use-voice-session";
@@ -64,10 +65,16 @@ export function VoiceRecorder({
     status === "transcribing" ||
     status === "analyzing";
 
+  function resetRecorder(): void {
+    stopReferenceSpeech();
+    reset();
+    onNewPassage();
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="rounded-lg border border-border bg-muted/40 p-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           <div className="min-w-0">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {passage
@@ -81,53 +88,46 @@ export function VoiceRecorder({
                 "Record freely. The machine transcript will seed intended text for your review."}
             </p>
           </div>
-          {passage ? (
-            <Button
-              disabled={isBusy}
-              onClick={() => {
-                reset();
-                onNewPassage();
-              }}
-              variant="outline"
-            >
-              New passage
-            </Button>
-          ) : null}
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-3">
-        {isCapturing ? (
-          <Button variant="destructive" size="lg" onClick={stopRecording}>
-            <Square />
-            Stop
-          </Button>
-        ) : (
-          <Button
-            variant="default"
-            size="lg"
-            disabled={isBusy}
-            onClick={() => {
-              stopReferenceSpeech();
-              void startRecording();
-            }}
-          >
-            <Mic />
-            {status === "complete" || status === "error"
-              ? "Record again"
-              : passage?.attemptCount === 0
-                ? "Record first attempt"
-                : "Record"}
-          </Button>
-        )}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {isCapturing ? (
+            <Button variant="destructive" size="lg" onClick={stopRecording}>
+              <Square />
+              Stop
+            </Button>
+          ) : (
+            <Button
+              variant="default"
+              size="lg"
+              disabled={isBusy}
+              onClick={() => {
+                stopReferenceSpeech();
+                void startRecording();
+              }}
+            >
+              <Mic />
+              {status === "complete" || status === "error"
+                ? "Record again"
+                : passage?.attemptCount === 0
+                  ? "Record first attempt"
+                  : "Record"}
+            </Button>
+          )}
 
-        {(status === "complete" || status === "error") && (
-          <Button variant="ghost" size="lg" onClick={reset}>
+          <Button
+            variant="ghost"
+            size="lg"
+            disabled={isBusy && status !== "requestingMic"}
+            onClick={resetRecorder}
+          >
             <RotateCcw />
             Reset
           </Button>
-        )}
-
-        <StatusBadge status={status} />
+          <StatusBadge status={status} />
+        </div>
+        <MicrophoneSelector disabled={isBusy} />
       </div>
 
       {runState.status === "error" ? (
