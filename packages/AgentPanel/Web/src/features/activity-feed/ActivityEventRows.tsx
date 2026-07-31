@@ -54,9 +54,14 @@ export const ROLE_BORDER: Record<DisplayRole, string> = {
 
 // `leading-none` is load-bearing, not cosmetic. The heading floats, and a float
 // taller than one line of body text overlaps the SECOND line too, indenting it
-// as well -- at 14px/1.375 the line is 20.3px, and the chip's default leading
-// pushed the float to 23px, so a two-line paragraph came out fully indented and
-// gave back the width this heading was meant to save.
+// as well -- at the 16px/1.375 body the line is 22px, and the chip's default
+// leading pushed the float past it, so a two-line paragraph came out fully
+// indented and gave back the width this heading was meant to save.
+//
+// The chip is its own token (`tile_chip`, 12px) and does not scale with the
+// body, so the clearance is whatever `tile_other_text` is minus a constant.
+// Raising the body default to 16 widened it; the 10px floor is the narrow end
+// and is where to look first if the chip's leading or padding ever changes.
 const CHIP_CLASS =
   "rounded-sm px-[0.4em] py-[0.15em] font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-bold uppercase leading-none tracking-wider ";
 
@@ -199,7 +204,7 @@ export function UserRow({
   return (
     <div
       className="px-[0.55em] py-[0.4em]"
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
+      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       <div
         className={
@@ -240,7 +245,7 @@ export function SegmentEventRow({
   return (
     <div
       className={"px-[0.55em] " + (isFirst ? "pt-[0.4em] " : "") + (isLast ? "pb-[0.4em]" : "")}
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
+      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       <div className={wrapperClass}>
         <EventRowShell
@@ -281,7 +286,7 @@ export function ClusterRow({
   return (
     <div
       className={"px-[0.55em] " + (isFirst ? "pt-[0.4em] " : "") + (isLast ? "pb-[0.4em]" : "")}
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
+      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       <div className={wrapperClass}>
         <button
@@ -334,7 +339,7 @@ function ToolResultBlock({
   return (
     <div
       className="rounded-sm border border-border/50 bg-muted/30"
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
+      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       {renderMarkdown ? (
         <div className="px-2 py-1.5">
@@ -398,7 +403,7 @@ function Block({
       return (
         <div
           className="leading-snug text-foreground"
-          style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
+          style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
         >
           <Markdown content={b.text} />
         </div>
@@ -407,7 +412,7 @@ function Block({
     return (
       <div
         className="whitespace-pre-wrap break-words leading-snug text-foreground"
-        style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
+        style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
       >
         {b.text}
       </div>
@@ -449,7 +454,7 @@ function Block({
             "flex w-full items-baseline gap-1.5 rounded-sm font-mono text-left transition-colors " +
             (hasBody ? "hover:bg-foreground/5 " : "cursor-default ")
           }
-          style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
+          style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
         >
           {hasBody ? (
             <ChevronRight
@@ -514,8 +519,8 @@ function Block({
       <div
         className="italic leading-snug text-foreground/65"
         style={{
-          fontSize: "var(--agent-panel-fs-tile-reasoning, 13px)",
-          // Italic at 13px and 65% opacity is the thinnest text in the feed,
+          fontSize: "var(--agent-panel-fs-tile-reasoning, 14px)",
+          // Italic, a size step down, and 65% opacity: the thinnest text here,
           // and it is where the trace's own prose lives. Inter's weight axis
           // is continuous, so 450 buys back the stroke the italic gives up.
           // The bolded topic line stays distinct: the UA's `bolder` on
@@ -554,7 +559,7 @@ export function CompactionRow({
   return (
     <div
       className="px-[0.55em] py-[0.5em]"
-      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 14px)" }}
+      style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       <div className="flex items-center gap-2 text-muted-foreground">
         <span className="h-px flex-1 bg-border" aria-hidden />

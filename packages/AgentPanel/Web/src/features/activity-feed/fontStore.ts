@@ -126,7 +126,12 @@ export const FONT_TOKENS: readonly FontTokenSpec[] = [
     label: "Other text",
     description: "User and assistant message bodies, tool labels, observer text",
     cssVar: "--agent-panel-fs-tile-other-text",
-    defaultPx: 14,
+    // 14 read small next to other agent transcript UIs. Measured against a
+    // side-by-side of the same paragraph, theirs fit ~79 characters per line
+    // where this fit ~98, which is a ~1.24x size difference, not a weight or
+    // typeface one. Changing this moves only viewers who never opened the font
+    // settings; a stored value still wins in `readInitial`.
+    defaultPx: 16,
     tab: "canvas",
     section: "tiles",
     group: "Body",
@@ -136,7 +141,9 @@ export const FONT_TOKENS: readonly FontTokenSpec[] = [
     label: "Reasoning",
     description: "Codex reasoning rows (model's internal thought trace)",
     cssVar: "--agent-panel-fs-tile-reasoning",
-    defaultPx: 13,
+    // Tracks `tile_other_text` one step down, which is what makes the trace
+    // read as commentary. Moving one without the other collapses that.
+    defaultPx: 14,
     tab: "canvas",
     section: "tiles",
     group: "Body",
