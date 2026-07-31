@@ -166,14 +166,40 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
 
     // MARK: - WKUIDelegate
 
-    nonisolated func webView(
+    nonisolated static func mediaCaptureDecision(
+        originProtocol: String,
+        originHost: String,
+        type: WKMediaCaptureType
+    ) -> WKPermissionDecision {
+        guard originProtocol == "interactionfeed", originHost == "app" else {
+            return .deny
+        }
+
+        switch type {
+        case .camera, .microphone, .cameraAndMicrophone:
+            return .grant
+        @unknown default:
+            return .deny
+        }
+    }
+
+    func webView(
         _ webView: WKWebView,
         requestMediaCapturePermissionFor origin: WKSecurityOrigin,
         initiatedByFrame frame: WKFrameInfo,
         type: WKMediaCaptureType,
-        decisionHandler: @escaping (WKPermissionDecision) -> Void
+        decisionHandler: @escaping @MainActor @Sendable (WKPermissionDecision) -> Void
     ) {
-        decisionHandler(.grant)
+        let decision = Self.mediaCaptureDecision(
+            originProtocol: origin.protocol,
+            originHost: origin.host,
+            type: type
+        )
+        let decisionLabel = decision == .grant ? "grant" : "deny"
+        logger.notice(
+            "interaction media permission origin=\(origin.protocol, privacy: .public)://\(origin.host, privacy: .public) type=\(type.rawValue, privacy: .public) decision=\(decisionLabel, privacy: .public)"
+        )
+        decisionHandler(decision)
     }
 
     // MARK: - NSWindowDelegate

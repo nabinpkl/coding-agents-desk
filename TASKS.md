@@ -1157,8 +1157,13 @@ host-owned library.
 - **D204** Remove the passive bordered New passage explainer so controls lead in free-recording
   mode. Keep actual practice and retake intended text as compact inline context, without removing
   Record, Stop, Reset, microphone selection, status, input level, transcript, or preamp actions.
+- **D205** Make the interaction panel's media-capture callback a current-SDK `WKUIDelegate`
+  witness. Grant camera and microphone capture only to the bundled `interactionfeed://app` origin,
+  deny every other origin or future capture type, and log each decision so a host restart reuses the
+  macOS grant instead of falling through to WebKit's process-scoped prompt.
 - Focused selection, constraints, and recorder tests pass. Repository-wide acceptance passes; a
-  real microphone-switch run remains the gate before claiming the physical inputs were exercised.
+  real microphone-switch and restart run remains the gate before claiming the physical inputs or
+  persistent permission behavior were exercised.
 
 ## v16 Phase 1: stall recovery on a manually pinned stream
 
@@ -1356,4 +1361,5 @@ D201  2026-07-31  landed     host path observer and round-trip inflation on one 
 D202  2026-07-31  landed     recovery credit judged on what a report says, not who sent it
 R203  checkpoint  remaining  authorized cellular device acceptance with telemetry live
 D204  2026-07-31  landed     quiet free-recording state with compact practice context
+D205  2026-07-31  landed     persistent host microphone consent through a real WebKit delegate witness
 ```
