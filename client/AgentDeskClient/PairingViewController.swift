@@ -636,6 +636,20 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         teardownMediaTransport(preservingSessionSurfaces: true)
         pairingClient.handleMediaSessionFailed()
         render()
+        // ADR-0089: re-dial now instead of waiting for the next foreground.
+        //
+        // `handleMediaSessionFailed` leaves the client in `.pairedDisconnected`, and until now
+        // nothing moved it out of that except `applicationWillEnterForeground`, `viewWillAppear`
+        // or the user tapping Connect. During a network handover the app never leaves the
+        // foreground, so the one path that could recover the session could not fire -- which is
+        // why ADR-0030's resume machinery, built for exactly this, had never once run.
+        //
+        // Only the non-rejection path. A rejection (revoked, unauthorized) returns above and
+        // must stay down. `triggerSessionIfPaired` already carries the rest of the guards: it
+        // no-ops unless the state is `.pairedDisconnected`, it respects a user-requested
+        // disconnect, and it owns the retry-with-delay loop, so this enters existing machinery
+        // sooner rather than adding a second one.
+        triggerSessionIfPaired()
     }
 
     func suspendMediaTransportForBackground() {

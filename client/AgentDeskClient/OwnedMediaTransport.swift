@@ -60,6 +60,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     /// when sends start failing, one when they resume, never one per message. See
     /// `sendVideoControl`.
     private let controlSendHealth = OSAllocatedUnfairLock(initialState: ControlSendHealth())
+    /// ADR-0089 Phase 2. Armed when the detector sees the link move, disarmed by the first
+    /// datagram that arrives afterwards. See `evaluateHandoverRecovery`.
+    private let handoverWatch = OSAllocatedUnfairLock(initialState: HandoverWatch())
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
     private let rawEventReassembly = OSAllocatedUnfairLock<AgentRawEventReassembler>(
         initialState: AgentRawEventReassembler()
@@ -788,6 +791,12 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         // callback at all. One getifaddrs per report window is the price of not missing it.
         changeDetector.sampleAddresses()
         let (linkChanges, newLinkChanges, linkChangeCauses) = changeDetector.reportSnapshot()
+        evaluateHandoverRecovery(
+            linkChanged: newLinkChanges > 0,
+            causes: linkChangeCauses,
+            arrivals: counts.arrivals,
+            nowNs: nowNs
+        )
         let telemetry = OwnedMediaLinkTelemetry(
             interfaceType: pathSnapshot?.interfaceType,
             expensive: pathSnapshot?.expensive,
@@ -859,6 +868,76 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             ],
             level: .info
         )
+    }
+
+    /// ADR-0089 Phase 2: turn a detected link change into a recovery, or decide not to.
+    ///
+    /// Recovery used to depend on the media channel reporting `.failed`, or on
+    /// `applicationWillEnterForeground`. Neither can be relied on during a handover: the app
+    /// never leaves the foreground while the network changes, and R208 measured a nine-second
+    /// freeze through which the transport reported nothing whatsoever. Detection fired in half
+    /// a second and had nowhere to go.
+    ///
+    /// A change arms the watch and sends a keyframe request. The request is the probe: it
+    /// obliges the host to produce a frame if the path carries anything, so the silence that
+    /// follows is an unanswered probe rather than possibly just a calm screen -- the false
+    /// positive that had to be fixed host-side in `clientLinkStalled`, and which would be worse
+    /// here because acting on it drops a live session.
+    private func evaluateHandoverRecovery(
+        linkChanged: Bool,
+        causes: String?,
+        arrivals: Int,
+        nowNs: UInt64
+    ) {
+        let outcome = handoverWatch.withLock { watch -> (probe: Bool, recover: Double?) in
+            if arrivals > 0 {
+                // Traffic proves the path, whatever moved. Disarm completely: a later change
+                // re-arms, and without this a session that survived one handover would carry a
+                // stale arming into the next quiet moment.
+                watch.changedAtUptimeNs = nil
+                watch.sawArrivalSinceChange = true
+                watch.recoveryDeclared = false
+            }
+            var shouldProbe = false
+            if linkChanged {
+                watch.changedAtUptimeNs = nowNs
+                // Deliberately false even when this window saw arrivals: they may have landed
+                // before the change, and treating them as evidence the new link works would
+                // veto recovery permanently on exactly the handovers that break mid-window.
+                // Nothing is lost -- the grace spans several windows, so a link that really
+                // carries traffic sets this on one of them well before we act.
+                watch.sawArrivalSinceChange = false
+                watch.recoveryDeclared = false
+                shouldProbe = true
+            }
+            guard !watch.recoveryDeclared, let changedAt = watch.changedAtUptimeNs else {
+                return (shouldProbe, nil)
+            }
+            let elapsedMs = Double(nowNs >= changedAt ? nowNs - changedAt : 0) / 1_000_000
+            guard HandoverRecoveryPolicy.shouldRecover(
+                msSinceLinkChange: elapsedMs,
+                sawArrivalSinceChange: watch.sawArrivalSinceChange,
+                graceMs: Double(Config.ownedMediaHandoverGraceMs)
+            ) else { return (shouldProbe, nil) }
+            // Latch, so the teardown that follows does not re-declare every window.
+            watch.recoveryDeclared = true
+            return (shouldProbe, elapsedMs)
+        }
+
+        if outcome.probe {
+            logger.notice("handover probe causes=\(causes ?? "unknown", privacy: .public)")
+            sendVideoControl(OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 0))
+        }
+        guard let silentMs = outcome.recover else { return }
+        logger.notice(
+            "handover recovery declaring session dead silentMs=\(Int(silentMs), privacy: .public) causes=\(causes ?? "unknown", privacy: .public)"
+        )
+        ClientDiagnostics.shared.record(
+            type: "handoverRecoveryDeclared",
+            fields: ["silentMs": String(Int(silentMs)), "causes": causes ?? "unknown"],
+            level: .error
+        )
+        stateContinuation.yield(.failed(nil))
     }
 
     /// Send a control message on the datagram lane.
@@ -963,6 +1042,15 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     private struct ControlSendHealth {
         var failures: Int = 0
         var firstFailureUptimeNs: UInt64?
+    }
+
+    /// State for the handover probe: when the link last moved, whether anything has arrived
+    /// since, and whether we have already acted -- so one handover produces one recovery rather
+    /// than one per report window while the session tears down.
+    private struct HandoverWatch {
+        var changedAtUptimeNs: UInt64?
+        var sawArrivalSinceChange: Bool = false
+        var recoveryDeclared: Bool = false
     }
 
     private struct State {

@@ -1366,7 +1366,9 @@ D206  2026-07-31  landed     stall detection that compares client silence agains
 D207  2026-07-31  landed     link-change detection across interface, address, path, and radio (ADR-0089)
 D208  2026-07-31  landed     authorized handover device run: found the report cannot survive the event it reports
 D209  2026-07-31  landed     cumulative link counters, so a dropped report costs latency and not evidence
-R210  checkpoint  remaining  re-run the handover device measurement on the fixed instrument
+D210  2026-07-31  landed     control sends that fail say so, edge-triggered rather than per message
+D211  2026-07-31  landed     probe-then-resume: a link change arms recovery, unanswered silence fires it
+R212  checkpoint  remaining  authorized handover device run: confirm recovery fires and re-dials, and does not fire on a route switch
 ```
 
 ## Handover arc (ADR-0089)
@@ -1405,7 +1407,25 @@ The measurement survived anyway, pulled from the client's own on-device store vi
 `Network is down` in the host log is session startup. So a recovery path waiting on transport
 failure can wait forever, and `sessionResumeTTL = 20s` is not the binding constraint against
 ~0.5s detection. Both live causes fired together, which validates the address digest on real
-hardware. R210 confirms this on the fixed instrument rather than from a single salvaged record.
+hardware.
+
+D211 acts on it. A link change arms recovery and sends a keyframe request; unanswered silence
+past a 2s grace declares the session dead and re-dials. Both conditions are load-bearing:
+firing on the change alone would tear down healthy sessions on transparent tailnet route
+switches, and firing on silence alone would reconnect a merely idle session -- the calm-screen
+false positive from `ef649c86`, worse here because acting on it drops a live session. The
+keyframe request is the probe that tells those apart. D210 makes a control send that never
+leaves the device say so, which is how the probe's own failure becomes visible.
+
+The re-dial is half of D211, not a follow-up: `handleMediaSessionFailed` parks the client in
+`.pairedDisconnected` and nothing moved it out except foreground or a manual tap, so declaring
+death faster without dialing would have replaced a nine-second freeze with a disconnect screen.
+This also closes the original gap -- ADR-0030's resume machinery could never run during a
+handover because the app never leaves the foreground.
+
+R212 is the device confirmation, and it has two halves: recovery fires and re-dials on a real
+WiFi-to-cellular switch, and it does **not** fire across a tailnet route switch. Until that
+runs, the grace value and the probe's effectiveness are reasoned from one salvaged record.
 
 Two side findings from D208 worth keeping. The host's degradation machinery works -- `freeze`,
 `stall-recovery`, `no-ack-at-cap`, and a drop to rung 3, with the `ef649c86` stall fix running

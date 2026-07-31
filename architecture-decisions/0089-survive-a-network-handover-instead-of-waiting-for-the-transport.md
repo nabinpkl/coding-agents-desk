@@ -192,6 +192,42 @@ real hardware: `localAddress` caught it independently of `interfaceType`, so the
 The cost of the phase was one device run and a broken instrument found. Committing to a trigger
 without it would have shipped a recovery path wired to a signal that is always zero.
 
+### Phase 2: probe, then resume
+
+With the measurement in hand the trigger is decided. A link change **arms** recovery; it does
+not fire it. What fires it is a change followed by continued silence past a grace period.
+
+Both halves of that are load-bearing. Firing on the change alone would tear down healthy
+sessions on tailnet route switches, which were measured as transparent (magicsock re-selected
+the path three times mid-session with no visible break) -- an explicit non-goal. Firing on
+silence alone would reconnect a merely idle session, the same calm-screen false positive that
+had to be fixed host-side in `clientLinkStalled`, and worse here because acting on it drops a
+live session rather than mis-scoring a quality window.
+
+The client cannot see the host's quiet period, so it does not try to infer one. On detecting a
+change it sends a keyframe request, which obliges the host to produce a frame if the path
+carries anything. The silence that follows is then an unanswered probe rather than ambiguous
+quiet. That is what makes this probe-then-resume rather than silence-then-resume.
+
+`HandoverRecoveryPolicy` holds the decision as a pure function so the discrimination is tested
+in `just check` rather than only on a device. The grace is 2s
+(`ownedMediaHandoverGraceMs`): four times faster than the measured freeze self-healed, still
+long enough to let a real handover settle, and far inside the host's 20s resume window so the
+resume material is still valid when the client dials.
+
+The second half of Phase 2 is the re-dial, and without it the first half is a regression.
+`handleMediaSessionFailed` leaves the client in `.pairedDisconnected`, and nothing moved it out
+of there except `applicationWillEnterForeground`, `viewWillAppear`, or the user tapping Connect.
+Declaring the session dead faster without re-dialing would replace "frozen for nine seconds,
+then recovers" with "disconnected, tap Connect". So a non-rejection media failure now calls
+`triggerSessionIfPaired` directly, which already owns the retry-with-delay loop and the
+disconnect guards. This also closes the original gap: ADR-0030's resume machinery could never
+run during a handover because the app never leaves the foreground.
+
+Note this changes behaviour for the existing five-second-disconnected path too, not only for
+handovers. That is deliberate and consistent with the arc: a media session that failed without
+a rejection should re-dial rather than wait for a lifecycle event that may never arrive.
+
 ### Confirmation
 
 `LinkChangeDetectorTests` pins the discrimination the measurement depends on: an address change
