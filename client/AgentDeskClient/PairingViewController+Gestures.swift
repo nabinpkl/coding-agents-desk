@@ -188,20 +188,46 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         case .active:
             label.isHidden = true
             label.text = nil
+            hostReconnectButton?.isHidden = true
         case .locked:
             label.text = "Mac locked\nKeyboard input stays available"
             label.isHidden = false
             hostContentView.bringSubviewToFront(label)
+            // A locked Mac is a healthy session, so no escape hatch is offered here.
+            hostReconnectButton?.isHidden = true
             view.bringSubviewToFront(surfaceControlRail)
         case .captureUnavailable:
-            label.text = "Mac display unavailable\nInput stays connected"
+            // No longer promises "Input stays connected". That claim was measured false: the
+            // host had ended the session on a connection timeout and nothing was connected at
+            // all, while this label reassured the user that input still worked.
+            label.text = "Mac display unavailable"
             label.isHidden = false
             hostContentView.bringSubviewToFront(label)
+            hostReconnectButton?.isHidden = false
+            hostReconnectButton.map { hostContentView.bringSubviewToFront($0) }
             view.bringSubviewToFront(surfaceControlRail)
         case .disconnected:
             label.isHidden = true
             label.text = nil
+            hostReconnectButton?.isHidden = true
         }
+    }
+
+    /// Force a fresh session from a state the client believes is healthy.
+    ///
+    /// `triggerSessionIfPaired` alone cannot do this: it no-ops unless the state is already
+    /// `.pairedDisconnected`, and the whole problem here is that the client is still
+    /// `.connected`. So this tears the session down first, which is what moves the state, and
+    /// the redial follows from there.
+    @objc func reconnectTapped() {
+        ClientDiagnostics.shared.record(
+            type: "manualReconnectRequested",
+            fields: [:],
+            level: .info
+        )
+        hostReconnectButton?.isHidden = true
+        userRequestedDisconnect = false
+        failMediaSession()
     }
 
     func stopAgentSayForegroundPresentation() {

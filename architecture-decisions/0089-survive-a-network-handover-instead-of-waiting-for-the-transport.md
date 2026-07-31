@@ -228,6 +228,60 @@ Note this changes behaviour for the existing five-second-disconnected path too, 
 handovers. That is deliberate and consistent with the arc: a media session that failed without
 a rejection should re-dial rather than wait for a lifecycle event that may never arrive.
 
+### Phase 3: liveness, because a link change is not the only way a session dies
+
+The device run of Phase 2 (R212) confirmed the parts it was built for and then failed in a way
+the design did not cover.
+
+What worked: the host now receives
+`linkChanges=2 linkCauses=interfaceType(wifi->cellular),localAddress(e6edecb9->3c873047)`, where
+the previous run reported zero across all 976 windows, so cumulative counters carry the evidence
+through the loss. Recovery armed on the change and tore the session down ~2s later, as designed.
+
+What it cost: the black lasted about eleven seconds (19:06:24.4 to 19:06:35.4), and **9.5 of
+those were the phone's cellular path simply not being usable yet**. Detection was never the
+bottleneck for this switch; the radio was. Worse, for a freeze that would have self-healed --
+like the 3G case in the previous run, back in nine seconds with session state intact -- tearing
+down at 2s and re-dialing is a net loss: same radio delay, plus a handshake, plus a new session.
+
+Then the real failure. At 19:07:08 and again at 19:08:04 the connection timed out with the link
+completely stable. The host ended the session; the client never noticed and stayed `.connected`,
+showing "Mac display unavailable" over a live-looking session. Because the client was not
+`.pairedDisconnected`, `triggerSessionIfPaired` no-opped, the pairing screen never rendered, and
+**force-quitting the app was the only way out** -- precisely the ADR-0030 symptom this arc set
+out to remove, reached by a different route.
+
+Phase 2 cannot catch that by construction: recovery is gated on a detected link change, and the
+link never moved. The gate is not wrong, but it is too narrow.
+
+**The trigger should be an unanswered probe, not a link change.** A probe obliges the host to
+send something regardless of screen activity, so an unanswered one is evidence the path is dead
+whatever the cause. A link change then becomes a reason to probe early rather than the only
+reason to probe at all, and the `stall` cause deferred in Phase 1 stops needing the host's quiet
+period -- the probe answers that question locally.
+
+Two measurements constrain how:
+
+- **A healthy idle session legitimately receives nothing for a long time.** The carrier keepalive
+  is client-to-host only, so with a static screen the host sends nothing. R212 recorded healthy
+  windows with arrival gaps up to 12.4s. Any "silent for N seconds" rule with N below that is a
+  false-positive generator, which is why the probe rather than the silence has to be the
+  evidence.
+- **The probe must be cheap.** Phase 2 probes with a keyframe request, which is correct for a
+  handover (about one per switch) and unaffordable as a liveness poll: keyframes ran ~244KB in
+  this session, so polling an idle session would burn megabytes to prove nothing changed.
+
+So Phase 3 adds a small liveness exchange -- a control datagram the host echoes with a minimal
+reply -- and drives recovery from an unanswered echo. That is the piece of wire work Phase 2
+avoided by borrowing the keyframe request, and the case that broke here is what makes it
+necessary. Sizing (probe interval, unanswered count before recovery) belongs to that phase and
+should be set against the same 12.4s healthy-gap ceiling measured here.
+
+Until it lands, `captureUnavailable` shows a **Reconnect** button. It is deliberately a
+backstop, not the fix: any recovery path can have a case it does not cover, and when that
+happens the user must not be left holding a dead screen with nothing to tap. The label also
+stopped claiming "Input stays connected", which R212 proved false -- the session was gone.
+
 ### Confirmation
 
 `LinkChangeDetectorTests` pins the discrimination the measurement depends on: an address change

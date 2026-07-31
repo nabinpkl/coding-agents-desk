@@ -34,7 +34,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // and suppress the foreground auto-reconnect until they tap Connect (or relaunch,
     // which resets this in-memory flag). Distinguishes a deliberate disconnect from a
     // transient drop, which should still auto-reconnect.
-    private var userRequestedDisconnect = false
+    /// Internal rather than private: the Reconnect button lives in the gestures extension and
+    /// must clear this, or an explicit disconnect would leave the button visibly inert.
+    var userRequestedDisconnect = false
     var captureSession: AVCaptureSession?
     var previewLayer: AVCaptureVideoPreviewLayer?
     var handshakeTask: Task<Void, Never>?
@@ -76,6 +78,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // The sink publishes status into it via onOwnedMediaStatusChange.
     var mediaDiagnosticsLabel: UILabel?
     var hostAvailabilityLabel: UILabel?
+    /// Last-resort escape from a session the client thinks is live and the host has ended.
+    /// Shown only alongside `captureUnavailable`. See `reconnectTapped`.
+    var hostReconnectButton: UIButton?
     // Carries the connect message across the gap between session connect and the
     // first drawable frame; see VideoStartupBanner.
     var videoStartupBanner = VideoStartupBanner()
@@ -685,6 +690,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         mediaDiagnosticsLabel = nil
         hostAvailabilityLabel?.removeFromSuperview()
         hostAvailabilityLabel = nil
+        hostReconnectButton?.removeFromSuperview()
+        hostReconnectButton = nil
         cursorDotView?.removeFromSuperview()
         cursorDotView = nil
         cursorSourcePos = nil

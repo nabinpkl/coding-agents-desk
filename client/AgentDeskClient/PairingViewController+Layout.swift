@@ -130,6 +130,34 @@ extension PairingViewController {
         ])
         hostContentView.bringSubviewToFront(availability)
         hostAvailabilityLabel = availability
+
+        // The manual way out of a session the client believes is alive and the host has
+        // already ended. Measured on device: the host ended the session on a connection
+        // timeout, the client never noticed and stayed `.connected`, so the pairing screen and
+        // its Connect button never rendered and force-quitting the app was the only escape --
+        // the exact symptom the handover work exists to remove.
+        //
+        // Auto-recovery is the real fix and this is not a substitute for it. It is here because
+        // a recovery path can always have a case it does not cover, and when that happens the
+        // user should not be left holding a dead screen with nothing to tap.
+        let reconnect = UIButton(type: .system)
+        reconnect.setTitle("Reconnect", for: .normal)
+        reconnect.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+        reconnect.setTitleColor(.white, for: .normal)
+        reconnect.backgroundColor = UIColor.white.withAlphaComponent(0.18)
+        reconnect.contentEdgeInsets = UIEdgeInsets(top: 10, left: 22, bottom: 10, right: 22)
+        reconnect.layer.cornerRadius = 10
+        reconnect.layer.masksToBounds = true
+        reconnect.isHidden = true
+        reconnect.translatesAutoresizingMaskIntoConstraints = false
+        reconnect.addTarget(self, action: #selector(reconnectTapped), for: .touchUpInside)
+        hostContentView.addSubview(reconnect)
+        NSLayoutConstraint.activate([
+            reconnect.centerXAnchor.constraint(equalTo: availability.centerXAnchor),
+            reconnect.topAnchor.constraint(equalTo: availability.bottomAnchor, constant: 16)
+        ])
+        hostContentView.bringSubviewToFront(reconnect)
+        hostReconnectButton = reconnect
     }
 
     func showTrackpad() {

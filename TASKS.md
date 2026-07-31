@@ -1368,7 +1368,9 @@ D208  2026-07-31  landed     authorized handover device run: found the report ca
 D209  2026-07-31  landed     cumulative link counters, so a dropped report costs latency and not evidence
 D210  2026-07-31  landed     control sends that fail say so, edge-triggered rather than per message
 D211  2026-07-31  landed     probe-then-resume: a link change arms recovery, unanswered silence fires it
-R212  checkpoint  remaining  authorized handover device run: confirm recovery fires and re-dials, and does not fire on a route switch
+D212  2026-07-31  landed     authorized handover device run: recovery fires, and a silent death still wedges the client
+D213  2026-07-31  landed     a way out of a session the client thinks is alive and the host has ended
+R214  checkpoint  remaining  liveness echo: recover from a dead path with no link change, sized against the 12.4s healthy-gap ceiling
 ```
 
 ## Handover arc (ADR-0089)
@@ -1423,9 +1425,31 @@ death faster without dialing would have replaced a nine-second freeze with a dis
 This also closes the original gap -- ADR-0030's resume machinery could never run during a
 handover because the app never leaves the foreground.
 
-R212 is the device confirmation, and it has two halves: recovery fires and re-dials on a real
-WiFi-to-cellular switch, and it does **not** fire across a tailnet route switch. Until that
-runs, the grace value and the probe's effectiveness are reasoned from one salvaged record.
+D212 ran that confirmation. The cumulative-counter fix is proven: the host received
+`linkChanges=2 linkCauses=interfaceType(wifi->cellular),localAddress(...)` where the previous
+run reported zero in all 976 windows. Recovery armed and tore down ~2s after the change, as
+designed.
+
+It also found two things the design did not cover. The black still lasted ~11s, and **9.5s of
+that was the phone's cellular path not being usable yet** -- detection was never the bottleneck
+for that switch, the radio was. And for a freeze that would have self-healed (the earlier 3G
+case, back in 9s with state intact), tearing down at 2s and re-dialing is a net loss: same radio
+delay plus a handshake plus a new session.
+
+Then the real failure, twice: the connection timed out with the link completely stable. The host
+ended the session, the client never noticed, stayed `.connected`, and showed "Mac display
+unavailable" over a dead session. `triggerSessionIfPaired` no-ops unless the state is
+`.pairedDisconnected`, so nothing retried and **force-quitting the app was the only way out** --
+the ADR-0030 symptom this arc exists to remove, reached by another route. Phase 2 cannot catch
+it: recovery is gated on a link change and the link never moved.
+
+D213 adds the Reconnect button as a backstop, and stops the label claiming "Input stays
+connected" when nothing is. R214 is the actual fix: drive recovery from an unanswered liveness
+echo rather than from a link change, so a dead path is caught whatever killed it. Two measured
+constraints on it -- the carrier keepalive is client-to-host only, so healthy idle windows
+showed arrival gaps up to **12.4s** (any shorter silence rule false-positives), and keyframes
+ran ~244KB, so the Phase 2 keyframe probe is far too expensive to use as a poll. Hence a small
+echo rather than a reused keyframe request.
 
 Two side findings from D208 worth keeping. The host's degradation machinery works -- `freeze`,
 `stall-recovery`, `no-ack-at-cap`, and a drop to rung 3, with the `ef649c86` stall fix running
