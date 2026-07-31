@@ -1359,7 +1359,30 @@ D199  2026-07-31  landed     client path, radio, and receive-loop observers
 D200  2026-07-31  landed     unconditional link-health report carrying telemetry
 D201  2026-07-31  landed     host path observer and round-trip inflation on one correlated line
 D202  2026-07-31  landed     recovery credit judged on what a report says, not who sent it
-R203  checkpoint  remaining  authorized cellular device acceptance with telemetry live
+D203  2026-07-31  landed     authorized cellular device acceptance with telemetry live
 D204  2026-07-31  landed     quiet free-recording state with compact practice context
 D205  2026-07-31  landed     persistent host microphone consent through a real WebKit delegate witness
+D206  2026-07-31  landed     stall detection that compares client silence against the host's own quiet time
+D207  2026-07-31  landed     link-change detection across interface, address, path, and radio (ADR-0089)
+R208  checkpoint  remaining  authorized handover device run: which cause fires first, and how far ahead of the transport
 ```
+
+## Handover arc (ADR-0089)
+
+The cellular acceptance (D203) reproduced the freeze and reframed it. It is not congestion and
+not a tailnet fault: a WiFi-to-cellular switch black-holed traffic for 18 seconds while the host
+sent 622 frames into it, and the QUIC connection reported nothing until the very end. Steady
+cellular is healthy -- 611 windows under load with no client gap exceeding the host's own quiet
+time, and 54 tailnet pings all direct with no relay fallback. The trigger is the phone's address
+changing, whether from an interface switch or a 5G-to-3G radio transition.
+
+ADR-0030 already built the machinery to survive this, and its confirmation criterion
+(`suspended -> resuming -> connected`) has never been met because nothing could detect the
+switch: there was no `NWPathMonitor` anywhere in the tree before D198. Resume is wired to
+`willEnterForeground`, which cannot fire during a network change because the app never leaves
+the foreground.
+
+D207 ships detection only, deliberately. R208 measures which cause fires first; Phase 2
+(probe-then-resume), Phase 3 (host-side liveness suspend), and the `sessionResumeTTL` retune
+are all gated on that number, because the 20s TTL against 18s detection is why resume expires
+almost exactly when it becomes possible.

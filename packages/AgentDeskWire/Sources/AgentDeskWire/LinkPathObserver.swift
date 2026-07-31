@@ -24,6 +24,27 @@ public struct LinkPathSnapshot: Equatable, Sendable {
     /// not carry a misleading `notAvailable`.
     public let unsatisfiedReason: String?
 
+    /// Memberwise, for tests and for the detector's fixtures. `NWPath` cannot be constructed,
+    /// so without this the only way to exercise a path transition is on a real device moving
+    /// between real networks -- which is precisely the thing that is hard to reproduce.
+    public init(
+        interfaceType: String,
+        expensive: Bool,
+        constrained: Bool,
+        ultraConstrained: Bool,
+        linkQuality: String,
+        status: String,
+        unsatisfiedReason: String?
+    ) {
+        self.interfaceType = interfaceType
+        self.expensive = expensive
+        self.constrained = constrained
+        self.ultraConstrained = ultraConstrained
+        self.linkQuality = linkQuality
+        self.status = status
+        self.unsatisfiedReason = unsatisfiedReason
+    }
+
     public init(path: NWPath) {
         // Interface order is priority order, so the first is the one actually in use.
         switch path.availableInterfaces.first?.type {

@@ -49,7 +49,13 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     // ADR-0088: link telemetry. Both are edge-triggered, so they cost nothing while the link
     // is stable and only produce work during the transitions we are trying to catch.
     private let pathObserver: LinkPathObserver
-    private let radioObserver = RadioAccessObserver()
+    private let radioObserver: RadioAccessObserver
+    // Phase 1 of the handover architecture: fuses the path, address, and radio signals and
+    // reports which one noticed a link change first. Observes only -- nothing acts on it yet,
+    // deliberately, because the trigger should be chosen from a device measurement rather than
+    // a guess (the existing resume path was wired to `willEnterForeground`, which cannot fire
+    // during a network change because the app never leaves the foreground).
+    private let changeDetector: LinkChangeDetector
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
     private let rawEventReassembly = OSAllocatedUnfairLock<AgentRawEventReassembler>(
         initialState: AgentRawEventReassembler()
@@ -87,8 +93,20 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         // actually occurred rather than smeared to the window boundary. Captures its own
         // logger rather than self, which is not yet initialised here.
         let telemetryLogger = Logger(subsystem: Config.logSubsystem, category: "link-telemetry")
+        // The detector is built first so both observers can feed it. It logs each transition as
+        // it happens rather than only at the report boundary, because the ordering between
+        // causes -- which signal saw the handover first -- is the measurement Phase 1 exists
+        // for, and a 500ms window would flatten it.
+        let detector = LinkChangeDetector { event in
+            telemetryLogger.notice("link change \(event.logDescription, privacy: .public)")
+        }
+        changeDetector = detector
         pathObserver = LinkPathObserver { snapshot in
             telemetryLogger.notice("link path changed \(snapshot.logDescription, privacy: .public)")
+            detector.notePath(snapshot)
+        }
+        radioObserver = RadioAccessObserver { from, to in
+            detector.noteRadioChange(from: from, to: to)
         }
 
         var dsCont: AsyncStream<DesktopState>.Continuation!
@@ -757,6 +775,11 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         }
         let (pathSnapshot, pathChanges) = pathObserver.drainForReport()
         let (radio, radioChanges) = radioObserver.drainForReport()
+        // Sampled here rather than from the path callback: a cellular address change with no
+        // interface change is the case this exists to catch, and it may produce no path
+        // callback at all. One getifaddrs per report window is the price of not missing it.
+        changeDetector.sampleAddresses()
+        let (linkChanges, linkChangeCauses) = changeDetector.drainForReport()
         let telemetry = OwnedMediaLinkTelemetry(
             interfaceType: pathSnapshot?.interfaceType,
             expensive: pathSnapshot?.expensive,
@@ -772,7 +795,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             maxArrivalGapMs: counts.maxArrivalGapMs,
             receiveLoopIterations: counts.loopIterations,
             presentationSkips: counts.presentationSkips,
-            presentationSkipBytes: counts.presentationSkipBytes
+            presentationSkipBytes: counts.presentationSkipBytes,
+            linkChanges: linkChanges,
+            linkChangeCauses: linkChangeCauses
         )
 
         // ADR-0088: the report goes out unconditionally.

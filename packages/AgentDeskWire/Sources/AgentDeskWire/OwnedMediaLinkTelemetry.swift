@@ -76,6 +76,21 @@ public struct OwnedMediaLinkTelemetry: Codable, Equatable, Sendable {
     /// send at all while the client is behind.
     public let presentationSkipBytes: Int?
 
+    // MARK: handover detection (ours)
+
+    /// Link transitions detected this window, across every cause.
+    ///
+    /// Distinct from `pathChanges`, which counts only `NWPath` snapshot differences. The case
+    /// that motivated this -- a cellular address change with no interface change -- produces an
+    /// identical `NWPath` snapshot and so is invisible to `pathChanges`.
+    public let linkChanges: Int?
+    /// Which signals fired, as `cause(from->to)`, comma separated.
+    ///
+    /// The point of Phase 1: a device run shows which cause noticed a real handover first, and
+    /// how far ahead of the transport's own 18-second `Network is down` it was. Phase 2 picks
+    /// the trigger from this rather than from a guess.
+    public let linkChangeCauses: String?
+
     public enum CodingKeys: String, CodingKey, Sendable {
         case interfaceType = "it"
         case expensive = "xp"
@@ -92,6 +107,8 @@ public struct OwnedMediaLinkTelemetry: Codable, Equatable, Sendable {
         case receiveLoopIterations = "di"
         case presentationSkips = "pk"
         case presentationSkipBytes = "pb"
+        case linkChanges = "lc"
+        case linkChangeCauses = "lk"
     }
 
     public init(
@@ -109,7 +126,9 @@ public struct OwnedMediaLinkTelemetry: Codable, Equatable, Sendable {
         maxArrivalGapMs: Double? = nil,
         receiveLoopIterations: Int? = nil,
         presentationSkips: Int? = nil,
-        presentationSkipBytes: Int? = nil
+        presentationSkipBytes: Int? = nil,
+        linkChanges: Int? = nil,
+        linkChangeCauses: String? = nil
     ) {
         self.interfaceType = interfaceType
         self.expensive = expensive
@@ -126,6 +145,8 @@ public struct OwnedMediaLinkTelemetry: Codable, Equatable, Sendable {
         self.receiveLoopIterations = receiveLoopIterations
         self.presentationSkips = presentationSkips
         self.presentationSkipBytes = presentationSkipBytes
+        self.linkChanges = linkChanges
+        self.linkChangeCauses = linkChangeCauses
     }
 
     /// One compact `key=value` line for the host log. Absent fields are omitted rather than
@@ -152,6 +173,8 @@ public struct OwnedMediaLinkTelemetry: Codable, Equatable, Sendable {
         add("recvLoopIters", receiveLoopIterations)
         add("presSkips", presentationSkips)
         add("presSkipBytes", presentationSkipBytes)
+        add("linkChanges", linkChanges)
+        add("linkCauses", linkChangeCauses)
         return parts.isEmpty ? "none" : parts.joined(separator: " ")
     }
 }

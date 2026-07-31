@@ -29,6 +29,15 @@ final class RadioAccessObserver: @unchecked Sendable {
     private var observer: NSObjectProtocol?
     #endif
 
+    /// Reports the transition itself, not just that the count moved. `LinkChangeDetector` needs
+    /// `from -> to` to say which signal noticed a handover first, and the drained count cannot
+    /// carry that.
+    private let onChange: (@Sendable (String?, String?) -> Void)?
+
+    init(onChange: (@Sendable (String?, String?) -> Void)? = nil) {
+        self.onChange = onChange
+    }
+
     func start() {
         #if os(iOS)
         refresh(isInitial: true)
@@ -70,15 +79,17 @@ final class RadioAccessObserver: @unchecked Sendable {
             .first?
             .value
         let simplified = value.map(Self.strippingPrefix)
-        let changed = lock.withLock { state -> Bool in
-            guard state.current != simplified else { return false }
+        let transition = lock.withLock { state -> (from: String?, to: String?)? in
+            guard state.current != simplified else { return nil }
+            let previous = state.current
             state.current = simplified
             // Same rule as LinkPathObserver: the first reading is a baseline, not a handover.
             if !isInitial { state.changesSinceDrain += 1 }
-            return true
+            return (previous, simplified)
         }
-        guard changed, !isInitial else { return }
+        guard let transition, !isInitial else { return }
         logger.notice("link radio changed to=\(simplified ?? "none", privacy: .public)")
+        onChange?(transition.from, transition.to)
     }
     #endif
 
