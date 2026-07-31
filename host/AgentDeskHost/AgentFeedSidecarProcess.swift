@@ -18,6 +18,24 @@ private final class AgentFeedReadinessProbe: @unchecked Sendable {
     }
 }
 
+/// Resumes a readiness waiter exactly once, whichever of ready-or-timeout wins.
+private final class ReadyGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<URL?, Never>?
+
+    init(_ continuation: CheckedContinuation<URL?, Never>) {
+        self.continuation = continuation
+    }
+
+    func finish(_ url: URL?) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(returning: url)
+    }
+}
+
 // AgentFeedSidecarProcess spawns the bundled transcript sidecar, polls until it
 // answers /api/config on loopback, supervises the child (restarting on
 // unexpected exit with a small backoff), and tears down cleanly on stop.
@@ -28,6 +46,16 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     // Base URL on loopback once the sidecar is ready (e.g. http://127.0.0.1:7682).
     // Nil until the first successful ready-poll.
     private(set) var baseURL: URL?
+
+    // Callers waiting for the sidecar to come up, drained the moment it does.
+    //
+    // Readiness used to be observable only by polling `baseURL` at the instant a
+    // request was made, which made every consumer race the launch: on 2026-07-30
+    // the restored Agents window subscribed at 16:04:24.200 and the sidecar
+    // published its URL at 16:04:25.251, so the window took a hard "not ready",
+    // dropped its subscription, and sat on that error for the whole session
+    // because nothing told it the sidecar had arrived one second later.
+    private var readyWaiters: [UUID: (URL?) -> Void] = [:]
 
     private let binaryURL: URL
     private let port: UInt16
@@ -87,6 +115,13 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         queue.sync {
             self.stopped = true
             self.terminateCurrentProcess()
+            // Release anyone parked on readiness now rather than leaving them to
+            // time out against a sidecar that is never coming back. An unexpected
+            // exit deliberately does NOT do this: those waiters should still be
+            // waiting when the restart lands.
+            let waiters = self.readyWaiters
+            self.readyWaiters.removeAll()
+            for waiter in waiters.values { waiter(nil) }
         }
     }
 
@@ -95,6 +130,29 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     // For tests only; the live app does not read this.
     var restartCountForTesting: Int {
         queue.sync { restartCount }
+    }
+
+    /// The base URL, waiting up to `timeout` seconds for a sidecar still coming up.
+    ///
+    /// Returns immediately once ready, and nil if the wait elapses or the supervisor
+    /// has been stopped. Callers use this instead of reading `baseURL` so that
+    /// arriving during the launch window means waiting for the sidecar rather than
+    /// failing against it -- the whole point being that a consumer which asks one
+    /// second early should still get a working URL rather than a dead subscription.
+    func baseURL(waitingUpTo timeout: TimeInterval) async -> URL? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
+            let gate = ReadyGate(continuation)
+            queue.async { [weak self] in
+                guard let self, !self.stopped else { return gate.finish(nil) }
+                if let url = self.baseURL { return gate.finish(url) }
+                let token = UUID()
+                self.readyWaiters[token] = { gate.finish($0) }
+                self.queue.asyncAfter(deadline: .now() + timeout) { [weak self] in
+                    self?.readyWaiters.removeValue(forKey: token)
+                    gate.finish(nil)
+                }
+            }
+        }
     }
 
     // MARK: - Private
@@ -174,7 +232,12 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
             let url = URL(string: "http://127.0.0.1:\(port)")!
             baseURL = url
             restartBackoffSeconds = 1
-            logger.notice("sidecar ready baseURL=\(url.absoluteString, privacy: .public)")
+            let waiters = readyWaiters
+            readyWaiters.removeAll()
+            logger.notice(
+                "sidecar ready baseURL=\(url.absoluteString, privacy: .public) waiters=\(waiters.count, privacy: .public)"
+            )
+            for waiter in waiters.values { waiter(url) }
         } else {
             logger.error("sidecar did not become ready within \(Self.readyTimeoutSeconds, privacy: .public)s; will restart")
             terminateCurrentProcess()

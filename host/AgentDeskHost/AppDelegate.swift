@@ -209,7 +209,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 client: PtyManagerSocketClient.makeClient()
             ),
             livenessChecker: SidecarAgentSessionTerminalLivenessChecker(
-                client: HttpSidecarClient(baseURLProvider: { [weak sidecar] in sidecar?.baseURL })
+                client: HttpSidecarClient(baseURLProvider: { [weak sidecar] in
+                    await sidecar?.baseURL(waitingUpTo: Config.agentFeedSidecarReadyWaitSeconds)
+                })
             ),
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
             executables: Config.agentResumeExecutables,
@@ -581,7 +583,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let sidecar = agentFeedSidecar
         let agentWindows = AgentWindowRegistry(
             store: AgentWindowPresentationStore(url: Config.agentWindowPresentationsURL),
-            sidecarClient: HttpSidecarClient(baseURLProvider: { [weak sidecar] in sidecar?.baseURL }),
+            sidecarClient: HttpSidecarClient(baseURLProvider: { [weak sidecar] in
+                await sidecar?.baseURL(waitingUpTo: Config.agentFeedSidecarReadyWaitSeconds)
+            }),
             terminalCoordinator: agentSessionTerminalCoordinator,
             terminalTombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
             makeTerminalPtyClient: { PtyManagerSocketClient.makeClient() }
@@ -1273,7 +1277,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // arrives once the sidecar is back succeeds, and one that arrives while it
         // is still down fails transiently and the client retries.
         let sidecar = agentFeedSidecar
-        let httpClient = HttpSidecarClient(baseURLProvider: { [weak sidecar] in sidecar?.baseURL })
+        let httpClient = HttpSidecarClient(baseURLProvider: { [weak sidecar] in
+            await sidecar?.baseURL(waitingUpTo: Config.agentFeedSidecarReadyWaitSeconds)
+        })
         let bridge = AgentFeedBridge(client: httpClient, send: { [weak server] data in
             server?.pushAgentData(data)
         })

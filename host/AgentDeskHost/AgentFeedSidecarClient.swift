@@ -159,24 +159,33 @@ protocol SidecarClient: Sendable {
 }
 
 final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
-    private let baseURLProvider: @Sendable () -> URL?
+    // Resolves the sidecar's base URL, waiting for a sidecar that is still coming
+    // up rather than answering nil the instant it is asked.
+    //
+    // This is async for one reason: the host brings the sidecar up in parallel
+    // with the windows that read it, so a consumer can and does arrive first. A
+    // synchronous provider turns that ordinary one-second overlap into a hard
+    // failure that never heals, because a stream that reports an error is torn
+    // down and nothing re-subscribes. Awaiting readiness is what makes arriving
+    // early cost latency instead of the whole session.
+    private let baseURLProvider: @Sendable () async -> URL?
     private let session: URLSession
     private let logger: Logger
 
-    init(baseURLProvider: @escaping @Sendable () -> URL?, session: URLSession = .shared) {
+    init(baseURLProvider: @escaping @Sendable () async -> URL?, session: URLSession = .shared) {
         self.baseURLProvider = baseURLProvider
         self.session = session
         self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-sidecar-client")
     }
 
-    private func currentBaseURL() throws -> URL {
-        guard let url = baseURLProvider() else { throw SidecarClientError.notReady }
+    private func currentBaseURL() async throws -> URL {
+        guard let url = await baseURLProvider() else { throw SidecarClientError.notReady }
         return url
     }
 
-    private func requestURL(path: String, query: [URLQueryItem] = []) throws -> URL {
+    private func requestURL(path: String, query: [URLQueryItem] = []) async throws -> URL {
         var components = URLComponents(
-            url: try currentBaseURL().appendingPathComponent(path),
+            url: try await currentBaseURL().appendingPathComponent(path),
             resolvingAgainstBaseURL: false
         )
         components?.queryItems = query.isEmpty ? nil : query
@@ -193,14 +202,14 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
     func fetchProjects() async throws -> AgentFeedProjectsSnapshot {
         try await fetchJSON(
             AgentFeedProjectsSnapshot.self,
-            url: requestURL(path: "/api/projects")
+            url: await requestURL(path: "/api/projects")
         )
     }
 
     func fetchSessions(projectPath: String) async throws -> AgentFeedSessionsSnapshot {
         try await fetchJSON(
             AgentFeedSessionsSnapshot.self,
-            url: requestURL(
+            url: await requestURL(
                 path: "/api/sessions",
                 query: [URLQueryItem(name: "projectPath", value: projectPath)]
             )
@@ -221,7 +230,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         }
         let envelope = try await fetchJSON(
             Envelope.self,
-            url: requestURL(
+            url: await requestURL(
                 path: "/api/sessions/\(source)/\(sessionId)/events",
                 query: [
                     URLQueryItem(name: "offset", value: String(offset)),
@@ -243,7 +252,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         eventIndex: Int,
         mode: AgentFeedEventMode
     ) async throws -> String {
-        let url = try requestURL(
+        let url = try await requestURL(
             path: "/api/sessions/\(source)/\(sessionId)/events/\(eventIndex)/raw",
             query: [URLQueryItem(name: "mode", value: mode.rawValue)]
         )
@@ -263,7 +272,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
         openJSONStream(
-            url: try? requestURL(path: "/api/projects/stream"),
+            url: { try await self.requestURL(path: "/api/projects/stream") },
             type: AgentFeedProjectsSnapshot.self,
             onValue: onSnapshot,
             onError: onError
@@ -276,10 +285,12 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
         openJSONStream(
-            url: try? requestURL(
-                path: "/api/sessions/stream",
-                query: [URLQueryItem(name: "projectPath", value: projectPath)]
-            ),
+            url: {
+                try await self.requestURL(
+                    path: "/api/sessions/stream",
+                    query: [URLQueryItem(name: "projectPath", value: projectPath)]
+                )
+            },
             type: AgentFeedSessionsSnapshot.self,
             onValue: onSnapshot,
             onError: onError
@@ -295,32 +306,38 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
         openJSONStream(
-            url: try? requestURL(
-                path: "/api/sessions/\(source)/\(sessionId)/stream",
-                query: [
-                    URLQueryItem(name: "after", value: String(after)),
-                    URLQueryItem(name: "mode", value: mode.rawValue),
-                ]
-            ),
+            url: {
+                try await self.requestURL(
+                    path: "/api/sessions/\(source)/\(sessionId)/stream",
+                    query: [
+                        URLQueryItem(name: "after", value: String(after)),
+                        URLQueryItem(name: "mode", value: mode.rawValue),
+                    ]
+                )
+            },
             type: AgentFeedActivityEvent.self,
             onValue: onEvent,
             onError: onError
         )
     }
 
+    // `url` is resolved inside the task, not by the caller, because resolving it
+    // may mean waiting for a sidecar that is still starting. Opening a stream
+    // stays synchronous -- the caller gets a cancellable handle immediately -- and
+    // the wait costs the first snapshot some latency instead of costing the
+    // subscription its life.
     private func openJSONStream<Value: Decodable & Sendable>(
-        url: URL?,
+        url: @escaping @Sendable () async throws -> URL,
         type: Value.Type,
         onValue: @escaping @Sendable (Value) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
-        guard let url else {
-            return SidecarStreamHandle(task: Task { onError(SidecarClientError.notReady) })
-        }
         let session = session
         let task = Task<Void, Never> {
             do {
-                let (bytes, response) = try await session.bytes(from: url)
+                let resolved = try await url()
+                guard !Task.isCancelled else { return }
+                let (bytes, response) = try await session.bytes(from: resolved)
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode) else {
                     onError(SidecarClientError.badStatusCode)

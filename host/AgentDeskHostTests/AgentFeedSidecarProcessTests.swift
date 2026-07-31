@@ -195,6 +195,58 @@ struct AgentFeedSidecarProcessTests {
         #expect(sidecar.baseURL == URL(string: "http://127.0.0.1:\(port)"))
     }
 
+    // MARK: - Readiness is announced, not polled for
+
+    @Test func aWaiterThatArrivesBeforeTheSidecarIsWokenWhenItComesUp() async throws {
+        let port = try freePort()
+        let stubURL = try makeStubBinary(port: port)
+        defer { try? FileManager.default.removeItem(at: stubURL) }
+
+        let sidecar = AgentFeedSidecarProcess(binaryURL: stubURL, port: port)
+        defer { sidecar.stop() }
+
+        // Ask BEFORE starting, which is the launch ordering that broke the Agents
+        // window: it subscribed a full second before the sidecar published its URL.
+        async let awaited = sidecar.baseURL(waitingUpTo: 10)
+        #expect(sidecar.baseURL == nil, "nothing is published yet")
+        sidecar.start()
+
+        #expect(await awaited == URL(string: "http://127.0.0.1:\(port)"))
+    }
+
+    @Test func stoppingReleasesWaitersImmediatelyRatherThanLeavingThemToTimeOut() async throws {
+        let port = try freePort()
+        let sidecar = AgentFeedSidecarProcess(
+            binaryURL: URL(fileURLWithPath: "/nonexistent/agent-feed-sidecar"),
+            port: port
+        )
+
+        // A generous bound, so passing quickly can only mean stop() released it.
+        async let awaited = sidecar.baseURL(waitingUpTo: 30)
+        try await Task.sleep(for: .milliseconds(100))
+        let started = Date()
+        sidecar.stop()
+
+        #expect(await awaited == nil)
+        #expect(Date().timeIntervalSince(started) < 5)
+    }
+
+    @Test func aWaiterGivesUpRatherThanHangingWhenNothingEverStarts() async throws {
+        let port = try freePort()
+        // Never started, so it never becomes ready. The wait must end on its own:
+        // an unbounded one would trade a visible error for a permanently blank window.
+        let sidecar = AgentFeedSidecarProcess(
+            binaryURL: URL(fileURLWithPath: "/nonexistent/agent-feed-sidecar"),
+            port: port
+        )
+        defer { sidecar.stop() }
+
+        let started = Date()
+        let resolved = await sidecar.baseURL(waitingUpTo: 0.5)
+        #expect(resolved == nil)
+        #expect(Date().timeIntervalSince(started) < 5, "the wait honored its own bound")
+    }
+
     // MARK: - Teardown terminates the child
 
     @Test func teardownTerminatesChild() async throws {

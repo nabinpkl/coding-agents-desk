@@ -756,6 +756,13 @@ enum Config {
     static var agentFeedSidecarURL: URL? {
         Bundle.main.url(forResource: agentFeedSidecarResourceName, withExtension: nil)
     }
+    // How long a feed request waits for a sidecar that is still coming up before
+    // reporting it as down. The host starts the sidecar alongside the windows that
+    // read it, so a consumer arriving first is ordinary, not an error: a cold
+    // start measured 1.3s, and the supervisor allows itself 5s to answer plus a
+    // first restart at 1s. Ten seconds covers a launch and one restart; past that
+    // the sidecar really is not coming, and a visible error beats a hung window.
+    static let agentFeedSidecarReadyWaitSeconds: TimeInterval = 10
     // Voice server sidecar (`voice-server` in the gesture-agent project). Runs
     // on loopback like the agent feed sidecar; the phone reaches voice only through the
     // host-mounted webview, never this port.

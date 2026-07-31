@@ -382,7 +382,95 @@ struct AgentFeedBridgeTests {
     }
 }
 
-@Suite struct HttpSidecarClientNotReadyTests {
+/// Records whichever of snapshot-or-error a stream reports first.
+private final class SidecarOutcomeBox: @unchecked Sendable {
+    enum Outcome { case snapshot, error }
+    private let lock = NSLock()
+    private var outcome: Outcome?
+
+    func record(_ next: Outcome) {
+        lock.lock()
+        defer { lock.unlock() }
+        if outcome == nil { outcome = next }
+    }
+
+    var value: Outcome? {
+        lock.lock()
+        defer { lock.unlock() }
+        return outcome
+    }
+}
+
+/// A base URL that is absent until someone publishes it, like the real sidecar.
+private final class LateBaseURL: @unchecked Sendable {
+    private let lock = NSLock()
+    private var url: URL?
+    private var waiters: [(URL) -> Void] = []
+    private(set) var waitCount = 0
+
+    /// Resolves now if published, otherwise waits -- the provider shape the client takes.
+    func resolve() async -> URL? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
+            lock.lock()
+            if let url {
+                lock.unlock()
+                continuation.resume(returning: url)
+                return
+            }
+            waitCount += 1
+            waiters.append { continuation.resume(returning: $0) }
+            lock.unlock()
+        }
+    }
+
+    func publish(_ url: URL) {
+        lock.lock()
+        self.url = url
+        let pending = waiters
+        waiters.removeAll()
+        lock.unlock()
+        for waiter in pending { waiter(url) }
+    }
+}
+
+@Suite struct HttpSidecarClientReadinessTests {
+    /// The failure this exists to prevent: the host starts the sidecar alongside the
+    /// windows that read it, so a consumer can arrive first. On 2026-07-30 the restored
+    /// Agents window subscribed at 16:04:24.200 and the sidecar published its URL at
+    /// 16:04:25.251; the window took a hard "not ready", its subscription was torn down,
+    /// and nothing re-subscribed, so it showed "agent feed is not ready" for the whole
+    /// session over a one-second overlap.
+    @Test func aStreamOpenedBeforeTheSidecarIsUpWaitsForItInsteadOfFailing() async throws {
+        let late = LateBaseURL()
+        let client = HttpSidecarClient(baseURLProvider: { await late.resolve() })
+
+        // Subscribing before anything is published must NOT report an error.
+        let outcome = SidecarOutcomeBox()
+        let handle = client.openProjectsStream(
+            onSnapshot: { _ in outcome.record(.snapshot) },
+            onError: { _ in outcome.record(.error) }
+        )
+        defer { handle.cancel() }
+
+        // Give the stream task room to reach the provider and park there.
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(outcome.value == nil, "opening early must not fail the subscription")
+        #expect(late.waitCount == 1, "the stream should be waiting on readiness, not polling once")
+    }
+
+    @Test func aStreamStillReportsFailureWhenTheSidecarNeverArrives() async {
+        // Waiting must be bounded: a provider that gives up still surfaces an error, so a
+        // genuinely dead sidecar shows as one rather than hanging the window forever.
+        let client = HttpSidecarClient(baseURLProvider: { nil })
+        let error: Error = await withCheckedContinuation { continuation in
+            _ = client.openProjectsStream(
+                onSnapshot: { _ in },
+                onError: { continuation.resume(returning: $0) }
+            )
+        }
+        #expect((error as? SidecarClientError) == .notReady)
+    }
+
     @Test func oneShotAPIsThrowNotReadyWhenSidecarDown() async {
         let client = HttpSidecarClient(baseURLProvider: { nil })
         do {
