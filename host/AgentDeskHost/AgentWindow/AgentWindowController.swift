@@ -42,6 +42,10 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     private var splitView: AgentWindowSplitView?
     private var terminalController: (any AgentWindowTerminalControlling)?
     private var stopTask: Task<Void, Never>?
+    /// Lives exactly as long as this window does. Closing the Agents window drops its controller --
+    /// the registry removes the entry -- so a reopened window starts back at 1.0, and nothing
+    /// persists the level beside the frame in `AgentWindowPresentationStore`.
+    private var zoom = AgentWindowZoom()
 
     init(
         sidecarClient: any SidecarClient,
@@ -183,6 +187,10 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
 
             let webView = controller.webView
             webView.setAccessibilityIdentifier(Self.webViewAccessibilityIdentifier)
+            // Set here as well as on the keystroke so "the webview is at the controller's zoom" holds
+            // however many times this runs, rather than only for a webview that existed when the key
+            // was pressed.
+            webView.pageZoom = zoom.scale
 
             let terminalController: (any AgentWindowTerminalControlling)?
             if let terminalControllerForTesting {
@@ -214,9 +222,9 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
                 terminalController.observeAttachment { [weak self] attachment in
                     self?.onTerminalChanged?(attachment)
                 }
-                window.contentView = splitView
+                window.contentView = makeContentView(splitView)
             } else {
-                window.contentView = webView
+                window.contentView = makeContentView(webView)
             }
 
             let transport = AgentPanelBridgeTransport(
@@ -232,6 +240,26 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
             window.contentView = makeUnavailableView()
         }
     }
+
+    private func makeContentView(_ content: NSView) -> AgentWindowContentView {
+        let view = AgentWindowContentView(content: content)
+        view.onZoomCommand = { [weak self] command in
+            self?.applyZoom(command)
+        }
+        return view
+    }
+
+    /// Scales the feed webview only. The terminal pane keeps its own font size: its text is sized by
+    /// the terminal's own metrics, and page zoom over a canvas-backed grid reflows nothing.
+    private func applyZoom(_ command: AgentWindowZoomCommand) {
+        let previous = zoom
+        zoom.apply(command)
+        guard zoom != previous else { return }
+        panelController?.webView.pageZoom = zoom.scale
+    }
+
+    /// Test seam: the level the next webview would be built at.
+    var zoomScaleForTesting: Double { zoom.scale }
 
     private func deliverTerminalStatus(_ message: AgentTerminalHostMessage) {
         do {
