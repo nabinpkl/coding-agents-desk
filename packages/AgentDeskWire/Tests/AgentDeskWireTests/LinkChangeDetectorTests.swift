@@ -18,9 +18,9 @@ struct LinkChangeDetectorTests {
         detector.sampleAddresses(digest: 0xAAAA_AAAA)
         detector.sampleAddresses(digest: 0xBBBB_BBBB)
 
-        let drained = detector.drainForReport()
-        #expect(drained.changes == 1)
-        #expect(drained.causes?.contains("localAddress") == true)
+        let report = detector.reportSnapshot()
+        #expect(report.total == 1)
+        #expect(report.causes?.contains("localAddress") == true)
     }
 
     @Test func aPathSnapshotThatDidNotMoveReportsNothing() {
@@ -30,7 +30,7 @@ struct LinkChangeDetectorTests {
         detector.notePath(snapshot(interface: .cellular, status: .satisfied))
         detector.notePath(snapshot(interface: .cellular, status: .satisfied))
 
-        #expect(detector.drainForReport().changes == 0)
+        #expect(detector.reportSnapshot().total == 0)
     }
 
     // MARK: - Baselines are not transitions
@@ -42,7 +42,7 @@ struct LinkChangeDetectorTests {
         detector.notePath(snapshot(interface: .wifi, status: .satisfied))
         detector.sampleAddresses(digest: 0x1234)
 
-        #expect(detector.drainForReport().changes == 0)
+        #expect(detector.reportSnapshot().total == 0)
     }
 
     // MARK: - Each cause fires on its own transition
@@ -52,9 +52,9 @@ struct LinkChangeDetectorTests {
         detector.notePath(snapshot(interface: .wifi, status: .satisfied))
         detector.notePath(snapshot(interface: .cellular, status: .satisfied))
 
-        let drained = detector.drainForReport()
-        #expect(drained.changes == 1)
-        #expect(drained.causes == "interfaceType(wifi->cellular)")
+        let report = detector.reportSnapshot()
+        #expect(report.total == 1)
+        #expect(report.causes == "interfaceType(wifi->cellular)")
     }
 
     @Test func aPathStatusLossIsCaught() {
@@ -62,16 +62,16 @@ struct LinkChangeDetectorTests {
         detector.notePath(snapshot(interface: .wifi, status: .satisfied))
         detector.notePath(snapshot(interface: .wifi, status: .unsatisfied))
 
-        #expect(detector.drainForReport().causes == "pathStatus(satisfied->unsatisfied)")
+        #expect(detector.reportSnapshot().causes == "pathStatus(satisfied->unsatisfied)")
     }
 
     @Test func aRadioHandoverIsCaught() {
         let detector = LinkChangeDetector()
         detector.noteRadioChange(from: "NRNSA", to: "HSDPA")
 
-        let drained = detector.drainForReport()
-        #expect(drained.changes == 1)
-        #expect(drained.causes == "radioAccess(NRNSA->HSDPA)")
+        let report = detector.reportSnapshot()
+        #expect(report.total == 1)
+        #expect(report.causes == "radioAccess(NRNSA->HSDPA)")
     }
 
     @Test func ourOwnStallEvidenceIsCaught() {
@@ -81,7 +81,7 @@ struct LinkChangeDetectorTests {
         let detector = LinkChangeDetector()
         detector.noteStall(gapMs: 1589.7, hostQuietMs: 28)
 
-        #expect(detector.drainForReport().causes == "stall(gap=1590ms quiet=28ms)")
+        #expect(detector.reportSnapshot().causes == "stall(gap=1590ms quiet=28ms)")
     }
 
     @Test func oneHandoverFiringSeveralCausesReportsAllOfThem() {
@@ -95,25 +95,61 @@ struct LinkChangeDetectorTests {
         detector.sampleAddresses(digest: 0x2222)
         detector.noteRadioChange(from: "none", to: "NRNSA")
 
-        let drained = detector.drainForReport()
-        #expect(drained.changes == 3)
-        let causes = try? #require(drained.causes)
+        let report = detector.reportSnapshot()
+        #expect(report.total == 3)
+        let causes = try? #require(report.causes)
         #expect(causes?.contains("interfaceType(wifi->cellular)") == true)
         #expect(causes?.contains("localAddress") == true)
         #expect(causes?.contains("radioAccess(none->NRNSA)") == true)
     }
 
-    // MARK: - Drain semantics
+    // MARK: - Reporting survives a lost report (R208)
 
-    @Test func drainResetsSoTheNextWindowStartsClean() {
+    @Test func aLostReportDoesNotDestroyTheChangeItWasCarrying() {
+        // The R208 regression, and the reason these counters are cumulative.
+        //
+        // The report is a datagram sent over the link it describes, and the send is dropped
+        // silently on failure. Measured on device: report loss was 0.2% at rest but 18% during
+        // the freeze, because the link change is itself what makes the report go missing. Under
+        // the old drain-on-read counter a real wifi-to-cellular switch was drained into a report
+        // that never arrived, and all 976 delivered reports read `linkChanges=0`.
+        //
+        // So: take a report and throw it away, exactly as the network did. The next one must
+        // still carry the change.
         let detector = LinkChangeDetector()
         detector.notePath(snapshot(interface: .wifi, status: .satisfied))
         detector.notePath(snapshot(interface: .cellular, status: .satisfied))
-        _ = detector.drainForReport()
 
-        let second = detector.drainForReport()
-        #expect(second.changes == 0)
-        #expect(second.causes == nil)
+        _ = detector.reportSnapshot() // lost in flight
+
+        let delivered = detector.reportSnapshot()
+        #expect(delivered.total == 1)
+        #expect(delivered.causes?.contains("interfaceType(wifi->cellular)") == true)
+    }
+
+    @Test func theTotalKeepsAccumulatingAcrossReports() {
+        // Cumulative means the host can diff consecutive reports to recover the per-window
+        // count. If the total reset, a diff would go negative and read as garbage.
+        let detector = LinkChangeDetector()
+        detector.notePath(snapshot(interface: .wifi, status: .satisfied))
+        detector.notePath(snapshot(interface: .cellular, status: .satisfied))
+        #expect(detector.reportSnapshot().total == 1)
+
+        detector.noteRadioChange(from: "NRNSA", to: "HSDPA")
+        #expect(detector.reportSnapshot().total == 2)
+    }
+
+    @Test func newSinceLastReportIsPerWindowEvenThoughTheTotalIsNot() {
+        // The local console gate reads this one. It has to fall back to zero on a quiet window,
+        // or a single early change would make every later window log forever.
+        let detector = LinkChangeDetector()
+        detector.notePath(snapshot(interface: .wifi, status: .satisfied))
+        detector.notePath(snapshot(interface: .cellular, status: .satisfied))
+        #expect(detector.reportSnapshot().newSinceLastReport == 1)
+
+        let quiet = detector.reportSnapshot()
+        #expect(quiet.newSinceLastReport == 0)
+        #expect(quiet.total == 1)
     }
 
     @Test func aFlapCannotGrowTheRetainedDetailWithoutBound() {
@@ -123,10 +159,15 @@ struct LinkChangeDetectorTests {
         for index in 0..<40 {
             detector.noteRadioChange(from: "a\(index)", to: "b\(index)")
         }
-        let drained = detector.drainForReport()
-        #expect(drained.changes == 40)
-        let causeCount = drained.causes?.split(separator: ",").count ?? 0
+        let report = detector.reportSnapshot()
+        #expect(report.total == 40)
+        let causeCount = report.causes?.split(separator: ",").count ?? 0
         #expect(causeCount == 8)
+        // Newest wins. Now that the ring is sticky rather than drained, keeping the OLDEST
+        // eight would pin the window shut on startup noise and hide the transition that
+        // actually broke the session -- the only one worth reading during an incident.
+        #expect(report.causes?.contains("radioAccess(a39->b39)") == true)
+        #expect(report.causes?.contains("radioAccess(a0->b0)") == false)
     }
 
     // MARK: - Address digest

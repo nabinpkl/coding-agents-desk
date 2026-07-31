@@ -122,6 +122,76 @@ Wiring it there belongs with the host-side liveness work in Phase 3.
   wrong once detection drops to ~2s, but the right value depends on the worst observed reconnect
   time, which Phase 1 supplies.
 
+### What R208 found: the report cannot survive the event it reports
+
+The first device run of Phase 1 produced a real WiFi-to-cellular switch at 18:34:04, confirmed
+in the telemetry itself (`client[iface=wifi]` at windowId 620, `client[iface=cellular]` at 622).
+Every one of the 976 delivered reports said `linkChanges=0`, `pathChanges=0`, `radioChanges=0`.
+
+The detector was not wrong; the counters never arrived. `flushLinkHealth` drained them and then
+handed the report to `sendVideoControl`, which sends a **datagram** over the link being
+described and discards the failure. Report loss across the session was 18 windows out of 1348
+(1.3%), but **15 of those 18 fell inside the 36-second freeze** -- 18% loss there against 0.2%
+at rest, a 76x concentration. The lost windows include 621, the transition itself.
+
+This is not bad luck. The link change is the cause of the loss, so a delta counter is at its
+most likely to be destroyed exactly when it finally has something to say. The reporting
+mechanism was structurally incapable of reporting the event it existed for.
+
+The fix is cumulative counters and sticky causes: `reportSnapshot()` replaces `drainForReport()`
+on all three observers. A dropped report now costs latency rather than evidence -- the next
+report that lands still carries the total, and the host recovers the change by diffing. The
+per-window value the local console gate needs is still returned, but it never touches the wire,
+so losing it costs a log line and nothing else.
+
+Two secondary findings from the same run:
+
+- **The host's degradation machinery works.** `reason=freeze`, four `stall-recovery`, six
+  `no-ack-at-cap`, and a drop to rung 3. The stall detector fixed in `ef649c86` ran live for the
+  first time and did not produce the calm-screen false positive it was fixed for. What is
+  missing is a handover trigger, not stall awareness.
+- **This freeze was one-directional, unlike the 16:53 incident.** 67 of 82 client reports still
+  arrived during it while `datagramsReceived` stayed 0 throughout, so client-to-host worked and
+  host-to-client did not. That is a genuine asymmetry rather than the earlier selection
+  artifact, because it rests on 67 positive samples. It means a handover does not necessarily
+  black-hole both directions, and Phase 2 can plausibly signal over the surviving uplink.
+
+### The number, recovered from the client's own store
+
+The measurement survived after all, because the client persists its diagnostics to disk and the
+host can pull them on demand over the connection (`just client-diagnostics`) -- a path that
+needs no WiFi and no privileged log collection. Exactly one record in 1845 carried the causes:
+
+```
+iface=cellular ... pathStatus=satisfied pathChanges=2 radio=HSDPA datagramsRecv=0
+maxArrivalGapMs=746.8 linkChanges=2
+linkCauses=interfaceType(wifi->cellular),localAddress(b2216da5->3c873047)
+```
+
+Recorded at 18:34:05, against a freeze that began at 18:34:04.4 and recovered on its own at
+18:34:13.4. So:
+
+- **Detection fired within one report window (~0.5s) of the freeze starting.**
+- **The transport never fired at all.** The only `Network is down` in the entire host log is
+  from session startup at 18:28:34. Through nine seconds of zero received datagrams the QUIC
+  connection reported nothing, then traffic resumed. The 18-second figure from D203 was the
+  transport's timeout on a session that died; here it simply never noticed.
+- The host, meanwhile, received `linkChanges=0` in all 976 reports. Client knew at 18:34:05;
+  host never knew.
+
+That settles the Phase 2 trigger question in a way neither Option A nor B anticipated. The
+transport is not merely slow to report a handover -- it may never report one, so a recovery path
+waiting on transport failure can wait forever while the user watches a frozen screen. And
+`sessionResumeTTL = 20s` is not the binding constraint it appeared to be: against ~0.5s
+detection there is ample window.
+
+Both live causes fired together on the same transition, which validates the address digest on
+real hardware: `localAddress` caught it independently of `interfaceType`, so the 3G case that
+`interfaceType` provably cannot see is covered.
+
+The cost of the phase was one device run and a broken instrument found. Committing to a trigger
+without it would have shipped a recovery path wired to a signal that is always zero.
+
 ### Confirmation
 
 `LinkChangeDetectorTests` pins the discrimination the measurement depends on: an address change

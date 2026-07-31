@@ -47,7 +47,8 @@ public struct LinkChangeEvent: Sendable, Equatable {
     public var logDescription: String { "\(cause.rawValue)(\(detail))" }
 }
 
-/// Fuses the link-change signals and accumulates what fired between report windows.
+/// Fuses the link-change signals and accumulates what fired, cumulatively and non-destructively
+/// (see `reportSnapshot` for why reading must not reset).
 ///
 /// Edge-triggered on every input, so a stable link costs one `getifaddrs` per report window and
 /// nothing else. The first observation of any value is a baseline, never a transition -- the
@@ -58,12 +59,14 @@ public final class LinkChangeDetector: @unchecked Sendable {
         var interfaceType: String?
         var pathStatus: String?
         var addressDigest: UInt64?
-        var changesSinceDrain: Int = 0
-        var eventsSinceDrain: [LinkChangeEvent] = []
+        /// Cumulative for the life of the detector, never reset. See `reportSnapshot`.
+        var changesTotal: Int = 0
+        var recentEvents: [LinkChangeEvent] = []
+        var totalAtLastReport: Int = 0
     }
 
-    /// Bounded so a pathological flap cannot grow this without limit between drains. The count
-    /// stays exact; only the retained detail is capped.
+    /// Bounded so a pathological flap cannot grow this without limit. The count stays exact;
+    /// only the retained detail is capped.
     private static let maxRetainedEvents = 8
 
     private let state = OSAllocatedUnfairLock(initialState: State())
@@ -159,20 +162,39 @@ public final class LinkChangeDetector: @unchecked Sendable {
 
     private func record(_ events: [LinkChangeEvent], into state: inout State) {
         guard !events.isEmpty else { return }
-        state.changesSinceDrain += events.count
-        for event in events where state.eventsSinceDrain.count < Self.maxRetainedEvents {
-            state.eventsSinceDrain.append(event)
+        state.changesTotal += events.count
+        // Newest wins: during an incident the last few transitions are what you read, and an
+        // early flap must not pin the window shut against the change that actually broke us.
+        state.recentEvents.append(contentsOf: events)
+        if state.recentEvents.count > Self.maxRetainedEvents {
+            state.recentEvents.removeFirst(state.recentEvents.count - Self.maxRetainedEvents)
         }
     }
 
-    /// Transitions since the previous drain, and the causes that produced them, resetting both.
-    public func drainForReport() -> (changes: Int, causes: String?) {
+    /// The cumulative transition count and the retained causes. **Non-destructive by design.**
+    ///
+    /// R208 measured why. The report is sent as a datagram over the very link that just moved,
+    /// and `sendVideoControl` drops it on failure. Report loss across that session ran 0.2% at
+    /// rest but **18% during the freeze** -- a 76x concentration -- because the link change is
+    /// itself the cause of the loss. A drain-then-send counter therefore destroys precisely the
+    /// evidence it exists to carry: the wifi-to-cellular transition was drained into a report
+    /// that never arrived, and every one of the 976 reports the host did receive read
+    /// `linkChanges=0`.
+    ///
+    /// Cumulative counters are self-healing under loss. A dropped report costs latency, not
+    /// evidence: the next one that lands still carries the total, and the host recovers the
+    /// change by diffing. `causes` is likewise sticky rather than drained, so any single
+    /// surviving report carries the recent history rather than only what happened to occur in
+    /// its own window.
+    ///
+    /// `newSinceLastReport` is the one destructive part, and deliberately so: it drives only a
+    /// local log gate, never the wire, so losing it costs a console line and nothing else.
+    public func reportSnapshot() -> (total: Int, newSinceLastReport: Int, causes: String?) {
         state.withLock { state in
-            let changes = state.changesSinceDrain
-            let causes = state.eventsSinceDrain.map(\.logDescription).joined(separator: ",")
-            state.changesSinceDrain = 0
-            state.eventsSinceDrain.removeAll(keepingCapacity: true)
-            return (changes, causes.isEmpty ? nil : causes)
+            let fresh = state.changesTotal - state.totalAtLastReport
+            state.totalAtLastReport = state.changesTotal
+            let causes = state.recentEvents.map(\.logDescription).joined(separator: ",")
+            return (state.changesTotal, fresh, causes.isEmpty ? nil : causes)
         }
     }
 

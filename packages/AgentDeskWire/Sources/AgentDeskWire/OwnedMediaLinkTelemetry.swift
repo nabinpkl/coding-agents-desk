@@ -33,15 +33,17 @@ public struct OwnedMediaLinkTelemetry: Codable, Equatable, Sendable {
     public let pathStatus: String?
     /// Populated only when the path is unsatisfied: `cellularDenied`, `wifiDenied`, etc.
     public let unsatisfiedReason: String?
-    /// Path transitions observed since the previous report. Non-zero means the link moved
-    /// under us during this window even if the endpoints look identical.
+    /// Path transitions observed, **cumulative for the life of the connection** -- diff it
+    /// against the previous report to get the per-window count. See `linkChanges` for why
+    /// these are totals rather than deltas.
     public let pathChanges: Int?
 
     // MARK: radio (CoreTelephony, iOS only)
 
     /// `LTE`, `NR`, `NRNSA`, `WCDMA`, ... with the `CTRadioAccessTechnology` prefix stripped.
     public let radioAccess: String?
-    /// Radio-technology changes since the previous report. A handover mid-window.
+    /// Radio-technology changes, **cumulative** (see `linkChanges`). An increase between two
+    /// reports is a handover.
     public let radioChanges: Int?
 
     // MARK: receive liveness (ours, not the platform's)
@@ -78,13 +80,25 @@ public struct OwnedMediaLinkTelemetry: Codable, Equatable, Sendable {
 
     // MARK: handover detection (ours)
 
-    /// Link transitions detected this window, across every cause.
+    /// Link transitions detected across every cause, **cumulative for the life of the
+    /// connection**. An increase since the previous report means the link moved.
+    ///
+    /// Cumulative rather than per-window because this report is a datagram sent over the link
+    /// it describes, and `sendVideoControl` drops it silently on failure. R208 measured report
+    /// loss at 0.2% at rest but **18% during a freeze** -- the link change is itself what makes
+    /// the report carrying it go missing. Under a delta counter the transition is drained into
+    /// a report that never arrives and is gone for good, which is exactly what happened: a real
+    /// wifi-to-cellular switch produced `linkChanges=0` in all 976 delivered reports. Totals
+    /// survive loss; deltas do not.
     ///
     /// Distinct from `pathChanges`, which counts only `NWPath` snapshot differences. The case
     /// that motivated this -- a cellular address change with no interface change -- produces an
     /// identical `NWPath` snapshot and so is invisible to `pathChanges`.
     public let linkChanges: Int?
-    /// Which signals fired, as `cause(from->to)`, comma separated.
+    /// The recent causes, as `cause(from->to)`, comma separated, most recent last.
+    ///
+    /// Sticky rather than drained, and bounded to the last few: any single report that survives
+    /// then carries the history, instead of only whatever happened to land in its own window.
     ///
     /// The point of Phase 1: a device run shows which cause noticed a real handover first, and
     /// how far ahead of the transport's own 18-second `Network is down` it was. Phase 2 picks

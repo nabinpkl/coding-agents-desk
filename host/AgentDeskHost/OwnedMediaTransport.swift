@@ -810,12 +810,12 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         _ decision: MediaQualityDecision,
         clientTelemetry: OwnedMediaLinkTelemetry?
     ) {
-        let hostPath = pathObserver.drainForReport()
+        let hostPath = pathObserver.reportSnapshot()
         let roundTrip = encodeGate.withLock { $0.mediaState.roundTrip }
         let inflation = roundTrip.inflationRatio.map { String(format: "%.1f", $0) } ?? "n/a"
         let smoothed = roundTrip.smoothedMs.map { String(format: "%.1f", $0) } ?? "n/a"
         let minimum = roundTrip.minimumMs.map { String(format: "%.1f", $0) } ?? "n/a"
-        logger.notice("owned media link telemetry windowId=\(decision.observation.windowId, privacy: .public) rttSmoothedMs=\(smoothed, privacy: .public) rttMinMs=\(minimum, privacy: .public) rttInflation=\(inflation, privacy: .public) rttSamples=\(roundTrip.sampleCount, privacy: .public) host[\(hostPath.snapshot?.logDescription ?? "unknown", privacy: .public) pathChanges=\(hostPath.changes, privacy: .public)] client[\(clientTelemetry?.logDescription ?? "absent", privacy: .public)]")
+        logger.notice("owned media link telemetry windowId=\(decision.observation.windowId, privacy: .public) rttSmoothedMs=\(smoothed, privacy: .public) rttMinMs=\(minimum, privacy: .public) rttInflation=\(inflation, privacy: .public) rttSamples=\(roundTrip.sampleCount, privacy: .public) host[\(hostPath.snapshot?.logDescription ?? "unknown", privacy: .public) pathChanges=\(hostPath.total, privacy: .public)] client[\(clientTelemetry?.logDescription ?? "absent", privacy: .public)]")
     }
 
     /// ADR-0087: flush the jammed in-flight accounting and, when the rate limit allows,

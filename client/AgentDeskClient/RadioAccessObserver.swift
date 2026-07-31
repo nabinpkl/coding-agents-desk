@@ -21,7 +21,10 @@ final class RadioAccessObserver: @unchecked Sendable {
 
     private struct State {
         var current: String?
-        var changesSinceDrain: Int = 0
+        /// Cumulative, never reset. Same reason as `LinkPathObserver`: a radio handover is one
+        /// of the events most likely to stop the report carrying it from arriving.
+        var changesTotal: Int = 0
+        var totalAtLastReport: Int = 0
     }
 
     #if os(iOS)
@@ -30,8 +33,8 @@ final class RadioAccessObserver: @unchecked Sendable {
     #endif
 
     /// Reports the transition itself, not just that the count moved. `LinkChangeDetector` needs
-    /// `from -> to` to say which signal noticed a handover first, and the drained count cannot
-    /// carry that.
+    /// `from -> to` to say which signal noticed a handover first, and a bare count cannot carry
+    /// that.
     private let onChange: (@Sendable (String?, String?) -> Void)?
 
     init(onChange: (@Sendable (String?, String?) -> Void)? = nil) {
@@ -60,12 +63,14 @@ final class RadioAccessObserver: @unchecked Sendable {
         #endif
     }
 
-    /// Current radio plus changes since the previous drain, resetting the count.
-    func drainForReport() -> (radio: String?, changes: Int) {
+    /// Current radio plus the **cumulative** change count, non-destructive by design.
+    ///
+    /// `newSinceLastReport` is local-only (it gates a console line), so its reset is harmless.
+    func reportSnapshot() -> (radio: String?, total: Int, newSinceLastReport: Int) {
         lock.withLock { state in
-            let changes = state.changesSinceDrain
-            state.changesSinceDrain = 0
-            return (state.current, changes)
+            let fresh = state.changesTotal - state.totalAtLastReport
+            state.totalAtLastReport = state.changesTotal
+            return (state.current, state.changesTotal, fresh)
         }
     }
 
@@ -84,7 +89,7 @@ final class RadioAccessObserver: @unchecked Sendable {
             let previous = state.current
             state.current = simplified
             // Same rule as LinkPathObserver: the first reading is a baseline, not a handover.
-            if !isInitial { state.changesSinceDrain += 1 }
+            if !isInitial { state.changesTotal += 1 }
             return (previous, simplified)
         }
         guard let transition, !isInitial else { return }

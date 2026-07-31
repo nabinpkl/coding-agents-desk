@@ -107,7 +107,10 @@ public struct LinkPathSnapshot: Equatable, Sendable {
 public final class LinkPathObserver: @unchecked Sendable {
     private struct State {
         var snapshot: LinkPathSnapshot?
-        var changesSinceDrain: Int = 0
+        /// Cumulative, never reset: a delta counter drained into a report that then fails to
+        /// send loses the transition permanently, which is exactly what R208 measured.
+        var changesTotal: Int = 0
+        var totalAtLastReport: Int = 0
     }
 
     private let monitor = NWPathMonitor()
@@ -131,7 +134,7 @@ public final class LinkPathObserver: @unchecked Sendable {
                 // make every session open with pathChanges=1 and hide real churn in the noise.
                 let isFirst = state.snapshot == nil
                 state.snapshot = snapshot
-                if !isFirst { state.changesSinceDrain += 1 }
+                if !isFirst { state.changesTotal += 1 }
                 return true
             }
             guard changed else { return }
@@ -144,13 +147,17 @@ public final class LinkPathObserver: @unchecked Sendable {
         monitor.cancel()
     }
 
-    /// Current snapshot plus the transition count since the previous drain, resetting the
-    /// count. Called once per report window.
-    public func drainForReport() -> (snapshot: LinkPathSnapshot?, changes: Int) {
+    /// Current snapshot plus the **cumulative** transition count. Called once per report
+    /// window, and non-destructive for the same reason as `LinkChangeDetector.reportSnapshot`:
+    /// the report rides a datagram over the link that just changed, so a counter that resets on
+    /// read loses the transition whenever the transition is what stopped the report arriving.
+    ///
+    /// `newSinceLastReport` is local-only (it gates a console line), so its reset is harmless.
+    public func reportSnapshot() -> (snapshot: LinkPathSnapshot?, total: Int, newSinceLastReport: Int) {
         state.withLock { state in
-            let changes = state.changesSinceDrain
-            state.changesSinceDrain = 0
-            return (state.snapshot, changes)
+            let fresh = state.changesTotal - state.totalAtLastReport
+            state.totalAtLastReport = state.changesTotal
+            return (state.snapshot, state.changesTotal, fresh)
         }
     }
 }

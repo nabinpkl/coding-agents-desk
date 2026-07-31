@@ -1364,7 +1364,9 @@ D204  2026-07-31  landed     quiet free-recording state with compact practice co
 D205  2026-07-31  landed     persistent host microphone consent through a real WebKit delegate witness
 D206  2026-07-31  landed     stall detection that compares client silence against the host's own quiet time
 D207  2026-07-31  landed     link-change detection across interface, address, path, and radio (ADR-0089)
-R208  checkpoint  remaining  authorized handover device run: which cause fires first, and how far ahead of the transport
+D208  2026-07-31  landed     authorized handover device run: found the report cannot survive the event it reports
+D209  2026-07-31  landed     cumulative link counters, so a dropped report costs latency and not evidence
+R210  checkpoint  remaining  re-run the handover device measurement on the fixed instrument
 ```
 
 ## Handover arc (ADR-0089)
@@ -1386,3 +1388,27 @@ D207 ships detection only, deliberately. R208 measures which cause fires first; 
 (probe-then-resume), Phase 3 (host-side liveness suspend), and the `sessionResumeTTL` retune
 are all gated on that number, because the 20s TTL against 18s detection is why resume expires
 almost exactly when it becomes possible.
+
+D208 ran that measurement and found the instrument broken in a way only a device could show. A
+real WiFi-to-cellular switch produced `linkChanges=0` in all 976 delivered reports, because the
+report is a datagram sent over the link it describes and the counters were drained before the
+send. Loss ran 0.2% at rest and 18% inside the freeze: the link change is what makes the report
+carrying it go missing, so a delta counter is destroyed exactly when it finally matters. D209
+makes all three counters cumulative and the causes sticky, so a dropped report costs latency
+rather than evidence.
+
+The measurement survived anyway, pulled from the client's own on-device store via
+`just client-diagnostics` (no WiFi, no sudo). One record in 1845 carried it:
+`linkChanges=2 linkCauses=interfaceType(wifi->cellular),localAddress(b2216da5->3c873047)` at
+18:34:05, against a freeze that began at 18:34:04.4 and self-recovered at 18:34:13.4.
+**Detection fired within one report window; the transport never fired at all** -- the only
+`Network is down` in the host log is session startup. So a recovery path waiting on transport
+failure can wait forever, and `sessionResumeTTL = 20s` is not the binding constraint against
+~0.5s detection. Both live causes fired together, which validates the address digest on real
+hardware. R210 confirms this on the fixed instrument rather than from a single salvaged record.
+
+Two side findings from D208 worth keeping. The host's degradation machinery works -- `freeze`,
+`stall-recovery`, `no-ack-at-cap`, and a drop to rung 3, with the `ef649c86` stall fix running
+live and not producing its old calm-screen false positive. And this freeze was one-directional:
+67 of 82 client reports still arrived while `datagramsReceived` stayed 0, so the uplink survived
+and Phase 2 can plausibly signal over it.

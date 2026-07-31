@@ -773,13 +773,17 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             state.presentationSkipBytes = 0
             return counts
         }
-        let (pathSnapshot, pathChanges) = pathObserver.drainForReport()
-        let (radio, radioChanges) = radioObserver.drainForReport()
+        // Every count below is CUMULATIVE, not per-window. R208: this report is a datagram on
+        // the link it describes, so a counter that resets on read is destroyed by the very
+        // failure it exists to report. The `new*` values are local-only and gate the console
+        // line at the bottom of this function.
+        let (pathSnapshot, pathChanges, newPathChanges) = pathObserver.reportSnapshot()
+        let (radio, radioChanges, newRadioChanges) = radioObserver.reportSnapshot()
         // Sampled here rather than from the path callback: a cellular address change with no
         // interface change is the case this exists to catch, and it may produce no path
         // callback at all. One getifaddrs per report window is the price of not missing it.
         changeDetector.sampleAddresses()
-        let (linkChanges, linkChangeCauses) = changeDetector.drainForReport()
+        let (linkChanges, newLinkChanges, linkChangeCauses) = changeDetector.reportSnapshot()
         let telemetry = OwnedMediaLinkTelemetry(
             interfaceType: pathSnapshot?.interfaceType,
             expensive: pathSnapshot?.expensive,
@@ -833,8 +837,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             || counts.keyframeRecoveries > 0
             || counts.maxPendingFrameDepth > 0
             || counts.presentationSkips > 0
-            || pathChanges > 0
-            || radioChanges > 0
+            || newPathChanges > 0
+            || newRadioChanges > 0
+            || newLinkChanges > 0
             || receiveLoopStalled
         else { return }
         ClientDiagnostics.shared.record(
