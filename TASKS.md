@@ -1189,6 +1189,46 @@ with 666 Swift tests in 87 suites. R188 remains the real-surface checkpoint: non
 judged on a device, and the felt claim — that a manual pin stops freezing — is only measurable
 against the 42.1s-frozen baseline in a device session.
 
+## v16 Phase 2: hand the periodic GOP to the encoder
+
+### Position
+
+R186 hand-rolled a wall-clock keyframe ceiling beside a frame counter. VideoToolbox has had
+both, with identical "whichever comes first" semantics, since macOS 10.8 —
+`kVTCompressionPropertyKey_MaxKeyFrameInterval` and `...MaxKeyFrameIntervalDuration`, the
+latter documented as being for exactly our case, a variable frame rate. We set neither.
+
+Our version also has a real bug the platform's does not: `frameId.isMultiple(of: 120)` is an
+absolute modulo on a counter that never resets, so a keyframe emitted for any other reason
+(client request, stall recovery, resolution change) does not restart the interval. Apple's is
+defined as the maximum interval *between* keyframes.
+
+### Ordered implementation plan
+
+- **R189** Prove this Mac's hardware HEVC encoder honors both properties at our exact session
+  settings, including `EnableLowLatencyRateControl`. A gate, not a nicety: `setProperty`
+  tolerates `kVTPropertyNotSupportedErr` and both keys are documented Optional, so a declined
+  property is invisible at the call site and would leave the stream with no ceiling at all.
+  Green means R190-R192 are viable; red means abandon this phase and fix the modulo in place.
+- **R190** Set both properties in `ensureSession`; delete `isPeriodicKeyframe`,
+  `lastKeyframeUptimeNs`, and the periodic term in `encode`. `forceKeyframe` reduces to
+  `requestedKeyframe || encodedFrameId == 1`. Config knobs keep their names and defaults and
+  become property values. This is what fixes the modulo bug.
+- **R191** Rework the keyframe diagnostics: `expected=` becomes meaningless once the platform
+  places periodic keyframes, so replace it with `source=requested|encoder`. Delete the dead
+  `allowPeriodicKeyframe` parameter and collapse `resolveKeyframeReason`, whose last two
+  branches already both return `.periodic`.
+- **R192** Rewrite the placement tests to assert the contract rather than exact frame
+  positions. `testPeriodicKeyframeFiresAtInterval` asserts frame 3 is not a keyframe at
+  interval 2, which the platform's "at least every other frame" semantics likely inverts.
+
+### Implementation checkpoint
+
+R189 landed green on 2026-07-31: both keys are advertised in the supported-property
+dictionary, both are accepted, and both read back their set values. A deliberate wrong
+expectation was used to confirm the assertion discriminates rather than passing vacuously.
+R190-R192 remain.
+
 ## Promotion log
 
 ```text
@@ -1253,6 +1293,10 @@ D185  2026-07-30  landed     stall flush and rate-limited recovery keyframe, lad
 D186  2026-07-30  landed     wall-clock ceiling on the video GOP
 D187  2026-07-30  landed     host-raised quality window when the client goes silent
 R188  checkpoint  remaining  authorized device acceptance against the 42.1s-frozen baseline
+D189  2026-07-31  landed     proved the encoder honors both keyframe-interval properties
+R190  candidate   remaining  hand periodic keyframe placement to the encoder
+R191  candidate   remaining  keyframe diagnostics that survive platform-placed keyframes
+R192  candidate   remaining  placement tests asserting the contract, not frame positions
 D189  2026-07-30  landed     typed-reference contract refinement
 D190  2026-07-30  landed     atomic zero-attempt creation and reference derivation
 D191  2026-07-30  landed     typed-reference wire and native proxy

@@ -1,4 +1,5 @@
 import CoreVideo
+import VideoToolbox
 import XCTest
 import AgentDeskWire
 @testable import AgentDeskHost
@@ -112,6 +113,120 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         let fourth = try await encodeFrame(encoder, frameIndex: 3, frameId: 4)
         XCTAssertFalse(third.header.isKeyframe, "frame 3 is not on the keyframe interval")
         XCTAssertTrue(fourth.header.isKeyframe, "frame 4 is a periodic keyframe")
+    }
+
+    // R189 (ADR-0087): does this Mac's hardware HEVC encoder actually honor the two
+    // keyframe-interval properties, at OUR exact session settings?
+    //
+    // This is a gate, not a nicety. `setProperty` deliberately tolerates
+    // `kVTPropertyNotSupportedErr`, and both keys are documented Optional, so a
+    // declined property is indistinguishable from an accepted one at the call site.
+    // Handing the periodic GOP to the platform on the assumption it is supported would
+    // trade a working wall-clock ceiling for a silent absence of one.
+    //
+    // `EnableLowLatencyRateControl` is included because it selects a different rate
+    // controller, and the property support list is the encoder's to define. The SDK
+    // header lists both keys as usable with that path; this asserts it on real silicon
+    // rather than trusting the doc.
+    func testEncoderHonorsBothKeyframeIntervalProperties() throws {
+        var session: VTCompressionSession?
+        let encoderSpecification = [
+            kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: kCFBooleanTrue as Any,
+            kVTVideoEncoderSpecification_EnableLowLatencyRateControl: kCFBooleanTrue as Any
+        ] as CFDictionary
+        let createStatus = VTCompressionSessionCreate(
+            allocator: kCFAllocatorDefault,
+            width: 256,
+            height: 256,
+            codecType: kCMVideoCodecType_HEVC,
+            encoderSpecification: encoderSpecification,
+            imageBufferAttributes: nil,
+            compressedDataAllocator: nil,
+            outputCallback: nil,
+            refcon: nil,
+            compressionSessionOut: &session
+        )
+        XCTAssertEqual(createStatus, noErr, "hardware HEVC session create failed")
+        let live = try XCTUnwrap(session)
+        defer { VTCompressionSessionInvalidate(live) }
+
+        // The rest of our real session config, since property support can depend on it.
+        for (key, value) in [
+            (kVTCompressionPropertyKey_RealTime, kCFBooleanTrue as CFTypeRef),
+            (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse as CFTypeRef),
+            (kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: 30) as CFTypeRef),
+            (kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: 2_000_000) as CFTypeRef)
+        ] {
+            XCTAssertEqual(
+                VTSessionSetProperty(live, key: key, value: value), noErr,
+                "baseline property \(key) rejected"
+            )
+        }
+
+        // 1. The encoder must advertise both keys as supported.
+        var supported: CFDictionary?
+        XCTAssertEqual(
+            VTSessionCopySupportedPropertyDictionary(live, supportedPropertyDictionaryOut: &supported),
+            noErr,
+            "could not read the supported-property dictionary"
+        )
+        let supportedKeys = try XCTUnwrap(supported as? [String: Any])
+        XCTAssertNotNil(
+            supportedKeys[kVTCompressionPropertyKey_MaxKeyFrameInterval as String],
+            "encoder does not advertise MaxKeyFrameInterval"
+        )
+        XCTAssertNotNil(
+            supportedKeys[kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration as String],
+            "encoder does not advertise MaxKeyFrameIntervalDuration"
+        )
+
+        // 2. Setting must succeed outright, not merely be tolerated.
+        XCTAssertEqual(
+            VTSessionSetProperty(
+                live,
+                key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
+                value: NSNumber(value: 120)
+            ),
+            noErr,
+            "MaxKeyFrameInterval rejected"
+        )
+        XCTAssertEqual(
+            VTSessionSetProperty(
+                live,
+                key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
+                value: NSNumber(value: 15.0)
+            ),
+            noErr,
+            "MaxKeyFrameIntervalDuration rejected"
+        )
+
+        // 3. And the values must read back. An accepted-then-ignored property would
+        //    pass step 2 and still leave the stream with no ceiling.
+        var frameInterval: CFNumber?
+        XCTAssertEqual(
+            VTSessionCopyProperty(
+                live,
+                key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
+                allocator: kCFAllocatorDefault,
+                valueOut: &frameInterval
+            ),
+            noErr,
+            "MaxKeyFrameInterval could not be read back"
+        )
+        XCTAssertEqual((try XCTUnwrap(frameInterval)) as? Int, 120)
+
+        var durationSeconds: CFNumber?
+        XCTAssertEqual(
+            VTSessionCopyProperty(
+                live,
+                key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
+                allocator: kCFAllocatorDefault,
+                valueOut: &durationSeconds
+            ),
+            noErr,
+            "MaxKeyFrameIntervalDuration could not be read back"
+        )
+        XCTAssertEqual((try XCTUnwrap(durationSeconds)) as? Double, 15.0)
     }
 
     func testRequestKeyframeForcesTheNextFrame() async throws {
