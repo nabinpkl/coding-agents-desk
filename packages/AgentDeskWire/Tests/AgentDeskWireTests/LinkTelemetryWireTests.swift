@@ -81,7 +81,9 @@ private let ms = 1_000_000 as UInt64
         radioChanges: 1,
         datagramsReceived: 0,
         maxArrivalGapMs: 12_790,
-        receiveLoopIterations: 25
+        receiveLoopIterations: 25,
+        presentationSkips: 48,
+        presentationSkipBytes: 412_000
     )
     let message = OwnedMediaControlMessage(
         kind: .linkHealth,
@@ -121,6 +123,23 @@ private let ms = 1_000_000 as UInt64
     #expect(json.count == 2)
     #expect(json["it"] as? String == "wifi")
     #expect(json["ra"] == nil)
+}
+
+@Test func presentationWasteSurvivesTheRoundTripAndReachesTheLog() throws {
+    // The recovery burst after a stall: 49 frames released into one window, of which the
+    // pacer could present one. Previously this landed only in the client's own diagnostics
+    // store (three runs of retention), so a past freeze could not be asked what it wasted.
+    let telemetry = OwnedMediaLinkTelemetry(
+        presentationSkips: 48,
+        presentationSkipBytes: 412_000
+    )
+    let decoded = try JSONDecoder().decode(
+        OwnedMediaLinkTelemetry.self,
+        from: try JSONEncoder().encode(telemetry)
+    )
+    #expect(decoded.presentationSkips == 48)
+    #expect(decoded.presentationSkipBytes == 412_000)
+    #expect(decoded.logDescription == "presSkips=48 presSkipBytes=412000")
 }
 
 @Test func logDescriptionOmitsAbsentFields() {

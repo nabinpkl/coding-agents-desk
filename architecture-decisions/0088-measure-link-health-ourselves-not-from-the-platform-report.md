@@ -86,6 +86,16 @@ minimum baseline to compare against, since it only kept per-window p50/p95/max.
   (datagram inter-arrival gap), so the two can still be told apart.
 - Neutral, because `establishmentReport()` on the new API *does* work (`duration: 0.028`,
   `handshakes: 1`) and is kept as a one-shot per session.
+- Good, because presentation waste now reports too. The client's pacer decodes every frame
+  (HEVC deltas need the reference chain) but presents only the newest per fps interval, so a
+  recovery burst is decoded and discarded: the 12.79s freeze released 49 frames into one
+  500ms window, where the pacer could present at most one per fps interval (so roughly
+  44-48 of them were decoded and thrown away, depending on where the stream was pinned --
+  the exact pin for that session was never recorded, which is itself part of the problem).
+  That count existed only in the client's own
+  diagnostics store, which keeps three runs, so by the time the question was asked the
+  answer had been evicted. It rides the link-health window now, and it is the number that
+  would justify the host declining to send while the client is behind.
 
 ### Confirmation
 

@@ -22,6 +22,11 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
     // ADR-0027: the transport installs how the sink asks for a keyframe (the render
     // -stall watchdog and the wedged-layer recovery both use it).
     @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void)
+    // ADR-0088: the transport installs where presentation skips are counted, so the waste
+    // lands in the same 500ms link-health window as everything else rather than only in the
+    // client's own three-run diagnostics store. Push rather than pull: `flushLinkHealth` is
+    // synchronous and lock-based, and the sink is MainActor-isolated.
+    @MainActor func setOwnedMediaPresentationSkipHandler(_ handler: @escaping @Sendable (Int) -> Void)
     // The sink publishes every media status change here. The diagnostics readout is fixed
     // chrome owned by the controller (like the gear and cursor dot), not a child of the
     // zoomable picture, so the sink no longer draws it; it only reports the status.
@@ -37,6 +42,7 @@ extension OwnedMediaFrameSink {
     @MainActor func noteOwnedMediaRepairExpired(_ count: Int) {}
     @MainActor func setOwnedMediaExpectedFrameRate(_ fps: Int) {}
     @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void) {}
+    @MainActor func setOwnedMediaPresentationSkipHandler(_ handler: @escaping @Sendable (Int) -> Void) {}
     @MainActor var onOwnedMediaStatusChange: ((OwnedMediaStatus) -> Void)? {
         get { nil }
         set {}
@@ -311,6 +317,9 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     )
     private var pendingVideoPresentationTask: Task<Void, Never>?
     private var videoKeyframeRequestHandler: (@Sendable () -> Void)?
+    // ADR-0088: reports each decoded-but-never-shown frame's size to the transport, which
+    // accumulates it into the link-health window.
+    private var presentationSkipHandler: (@Sendable (Int) -> Void)?
     private var stallWatchdog: OwnedMediaRenderStallWatchdog
     private let stallTimer: DispatchSourceTimer
 
@@ -362,6 +371,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
 
     func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void) {
         videoKeyframeRequestHandler = handler
+    }
+
+    func setOwnedMediaPresentationSkipHandler(_ handler: @escaping @Sendable (Int) -> Void) {
+        presentationSkipHandler = handler
     }
 
     // Timer-driven: ask the host for a keyframe if the carrier has wedged (frames
@@ -472,6 +485,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 }
             case .decodeOnly:
                 videoStatusTracker.notePresentationSkip(bytes: frame.frameBytes)
+                presentationSkipHandler?(frame.frameBytes)
                 ClientDiagnostics.shared.record(
                     type: "mediaStalePresentationSkipped",
                     fields: ["frameId": String(envelope.header.frameId)],

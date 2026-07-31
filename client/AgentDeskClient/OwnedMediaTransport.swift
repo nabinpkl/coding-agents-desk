@@ -159,6 +159,12 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                         try? await datagrams.send(data)
                     }
                 }
+                mediaSink?.setOwnedMediaPresentationSkipHandler { [weak self] bytes in
+                    self?.lock.withLock { state in
+                        state.presentationSkips += 1
+                        state.presentationSkipBytes += max(0, bytes)
+                    }
+                }
             }
             pathObserver.start(queue: DispatchQueue(label: "\(Config.logSubsystem).link-telemetry"))
             radioObserver.start()
@@ -723,7 +729,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             maxPendingFrameDepth: Int,
             arrivals: Int,
             maxArrivalGapMs: Double,
-            loopIterations: Int
+            loopIterations: Int,
+            presentationSkips: Int,
+            presentationSkipBytes: Int
         ) in
             let arrivals = state.arrivals.drain(nowNs: nowNs)
             let counts = (
@@ -734,13 +742,17 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                 state.maxPendingFrameDepth,
                 arrivals.arrivals,
                 arrivals.maxGapMs,
-                arrivals.loopIterations
+                arrivals.loopIterations,
+                state.presentationSkips,
+                state.presentationSkipBytes
             )
             state.completedFrames = 0
             state.expiredFrames = 0
             state.discardedRecoveryDeltas = 0
             state.keyframeRecoveries = 0
             state.maxPendingFrameDepth = 0
+            state.presentationSkips = 0
+            state.presentationSkipBytes = 0
             return counts
         }
         let (pathSnapshot, pathChanges) = pathObserver.drainForReport()
@@ -758,7 +770,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             radioChanges: radioChanges,
             datagramsReceived: counts.arrivals,
             maxArrivalGapMs: counts.maxArrivalGapMs,
-            receiveLoopIterations: counts.loopIterations
+            receiveLoopIterations: counts.loopIterations,
+            presentationSkips: counts.presentationSkips,
+            presentationSkipBytes: counts.presentationSkipBytes
         )
 
         // ADR-0088: the report goes out unconditionally.
@@ -793,6 +807,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             || counts.discardedRecoveryDeltas > 0
             || counts.keyframeRecoveries > 0
             || counts.maxPendingFrameDepth > 0
+            || counts.presentationSkips > 0
             || pathChanges > 0
             || radioChanges > 0
             || receiveLoopStalled
@@ -854,6 +869,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         // ADR-0088: receive-loop liveness. Lives in the same lock as the frame counters so a
         // report is one consistent snapshot of the window rather than two racing ones.
         var arrivals = DatagramArrivalTracker()
+        // ADR-0088: frames decoded but never shown, pushed here by the sink. Same lock, same
+        // window, so the waste is attributable to the window that produced it.
+        var presentationSkips = 0
+        var presentationSkipBytes = 0
     }
 
     private struct InputFrameHeader: Decodable {

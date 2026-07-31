@@ -56,6 +56,26 @@ public struct OwnedMediaLinkTelemetry: Codable, Equatable, Sendable {
     /// is not running.
     public let receiveLoopIterations: Int?
 
+    // MARK: presentation waste (ours)
+
+    /// Frames decoded this window but never shown, because a newer frame was already
+    /// available by the time the fps deadline came round.
+    ///
+    /// This is the host's own bandwidth coming back as a number. A frame that arrives too
+    /// late to be the newest still has to be decoded (it is a reference for the ones behind
+    /// it) but is never presented, so every byte in it bought the user nothing. Recovering
+    /// after a stall is exactly when this spikes: the measured 12.79s freeze released 49
+    /// frames into a single 500ms window, of which the pacer presents at most one per fps
+    /// interval.
+    ///
+    /// Deliberately reported rather than inferred: it was previously recorded only into the
+    /// client's own diagnostics store, which keeps three runs, so by the time anyone asked
+    /// what a past freeze had wasted the answer was already evicted.
+    public let presentationSkips: Int?
+    /// Bytes belonging to those frames. The number that would justify the host declining to
+    /// send at all while the client is behind.
+    public let presentationSkipBytes: Int?
+
     public enum CodingKeys: String, CodingKey, Sendable {
         case interfaceType = "it"
         case expensive = "xp"
@@ -70,6 +90,8 @@ public struct OwnedMediaLinkTelemetry: Codable, Equatable, Sendable {
         case datagramsReceived = "dr"
         case maxArrivalGapMs = "dg"
         case receiveLoopIterations = "di"
+        case presentationSkips = "pk"
+        case presentationSkipBytes = "pb"
     }
 
     public init(
@@ -85,7 +107,9 @@ public struct OwnedMediaLinkTelemetry: Codable, Equatable, Sendable {
         radioChanges: Int? = nil,
         datagramsReceived: Int? = nil,
         maxArrivalGapMs: Double? = nil,
-        receiveLoopIterations: Int? = nil
+        receiveLoopIterations: Int? = nil,
+        presentationSkips: Int? = nil,
+        presentationSkipBytes: Int? = nil
     ) {
         self.interfaceType = interfaceType
         self.expensive = expensive
@@ -100,6 +124,8 @@ public struct OwnedMediaLinkTelemetry: Codable, Equatable, Sendable {
         self.datagramsReceived = datagramsReceived
         self.maxArrivalGapMs = maxArrivalGapMs
         self.receiveLoopIterations = receiveLoopIterations
+        self.presentationSkips = presentationSkips
+        self.presentationSkipBytes = presentationSkipBytes
     }
 
     /// One compact `key=value` line for the host log. Absent fields are omitted rather than
@@ -124,6 +150,8 @@ public struct OwnedMediaLinkTelemetry: Codable, Equatable, Sendable {
         add("datagramsRecv", datagramsReceived)
         add("maxArrivalGapMs", maxArrivalGapMs.map { String(format: "%.1f", $0) })
         add("recvLoopIters", receiveLoopIterations)
+        add("presSkips", presentationSkips)
+        add("presSkipBytes", presentationSkipBytes)
         return parts.isEmpty ? "none" : parts.joined(separator: " ")
     }
 }
