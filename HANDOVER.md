@@ -114,7 +114,7 @@ verified, 0 of 3,219 classified machinery.
    | `response_item/image_generation_call` | 13 | 2,156,464 | 100% | falls to `plain()`, 64 KB cap |
    | `event_msg/mcp_tool_call_end` | 244 | 126,563 | 45% | `result` payload |
    | `event_msg/user_message` | 1,090 | 14,262 | 3% | **a person's words wrapped in JSON** |
-   | `event_msg/exec_command_end` | 2,096 | 4,758 | 46% | **no label at all** → `plain()`, 64 KB cap |
+   | `event_msg/exec_command_end` | 2,096 | 4,758 | 46% | investigated, **closed** — see below |
    | `event_msg/web_search_end` | 348 | 3,964 | 36% | `query` + `results` |
    | `event_msg/thread_settings_applied` | 384 | 3,233 | 14% | probably machinery |
    | `response_item/tool_search_output` | 25 | 24,784 | 96% | falls to `plain()` |
@@ -125,12 +125,37 @@ verified, 0 of 3,219 classified machinery.
    (490 rows, 54,750 mean), `top/world_state` (246, 46,614), `top/turn_context`
    (1,312, 4,738).
 
-   Recommended order: **`exec_command_end`** (2,096 rows, unlabelled, and the one whose
-   64 KB `plain()` cap is looser than the metadata cap — check first whether it
-   duplicates the `function_call_output` it pairs with by `call_id`, as
-   `patch_apply_end` partly did), then **`user_message`** (rendering a person's own
-   words as a JSON blob is the worst kind on this list, and `message` is right there),
-   then the image/MCP payloads, which are big but rare.
+   Recommended order: **`user_message`** (rendering a person's own words as a JSON blob
+   is the worst kind on this list, and `message` is right there), then the image/MCP
+   payloads, which are big but rare. `thread_settings_applied` is probably a machinery
+   entry rather than a renderer.
+
+   **`exec_command_end` is closed — do not reopen it without new evidence.** It looked
+   like the obvious first target and is not, for two measured reasons.
+
+   It is a **retired record type**. Across all 831 rollouts here: April 1,521 records in
+   9 of 11 files, May 2,096 in 12 of 247, June 0 in 251, **July 0 in 322**. It was
+   dropped from the harness around early May 2026, alongside `view_image_tool_call` and
+   `thread_name_updated`. Ranking it high was an artifact of the sample — two of the six
+   largest files are from May. No live session emits one.
+
+   It is also a **complete duplicate**. Over every rollout containing one (9,003
+   records, not just the six largest): **9,003 of 9,003 pair with a
+   `function_call_output` by `call_id`, zero orphans** — the opposite of
+   `patch_apply_end`, where 36% had no other home. The paired output is a strict
+   superset in shape, wrapping the same bytes in a `Chunk ID / Wall time / Process
+   exited with code N / Output:` header, and the panel already renders it as a proper
+   `tool_result`. 7,079 (79%) are byte-contained outright; 580 carry no
+   `aggregated_output` at all; the remaining 1,344 (15%) hold tail bytes the paired
+   output lost to a **different middle-truncation point** (both sides carry
+   `…N chars truncated…` markers), not information unique to the record.
+
+   Worth knowing if it is ever revisited: 95 of 126 sampled sit **between** the
+   `function_call` and its output, and the row renders as `system`, which flushes the
+   segment — so on these transcripts it splits the tool cluster at 75% of shell calls.
+   Left alone by decision on 2026-07-30: the type is dead, so the fix would only make
+   April/May transcripts read better, and adding a deny-list entry on 79% containment is
+   a weaker duplication claim than the 98.7% the `agent_message` rule was built on.
 
 2. **Mode switch loses the viewer's place — deliberately deferred.** Switching remounts
    the feed and lands at the tail. Seeding at the viewer's position opens a **hole**
