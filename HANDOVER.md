@@ -3,9 +3,28 @@
 Branch `main`, in sync with `origin/main`, nothing uncommitted from this arc.
 (Previous handovers are preserved in this file's git history.)
 
-**Gate**: full `just check` green (exit 0), including `just agent-feed-sidecar-check`
-(78 tests) and `just agent-panel-web-check`. The other session's in-progress voice work
-that was failing `just check` earlier in this arc has since landed.
+**Gate**: full `just check` green (exit 0) — 654 host tests in 86 suites, 78 sidecar,
+119 panel web. The other session's in-progress voice work that was failing `just check`
+earlier in this arc has since landed.
+
+**The one thing to do next**: nothing in this file has been seen on a running host.
+Three separate arcs (Agents-window zoom, window restore, sidecar readiness + retry) are
+verified only against tests and real transcripts. `just host-run` is a checkpoint under
+AGENTS.md — state it, then wait for a go-ahead. The last time a live run happened it
+immediately found a bug the tests had not (see *Window restore*).
+
+Arcs after the two-views work below, newest first:
+
+| commit | what |
+|---|---|
+| `9f380e92` | one readiness signal for both sidecars; voice waits too; the panel retries |
+| `112b79f3` | wait for the agent-feed sidecar instead of racing it at launch |
+| `6775caf8` | read what a Codex tool call actually did (`exec exec` → the command) |
+| `f3282437` | stop a new stored field erasing every remembered window |
+| `401fc220` | zoom the terminal too, and remember the level across a restart |
+| `98cc2d3a` | zoom the Agents feed with `Cmd -` / `Cmd =` |
+| `92cceef5` | close `exec_command_end` as dead and duplicated |
+| `d2d0e806` | say which files a patch touched, not its whole payload |
 
 ## What shipped this session: two views over the transcript (ADR-0086)
 
@@ -64,11 +83,27 @@ Sidecar, `agent-feed/sidecar/src/transcripts/`:
 - `usageState.ts` — the sticky-usage merge; `config.ts` — `contextWindowFor`
   (prefix-keyed, `AGENT_FEED_CONTEXT_WINDOWS` override).
 
+- `sources/codexToolSummary.ts` — what a Codex tool row says it did. **The one place to
+  change how a tool call is labelled**, for both argument shapes.
+
 Panel, `packages/AgentPanel/Web/src/features/activity-feed/`:
 
 - `activityDisplayItems.ts` — clustering, `leadEvent`, `itemKey`, `isSkillActivation`.
 - `TokenMeter.tsx`, `eventModeStore.ts` — header readout, remembered mode.
 - `ActivityFeed.tsx` — the feed; toggle and meter portal into the shell header.
+- `app/AgentPanelApp.tsx` — the shell, and the projects/sessions subscribe-and-retry
+  effect.
+
+Host, `host/AgentDeskHost/`:
+
+- `SidecarReadinessSignal.swift` — readiness for both sidecars. **The one place to
+  change how a consumer waits.**
+- `AgentFeedSidecarClient.swift` — the HTTP client; its `baseURLProvider` is async and
+  stream URLs resolve inside the task.
+- `AgentWindow/` — the Agents window: `AgentWindowZoom` (the chord and the step range),
+  `AgentWindowContentView` (owns `performKeyEquivalent`), `AgentWindowRegistry`
+  (lifecycle, debounced persistence, quit flush), `AgentWindowPresentationStore` (the
+  on-disk frames, terminal attachment, and zoom level).
 
 Mode crosses four hand-mirrored boundaries. **Add a field and all four need it**, and
 `normalizeActivityEvent` rebuilds events field by field, so one it does not name is
@@ -158,6 +193,88 @@ The summary drops a verb name that only repeats the chip the row already shows (
 duplication *was* `exec exec`), but keeps it in front of a bare argument value, which
 needs it — and which is the convention the Claude adapter follows.
 
+## Also shipped: the Agents window zooms, and remembers where it was
+
+`Cmd -` / `Cmd =` / `Cmd 0` zoom the Agents window. The host is `LSUIElement`, so there
+is no menu bar and no `NSMenuItem` key equivalent to hang this on; the chord is caught
+in `AgentWindowContentView.performKeyEquivalent`. That view exists **because the window
+is `AgentPanelWindow` normally and a plain `NSWindow` under `Config.axAutomationEnabled`**
+— owning the key equivalent one level down covers both without branching.
+
+Both halves move together: the feed webview takes `pageZoom`, the terminal pane takes a
+**font size**, not page zoom — a terminal is laid out in character cells, so changing
+the font reflows the grid where scaling the page only magnifies it
+(`PtyTerminalWebView.defaultFontPointSize`, now shared with the Workspace IDE terminal
+rather than a second `14` literal). The level persists in
+`AgentWindowPresentationStore` beside the frame, on the same debounce, and
+`beginStopAll` **flushes** pending writes before cancelling them — otherwise a zoom in
+the last 200 ms before quit was silently dropped, which defeats the point.
+
+Zoom survives quit-and-relaunch. It does **not** survive a user closing the window: a
+user close deletes the stored placement by design, and `shuttingDown` is what tells the
+two apart.
+
+### Window restore: a lesson worth not repeating
+
+Adding `zoomStep` to `AgentWindowPresentationDescriptor` as a required field silently
+broke restore for **every** window. The store decodes the whole document as one value,
+so one missing key threw `keyNotFound`, and `read`'s `try?` swallowed it and returned
+`[]`. A live host run found it in one launch; the tests did not, because every test
+wrote its own fixture with the new field present.
+
+Two fixes, both worth keeping: `zoomStep` decodes through a hand-written initializer
+with a default (matching `WorkspaceIDELocalState`'s precedent for the identically-named
+field, which should have been followed the first time), and `read` now **logs** a decode
+or oversize failure instead of returning `[]` in silence. There is a regression test
+built from the real on-disk document.
+
+Still open, not done: the store decodes all descriptors as one value, so a future bad
+field still costs every window rather than one. Decoding them individually would bound
+that.
+
+## Also shipped: sidecars are waited for, and a failed subscription retries
+
+The Agents window came up showing `Projects unavailable: agent feed is not ready` after
+an ordinary host restart. Not flaky — a structural race, from the host log:
+
+```
+16:04:23.973  sidecar started                       baseURL = nil
+16:04:24.200  Agents window restored, webview up    subscribes HERE
+16:04:25.251  sidecar ready baseURL=…:7682          1.05s too late
+```
+
+Readiness was a plain `URL?` that callers sampled at the instant of a request. The
+window asked one second early, got `SidecarClientError.notReady`, and — because
+`AgentFeedBridge` calls `removeVisibilityStream` when a stream reports an error, and the
+panel's subscribe effect depends only on `[bridge, nav]` — **nothing ever re-subscribed**.
+One second of overlap cost the window its whole session.
+
+Three changes:
+
+- **`SidecarReadinessSignal`** (`host/AgentDeskHost/`) is now the single home for
+  readiness, used by both the agent-feed and voice sidecars. `publish` wakes waiters;
+  `clear` (unexpected exit) deliberately **leaves them waiting**, because the restart is
+  what they want; `stop` (deliberate teardown) releases them. Both sidecars lost their
+  own `baseURL` storage — it is a computed read through the signal now, which also fixes
+  a pre-existing cross-thread read.
+- **`HttpSidecarClient` takes an async provider** and resolves its URL *inside* the
+  stream task. Opening a stream stays synchronous, so callers still get a cancellable
+  handle immediately; arriving early costs the first snapshot latency instead of the
+  subscription. Bounds live in `Config`: `agentFeedSidecarReadyWaitSeconds` = 10 (its
+  supervisor allows 5s plus a 1s first restart), `voiceSidecarReadyWaitSeconds` = 20
+  (that supervisor's own budget; longer would just be silence to someone holding a
+  button). `VoiceLaneServer.BaseURLProvider` went async for the same reason — it was
+  telling the phone "voice service unavailable" during launch.
+- **The panel re-subscribes after a failure**, delay doubling 1s → 15s, reset on a good
+  snapshot, with a `Retrying…` line under the error so it reads as a state and not a
+  dead end. Waiting fixes the launch race; retry covers what waiting cannot — an outage
+  longer than the wait, or a sidecar that dies while a window is open.
+
+Watch out in `AgentPanelApp.tsx`: the consecutive-failure count is a **`useRef`**, not
+state, and `retryNonce` only ever increments. Resetting a counter that sits in the
+effect's own dependency array tears down the subscription that just succeeded and drops
+the viewer back to "Loading". A test caught that; keep it.
+
 ## Not yet done / next actions
 
 1. **Sweep the other `metadataText` payload dumps — measured, not yet fixed.** Same six
@@ -227,12 +344,34 @@ needs it — and which is the convention the Claude adapter follows.
    with its record — it is the 170-char difference in the 85 pairs that were not
    byte-identical.
 
-4. **Never run against a live host.** Everything here is verified against real
-   transcripts and the host-free fixture; **no part of this arc has run through the
-   actual host + sidecar + panel stack.** Under AGENTS.md that is a checkpoint: state
-   the command and wait for a go-ahead.
+4. **Never run against a live host — this is the top item.** Everything here is
+   verified against real transcripts, unit tests, and the host-free fixture; **no part
+   of these arcs has run through the actual host + sidecar + panel stack**, except one
+   launch that immediately found the restore bug. Under AGENTS.md `just host-run` is a
+   checkpoint: state the command and wait for a go-ahead. What a live run should
+   confirm, in one pass:
+   - both saved Agents windows come back at their remembered frames, on their desktops;
+   - `Cmd -` / `=` / `0` scale the feed **and** the terminal pane's font together, and
+     the level survives quit-and-relaunch;
+   - the restored window populates from a cold start rather than showing
+     `agent feed is not ready` (this is the whole point of the readiness change);
+   - `pkill -f agent-feed-sidecar` mid-session makes the window show `Retrying…` and
+     then recover on its own, without reopening it;
+   - tool rows read as commands and file lists rather than `exec exec`.
 
-5. **Still open from the previous handover** (2026-07-11, now 19 days old): the
+5. **Residual work behind the readiness fix.** All small, none blocking:
+   - `VoiceEngineSidecar.stop()` runs on a queue that `waitUntilReady` can block for up
+     to 20s, so its waiter release can be delayed where the agent feed's `queue.sync`
+     one is prompt. Making both `sync` would even that out.
+   - `AgentWindowPresentationStore` still decodes every descriptor as one value, so a
+     future bad field costs all windows instead of one.
+   - The **thread** layer has no retry; only the projects and sessions layers do. An
+     `agent-thread-error` sets `connected = false` in `useSessionEventsStream` and stops
+     there. `BridgeDataSource.resumeAfterSessionReconnect` does re-subscribe threads,
+     but it fires on a QUIC session reconnect, not on a sidecar error — so a sidecar
+     restart while a thread is open still needs a manual back-and-forward.
+
+6. **Still open from the previous handover** (2026-07-11, now 19 days old): the
    one-time donor import is gated on an absent destination store
    (`WorkspaceStore.loadOrImport`, host/AgentDeskHost/Workspace/WorkspaceStore.swift:264).
    Latent, not biting. Its other two items are closed — the ADR-0054 client shipped
@@ -291,5 +430,16 @@ needs it — and which is the convention the Claude adapter follows.
   `agent_message` with its record compared each notification against the *preceding*
   record and reported 0% identical. That was wrong — correct pairing gives 98.7% — and
   it nearly buried a 3,000-row win.
+- **A new required field in a persisted struct erases the whole store.** Swift's
+  synthesized decode throws `keyNotFound`, `AgentWindowPresentationStore` decodes the
+  document as one value, and its `read` used `try?`. Adding `zoomStep` silently stopped
+  every Agents window from restoring, and only a live launch found it. Give a new field
+  a defaulted decode, and never let a store swallow a decode failure — it now logs.
+- **Readiness is an event, not a value to sample.** `SidecarReadinessSignal` is the one
+  home for it. When adding a consumer, await it; do not read `baseURL` and branch on
+  nil, which is the bug that cost the Agents window a whole session.
+- **A subscription that reports an error is torn down host-side.** `AgentFeedBridge`
+  removes the stream, so any caller that wants to survive a failure has to re-subscribe
+  itself. The projects and sessions layers do; the thread layer still does not.
 - Device and host launches are a checkpoint (AGENTS.md): prepare, state the command,
   then wait for "run it".
