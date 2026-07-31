@@ -1,28 +1,191 @@
-# Handover — 2026-07-11
+# Handover — 2026-07-30
 
-Branch `main`, HEAD `d7e7c66`. Gate green: `just check` (host + wire + WorkspaceKit + WorkspaceEditorViewer, 414 tests), `just sim-test` (client). (Previous handovers are preserved in this file's git history.)
+Branch `main`, HEAD `3e25106c`, in sync with `origin/main`, nothing uncommitted from
+this arc. (Previous handovers are preserved in this file's git history.)
 
-## What shipped this session: the ADR-0054 v4 delivery (shared data model + ported macOS shell + one file viewer)
+**Gate**: `just agent-feed-sidecar-check` (62 tests) and `just agent-panel-web-check`
+(116 tests) green, plus `swift test` in `packages/AgentDeskWire` and
+`packages/AgentPanel`. A **full `just check` currently fails on another session's
+in-progress voice work**, not on this — see Gotchas.
 
-The v2/v3 consolidation stopped at a stopgap macOS shell (a single titled panel) with two bespoke copies of the workspace/files logic. This session finished the merge per **ADR-0054**: the reusable shape shared between iOS and macOS is the **workspace data + files model only**; on top of it, macOS behaves as the `agent-workspace-ide` donor, and iOS keeps its own drill-down surface plus a new picker. Full ledger in `TASKS.md` (v4 Phases 0/A–G, R36–R52); rationale in `DECISIONS.md` (D11–D16).
+## What shipped this session: two views over the transcript (ADR-0086)
 
-- **Shared model** (`packages/WorkspaceKit`, macOS + iOS): the workspace/files domain types, reconciled with `AgentDeskWire`. Linked into both apps; `just check` runs its test leg.
-- **Ported macOS reveal shell** (`host/AgentDeskHost/WorkspaceShell/`): the donor's real views were **moved**, not rewritten — recursive `FileTree`/`FilePane` with live folder expansion, the `FileViewer` editor window (opens a file in a centered NSWindow), the reveal-on-hover sidebar + top bar (`FocusableOverlayPanel` + a CGEvent session tap, gated behind Input Monitoring), and **workspace = desktop** (`WorkspaceDesktopSwitcher` drives AgentDesk's `SpacesProvider`, not the donor's private SkyLight/dock-swipe code). The stopgap panel is retired. Shell is default-on (`Config.workspaceShellEnabled`), env-overridable.
-- **iOS workspace picker** (`WorkspaceFilesSurface`): the header is a picker (`workspace-files-picker`) over all workspaces; the auto-select-first bug is gone. This is what "existing workspaces didn't carry over" actually was — the store held all 9, the phone just auto-picked one with no way to see the rest.
-- **One cross-platform file viewer** (`packages/WorkspaceEditorViewer`, Phase G): the WKWebView SPA (CodeMirror + markdown-it + mermaid) and its host `WorkspaceFileWebSurface` are now cross-platform. iOS Files renders through the **same** SPA as the macOS shell instead of a raw `UITextView`, so markdown/mermaid/code render identically on both. A Preview/Edit toggle (`workspace-files-preview-mode`, ported from the macOS `FileViewer` modeButton) keeps the phone editable: markdown/notebooks open rendered, everything else opens as editable source. Reverses D15's host-only linking (the 5MB bundle now ships in iOS too — one viewer, not two).
+The Agent Panel rendered one row per JSONL line. Measured on real transcripts, that
+made the tail unreadable: the last 100 rows of the largest Codex session carried **2
+rows of agent prose**, and reaching five meant scrolling back 257 rows.
 
-Verified on the sim (`client/maestro/files-md-render.yaml`): open a `.md` file → renders; tap the toggle → flips to an editable CodeMirror source view. Live host AX self-report (from Phase F) confirms the FilePane tree is reachable, 9 workspaces, reveal working, no FileViewer crash.
+There are now two views. **`raw`** renders every line, flat — the fidelity guarantee.
+**`nice`** omits harness machinery and folds runs of tool work. Context occupancy left
+the transcript entirely and became a live header readout. Rationale in **ADR-0086**.
+
+| commit | what |
+|---|---|
+| `ffba11df` | context occupancy as a live header meter, not 7,197 rows |
+| `ececb678` | the machinery/content classifier (`sources/lineClass.ts`) |
+| `07941fde` | second index + mode carried end to end |
+| `78f290cc` | raw-mode labels (attachment subtypes, tool-label fallback, encrypted reasoning) |
+| `a52ad66c` | nice-mode clustering of tool runs |
+| `6ccf9e35` | ADR-0086 |
+| `3e25106c` | omit the duplicated `agent_message` notification |
+
+End to end on the largest Claude transcript (53 MB) and Codex rollout (339 MB):
+
+| | Claude | Codex |
+|---|---|---|
+| rows, raw → nice | 3,591 → 1,591 (56% fewer) | 20,217 → 8,582 (58% fewer) |
+| tail-window prose per 100 rows | 19 → 53 | 17 → 39 |
+
+## Settled design — do not relitigate
+
+- **Fidelity is never traded.** The nice view may omit **because** the raw view is one
+  press away. That relationship is load-bearing: the raw view stays flat and never
+  clusters.
+- **Machinery is an explicit deny-list; content is the DEFAULT.** A record type a
+  future harness release invents shows up as an unfamiliar row rather than vanishing.
+  This polarity is the one thing the design cannot get wrong.
+- **An absent mode means `raw`** at every boundary (webview decoder, QUIC wire, HTTP
+  query, panel buffer). A **present but unrecognized** mode is refused everywhere,
+  because guessing answers with indices counted in a view the caller did not ask for.
+- **Token `limit` arrives resolved from the sidecar.** Neither panel holds model
+  knowledge. Null is a real answer and renders a bare count, never a guessed fraction.
+- **No dedup by content.** Omissions are per-record-type rules, each measured first.
+
+## Where things live
+
+Sidecar, `agent-feed/sidecar/src/transcripts/`:
+
+- `sources/lineClass.ts` — the machinery/content tables and the rule. **The one place
+  to change what the nice view omits.**
+- `sources/claudeThinking.ts`, `sources/codexReasoning.ts` — "does this reasoning carry
+  text", shared by each adapter's renderer **and** the classifier. Two copies would
+  drift, and the failure is silent in the worst direction: a trace with real prose
+  classified as machinery and dropped.
+- `eventIndex.ts` — both indices, `readEvents`, `translateEventIndex`,
+  `niceInsertionPoint`. `dropIndexState` is the single teardown for per-index state.
+- `usageState.ts` — the sticky-usage merge; `config.ts` — `contextWindowFor`
+  (prefix-keyed, `AGENT_FEED_CONTEXT_WINDOWS` override).
+
+Panel, `packages/AgentPanel/Web/src/features/activity-feed/`:
+
+- `activityDisplayItems.ts` — clustering, `leadEvent`, `itemKey`, `isSkillActivation`.
+- `TokenMeter.tsx`, `eventModeStore.ts` — header readout, remembered mode.
+- `ActivityFeed.tsx` — the feed; toggle and meter portal into the shell header.
+
+Mode crosses four hand-mirrored boundaries. **Add a field and all four need it**, and
+`normalizeActivityEvent` rebuilds events field by field, so one it does not name is
+silently dropped:
+
+```
+sidecar JSON → AgentFeedActivityBlock/Event (host) → AgentDeskWire (abbreviated keys)
+             → BridgeDataSource wire types (web) → app types
+```
 
 ## Not yet done / next actions
 
-1. **TestFlight the ADR-0054 client.** The picker + shared viewer + mode toggle have **not** been uploaded; the last TestFlight (`1.9.1` build 888) predates this work. Before uploading, bump `client_marketing_version` in the `Justfile` — this is a **feature**, so `1.9.1 → 1.10.0` (per AGENTS.md versioning). Then `just fresh-testflight`. Device install/launch is a checkpoint: prepare + state the command, wait for "run it".
-2. **iOS has no HTML *page* preview (by design, recorded).** On iOS, `.html` opens as editable source, not a rendered page — the shared SPA renders HTML only as source, and iOS does not port macOS's separate `htmlPreviewSurface`. Documented in DECISIONS D16 / TASKS R52 so it isn't rediscovered as a bug. Building a real iOS HTML page surface is the follow-up if wanted.
-3. **One-time donor import is still gated on an absent destination store** (`WorkspaceStore.loadOrImport`, host/AgentDeskHost/Workspace/WorkspaceStore.swift:263). A stale/partial destination store permanently blocks the real import. Latent, not currently biting (the store holds the 9 real workspaces), but the absent-file gate is brittle — decide a smarter first-run (merge donor workspaces not present) without breaking ADR-0052's "one authoritative store, no replay".
+1. **`Patch Applied` renders its raw payload. Fully investigated, ready to fix — and
+   do NOT omit it.** It is not safely omittable the way `agent_message` was: of 3,219
+   records across the six largest rollouts, 2,058 (64%) pair by `call_id` with an
+   `apply_patch`/`exec_command` call whose output contains their `stdout`, but **1,161
+   (36%) come from `apply_patch` run through an `exec` shell call and their
+   confirmation appears nowhere else** — searching the next 40 tool outputs for each
+   one's `stdout` found it in 0 of 1,161. Omitting would lose "did this edit land" for
+   a third of all edits.
+
+   The defect is the rendering: it falls through the generic `event_msg` branch to
+   `metadataText(payload)`, so a row is raw payload JSON — **mean 3,343 chars (10.8 MB
+   across those six files)** where the useful `stdout` is 170 chars, and **777 rows
+   (24%) exceed the 4,096-char cap and are cut mid-diff**. It is the largest remaining
+   non-prose row type in the Codex tail (10 per 100). Also 884 of 3,219 (27%) touch
+   more than one file, so the file list is load-bearing; and `success: false` never
+   occurs with `stderr` empty in all 3,219, so like the hooks the failure path has
+   never rendered and is still worth writing.
+
+   Fix: a named branch in `codexTranscript.ts` showing `stdout` (or a file list from
+   `changes`), marking failure on `success === false`, full payload left to the Raw
+   drawer. Mirrors the encrypted-reasoning fix in `78f290cc`. Feeding
+   `changes.unified_diff` into the existing `DiffBlock` is larger and separable.
+
+2. **Sweep the other `metadataText` payload dumps.** `patch_apply_end` reaches its dump
+   by falling through the generic `event_msg` branch, so `Task Started`,
+   `Task Completed`, `Item Completed`, `Thread Settings` and the rest very likely do
+   the same. Measure as one group rather than one at a time.
+
+3. **Mode switch loses the viewer's place — deliberately deferred.** Switching remounts
+   the feed and lands at the tail. Seeding at the viewer's position opens a **hole**
+   between that window and the live tail, and the feed's event store has no way to
+   represent a gap: rows either side would render as adjacent when they are not.
+   `otherModeIndex` is already on the wire and tested for exactly this, so the
+   translation half is done; what is missing is an anchored subscribe plus gap
+   handling in the store.
+
+4. **`<oai-mem-citation>` renders as part of the agent's words**, in both views. A
+   machine block riding inside assistant prose. Found while pairing `agent_message`
+   with its record — it is the 170-char difference in the 85 pairs that were not
+   byte-identical.
+
+5. **Never run against a live host.** Everything here is verified against real
+   transcripts and the host-free fixture; **no part of this arc has run through the
+   actual host + sidecar + panel stack.** Under AGENTS.md that is a checkpoint: state
+   the command and wait for a go-ahead.
+
+6. **Still open from the previous handover** (2026-07-11, now 19 days old): the
+   one-time donor import is gated on an absent destination store
+   (`WorkspaceStore.loadOrImport`, host/AgentDeskHost/Workspace/WorkspaceStore.swift:264).
+   Latent, not biting. Its other two items are closed — the ADR-0054 client shipped
+   (marketing version is now `1.10.2`), and iOS having no rendered HTML *page* preview
+   is a recorded design decision, not a bug.
+
+## Corrections to the plan this arc was built from
+
+`~/.claude/plans/ticklish-kindling-squirrel.md` has four claims measurement disproved.
+**Trust this file over that one.**
+
+1. **Claude has its own encrypted-reasoning case**, which the plan credited only to
+   Codex: 587 rows (14% of the largest Claude file) are `thinking` blocks with an empty
+   trace whose signature blob was dumped as a Plain card. Adding it took Claude
+   omission 28% → 42% and doubled its tail prose.
+2. **Codex skill detection needed no sidecar work.** 94% of `SKILL.md` references
+   (3,123 of 3,322) fall inside the 200-char summary, **not 21%**. No wire field and no
+   skill-root allowlist were needed.
+3. **The sticky selectors needed no change.** They only read a row's `kind`, never its
+   event, so clustering did not touch them and their tests still hold as written.
+4. **The 6× prose-density projection was optimistic.** The real figure is 1.6–2.8×.
 
 ## Gotchas
 
-- `just check` has an intermittent 1-test WebKit/RBS flake (WKWebView host tests). Retry — it's environmental; filter with `grep -ivE 'WebContent|ProcessSuspension|pboard|RBS'`. (Also in agent memory.)
-- A freshly built Release host is a differently-signed binary; it needs its own Screen Recording + Accessibility grants and can't read a Debug-created Secure-Enclave key. If pairing fails with `unexpectedStatus(100002)`, check the host's on-disk bundle exists and is the identity that owns the keychain key.
-- The reveal pointer source is a CGEvent **session tap** (Input Monitoring), not `NSEvent` monitors, which miss edge movement on non-owning Desktops. A fresh Release host needs the Input Monitoring grant; the shell degrades to a pinned sidebar/top bar if denied (R41).
-- `pair-sim` / `pair-iphone` only relaunch the already-installed client — they do **not** pick up code changes. Rebuild+update in place (`client-sim-install`) and verify `AgentDeskGitSHA` vs HEAD before trusting a feel run. (Also in agent memory.)
-- Device/host launches are a checkpoint (AGENTS.md): prepare + state the command, then wait for "run it".
+- **Another session is editing this repo concurrently** (voice, `gesture-agent`,
+  `VoiceLaneServer.swift`, `TASKS.md`, `SPEC.md`). A full `just check` failed twice
+  during this arc on *their* in-progress code. Verify the two legs above separately
+  before concluding anything from `just check`, and read `git status` before staging —
+  `git add` of a shared file picks up their uncommitted work.
+- **`just check` also has known intermittent flakes** (WebKit/pasteboard noise, QUIC
+  lane and sidecar timing). Retry before investigating. (Also in agent memory.)
+- **The one test that matters most is `eventIndex.test.ts`'s index/read agreement
+  pass.** `readEvents` reads the byte span between two indexed lines and re-parses
+  everything inside it; in nice mode the omitted lines are still physically in that
+  span. Failing to re-apply the classification there **does not error** — the page
+  looks correct while every index addresses a different line, surfacing as a Raw drawer
+  showing the wrong line, a paging anchor landing wrong, and a mis-scrolled sticky
+  jump. That test is the only place it is visible.
+- **Measure the real surface; do not reason about CSS.** Every number here came from
+  `just agent-panel-web`, then `http://localhost:5183/?fixture` at viewport **480×692**
+  (the panel's content rect minus its NSPanel titlebar), read with
+  `getBoundingClientRect`. Three of this arc's bugs got through code review and were
+  caught only by measuring. The fixture derives both views from one tagged line list,
+  the way the sidecar does, so it cannot disagree with itself about which line an index
+  names.
+- **Two raw-drawer tests were made deterministic in `a52ad66c`.** They clicked a
+  `<summary>` and polled 1,000 ms; jsdom schedules `toggle` as a task and one run took
+  1,027 ms under load. They now set `open` and dispatch `toggle` directly and release a
+  held fetch by hand. Do not reintroduce a `waitFor` poll there.
+- **`event_msg.agent_message` is omitted; `response_item.agent_message` is not.** Same
+  name, different records (72,324 against 453). Do not merge the rule.
+- **`user_message` is NOT a duplicate** despite the identical notification/record
+  shape: 1,076 of its 1,085 pairs carry different text. A person's words stay in;
+  there is a test pinning it.
+- **Measure a duplication claim before acting on it.** The first attempt to pair
+  `agent_message` with its record compared each notification against the *preceding*
+  record and reported 0% identical. That was wrong — correct pairing gives 98.7% — and
+  it nearly buried a 3,000-row win.
+- Device and host launches are a checkpoint (AGENTS.md): prepare, state the command,
+  then wait for "run it".
