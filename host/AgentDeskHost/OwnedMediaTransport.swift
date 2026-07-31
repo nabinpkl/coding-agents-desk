@@ -162,7 +162,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 state.latest = nil
                 return false
             }
-            state.forceKeyframe = true
+            state.forceKeyframeReason = .resumeWatching
             return true
         }
         logger.notice("client watching video=\(watching, privacy: .public)")
@@ -176,7 +176,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 return nil
             }
             if outcome.resolutionChanged {
-                state.forceKeyframe = true
+                state.forceKeyframeReason = .resolutionChange
             }
             return outcome
         }
@@ -229,7 +229,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             }
             state.latest = frame
             if frame.forceKeyframe {
-                state.forceKeyframe = true
+                state.forceKeyframeReason = .captureRequested
             }
             if state.encoding { return false }
             state.encoding = true
@@ -254,13 +254,16 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 case .ready(let updateId, let abandoned):
                     state.latest = nil
                     let clientKeyframe = state.mediaState.takeClientKeyframeRequest()
-                    let forceKeyframe = state.forceKeyframe || clientKeyframe
-                    state.forceKeyframe = false
+                    // A client asking outranks our own cause when both are pending: it is
+                    // the more actionable signal, and ours will be re-satisfied by the same
+                    // keyframe anyway.
+                    let forceKeyframeReason = clientKeyframe ? .clientRequest : state.forceKeyframeReason
+                    state.forceKeyframeReason = nil
                     return .job(
                         EncodeJob(
                             frame: frame,
                             updateId: updateId,
-                            forceKeyframe: forceKeyframe,
+                            forceKeyframeReason: forceKeyframeReason,
                             clientKeyframe: clientKeyframe,
                             abandoned: abandoned
                         )
@@ -290,10 +293,8 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 guard let envelope = await encoder.encode(
                     videoFrame,
                     updateId: job.updateId,
-                    forceKeyframe: job.forceKeyframe,
-                    requestedKeyframeReason: job.forceKeyframe
-                        ? .clientRequest
-                        : nil
+                    forceKeyframe: job.forceKeyframeReason != nil,
+                    requestedKeyframeReason: job.forceKeyframeReason
                 ) else {
                     continue
                 }
@@ -794,7 +795,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         logger.notice("owned media stall recovery windowId=\(decision.observation.windowId, privacy: .public) reason=\(recovery.reason, privacy: .public) flushedFrames=\(recovery.flushedFrames, privacy: .public) flushedBytes=\(recovery.flushedBytes, privacy: .public) forcedKeyframe=\(recovery.forcedKeyframe, privacy: .public) inFlightBeforeFlush=\(decision.observation.inFlightFrames, privacy: .public) oldestInflightMs=\(self.formatMs(decision.observation.oldestInflightMs), privacy: .public) ackCount=\(decision.observation.ackCount, privacy: .public)")
         guard recovery.forcedKeyframe else { return }
         encodeGate.withLock { state in
-            state.forceKeyframe = true
+            state.forceKeyframeReason = .stallRecovery
         }
         startDrainIfNeeded()
     }
@@ -865,7 +866,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             // pixels. The encoder recreates its session when the scaled dims change;
             // force a keyframe so the client decoder transitions cleanly.
             encodeGate.withLock { state in
-                state.forceKeyframe = true
+                state.forceKeyframeReason = .resolutionChange
                 state.mediaState.resetForQualityChange()
             }
             logger.notice("owned media video resolution-step windowId=\(decision.observation.windowId, privacy: .public) scale=\(outcome.target.resolutionScale, privacy: .public) bitrate=\(outcome.target.bitrateKbps, privacy: .public)kbps fps=\(outcome.target.fps, privacy: .public) rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public) downscale=encode-pump")
@@ -908,7 +909,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     private struct EncodeJob {
         let frame: CapturedVideoFrame
         let updateId: OwnedSurfaceUpdateId
-        let forceKeyframe: Bool
+        let forceKeyframeReason: OwnedMediaKeyframeReason?
         let clientKeyframe: Bool
         let abandoned: [GraphicsBackpressure.InFlightFrame]
     }
@@ -980,7 +981,10 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var isWatchingVideo = true
         var encoding = false
         var retryScheduled = false
-        var forceKeyframe = false
+        // ADR-0087: carries WHY, not just whether. Five distinct causes used to collapse
+        // to `client-request` in the log, which made a stall-recovery keyframe -- whose
+        // whole point is being observable -- indistinguishable from a client asking.
+        var forceKeyframeReason: OwnedMediaKeyframeReason?
         var mediaState = QuicSessionHostMediaState()
         var productionDiagnostics = MediaProductionDiagnosticsTracker()
         var latestProductionSummary: MediaProductionSummary?

@@ -221,47 +221,7 @@ struct MediaStallRecoveryTests {
         )
     }
 
-    // MARK: - The keyframe interval ceiling
-
-    @Test func periodicKeyframeStillGovernedByFrameCountAtNormalCadence() {
-        let config = encodingConfig(intervalFrames: 120, maxIntervalMs: 15_000)
-        // 30fps: 120 frames is 4s, well inside the ceiling, so the count decides.
-        #expect(config.isPeriodicKeyframe(frameId: 120, lastKeyframeUptimeNs: 0, nowNs: 4_000_000_000))
-        #expect(!config.isPeriodicKeyframe(frameId: 119, lastKeyframeUptimeNs: 0, nowNs: 3_966_000_000))
-    }
-
-    @Test func periodicKeyframeFallsBackToWallClockOnASlowStream() {
-        let config = encodingConfig(intervalFrames: 120, maxIntervalMs: 15_000)
-        // ADR-0073's own validation profile is 1fps, where a 120-frame GOP is TWO MINUTES.
-        // The client is told to hold its last image and wait for one coalesced keyframe;
-        // that wait needs a bound.
-        #expect(!config.isPeriodicKeyframe(frameId: 14, lastKeyframeUptimeNs: 0, nowNs: 14_000_000_000))
-        #expect(config.isPeriodicKeyframe(frameId: 15, lastKeyframeUptimeNs: 0, nowNs: 15_000_000_000))
-    }
-
-    @Test func wallClockCeilingNeverFiresBeforeTheFirstKeyframe() {
-        let config = encodingConfig(intervalFrames: 120, maxIntervalMs: 15_000)
-        // No baseline yet. Frame 1 is unconditionally a keyframe in the encoder, so this
-        // only guards the window before it.
-        #expect(!config.isPeriodicKeyframe(frameId: 5, lastKeyframeUptimeNs: nil, nowNs: 99_000_000_000))
-    }
-
-    @Test func wallClockCeilingIsDisableable() {
-        let config = encodingConfig(intervalFrames: 120, maxIntervalMs: 0)
-        #expect(!config.isPeriodicKeyframe(frameId: 5, lastKeyframeUptimeNs: 0, nowNs: 99_000_000_000))
-        #expect(config.isPeriodicKeyframe(frameId: 120, lastKeyframeUptimeNs: 0, nowNs: 99_000_000_000))
-    }
-
     // MARK: - Helpers
-
-    private func encodingConfig(intervalFrames: Int, maxIntervalMs: Int) -> OwnedMediaEncodingConfiguration {
-        OwnedMediaEncodingConfiguration(
-            targetBitrateKbps: 2_500,
-            expectedFrameRate: 30,
-            keyframeIntervalFrames: intervalFrames,
-            keyframeMaxIntervalMs: maxIntervalMs
-        )
-    }
 
     /// Pins the stream the way the phone's manual mode does. 900/10/0.5 is inside the
     /// client's exposed range (180-5000 kbps, fps 1-30, scale 0.33-1.0).

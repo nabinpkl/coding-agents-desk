@@ -1218,16 +1218,33 @@ defined as the maximum interval *between* keyframes.
   places periodic keyframes, so replace it with `source=requested|encoder`. Delete the dead
   `allowPeriodicKeyframe` parameter and collapse `resolveKeyframeReason`, whose last two
   branches already both return `.periodic`.
+- **R193** Thread the real cause of each forced keyframe through `EncodeState` instead of
+  labelling all five as `client-request`. Found in R191's self-review: R185 added stall
+  recovery as a fifth source, and being observable is the entire point of it.
 - **R192** Rewrite the placement tests to assert the contract rather than exact frame
   positions. `testPeriodicKeyframeFiresAtInterval` asserts frame 3 is not a keyframe at
   interval 2, which the platform's "at least every other frame" semantics likely inverts.
 
 ### Implementation checkpoint
 
-R189 landed green on 2026-07-31: both keys are advertised in the supported-property
-dictionary, both are accepted, and both read back their set values. A deliberate wrong
-expectation was used to confirm the assertion discriminates rather than passing vacuously.
-R190-R192 remain.
+R189-R192 landed 2026-07-31. R189 confirmed both keys are advertised, accepted, and read
+back at our exact session settings. R190 set both as session properties through a strict
+setter that rejects the session rather than tolerating an unsupported one, and deleted
+`isPeriodicKeyframe`, `lastKeyframeUptimeNs`, and the periodic term in `encode`. R191
+replaced the `expected` keyframe flag with `source=requested|encoder`, deleted the dead
+`allowPeriodicKeyframe` parameter, and collapsed `resolveKeyframeReason`. R192 replaced four
+tests of the deleted pure function with two behavioral ones asserting the interval as a
+bound, both confirmed to discriminate by asserting a wrong value first. R193 followed from
+R191's self-review: `forceKeyframe: Bool` became `forceKeyframeReason`, so a stall recovery
+no longer logs as a client request. Wire values are unchanged and tested to stay that way --
+every forced reason still classifies as `.reset`, exactly as the collapsed `clientRequest`
+did.
+
+The sparse-frame test established that VideoToolbox measures the duration ceiling against
+the presentation timeline rather than the host clock, so ADR-0073's 1fps profile is provable
+in milliseconds. Repository-wide `just check` passes with 662 Swift tests in 87 suites (four
+fewer than before, being the removed tests of the deleted function). R188 is still the open
+device checkpoint for the whole phase.
 
 ## Promotion log
 
@@ -1294,9 +1311,10 @@ D186  2026-07-30  landed     wall-clock ceiling on the video GOP
 D187  2026-07-30  landed     host-raised quality window when the client goes silent
 R188  checkpoint  remaining  authorized device acceptance against the 42.1s-frozen baseline
 D189  2026-07-31  landed     proved the encoder honors both keyframe-interval properties
-R190  candidate   remaining  hand periodic keyframe placement to the encoder
-R191  candidate   remaining  keyframe diagnostics that survive platform-placed keyframes
-R192  candidate   remaining  placement tests asserting the contract, not frame positions
+D190  2026-07-31  landed     handed periodic keyframe placement to the encoder
+D191  2026-07-31  landed     keyframe diagnostics that survive platform-placed keyframes
+D192  2026-07-31  landed     placement tests asserting the contract, not frame positions
+D193  2026-07-31  landed     honest cause on every forced keyframe, not a blanket client-request
 D189  2026-07-30  landed     typed-reference contract refinement
 D190  2026-07-30  landed     atomic zero-attempt creation and reference derivation
 D191  2026-07-30  landed     typed-reference wire and native proxy

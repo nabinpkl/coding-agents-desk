@@ -9,7 +9,12 @@ import AgentDeskWire
 // wire refresh reason. The bytes are dropped here; the datagram carrier (Phase 2)
 // is what sends them. These tests run hardware HEVC on the Mac test host.
 final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
-    private func makeFrame(frameIndex: UInt64, width: Int = 256, height: Int = 256) -> CapturedVideoFrame {
+    private func makeFrame(
+        frameIndex: UInt64,
+        width: Int = 256,
+        height: Int = 256,
+        presentationTimeNs: Int64? = nil
+    ) -> CapturedVideoFrame {
         var buffer: CVPixelBuffer?
         let attrs: [CFString: Any] = [
             kCVPixelBufferIOSurfacePropertiesKey: [:],
@@ -38,7 +43,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         }
         return CapturedVideoFrame(
             pixelBuffer: pixelBuffer,
-            presentationTimeNs: Int64(frameIndex) * 33_333_333,
+            presentationTimeNs: presentationTimeNs ?? Int64(frameIndex) * 33_333_333,
             capturedAtUptimeNs: DispatchTime.now().uptimeNanoseconds,
             rotation: ._0
         )
@@ -58,10 +63,11 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         frameIndex: UInt64,
         frameId: UInt64,
         forceKeyframe: Bool = false,
-        requestedKeyframeReason: OwnedMediaKeyframeReason? = nil
+        requestedKeyframeReason: OwnedMediaKeyframeReason? = nil,
+        presentationTimeNs: Int64? = nil
     ) async throws -> OwnedMediaFrameEnvelope {
         let envelope = await encoder.encode(
-            makeFrame(frameIndex: frameIndex),
+            makeFrame(frameIndex: frameIndex, presentationTimeNs: presentationTimeNs),
             updateId: updateId(frameId),
             forceKeyframe: forceKeyframe,
             requestedKeyframeReason: requestedKeyframeReason
@@ -102,17 +108,71 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(second.header.refreshReason, .rest)
     }
 
-    func testPeriodicKeyframeFiresAtInterval() async throws {
-        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config(keyframeInterval: 2))
+    // ADR-0087: periodic placement is the encoder's, so this asserts the CONTRACT -- a
+    // keyframe at least every N frames -- not the exact positions our old frame counter
+    // happened to choose. The header defines interval N as "at least every Nth frame must
+    // be a key frame", which is a bound, not a schedule.
+    func testKeyframeArrivesAtLeastEveryIntervalFrames() async throws {
+        let interval = 4
+        let encoder = VideoToolboxOwnedMediaEncoder(
+            codec: .hevc,
+            configuration: config(keyframeInterval: interval)
+        )
         defer { encoder.invalidate() }
-        // Frame 1 forced (first), frame 2 periodic (multiple of 2), frame 3 delta,
-        // frame 4 periodic. Assert the cadence on frames 3 and 4.
-        _ = try await encodeFrame(encoder, frameIndex: 0, frameId: 1)
-        _ = try await encodeFrame(encoder, frameIndex: 1, frameId: 2)
-        let third = try await encodeFrame(encoder, frameIndex: 2, frameId: 3)
-        let fourth = try await encodeFrame(encoder, frameIndex: 3, frameId: 4)
-        XCTAssertFalse(third.header.isKeyframe, "frame 3 is not on the keyframe interval")
-        XCTAssertTrue(fourth.header.isKeyframe, "frame 4 is a periodic keyframe")
+        var gap = 0
+        var worstGap = 0
+        for index in 0..<16 {
+            let frame = try await encodeFrame(encoder, frameIndex: UInt64(index), frameId: UInt64(index + 1))
+            if frame.header.isKeyframe {
+                worstGap = max(worstGap, gap)
+                gap = 0
+            } else {
+                gap += 1
+            }
+        }
+        XCTAssertLessThan(
+            worstGap, interval,
+            "gap of \(worstGap) frames between keyframes exceeds the \(interval)-frame interval"
+        )
+    }
+
+    // The reason the wall-clock ceiling exists: a change-driven capture can produce a few
+    // frames per second, where a 120-frame GOP is ~21s and ADR-0073's 1fps validation
+    // profile is TWO MINUTES. VideoToolbox measures the duration against the presentation
+    // timeline, not the host clock, so feeding a slow PTS proves the bound in milliseconds
+    // rather than in real minutes.
+    func testKeyframeArrivesOnTheDurationCeilingWhenFramesAreSparse() async throws {
+        let encoder = VideoToolboxOwnedMediaEncoder(
+            codec: .hevc,
+            // Frame count effectively disabled, so only the duration ceiling can fire.
+            configuration: OwnedMediaEncodingConfiguration(
+                targetBitrateKbps: 2000,
+                expectedFrameRate: 30,
+                keyframeIntervalFrames: 10_000,
+                keyframeMaxIntervalMs: 3_000
+            )
+        )
+        defer { encoder.invalidate() }
+        var keyframeAtSecond: [Int] = []
+        for second in 0..<8 {
+            let frame = try await encodeFrame(
+                encoder,
+                frameIndex: UInt64(second),
+                frameId: UInt64(second + 1),
+                presentationTimeNs: Int64(second) * 1_000_000_000
+            )
+            if frame.header.isKeyframe { keyframeAtSecond.append(second) }
+        }
+        // Frame 1 is always a keyframe; the ceiling must produce more beyond it.
+        XCTAssertGreaterThan(
+            keyframeAtSecond.count, 1,
+            "no keyframe in 8 presentation-seconds against a 3s ceiling (keyframes at \(keyframeAtSecond))"
+        )
+        let worstGap = zip(keyframeAtSecond, keyframeAtSecond.dropFirst()).map { $1 - $0 }.max() ?? 0
+        XCTAssertLessThanOrEqual(
+            worstGap, 3,
+            "gap of \(worstGap)s between keyframes exceeds the 3s ceiling"
+        )
     }
 
     // R189 (ADR-0087): does this Mac's hardware HEVC encoder actually honor the two
@@ -227,6 +287,41 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             "MaxKeyFrameIntervalDuration could not be read back"
         )
         XCTAssertEqual((try XCTUnwrap(durationSeconds)) as? Double, 15.0)
+    }
+
+    // ADR-0087: splitting the forced-keyframe reasons apart must not move any wire value.
+    // Before the split every forced keyframe reported itself as `clientRequest` and so
+    // classified as `.reset`; each distinct reason has to keep doing that, or a stall
+    // recovery would newly tell the client "rest" for a frame that is a fresh start.
+    func testEveryForcedKeyframeReasonStillClassifiesAsReset() {
+        for reason: OwnedMediaKeyframeReason in [
+            .clientRequest, .resolutionChange, .stallRecovery, .resumeWatching, .captureRequested
+        ] {
+            XCTAssertEqual(
+                OwnedMediaRefreshReason.fromEncodedFrame(
+                    frameId: 42,
+                    isKeyframe: true,
+                    requestedKeyframeReason: reason,
+                    expectedKeyframeReason: reason
+                ),
+                .reset,
+                "forced keyframe reason \(reason.rawValue) no longer classifies as reset"
+            )
+        }
+    }
+
+    // A keyframe the encoder placed on its own interval carries no reason, and is a rest
+    // refresh rather than a reset: nothing about the stream was reset, it is simply the
+    // periodic sync point.
+    func testEncoderPlacedKeyframeClassifiesAsRest() {
+        let noReason: OwnedMediaKeyframeReason? = nil
+        let classified = OwnedMediaRefreshReason.fromEncodedFrame(
+            frameId: 42,
+            isKeyframe: true,
+            requestedKeyframeReason: noReason,
+            expectedKeyframeReason: noReason
+        )
+        XCTAssertEqual(classified, .rest)
     }
 
     func testRequestKeyframeForcesTheNextFrame() async throws {

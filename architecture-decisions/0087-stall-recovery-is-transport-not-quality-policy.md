@@ -76,13 +76,32 @@ Stall recovery is transport behavior. It runs on every quality window in both mo
   is spaced by `ownedMediaStallRecoveryMinIntervalMs` (5s) and suppressed while a keyframe
   is already in flight, so a genuinely dead link cannot be driven into a keyframe storm by
   its own stall signal.
-- **The GOP gains a wall-clock ceiling.** `ownedMediaKeyframeIntervalFrames` (120) is
-  unbounded in time on a change-driven capture: the manual sessions produced 4-6fps, making
-  it ~21s, and ADR-0073's 1fps profile makes it two minutes.
-  `ownedMediaKeyframeMaxIntervalMs` (15s) bounds it. Whichever interval comes first wins, so
-  at 15fps and above the frame count still governs and the ceiling never fires. 15s and not
-  less is the bandwidth arithmetic above: a 5s ceiling would spend 142-264kbps on keyframes
-  alone.
+- **The GOP gains a wall-clock ceiling, and the encoder owns both intervals.**
+  `ownedMediaKeyframeIntervalFrames` (120) is unbounded in time on a change-driven capture:
+  the manual sessions produced 4-6fps, making it ~21s, and ADR-0073's 1fps profile makes it
+  two minutes. `ownedMediaKeyframeMaxIntervalMs` (15s) bounds it. Whichever interval comes
+  first wins, so at 15fps and above the frame count still governs and the ceiling never
+  fires. 15s and not less is the bandwidth arithmetic above: a 5s ceiling would spend
+  142-264kbps on keyframes alone.
+
+  Both are set as VideoToolbox session properties
+  (`kVTCompressionPropertyKey_MaxKeyFrameInterval` and `...MaxKeyFrameIntervalDuration`)
+  rather than enforced in our own code. This landed second, and it corrects a mistake in the
+  first pass: the ceiling was hand-rolled beside a frame counter without checking whether the
+  platform already had the mechanism. It has, since macOS 10.8, with the same
+  whichever-comes-first semantics, and the duration key is documented as being for exactly
+  this case, a variable frame rate.
+
+  The hand-rolled frame half also carried a bug the platform's does not have. It tested
+  `frameId.isMultiple(of: 120)` against a counter that never resets, so a keyframe emitted
+  for any other reason — client request, stall recovery, resolution change — did not restart
+  the interval, and a forced keyframe at frame 119 was followed by a periodic one at 120.
+  Apple's is defined as the maximum interval *between* keyframes.
+
+  These two properties are set through a strict setter that rejects the session on
+  `kVTPropertyNotSupportedErr`, unlike the permissive one used for tuning hints. A tolerated
+  no-op here means a stream with no keyframe ceiling at all, which is invisible until a
+  client sits on a frozen image waiting for a sync point that is not scheduled.
 - **The host raises its own window when the client goes quiet.** `observeLinkHealth` was
   reachable only from `handleLinkHealth`, driven by inbound client messages, so the one
   event the governor most needs to see is the event that stops it being called: during the
@@ -132,6 +151,25 @@ the decision is a pure function on `OwnedMediaEncodingConfiguration`.
 The runtime signal is `owned media stall recovery` in the `owned-media` log category,
 carrying the reason, the flushed frame and byte counts, and whether the keyframe was forced
 or withheld.
+
+For the GOP, three tests hold the platform to its documentation, because the whole mechanism
+now lives outside our code. One asserts the encoder advertises, accepts, and reads back both
+interval properties at our exact session settings, `EnableLowLatencyRateControl` included,
+since a declined property would otherwise be indistinguishable from an honored one. The
+other two assert the resulting behavior as a bound rather than a schedule: a keyframe at
+least every N frames, and at least every N seconds when frames are sparse. Both were
+confirmed to discriminate by asserting the wrong value first and watching them fail — the
+sparse case yields only the initial keyframe when the ceiling is widened to 60s.
+
+That second test also settles how the duration is measured: against the presentation
+timeline, not the host clock. Eight presentation-seconds of sparse PTS complete in about two
+seconds of real time, so the 1fps case is provable in milliseconds instead of minutes.
+
+`owned encoder keyframe-result` reports `source=requested|encoder`, which replaced an
+`expected` flag meaning "we predicted this keyframe". Once the encoder places the periodic
+ones we cannot predict them, so `expected=false` would have become the normal case and read
+as an anomaly. A rising `source=encoder` rate against a steady `requested` one is the signal
+that the interval properties are doing the work.
 
 ## Pros and Cons of the Options
 

@@ -15,16 +15,32 @@ import AgentDeskWire
 
 // Why a keyframe happened, for logging and refresh-reason classification. Host
 // only; never crosses the wire.
+// ADR-0087: every value here is a keyframe WE forced, and each names a distinct cause.
+// There is deliberately no `periodic` case: periodic placement belongs to the encoder's
+// interval properties, and a keyframe it placed has no reason we can name (the log records
+// those as `source=encoder`).
+//
+// These were previously collapsed to `clientRequest` at the call site, so a resolution
+// change and a stall recovery both logged as a client request. That mattered more once
+// stall recovery arrived, since being observable is the whole point of it.
 enum OwnedMediaKeyframeReason: String, Equatable, Sendable {
     case initial
-    case periodic
     case clientRequest = "client-request"
+    case resolutionChange = "resolution-change"
+    case stallRecovery = "stall-recovery"
+    case resumeWatching = "resume-watching"
+    case captureRequested = "capture-requested"
 }
 
 extension OwnedMediaRefreshReason {
     // Classify the wire refresh reason from what the encoder actually produced.
-    // The first frame is always a fresh start; a keyframe asked for by the client
-    // is a reset, any other keyframe is a periodic rest refresh.
+    // The first frame is always a fresh start; a keyframe the host deliberately forced is
+    // a reset, and one the encoder placed on its own interval is a rest refresh.
+    //
+    // Any forced reason means reset, not just a client request. That is not a change of
+    // behavior: until the reasons were split apart every forced keyframe reported itself as
+    // `clientRequest`, so this keeps the wire values identical while the log stops lying
+    // about the cause.
     static func fromEncodedFrame(
         frameId: UInt64,
         isKeyframe: Bool,
@@ -37,11 +53,9 @@ extension OwnedMediaRefreshReason {
         guard isKeyframe else {
             return .rest
         }
-        if requestedKeyframeReason == .clientRequest ||
-            expectedKeyframeReason == .clientRequest {
-            return .reset
-        }
-        return .rest
+        let forced = requestedKeyframeReason ?? expectedKeyframeReason
+        guard let forced, forced != .initial else { return .rest }
+        return .reset
     }
 }
 
@@ -59,10 +73,11 @@ private extension OwnedMediaCodec {
 struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
     let targetBitrateKbps: Int
     let expectedFrameRate: Int
+    // ADR-0087: both intervals are handed to the encoder as session properties, which
+    // enforces them together (whichever comes first). Neither is consulted by our code.
     let keyframeIntervalFrames: Int
-    // ADR-0087: wall-clock ceiling on the same GOP, because the frame count above is
-    // unbounded in time on a change-driven capture. See Config for the bandwidth
-    // arithmetic behind the default.
+    // The wall-clock half, and the load-bearing one: the frame count above is unbounded in
+    // TIME on a change-driven capture. See Config for the bandwidth arithmetic.
     let keyframeMaxIntervalMs: Int
     // ADR-0027: multiple of the average bitrate used for the encoder's hard
     // DataRateLimits window. Threaded through config so it tracks the bitrate and is
@@ -98,24 +113,6 @@ struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
             keyframeMaxIntervalMs: Config.ownedMediaKeyframeMaxIntervalMs
         )
     }
-
-    /// Whether this frame is a periodic keyframe, by frame count OR elapsed time.
-    ///
-    /// Pure and static so the policy is testable without a VideoToolbox session, which is
-    /// the only way to assert the 1fps case: proving a 120-frame GOP takes two minutes of
-    /// wall clock at 1fps otherwise needs two minutes of wall clock.
-    func isPeriodicKeyframe(
-        frameId: UInt64,
-        lastKeyframeUptimeNs: UInt64?,
-        nowNs: UInt64
-    ) -> Bool {
-        if keyframeIntervalFrames > 0, frameId.isMultiple(of: UInt64(keyframeIntervalFrames)) {
-            return true
-        }
-        guard keyframeMaxIntervalMs > 0, let lastKeyframeUptimeNs else { return false }
-        let elapsedNs = nowNs >= lastKeyframeUptimeNs ? nowNs - lastKeyframeUptimeNs : 0
-        return elapsedNs >= UInt64(keyframeMaxIntervalMs) * 1_000_000
-    }
 }
 
 final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
@@ -145,10 +142,6 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private var size: (width: Int, height: Int)?
     private var frameId: UInt64 = 0
     private var forceNextKeyframe = false
-    // ADR-0087: when the last keyframe was ADMITTED, which is what the wall-clock ceiling
-    // measures against. Nil until the first frame; frame 1 is always a keyframe, so the
-    // ceiling has a baseline from the first frame onward and never fires before one.
-    private var lastKeyframeUptimeNs: UInt64?
     private var loggedFirstEncodedFrame = false
     private var pendingFrames: [UInt64: PendingEncodedFrame] = [:]
 
@@ -166,7 +159,6 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         _ frame: CapturedVideoFrame,
         updateId: OwnedSurfaceUpdateId,
         forceKeyframe: Bool = false,
-        allowPeriodicKeyframe: Bool = true,
         requestedKeyframeReason: OwnedMediaKeyframeReason? = nil
     ) async -> OwnedMediaFrameEnvelope? {
         await withCheckedContinuation { continuation in
@@ -174,7 +166,6 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
                 frame,
                 updateId: updateId,
                 forceKeyframe: forceKeyframe,
-                allowPeriodicKeyframe: allowPeriodicKeyframe,
                 requestedKeyframeReason: requestedKeyframeReason
             ) { envelope in
                 continuation.resume(returning: envelope)
@@ -186,7 +177,6 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         _ frame: CapturedVideoFrame,
         updateId: OwnedSurfaceUpdateId,
         forceKeyframe requestedAdmissionKeyframe: Bool,
-        allowPeriodicKeyframe: Bool,
         requestedKeyframeReason: OwnedMediaKeyframeReason?,
         completion: @escaping @Sendable (OwnedMediaFrameEnvelope?) -> Void
     ) {
@@ -206,21 +196,15 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             encodedFrameId = frameId
             let requestedKeyframe = forceNextKeyframe || requestedAdmissionKeyframe
             forceNextKeyframe = false
-            let nowNs = DispatchTime.now().uptimeNanoseconds
-            let periodicKeyframe = allowPeriodicKeyframe && configuration.isPeriodicKeyframe(
-                frameId: encodedFrameId,
-                lastKeyframeUptimeNs: lastKeyframeUptimeNs,
-                nowNs: nowNs
-            )
-            let forceKeyframe = requestedKeyframe || encodedFrameId == 1 || periodicKeyframe
-            if forceKeyframe {
-                lastKeyframeUptimeNs = nowNs
-            }
+            // ADR-0087: we force keyframes only for events we own (client request, stall
+            // recovery, resolution change) plus the stream's first frame. Periodic
+            // placement belongs to the encoder now, via the two interval properties set on
+            // the session, so there is no frame counter or wall clock to consult here.
+            let forceKeyframe = requestedKeyframe || encodedFrameId == 1
             let expectedKeyframeReason: OwnedMediaKeyframeReason? = forceKeyframe
                 ? Self.resolveKeyframeReason(
                     frameId: encodedFrameId,
-                    requestedReason: requestedKeyframe ? requestedKeyframeReason : nil,
-                    periodicKeyframe: periodicKeyframe
+                    requestedReason: requestedKeyframe ? requestedKeyframeReason : nil
                 )
                 : nil
             frameProperties = forceKeyframe
@@ -363,6 +347,29 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             NSNumber(value: dataRateLimits.windowSeconds)
         ] as CFArray
         try setProperty(kVTCompressionPropertyKey_DataRateLimits, value: dataRateLimitsValue, on: newSession)
+        // ADR-0087: the encoder owns periodic keyframe placement. Both limits are enforced
+        // together -- a keyframe every X frames or every Y seconds, whichever comes first --
+        // which is the whole policy, so we no longer count frames or clock-watch ourselves.
+        //
+        // The duration key is the load-bearing one: capture is change-driven, so a frame
+        // count alone is unbounded in TIME (~21s at the 4-6fps a quiet screen produced, two
+        // minutes at ADR-0073's 1fps validation profile). Apple documents it as being for
+        // exactly this, a variable frame rate.
+        //
+        // Strict, not tolerant: `setProperty` accepts kVTPropertyNotSupportedErr, which for
+        // these two would silently leave the stream with no ceiling at all. R189 asserts
+        // both are supported and read back on real hardware; this is the runtime half of
+        // that guarantee.
+        try setRequiredProperty(
+            kVTCompressionPropertyKey_MaxKeyFrameInterval,
+            value: NSNumber(value: configuration.keyframeIntervalFrames),
+            on: newSession
+        )
+        try setRequiredProperty(
+            kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
+            value: NSNumber(value: Double(configuration.keyframeMaxIntervalMs) / 1000.0),
+            on: newSession
+        )
         VTCompressionSessionPrepareToEncodeFrames(newSession)
         session = newSession
         size = (width, height)
@@ -372,6 +379,25 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private func setProperty(_ key: CFString, value: CFTypeRef, on session: VTCompressionSession) throws {
         let status = VTSessionSetProperty(session, key: key, value: value)
         guard status == noErr || status == kVTPropertyNotSupportedErr else {
+            throw SessionRejected(reason: .malformed)
+        }
+    }
+
+    /// A property the stream's correctness depends on, so an unsupported one is a failed
+    /// session rather than a tolerated no-op.
+    ///
+    /// The permissive variant above is right for tuning hints, where an encoder that
+    /// declines still produces a correct stream. It is wrong for the keyframe intervals:
+    /// declining those means no keyframe ceiling, which is invisible until a client is
+    /// stuck on a frozen image waiting for a sync point that is not coming.
+    private func setRequiredProperty(
+        _ key: CFString,
+        value: CFTypeRef,
+        on session: VTCompressionSession
+    ) throws {
+        let status = VTSessionSetProperty(session, key: key, value: value)
+        guard status == noErr else {
+            logger.error("owned encoder required property rejected key=\(key as String, privacy: .public) status=\(status, privacy: .public)")
             throw SessionRejected(reason: .malformed)
         }
     }
@@ -473,26 +499,30 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             logger.notice("owned first encoded frame codec=\(self.codec.rawValue, privacy: .public) size=\(encodedSize.width, privacy: .public)x\(encodedSize.height, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(payload.count, privacy: .public)")
         }
         if isKeyframe {
-            logger.notice("owned encoder keyframe-result frame=\(encodedFrameId, privacy: .public) requestedReason=\(pending.requestedKeyframeReason?.rawValue ?? "none", privacy: .public) actualReason=\(pending.expectedKeyframeReason?.rawValue ?? "unknown", privacy: .public) expected=\(pending.expectedKeyframeReason != nil, privacy: .public) bytes=\(payload.count, privacy: .public)")
+            // ADR-0087: `source` replaced an `expected` flag that meant "we predicted this
+            // keyframe". Once the encoder owns periodic placement we cannot predict those,
+            // so `expected=false` would have become the normal case and read as an anomaly.
+            // What is worth knowing is who caused it: an event we forced, or the encoder's
+            // own interval. A rising `source=encoder` rate against a steady `requested` one
+            // is the signal that the GOP properties are doing the work.
+            let source = pending.expectedKeyframeReason != nil ? "requested" : "encoder"
+            logger.notice("owned encoder keyframe-result frame=\(encodedFrameId, privacy: .public) source=\(source, privacy: .public) requestedReason=\(pending.requestedKeyframeReason?.rawValue ?? "none", privacy: .public) forcedReason=\(pending.expectedKeyframeReason?.rawValue ?? "none", privacy: .public) bytes=\(payload.count, privacy: .public)")
         }
         pending.completion(OwnedMediaFrameEnvelope(header: header, payload: payload))
     }
 
+    /// Why WE forced this keyframe. Only reached when we did; a keyframe the encoder chose
+    /// on its own has no reason we can name, which is what `source=encoder` records.
     private static func resolveKeyframeReason(
         frameId: UInt64,
-        requestedReason: OwnedMediaKeyframeReason?,
-        periodicKeyframe: Bool
+        requestedReason: OwnedMediaKeyframeReason?
     ) -> OwnedMediaKeyframeReason {
         if frameId == 1 {
             return .initial
         }
-        if let requestedReason {
-            return requestedReason
-        }
-        if periodicKeyframe {
-            return .periodic
-        }
-        return .periodic
+        // The stream's first frame aside, we never force a keyframe without a cause, so a
+        // missing reason is a caller that forgot to name one rather than a category.
+        return requestedReason ?? .captureRequested
     }
 
     private static func copyData(from blockBuffer: CMBlockBuffer) throws -> Data {
