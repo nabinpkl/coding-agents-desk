@@ -309,19 +309,45 @@ struct MediaQualityController {
     /// Deliberately NOT grounds: a zero completed-frame count on its own. A calm screen
     /// legitimately produces no frames, and treating that as a stall would block the idle
     /// recovery this branch exists to grant.
+    ///
+    /// The same trap reaches the arrivals clause by a second route, which the first device run
+    /// caught: on a calm screen the host sends nothing, so the client receives nothing and
+    /// reports `datagramsReceived == 0` with a gap spanning the whole window. 27 windows of
+    /// that session matched, every one of them healthy. Counting them as stalls wipes the idle
+    /// recovery credit that lets the ladder climb back after a downgrade.
+    ///
+    /// Gap magnitude alone cannot separate the two, because an idle Mac with nobody at the
+    /// keyboard reports an arbitrarily long gap for the same innocent reason. The discriminator
+    /// is whether the client's silence is longer than *our own*: if we were putting frames on
+    /// the wire while they heard nothing, the link ate them. If we were equally quiet, they
+    /// heard nothing because there was nothing to hear.
+    ///
+    /// So the arrivals clause fires only when the client's gap exceeds the host's quiet period
+    /// by more than a report interval. Worked through:
+    ///
+    /// - calm screen (measured): host quiet 686ms, client gap 686ms -> not a stall;
+    /// - live freeze: host sending continuously (quiet ~100ms), client gap 12790ms -> stall;
+    /// - freeze after the host gave up: host quiet 1500ms, client gap 12790ms -> stall;
+    /// - user away: host quiet 30s, client gap 30s -> not a stall.
+    ///
+    /// The path clause has no such gate, because an unsatisfied path is real evidence the link
+    /// is gone whether or not we were sending on it.
     static func clientLinkStalled(
         telemetry: OwnedMediaLinkTelemetry?,
-        reportIntervalMs: Int
+        reportIntervalMs: Int,
+        hostQuietMs: Double?
     ) -> Bool {
         guard let telemetry else { return false }
         if let status = telemetry.pathStatus, status != "satisfied" { return true }
-        if let arrivals = telemetry.datagramsReceived,
-           arrivals == 0,
-           let gapMs = telemetry.maxArrivalGapMs,
-           gapMs >= Double(max(1, reportIntervalMs)) {
-            return true
-        }
-        return false
+        let intervalMs = Double(max(1, reportIntervalMs))
+        guard let arrivals = telemetry.datagramsReceived,
+              arrivals == 0,
+              let gapMs = telemetry.maxArrivalGapMs,
+              gapMs >= intervalMs
+        else { return false }
+        // Never sent anything at all: there is no traffic whose absence could be evidence.
+        guard let hostQuietMs else { return false }
+        return gapMs > hostQuietMs + intervalMs
     }
 
     private let config: MediaQualityControllerConfig
@@ -925,6 +951,11 @@ struct QuicSessionHostMediaState {
     private var abandonedBytesInWindow = 0
     private var resendPacketsServedInWindow = 0
     private var resendPacketsMissedInWindow = 0
+    /// When we last handed a frame to the carrier. Deliberately NOT reset per window: the
+    /// question `clientLinkStalled` asks is "how long have we been quiet", which spans windows.
+    /// A per-window counter cannot answer it, because the freeze shape that matters is the one
+    /// where the host stopped producing several windows ago and the client is still silent.
+    private var lastSentUptimeNs: UInt64?
     private var qualityWindowId: UInt64 = 0
     private var adaptiveQualityEnabled = true
     // ADR-0087: rate limit for the keyframe half of stall recovery. Nil until the first
@@ -1032,6 +1063,7 @@ struct QuicSessionHostMediaState {
         sentAtUptimeNs: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) {
         backpressure.noteSent(frameId: frameId, bytes: encodedBytes, sentAtUptimeNs: sentAtUptimeNs)
+        lastSentUptimeNs = sentAtUptimeNs
         if isKeyframe {
             keyframeInFlight = frameId
         }
@@ -1127,7 +1159,10 @@ struct QuicSessionHostMediaState {
             clientReportMissing: clientReportMissing,
             clientLinkStalled: MediaQualityController.clientLinkStalled(
                 telemetry: clientTelemetry,
-                reportIntervalMs: reportIntervalMs
+                reportIntervalMs: reportIntervalMs,
+                hostQuietMs: lastSentUptimeNs.map { sentNs in
+                    Double(nowNs >= sentNs ? nowNs - sentNs : 0) / 1_000_000.0
+                }
             )
         )
 

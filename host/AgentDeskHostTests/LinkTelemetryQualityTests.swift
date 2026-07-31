@@ -24,31 +24,103 @@ struct LinkTelemetryQualityTests {
             pathStatus: "unsatisfied",
             unsatisfiedReason: "notAvailable"
         )
-        #expect(MediaQualityController.clientLinkStalled(telemetry: telemetry, reportIntervalMs: 500))
+        // No quiet-period gate on this clause: a dead path is a dead path whether or not we
+        // were sending on it, so this holds even when the host has never sent at all.
+        #expect(MediaQualityController.clientLinkStalled(
+            telemetry: telemetry,
+            reportIntervalMs: 500,
+            hostQuietMs: nil
+        ))
     }
 
-    @Test func aReceiveLoopThatCollectedNothingForAFullIntervalIsAStall() {
-        // The 12.79s freeze signature: nothing arrived, and the gap proves it was not merely
-        // a short quiet moment inside the window.
+    @Test func aLiveFreezeIsAStall() {
+        // The 12.79s freeze signature: the host is sending continuously (last send 100ms ago)
+        // and the client has heard nothing for 12.79 seconds. Our silence does not explain
+        // theirs, so the link ate the traffic.
         let telemetry = OwnedMediaLinkTelemetry(
             pathStatus: "satisfied",
             datagramsReceived: 0,
             maxArrivalGapMs: 12_790,
             receiveLoopIterations: 25
         )
-        #expect(MediaQualityController.clientLinkStalled(telemetry: telemetry, reportIntervalMs: 500))
+        #expect(MediaQualityController.clientLinkStalled(
+            telemetry: telemetry,
+            reportIntervalMs: 500,
+            hostQuietMs: 100
+        ))
     }
 
-    @Test func aCalmScreenIsNotAStall() {
-        // No frames completed because nothing moved on screen, but datagrams are flowing and
-        // the path is fine. Treating this as a stall would block idle recovery entirely.
+    @Test func aFreezeOutlivingTheHostsOwnSendingIsStillAStall() {
+        // Several windows into a freeze the host has stopped producing and every tracking
+        // entry has cleared, so nothing on the host side says "stalled" any more. The client's
+        // silence still far outruns ours, which is the only remaining evidence.
+        let telemetry = OwnedMediaLinkTelemetry(
+            pathStatus: "satisfied",
+            datagramsReceived: 0,
+            maxArrivalGapMs: 12_790,
+            receiveLoopIterations: 25
+        )
+        #expect(MediaQualityController.clientLinkStalled(
+            telemetry: telemetry,
+            reportIntervalMs: 500,
+            hostQuietMs: 1_500
+        ))
+    }
+
+    @Test func aCalmScreenReceivingNothingIsNotAStall() {
+        // The regression the first device run caught, in the shape the device actually
+        // produced (host log window 26): a satisfied WiFi path, zero completions, nothing in
+        // flight, `datagramsRecv=0 maxArrivalGapMs=686.6` -- a gap well over the 500ms report
+        // interval. 27 windows of that session matched. Every field looks like the freeze
+        // signature except the one that matters: the host was equally quiet, so there was
+        // nothing to arrive.
+        //
+        // The earlier version of this test used `datagramsReceived: 12`, assuming a calm
+        // screen still carries traffic. The device disproved that, which is why the synthetic
+        // suite passed while the behaviour was wrong.
+        let telemetry = OwnedMediaLinkTelemetry(
+            pathStatus: "satisfied",
+            datagramsReceived: 0,
+            maxArrivalGapMs: 686.6,
+            receiveLoopIterations: 0
+        )
+        #expect(!MediaQualityController.clientLinkStalled(
+            telemetry: telemetry,
+            reportIntervalMs: 500,
+            hostQuietMs: 686
+        ))
+    }
+
+    @Test func aUserAwayFromTheMacIsNotAStall() {
+        // The case gap magnitude alone cannot survive: nobody has touched the screen for 30
+        // seconds, so the client has legitimately heard nothing for 30 seconds. A rule keyed
+        // on gap size would call this a stall and deny recovery to an entirely healthy link.
+        let telemetry = OwnedMediaLinkTelemetry(
+            pathStatus: "satisfied",
+            datagramsReceived: 0,
+            maxArrivalGapMs: 30_000,
+            receiveLoopIterations: 0
+        )
+        #expect(!MediaQualityController.clientLinkStalled(
+            telemetry: telemetry,
+            reportIntervalMs: 500,
+            hostQuietMs: 30_000
+        ))
+    }
+
+    @Test func aCalmScreenStillCarryingTrafficIsNotAStall() {
+        // The other calm shape: datagrams flowing, path fine, nothing moving on screen.
         let telemetry = OwnedMediaLinkTelemetry(
             pathStatus: "satisfied",
             datagramsReceived: 12,
             maxArrivalGapMs: 40,
             receiveLoopIterations: 12
         )
-        #expect(!MediaQualityController.clientLinkStalled(telemetry: telemetry, reportIntervalMs: 500))
+        #expect(!MediaQualityController.clientLinkStalled(
+            telemetry: telemetry,
+            reportIntervalMs: 500,
+            hostQuietMs: 40
+        ))
     }
 
     @Test func aBriefGapInsideOneWindowIsNotAStall() {
@@ -59,24 +131,64 @@ struct LinkTelemetryQualityTests {
             datagramsReceived: 0,
             maxArrivalGapMs: 120
         )
-        #expect(!MediaQualityController.clientLinkStalled(telemetry: telemetry, reportIntervalMs: 500))
+        #expect(!MediaQualityController.clientLinkStalled(
+            telemetry: telemetry,
+            reportIntervalMs: 500,
+            hostQuietMs: 20
+        ))
+    }
+
+    @Test func aHostThatNeverSentAnythingCannotObserveAStall() {
+        // No traffic has ever left the host, so the client's silence carries no information.
+        let telemetry = OwnedMediaLinkTelemetry(
+            pathStatus: "satisfied",
+            datagramsReceived: 0,
+            maxArrivalGapMs: 12_790
+        )
+        #expect(!MediaQualityController.clientLinkStalled(
+            telemetry: telemetry,
+            reportIntervalMs: 500,
+            hostQuietMs: nil
+        ))
     }
 
     @Test func absentTelemetryIsNotTreatedAsAStall() {
         // A client build without telemetry must behave exactly as before rather than being
         // permanently denied recovery.
-        #expect(!MediaQualityController.clientLinkStalled(telemetry: nil, reportIntervalMs: 500))
+        #expect(!MediaQualityController.clientLinkStalled(
+            telemetry: nil,
+            reportIntervalMs: 500,
+            hostQuietMs: 100
+        ))
     }
 
     // MARK: - The recovery-credit regression
 
     @Test func aStalledClientsZeroWindowEarnsNoRecoveryCredit() {
-        // The regression guard. Both windows are zero-count and both have
-        // clientReportMissing == false, so ONLY the telemetry can tell them apart.
+        // The regression guard, end to end through the controller. Both windows are
+        // zero-count with clientReportMissing == false, so only the telemetry and the host's
+        // own send history can tell them apart.
+        //
+        // Both hosts send a frame; the difference is WHEN relative to the observation. The
+        // calm host's last send is recent and its client heard from it just as recently. The
+        // stalled host's last send is equally recent, but its client has heard nothing for
+        // 12.79 seconds -- silence that our own quiet period cannot explain.
         var calm = makeState()
         var stalled = makeState()
         degrade(&calm)
         degrade(&stalled)
+
+        // Ack each frame so nothing is left in flight: the idle branch under test is only
+        // reached with an empty in-flight list, and a pending frame would block both windows
+        // for an unrelated reason and prove nothing.
+        let observeAtNs: UInt64 = 13_000_000_000
+        let recentSendNs: UInt64 = 12_900_000_000  // 100ms before the observation
+        if let id = try? sendFrame(&calm, at: recentSendNs, bytes: 1_000) {
+            calm.noteAck(frameId: id, nowNs: recentSendNs + 1_000_000)
+        }
+        if let id = try? sendFrame(&stalled, at: recentSendNs, bytes: 1_000) {
+            stalled.noteAck(frameId: id, nowNs: recentSendNs + 1_000_000)
+        }
 
         let calmWindow = calm.observeLinkHealth(
             completedFrames: 0,
@@ -89,7 +201,7 @@ struct LinkTelemetryQualityTests {
                 maxArrivalGapMs: 60
             ),
             reportIntervalMs: 500,
-            nowNs: 1_000_000_000
+            nowNs: observeAtNs
         )
         let stalledWindow = stalled.observeLinkHealth(
             completedFrames: 0,
@@ -103,11 +215,41 @@ struct LinkTelemetryQualityTests {
                 receiveLoopIterations: 25
             ),
             reportIntervalMs: 500,
-            nowNs: 1_000_000_000
+            nowNs: observeAtNs
         )
 
         #expect(calmWindow.observation.recoveryStatus.cleanMs > 0)
         #expect(stalledWindow.observation.recoveryStatus.cleanMs == 0)
+    }
+
+    @Test func aCalmScreenStillEarnsRecoveryCreditWithNoTrafficAtAll() {
+        // The device-caught regression, end to end. This is host log window 26 replayed: a
+        // degraded ladder, a satisfied path, and both ends quiet for ~686ms. It must accrue
+        // credit, or a stream that drops a rung during a cellular blip never climbs back
+        // while the user is reading rather than scrolling.
+        var calm = makeState()
+        degrade(&calm)
+        let sendNs: UInt64 = 1_000_000_000
+        if let id = try? sendFrame(&calm, at: sendNs, bytes: 1_000) {
+            calm.noteAck(frameId: id, nowNs: sendNs + 1_000_000)
+        }
+
+        let window = calm.observeLinkHealth(
+            completedFrames: 0,
+            expiredFrames: 0,
+            productionSummary: nil,
+            clientReportMissing: false,
+            clientTelemetry: OwnedMediaLinkTelemetry(
+                pathStatus: "satisfied",
+                datagramsReceived: 0,
+                maxArrivalGapMs: 686.6,
+                receiveLoopIterations: 0
+            ),
+            reportIntervalMs: 500,
+            nowNs: sendNs + 686_000_000
+        )
+
+        #expect(window.observation.recoveryStatus.cleanMs > 0)
     }
 
     // MARK: - Round-trip inflation reaches the observation

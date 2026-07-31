@@ -84,6 +84,16 @@ minimum baseline to compare against, since it only kept per-window p50/p95/max.
 - Bad, because application RTT conflates network delay with client-side processing delay. That
   is acceptable here only because a starved client receive loop is separately instrumented
   (datagram inter-arrival gap), so the two can still be told apart.
+- Bad, and worse than expected: the first device run measured **inflation up to 17.5x on a
+  healthy WiFi link with no freeze at all** (91.0ms smoothed against a 5.2ms floor), across 463
+  windows. At the low frame rates a calm screen produces, the ack age is dominated by the
+  client's own scheduling rather than by path queueing, so the ratio swings wildly while
+  nothing is wrong. **`rttInflation` must therefore never be wired into the ladder as an
+  absolute threshold** -- any cutoff low enough to catch a real freeze fires continuously on
+  WiFi. It is a diagnostic to be read alongside `datagramsRecv` and the send counts, and if it
+  is ever promoted to a signal it needs gating on sustained send volume first. This is the
+  measured form of the risk noted directly above; recording the number so it is not
+  re-discovered.
 - Neutral, because `establishmentReport()` on the new API *does* work (`duration: 0.028`,
   `handshakes: 1`) and is kept as a one-shot per session.
 - Good, because presentation waste now reports too. The client's pacer decodes every frame
@@ -96,6 +106,33 @@ minimum baseline to compare against, since it only kept per-window p50/p95/max.
   diagnostics store, which keeps three runs, so by the time the question was asked the
   answer had been evicted. It rides the link-health window now, and it is the number that
   would justify the host declining to send while the client is behind.
+
+### The stall detector needs a send gate
+
+The first device run also caught a regression this ADR's own work introduced.
+`clientLinkStalled` treated "zero datagrams arrived and the gap exceeds one report interval"
+as a stall. On a calm screen the host sends nothing, so the client receives nothing and
+reports exactly that shape: **27 of the session's windows matched it on a healthy, satisfied
+WiFi path with nothing in flight.** Counting those as stalls withholds the idle recovery
+credit that lets the ladder climb back after a downgrade, which is the precise failure the
+idle branch exists to prevent -- and which the function's own doc comment warned about for the
+completed-frame version of the same mistake.
+
+Gap magnitude alone cannot fix it, because a user who walks away from the Mac produces an
+arbitrarily long gap for the same innocent reason. Nor can a per-window "did we send"
+counter: several windows into a freeze the host has stopped producing and every tracking
+entry has cleared, so the window that most needs to be recognised as stalled is the one where
+the host looks idle too.
+
+The detector now asks a comparative question instead of an absolute one: **is the client's
+silence longer than our own?** The arrivals clause fires only when the reported gap exceeds
+the host's quiet period (time since the last frame reached the carrier) by more than a report
+interval. If we were sending while they heard nothing, the link ate it; if we were equally
+quiet, there was nothing to hear. The path clause keeps no gate, because an unsatisfied path
+is real evidence whether or not we were sending.
+
+The pre-existing synthetic test passed throughout, because it modelled a calm screen as one
+still receiving datagrams (`datagramsReceived: 12`) -- an assumption the device falsified.
 
 ### Confirmation
 
