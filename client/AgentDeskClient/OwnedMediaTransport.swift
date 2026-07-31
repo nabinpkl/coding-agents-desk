@@ -56,6 +56,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     // a guess (the existing resume path was wired to `willEnterForeground`, which cannot fire
     // during a network change because the app never leaves the foreground).
     private let changeDetector: LinkChangeDetector
+    /// Whether our control datagrams are actually leaving the device. Edge-triggered: one line
+    /// when sends start failing, one when they resume, never one per message. See
+    /// `sendVideoControl`.
+    private let controlSendHealth = OSAllocatedUnfairLock(initialState: ControlSendHealth())
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
     private let rawEventReassembly = OSAllocatedUnfairLock<AgentRawEventReassembler>(
         initialState: AgentRawEventReassembler()
@@ -165,17 +169,17 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     func start(videoSource: VideoFrameSource?, videoSink: VideoFrameSink?) async throws {
         stateContinuation.yield(.connected)
         if let mediaSink = videoSink as? any OwnedMediaFrameSink {
-            let datagrams = self.datagrams
             // Set the sink on the MainActor, where every reader (the graphics and datagram
             // loops) also touches it, so the write and reads stay on one actor.
-            await MainActor.run { [weak self, datagrams, weak mediaSink] in
+            await MainActor.run { [weak self, weak mediaSink] in
                 self?.sink = mediaSink
-                mediaSink?.setVideoKeyframeRequestHandler {
-                    Task { [datagrams] in
-                        let message = OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 0)
-                        guard let data = try? JSONEncoder().encode(message) else { return }
-                        try? await datagrams.send(data)
-                    }
+                // Through the shared path, not an inline copy of it: a keyframe request is the
+                // message most likely to be sent into a broken link and the one whose loss
+                // hurts most, so it must be covered by the send-failure reporting too.
+                mediaSink?.setVideoKeyframeRequestHandler { [weak self] in
+                    self?.sendVideoControl(
+                        OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 0)
+                    )
                 }
                 mediaSink?.setOwnedMediaPresentationSkipHandler { [weak self] bytes in
                     self?.lock.withLock { state in
@@ -857,11 +861,79 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         )
     }
 
+    /// Send a control message on the datagram lane.
+    ///
+    /// This used to swallow both failure paths with `try?`, and that silence cost a device run.
+    /// R208 measured a handover where the client detected the link change correctly and the
+    /// host never learned of it, because the report describing the link went out as a datagram
+    /// **over that same link** and was dropped. Nothing anywhere said so. The loss had to be
+    /// inferred afterwards from a 76x concentration of missing report windows.
+    ///
+    /// Reporting it is not as simple as logging each failure: `frameAck` comes through here
+    /// once per frame, so a failing link would emit tens of lines a second and bury the freeze
+    /// in the log written to diagnose it. So this is edge-triggered like the observers around
+    /// it -- one line when sends begin failing, one when they resume carrying how many were
+    /// lost and for how long. That is the shape you actually read during an incident.
     private func sendVideoControl(_ message: OwnedMediaControlMessage) {
-        Task { [datagrams] in
-            guard let data = try? JSONEncoder().encode(message) else { return }
-            try? await datagrams.send(data)
+        Task { [weak self, datagrams] in
+            let kind = message.kind.rawValue
+            guard let data = try? JSONEncoder().encode(message) else {
+                // Encoding a fixed Codable shape cannot fail for data reasons, so this is a
+                // programming error rather than a link problem. Named separately so it is not
+                // read as network loss.
+                self?.noteControlSendFailure(kind: kind, reason: "encode")
+                return
+            }
+            do {
+                try await datagrams.send(data)
+                self?.noteControlSendRecovered()
+            } catch {
+                self?.noteControlSendFailure(kind: kind, reason: String(describing: error))
+            }
         }
+    }
+
+    private func noteControlSendFailure(kind: String, reason: String) {
+        let isFirst = controlSendHealth.withLock { health -> Bool in
+            health.failures += 1
+            guard health.failures == 1 else { return false }
+            health.firstFailureUptimeNs = DispatchTime.now().uptimeNanoseconds
+            return true
+        }
+        guard isFirst else { return }
+        logger.notice(
+            "control send failing kind=\(kind, privacy: .public) reason=\(reason, privacy: .public)"
+        )
+        ClientDiagnostics.shared.record(
+            type: "mediaControlSendFailing",
+            fields: ["kind": kind, "reason": reason],
+            level: .error
+        )
+    }
+
+    private func noteControlSendRecovered() {
+        let recovered = controlSendHealth.withLock { health -> (failures: Int, sinceNs: UInt64)? in
+            guard health.failures > 0 else { return nil }
+            let started = health.firstFailureUptimeNs
+            let now = DispatchTime.now().uptimeNanoseconds
+            let result = (health.failures, started.map { now >= $0 ? now - $0 : 0 } ?? 0)
+            health.failures = 0
+            health.firstFailureUptimeNs = nil
+            return result
+        }
+        guard let recovered else { return }
+        let outageMs = Double(recovered.sinceNs) / 1_000_000
+        logger.notice(
+            "control send recovered lost=\(recovered.failures, privacy: .public) outageMs=\(Int(outageMs), privacy: .public)"
+        )
+        ClientDiagnostics.shared.record(
+            type: "mediaControlSendRecovered",
+            fields: [
+                "lostMessages": String(recovered.failures),
+                "outageMs": String(Int(outageMs))
+            ],
+            level: .info
+        )
     }
 
     private func handleConnectionState(_ state: NetworkChannel<QUIC>.State) {
@@ -884,6 +956,13 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         default:
             break
         }
+    }
+
+    /// Counts a run of failed control sends so the pair of log lines can report the whole
+    /// outage rather than its first millisecond.
+    private struct ControlSendHealth {
+        var failures: Int = 0
+        var firstFailureUptimeNs: UInt64?
     }
 
     private struct State {
