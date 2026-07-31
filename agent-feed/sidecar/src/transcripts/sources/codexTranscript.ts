@@ -137,10 +137,25 @@ interface ResponseItemPayload {
   message?: unknown;
 }
 
+// One entry per changed file. Only `type` is read: the `unified_diff` beside it is
+// most of what made the raw payload dump 3,343 characters, and belongs in the Raw
+// drawer rather than in the row.
+interface PatchChange {
+  type?: string;
+}
+
 interface EventMsgPayload {
   type?: string;
   text?: string;
   last_agent_message?: string;
+  // Populated only on `patch_apply_end` payloads.
+  stdout?: string;
+  stderr?: string;
+  success?: boolean;
+  // Keyed by absolute file path. `stdout` names the same files but sometimes by
+  // a path relative to cwd (500 of 3,219 records here), so the keys are the
+  // reliable list.
+  changes?: Record<string, PatchChange>;
   // Populated only on `token_count` payloads. `last_token_usage.total_tokens`
   // is the size of the prompt the model just processed; this is the meter
   // the Agent Panel shows. After compaction it drops automatically.
@@ -149,6 +164,72 @@ interface EventMsgPayload {
     total_token_usage?: { total_tokens?: number };
     model_context_window?: number;
   };
+}
+
+const PATCH_CHANGE_MARKS: Readonly<Record<string, string>> = {
+  add: 'A',
+  update: 'M',
+  delete: 'D',
+};
+
+// Beyond this many files the row names the first few and counts the rest. Six
+// covers 98.2% of the 3,219 patches here outright (2,335 touch one file, and the
+// largest touches 20).
+const PATCH_FILES_NAMED = 6;
+
+/** `4 files · M FileTab.swift, A FileTabTests.swift, D Old.swift` */
+function patchFileSummary(changes: unknown): string {
+  if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return '';
+  const entries = changes as Record<string, PatchChange | undefined>;
+  const paths = Object.keys(entries);
+  if (paths.length === 0) return '';
+  const named = paths.slice(0, PATCH_FILES_NAMED).map((path) => {
+    const type = entries[path]?.type;
+    const mark = (typeof type === 'string' && PATCH_CHANGE_MARKS[type]) || '?';
+    return `${mark} ${basename(path)}`;
+  });
+  const rest = paths.length - named.length;
+  const head = `${paths.length} ${paths.length === 1 ? 'file' : 'files'}`;
+  return `${head} · ${named.join(', ')}${rest > 0 ? `, +${rest} more` : ''}`;
+}
+
+/**
+ * The `Patch Applied` row: which files an edit touched, and whether it landed.
+ *
+ * This fell through to the generic `event_msg` branch and rendered
+ * `metadataText(payload)`, so each row was the whole payload as JSON -- unified
+ * diffs included. Across the six largest rollouts here that is 3,219 rows of mean
+ * 3,343 characters (10.8 MB), of which 777 (24%) hit the 4,096-character cap and
+ * were cut mid-diff, making it the largest remaining non-prose row type in the
+ * Codex tail.
+ *
+ * The summary comes from `changes` rather than `stdout` because it is structured:
+ * no dependence on the harness's confirmation wording, and the collapsed one-line
+ * preview names files instead of repeating "Success. Updated the following files:"
+ * on all 3,219 rows. `stdout` is the fallback for a record that carries no
+ * `changes` (none here). The full payload, diffs and all, stays one Raw JSON press
+ * away.
+ *
+ * NOT omittable, unlike the duplicated `agent_message`: 1,161 of the 3,219 (36%)
+ * come from `apply_patch` run through an `exec` shell call, and their confirmation
+ * appears in no other record -- searching the next 40 tool outputs for each one's
+ * `stdout` found it 0 times. Dropping the row would lose "did this edit land" for
+ * a third of all edits.
+ *
+ * The failure branch has never rendered: all 3,219 records report `success: true`.
+ * It is written for the same reason the hook-failure branch is -- a patch that did
+ * not apply is exactly the row a viewer must not have to go looking for.
+ */
+function patchAppliedBlock(pe: EventMsgPayload, label: string): ActivityBlock {
+  const stdout = typeof pe.stdout === 'string' ? pe.stdout.trim() : '';
+  const stderr = typeof pe.stderr === 'string' ? pe.stderr.trim() : '';
+  const files = patchFileSummary(pe.changes);
+  if (pe.success === false) {
+    // A failed patch changed nothing, so the file list would describe an edit that
+    // did not happen; what it left behind is in `stderr`.
+    return metadataBlock('Patch Failed', metadataText(stderr || stdout || pe));
+  }
+  return metadataBlock(label, files || metadataText(stdout || pe));
 }
 
 interface NormalizedCodexBlock {
@@ -276,6 +357,9 @@ function normalizedRecord(
     }
     if (eventType === 'context_compacted') {
       return finish('system', [{ block: { kind: 'compaction' }, raw: null }], stateUpdates);
+    }
+    if (eventType === 'patch_apply_end') {
+      return finish('system', [{ block: patchAppliedBlock(pe, label), raw: null }], stateUpdates);
     }
     if (pe.type === 'token_count') {
       const last = pe.info?.last_token_usage?.total_tokens;

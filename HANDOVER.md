@@ -1,9 +1,9 @@
 # Handover — 2026-07-30
 
-Branch `main`, HEAD `3e25106c`, in sync with `origin/main`, nothing uncommitted from
-this arc. (Previous handovers are preserved in this file's git history.)
+Branch `main`, in sync with `origin/main`, nothing uncommitted from this arc.
+(Previous handovers are preserved in this file's git history.)
 
-**Gate**: `just agent-feed-sidecar-check` (62 tests) and `just agent-panel-web-check`
+**Gate**: `just agent-feed-sidecar-check` (66 tests) and `just agent-panel-web-check`
 (116 tests) green, plus `swift test` in `packages/AgentDeskWire` and
 `packages/AgentPanel`. A **full `just check` currently fails on another session's
 in-progress voice work**, not on this — see Gotchas.
@@ -80,37 +80,59 @@ sidecar JSON → AgentFeedActivityBlock/Event (host) → AgentDeskWire (abbrevia
              → BridgeDataSource wire types (web) → app types
 ```
 
+## Also shipped: `Patch Applied` is a file list, not a payload dump
+
+The row now names what the edit touched: `4 files · M FileTab.swift, A Tests.swift,
+D Old.swift`, from `changes` rather than `stdout` — structured, so it does not depend
+on the harness's confirmation wording. `success === false` renders `Patch Failed` with
+`stderr` and no file list (nothing landed). Measured by running the real adapter over
+the same six rollouts, all 3,219 records:
+
+| | before | after |
+|---|---|---|
+| mean row chars | 3,343 | **50** |
+| max row chars | 55,121 | **274** |
+| rows cut by the 4,096 cap | 777 (24%) | **0** |
+| distinct collapsed previews | 1 | **1,562** |
+
+That last row is why the summary comes from `changes`: every `stdout` starts
+`Success. Updated the following files:`, and `eventPreview` keeps only the first line,
+so 3,219 collapsed rows read identically. Six files are named before `+N more` (57
+rows, 1.8%; the largest patch here touches 20). It stays **content** in the nice view —
+verified, 0 of 3,219 classified machinery.
+
 ## Not yet done / next actions
 
-1. **`Patch Applied` renders its raw payload. Fully investigated, ready to fix — and
-   do NOT omit it.** It is not safely omittable the way `agent_message` was: of 3,219
-   records across the six largest rollouts, 2,058 (64%) pair by `call_id` with an
-   `apply_patch`/`exec_command` call whose output contains their `stdout`, but **1,161
-   (36%) come from `apply_patch` run through an `exec` shell call and their
-   confirmation appears nowhere else** — searching the next 40 tool outputs for each
-   one's `stdout` found it in 0 of 1,161. Omitting would lose "did this edit land" for
-   a third of all edits.
+1. **Sweep the other `metadataText` payload dumps — measured, not yet fixed.** Same six
+   rollouts, one pass over every branch of `normalizedRecord` (script shape preserved in
+   this session's notes; it mirrors the adapter's dispatch). Ranked by total rendered
+   bytes, the ones a viewer still sees in **nice** mode:
 
-   The defect is the rendering: it falls through the generic `event_msg` branch to
-   `metadataText(payload)`, so a row is raw payload JSON — **mean 3,343 chars (10.8 MB
-   across those six files)** where the useful `stdout` is 170 chars, and **777 rows
-   (24%) exceed the 4,096-char cap and are cut mid-diff**. It is the largest remaining
-   non-prose row type in the Codex tail (10 per 100). Also 884 of 3,219 (27%) touch
-   more than one file, so the file list is load-bearing; and `success: false` never
-   occurs with `stderr` empty in all 3,219, so like the hooks the failure path has
-   never rendered and is still worth writing.
+   | record | rows | mean chars | over 4,096 cap | note |
+   |---|---|---|---|---|
+   | `event_msg/image_generation_end` | 18 | 1,982,648 | 100% | base64 image data |
+   | `response_item/image_generation_call` | 13 | 2,156,464 | 100% | falls to `plain()`, 64 KB cap |
+   | `event_msg/mcp_tool_call_end` | 244 | 126,563 | 45% | `result` payload |
+   | `event_msg/user_message` | 1,090 | 14,262 | 3% | **a person's words wrapped in JSON** |
+   | `event_msg/exec_command_end` | 2,096 | 4,758 | 46% | **no label at all** → `plain()`, 64 KB cap |
+   | `event_msg/web_search_end` | 348 | 3,964 | 36% | `query` + `results` |
+   | `event_msg/thread_settings_applied` | 384 | 3,233 | 14% | probably machinery |
+   | `response_item/tool_search_output` | 25 | 24,784 | 96% | falls to `plain()` |
+   | `event_msg/item_completed` | 47 | 6,059 | 68% | |
+   | `task_started` / `task_complete` / `turn_aborted` | 1,303 | ~180 | 0% | small, but still JSON |
 
-   Fix: a named branch in `codexTranscript.ts` showing `stdout` (or a file list from
-   `changes`), marking failure on `success === false`, full payload left to the Raw
-   drawer. Mirrors the encrypted-reasoning fix in `78f290cc`. Feeding
-   `changes.unified_diff` into the existing `DiffBlock` is larger and separable.
+   Three are already **machinery**, so they cost only the raw view: `top/session_meta`
+   (490 rows, 54,750 mean), `top/world_state` (246, 46,614), `top/turn_context`
+   (1,312, 4,738).
 
-2. **Sweep the other `metadataText` payload dumps.** `patch_apply_end` reaches its dump
-   by falling through the generic `event_msg` branch, so `Task Started`,
-   `Task Completed`, `Item Completed`, `Thread Settings` and the rest very likely do
-   the same. Measure as one group rather than one at a time.
+   Recommended order: **`exec_command_end`** (2,096 rows, unlabelled, and the one whose
+   64 KB `plain()` cap is looser than the metadata cap — check first whether it
+   duplicates the `function_call_output` it pairs with by `call_id`, as
+   `patch_apply_end` partly did), then **`user_message`** (rendering a person's own
+   words as a JSON blob is the worst kind on this list, and `message` is right there),
+   then the image/MCP payloads, which are big but rare.
 
-3. **Mode switch loses the viewer's place — deliberately deferred.** Switching remounts
+2. **Mode switch loses the viewer's place — deliberately deferred.** Switching remounts
    the feed and lands at the tail. Seeding at the viewer's position opens a **hole**
    between that window and the live tail, and the feed's event store has no way to
    represent a gap: rows either side would render as adjacent when they are not.
@@ -118,17 +140,17 @@ sidecar JSON → AgentFeedActivityBlock/Event (host) → AgentDeskWire (abbrevia
    translation half is done; what is missing is an anchored subscribe plus gap
    handling in the store.
 
-4. **`<oai-mem-citation>` renders as part of the agent's words**, in both views. A
+3. **`<oai-mem-citation>` renders as part of the agent's words**, in both views. A
    machine block riding inside assistant prose. Found while pairing `agent_message`
    with its record — it is the 170-char difference in the 85 pairs that were not
    byte-identical.
 
-5. **Never run against a live host.** Everything here is verified against real
+4. **Never run against a live host.** Everything here is verified against real
    transcripts and the host-free fixture; **no part of this arc has run through the
    actual host + sidecar + panel stack.** Under AGENTS.md that is a checkpoint: state
    the command and wait for a go-ahead.
 
-6. **Still open from the previous handover** (2026-07-11, now 19 days old): the
+5. **Still open from the previous handover** (2026-07-11, now 19 days old): the
    one-time donor import is gated on an absent destination store
    (`WorkspaceStore.loadOrImport`, host/AgentDeskHost/Workspace/WorkspaceStore.swift:264).
    Latent, not biting. Its other two items are closed — the ADR-0054 client shipped

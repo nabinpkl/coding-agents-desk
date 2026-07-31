@@ -66,6 +66,94 @@ test('every claude tool call gets a label, not just the six with a rule', () => 
   expect(toolBlock('Bash', { command: 'ls -la' })?.summary).toBe('ls -la');
 });
 
+function patchApplyEnd(payload: Record<string, unknown>) {
+  return blocks(codexAdapter, {
+    timestamp: '2026-07-30T12:00:00.000Z',
+    type: 'event_msg',
+    payload: { type: 'patch_apply_end', call_id: 'call-1', status: 'completed', ...payload },
+  });
+}
+
+test('an applied patch names its files instead of dumping the diff', () => {
+  const diff = `@@ -1,2 +1,3 @@\n+${'x'.repeat(5_000)}\n`;
+  const applied = patchApplyEnd({
+    stdout: 'Success. Updated the following files:\nM Sources/WorkspaceShell/FileTab.swift\n',
+    stderr: '',
+    success: true,
+    changes: {
+      '/repo/Sources/WorkspaceShell/FileTab.swift': { type: 'update', unified_diff: diff, move_path: null },
+    },
+  });
+
+  // 3,219 of these across the six largest rollouts here, mean 3,343 characters of
+  // payload JSON each and 24% cut mid-diff by the 4,096-character cap.
+  expect(applied[0]).toEqual({
+    kind: 'metadata',
+    label: 'Patch Applied',
+    text: '1 file · M FileTab.swift',
+  });
+  expect(JSON.stringify(applied[0])).not.toContain('xxxx');
+  // The whole payload, diff included, is still one press away.
+  expect(applied.at(-1)).toEqual({ kind: 'raw', label: 'Raw JSON' });
+});
+
+test('a multi-file patch lists every file it touched, then counts the rest', () => {
+  // 884 of the 3,219 (27%) touch more than one file, so the list is load-bearing:
+  // "did this edit land" is per file, not per patch.
+  const changes = (names: string[], type = 'update') =>
+    Object.fromEntries(names.map((name) => [`/repo/${name}`, { type }]));
+
+  expect(patchApplyEnd({
+    success: true,
+    changes: {
+      ...changes(['a.swift']),
+      ...changes(['b.swift'], 'add'),
+      ...changes(['c.swift'], 'delete'),
+    },
+  })[0]?.text).toBe('3 files · M a.swift, A b.swift, D c.swift');
+
+  // Beyond six named files the row counts the remainder rather than growing
+  // unbounded; the largest patch here touches 20.
+  const many = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((n) => `${n}.swift`);
+  expect(patchApplyEnd({ success: true, changes: changes(many) })[0]?.text)
+    .toBe('8 files · M a.swift, M b.swift, M c.swift, M d.swift, M e.swift, M f.swift, +2 more');
+
+  // A change type a future harness release invents is marked unfamiliar rather
+  // than being silently dropped from the list.
+  expect(patchApplyEnd({ success: true, changes: changes(['a.swift'], 'rewrite') })[0]?.text)
+    .toBe('1 file · ? a.swift');
+});
+
+test('a failed patch says so and shows what it left behind', () => {
+  // Never yet seen: all 3,219 records report success. Written for the same reason
+  // the hook-failure branch is -- a patch that did not apply must not read as one
+  // that did.
+  const failed = patchApplyEnd({
+    stdout: '',
+    stderr: 'error: patch does not apply to FileTab.swift',
+    success: false,
+    changes: { '/repo/Sources/WorkspaceShell/FileTab.swift': { type: 'update' } },
+  });
+  expect(failed[0]).toEqual({
+    kind: 'metadata',
+    label: 'Patch Failed',
+    text: 'error: patch does not apply to FileTab.swift',
+  });
+  // No file list: nothing landed, so naming the file would describe an edit that
+  // did not happen.
+  expect(failed[0]?.text).not.toContain('M FileTab.swift');
+});
+
+test('a patch carrying no changes map falls back to the harness confirmation', () => {
+  // `changes` is present on all 3,219 records here, so this is the branch that keeps
+  // a future record shape from rendering a bare label with nothing under it.
+  expect(patchApplyEnd({ stdout: 'Success. Updated 1 file.', success: true, changes: {} })[0])
+    .toEqual({ kind: 'metadata', label: 'Patch Applied', text: 'Success. Updated 1 file.' });
+
+  // With neither, the payload is still better than an empty row.
+  expect(patchApplyEnd({ success: true })[0]?.text).toContain('patch_apply_end');
+});
+
 test('encrypted codex reasoning is named rather than dumped as ciphertext', () => {
   const ciphertext = `gAAAAABo${'A'.repeat(3_000)}`;
   const encrypted = blocks(codexAdapter, {
