@@ -513,7 +513,15 @@ function Block({
     return (
       <div
         className="italic leading-snug text-foreground/65"
-        style={{ fontSize: "var(--agent-panel-fs-tile-reasoning, 13px)" }}
+        style={{
+          fontSize: "var(--agent-panel-fs-tile-reasoning, 13px)",
+          // Italic at 13px and 65% opacity is the thinnest text in the feed,
+          // and it is where the trace's own prose lives. Inter's weight axis
+          // is continuous, so 450 buys back the stroke the italic gives up.
+          // The bolded topic line stays distinct: the UA's `bolder` on
+          // <strong> maps any inherited weight in 400-499 to the same 700.
+          fontWeight: 450,
+        }}
       >
         <Markdown content={b.text} />
       </div>
