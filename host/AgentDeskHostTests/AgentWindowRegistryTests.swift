@@ -152,6 +152,42 @@ struct AgentWindowRegistryTests {
         #expect(after.controllers.map(\.zoomStep) == [5])
     }
 
+    @Test func windowsWrittenBeforeZoomExistedStillComeBack() async {
+        // The literal document a pre-zoom host left on disk. Adding `zoomStep` as a required key
+        // made the whole file fail to decode, so the launch after it restored NOTHING and said
+        // nothing about why -- two remembered windows gone with no log line. This is that file.
+        let storeURL = AgentWindowRegistryFixture.makeStoreURL()
+        try? FileManager.default.createDirectory(
+            at: storeURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let legacy = """
+        {"presentations":[
+          {"desktopSpaceID":3,"cascadeOrdinal":1,
+           "frame":{"height":720,"x":1320,"width":480,"y":384},
+           "id":"A2435C33-98D5-4B10-9982-0AF4F5985C34"},
+          {"desktopSpaceID":74,"cascadeOrdinal":0,
+           "frame":{"height":720,"y":254,"width":480,"x":2520},
+           "id":"9310FA2E-22E5-43D0-AB0E-DF9D5DB10090"}
+        ]}
+        """
+        try? Data(legacy.utf8).write(to: storeURL)
+
+        let fixture = AgentWindowRegistryFixture(storeURL: storeURL)
+        defer { fixture.remove() }
+        fixture.registry.startRestoration(
+            visibleFrames: [CGRect(x: 0, y: 0, width: 3_840, height: 2_160)]
+        )
+
+        #expect(fixture.controllers.count == 2)
+        #expect(Set(fixture.controllers.map(\.frame)) == [
+            CGRect(x: 1_320, y: 384, width: 480, height: 720),
+            CGRect(x: 2_520, y: 254, width: 480, height: 720),
+        ])
+        // A window from before zoom existed comes back at 1.0, which is where it was.
+        #expect(fixture.controllers.map(\.zoomStep) == [0, 0])
+    }
+
     @Test func aWindowTheUserClosedStaysClosedAcrossRestart() async {
         let storeURL = AgentWindowRegistryFixture.makeStoreURL()
         let before = AgentWindowRegistryFixture(storeURL: storeURL)

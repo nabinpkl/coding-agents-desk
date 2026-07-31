@@ -1,6 +1,7 @@
 import AgentDeskWire
 import CoreGraphics
 import Foundation
+import os
 
 /// What a window's terminal pane was serving, in the form the open flow needs to ask for it again.
 ///
@@ -66,6 +67,31 @@ struct AgentWindowPresentationDescriptor: Codable, Equatable, Identifiable, Send
         self.terminal = terminal
         self.zoomStep = zoomStep
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case frame
+        case desktopSpaceID
+        case cascadeOrdinal
+        case terminal
+        case zoomStep
+    }
+
+    /// Hand-written for one reason: `zoomStep` defaults instead of being required.
+    ///
+    /// A synthesized decode treats a missing key as a hard failure, and the whole document is one
+    /// value -- so the first launch after this field was added threw on the descriptors written by
+    /// the launch before it, and every remembered Agents window silently failed to come back. The
+    /// same shape, for the same field, is why `WorkspaceIDELocalState` writes its own decoder.
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        frame = try values.decode(AgentWindowFrame.self, forKey: .frame)
+        desktopSpaceID = try values.decodeIfPresent(UInt64.self, forKey: .desktopSpaceID)
+        cascadeOrdinal = try values.decode(Int.self, forKey: .cascadeOrdinal)
+        terminal = try values.decodeIfPresent(AgentWindowTerminalAttachment.self, forKey: .terminal)
+        zoomStep = try values.decodeIfPresent(Int.self, forKey: .zoomStep) ?? 0
+    }
 }
 
 enum AgentWindowPresentationStoreError: Error, Equatable {
@@ -123,13 +149,29 @@ final class AgentWindowPresentationStore {
         try data.write(to: url, options: .atomic)
     }
 
+    /// A document that exists but does not decode is REPORTED, not just skipped.
+    ///
+    /// Restoring nothing looks identical to having nothing stored, and that is what made a schema
+    /// change that broke this file cost an afternoon: every Agents window stopped coming back, the
+    /// host logged not one line about it, and the only way to see the cause was to read the JSON by
+    /// hand. An absent file is still silent -- that genuinely is "nothing stored".
     private static func read(url: URL) -> [AgentWindowPresentationDescriptor] {
-        guard let data = try? Data(contentsOf: url),
-              data.count <= 1_048_576,
-              let document = try? JSONDecoder().decode(Document.self, from: data) else {
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        guard data.count <= 1_048_576 else {
+            Logger(subsystem: Config.logSubsystem, category: "agent-window").error(
+                "agent-window presentations: refusing \(data.count, privacy: .public) bytes at \(url.lastPathComponent, privacy: .public); nothing will be restored"
+            )
             return []
         }
-        return Array(document.presentations.prefix(maximumPresentations))
+        do {
+            let document = try JSONDecoder().decode(Document.self, from: data)
+            return Array(document.presentations.prefix(maximumPresentations))
+        } catch {
+            Logger(subsystem: Config.logSubsystem, category: "agent-window").error(
+                "agent-window presentations: \(url.lastPathComponent, privacy: .public) did not decode, nothing will be restored: \(String(describing: error), privacy: .public)"
+            )
+            return []
+        }
     }
 }
 
