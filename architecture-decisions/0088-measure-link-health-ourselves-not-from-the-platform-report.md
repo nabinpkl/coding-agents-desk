@@ -19,6 +19,11 @@ where the transport-quality signal comes from instead. Scope: `OwnedMediaTranspo
 sides, `MediaQualityController`, and the `.linkHealth` control message in
 `packages/AgentDeskWire/Sources/AgentDeskWire/OwnedMedia.swift`.
 
+**Note, added after the cellular device run:** the queueing framing in this section came from
+a WiFi event and turned out not to describe the cellular freeze this work was chasing. That
+freeze is a silent transport black hole. See "What the cellular run actually found" below
+before building on the bufferbloat premise.
+
 ## Decision Drivers
 
 - The signal must distinguish queueing, loss, path outage, radio handover, and a starved
@@ -133,6 +138,49 @@ is real evidence whether or not we were sending.
 
 The pre-existing synthetic test passed throughout, because it modelled a calm screen as one
 still receiving datagrams (`datagramsReceived: 12`) -- an assumption the device falsified.
+
+### What the cellular run actually found: a silent transport black hole
+
+The first run on 5G reproduced the freeze and the telemetry answered the question this ADR
+was built to ask. The answer is **not queueing**, and it is worth stating plainly because the
+Context section above frames the problem as bufferbloat on the strength of a WiFi event.
+
+One freeze, 2026-07-31 16:53:29 to 16:53:47, roughly **18 seconds**:
+
+- the client reported `datagramsRecv=0` with `maxArrivalGapMs` climbing 1589 -> 8236;
+- the host kept producing at full rate throughout: **622 frames, 7 keyframes, averaging
+  2170kbps**, with 631 frames abandoned as obsolete;
+- `ackCount=0` for twenty consecutive windows;
+- the freeze ended in a **session teardown** (`windowId` reset 1949 -> 1), not in the burst of
+  delayed frames that queueing would produce.
+
+The transport-level cause appears only at the very end. The host's QUIC connection reports no
+state change for the entire stall, then at 16:53:47.364 emits
+`waiting(POSIXErrorCode 50: Network is down)`, returns to `ready` 54ms later, and 30 seconds
+after that fails with `Operation timed out`. So the connection black-holes traffic silently
+for ~18 seconds before Network.framework admits the network is down.
+
+Two consequences follow, and they cut against instruments this ADR chose:
+
+- **`NWPathMonitor` is blind to this.** Through the entire freeze the client reported
+  `pathStatus=satisfied pathChanges=0 radioChanges=0`. The path clause in `clientLinkStalled`
+  would never have fired. Path metadata is worth keeping, but it is not the freeze detector.
+- **RTT inflation is structurally blind to it.** Smoothed RTT sat frozen at 16.0ms and the
+  ratio at 2.8 for the whole stall, because a black hole produces no acks and the tracker only
+  moves on samples. A detector that needs round-trip samples cannot see a failure whose
+  definition is the absence of round trips.
+
+The one instrument that worked is the cheap one: the client's `datagramsReceived` /
+`maxArrivalGapMs` pair, which flagged the freeze at window 1930 -- **about 1.6 seconds in, some
+16 seconds before the transport reported any error.** The `hostQuietMs` rule fires correctly on
+it (gap 1589.7 > host quiet ~28ms + 500ms interval) while staying quiet on the calm-screen
+windows that motivated it.
+
+This does not retract the WiFi observation in the Context section; 49 frames completing after
+a 12.79s stall is a real and different event. It does mean the two were merged too early under
+one "queueing" label, and that the cellular freeze -- the one that actually drove this work --
+is a transport black hole, not congestion. Any host-side backoff should therefore be keyed on
+the arrival-gap signal, not on RTT inflation or path status.
 
 ### Confirmation
 
