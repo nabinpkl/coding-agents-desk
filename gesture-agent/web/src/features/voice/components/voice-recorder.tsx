@@ -73,23 +73,18 @@ export function VoiceRecorder({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="rounded-lg border border-border bg-muted/40 p-3">
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="min-w-0">
-            <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {passage
-                ? passage.attemptCount === 0
-                  ? "Practice reference"
-                  : "Retake intended text"
-                : "New passage"}
-            </span>
-            <p className="mt-1 text-base leading-relaxed">
-              {passage?.intendedText ||
-                "Record freely. The machine transcript will seed intended text for your review."}
-            </p>
-          </div>
+      {passage ? (
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            {passage.attemptCount === 0
+              ? "Practice reference"
+              : "Retake intended text"}
+          </span>
+          <p className="min-w-0 flex-1 basis-72 text-base leading-relaxed">
+            {passage.intendedText}
+          </p>
         </div>
-      </div>
+      ) : null}
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex flex-wrap items-center gap-3">
           {isCapturing ? (

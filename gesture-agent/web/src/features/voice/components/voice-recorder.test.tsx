@@ -64,9 +64,27 @@ it("keeps Reset visible and clears the selected passage context", () => {
   expect(screen.getByLabelText("Microphone").textContent).toContain(
     "System default",
   );
+  expect(screen.getByText("Practice reference")).toBeTruthy();
+  expect(screen.getByText("Hello. How are you?")).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: "Reset" }));
   expect(referenceSpeech.stop).toHaveBeenCalledOnce();
   expect(session.reset).toHaveBeenCalledOnce();
   expect(onNewPassage).toHaveBeenCalledOnce();
+});
+
+it("keeps every recorder action without a passive new-passage callout", () => {
+  render(
+    <VoiceRecorder onComplete={vi.fn()} onNewPassage={vi.fn()} />,
+  );
+
+  expect(screen.queryByText("New passage")).toBeNull();
+  expect(
+    screen.queryByText(
+      "Record freely. The machine transcript will seed intended text for your review.",
+    ),
+  ).toBeNull();
+  expect(screen.getByRole("button", { name: "Record" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Reset" })).toBeTruthy();
+  expect(screen.getByLabelText("Microphone")).toBeTruthy();
 });

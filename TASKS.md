@@ -1154,8 +1154,11 @@ host-owned library.
 - **D196** Keep Reset visible on the recorder outside active finalization and make it clear both the
   ephemeral voice run and the selected passage target. Reset does not call a passage deletion API;
   durable passages and attempts remain library truth.
-- Focused selection, constraints, and recorder tests pass. Repository-wide acceptance and a real
-  microphone-switch run remain the gates before claiming the physical inputs were exercised.
+- **D204** Remove the passive bordered New passage explainer so controls lead in free-recording
+  mode. Keep actual practice and retake intended text as compact inline context, without removing
+  Record, Stop, Reset, microphone selection, status, input level, transcript, or preamp actions.
+- Focused selection, constraints, and recorder tests pass. Repository-wide acceptance passes; a
+  real microphone-switch run remains the gate before claiming the physical inputs were exercised.
 
 ## v16 Phase 1: stall recovery on a manually pinned stream
 
@@ -1352,4 +1355,5 @@ D200  2026-07-31  landed     unconditional link-health report carrying telemetry
 D201  2026-07-31  landed     host path observer and round-trip inflation on one correlated line
 D202  2026-07-31  landed     recovery credit judged on what a report says, not who sent it
 R203  checkpoint  remaining  authorized cellular device acceptance with telemetry live
+D204  2026-07-31  landed     quiet free-recording state with compact practice context
 ```
