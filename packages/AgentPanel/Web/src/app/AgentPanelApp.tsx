@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { LoaderCircle, Terminal as TerminalIcon } from "lucide-react";
 import type {
   AgentTerminalContext,
@@ -13,6 +13,19 @@ import { DataSourceProvider } from "../features/activity-feed/data-source/AgentD
 import { ActivityFeed } from "../features/activity-feed/ActivityFeed";
 import { FontSizeRoot } from "../features/activity-feed/fontStore";
 import { loadEventMode, storeEventMode } from "../features/activity-feed/eventModeStore";
+
+/**
+ * How long to wait before re-subscribing after a failure.
+ *
+ * Doubling from a second, capped, because the two failures worth surviving have
+ * very different shapes: a sidecar restart is back within seconds, while a
+ * sidecar that cannot start at all should not be asked once a second forever.
+ * Each attempt already costs the host's own readiness wait, so this is the pause
+ * on top of that, not the whole cadence.
+ */
+function retryDelayMs(attempt: number): number {
+  return Math.min(1000 * 2 ** attempt, 15000);
+}
 
 type NavState =
   | { view: "projects" }
@@ -70,41 +83,75 @@ export function App({ bridge }: Props) {
     });
   }, []);
 
+  // Incremented to re-run the subscription below after a failure.
+  //
+  // A visibility subscription is one-shot: the host tears the stream down when it
+  // reports an error, so without this the first failure was permanent. That is how
+  // a restored Agents window that came up one second before its sidecar sat on
+  // "agent feed is not ready" for a whole session. The host now waits for a
+  // sidecar that is starting, which covers the launch race; this covers what is
+  // left -- an outage longer than that wait, or a sidecar that dies and restarts
+  // while the window is open.
+  //
+  // Only ever increments. The consecutive-failure count that sets the delay lives
+  // in a ref instead, because resetting it on success would be a state change in
+  // this effect's own dependencies -- which tears down the subscription that just
+  // succeeded and re-subscribes, leaving the viewer back on "Loading".
+  const [retryNonce, setRetryNonce] = useState(0);
+  const [retrying, setRetrying] = useState(false);
+  const consecutiveFailures = useRef(0);
+
+  // A fresh layer starts from the short delay rather than inheriting the backoff
+  // of whatever the viewer was looking at before.
+  useEffect(() => {
+    consecutiveFailures.current = 0;
+  }, [nav]);
+
   useEffect(() => {
     setLoadingLayer(true);
     setLayerError(null);
-    if (nav.view === "projects") {
-      setSessions([]);
-      return bridge.subscribeProjects(
-        (snapshot) => {
-          setProjects(snapshot);
-          setLoadingLayer(false);
-        },
-        (reason) => {
-          setLayerError(reason);
-          setLoadingLayer(false);
-        },
-      );
-    }
-    if (nav.view === "sessions") {
+    setRetrying(false);
+    if (nav.view === "thread") {
       setProjects([]);
-      return bridge.subscribeProjectSessions(
-        nav.project.projectPath,
-        (snapshot) => {
-          setSessions(snapshot);
-          setLoadingLayer(false);
-        },
-        (reason) => {
-          setLayerError(reason);
-          setLoadingLayer(false);
-        },
-      );
+      setSessions([]);
+      setLoadingLayer(false);
+      return undefined;
     }
-    setProjects([]);
-    setSessions([]);
-    setLoadingLayer(false);
-    return undefined;
-  }, [bridge, nav]);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onError = (reason: string) => {
+      setLayerError(reason);
+      setLoadingLayer(false);
+      setRetrying(true);
+      const delay = retryDelayMs(consecutiveFailures.current);
+      consecutiveFailures.current += 1;
+      timer = setTimeout(() => setRetryNonce((n) => n + 1), delay);
+    };
+    const onLoaded = () => {
+      setLoadingLayer(false);
+      setRetrying(false);
+      consecutiveFailures.current = 0;
+    };
+    const stop =
+      nav.view === "projects"
+        ? (setSessions([]),
+          bridge.subscribeProjects((snapshot) => {
+            setProjects(snapshot);
+            onLoaded();
+          }, onError))
+        : (setProjects([]),
+          bridge.subscribeProjectSessions(
+            nav.project.projectPath,
+            (snapshot) => {
+              setSessions(snapshot);
+              onLoaded();
+            },
+            onError,
+          ));
+    return () => {
+      if (timer !== undefined) clearTimeout(timer);
+      stop?.();
+    };
+  }, [bridge, nav, retryNonce]);
 
   useEffect(
     () =>
@@ -265,6 +312,7 @@ export function App({ bridge }: Props) {
                 onSelect={openProject}
                 loading={loadingLayer}
                 error={layerError}
+                retrying={retrying}
               />
             </div>
           ) : nav.view === "sessions" ? (
@@ -273,6 +321,7 @@ export function App({ bridge }: Props) {
                 sessions={sessions}
                 loading={loadingLayer}
                 error={layerError}
+                retrying={retrying}
                 onSelect={(s) => openSession(nav.project, s)}
               />
             </div>
@@ -428,11 +477,13 @@ function ProjectList({
   onSelect,
   loading,
   error,
+  retrying,
 }: {
   projects: BridgeProject[];
   onSelect: (p: BridgeProject) => void;
   loading: boolean;
   error: string | null;
+  retrying: boolean;
 }) {
   if (loading) {
     return (
@@ -444,8 +495,9 @@ function ProjectList({
 
   if (error) {
     return (
-      <div role="alert" className="flex h-full items-center justify-center p-8 text-center text-destructive">
-        Projects unavailable: {error}
+      <div role="alert" className="flex h-full flex-col items-center justify-center gap-1 p-8 text-center">
+        <span className="text-destructive">Projects unavailable: {error}</span>
+        {retrying ? <RetryNotice /> : null}
       </div>
     );
   }
@@ -507,11 +559,13 @@ function SessionList({
   sessions,
   loading,
   error,
+  retrying,
   onSelect,
 }: {
   sessions: BridgeSessionSummary[];
   loading: boolean;
   error: string | null;
+  retrying: boolean;
   onSelect: (s: BridgeSessionSummary) => void;
 }) {
   if (loading) {
@@ -524,8 +578,9 @@ function SessionList({
 
   if (error) {
     return (
-      <div role="alert" className="flex h-full items-center justify-center p-8 text-center text-destructive">
-        Sessions unavailable: {error}
+      <div role="alert" className="flex h-full flex-col items-center justify-center gap-1 p-8 text-center">
+        <span className="text-destructive">Sessions unavailable: {error}</span>
+        {retrying ? <RetryNotice /> : null}
       </div>
     );
   }
@@ -581,6 +636,16 @@ function SessionList({
 // ---------------------------------------------------------------------------
 // Shared small components
 // ---------------------------------------------------------------------------
+
+/** Says the window is still trying, so an error does not read as a dead end. */
+function RetryNotice() {
+  return (
+    <span className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+      <LoaderCircle className="size-3 animate-spin" aria-hidden />
+      Retrying…
+    </span>
+  );
+}
 
 function SourceBadge({ source }: { source: "claude" | "codex" }) {
   const label = source === "claude" ? "Claude" : "Codex";

@@ -1448,7 +1448,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         signalingLogger.notice(
             "voice lane ready fp=\(fingerprint.rawValue, privacy: .public)"
         )
-        lane.start(baseURLProvider: { [weak sidecar] in sidecar?.baseURL })
+        lane.start(baseURLProvider: { [weak sidecar] in
+            await sidecar?.baseURL(waitingUpTo: Config.voiceSidecarReadyWaitSeconds)
+        })
     }
 
     private func handleClientDiagnosticsAnnouncement(

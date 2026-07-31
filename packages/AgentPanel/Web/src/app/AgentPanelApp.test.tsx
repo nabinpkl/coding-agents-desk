@@ -656,3 +656,101 @@ describe("App shell", () => {
     unmount();
   });
 });
+
+describe("visibility subscriptions recover from failure", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("re-subscribes after an error instead of sitting on it forever", () => {
+    // The host tears a visibility stream down when it reports an error, so before
+    // this the first failure was permanent: a restored Agents window that came up
+    // one second before its sidecar showed "agent feed is not ready" for the whole
+    // session, and only reopening the window cleared it.
+    const { fake, unmount } = setup();
+    const first = latestSubscription(fake, "agent-projects-watch");
+    act(() => {
+      fake.deliver({
+        t: "agent-projects-error",
+        sub: first,
+        r: "agent feed is not ready",
+      });
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("agent feed is not ready");
+    // And it says so, so the error does not read as a dead end.
+    expect(screen.getByRole("alert")).toHaveTextContent(/retrying/i);
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    const second = latestSubscription(fake, "agent-projects-watch");
+    expect(second).not.toBe(first);
+
+    // The retry succeeds, and the error gives way to real content.
+    act(() => {
+      fake.deliver({ t: "agent-projects", sub: second, p: FIXTURE_PROJECTS });
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("Alpha Project")).toBeInTheDocument();
+    unmount();
+  });
+
+  it("backs off between attempts rather than asking once a second forever", () => {
+    const { fake, unmount } = setup();
+    const attempts = [latestSubscription(fake, "agent-projects-watch")];
+    const failCurrent = () => {
+      act(() => {
+        fake.deliver({
+          t: "agent-projects-error",
+          sub: attempts[attempts.length - 1]!,
+          r: "agent feed is not ready",
+        });
+      });
+    };
+
+    failCurrent();
+    act(() => void vi.advanceTimersByTime(1000));
+    attempts.push(latestSubscription(fake, "agent-projects-watch"));
+
+    // The second failure must wait longer than the first did.
+    failCurrent();
+    act(() => void vi.advanceTimersByTime(1000));
+    expect(latestSubscription(fake, "agent-projects-watch")).toBe(attempts[1]);
+    act(() => void vi.advanceTimersByTime(1000));
+    attempts.push(latestSubscription(fake, "agent-projects-watch"));
+
+    expect(new Set(attempts).size).toBe(3);
+    unmount();
+  });
+
+  it("a pending retry is dropped when the viewer navigates away", () => {
+    // Otherwise a timer armed on the project list fires against a screen the
+    // viewer already left, re-subscribing to a layer nothing is showing.
+    const { fake, unmount } = setup();
+    deliverProjects(fake);
+    fireEvent.click(screen.getByText("Alpha Project"));
+    const sessionsSub = latestSubscription(fake, "agent-project-sessions-watch");
+    act(() => {
+      fake.deliver({
+        t: "agent-project-sessions-error",
+        sub: sessionsSub,
+        pp: FIXTURE_PROJECT_A.pp,
+        r: "agent feed is not ready",
+      });
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("agent feed is not ready");
+
+    fireEvent.click(screen.getByRole("button", { name: /back/i }));
+    const beforeWait = fake.posted.length;
+    act(() => void vi.advanceTimersByTime(30_000));
+    const sessionWatchesAfter = fake.posted
+      .slice(beforeWait)
+      .filter((m) => (m as { t?: string }).t === "agent-project-sessions-watch");
+    expect(sessionWatchesAfter).toHaveLength(0);
+    unmount();
+  });
+});

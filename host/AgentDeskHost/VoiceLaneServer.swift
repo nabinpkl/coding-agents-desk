@@ -13,7 +13,10 @@ enum VoiceLaneServerError: Error, Equatable {
 
 @available(macOS 26.0, *)
 final class VoiceLaneServer: @unchecked Sendable {
-    typealias BaseURLProvider = @Sendable () -> URL?
+    // Async because the host starts the voice sidecar alongside the lanes that read
+    // it: a socket opened during the launch window should wait for the sidecar
+    // rather than be told the service is unavailable by one that is seconds away.
+    typealias BaseURLProvider = @Sendable () async -> URL?
     static let maximumRESTChunkBytes = 96 * 1024
     static let maximumConcurrentRESTRequests = 8
 
@@ -108,7 +111,7 @@ final class VoiceLaneServer: @unchecked Sendable {
     private func handle(_ message: VoiceLaneClientMessage) async throws {
         switch message {
         case .socketOpen(let requestID, let sessionID):
-            guard let baseURL = baseURLProvider(),
+            guard let baseURL = await baseURLProvider(),
                   let url = Self.websocketURL(
                       baseURL: baseURL,
                       recordingSessionID: sessionID
@@ -297,7 +300,7 @@ final class VoiceLaneServer: @unchecked Sendable {
             ))
             return
         }
-        guard let baseURL = baseURLProvider(),
+        guard let baseURL = await baseURLProvider(),
               let url = URL(string: request.path, relativeTo: baseURL)?.absoluteURL,
               url.host == baseURL.host,
               url.port == baseURL.port

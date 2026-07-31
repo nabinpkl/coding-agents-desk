@@ -48,9 +48,15 @@ struct VoiceSidecarOutputFramer {
 // never reaches it. It talks to nothing itself — its only output is `baseURL`,
 // which the voice webview mount reads to build the loopback WebSocket URL.
 final class VoiceEngineSidecar: @unchecked Sendable {
-    // Base URL on loopback once the sidecar is ready (e.g. http://127.0.0.1:7692).
+    // Base URL on loopback once the sidecar is ready (e.g. http://127.0.0.1:7692),
+    // published as an event so a lane that opens during the launch window waits
+    // for it rather than telling the phone the voice service is unavailable.
+    private let readiness = SidecarReadinessSignal(
+        label: "\(Config.dispatchQueuePrefix).voice-engine-sidecar-readiness"
+    )
+
     // Nil until the first successful ready-poll.
-    private(set) var baseURL: URL?
+    var baseURL: URL? { readiness.current }
 
     private let launch: VoiceSidecarLaunch
     private let port: UInt16
@@ -113,6 +119,7 @@ final class VoiceEngineSidecar: @unchecked Sendable {
             guard let self else { return }
             self.stopped = true
             self.terminateCurrentProcess()
+            self.readiness.stop()
         }
     }
 
@@ -121,6 +128,14 @@ final class VoiceEngineSidecar: @unchecked Sendable {
     // For tests only; the live app does not read this.
     var restartCountForTesting: Int {
         queue.sync { restartCount }
+    }
+
+    /// The base URL, waiting up to `timeout` seconds for a sidecar still coming up.
+    /// The voice lane uses this rather than reading `baseURL`, so a phone that opens
+    /// a socket during launch waits briefly instead of being told voice is
+    /// unavailable by a sidecar that was seconds from answering.
+    func baseURL(waitingUpTo timeout: TimeInterval) async -> URL? {
+        await readiness.value(waitingUpTo: timeout)
     }
 
     // MARK: - Private
@@ -223,7 +238,7 @@ final class VoiceEngineSidecar: @unchecked Sendable {
 
         if reached {
             let url = URL(string: "http://127.0.0.1:\(port)")!
-            baseURL = url
+            readiness.publish(url)
             // Answering /health is not yet evidence of a good start, so the backoff is not reset
             // here. See handleTermination: only a generation that then stays up earns that.
             readyAt = Date()
@@ -252,7 +267,7 @@ final class VoiceEngineSidecar: @unchecked Sendable {
         if livedLongEnough { restartBackoffSeconds = 1 }
         readyAt = nil
         logger.notice("voice sidecar exited unexpectedly status=\(status, privacy: .public); scheduling restart")
-        baseURL = nil
+        readiness.clear()
         scheduleRestart()
     }
 

@@ -761,8 +761,15 @@ enum Config {
     // read it, so a consumer arriving first is ordinary, not an error: a cold
     // start measured 1.3s, and the supervisor allows itself 5s to answer plus a
     // first restart at 1s. Ten seconds covers a launch and one restart; past that
-    // the sidecar really is not coming, and a visible error beats a hung window.
+    // the sidecar really is not coming, and a visible error the caller can retry
+    // beats a hung window.
     static let agentFeedSidecarReadyWaitSeconds: TimeInterval = 10
+    // How long a voice request waits for a sidecar still coming up. Sized to the
+    // voice supervisor's own 20s readiness budget, so the wait covers exactly one
+    // full startup attempt: the observed cold start is 1.3s, and beyond one
+    // attempt an interactive caller is better served by an error it can retry than
+    // by more silence.
+    static let voiceSidecarReadyWaitSeconds: TimeInterval = 20
     // Voice server sidecar (`voice-server` in the gesture-agent project). Runs
     // on loopback like the agent feed sidecar; the phone reaches voice only through the
     // host-mounted webview, never this port.
