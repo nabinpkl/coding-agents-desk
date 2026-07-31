@@ -26,6 +26,13 @@ import {
   stringifyForDisplay,
 } from './plainActivity.ts';
 import { extractReasoningText, joinTextContent } from './codexReasoning.ts';
+import {
+  ITEMS_NAMED,
+  PATCH_CHANGE_MARKS,
+  commandSummary,
+  summarizeJsonCall,
+  summarizeScriptCall,
+} from './codexToolSummary.ts';
 import { classifyCodexLine } from './lineClass.ts';
 
 const CODEX_HOME = config.codexHomeDirectory;
@@ -82,10 +89,20 @@ function makeToolResultBlock(raw: string): ActivityBlock {
 // apply_patch, read_file…) or a content-block array (click, some other
 // UI-driving tools). Returns '' when neither shape carries usable text so
 // the caller can decide whether to drop the event.
+//
+// An array can also carry `input_image` blocks, which `joinTextContent` skips
+// because their payload is a data: URI several hundred KB wide. 1,007 outputs
+// here carry one, and 444 carry nothing else -- a screenshot the tool returned
+// and no words -- so skipping them silently dropped those rows entirely. The
+// count goes in; the URI stays out.
 function outputToString(out: unknown): string {
   if (typeof out === 'string') return out;
-  if (Array.isArray(out)) return joinTextContent(out);
-  return '';
+  if (!Array.isArray(out)) return '';
+  const text = joinTextContent(out);
+  const images = out.filter((block) => (block as { type?: unknown } | null)?.type === 'input_image').length;
+  if (images === 0) return text;
+  const note = `[${images} image${images === 1 ? '' : 's'}]`;
+  return text.trim() ? `${text}\n\n${note}` : note;
 }
 
 function parseArgs(raw: unknown): { input: Record<string, unknown>; raw: string } {
@@ -100,9 +117,6 @@ function parseArgs(raw: unknown): { input: Record<string, unknown>; raw: string 
 }
 
 function summarizeToolUse(name: string, input: Record<string, unknown>, raw: string): string {
-  if (name === 'exec_command' && typeof input.cmd === 'string') {
-    return (input.cmd as string).slice(0, 200);
-  }
   if (name === 'apply_patch' && typeof input.file_path === 'string') {
     return `apply_patch ${basename(input.file_path as string)}`;
   }
@@ -110,13 +124,17 @@ function summarizeToolUse(name: string, input: Record<string, unknown>, raw: str
     return `read_file ${basename(input.path as string)}`;
   }
   if (name === 'shell' && typeof input.command === 'string') {
-    return (input.command as string).slice(0, 200);
+    return commandSummary(input.command as string);
   }
-  const firstKey = Object.keys(input)[0];
-  if (firstKey && typeof input[firstKey] === 'string') {
-    return `${name} ${(input[firstKey] as string).slice(0, 120)}`;
-  }
-  return name || raw.slice(0, 120);
+  // `input` is empty for a `custom_tool_call`, whose arguments are a script or a
+  // patch document rather than JSON, and the JSON reader covers the function
+  // calls whose arguments do not lead with a string. Both fell to the tool name
+  // below: 38,737 custom tool calls sharing two summaries between them, plus
+  // 11,951 function calls with their arguments sitting right there unread.
+  return summarizeJsonCall(input, name)
+    || summarizeScriptCall(raw, name)
+    || name
+    || raw.slice(0, 120);
 }
 
 interface ResponseItemPayload {
@@ -166,24 +184,13 @@ interface EventMsgPayload {
   };
 }
 
-const PATCH_CHANGE_MARKS: Readonly<Record<string, string>> = {
-  add: 'A',
-  update: 'M',
-  delete: 'D',
-};
-
-// Beyond this many files the row names the first few and counts the rest. Six
-// covers 98.2% of the 3,219 patches here outright (2,335 touch one file, and the
-// largest touches 20).
-const PATCH_FILES_NAMED = 6;
-
 /** `4 files · M FileTab.swift, A FileTabTests.swift, D Old.swift` */
 function patchFileSummary(changes: unknown): string {
   if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return '';
   const entries = changes as Record<string, PatchChange | undefined>;
   const paths = Object.keys(entries);
   if (paths.length === 0) return '';
-  const named = paths.slice(0, PATCH_FILES_NAMED).map((path) => {
+  const named = paths.slice(0, ITEMS_NAMED).map((path) => {
     const type = entries[path]?.type;
     const mark = (typeof type === 'string' && PATCH_CHANGE_MARKS[type]) || '?';
     return `${mark} ${basename(path)}`;

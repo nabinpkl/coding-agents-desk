@@ -3,10 +3,9 @@
 Branch `main`, in sync with `origin/main`, nothing uncommitted from this arc.
 (Previous handovers are preserved in this file's git history.)
 
-**Gate**: `just agent-feed-sidecar-check` (66 tests) and `just agent-panel-web-check`
-(116 tests) green, plus `swift test` in `packages/AgentDeskWire` and
-`packages/AgentPanel`. A **full `just check` currently fails on another session's
-in-progress voice work**, not on this — see Gotchas.
+**Gate**: full `just check` green (exit 0), including `just agent-feed-sidecar-check`
+(78 tests) and `just agent-panel-web-check`. The other session's in-progress voice work
+that was failing `just check` earlier in this arc has since landed.
 
 ## What shipped this session: two views over the transcript (ADR-0086)
 
@@ -100,6 +99,64 @@ That last row is why the summary comes from `changes`: every `stdout` starts
 so 3,219 collapsed rows read identically. Six files are named before `+N more` (57
 rows, 1.8%; the largest patch here touches 20). It stays **content** in the nice view —
 verified, 0 of 3,219 classified machinery.
+
+## Also shipped: every tool row says what it did (`sources/codexToolSummary.ts`)
+
+Codex writes a tool call's arguments three ways and the adapter read one of them.
+`function_call` carries JSON. `custom_tool_call` carries either JavaScript source
+driving one `tools.<verb>(...)` call, or — for `apply_patch` — a bare patch document.
+Neither of the latter two parses as JSON, so `parseArgs` returned `{}` and the row fell
+to its bare tool name. Rows read `exec exec`, and the collapsed preview (`summary ||
+tool`) made them mutually indistinguishable.
+
+Measured over **832 rollouts / 817,754 lines**, running the real adapter before and
+after:
+
+| | before | after |
+|---|---|---|
+| distinct collapsed previews (146,566 tool rows) | 45,977 | **70,545** |
+| rows reading as the bare tool name | 50,388 (34.4%) | **190 (0.1%)** |
+| summaries silently cut at a newline by the preview | 3,322 | **0** |
+| image-only tool results dropped entirely | 444 | **0** |
+
+Coverage by population: all 17,065 `apply_patch` payloads (100%), 15,841 shell `exec`
+scripts (98.4%), and 6,000 non-shell `exec` verbs (99.9%).
+
+**How it works, and its one guarantee.** Two readers — one walking JavaScript source,
+one walking a parsed JSON value — both emit an ordered list of `key -> scalar` pairs.
+One rule table per verb then picks which key names the row (`cmd` for `exec_command`,
+`session_id`+`chars` for `write_stdin`, the `*** <Verb> File:` headers for a patch,
+`q`/`ref_id` for `web__run`, `step` for `update_plan`, `path` for `view_image`,
+`message`/`targets` for the sub-agent verbs). A verb with no rule falls to its first
+real argument, which covers the MCP and app-automation tail without a rule per server.
+**No rule guesses.** One that cannot find its argument returns nothing and the row
+names the verb instead — 256 `exec` calls build their commands in a loop, and the next
+literal in that source is a `workdir`, so reporting it as the command would be worse
+than saying nothing.
+
+Three defects the measurement caught that reading the code would not have:
+
+- The script reader must **step over string literals**, not scan inside them. A regex
+  to `/cmd\s*:/` takes `echo "cmd: not-this"` as the real command.
+- A patch **embedded in a script** writes its line breaks as the two characters
+  backslash-n, which no line-oriented pattern stops at. Without cutting there the
+  "path" ran on and pulled the whole diff into the row.
+- Dispatching "is this a patch?" on *whether the text contains `tools.`* misreads a
+  diff that adds a line mentioning `tools.` — it picks a verb out of the patched file's
+  own contents. The opening line `*** Begin Patch` is the deterministic test (17,065 of
+  17,065).
+
+Two adjacent fixes rode along, same defect class:
+
+- `input_image` blocks in a tool output were skipped by `joinTextContent` (their
+  payload is a data: URI several hundred KB wide), so 444 outputs that carried nothing
+  else vanished. They now read `[N images]`; the URI still never enters a row.
+- A multi-line command lost everything after line 1 with no sign anything was dropped.
+  Now `python - <<'PY'  (+3 more lines)`.
+
+The summary drops a verb name that only repeats the chip the row already shows (that
+duplication *was* `exec exec`), but keeps it in front of a bare argument value, which
+needs it — and which is the convention the Claude adapter follows.
 
 ## Not yet done / next actions
 
