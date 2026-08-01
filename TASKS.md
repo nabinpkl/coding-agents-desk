@@ -1413,6 +1413,7 @@ D225  2026-07-31  landed     second device run: LTR is enabled, fires, and degra
 D226  2026-07-31  landed     make the LTR round trip observable, and stop two different counters both logging as `frame=`
 D227  2026-08-01  landed     LTR works; a session recreate is what wipes it, so drop its state with the session
 D228  2026-08-01  landed     carry the ladder rung across a resume, so recovery stops rescaling itself out of the cheap path
+D229  2026-08-01  landed     device run: the cheap recovery frame lands at 529 bytes; the rescale after it is the new cost
 
 D214 detail: a control-message pair (`liveness-probe` / `liveness-echo`) carrying a sequence
 number on the existing `frameId` field. Three unanswered probes at 2s declares ~4.5s after the
@@ -1597,3 +1598,38 @@ since the link may genuinely have changed and that is usually why the drop happe
 both directions -- a first connection still opens at the ceiling, a resumed one does not, and
 the scale assertion is separate because it is the one that decides whether `ensureSession`
 recreates.
+
+D229 detail: authorized device run on a foregrounded Control-Centre WiFi toggle, which is what
+finally exercised a real handover rather than a cold start. Both resumes recovered with a delta:
+`outcome=ltr-delta bytes=529` and `bytes=1048`, against the 185KB the same path cost before
+D228. The rung carry is what made the second one work -- it opened at the scale it left off at,
+so nothing recreated the session before the refresh. ADR-0090 is confirmed end to end.
+
+The screen was still black for about fifteen seconds, and the cause has moved. Both recoveries
+were followed within a second by `ltr-state-dropped reason=session-recreate` and a full keyframe:
+90KB, then 74KB, then 175KB. The carried rung is honest about the link it was measured on, and a
+handover is exactly the event that changes that link -- a rung earned on WiFi is over-provisioned
+for cellular, so the first observation window rescales, and a rescale costs a true keyframe by
+construction. That is correct adaptation, not a bug, which is why the fix is not to suppress it.
+`ltr-state-dropped` fired 25 times in eight minutes, so it is not handover-specific either: the
+ladder oscillates in steady state and every oscillation resets the reference set. Two disconnect
+cycles 8s apart also mean the radio transition itself is still a large part of the fifteen
+seconds. Next lever is rescaling less often, since making a rescale cheap is likely impossible --
+the reference invalidation at a new resolution is real.
+
+## v16 live Pi agent loop
+
+- R138. Accept ADR-0091, move the product and technical contracts to an interactive Pi session,
+  introduce capability-described sources and revisioned timeline items, and raise the outer wire to
+  protocol v16 with complete Swift, TypeScript, and decoder tests.
+- R139. Pin Pi 0.83.0, own `AgentSessionRuntime` and persisted JSONL behind a provider-neutral backend,
+  add the bounded sequenced projection, authenticated HTTP/SSE, create/send/steer/abort commands,
+  lifecycle cleanup, and hermetic backend/HTTP tests.
+- R140. Carry correlated commands and timeline envelopes through the host bridge and authenticated
+  phone session, preserving visibility-scoped fan-out, request idempotency, and independent viewers.
+- R141. Add Pi session creation and the capability-driven composer to the existing virtual AgentPanel,
+  with streaming replacement, queue/steer/stop state, scroll preservation, and Mac/mobile web tests.
+- R142. Bind Pi extensions in RPC mode, project tool-only extensions and standard UI requests, resolve
+  the first valid viewer response, and fail terminal-only custom UI explicitly.
+- R143. Verify compiled-sidecar packaging, authenticated smokes, persisted reopen, two-subscriber bash
+  streaming, focused tests, `just check`, complete-diff self-review, and authorized device acceptance.

@@ -9,7 +9,7 @@ import type {
   LineClass,
   ParsedLine,
   SourceAdapter,
-  SourceId,
+  TranscriptSourceId,
   TokenUsage,
 } from "./sources/transcriptTypes.ts";
 
@@ -108,7 +108,10 @@ function emitParsedRaw(
   offsets.push(byteOffset);
   if (isContent) niceToRaw.push(rawIndex);
   const event: ActivityEvent = {
+    id: `${key}:line:${rawIndex}`,
     index: rawIndex,
+    revision: 0,
+    phase: "complete",
     otherModeIndex: niceIndex,
     ...parsed,
   };
@@ -169,7 +172,7 @@ async function scanFrom(
 }
 
 async function buildOrSyncIndex(
-  source: SourceId,
+  source: TranscriptSourceId,
   sessionId: string,
   transcriptPath: string,
 ): Promise<void> {
@@ -213,7 +216,7 @@ async function buildOrSyncIndex(
 }
 
 export async function ensureIndexed(
-  source: SourceId,
+  source: TranscriptSourceId,
   sessionId: string,
   transcriptPath: string,
 ): Promise<void> {
@@ -221,19 +224,19 @@ export async function ensureIndexed(
 }
 
 export async function syncIndex(
-  source: SourceId,
+  source: TranscriptSourceId,
   sessionId: string,
   transcriptPath: string,
 ): Promise<void> {
   await buildOrSyncIndex(source, sessionId, transcriptPath);
 }
 
-export function acquireIndex(source: SourceId, sessionId: string): void {
+export function acquireIndex(source: TranscriptSourceId, sessionId: string): void {
   const key = sessionKey(source, sessionId);
   state.indexReferences.set(key, (state.indexReferences.get(key) ?? 0) + 1);
 }
 
-export function releaseIndex(source: SourceId, sessionId: string): void {
+export function releaseIndex(source: TranscriptSourceId, sessionId: string): void {
   const key = sessionKey(source, sessionId);
   const remaining = (state.indexReferences.get(key) ?? 1) - 1;
   if (remaining > 0) {
@@ -244,18 +247,18 @@ export function releaseIndex(source: SourceId, sessionId: string): void {
   dropIndexState(key);
 }
 
-export function resetIndex(source: SourceId, sessionId: string): void {
+export function resetIndex(source: TranscriptSourceId, sessionId: string): void {
   dropIndexState(sessionKey(source, sessionId), { keepBuild: true });
 }
 
-export function discardIndexIfUnused(source: SourceId, sessionId: string): void {
+export function discardIndexIfUnused(source: TranscriptSourceId, sessionId: string): void {
   const key = sessionKey(source, sessionId);
   if ((state.indexReferences.get(key) ?? 0) > 0) return;
   dropIndexState(key);
 }
 
 export function getEventCount(
-  source: SourceId,
+  source: TranscriptSourceId,
   sessionId: string,
   mode: EventMode = "raw",
 ): number {
@@ -272,7 +275,7 @@ export function getEventCount(
  * Used to keep the viewer's place across a mode switch.
  */
 export function translateEventIndex(
-  source: SourceId,
+  source: TranscriptSourceId,
   sessionId: string,
   eventIndex: number,
   from: EventMode,
@@ -292,7 +295,7 @@ export function translateEventIndex(
  * it sees, so whatever this returns is as current as the index is.
  */
 export function getSessionUsage(
-  source: SourceId,
+  source: TranscriptSourceId,
   sessionId: string,
 ): TokenUsage | null {
   return state.sessionUsage.get(sessionKey(source, sessionId)) ?? null;
@@ -355,7 +358,10 @@ export async function readEvents(
     const niceIndex = isContent ? niceCursor++ : null;
     if (nice && !isContent) continue;
     events.push({
+      id: `${key}:line:${rawIndex}`,
       index: nice ? niceIndex! : rawIndex,
+      revision: 0,
+      phase: "complete",
       otherModeIndex: nice ? rawIndex : niceIndex,
       ...parsed.event,
     });
@@ -364,7 +370,7 @@ export async function readEvents(
 }
 
 export async function readEventRaw(
-  source: SourceId,
+  source: TranscriptSourceId,
   sessionId: string,
   transcriptPath: string,
   eventIndex: number,
@@ -390,7 +396,7 @@ export async function readEventRaw(
 }
 
 export async function readBlockRaw(
-  source: SourceId,
+  source: TranscriptSourceId,
   sessionId: string,
   transcriptPath: string,
   eventIndex: number,
@@ -405,7 +411,7 @@ export async function readBlockRaw(
 }
 
 export function subscribeEvents(
-  source: SourceId,
+  source: TranscriptSourceId,
   sessionId: string,
   subscriber: EventSubscriber,
 ): () => void {

@@ -57,7 +57,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 10. macOS host starts an auto-hiding workspace sidebar and top bar while remaining a menu-bar application with no Dock icon.
 11. Add project folders as persistent workspaces, browse their files, and open text, Markdown, HTML, and notebooks in the host-owned viewer/editor.
 12. Edit workspace files locally with atomic autosave and visible external-change conflicts.
-13. Open independent macOS Agents windows from the top-bar `＋ Agents` command on the current Desktop and browse discovered Claude and Codex projects, sessions, history, and live activity.
+13. Open independent macOS Agents windows from the top-bar `＋ Agents` command on the current Desktop and browse discovered Claude, Codex, and Pi projects, sessions, history, and live activity. For Pi sessions, start a persisted coding-agent session, stream its response and tool activity, queue or steer another prompt, stop the active run, and use the same synchronized session from the paired iPhone.
 14. On iPhone, browse the same registered workspace roots, preview files, edit UTF-8 text, and save only when the host revision still matches.
 15. On macOS, inspect running apps by Desktop in the bottom Dock-enrichment strip, focus an exact
     Desktop-scoped window without moving it, and transactionally swap the ordinary window contents of
@@ -75,7 +75,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 
 ## What v0 is not
 
-- **Read-only agent feed, not the full agent-native UX.** v0 includes a read-only agent-feed surface on the phone: a project-first list of observed projects, each combining Claude and Codex threads, scrolled natively, fed by the host from local transcript normalization over the existing session (ADR-0035). It does **not** include the richer agent-native UX mocked in `mock-design/`: no per-agent attention model, no live reasoning ticker as a control surface, no swipe-between-agents carousel, and no acting on agents from the phone (reply, approve, nudge). The host-side Space Agent remains a local Spaces navigator, distinct from this phone-side feed.
+- **Provider-bounded agent control, not the full agent-native UX.** v0 keeps Claude and Codex transcript observation read-only while adding direct Pi session control through the host-owned agent sidecar: create, send, queue, steer, stop, and answer supported extension prompts from either Mac or phone. It does **not** include the richer agent-native UX mocked in `mock-design/`: no per-agent attention model, no live reasoning ticker as a separate control surface, no swipe-between-agents carousel, no arbitrary provider control, and no agent PTY projection. The host-side Space Agent remains a local Spaces navigator, distinct from this agent surface.
 - **Not continuous multi-display gestures.** Display selection is an explicit tap on the client rail. Horizontal sliding remains dedicated to switching Spaces within the selected display.
 - **Not multi-user.** Single bearer token in Keychain. No accounts, no sharing.
 - **Not internet-routable.** Tailscale-only. No STUN, no TURN, no VPS, no relay.
@@ -93,6 +93,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 ## Explicitly deferred
 
 - Agent-native UX (per-agent attention model, reasoning surface, multi-agent overview).
+- Arbitrary agent providers, agent PTY projection, workspace checkout management, and extension installation or marketplace UI. Pi is the first directly owned interactive provider; Claude and Codex remain transcript-backed until their own adapters are deliberately added.
 - iPad client (later iteration, same codebase).
 - Internet-accessible browser client. The embedded Workspace IDE uses bundled WebKit inside the signed native apps and does not expose workspace authority over HTTP.
 - Marketplace / TestFlight wider distribution. v0 is signed Developer ID DMG for Mac and TestFlight to one device for iOS.

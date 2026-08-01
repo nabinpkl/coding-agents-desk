@@ -10,7 +10,8 @@
 // Liveness is never stored. A selected-project probe combines transcript
 // recency with the latest bounded turn signal and derives the bin at read time.
 
-export type SourceId = 'claude' | 'codex';
+export type SourceId = 'claude' | 'codex' | 'pi';
+export type TranscriptSourceId = Exclude<SourceId, 'pi'>;
 
 export interface Header {
   sessionId?: string;
@@ -50,8 +51,14 @@ export interface ParsedLine {
 }
 
 export interface ActivityEvent extends ParsedLine {
+  // Stable identity across replacement updates. Transcript-backed events derive
+  // this from their raw JSONL line; live providers retain one id while content
+  // streams and increase `revision` instead of appending partial duplicates.
+  id: string;
   // Position in the mode this event was read in.
   index: number;
+  revision: number;
+  phase: 'streaming' | 'complete';
   // Position of the same line in the OTHER mode, or null when it has none -- a
   // machinery line read in raw mode is absent from the nice view entirely.
   //
@@ -146,7 +153,7 @@ export type Bin = 'live' | 'ready' | 'paused' | 'cold';
 // metadata reads live outside this interface so inventory cannot accidentally
 // trigger transcript indexing.
 export interface SourceAdapter {
-  id: SourceId;
+  id: TranscriptSourceId;
 
   // Parse one JSONL line. Every nonempty physical record returns an activity
   // event, optionally alongside state updates such as turn, title, cwd, usage,

@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.83.0",
     "chokidar": "^5.0.0"
   },
   "devDependencies": {

@@ -268,6 +268,34 @@ The capability findings above are reproducible with a standalone probe against
 The behavioural confirmation is a device run showing a recovery frame in the hundreds of bytes
 rather than hundreds of kilobytes, and no visual corruption across a handover.
 
+**Confirmed on a foregrounded WiFi-to-cellular toggle.** Both resumes recovered with a delta:
+
+```
+00:27:29.415  quality resumed rung=1 scale=1.0
+00:27:29.500  ltr-refresh-result outcome=ltr-delta bytes=529
+00:27:38.966  quality resumed rung=2 scale=0.75
+00:27:39.055  ltr-refresh-result outcome=ltr-delta bytes=1048
+```
+
+529 bytes against the 185 KB the same path cost before, and no corruption. The rung carry is
+what made the second one possible: it opened at the scale it left off at, so nothing recreated
+the session before the refresh.
+
+The screen was still black for about fifteen seconds, and the reason is now a different one. Both
+recoveries were followed within a second by `ltr-state-dropped reason=session-recreate` and a
+full keyframe -- 90 KB, then 74 KB, then 175 KB. The carried rung is honest about the link it was
+measured on, and that link is precisely what a handover changes: a rung earned on WiFi is
+over-provisioned for cellular, so the first observation window rescales. That rescale is correct
+adaptation, and a rescale costs a true keyframe by construction, since references are invalid at
+a new resolution.
+
+So the cheap recovery frame is no longer the cost. The cost is that adapting to the new link
+takes several rescales, each one a full keyframe, on the radio least able to carry them.
+`ltr-state-dropped` fired 25 times in eight minutes, so this is not specific to handovers: the
+ladder oscillates in steady state too, and every oscillation resets the reference set. The next
+lever is either rescaling less often or making a rescale cost less than a keyframe -- and the
+second is not obviously possible, because the invalidation is real.
+
 An earlier draft made this conditional on first measuring whether
 `AVSampleBufferDisplayLayer` releases decoder resources while idle. That gate was wrong twice
 over and is dropped.
