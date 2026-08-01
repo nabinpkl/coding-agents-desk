@@ -1371,6 +1371,9 @@ D211  2026-07-31  landed     probe-then-resume: a link change arms recovery, una
 D212  2026-07-31  landed     authorized handover device run: recovery fires, and a silent death still wedges the client
 D213  2026-07-31  landed     a way out of a session the client thinks is alive and the host has ended
 R214  checkpoint  remaining  liveness echo: recover from a dead path with no link change, sized against the 12.4s healthy-gap ceiling
+R215  remaining   retain the video sink across a transport swap, so a switch keeps the last frame instead of going black
+R216  remaining   measure whether AVSampleBufferDisplayLayer keeps decoder references across a 10s idle gap
+R217  remaining   LTR recovery on the low-latency encoder path (ADR-0090), gated on R215 and R216
 ```
 
 ## Handover arc (ADR-0089)
