@@ -1715,3 +1715,6 @@ seconds, and damping the axis would only hide that.
 - D245. Register Pi's static Bun OAuth loaders before runtime creation, fail the compiled-sidecar
   build when the OpenAI Codex flow is not embedded, and show assistant runtime errors instead of
   rendering blank failure cards.
+- D246. Replace the project/session drill-down with persistent responsive project navigation,
+  independently streamed multi-project session previews, bounded reveal batches, accessible compact
+  drawer behavior, and preserved Pi/thread controls.

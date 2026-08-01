@@ -178,3 +178,15 @@
     overscroll-behavior: none;
   }
 }
+
+/* The compact project navigation uses the browser top layer so keyboard focus
+   cannot escape into the thread while the drawer is open. WebKit maps backdrop
+   pointer events to the dialog itself, which gives the drawer a second explicit
+   close path alongside Escape and the labelled close button. */
+.agent-sidebar-dialog::backdrop {
+  background: oklch(0 0 0 / 38%);
+}
+
+.agent-sidebar-dialog:focus-visible {
+  outline: none;
+}

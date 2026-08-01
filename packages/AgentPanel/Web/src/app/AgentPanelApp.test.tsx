@@ -2,9 +2,8 @@
  * Render tests for the webview App shell.
  *
  * These tests use a FakeHostBridge to drive the BridgeDataSource and assert
- * navigation behavior: project list renders, selecting a project shows sessions,
- * selecting a session mounts the thread view, and back navigation returns to the
- * prior level.
+ * shell behavior: project expansion streams session previews, selecting a session
+ * mounts the thread view, and the project tree remains available beside it.
  *
  * ActivityFeed is mocked (it's a heavy virtualized component that depends on
  * ProseMirror/Milkdown) -- we assert that it is mounted and that the bridge
@@ -13,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { BridgeDataSource } from "../features/activity-feed/data-source/BridgeDataSource";
 import { FakeHostBridge } from "../features/activity-feed/data-source/HostBridge";
 import { App } from "./AgentPanelApp";
@@ -110,6 +109,37 @@ const FIXTURE_SESSIONS = [
   },
 ];
 
+const originalMatchMedia = globalThis.matchMedia;
+
+function installCompactViewport() {
+  const listeners = new Set<(event: MediaQueryListEvent) => void>();
+  const query = {
+    matches: true,
+    media: "(max-width: 719px)",
+    onchange: null,
+    addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => listeners.add(listener),
+    removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => listeners.delete(listener),
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => true,
+  } as MediaQueryList;
+  Object.defineProperty(globalThis, "matchMedia", {
+    configurable: true,
+    value: () => query,
+  });
+}
+
+function restoreViewport() {
+  if (originalMatchMedia) {
+    Object.defineProperty(globalThis, "matchMedia", {
+      configurable: true,
+      value: originalMatchMedia,
+    });
+  } else {
+    Reflect.deleteProperty(globalThis, "matchMedia");
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -143,20 +173,38 @@ function deliverProjects(fake: FakeHostBridge) {
 }
 
 function deliverSessions(fake: FakeHostBridge) {
-  const sub = latestSubscription(fake, "agent-project-sessions-watch");
+  deliverProjectSessions(fake, FIXTURE_PROJECT_A.pp, FIXTURE_SESSIONS);
+}
+
+function latestProjectSessionsSubscription(fake: FakeHostBridge, projectPath: string): string {
+  const message = [...fake.posted]
+    .reverse()
+    .find((candidate) => {
+      const wire = candidate as { t?: string; pp?: string };
+      return wire.t === "agent-project-sessions-watch" && wire.pp === projectPath;
+    }) as { sub?: string } | undefined;
+  if (!message?.sub) throw new Error(`missing session subscription for ${projectPath}`);
+  return message.sub;
+}
+
+function deliverProjectSessions(
+  fake: FakeHostBridge,
+  projectPath: string,
+  sessions: typeof FIXTURE_SESSIONS | Array<Record<string, unknown>>,
+) {
+  const sub = latestProjectSessionsSubscription(fake, projectPath);
   act(() => {
     fake.deliver({
       t: "agent-project-sessions",
       sub,
-      pp: FIXTURE_PROJECT_A.pp,
-      ss: FIXTURE_SESSIONS,
+      pp: projectPath,
+      ss: sessions,
     });
   });
 }
 
 function openClaudeThread(fake: FakeHostBridge) {
   deliverProjects(fake);
-  fireEvent.click(screen.getByText("Alpha Project"));
   deliverSessions(fake);
   fireEvent.click(screen.getByText("Session Claude 01"));
 }
@@ -172,6 +220,7 @@ describe("App shell", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    restoreViewport();
   });
 
   it("renders the project list title on mount", () => {
@@ -208,174 +257,148 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("navigates to session list when a project is selected", () => {
+  it("expands the newest project and streams its session preview", () => {
     const { fake, unmount } = setup();
-
     deliverProjects(fake);
 
-    // Tap Alpha Project
-    fireEvent.click(screen.getByText("Alpha Project"));
+    expect(screen.getByRole("button", { name: /^Alpha Project 2 sessions/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /^Beta Project 1 session/ })).toHaveAttribute("aria-expanded", "false");
+    expect(fake.posted).toContainEqual(expect.objectContaining({
+      t: "agent-project-sessions-watch",
+      pp: FIXTURE_PROJECT_A.pp,
+    }));
+
     deliverSessions(fake);
-
-    // Header should show the project name
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Alpha Project");
-
-    // Session list should show both sessions
     expect(screen.getByText("Session Claude 01")).toBeInTheDocument();
     expect(screen.getByText("Session Codex 01")).toBeInTheDocument();
+    unmount();
+  });
 
-    // Project list items no longer visible
-    expect(screen.queryByText("Beta Project")).not.toBeInTheDocument();
+  it("keeps several projects expanded with independent subscriptions", () => {
+    const { fake, unmount } = setup();
+    deliverProjects(fake);
+    deliverSessions(fake);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Beta Project 1 session/ }));
+    deliverProjectSessions(fake, FIXTURE_PROJECT_B.pp, [{
+      sid: "sid-beta-01",
+      src: "claude",
+      ttl: "Beta session",
+      lea: Date.now(),
+      ac: "ready",
+      cap: READ_ONLY_CAPABILITIES,
+    }]);
+
+    expect(screen.getByText("Session Claude 01")).toBeInTheDocument();
+    expect(screen.getByText("Beta session")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Alpha Project 2 sessions/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /^Beta Project 1 session/ })).toHaveAttribute("aria-expanded", "true");
+
+    const alphaSubscription = latestProjectSessionsSubscription(fake, FIXTURE_PROJECT_A.pp);
+    fireEvent.click(screen.getByRole("button", { name: /^Alpha Project 2 sessions/ }));
+    expect(fake.posted).toContainEqual({
+      t: "agent-project-sessions-unwatch",
+      sub: alphaSubscription,
+    });
+    expect(screen.queryByText("Session Claude 01")).not.toBeInTheDocument();
+    expect(screen.getByText("Beta session")).toBeInTheDocument();
 
     unmount();
   });
 
-  it("shows live dot for a live session in the session list", () => {
+  it("shows three sessions first and reveals ten more per click", () => {
     const { fake, unmount } = setup();
-
     deliverProjects(fake);
+    const manySessions = Array.from({ length: 24 }, (_, index) => ({
+      sid: `sid-${index + 1}`,
+      src: "codex",
+      ttl: `Session ${String(index + 1).padStart(2, "0")}`,
+      lea: Date.now() - index,
+      ac: "ready",
+      cap: READ_ONLY_CAPABILITIES,
+    }));
+    deliverProjectSessions(fake, FIXTURE_PROJECT_A.pp, manySessions);
 
-    fireEvent.click(screen.getByText("Alpha Project"));
-    deliverSessions(fake);
+    expect(screen.getByText("Session 03")).toBeInTheDocument();
+    expect(screen.queryByText("Session 04")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show 10 more (21 remaining)" }));
+    expect(screen.getByText("Session 13")).toBeInTheDocument();
+    expect(screen.queryByText("Session 14")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show 10 more (11 remaining)" }));
+    expect(screen.getByText("Session 23")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show 1 more (1 remaining)" }));
+    expect(screen.getByText("Session 24")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show .* more/ })).not.toBeInTheDocument();
 
-    // session-claude-01 is live; the live dot has aria-label="Live"
-    const liveDots = screen.getAllByLabelText("Live");
-    expect(liveDots.length).toBeGreaterThanOrEqual(1);
+    deliverProjectSessions(fake, FIXTURE_PROJECT_A.pp, manySessions.slice(0, 2));
+    expect(screen.getByText("Session 02")).toBeInTheDocument();
+    expect(screen.queryByText("Session 03")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show .* more/ })).not.toBeInTheDocument();
 
     unmount();
   });
 
-  it("mounts the thread view when a session is selected", () => {
+  it("mounts the selected thread while keeping its project sessions visible", () => {
     const { fake, unmount } = setup();
+    openClaudeThread(fake);
 
-    deliverProjects(fake);
-
-    fireEvent.click(screen.getByText("Alpha Project"));
-    deliverSessions(fake);
-    fireEvent.click(screen.getByText("Session Claude 01"));
-
-    // ActivityFeed mock should be in the DOM with the correct sessionId.
     const feed = screen.getByTestId("activity-feed");
-    expect(feed).toBeInTheDocument();
     expect(feed).toHaveAttribute("data-session-id", "sid-claude-01");
-
-    // The header title should reflect the session.
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Session Claude 01");
-
-    // Session list items are no longer visible.
-    expect(screen.queryByText("Session Codex 01")).not.toBeInTheDocument();
-
     expect(feed).toHaveAttribute("data-source", "claude");
-    expect(fake.posted).toContainEqual(
-      expect.objectContaining({ t: "agent-projects-watch" }),
-    );
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Session Claude 01");
+    expect(screen.getByText("Session Codex 01")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Session Claude 01/ })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText("live")).toBeInTheDocument();
+    expect(fake.posted).not.toContainEqual(expect.objectContaining({ t: "agent-projects-unwatch" }));
 
     unmount();
   });
 
-  it("back from thread view returns to session list", () => {
+  it("preserves expanded projects when project activity reorders the catalog", () => {
     const { fake, unmount } = setup();
-
+    const projectSubscription = latestSubscription(fake, "agent-projects-watch");
     deliverProjects(fake);
-
-    fireEvent.click(screen.getByText("Alpha Project"));
-    deliverSessions(fake);
-    fireEvent.click(screen.getByText("Session Claude 01"));
-
-    // Confirm we're in thread view
-    expect(screen.getByTestId("activity-feed")).toBeInTheDocument();
-
-    // Press back
-    fireEvent.click(screen.getByLabelText("Go back"));
-    deliverSessions(fake);
-
-    // Should be back on the session list for Alpha Project
-    expect(screen.getByText("Session Claude 01")).toBeInTheDocument();
-    expect(screen.queryByTestId("activity-feed")).not.toBeInTheDocument();
-
-    unmount();
-  });
-
-  it("back from session list returns to project list", () => {
-    const { fake, unmount } = setup();
-
-    deliverProjects(fake);
-
-    fireEvent.click(screen.getByText("Alpha Project"));
-    deliverSessions(fake);
-
-    // Confirm we're in session list
-    expect(screen.getByText("Session Claude 01")).toBeInTheDocument();
-
-    // Press back
-    fireEvent.click(screen.getByLabelText("Go back"));
-    deliverProjects(fake);
-
-    // Should be back on the project list
-    expect(screen.getByText("Alpha Project")).toBeInTheDocument();
-    expect(screen.getByText("Beta Project")).toBeInTheDocument();
-
-    unmount();
-  });
-
-  it("project list header is visible again after navigating back from sessions", () => {
-    const { fake, unmount } = setup();
-
-    deliverProjects(fake);
-
-    fireEvent.click(screen.getByText("Alpha Project"));
-    deliverSessions(fake);
-    fireEvent.click(screen.getByLabelText("Go back"));
-    deliverProjects(fake);
-
-    expect(screen.getByText("Agent Feed")).toBeInTheDocument();
-    unmount();
-  });
-
-  it("owns exactly one visibility watch and ignores a late parent snapshot", () => {
-    const { fake, unmount } = setup();
-    const projectsSub = latestSubscription(fake, "agent-projects-watch");
-    deliverProjects(fake);
-
-    fireEvent.click(screen.getByText("Alpha Project"));
-    const sessionsSub = latestSubscription(
-      fake,
-      "agent-project-sessions-watch",
-    );
-
-    expect(fake.posted).toContainEqual({
-      t: "agent-projects-unwatch",
-      sub: projectsSub,
-    });
-    expect(fake.posted).toContainEqual({
-      t: "agent-project-sessions-watch",
-      sub: sessionsSub,
-      pp: "/projects/alpha",
-    });
+    fireEvent.click(screen.getByRole("button", { name: /^Beta Project 1 session/ }));
 
     act(() => {
       fake.deliver({
         t: "agent-projects",
-        sub: projectsSub,
-        p: [
-          {
-            pp: "/projects/stale",
-            dn: "Stale Project",
-            sc: { cl: 1, co: 0 },
-            sn: 1,
-            lea: Date.now(),
-          },
-        ],
+        sub: projectSubscription,
+        p: [FIXTURE_PROJECT_B, FIXTURE_PROJECT_A],
       });
     });
-    expect(screen.queryByText("Stale Project")).not.toBeInTheDocument();
 
+    expect(screen.getByRole("button", { name: /^Alpha Project 2 sessions/ })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /^Beta Project 1 session/ })).toHaveAttribute("aria-expanded", "true");
+    unmount();
+  });
+
+  it("uses a modal project drawer on compact view and restores focus after dismissal", async () => {
+    installCompactViewport();
+    const { fake, unmount } = setup();
+    deliverProjects(fake);
     deliverSessions(fake);
+
+    const trigger = screen.getByRole("button", { name: "Open projects" });
+    const drawer = screen.getByRole("dialog", { name: "Projects" });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(drawer).toHaveAttribute("open");
+
     fireEvent.click(screen.getByText("Session Claude 01"));
-    expect(fake.posted).toContainEqual({
-      t: "agent-project-sessions-unwatch",
-      sub: sessionsSub,
-    });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(drawer).not.toHaveAttribute("open");
+
+    fireEvent.click(trigger);
+    expect(drawer).toHaveAttribute("open");
+    fireEvent.click(screen.getByRole("button", { name: "Close projects" }));
+    expect(drawer).not.toHaveAttribute("open");
+    await waitFor(() => expect(trigger).toHaveFocus());
+
+    fireEvent.click(trigger);
+    expect(drawer).toHaveAttribute("open");
+    fireEvent(drawer, new Event("cancel", { cancelable: true }));
+    expect(drawer).not.toHaveAttribute("open");
+    await waitFor(() => expect(trigger).toHaveFocus());
     unmount();
   });
 
@@ -450,7 +473,6 @@ describe("App shell", () => {
 
     expect(screen.queryByRole("button", { name: /open .* terminal/i })).not.toBeInTheDocument();
     deliverProjects(fake);
-    fireEvent.click(screen.getByText("Alpha Project"));
     deliverSessions(fake);
     expect(screen.queryByRole("button", { name: /open .* terminal/i })).not.toBeInTheDocument();
 
@@ -515,7 +537,7 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("keeps closing fenced from delayed ready and does not close twice on back", () => {
+  it("keeps closing fenced from delayed ready and does not close twice on replacement", () => {
     const { fake, unmount } = setup();
     openClaudeThread(fake);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
@@ -540,7 +562,7 @@ describe("App shell", () => {
     });
     expect(screen.getByRole("status")).toHaveTextContent("Closing Claude");
 
-    fireEvent.click(screen.getByLabelText("Go back"));
+    fireEvent.click(screen.getByText("Session Codex 01"));
     expect(
       fake.posted.filter(
         (message) => (message as { t?: string }).t === "agent-terminal-close",
@@ -549,7 +571,7 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("posts close then context-ended before back changes navigation", () => {
+  it("posts close then context-ended before replacing the selected thread", () => {
     const fake = new FakeHostBridge();
     const observations: boolean[] = [];
     const originalPost = fake.postToHost.bind(fake);
@@ -568,7 +590,7 @@ describe("App shell", () => {
     openClaudeThread(fake);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
 
-    fireEvent.click(screen.getByLabelText("Go back"));
+    fireEvent.click(screen.getByText("Session Codex 01"));
 
     expect(
       fake.posted.filter((message) =>
@@ -589,7 +611,7 @@ describe("App shell", () => {
       },
     ]);
     expect(observations).toEqual([true]);
-    expect(screen.queryByTestId("activity-feed")).not.toBeInTheDocument();
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-codex-01");
     unmount();
   });
 
@@ -606,8 +628,6 @@ describe("App shell", () => {
     const { unmount } = render(<App bridge={bridge} />);
     openClaudeThread(fake);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
-    fireEvent.click(screen.getByLabelText("Go back"));
-    deliverSessions(fake);
     fireEvent.click(screen.getByText("Session Codex 01"));
     fireEvent.click(screen.getByRole("button", { name: "Open Codex terminal" }));
 
@@ -640,8 +660,6 @@ describe("App shell", () => {
     const { unmount } = render(<App bridge={bridge} />);
     openClaudeThread(fake);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
-    fireEvent.click(screen.getByLabelText("Go back"));
-    deliverSessions(fake);
     fireEvent.click(screen.getByText("Session Codex 01"));
     fireEvent.click(screen.getByRole("button", { name: "Open Codex terminal" }));
 
@@ -670,10 +688,9 @@ describe("App shell", () => {
   it("creates a Pi session, sends through the composer, and answers extension UI", async () => {
     const { fake, unmount } = setup();
     deliverProjects(fake);
-    fireEvent.click(screen.getByText("Alpha Project"));
     deliverSessions(fake);
 
-    fireEvent.click(screen.getByRole("button", { name: "New Pi session" }));
+    fireEvent.click(screen.getByRole("button", { name: "New Pi session in Alpha Project" }));
     const create = fake.posted.at(-1) as { rid: string };
     await act(async () => {
       fake.deliver({
@@ -796,13 +813,10 @@ describe("visibility subscriptions recover from failure", () => {
     unmount();
   });
 
-  it("a pending retry is dropped when the viewer navigates away", () => {
-    // Otherwise a timer armed on the project list fires against a screen the
-    // viewer already left, re-subscribing to a layer nothing is showing.
+  it("drops an expanded project's pending retry when the project collapses", () => {
     const { fake, unmount } = setup();
     deliverProjects(fake);
-    fireEvent.click(screen.getByText("Alpha Project"));
-    const sessionsSub = latestSubscription(fake, "agent-project-sessions-watch");
+    const sessionsSub = latestProjectSessionsSubscription(fake, FIXTURE_PROJECT_A.pp);
     act(() => {
       fake.deliver({
         t: "agent-project-sessions-error",
@@ -813,7 +827,7 @@ describe("visibility subscriptions recover from failure", () => {
     });
     expect(screen.getByRole("alert")).toHaveTextContent("agent feed is not ready");
 
-    fireEvent.click(screen.getByRole("button", { name: /back/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Alpha Project 2 sessions/ }));
     const beforeWait = fake.posted.length;
     act(() => void vi.advanceTimersByTime(30_000));
     const sessionWatchesAfter = fake.posted
