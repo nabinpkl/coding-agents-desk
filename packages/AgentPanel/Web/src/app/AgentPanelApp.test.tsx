@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 import { BridgeDataSource } from "../features/activity-feed/data-source/BridgeDataSource";
 import { FakeHostBridge } from "../features/activity-feed/data-source/HostBridge";
+import { storeSidebarPreferences } from "../features/sidebar/sidebarPreferences";
 import { App } from "./AgentPanelApp";
 
 // ---------------------------------------------------------------------------
@@ -111,21 +112,25 @@ const FIXTURE_SESSIONS = [
 
 const originalMatchMedia = globalThis.matchMedia;
 
-function installCompactViewport() {
-  const listeners = new Set<(event: MediaQueryListEvent) => void>();
-  const query = {
-    matches: true,
-    media: "(max-width: 719px)",
-    onchange: null,
-    addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => listeners.add(listener),
-    removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => listeners.delete(listener),
-    addListener: () => {},
-    removeListener: () => {},
-    dispatchEvent: () => true,
-  } as MediaQueryList;
+function installViewport({
+  compact,
+  hoverCapable,
+}: {
+  compact: boolean;
+  hoverCapable: boolean;
+}) {
   Object.defineProperty(globalThis, "matchMedia", {
     configurable: true,
-    value: () => query,
+    value: (queryText: string) => ({
+      matches: queryText.includes("max-width") ? compact : hoverCapable,
+      media: queryText,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => true,
+    }) as MediaQueryList,
   });
 }
 
@@ -138,6 +143,16 @@ function restoreViewport() {
   } else {
     Reflect.deleteProperty(globalThis, "matchMedia");
   }
+}
+
+function firePointerEvent(
+  element: Element,
+  type: "pointerdown" | "pointermove" | "pointerup",
+  { pointerId, clientX }: { pointerId: number; clientX: number },
+) {
+  const event = new MouseEvent(type, { bubbles: true, clientX });
+  Object.defineProperty(event, "pointerId", { value: pointerId });
+  fireEvent(element, event);
 }
 
 // ---------------------------------------------------------------------------
@@ -216,10 +231,12 @@ function openClaudeThread(fake: FakeHostBridge) {
 describe("App shell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
     restoreViewport();
   });
 
@@ -374,7 +391,7 @@ describe("App shell", () => {
   });
 
   it("uses a modal project drawer on compact view and restores focus after dismissal", async () => {
-    installCompactViewport();
+    installViewport({ compact: true, hoverCapable: false });
     const { fake, unmount } = setup();
     deliverProjects(fake);
     deliverSessions(fake);
@@ -400,6 +417,66 @@ describe("App shell", () => {
     expect(drawer).not.toHaveAttribute("open");
     await waitFor(() => expect(trigger).toHaveFocus());
     unmount();
+  });
+
+  it("previews on desktop hover, pins on click, and restores the saved width", () => {
+    vi.useFakeTimers();
+    installViewport({ compact: true, hoverCapable: true });
+    storeSidebarPreferences({ open: false, width: 300 });
+    const first = setup();
+    deliverProjects(first.fake);
+
+    const trigger = screen.getByRole("button", { name: "Pin projects sidebar" });
+    expect(screen.queryByRole("complementary", { name: "Projects preview" })).not.toBeInTheDocument();
+
+    fireEvent.pointerEnter(trigger);
+    expect(screen.getByRole("complementary", { name: "Projects preview" })).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("agent-panel.sidebar.preferences")!)).toEqual({
+      open: false,
+      width: 300,
+    });
+
+    fireEvent.pointerLeave(trigger);
+    act(() => vi.advanceTimersByTime(120));
+    expect(screen.queryByRole("complementary", { name: "Projects preview" })).not.toBeInTheDocument();
+
+    fireEvent.pointerEnter(trigger);
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("button", { name: "Pin projects sidebar" })).not.toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Agent navigation" })).toBeInTheDocument();
+
+    const separator = screen.getByRole("separator", { name: "Resize projects sidebar" });
+    expect(separator).toHaveAttribute("aria-valuenow", "300");
+    fireEvent.keyDown(separator, { key: "ArrowRight" });
+    expect(separator).toHaveAttribute("aria-valuenow", "316");
+    expect(JSON.parse(localStorage.getItem("agent-panel.sidebar.preferences")!)).toEqual({
+      open: true,
+      width: 316,
+    });
+
+    firePointerEvent(separator, "pointerdown", { pointerId: 7, clientX: 316 });
+    firePointerEvent(separator, "pointermove", { pointerId: 7, clientX: 356 });
+    expect(separator).toHaveAttribute("aria-valuenow", "356");
+    firePointerEvent(separator, "pointerup", { pointerId: 7, clientX: 356 });
+    expect(JSON.parse(localStorage.getItem("agent-panel.sidebar.preferences")!)).toEqual({
+      open: true,
+      width: 356,
+    });
+
+    first.unmount();
+    const restored = setup();
+    expect(screen.getByRole("separator", { name: "Resize projects sidebar" })).toHaveAttribute(
+      "aria-valuenow",
+      "356",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Close projects" }));
+    expect(screen.getByRole("button", { name: "Pin projects sidebar" })).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("agent-panel.sidebar.preferences")!)).toEqual({
+      open: false,
+      width: 356,
+    });
+    restored.unmount();
+    vi.useRealTimers();
   });
 
   it("gives the thread a header slot for its own controls", () => {
@@ -745,6 +822,7 @@ describe("App shell", () => {
 
 describe("visibility subscriptions recover from failure", () => {
   beforeEach(() => {
+    localStorage.clear();
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 

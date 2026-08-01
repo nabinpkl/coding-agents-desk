@@ -17,8 +17,16 @@ import { loadEventMode, storeEventMode } from "../features/activity-feed/eventMo
 import {
   AgentSidebar,
   AgentSidebarDialog,
-  useCompactSidebar,
 } from "../features/sidebar/AgentSidebar";
+import {
+  HoverSidebarPreview,
+  ResizableSidebar,
+  useSidebarEnvironment,
+} from "../features/sidebar/SidebarPresentation";
+import {
+  loadSidebarPreferences,
+  storeSidebarPreferences,
+} from "../features/sidebar/sidebarPreferences";
 
 /**
  * How long to wait before re-subscribing after a failure.
@@ -82,10 +90,16 @@ export function App({ bridge }: Props) {
     queue: { steer: 0, followUp: 0 },
   });
   const [extensionUI, setExtensionUI] = useState<AgentExtensionUIRequest[]>([]);
-  const compactSidebar = useCompactSidebar();
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const { compact, hoverCapable } = useSidebarEnvironment();
+  const [sidebarPreferences, setSidebarPreferences] = useState(loadSidebarPreferences);
+  const [hoverPreviewOpen, setHoverPreviewOpen] = useState(false);
+  const [expandedProjectPaths, setExpandedProjectPaths] = useState<Set<string>>(new Set());
   const drawerTriggerRef = useRef<HTMLButtonElement>(null);
-  const openedInitialDrawer = useRef(false);
+  const initializedProjectExpansion = useRef(false);
+  const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const usesModalSidebar = compact && !hoverCapable;
+  const sidebarPinned = !usesModalSidebar && sidebarPreferences.open;
+  const drawerOpen = usesModalSidebar && sidebarPreferences.open;
   // The thread's own controls render into the header through this node, so the
   // feed does not spend a band of its own on them. Held in state, not a ref,
   // because the feed has to re-render once the node exists.
@@ -149,15 +163,22 @@ export function App({ bridge }: Props) {
   }, [bridge, retryNonce]);
 
   useEffect(() => {
-    if (!compactSidebar) {
-      setDrawerOpen(false);
+    if (projects.length === 0) return;
+    if (!initializedProjectExpansion.current) {
+      initializedProjectExpansion.current = true;
+      setExpandedProjectPaths(new Set([projects[0]!.projectPath]));
       return;
     }
-    if (!selectedThread && projects.length > 0 && !openedInitialDrawer.current) {
-      openedInitialDrawer.current = true;
-      setDrawerOpen(true);
-    }
-  }, [compactSidebar, projects.length, selectedThread]);
+    const currentPaths = new Set(projects.map((project) => project.projectPath));
+    setExpandedProjectPaths((current) => {
+      const next = new Set([...current].filter((path) => currentPaths.has(path)));
+      return next.size === current.size ? current : next;
+    });
+  }, [projects]);
+
+  useEffect(() => () => {
+    if (hoverCloseTimer.current !== null) clearTimeout(hoverCloseTimer.current);
+  }, []);
 
   useEffect(
     () =>
@@ -217,6 +238,74 @@ export function App({ bridge }: Props) {
     [bridge],
   );
 
+  const setSidebarOpen = useCallback((open: boolean) => {
+    setSidebarPreferences((current) => {
+      if (current.open === open) return current;
+      const next = { ...current, open };
+      storeSidebarPreferences(next);
+      return next;
+    });
+  }, []);
+
+  const previewSidebarWidth = useCallback((width: number) => {
+    setSidebarPreferences((current) =>
+      current.width === width ? current : { ...current, width },
+    );
+  }, []);
+
+  const commitSidebarWidth = useCallback((width: number) => {
+    setSidebarPreferences((current) => {
+      const next = current.width === width ? current : { ...current, width };
+      storeSidebarPreferences(next);
+      return next;
+    });
+  }, []);
+
+  const toggleProject = useCallback((projectPath: string) => {
+    setExpandedProjectPaths((current) => {
+      const next = new Set(current);
+      if (next.has(projectPath)) next.delete(projectPath);
+      else next.add(projectPath);
+      return next;
+    });
+  }, []);
+
+  const cancelHoverClose = useCallback(() => {
+    if (hoverCloseTimer.current === null) return;
+    clearTimeout(hoverCloseTimer.current);
+    hoverCloseTimer.current = null;
+  }, []);
+
+  const revealSidebarOnHover = useCallback(() => {
+    cancelHoverClose();
+    if (hoverCapable && !sidebarPinned) setHoverPreviewOpen(true);
+  }, [cancelHoverClose, hoverCapable, sidebarPinned]);
+
+  const hideSidebarAfterHover = useCallback(() => {
+    cancelHoverClose();
+    hoverCloseTimer.current = setTimeout(() => {
+      hoverCloseTimer.current = null;
+      setHoverPreviewOpen(false);
+    }, 120);
+  }, [cancelHoverClose]);
+
+  const pinSidebar = useCallback(() => {
+    cancelHoverClose();
+    setHoverPreviewOpen(false);
+    setSidebarOpen(true);
+  }, [cancelHoverClose, setSidebarOpen]);
+
+  const dismissHoverPreview = useCallback(() => {
+    cancelHoverClose();
+    setHoverPreviewOpen(false);
+    globalThis.requestAnimationFrame?.(() => drawerTriggerRef.current?.focus());
+  }, [cancelHoverClose]);
+
+  const closePinnedSidebar = useCallback(() => {
+    setSidebarOpen(false);
+    globalThis.requestAnimationFrame?.(() => drawerTriggerRef.current?.focus());
+  }, [setSidebarOpen]);
+
   const endCurrentTerminalContext = useCallback(() => {
     const request = terminalRequest(terminal);
     if (!request) return;
@@ -241,9 +330,10 @@ export function App({ bridge }: Props) {
       setSessionState({ runState: "idle", queue: { steer: 0, followUp: 0 } });
       setExtensionUI([]);
       setSelectedThread({ project, session });
-      if (compactSidebar) setDrawerOpen(false);
+      setHoverPreviewOpen(false);
+      if (usesModalSidebar) setSidebarOpen(false);
     },
-    [compactSidebar, endCurrentTerminalContext, selectedThread],
+    [endCurrentTerminalContext, selectedThread, setSidebarOpen, usesModalSidebar],
   );
 
   const openTerminal = useCallback(() => {
@@ -316,54 +406,68 @@ export function App({ bridge }: Props) {
     setTerminal({ kind: "closing", request });
   }, [bridge, terminal]);
 
+  const sidebarProps = {
+    bridge,
+    projects,
+    loading: loadingLayer,
+    error: layerError,
+    retrying,
+    selectedProjectPath: selectedThread?.project.projectPath ?? null,
+    selectedSessionKey: selectedThread
+      ? `${selectedThread.session.source}:${selectedThread.session.sessionId}`
+      : null,
+    creatingProjectPath,
+    creationErrors,
+    expandedProjectPaths,
+    onToggleProject: toggleProject,
+    onSelectSession: openSession,
+    onCreatePiSession: (project: BridgeProject) => void createPiSession(project),
+  };
+
   return (
     <DataSourceProvider source={bridge}>
-      <div className="flex h-dvh min-w-0 bg-background text-foreground">
+      <div className="relative flex h-dvh min-w-0 bg-background text-foreground">
         <FontSizeRoot />
-        {compactSidebar ? (
+        {usesModalSidebar ? (
           <AgentSidebarDialog
+            {...sidebarProps}
             open={drawerOpen}
             triggerRef={drawerTriggerRef}
-            onRequestClose={() => setDrawerOpen(false)}
-            bridge={bridge}
-            projects={projects}
-            loading={loadingLayer}
-            error={layerError}
-            retrying={retrying}
-            selectedProjectPath={selectedThread?.project.projectPath ?? null}
-            selectedSessionKey={selectedThread ? `${selectedThread.session.source}:${selectedThread.session.sessionId}` : null}
-            creatingProjectPath={creatingProjectPath}
-            creationErrors={creationErrors}
-            onSelectSession={openSession}
-            onCreatePiSession={(project) => void createPiSession(project)}
+            onRequestClose={() => setSidebarOpen(false)}
           />
-        ) : (
-          <aside className="h-full w-66 shrink-0 border-r border-border" aria-label="Agent navigation">
-            <AgentSidebar
-              bridge={bridge}
-              projects={projects}
-              loading={loadingLayer}
-              error={layerError}
-              retrying={retrying}
-              selectedProjectPath={selectedThread?.project.projectPath ?? null}
-              selectedSessionKey={selectedThread ? `${selectedThread.session.source}:${selectedThread.session.sessionId}` : null}
-              creatingProjectPath={creatingProjectPath}
-              creationErrors={creationErrors}
-              onSelectSession={openSession}
-              onCreatePiSession={(project) => void createPiSession(project)}
-            />
-          </aside>
-        )}
+        ) : null}
+        {sidebarPinned ? (
+          <ResizableSidebar
+            width={sidebarPreferences.width}
+            onWidthChange={previewSidebarWidth}
+            onWidthCommit={commitSidebarWidth}
+          >
+            <AgentSidebar {...sidebarProps} onClose={closePinnedSidebar} />
+          </ResizableSidebar>
+        ) : null}
+        {hoverCapable && !sidebarPinned && hoverPreviewOpen ? (
+          <HoverSidebarPreview
+            width={sidebarPreferences.width}
+            onPointerEnter={cancelHoverClose}
+            onPointerLeave={hideSidebarAfterHover}
+            onDismiss={dismissHoverPreview}
+          >
+            <AgentSidebar {...sidebarProps} />
+          </HoverSidebarPreview>
+        ) : null}
 
         <div className="flex min-w-0 flex-1 flex-col pb-[env(safe-area-inset-bottom)]">
           <header className="flex min-h-11 shrink-0 items-center gap-1 border-b border-border bg-card px-1.5">
-            {compactSidebar ? (
+            {!sidebarPinned ? (
               <button
                 ref={drawerTriggerRef}
                 type="button"
-                onClick={() => setDrawerOpen(true)}
-                aria-label="Open projects"
-                aria-expanded={drawerOpen}
+                onClick={usesModalSidebar ? () => setSidebarOpen(true) : pinSidebar}
+                onPointerEnter={hoverCapable ? revealSidebarOnHover : undefined}
+                onPointerLeave={hoverCapable ? hideSidebarAfterHover : undefined}
+                aria-label={usesModalSidebar ? "Open projects" : "Pin projects sidebar"}
+                aria-expanded={usesModalSidebar ? drawerOpen : hoverPreviewOpen}
+                title={usesModalSidebar ? "Open projects" : "Pin projects sidebar"}
                 className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <Menu className="size-5" aria-hidden />

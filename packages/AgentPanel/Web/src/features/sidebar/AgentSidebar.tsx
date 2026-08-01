@@ -17,29 +17,11 @@ import type {
   BridgeSessionSummary,
 } from "../activity-feed/data-source/BridgeDataSource";
 
-const COMPACT_SIDEBAR_QUERY = "(max-width: 719px)";
 const INITIAL_SESSION_COUNT = 3;
 const SESSION_BATCH_SIZE = 10;
 
 function retryDelayMs(attempt: number): number {
   return Math.min(1000 * 2 ** attempt, 15000);
-}
-
-export function useCompactSidebar(): boolean {
-  const [compact, setCompact] = useState(() =>
-    globalThis.matchMedia?.(COMPACT_SIDEBAR_QUERY).matches ?? false,
-  );
-
-  useEffect(() => {
-    const query = globalThis.matchMedia?.(COMPACT_SIDEBAR_QUERY);
-    if (!query) return undefined;
-    const update = () => setCompact(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-
-  return compact;
 }
 
 interface AgentSidebarProps {
@@ -52,38 +34,14 @@ interface AgentSidebarProps {
   selectedSessionKey: string | null;
   creatingProjectPath: string | null;
   creationErrors: ReadonlyMap<string, string>;
+  expandedProjectPaths: ReadonlySet<string>;
+  onToggleProject: (projectPath: string) => void;
   onSelectSession: (project: BridgeProject, session: BridgeSessionSummary) => void;
   onCreatePiSession: (project: BridgeProject) => void;
   onClose?: () => void;
 }
 
 export function AgentSidebar(props: AgentSidebarProps) {
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
-  const initialized = useRef(false);
-
-  useEffect(() => {
-    if (props.projects.length === 0) return;
-    if (!initialized.current) {
-      initialized.current = true;
-      setExpandedProjects(new Set([props.projects[0]!.projectPath]));
-      return;
-    }
-    const currentPaths = new Set(props.projects.map((project) => project.projectPath));
-    setExpandedProjects((current) => {
-      const next = new Set([...current].filter((path) => currentPaths.has(path)));
-      return next.size === current.size ? current : next;
-    });
-  }, [props.projects]);
-
-  const toggleProject = (projectPath: string) => {
-    setExpandedProjects((current) => {
-      const next = new Set(current);
-      if (next.has(projectPath)) next.delete(projectPath);
-      else next.add(projectPath);
-      return next;
-    });
-  };
-
   return (
     <div className="flex h-full min-h-0 flex-col bg-card text-foreground">
       <div className="flex min-h-11 shrink-0 items-center border-b border-border px-3">
@@ -116,7 +74,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 key={project.projectPath}
                 bridge={props.bridge}
                 project={project}
-                expanded={expandedProjects.has(project.projectPath)}
+                expanded={props.expandedProjectPaths.has(project.projectPath)}
                 active={props.selectedProjectPath === project.projectPath}
                 selectedSessionKey={
                   props.selectedProjectPath === project.projectPath
@@ -125,7 +83,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 }
                 creating={props.creatingProjectPath === project.projectPath}
                 creationError={props.creationErrors.get(project.projectPath) ?? null}
-                onToggle={() => toggleProject(project.projectPath)}
+                onToggle={() => props.onToggleProject(project.projectPath)}
                 onSelectSession={(session) => props.onSelectSession(project, session)}
                 onCreatePiSession={() => props.onCreatePiSession(project)}
               />

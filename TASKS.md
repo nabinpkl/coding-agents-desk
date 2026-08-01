@@ -1718,3 +1718,6 @@ seconds, and damping the axis would only hide that.
 - D246. Replace the project/session drill-down with persistent responsive project navigation,
   independently streamed multi-project session previews, bounded reveal batches, accessible compact
   drawer behavior, and preserved Pi/thread controls.
+- D247. Make desktop project navigation hover-previewable, click-persistent, and pointer/keyboard
+  resizable, preserving open state and committed width across panel launches while retaining the
+  compact touch drawer.
