@@ -110,6 +110,26 @@ final class SessionRegistry {
             pendingResumeProof: nil
         )
         if let transport {
+            // Stop whatever this replaces. Overwriting the dictionary entry only drops OUR
+            // reference: `startMediaTransport` observes `connectionState` from a Task that
+            // captures the transport strongly, and that stream only finishes inside `stop()`.
+            // So an unstopped transport never deallocates and keeps its link-health tick
+            // running for the life of the process.
+            //
+            // The path that hit this is a resume, which keeps the session id and therefore
+            // takes the `.sameSession` branch above -- the branch that does not call
+            // `endSession`, and so never reached the `stop()` there. Measured on a device
+            // during a WiFi-to-cellular handover: the superseded transport was still ticking
+            // quality windows 4.7 minutes later with three frames frozen in flight and zero
+            // acks, i.e. every resume leaked a whole transport and encoder.
+            //
+            // Ordering is safe because `stop()` also calls `source.stop()` on the shared frame
+            // source: callers install the new transport here and only start it afterwards, so
+            // the restart lands after this teardown. That is the same sequence the `.replaced`
+            // branch already depends on.
+            if let prior = transports[session.deviceFingerprint], prior !== transport {
+                prior.stop()
+            }
             transports[session.deviceFingerprint] = transport
         }
         return transition

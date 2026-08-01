@@ -168,6 +168,71 @@ struct SessionAuthenticatorTests {
 
 @MainActor
 struct SessionRegistryTests {
+    /// A resume keeps the session id, so it takes `noteReady`'s `.sameSession` branch -- the
+    /// one that does not call `endSession` and therefore never reached the `stop()` there. The
+    /// superseded transport was simply overwritten in the dictionary, which does not stop it:
+    /// `startMediaTransport` observes `connectionState` from a Task holding the transport
+    /// strongly, and that stream only finishes inside `stop()`.
+    ///
+    /// Measured on a device during a WiFi-to-cellular handover before this was fixed: the
+    /// superseded transport was still ticking link-health windows 4.7 minutes later, with three
+    /// frames frozen in flight and zero acks. Every resume leaked a transport and its encoder.
+    @Test func aResumeStopsTheTransportItSupersedes() {
+        let registry = SessionRegistry()
+        let now = Date()
+        let fingerprint = DeviceFingerprint("device-fp")
+        let session = ActiveSession(
+            sessionId: "session-1",
+            deviceFingerprint: fingerprint,
+            establishedAt: Int(now.timeIntervalSince1970)
+        )
+        let first = FakeMediaTransport()
+        let resumed = FakeMediaTransport()
+
+        #expect(registry.noteReady(
+            session,
+            ready: makeReady(now: now, sessionId: session.sessionId),
+            transport: first
+        ) == .initial)
+        #expect(!first.stopped)
+
+        // Same session id: this is a resume, not a replacement.
+        #expect(registry.noteReady(
+            session,
+            ready: makeReady(now: now, sessionId: session.sessionId),
+            transport: resumed
+        ) == .sameSession)
+
+        #expect(first.stopped, "the superseded transport must be stopped, or it ticks forever")
+        #expect(!resumed.stopped, "the transport taking over must not be stopped")
+    }
+
+    /// Re-registering the SAME transport object must not stop it. Otherwise a caller that
+    /// re-announces readiness without building a new transport would tear down the live one.
+    @Test func reRegisteringTheSameTransportLeavesItRunning() {
+        let registry = SessionRegistry()
+        let now = Date()
+        let fingerprint = DeviceFingerprint("device-fp")
+        let session = ActiveSession(
+            sessionId: "session-1",
+            deviceFingerprint: fingerprint,
+            establishedAt: Int(now.timeIntervalSince1970)
+        )
+        let transport = FakeMediaTransport()
+
+        _ = registry.noteReady(
+            session,
+            ready: makeReady(now: now, sessionId: session.sessionId),
+            transport: transport
+        )
+        _ = registry.noteReady(
+            session,
+            ready: makeReady(now: now, sessionId: session.sessionId),
+            transport: transport
+        )
+        #expect(!transport.stopped)
+    }
+
     @Test func noteReadyReportsInitialSameAndReplacementTransitions() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let registry = SessionRegistry(now: { now })
