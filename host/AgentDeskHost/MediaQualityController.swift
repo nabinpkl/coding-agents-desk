@@ -173,6 +173,7 @@ struct MediaQualityControllerConfig: Equatable {
     let lossDownPermille: Int
     let raiseCleanWindows: Int
     let cadenceDownWindows: Int
+    let staleDownWindows: Int
     let fpsCeiling: Int
     let fpsFloor: Int
     let ackHoldP95Ms: Double
@@ -204,6 +205,7 @@ struct MediaQualityControllerConfig: Equatable {
         lossDownPermille: Int,
         raiseCleanWindows: Int,
         cadenceDownWindows: Int,
+        staleDownWindows: Int = Config.ownedMediaStaleDownWindows,
         fpsCeiling: Int,
         fpsFloor: Int,
         ackHoldP95Ms: Double,
@@ -234,6 +236,7 @@ struct MediaQualityControllerConfig: Equatable {
         self.lossDownPermille = max(1, lossDownPermille)
         self.raiseCleanWindows = max(1, raiseCleanWindows)
         self.cadenceDownWindows = max(1, cadenceDownWindows)
+        self.staleDownWindows = max(1, staleDownWindows)
         self.fpsCeiling = max(1, fpsCeiling)
         self.fpsFloor = min(max(1, fpsFloor), self.fpsCeiling)
         self.ackHoldP95Ms = max(1, ackHoldP95Ms)
@@ -267,6 +270,7 @@ struct MediaQualityControllerConfig: Equatable {
             lossDownPermille: Config.ownedMediaBitrateLossDownPermille,
             raiseCleanWindows: Config.ownedMediaBitrateRaiseCleanWindows,
             cadenceDownWindows: Config.ownedMediaCadenceDownWindows,
+            staleDownWindows: Config.ownedMediaStaleDownWindows,
             fpsCeiling: Config.ownedMediaExpectedFrameRate,
             fpsFloor: Config.ownedMediaFpsFloor,
             ackHoldP95Ms: Config.ownedMediaAckHoldP95Ms,
@@ -358,6 +362,7 @@ struct MediaQualityController {
     private(set) var target: MediaQualityTarget
     private var cleanRecoveryMs = 0
     private var cadencePressureStreak = 0
+    private var stalePressureStreak = 0
     private var probeWindowsRemaining = 0
     private var warmupWindowsRemaining = 0
     private var probeAxis: MediaQualityProbeAxis = .none
@@ -426,6 +431,7 @@ struct MediaQualityController {
         self.stableTarget = target
         cleanRecoveryMs = 0
         cadencePressureStreak = 0
+        stalePressureStreak = 0
         // A pin is the encoder's scale being set directly, not a request to be gated: this is
         // the resume path (ADR-0090) handing back the rung the previous connection ended on,
         // and the encoder is about to run at exactly that scale. Adopting it as committed is
@@ -443,6 +449,10 @@ struct MediaQualityController {
         let total = input.sample.completedFrames + input.sample.expiredFrames
         if total == 0 {
             resetPressureStreaks()
+            // A window with no frames at all cannot have produced a stale one, so it breaks the
+            // run rather than being invisible to it: two stale windows either side of a silent
+            // gap are not the sustained pressure the streak is looking for.
+            resetStaleStreak()
             // A calm screen is change-driven quiet, not a frozen link: ScreenCaptureKit
             // produces no frames when nothing moves, so a zero-activity window with a
             // clean link is a recovery opportunity, climb back so the next motion burst
@@ -482,6 +492,19 @@ struct MediaQualityController {
         if signals.stalePressure {
             resetPressureStreaks()
             resetRecovery()
+            // R231b: one window of stale pressure is not evidence. Measured over 25 minutes,
+            // 30 of 31 stale bursts lasted exactly one window, and reacting to each of them is
+            // what turned the ladder into an oscillator. Same shape as `cadenceDownWindows`.
+            stalePressureStreak += 1
+            guard stalePressureStreak >= config.staleDownWindows else {
+                return evaluation(
+                    signals: signals,
+                    previous: previous,
+                    reason: "stale-hold",
+                    recoveryBlocker: "stale-pressure"
+                )
+            }
+            resetStaleStreak()
             downshiftCapacity(reason: "stale-capacity-down")
             return evaluation(
                 signals: signals,
@@ -490,6 +513,9 @@ struct MediaQualityController {
                 recoveryBlocker: "stale-pressure"
             )
         }
+        // A window without stale pressure breaks the run, so the next burst starts from zero
+        // rather than pairing up with an unrelated one from minutes ago.
+        resetStaleStreak()
 
         if signals.lossPressure {
             resetPressureStreaks()
@@ -912,6 +938,13 @@ struct MediaQualityController {
 
     private mutating func resetPressureStreaks() {
         cadencePressureStreak = 0
+    }
+
+    /// Deliberately NOT part of `resetPressureStreaks`. The stale branch calls that on its way
+    /// through to clear the cadence streak, and folding this in would have the signal reset the
+    /// very counter it is trying to accumulate.
+    private mutating func resetStaleStreak() {
+        stalePressureStreak = 0
     }
 
     private mutating func resetRecovery() {

@@ -50,6 +50,9 @@ struct MediaQualityResolutionDwellTests {
     /// immediately: this is the congestion response, and gating it would be the bug.
     @Test func congestionMovesBitrateAndFpsOnTheWindowThatAskedForIt() {
         var controller = MediaQualityController(config: config())
+        // R231b: the downshift needs two consecutive stale windows to fire at all. This suite is
+        // about what happens once it does, so drive it to that point first.
+        _ = controller.observe(window(stale: 1))
         let outcome = controller.observe(window(stale: 1)).outcome
         #expect(outcome.target.rung == .capacity1)
         #expect(outcome.target.bitrateKbps == config().capacity1Kbps)
@@ -62,6 +65,7 @@ struct MediaQualityResolutionDwellTests {
     /// whole reference set, and one stale frame is not yet evidence the link changed.
     @Test func theSameWindowDoesNotMoveResolution() {
         var controller = MediaQualityController(config: config())
+        _ = controller.observe(window(stale: 1))
         let outcome = controller.observe(window(stale: 1)).outcome
         #expect(outcome.target.resolutionScale == 1.0)
         #expect(!outcome.resolutionChanged)
@@ -78,6 +82,7 @@ struct MediaQualityResolutionDwellTests {
         // 00:30:09 it had climbed back -- eight seconds, inside the ten second dwell. The
         // ladder is meant to keep doing this; what it must stop doing is paying a keyframe
         // each way.
+        sawResolutionChange = sawResolutionChange || controller.observe(window(stale: 1)).outcome.resolutionChanged
         let outcome = controller.observe(window(stale: 1)).outcome
         sawResolutionChange = sawResolutionChange || outcome.resolutionChanged
         #expect(outcome.target.rung == .capacity1)
@@ -109,15 +114,17 @@ struct MediaQualityResolutionDwellTests {
         #expect(controller.targetResolutionScale < 1.0, "a link that keeps degrading must still get its rescale")
     }
 
-    /// The shape the host log actually recorded, which is not a burst of consecutive stale
-    /// windows: `stale-capacity-down` fired 139 times across fourteen minutes, roughly one
-    /// every six seconds, with clean windows in between. What holds during those gaps is the
-    /// RUNG -- the ladder stays down even on a window that reports nothing new -- so the dwell
-    /// has to measure how long the rung has been low, not how many windows in a row actively
-    /// pushed it lower. Reading the request from the already-gated target instead of the rung
-    /// made this unreachable, and a link that stayed bad would never have rescaled.
+    /// The shape the host log actually recorded, which is not a run of consecutive stale
+    /// windows. Stale pressure fired in only 32 of 1,629 windows across 25 minutes, in bursts
+    /// that were almost always a single window, with clean windows in between. What holds
+    /// during those gaps is the RUNG -- the ladder stays down even on a window that reports
+    /// nothing new -- so the dwell has to measure how long the rung has been low, not how many
+    /// windows in a row actively pushed it lower. Reading the request from the already-gated
+    /// target instead of the rung made this unreachable, and a link that stayed bad would never
+    /// have rescaled.
     @Test func aRungThatStaysDownAccruesAcrossQuietWindowsToo() {
         var controller = MediaQualityController(config: config())
+        _ = controller.observe(window(stale: 1))
         _ = controller.observe(window(stale: 1))
         #expect(controller.targetResolutionScale == 1.0, "the drop is not immediate")
         // No further stale windows: nothing new is reported, the rung simply has not climbed

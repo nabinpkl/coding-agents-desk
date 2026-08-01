@@ -856,13 +856,22 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(decision.outcome.reason, "queue-cadence-down")
     }
 
-    func testMediaQualityControllerStaleRecoveryDownshiftsImmediately() {
+    // R231b: renamed from ...DownshiftsImmediately. It no longer does, and that is the point:
+    // 30 of 31 measured stale bursts lasted a single window, and collapsing the ladder on each
+    // of them is what made it oscillate. The signal still fires on the first window; only the
+    // downshift waits for a second.
+    func testMediaQualityControllerStaleRecoveryDownshiftsAfterConsecutiveWindows() {
         var controller = MediaQualityController(config: mediaQualityConfig())
         let stale = input(
             cleanSample(ackP95Ms: 50),
             productionSummary: production(),
             staleRecoveryCount: 1
         )
+
+        let held = controller.observe(stale)
+        XCTAssertTrue(held.signals.stalePressure)
+        XCTAssertEqual(held.outcome.target.rung, .native, "one window of stale pressure is not evidence")
+        XCTAssertEqual(held.outcome.reason, "stale-hold")
 
         let decision = controller.observe(stale)
 

@@ -252,6 +252,22 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_SURVIVAL_RESOLUTION_SCALE",
         defaultValue: 0.5
     )
+    // R231b. How many CONSECUTIVE windows of stale pressure it takes to act on it, mirroring
+    // `ownedMediaCadenceDownWindows`. The stale signal is `staleRecoveryCount > 0`: a single
+    // abandoned frame, with no magnitude, answered by a jump to a fixed rung. That made the
+    // ladder a probe-to-failure oscillator -- climb bitrate geometrically, trip over one
+    // frame, collapse, climb again.
+    //
+    // 2 is set against measurement. Over a 25 minute run stale pressure fired in 32 of 1,629
+    // windows, and 30 of its 31 bursts lasted exactly ONE window; only one burst reached two.
+    // So requiring two consecutive windows would have fired once instead of thirty-one times.
+    // Magnitude tests were all weaker: the median firing window produced 17 frames and 19 of
+    // 32 firings were a single stale frame, so a rate mostly measures how much the screen
+    // happened to be changing rather than how bad the link was.
+    static let ownedMediaStaleDownWindows = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_STALE_DOWN_WINDOWS",
+        defaultValue: 2
+    )
     // R231. How long the rung has to keep asking for a LOWER resolution before the encoder
     // acts on it. Bitrate and fps still move on the window that asked; only this axis waits,
     // because only this axis costs a keyframe and the whole LTR reference set to change.
