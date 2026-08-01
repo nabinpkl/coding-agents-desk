@@ -17,6 +17,11 @@ import { useCallback, useEffect, useRef } from "react";
 
 import { encodeFloat32Pcm } from "@/features/voice/base64";
 import {
+  currentEchoCancellation,
+  micAudioConstraints,
+  subscribeHostAudioConfig,
+} from "@/features/voice/mic-audio-config";
+import {
   PCM_WORKLET_SOURCE,
   type PcmWorkletFrame,
 } from "@/features/voice/pcm-worklet";
@@ -94,12 +99,7 @@ export function useMicCapture(): MicCaptureController {
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: false,
-        },
+        audio: micAudioConstraints(currentEchoCancellation()),
       });
 
       const context = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
@@ -158,6 +158,10 @@ export function useMicCapture(): MicCaptureController {
 
   // Guarantee the mic is released if the owning component unmounts mid-run.
   useEffect(() => stop, [stop]);
+
+  // Follow the host's echo-cancellation answer for as long as this surface can
+  // start a capture; the next run picks up whatever the last push said.
+  useEffect(subscribeHostAudioConfig, []);
 
   return { start, stop };
 }

@@ -153,6 +153,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // the TS swipe tracker and applies each Space step in-process. Opt-in via
     // AGENTDESK_GESTURE_WINDOW_ENABLED until a top-bar toggle is added.
     private var gestureWindowController: GestureWindowController?
+    // One watcher for both voice webviews: echo cancellation mutes the speakers
+    // for as long as it runs, so it must follow the default microphone rather
+    // than be decided once at launch.
+    private var defaultAudioInputMonitor: DefaultAudioInputMonitor?
     private var agentSayServer: AgentSayLocalServer?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
@@ -309,6 +313,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startAgentSayServer()
         startSpaceAgent()
         startDictationBar()
+        startDefaultAudioInputMonitor()
         startPtyManager()
         startAgentFeedSidecar()
         startVoiceEngineSidecar()
@@ -397,6 +402,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         textInputFocusProbeCoordinator.cancelAll()
         spaceAgentController?.stop()
+        defaultAudioInputMonitor?.stop()
+        defaultAudioInputMonitor = nil
         dictationBarController?.stop()
         for bridge in terminalClientBridges.values {
             bridge.stop()
@@ -1561,6 +1568,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         spaceAgentController?.onHandleFrameDidChange = { [weak self] in
             self?.dictationBarController?.keepClearOfSpaceAgentHandle()
         }
+    }
+
+    /// Both voice webviews follow the same rule, so one watcher fans the change
+    /// out rather than each panel opening its own listener.
+    private func startDefaultAudioInputMonitor() {
+        guard defaultAudioInputMonitor == nil else { return }
+        let monitor = DefaultAudioInputMonitor { [weak self] echoCancellation in
+            self?.dictationBarController?.applyEchoCancellation(echoCancellation)
+            self?.gestureWindowController?.applyEchoCancellation(echoCancellation)
+        }
+        defaultAudioInputMonitor = monitor
+        monitor.start()
     }
 
     // R11: NSWorkspace publishes activeSpaceDidChangeNotification on

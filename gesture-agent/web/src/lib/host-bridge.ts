@@ -32,6 +32,15 @@ export interface HostConfig {
    * there is no rewrite, so the host injects the sidecar origin directly.
    */
   apiBaseUrl?: string;
+  /**
+   * Capture settings the native host decides, because they depend on the
+   * machine's audio route rather than anything this bundle can see. macOS
+   * implements echo cancellation with a voice-processing unit that mutes the
+   * speakers while it runs, so the host enables it only for its own built-in
+   * microphone and revises the answer through a `voiceAudioConfig` delivery
+   * when the default input device changes.
+   */
+  audio?: { echoCancellation?: boolean };
   /** Free-form feature flags the host may set. */
   flags?: Record<string, boolean>;
 }

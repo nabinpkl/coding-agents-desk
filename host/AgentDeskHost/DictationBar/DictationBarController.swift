@@ -71,6 +71,9 @@ final class DictationBarController: NSObject {
     private var panelController: InteractionPanelWebViewController?
     private var fnKeyMonitor: Any?
     private var state = DictationBarState()
+    /// Mirrors the default input device. A panel built later must open with the
+    /// current answer, not the one that was true when the app launched.
+    private var echoCancellation = DefaultAudioInput.shouldCancelEcho()
 
     /// Supplies the SpaceAgent handle's screen rect so the bar can stay clear
     /// of it, including after the mini expands for capture/finalization.
@@ -132,7 +135,11 @@ final class DictationBarController: NSObject {
             let controller = try InteractionPanelWebViewController(
                 transport: transport,
                 contract: .dictation,
-                additionalUserScripts: [InteractionPanelHostConfiguration.voiceConfigScript()]
+                additionalUserScripts: [
+                    InteractionPanelHostConfiguration.voiceConfigScript(
+                        echoCancellation: echoCancellation
+                    )
+                ]
             )
             panelController = controller
             let webView = controller.webView
@@ -158,6 +165,20 @@ final class DictationBarController: NSObject {
     private func markWebReady() {
         state.markWebReady()
         logger.notice("dictation web ready; Fn capture armed")
+    }
+
+    /// The default microphone changed, so the echo-cancellation answer changed
+    /// with it. A live run keeps its own capture graph; the next one opens with
+    /// the new rule.
+    func applyEchoCancellation(_ enabled: Bool) {
+        guard echoCancellation != enabled else { return }
+        echoCancellation = enabled
+        panelController?.deliver(
+            rawJSON: InteractionPanelHostConfiguration.audioConfigDelivery(
+                echoCancellation: enabled
+            )
+        )
+        logger.notice("dictation echo cancellation now \(enabled, privacy: .public)")
     }
 
     func currentScreenFrame() -> CGRect? { panel?.frame }

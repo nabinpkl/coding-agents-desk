@@ -27,6 +27,9 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
     private var window: NSWindow?
     private var panelController: InteractionPanelWebViewController?
     private var transport: GesturePanelSpaceStepTransport?
+    /// Mirrors the default input device, so a window built later opens with the
+    /// current echo-cancellation answer rather than the launch-time one.
+    private var echoCancellation = DefaultAudioInput.shouldCancelEcho()
 
     init(onSpaceStep: @escaping (Int) -> Void) {
         self.onSpaceStep = onSpaceStep
@@ -69,6 +72,19 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
         }
     }
 
+    /// The default microphone changed, so the echo-cancellation answer changed
+    /// with it. A live run keeps its own capture graph; the next one opens with
+    /// the new rule.
+    func applyEchoCancellation(_ enabled: Bool) {
+        guard echoCancellation != enabled else { return }
+        echoCancellation = enabled
+        panelController?.deliver(
+            rawJSON: InteractionPanelHostConfiguration.audioConfigDelivery(
+                echoCancellation: enabled
+            )
+        )
+    }
+
     func stop() {
         panelController?.teardown()
         window?.orderOut(nil)
@@ -85,7 +101,12 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
             let transport = GesturePanelSpaceStepTransport(onSpaceStep: onSpaceStep)
             let controller = try InteractionPanelWebViewController(
                 transport: transport,
-                additionalUserScripts: [InteractionPanelHostConfiguration.voiceConfigScript(voiceFirst: voiceFirst)]
+                additionalUserScripts: [
+                    InteractionPanelHostConfiguration.voiceConfigScript(
+                        voiceFirst: voiceFirst,
+                        echoCancellation: echoCancellation
+                    )
+                ]
             )
             self.transport = transport
             self.panelController = controller
