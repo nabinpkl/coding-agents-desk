@@ -17,12 +17,29 @@ enum Config {
     // peer is rejected if its protocolVersion is below minCompatibleProtocolVersion.
     static let protocolVersion = WireProtocol.version
     static let minCompatibleProtocolVersion = WireProtocol.minCompatibleVersion
-    // NWConnection can report a transient .waiting state immediately before .ready,
-    // especially for simulator loopback QUIC. Treat waiting as recoverable and use
-    // this bound for real dial failures.
+    // Overall budget for a dial to reach .ready, covering the states that mean progress
+    // (.setup, .preparing) plus any short .waiting stretches along the way.
     static let sessionConnectionReadyTimeoutMs = positiveInt(
         environmentKey: "AGENTDESK_SESSION_CONNECTION_READY_TIMEOUT_MS",
         defaultValue: 10_000
+    )
+    // How long a dial may sit *blocked* in .waiting before we abandon it for a fresh one.
+    //
+    // Much shorter than the overall budget because .waiting does not mean "nearly there": it
+    // is Network.framework reporting that the connection cannot proceed and will retry when
+    // conditions change. Measured on a real dial, a blocked connection does not recover when
+    // conditions do -- one sat in waiting(ENETDOWN) for 11.7s while a connection opened fresh
+    // against the same host went ready in 70ms, and it then died with ECONNREFUSED rather
+    // than catching up. Waiting out the full budget bought nothing; the redial was both
+    // cheaper and the thing that worked.
+    //
+    // Still seconds rather than milliseconds because .waiting can appear transiently just
+    // before .ready (notably simulator loopback QUIC). Leaving .waiting cancels the bound, so
+    // a blip costs nothing, and observed successful dials on a linkQuality=minimal cellular
+    // path reached .ready well inside it.
+    static let sessionConnectionWaitingTimeoutMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_CONNECTION_WAITING_TIMEOUT_MS",
+        defaultValue: 2_000
     )
     static let sessionReconnectRetryDelayMs = positiveInt(
         environmentKey: "AGENTDESK_SESSION_RECONNECT_RETRY_DELAY_MS",

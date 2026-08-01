@@ -291,13 +291,35 @@ struct InputChannelTests {
         #expect(OwnedGraphicsStreamRole.interactive.rawValue == 0x49)
     }
 
-    @Test func sessionConnectionReadinessKeepsWaitingTransient() {
+    @Test func sessionConnectionReadinessKeepsWaitingWhileTheDialProgresses() {
         #expect(SessionConnectionReadiness.decision(for: .setup) == .keepWaiting)
         #expect(SessionConnectionReadiness.decision(for: .preparing) == .keepWaiting)
-        #expect(SessionConnectionReadiness.decision(for: .waiting("Network is down")) == .keepWaiting)
         #expect(SessionConnectionReadiness.decision(for: .ready) == .ready)
         #expect(SessionConnectionReadiness.decision(for: .failed("Socket is not connected")) == .fail("Socket is not connected"))
         #expect(SessionConnectionReadiness.decision(for: .cancelled) == .fail(String(describing: CancellationError())))
+    }
+
+    // A blocked dial is not a slow one. Collapsing the two made the client spend its whole
+    // 10s budget on a connection that was never going to recover, when a fresh dial against
+    // the same host went ready in 70ms.
+    @Test func sessionConnectionReadinessSeparatesBlockedFromProgressing() {
+        #expect(SessionConnectionReadiness.decision(for: .waiting("Network is down")) == .blocked("Network is down"))
+        #expect(SessionConnectionReadiness.decision(for: .waiting("No route to host")) == .blocked("No route to host"))
+    }
+
+    // The reason has to survive into the error, or reading a blocked dial needs a host log.
+    @Test func blockedDialErrorNamesTheTransportsReason() {
+        let description = String(
+            describing: SessionConnectionBlocked(reason: "Network is down", afterMs: 2_000)
+        )
+        #expect(description.contains("Network is down"))
+        #expect(description.contains("2000ms"))
+    }
+
+    // The tight bound is only safe while it stays well clear of the overall budget: if the two
+    // met, every slow-but-progressing dial would be abandoned as blocked.
+    @Test func blockedBoundStaysWellInsideTheOverallDialBudget() {
+        #expect(Config.sessionConnectionWaitingTimeoutMs < Config.sessionConnectionReadyTimeoutMs)
     }
 
     @Test func ownedMediaStatusLabelsStayConcise() {

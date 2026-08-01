@@ -24,7 +24,7 @@ final class SessionDialer {
         port: UInt16,
         request: PairingHandshakeRequest
     ) async throws -> PairingHandshakeResponse {
-        let connection = try await openConnection(host: host, port: port)
+        let connection = try await openConnection(host: host, port: port, abandonWhenBlockedAfterMs: nil)
         defer { connection.applicationError = .init(code: 0, reason: "pairing-done") }
         let control = try await connection.openStream()
         try await QuicSessionStreamIO.send(request, role: .control, on: control)
@@ -48,7 +48,11 @@ final class SessionDialer {
             throw SessionRejected(reason: .badSignature)
         }
         let hostFingerprint = hostPub.agentDeskFingerprint
-        let connection = try await openConnection(host: host, port: port)
+        let connection = try await openConnection(
+            host: host,
+            port: port,
+            abandonWhenBlockedAfterMs: Config.sessionConnectionWaitingTimeoutMs
+        )
         var success = false
         defer {
             if !success {
@@ -167,7 +171,11 @@ final class SessionDialer {
             throw SessionRejected(reason: .badSignature)
         }
         let hostFingerprint = hostPub.agentDeskFingerprint
-        let connection = try await openConnection(host: host, port: port)
+        let connection = try await openConnection(
+            host: host,
+            port: port,
+            abandonWhenBlockedAfterMs: Config.sessionConnectionWaitingTimeoutMs
+        )
         var success = false
         defer {
             if !success {
@@ -274,8 +282,20 @@ final class SessionDialer {
         )
     }
 
+    /// - Parameter abandonWhenBlockedAfterMs: how long the dial may sit blocked in `.waiting`
+    ///   before being abandoned for a fresh one, or `nil` to allow it the whole budget.
+    ///
+    ///   Only the session dials pass a bound. That is where abandoning early was measured to
+    ///   win, and where it is free: the reconnect loop immediately redials. Pairing is a
+    ///   one-shot the user drives from a QR code or deeplink, with no retry behind it, and its
+    ///   `.waiting` can legitimately be a tailnet that is still coming up rather than a wedge.
+    ///   Giving it up after two seconds would turn a slow pairing into one the user has to redo.
     @available(iOS 26.0, *)
-    private func openConnection(host: String, port: UInt16) async throws -> NetworkConnection<QUIC> {
+    private func openConnection(
+        host: String,
+        port: UInt16,
+        abandonWhenBlockedAfterMs: Int?
+    ) async throws -> NetworkConnection<QUIC> {
         guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
             throw SessionRejected(reason: .malformed)
         }
@@ -295,7 +315,7 @@ final class SessionDialer {
                     }
             })
         )
-        try await waitUntilReady(connection)
+        try await waitUntilReady(connection, abandonWhenBlockedAfterMs: abandonWhenBlockedAfterMs)
         // ADR-0088: the one platform report that DOES work on the new API. Unlike
         // `dataTransferReport()` (which returns a zero-length window and all-zero fields),
         // `establishmentReport()` describes a completed fact rather than an interval, and the
@@ -310,24 +330,45 @@ final class SessionDialer {
     }
 
     @available(iOS 26.0, *)
-    private func waitUntilReady(_ connection: NetworkConnection<QUIC>) async throws {
+    private func waitUntilReady(
+        _ connection: NetworkConnection<QUIC>,
+        abandonWhenBlockedAfterMs: Int?
+    ) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let gate = ResumeGate()
-            let timeoutTask = Task { [gate] in
+            let blocked = BlockedDialWatchdog()
+            let timeoutTask = Task { [gate, blocked] in
                 try? await Task.sleep(nanoseconds: UInt64(Config.sessionConnectionReadyTimeoutMs) * 1_000_000)
                 guard !Task.isCancelled, gate.claim() else { return }
+                blocked.disarm()
                 continuation.resume(throwing: SessionConnectionReadyTimeout())
             }
             connection.onStateUpdate { _, state in
                 switch SessionConnectionReadiness.decision(for: state) {
                 case .ready:
                     timeoutTask.cancel()
+                    blocked.disarm()
                     if gate.claim() { continuation.resume() }
                 case .fail(let error):
                     timeoutTask.cancel()
+                    blocked.disarm()
                     if gate.claim() { continuation.resume(throwing: error) }
+                case .blocked(let reason):
+                    guard let budgetMs = abandonWhenBlockedAfterMs else { break }
+                    blocked.arm {
+                        Task { [gate] in
+                            try? await Task.sleep(nanoseconds: UInt64(budgetMs) * 1_000_000)
+                            guard !Task.isCancelled, gate.claim() else { return }
+                            timeoutTask.cancel()
+                            continuation.resume(
+                                throwing: SessionConnectionBlocked(reason: reason, afterMs: budgetMs)
+                            )
+                        }
+                    }
                 case .keepWaiting:
-                    break
+                    // Back to making progress, so the block is over and only the overall
+                    // budget applies again.
+                    blocked.disarm()
                 }
             }
             connection.start()
@@ -418,7 +459,12 @@ enum SessionHostSignatureVerifier {
 }
 
 enum SessionConnectionReadinessDecision: Equatable {
+    /// The dial is making progress. Only the overall budget applies.
     case keepWaiting
+    /// The dial is stalled and will resume only if conditions change, carrying the reason the
+    /// transport gave. Bounded separately and much more tightly than progress, because a
+    /// blocked connection does not recover when conditions do -- a fresh dial does.
+    case blocked(String)
     case ready
     case fail(String)
 }
@@ -441,7 +487,9 @@ enum SessionConnectionReadiness {
             .fail(description)
         case .cancelled:
             .fail(String(describing: CancellationError()))
-        case .setup, .preparing, .waiting:
+        case .waiting(let reason):
+            .blocked(reason)
+        case .setup, .preparing:
             .keepWaiting
         }
     }
@@ -455,7 +503,9 @@ enum SessionConnectionReadiness {
             .fail(error)
         case .cancelled:
             .fail(CancellationError())
-        case .setup, .preparing, .waiting:
+        case .waiting(let error):
+            .blocked(String(describing: error))
+        case .setup, .preparing:
             .keepWaiting
         default:
             .keepWaiting
@@ -466,6 +516,7 @@ enum SessionConnectionReadiness {
 @available(iOS 26.0, *)
 enum SessionConnectionReadyRuntimeDecision {
     case keepWaiting
+    case blocked(String)
     case ready
     case fail(Error)
 }
@@ -473,6 +524,20 @@ enum SessionConnectionReadyRuntimeDecision {
 struct SessionConnectionReadyTimeout: Error, CustomStringConvertible {
     var description: String {
         "session connection did not become ready within \(Config.sessionConnectionReadyTimeoutMs)ms"
+    }
+}
+
+/// A dial abandoned because it was blocked rather than slow.
+///
+/// Distinct from `SessionConnectionReadyTimeout` so a diagnostics pull says which bound fired,
+/// and carries the transport's own reason so the cause is readable from the client alone --
+/// establishing that a blocked dial was `waiting(ENETDOWN)` previously took a host log.
+struct SessionConnectionBlocked: Error, CustomStringConvertible {
+    let reason: String
+    let afterMs: Int
+
+    var description: String {
+        "session connection blocked in waiting(\(reason)) for \(afterMs)ms"
     }
 }
 
