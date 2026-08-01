@@ -16,13 +16,10 @@ export type FontTokenKey =
   | "sidebar_meta"
   | "sidebar_chip"
   | "canvas_menu"
-  | "tile_heading"
-  | "tile_subheading"
   | "tile_chip"
   | "tile_diff"
   | "tile_other_text"
-  | "tile_reasoning"
-  | "tile_terminal";
+  | "tile_reasoning";
 
 export type FontTab = "sidebar" | "canvas";
 export type CanvasSection = "menus" | "tiles";
@@ -38,69 +35,70 @@ export interface FontTokenSpec {
   group?: string;          // optional sub-header within a section
 }
 
+// Every `defaultPx` below is also written as the literal fallback in each
+// consumer's `text-(length:--var,Npx)`, which is what the window renders in the
+// frame before `FontSizeRoot` sets the variables. The two must agree.
+//
+// The sidebar tokens carried defaults nobody had ever seen: the whole list and
+// footer were hardcoded Tailwind sizes, so these five tokens had no consumer at
+// all and their tab moved nothing. Wiring them up used the sizes already on
+// screen as the defaults rather than the numbers that had been sitting here, so
+// that connecting the control did not silently restyle the panel.
 export const FONT_TOKENS: readonly FontTokenSpec[] = [
   // Sidebar
   {
     key: "sidebar_title",
     label: "Title",
-    description: "Section title (\"Projects\")",
+    description: "Panel header title (\"Agent Feed\", then project, then session)",
     cssVar: "--agent-panel-fs-sidebar-title",
-    defaultPx: 18,
+    defaultPx: 15,
     tab: "sidebar",
   },
   {
     key: "sidebar_body",
     label: "Item text",
-    description: "Project name in each row",
+    description: "Project and session names in each row, and empty-state text",
     cssVar: "--agent-panel-fs-sidebar-body",
-    defaultPx: 14,
+    defaultPx: 15,
     tab: "sidebar",
   },
   {
     key: "sidebar_meta",
     label: "Meta",
-    description: "Title count, empty-state hint, footer caption",
+    description: "Session count, timestamp, retry notice, footer captions",
     cssVar: "--agent-panel-fs-sidebar-meta",
-    defaultPx: 12,
+    defaultPx: 13,
     tab: "sidebar",
   },
   {
     key: "sidebar_chip",
     label: "Chip",
-    description: "Source badge (CLAUDE / CODEX) and per-row session count badge",
+    description: "Source badge (CLAUDE / CODEX)",
     cssVar: "--agent-panel-fs-sidebar-chip",
-    defaultPx: 12,
+    defaultPx: 11,
     tab: "sidebar",
   },
   // Canvas: menus (canvas chrome, top toolbar, status, modal)
   {
     key: "canvas_menu",
     label: "Menus & status",
-    description: "Top toolbar buttons, status badge, alt-mode hint",
+    description: "Feed status lines: loading, error, and empty",
     cssVar: "--agent-panel-fs-canvas-menu",
-    defaultPx: 12,
+    defaultPx: 13,
     tab: "canvas",
     section: "menus",
   },
-  // Canvas: tiles (master + project + worker tile content)
-  {
-    key: "tile_heading",
-    label: "Heading",
-    description: "Tile titles (\"Master\", project names)",
-    cssVar: "--agent-panel-fs-tile-heading",
-    defaultPx: 28,
-    tab: "canvas",
-    section: "tiles",
-  },
-  {
-    key: "tile_subheading",
-    label: "Subheading",
-    description: "Tab labels, secondary headings",
-    cssVar: "--agent-panel-fs-tile-subheading",
-    defaultPx: 18,
-    tab: "canvas",
-    section: "tiles",
-  },
+  // Canvas: tiles (the transcript feed's own content)
+  //
+  // `tile_heading` and `tile_subheading` used to sit here and `tile_terminal`
+  // below, all three inert. They named the per-agent canvas of tiles from
+  // `mock-design/`, which AGENTS.md places at v1+ -- this panel is a header, a
+  // list, and a feed, and has no tile titles or tab labels to size. The
+  // terminal one was doubly misleading: the Agents window's terminal font is
+  // real, but it is driven by the window zoom chord through
+  // `PtyTerminalWebView`, not from here. Prose headings inside a message are
+  // deliberately NOT a token; they are `em` off `tile_other_text` so they
+  // track the body (see markdown.css).
   {
     key: "tile_chip",
     label: "Chip",
@@ -129,8 +127,9 @@ export const FONT_TOKENS: readonly FontTokenSpec[] = [
     // 14 read small next to other agent transcript UIs. Measured against a
     // side-by-side of the same paragraph, theirs fit ~79 characters per line
     // where this fit ~98, which is a ~1.24x size difference, not a weight or
-    // typeface one. Changing this moves only viewers who never opened the font
-    // settings; a stored value still wins in `readInitial`.
+    // typeface one. Nothing renders these controls yet, so this default IS the
+    // rendered size for everyone -- `readInitial` only prefers a stored value,
+    // and no code path writes one.
     defaultPx: 16,
     tab: "canvas",
     section: "tiles",
@@ -144,16 +143,6 @@ export const FONT_TOKENS: readonly FontTokenSpec[] = [
     // Tracks `tile_other_text` one step down, which is what makes the trace
     // read as commentary. Moving one without the other collapses that.
     defaultPx: 14,
-    tab: "canvas",
-    section: "tiles",
-    group: "Body",
-  },
-  {
-    key: "tile_terminal",
-    label: "Terminal",
-    description: "Master and worker xterm font (applied live; resizes pty)",
-    cssVar: "--agent-panel-fs-tile-terminal",
-    defaultPx: 16,
     tab: "canvas",
     section: "tiles",
     group: "Body",

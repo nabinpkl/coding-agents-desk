@@ -279,7 +279,7 @@ export function App({ bridge }: Props) {
               </svg>
             </button>
           ) : null}
-          <h1 className="min-w-0 flex-1 truncate px-1 text-[15px] font-semibold leading-none text-foreground">
+          <h1 className="min-w-0 flex-1 truncate px-1 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold leading-none text-foreground">
             {nav.view === "projects"
               ? "Agent Feed"
               : nav.view === "sessions"
@@ -449,7 +449,7 @@ function TerminalNotice({
     return (
       <div
         role="status"
-        className="shrink-0 border-t border-border bg-destructive/10 px-3 py-1 text-[12px] text-destructive"
+        className="shrink-0 border-t border-border bg-destructive/10 px-3 py-1 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive"
       >
         {harness} terminal unavailable: {state.code}
       </div>
@@ -459,7 +459,7 @@ function TerminalNotice({
     return (
       <div
         role="status"
-        className="shrink-0 border-t border-border px-3 py-1 text-[12px] text-muted-foreground"
+        className="shrink-0 border-t border-border px-3 py-1 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground"
       >
         {harness} terminal ended
       </div>
@@ -505,7 +505,7 @@ function ProjectList({
   if (projects.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-        <p className="text-[15px] text-muted-foreground">No projects yet</p>
+        <p className="text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground">No projects yet</p>
       </div>
     );
   }
@@ -528,7 +528,7 @@ function ProjectList({
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="truncate text-[15px] font-medium text-foreground">
+                  <span className="truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-medium text-foreground">
                     {name}
                   </span>
                 </div>
@@ -536,7 +536,7 @@ function ProjectList({
                   {sources.map((src) => (
                     <SourceBadge key={src} source={src} />
                   ))}
-                  <span className="text-[13px] text-muted-foreground">
+                  <span className="text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
                     {project.sessionCount}{" "}
                     {project.sessionCount === 1 ? "session" : "sessions"}
                   </span>
@@ -588,7 +588,7 @@ function SessionList({
   if (sessions.length === 0) {
     return (
       <div className="flex h-full items-center justify-center p-8">
-        <p className="text-[15px] text-muted-foreground">No sessions in this project</p>
+        <p className="text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground">No sessions in this project</p>
       </div>
     );
   }
@@ -619,10 +619,10 @@ function SessionList({
                     />
                   ) : null}
                 </div>
-                <p className="mt-1 truncate text-[15px] font-medium text-foreground">
+                <p className="mt-1 truncate text-(length:--agent-panel-fs-sidebar-body,15px) font-medium text-foreground">
                   {title}
                 </p>
-                <p className="mt-0.5 text-[13px] text-muted-foreground">{time}</p>
+                <p className="mt-0.5 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">{time}</p>
               </div>
               <ChevronRight />
             </button>
@@ -640,7 +640,7 @@ function SessionList({
 /** Says the window is still trying, so an error does not read as a dead end. */
 function RetryNotice() {
   return (
-    <span className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+    <span className="flex items-center gap-1.5 text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">
       <LoaderCircle className="size-3 animate-spin" aria-hidden />
       Retrying…
     </span>
@@ -656,7 +656,7 @@ function SourceBadge({ source }: { source: "claude" | "codex" }) {
   return (
     <span
       aria-label={`Source: ${label}`}
-      className={`inline-flex items-center rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wide ${cls}`}
+      className={`inline-flex items-center rounded px-1.5 py-0.5 font-mono text-(length:--agent-panel-fs-sidebar-chip,11px) font-semibold uppercase tracking-wide ${cls}`}
     >
       {label}
     </span>

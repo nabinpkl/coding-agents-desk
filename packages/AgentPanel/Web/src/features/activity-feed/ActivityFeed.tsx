@@ -365,21 +365,21 @@ export function ActivityFeed({
 
   if (loading && events.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-(length:--agent-panel-fs-canvas-menu,13px) text-muted-foreground">
         loading session events…
       </div>
     );
   }
   if (error && events.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-[13px] text-destructive">
+      <div className="flex h-full items-center justify-center text-(length:--agent-panel-fs-canvas-menu,13px) text-destructive">
         {error}
       </div>
     );
   }
   if (events.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-(length:--agent-panel-fs-canvas-menu,13px) text-muted-foreground">
         no events
       </div>
     );
