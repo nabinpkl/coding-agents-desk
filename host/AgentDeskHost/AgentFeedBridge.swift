@@ -181,6 +181,12 @@ final class AgentFeedBridge: @unchecked Sendable {
     }
 
     func handleSessionCreate(_ request: AgentSessionCreate) {
+        guard Self.validRequestIdentifier(request.requestId),
+              Self.validSource(request.source),
+              Self.validNonempty(request.projectPath) else {
+            sendInvalidCommand(requestId: request.requestId)
+            return
+        }
         Task {
             do {
                 let session = try await client.createSession(
@@ -202,6 +208,14 @@ final class AgentFeedBridge: @unchecked Sendable {
     }
 
     func handleSessionSend(_ request: AgentSessionSend) {
+        guard Self.validRequestIdentifier(request.requestId),
+              Self.validSource(request.source),
+              Self.validRequestIdentifier(request.sessionId),
+              Self.validNonempty(request.text),
+              request.delivery == "next" || request.delivery == "steer" else {
+            sendInvalidCommand(requestId: request.requestId)
+            return
+        }
         Task {
             do {
                 let receipt = try await client.sendMessage(
@@ -224,6 +238,12 @@ final class AgentFeedBridge: @unchecked Sendable {
     }
 
     func handleSessionAbort(_ request: AgentSessionAbort) {
+        guard Self.validRequestIdentifier(request.requestId),
+              Self.validSource(request.source),
+              Self.validRequestIdentifier(request.sessionId) else {
+            sendInvalidCommand(requestId: request.requestId)
+            return
+        }
         Task {
             do {
                 let receipt = try await client.abortSession(
@@ -244,6 +264,12 @@ final class AgentFeedBridge: @unchecked Sendable {
     }
 
     func handleExtensionUIResponse(_ response: AgentExtensionUIResponse) {
+        guard Self.validRequestIdentifier(response.requestId),
+              Self.validSource(response.source),
+              Self.validRequestIdentifier(response.sessionId) else {
+            sendInvalidCommand(requestId: response.requestId)
+            return
+        }
         Task {
             do {
                 let receipt = try await client.respondToExtensionUI(
@@ -536,6 +562,15 @@ final class AgentFeedBridge: @unchecked Sendable {
         ))
     }
 
+    private func sendInvalidCommand(requestId: String) {
+        sendCodable(AgentCommandError(
+            requestId: requestId,
+            code: "invalid-agent-command",
+            message: "agent command contains an invalid source, identifier, or value",
+            retryable: false
+        ))
+    }
+
     private func sendRawEvent(_ text: String, request: AgentRawEventRequest) throws {
         let sourceData = Data(text.utf8)
         guard sourceData.count <= AgentRawEventLimits.maximumRecordBytes else {
@@ -665,5 +700,14 @@ final class AgentFeedBridge: @unchecked Sendable {
 
     private static func validSource(_ source: String) -> Bool {
         source.range(of: #"^[a-z][a-z0-9-]{0,31}$"#, options: .regularExpression) != nil
+    }
+
+    private static func validRequestIdentifier(_ value: String) -> Bool {
+        !value.isEmpty && value.count <= 128 &&
+            value.range(of: #"^[A-Za-z0-9._:-]+$"#, options: .regularExpression) != nil
+    }
+
+    private static func validNonempty(_ value: String) -> Bool {
+        !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

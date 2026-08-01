@@ -282,6 +282,45 @@ describe("BridgeDataSource live agent control", () => {
     expect(onState).toHaveBeenLastCalledWith({ sequence: 2, runState: "idle", queue: { steer: 0, followUp: 1 } });
   });
 
+  it("accepts an older-page reply whose read sequence trails the live stream", async () => {
+    const { host, source } = makeSource();
+    source.subscribeSessionEvents(
+      { source: "pi", sessionId: "thread", mode: "nice" },
+      0,
+      { onEvent: vi.fn() },
+    );
+    host.deliver({
+      t: "agent-thread-chunk", src: "pi", sid: "thread", md: "nice",
+      ev: [{ id: "event-100", i: 100, rev: 0, ph: "complete", ts: 100, tp: "system", b: [{ k: "metadata", tx: "100" }] }],
+      ws: 100, tot: 201, lv: false, k: "snapshot", seq: 10, rs: "running", qs: 0, qf: 0,
+    });
+
+    const older = source.fetchEventsPage(
+      { source: "pi", sessionId: "thread", mode: "nice" },
+      99,
+      1,
+    );
+    expect(host.posted.at(-1)).toMatchObject({
+      t: "agent-thread-older", src: "pi", sid: "thread", bi: 100, lim: 1,
+    });
+
+    host.deliver({
+      t: "agent-thread-chunk", src: "pi", sid: "thread", md: "nice",
+      ev: [{ id: "event-200", i: 200, rev: 1, ph: "streaming", ts: 200, tp: "assistant", b: [{ k: "text", tx: "live" }] }],
+      ws: 200, tot: 201, lv: true, k: "upsert", seq: 12, rs: "running", qs: 0, qf: 0,
+    });
+    host.deliver({
+      t: "agent-thread-chunk", src: "pi", sid: "thread", md: "nice",
+      ev: [{ id: "event-99", i: 99, rev: 0, ph: "complete", ts: 99, tp: "system", b: [{ k: "metadata", tx: "old" }] }],
+      ws: 99, tot: 201, lv: false, k: "page", seq: 11, rs: "running", qs: 0, qf: 0,
+    });
+
+    await expect(older).resolves.toMatchObject({
+      events: [expect.objectContaining({ id: "event-99", index: 99 })],
+      total: 201,
+    });
+  });
+
   it("correlates extension responses and broadcasts the shared dismissal", async () => {
     const { host, source } = makeSource();
     const listener = vi.fn();

@@ -6,6 +6,7 @@ function fakeBackend(): AgentBackend {
   return {
     id: "pi",
     capabilities: { modes: ["nice"], canSend: true, canSteer: true, canAbort: true, canFetchRaw: false, canOpenTerminal: false, supportsExtensionUi: true },
+    describeSession() { return undefined; },
     async createSession() { throw new Error("not used"); },
     async page() { return { events: [], total: 0, mode: "nice", sequence: 0, runState: "idle", queue: { steer: 0, followUp: 0 } }; },
     async subscribe() { return () => {}; },

@@ -706,7 +706,14 @@ describe("App shell", () => {
 
     act(() => {
       fake.deliver({ t: "agent-extension-ui-request", src: "pi", sid: "pi-1", rid: "ui-1", k: "confirm", ttl: "Proceed?", m: "Run it", er: true });
+      for (let index = 0; index < 12; index += 1) {
+        fake.deliver({
+          t: "agent-extension-ui-request", src: "pi", sid: "pi-1", rid: `notice-${index}`,
+          k: "status", key: "working", m: `Status ${index}`, er: false,
+        });
+      }
     });
+    expect(screen.getByRole("dialog", { name: "Proceed?" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
     expect(fake.posted.at(-1)).toEqual({ t: "agent-extension-ui-response", src: "pi", sid: "pi-1", rid: "ui-1", v: true });
     expect(screen.getByRole("button", { name: "Confirm" })).toBeDisabled();

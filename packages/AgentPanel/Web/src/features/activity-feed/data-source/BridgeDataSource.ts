@@ -942,16 +942,21 @@ export class BridgeDataSource implements AgentDataSource {
     // before them -- and nothing would report an error. An absent `md` means raw, the
     // rule this field follows at every boundary.
     if ((chunk.md ?? "raw") !== buffer.mode) return;
-    if (chunk.seq < buffer.sequence) return;
-    buffer.sequence = chunk.seq;
-    buffer.runState = chunk.rs ?? buffer.runState;
-    buffer.queue = { steer: chunk.qs, followUp: chunk.qf };
-    for (const listener of this.liveListeners.get(key) ?? []) {
-      listener.onState?.({
-        sequence: buffer.sequence,
-        runState: buffer.runState,
-        queue: buffer.queue,
-      });
+    // Historical pages describe an index window, not a point in the live-event
+    // ordering. They may race newer SSE mutations and still have to resolve the
+    // scroll-back waiter. Snapshots and live envelopes do carry ordering/state.
+    if (chunk.k !== "page") {
+      if (chunk.seq < buffer.sequence) return;
+      buffer.sequence = chunk.seq;
+      buffer.runState = chunk.rs ?? buffer.runState;
+      buffer.queue = { steer: chunk.qs, followUp: chunk.qf };
+      for (const listener of this.liveListeners.get(key) ?? []) {
+        listener.onState?.({
+          sequence: buffer.sequence,
+          runState: buffer.runState,
+          queue: buffer.queue,
+        });
+      }
     }
 
     const events = chunk.ev.map(mapEvent);

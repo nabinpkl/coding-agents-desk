@@ -47,6 +47,8 @@ export interface AgentSessionState {
   queue: { steer: number; followUp: number };
 }
 
+export type AgentSessionControlState = Pick<AgentSessionState, "runState" | "queue">;
+
 export interface AgentDataSource {
   /** Fetches a page of events for a session. Throws on non-ok HTTP. */
   fetchEventsPage(

@@ -36,7 +36,7 @@ describe("PiEventMapper", () => {
     mapper.accept({ type: "message_end", message: assistant("hello", "stop") });
     expect(projection.page(0, 10)).toEqual([
       expect.objectContaining({
-        id: "assistant:42",
+        id: "message:0:assistant:42",
         index: 0,
         revision: 2,
         phase: "complete",
@@ -80,5 +80,25 @@ describe("PiEventMapper", () => {
       type: "system",
       blocks: [{ kind: "metadata", label: "Session", text: "A" }],
     });
+  });
+
+  test("keeps distinct same-role messages that share a millisecond", () => {
+    const projection = new LiveAgentProjection();
+    const mapper = new PiEventMapper(projection);
+    const first = {
+      role: "custom" as const,
+      customType: "status",
+      content: "one",
+      display: true,
+      timestamp: 42,
+    };
+    const second = { ...first, content: "two" };
+
+    mapper.seed([first, second]);
+
+    expect(projection.page(0, 10)).toEqual([
+      expect.objectContaining({ id: "message:0:custom:42", index: 0 }),
+      expect.objectContaining({ id: "message:1:custom:42", index: 1 }),
+    ]);
   });
 });

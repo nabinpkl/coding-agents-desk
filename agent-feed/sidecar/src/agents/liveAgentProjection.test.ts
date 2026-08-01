@@ -67,6 +67,33 @@ describe("LiveAgentProjection", () => {
     ]);
   });
 
+  test("recovers an expired gap from the newest bounded window", () => {
+    const projection = new LiveAgentProjection({ replayLimit: 2 });
+    for (let index = 0; index < 150; index += 1) {
+      projection.upsert({
+        id: `event:${index}`,
+        ts: index,
+        type: "system",
+        phase: "complete",
+        blocks: [{ kind: "metadata", text: String(index) }],
+      });
+    }
+
+    const recovered: TimelineEnvelope[] = [];
+    projection.subscribe(0, (envelope) => recovered.push(envelope))();
+
+    expect(recovered).toHaveLength(1);
+    expect(recovered[0]).toMatchObject({
+      kind: "snapshot",
+      sequence: 150,
+      windowStart: 50,
+      total: 150,
+    });
+    expect(recovered[0]?.events).toHaveLength(100);
+    expect(recovered[0]?.events[0]?.id).toBe("event:50");
+    expect(recovered[0]?.events.at(-1)?.id).toBe("event:149");
+  });
+
   test("publishes run and queue state without transcript rows", () => {
     const projection = new LiveAgentProjection();
     const envelopes: TimelineEnvelope[] = [];

@@ -21,6 +21,7 @@ import {
   getWatcherState,
   sessionSummaries,
   subscribeCatalog,
+  type AgentSessionDescriptorResolver,
 } from "../transcripts/transcriptCatalog.ts";
 import type {
   EventMode,
@@ -81,12 +82,15 @@ async function selectedProject(url: URL): Promise<
   return { projectPath: canonical };
 }
 
-async function sessionSnapshotResponse(url: URL): Promise<Response> {
+async function sessionSnapshotResponse(
+  url: URL,
+  resolveAgentSession?: AgentSessionDescriptorResolver,
+): Promise<Response> {
   const selected = await selectedProject(url);
   if ("response" in selected) return selected.response;
   return jsonResponse({
     projectPath: selected.projectPath,
-    sessions: await sessionSummaries(selected.projectPath),
+    sessions: await sessionSummaries(selected.projectPath, resolveAgentSession),
   });
 }
 
@@ -94,6 +98,7 @@ async function sessionSnapshotStream(
   request: Request,
   url: URL,
   server: Parameters<RouteHandler>[2],
+  resolveAgentSession?: AgentSessionDescriptorResolver,
 ): Promise<Response> {
   const selected = await selectedProject(url);
   if ("response" in selected) return selected.response;
@@ -110,12 +115,13 @@ async function sessionSnapshotStream(
             session.sessionId,
             session.lastEventAt,
             session.title,
+            resolveAgentSession?.(session.source, session.sessionId)?.activity,
           ]),
       );
       if (nextFingerprint === fingerprint) return;
       fingerprint = nextFingerprint;
       const current = ++generation;
-      void sessionSummaries(projectPath).then((sessions) => {
+      void sessionSummaries(projectPath, resolveAgentSession).then((sessions) => {
         if (current !== generation) return;
         write(encodeServerSentEvent({ projectPath, sessions }));
       }).catch((error) => {
@@ -303,54 +309,62 @@ function eventStream(
   });
 }
 
-export const handleSessionRoutes: RouteHandler = (request, url, server) => {
-  if (request.method !== "GET") return undefined;
-  if (getWatcherState() !== "live") {
-    return jsonResponse({ error: "inventory-not-ready" }, 503);
-  }
-  if (url.pathname === "/api/sessions") return sessionSnapshotResponse(url);
-  if (url.pathname === "/api/sessions/stream") {
-    return sessionSnapshotStream(request, url, server);
-  }
-
-  const mode = modeQuery(url);
-
-  const eventMatch = EVENT_ROUTE.exec(url.pathname);
-  if (eventMatch) {
-    const offset = integerQuery(url, "offset", 0);
-    const limit = integerQuery(url, "limit", 100, 500);
-    if (offset === null || limit === null || limit < 1) {
-      return jsonResponse({ error: "invalid pagination" }, 400);
+export function createSessionRoutes(
+  resolveAgentSession?: AgentSessionDescriptorResolver,
+): RouteHandler {
+  return (request, url, server) => {
+    if (request.method !== "GET") return undefined;
+    if (getWatcherState() !== "live") {
+      return jsonResponse({ error: "inventory-not-ready" }, 503);
     }
-    if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
-    return paginatedEvents(sourceId(eventMatch[1]!), eventMatch[2]!, offset, limit, mode);
-  }
-
-  const rawMatch = RAW_EVENT_ROUTE.exec(url.pathname);
-  if (rawMatch) {
-    if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
-    return rawEvent(sourceId(rawMatch[1]!), rawMatch[2]!, Number(rawMatch[3]!), mode);
-  }
-
-  const streamMatch = STREAM_ROUTE.exec(url.pathname);
-  if (streamMatch) {
-    const after = integerQuery(url, "since", 0);
-    if (after === null) {
-      return jsonResponse({ error: "invalid since" }, 400);
+    if (url.pathname === "/api/sessions") {
+      return sessionSnapshotResponse(url, resolveAgentSession);
     }
-    if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
-    return eventStream(
-      request,
-      server,
-      sourceId(streamMatch[1]!),
-      streamMatch[2]!,
-      after,
-      mode,
-    );
-  }
+    if (url.pathname === "/api/sessions/stream") {
+      return sessionSnapshotStream(request, url, server, resolveAgentSession);
+    }
 
-  if (url.pathname.startsWith("/api/sessions/")) {
-    return jsonResponse({ error: "invalid source or sessionId" }, 400);
-  }
-  return undefined;
-};
+    const mode = modeQuery(url);
+
+    const eventMatch = EVENT_ROUTE.exec(url.pathname);
+    if (eventMatch) {
+      const offset = integerQuery(url, "offset", 0);
+      const limit = integerQuery(url, "limit", 100, 500);
+      if (offset === null || limit === null || limit < 1) {
+        return jsonResponse({ error: "invalid pagination" }, 400);
+      }
+      if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
+      return paginatedEvents(sourceId(eventMatch[1]!), eventMatch[2]!, offset, limit, mode);
+    }
+
+    const rawMatch = RAW_EVENT_ROUTE.exec(url.pathname);
+    if (rawMatch) {
+      if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
+      return rawEvent(sourceId(rawMatch[1]!), rawMatch[2]!, Number(rawMatch[3]!), mode);
+    }
+
+    const streamMatch = STREAM_ROUTE.exec(url.pathname);
+    if (streamMatch) {
+      const after = integerQuery(url, "since", 0);
+      if (after === null) {
+        return jsonResponse({ error: "invalid since" }, 400);
+      }
+      if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
+      return eventStream(
+        request,
+        server,
+        sourceId(streamMatch[1]!),
+        streamMatch[2]!,
+        after,
+        mode,
+      );
+    }
+
+    if (url.pathname.startsWith("/api/sessions/")) {
+      return jsonResponse({ error: "invalid source or sessionId" }, 400);
+    }
+    return undefined;
+  };
+}
+
+export const handleSessionRoutes = createSessionRoutes();

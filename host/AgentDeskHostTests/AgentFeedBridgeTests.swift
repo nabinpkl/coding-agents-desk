@@ -42,6 +42,7 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     private var _rawRequests: [RawRequest] = []
     private var _openedEventStreams = 0
     private var _streamModes: [AgentFeedEventMode] = []
+    private var _liveCommandCalls = 0
 
     var cancelledStreams: Int { lock.withLock { _cancelledStreams } }
     var eventRequests: [EventRequest] { lock.withLock { _eventRequests } }
@@ -49,6 +50,7 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     var streamModes: [AgentFeedEventMode] { lock.withLock { _streamModes } }
     var openedEventStreams: Int { lock.withLock { _openedEventStreams } }
     var openedUIStreams: Int { lock.withLock { uiCallbacks.count } }
+    var liveCommandCalls: Int { lock.withLock { _liveCommandCalls } }
 
     func fetchProjects() async throws -> AgentFeedProjectsSnapshot {
         projects
@@ -161,16 +163,19 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     }
 
     func createSession(requestId: String, source: String, projectPath: String) async throws -> AgentFeedSessionSummary {
-        AgentFeedSessionSummary(sessionId: "created", source: source, title: "Created", lastEventAt: 1, activity: "ready", capabilities: piCapabilities())
+        lock.withLock { _liveCommandCalls += 1 }
+        return AgentFeedSessionSummary(sessionId: "created", source: source, title: "Created", lastEventAt: 1, activity: "ready", capabilities: piCapabilities())
     }
 
     func sendMessage(requestId: String, source: String, sessionId: String, text: String, delivery: String) async throws -> AgentFeedCommandReceipt {
+        lock.withLock { _liveCommandCalls += 1 }
         if let messageError { throw messageError }
         return AgentFeedCommandReceipt(requestId: requestId, delivery: delivery == "steer" ? "steer" : "immediate")
     }
 
     func abortSession(requestId: String, source: String, sessionId: String) async throws -> AgentFeedCommandReceipt {
-        AgentFeedCommandReceipt(requestId: requestId, delivery: "abort")
+        lock.withLock { _liveCommandCalls += 1 }
+        return AgentFeedCommandReceipt(requestId: requestId, delivery: "abort")
     }
 
     func openExtensionUIStream(source: String, sessionId: String, onEvent: @escaping @Sendable (AgentFeedExtensionUIEvent) -> Void, onError: @escaping @Sendable (Error) -> Void) -> SidecarStreamHandle {
@@ -184,7 +189,8 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     }
 
     func respondToExtensionUI(source: String, sessionId: String, requestId: String, value: AgentJSONValue) async throws -> AgentFeedCommandReceipt {
-        AgentFeedCommandReceipt(requestId: requestId, delivery: "ui")
+        lock.withLock { _liveCommandCalls += 1 }
+        return AgentFeedCommandReceipt(requestId: requestId, delivery: "ui")
     }
 
     private func cancellableHandle() -> SidecarStreamHandle {
@@ -516,6 +522,34 @@ struct AgentFeedBridgeTests {
         #expect(session.capabilities.canOpenTerminal == false)
     }
 
+    @Test func liveCommandsRejectInvalidPhoneIdentifiersBeforeCallingTheSidecar() async throws {
+        let fake = FakeSidecarClient()
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: sink.accept)
+
+        bridge.handleSessionCreate(AgentSessionCreate(
+            requestId: "create-1", source: "pi/other", projectPath: "/project"
+        ))
+        bridge.handleSessionSend(AgentSessionSend(
+            requestId: "send-1", source: "pi", sessionId: "../other",
+            text: "hello", delivery: "next"
+        ))
+        bridge.handleSessionAbort(AgentSessionAbort(
+            requestId: "abort/1", source: "pi", sessionId: "session"
+        ))
+        bridge.handleExtensionUIResponse(AgentExtensionUIResponse(
+            source: "pi", sessionId: "session/other", requestId: "ui-1", value: .bool(true)
+        ))
+
+        #expect(fake.liveCommandCalls == 0)
+        #expect(sink.count == 4)
+        for index in 0..<4 {
+            let error = try sink.decode(AgentCommandError.self, at: index)
+            #expect(error.code == "invalid-agent-command")
+            #expect(error.retryable == false)
+        }
+    }
+
     @Test func extensionRequestAndDismissalFanOutOnTheSameViewerStream() async throws {
         let fake = FakeSidecarClient()
         let sink = CapturingSink()
@@ -725,6 +759,48 @@ private final class AgentFeedURLProtocol: URLProtocol, @unchecked Sendable {
                 retryable: false
             ))
         }
+    }
+
+    @Test func streamFailuresDecodeTheTypedSidecarErrorContract() async throws {
+        AgentFeedURLProtocol.handler = { request in
+            let response = try #require(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/event-stream"]
+            ))
+            return (response, Data("data: {\"error\":{\"code\":\"session-not-found\",\"message\":\"missing\",\"retryable\":false}}\n\n".utf8))
+        }
+        defer { AgentFeedURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AgentFeedURLProtocol.self]
+        let client = HttpSidecarClient(
+            endpointProvider: {
+                AgentFeedSidecarEndpoint(
+                    baseURL: URL(string: "https://agent-feed.invalid")!,
+                    controlToken: "spawn-secret"
+                )
+            },
+            session: URLSession(configuration: configuration)
+        )
+
+        let error: Error = await withCheckedContinuation { continuation in
+            _ = client.openEventStream(
+                source: "pi",
+                sessionId: "missing",
+                afterSequence: 0,
+                mode: .nice,
+                onEnvelope: { _ in Issue.record("unexpected timeline envelope") },
+                onError: { continuation.resume(returning: $0) }
+            )
+        }
+
+        #expect(error as? SidecarClientError == .command(
+            code: "session-not-found",
+            message: "missing",
+            requestId: nil,
+            retryable: false
+        ))
     }
 
     /// The failure this exists to prevent: the host starts the sidecar alongside the

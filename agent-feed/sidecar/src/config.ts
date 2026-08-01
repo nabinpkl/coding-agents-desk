@@ -83,6 +83,13 @@ if (readyThresholdMs >= staleThresholdMs) {
   throw new Error("AGENT_FEED_READY_THRESHOLD_MS must be less than AGENT_FEED_STALE_THRESHOLD_MS");
 }
 
+// The HTTP client capability is process-local authority. Snapshot it for the
+// server, then remove it before Pi constructs tools whose child processes inherit
+// process.env. A model-authored bash command must never be able to call the
+// authenticated control API or answer its own extension prompt.
+const controlToken = process.env.AGENT_FEED_CONTROL_TOKEN?.trim() || null;
+delete process.env.AGENT_FEED_CONTROL_TOKEN;
+
 export const config = {
   host: process.env.AGENT_FEED_HOST ?? "127.0.0.1",
   port: integerEnvironment("AGENT_FEED_PORT", 7682, 1, 65_535),
@@ -102,7 +109,7 @@ export const config = {
     "AGENT_FEED_PI_SESSIONS_DIR",
     process.env.PI_CODING_AGENT_SESSION_DIR || join(getAgentDir(), "sessions"),
   ),
-  controlToken: process.env.AGENT_FEED_CONTROL_TOKEN?.trim() || null,
+  controlToken,
   piIdleRuntimeMs: integerEnvironment(
     "AGENT_FEED_PI_IDLE_RUNTIME_MS",
     10 * 60 * 1000,

@@ -4,9 +4,15 @@ import { existsSync } from "node:fs";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { config } from "../config.ts";
-import type { AgentSessionCapabilities } from "../agents/agentBackend.ts";
+import type {
+  AgentSessionCapabilities,
+  AgentSessionDescriptor,
+} from "../agents/agentBackend.ts";
 import { piLocation, scanPiSessions } from "../agents/piSessionCatalog.ts";
-import type { PiSessionLocation } from "../agents/piAgentBackend.ts";
+import {
+  PI_AGENT_CAPABILITIES,
+  type PiSessionLocation,
+} from "../agents/piAgentBackend.ts";
 import { state, type WatcherState } from "./transcriptState.ts";
 import { claudeAdapter } from "./sources/claudeTranscript.ts";
 import {
@@ -54,15 +60,10 @@ const TRANSCRIPT_CAPABILITIES: AgentSessionCapabilities = {
   supportsExtensionUi: false,
 };
 
-const PI_CAPABILITIES: AgentSessionCapabilities = {
-  modes: ["nice"],
-  canSend: true,
-  canSteer: true,
-  canAbort: true,
-  canFetchRaw: false,
-  canOpenTerminal: false,
-  supportsExtensionUi: true,
-};
+export type AgentSessionDescriptorResolver = (
+  source: SourceId,
+  sessionId: string,
+) => AgentSessionDescriptor | undefined;
 
 export function sessionKey(source: SourceId, sessionId: string): string {
   return `${source}:${sessionId}`;
@@ -331,6 +332,10 @@ export function registerPiSession(location: PiSessionLocation): void {
   broadcast();
 }
 
+export function notifyPiSessionChanged(sessionId: string): void {
+  if (findSession("pi", sessionId)) broadcast();
+}
+
 export function resolvePiSession(sessionId: string): PiSessionLocation | undefined {
   const session = findSession("pi", sessionId);
   return session ? piLocation(session) : undefined;
@@ -478,8 +483,12 @@ function computeActivity(lastEventAt: number, lastTurnClosed: boolean): Bin {
   return "cold";
 }
 
-export async function probeSession(session: Session): Promise<SessionSummary> {
+export async function probeSession(
+  session: Session,
+  resolveAgentSession?: AgentSessionDescriptorResolver,
+): Promise<SessionSummary> {
   if (session.source === "pi") {
+    const descriptor = resolveAgentSession?.(session.source, session.sessionId);
     let lastEventAt = session.lastEventAt;
     try {
       lastEventAt = Math.max(lastEventAt, (await stat(session.transcriptPath)).mtimeMs);
@@ -491,8 +500,8 @@ export async function probeSession(session: Session): Promise<SessionSummary> {
       source: session.source,
       title: compactTitle(session.title) ?? session.sessionId,
       lastEventAt,
-      activity: computeActivity(lastEventAt, true),
-      capabilities: PI_CAPABILITIES,
+      activity: descriptor?.activity ?? computeActivity(lastEventAt, true),
+      capabilities: descriptor?.capabilities ?? PI_AGENT_CAPABILITIES,
     };
   }
   const adapter = session.source === "claude" ? claudeAdapter : codexAdapter;
@@ -550,10 +559,15 @@ export async function probeSession(session: Session): Promise<SessionSummary> {
   };
 }
 
-export async function sessionSummaries(projectPath: string): Promise<SessionSummary[]> {
+export async function sessionSummaries(
+  projectPath: string,
+  resolveAgentSession?: AgentSessionDescriptorResolver,
+): Promise<SessionSummary[]> {
   const startedAt = performance.now();
   const sessions = getSnapshot().filter((session) => session.project === projectPath);
-  const summaries = await Promise.all(sessions.map(probeSession));
+  const summaries = await Promise.all(
+    sessions.map((session) => probeSession(session, resolveAgentSession)),
+  );
   summaries.sort((left, right) =>
     right.lastEventAt - left.lastEventAt ||
     left.source.localeCompare(right.source) ||

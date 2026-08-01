@@ -61,6 +61,8 @@ Tests must prove revision replacement, sequence-gap recovery, multi-subscriber f
 idempotency, authenticated HTTP, Pi event mapping, extension first-response-wins behavior, and v16
 wire round trips. An end-to-end smoke must create a Pi session, stream a built-in bash call to two
 subscribers, and reopen the persisted JSONL without any Pi type appearing outside the sidecar.
+`just agent-feed-pi-smoke` is that checked-in authenticated SDK gate; it also proves the sidecar
+control capability is absent from Pi's built-in bash environment.
 
 ## Links
 

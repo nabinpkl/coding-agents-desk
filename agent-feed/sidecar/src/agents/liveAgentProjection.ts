@@ -99,7 +99,7 @@ export class LiveAgentProjection {
     }
     const oldest = this.replay[0]?.sequence ?? this.sequence + 1;
     if (afterSequence < oldest - 1) {
-      listener(this.snapshot());
+      listener(this.snapshot(Math.max(0, this.total - 100), 100));
     } else {
       for (const envelope of this.replay) {
         if (envelope.sequence > afterSequence) listener(envelope);

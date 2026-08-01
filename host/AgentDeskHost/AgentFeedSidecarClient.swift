@@ -543,7 +543,17 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
                         onError(SidecarClientError.server("stream emitted non-UTF-8 data"))
                         return
                     }
-                    onValue(try JSONDecoder().decode(type, from: data))
+                    let decoder = JSONDecoder()
+                    if let envelope = try? decoder.decode(AgentFeedCommandErrorEnvelope.self, from: data) {
+                        onError(SidecarClientError.command(
+                            code: envelope.error.code,
+                            message: envelope.error.message,
+                            requestId: envelope.error.requestId,
+                            retryable: envelope.error.retryable
+                        ))
+                        return
+                    }
+                    onValue(try decoder.decode(type, from: data))
                 }
                 if !Task.isCancelled {
                     onError(SidecarClientError.server("stream ended unexpectedly"))

@@ -259,6 +259,26 @@ agent-feed-sidecar-check:
         exit 1
     fi
 
+# Authenticated real-SDK gate for ADR-0091. This is manual because it spends one
+# model turn. It proves Pi's existing auth/settings, built-in bash, two-viewer
+# fan-out, control-token isolation, and persisted JSONL reopen through our adapter.
+agent-feed-pi-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ROOT='{{justfile_directory()}}'
+    SIDECAR='{{agent_feed_sidecar_dir}}'
+    SMOKE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/agent-feed-pi-smoke.XXXXXX")"
+    cleanup() {
+        rm -rf "$SMOKE_ROOT"
+    }
+    trap cleanup EXIT
+    mkdir -p "$SMOKE_ROOT/project" "$SMOKE_ROOT/sessions"
+    node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-feed-sidecar "$SIDECAR" "$ROOT/.build/js-dependencies"
+    cd "$SIDECAR"
+    AGENT_FEED_PI_SESSIONS_DIR="$SMOKE_ROOT/sessions" \
+        AGENT_FEED_CONTROL_TOKEN="smoke-secret-that-must-not-reach-bash" \
+        bun run scripts/pi-agent-smoke.ts "$SMOKE_ROOT/project"
+
 # Build Agent Workspace IDE's Rust PTY manager into the host app bundle source
 # dir. The host launches this binary and bridges shared web terminal clients into its
 # Unix-socket multiplexer.

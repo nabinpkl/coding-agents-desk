@@ -1699,3 +1699,7 @@ seconds, and damping the axis would only hide that.
   other viewer converges without a terminal or workspace surface appearing.
 - D239. Make extension responses kind-valid and resolution-multiplexed, return the authoritative
   backend session descriptor on create, and pin the remaining protocol-v16 contract text and tests.
+- D240. Correct the independent Pi arc review findings across replay recovery, live paging,
+  sidecar credential isolation, native command validation, typed stream errors, extension prompt
+  priority, durable session identity, catalog authority, timeline identity, runtime disposal, and
+  the checked-in real-Pi smoke.

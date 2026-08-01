@@ -62,6 +62,7 @@ export type AgentUiResponseResult = "accepted" | "already-resolved" | "not-found
 export interface AgentBackend {
   readonly id: string;
   readonly capabilities: AgentSessionCapabilities;
+  describeSession(sessionId: string): AgentSessionDescriptor | undefined;
   createSession(requestId: string, projectPath: string): Promise<AgentSessionDescriptor>;
   page(sessionId: string, offset: number, limit: number, mode: EventMode): Promise<AgentTimelinePage>;
   subscribe(sessionId: string, afterSequence: number, listener: (envelope: TimelineEnvelope) => void): Promise<() => void>;

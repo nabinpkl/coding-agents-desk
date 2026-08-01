@@ -6,6 +6,9 @@ type AgentMessage = Extract<AgentSessionEvent, { type: "message_start" }>['messa
 
 export class PiEventMapper {
   private noticeSequence = 0;
+  private messageSequence = 0;
+  private readonly messageIds = new WeakMap<object, string>();
+  private readonly activeMessageIds = new Map<string, string>();
 
   constructor(private readonly projection: LiveAgentProjection) {}
 
@@ -76,6 +79,7 @@ export class PiEventMapper {
   }
 
   private mapMessage(message: AgentMessage, phase: "streaming" | "complete"): void {
+    const id = this.messageId(message, phase);
     if (message.role === "toolResult") {
       this.mapTool(message.toolCallId, message.toolName, undefined, message, message.isError, phase);
       return;
@@ -88,12 +92,32 @@ export class PiEventMapper {
       ? assistantBlocks(message.content)
       : [{ kind: "metadata" as const, label: message.role, text: textFromUnknown(message) }];
     this.projection.upsert({
-      id: `${message.role}:${message.timestamp}`,
+      id,
       ts: message.timestamp,
       type: standard ? type : "system",
       phase: standard ? phase : "complete",
       blocks,
     });
+  }
+
+  private messageId(message: AgentMessage, phase: "streaming" | "complete"): string {
+    const object = message as object;
+    const known = this.messageIds.get(object);
+    if (known) {
+      if (phase === "complete") this.activeMessageIds.delete(`${message.role}:${message.timestamp}`);
+      return known;
+    }
+    const key = `${message.role}:${message.timestamp}`;
+    const active = this.activeMessageIds.get(key);
+    if (active) {
+      this.messageIds.set(object, active);
+      if (phase === "complete") this.activeMessageIds.delete(key);
+      return active;
+    }
+    const id = `message:${this.messageSequence++}:${key}`;
+    this.messageIds.set(object, id);
+    if (phase === "streaming") this.activeMessageIds.set(key, id);
+    return id;
   }
 
   private mapTool(

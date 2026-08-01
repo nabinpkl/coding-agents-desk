@@ -1,6 +1,16 @@
 import { expect, test } from "bun:test";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { AgentCommandConflictError, PiAgentBackend, piProjectSessionDirectory, type PiRuntimeFacade, type PiSessionFacade } from "./piAgentBackend.ts";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  AgentCommandConflictError,
+  createPersistentPiSessionManager,
+  PiAgentBackend,
+  piProjectSessionDirectory,
+  type PiRuntimeFacade,
+  type PiSessionFacade,
+} from "./piAgentBackend.ts";
 
 class FakeSession implements PiSessionFacade {
   sessionId = "session-1";
@@ -62,6 +72,41 @@ test("concurrent viewers share one runtime and disconnect independently", async 
   expect(value.runtime.disposed).toBe(1);
 });
 
+test("session descriptors report backend-owned live activity", async () => {
+  const value = fixture();
+  expect(value.backend.describeSession("session-1")).toBeUndefined();
+  await value.backend.send("session-1", "r1", "one", "next");
+  value.session.emit({ type: "agent_start" });
+  expect(value.backend.describeSession("session-1")?.activity).toBe("live");
+  await value.backend.dispose();
+});
+
+test("run-state transitions invalidate session-list subscribers", async () => {
+  let changes = 0;
+  const session = new FakeSession();
+  const runtime = new FakeRuntime(session);
+  const backend = new PiAgentBackend({
+    resolveSession: (sessionId) => ({
+      sessionId,
+      projectPath: "/tmp/project",
+      transcriptPath: "/tmp/session-1.jsonl",
+      title: "One",
+      lastEventAt: 1,
+    }),
+    onSessionCreated() {},
+    onSessionChanged() { changes += 1; },
+    runtimeFactory: async () => runtime,
+    idleRuntimeMs: 1000,
+  });
+  await backend.page("session-1", 0, 10, "nice");
+
+  session.emit({ type: "agent_start" });
+  session.emit({ type: "agent_settled" });
+
+  expect(changes).toBe(2);
+  await backend.dispose();
+});
+
 test("normal input prompts while idle then queues while active and steer stays explicit", async () => {
   const value = fixture();
   expect(await value.backend.send("session-1", "r1", "one", "next")).toMatchObject({ delivery: "immediate" });
@@ -105,4 +150,51 @@ test("a runaway tool loop aborts after the configured budget", async () => {
 test("new persistent sessions use Pi's encoded project directory under the configured root", () => {
   expect(piProjectSessionDirectory("/tmp/project:one", "/tmp/pi-sessions"))
     .toBe("/tmp/pi-sessions/--tmp-project-one--");
+});
+
+test("new Pi session identity is durable before the first prompt", async () => {
+  const root = await mkdtemp(join(tmpdir(), "agentdesk-pi-session-"));
+  const project = join(root, "project");
+  await mkdir(project);
+  try {
+    const manager = createPersistentPiSessionManager(project, join(root, "sessions"));
+    const sessionFile = manager.getSessionFile();
+    expect(sessionFile).toBeDefined();
+    const header = JSON.parse(await readFile(sessionFile!, "utf8"));
+    expect(header).toMatchObject({
+      type: "session",
+      id: manager.getSessionId(),
+      cwd: project,
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a runtime that finishes opening during dispose is disposed instead of re-registered", async () => {
+  const session = new FakeSession();
+  const runtime = new FakeRuntime(session);
+  let release: ((runtime: PiRuntimeFacade) => void) | undefined;
+  const backend = new PiAgentBackend({
+    resolveSession: () => ({
+      sessionId: "session-1",
+      projectPath: "/tmp/project",
+      transcriptPath: "/tmp/session-1.jsonl",
+      title: "One",
+      lastEventAt: 1,
+    }),
+    onSessionCreated() {},
+    runtimeFactory: () => new Promise((resolve) => { release = resolve; }),
+    idleRuntimeMs: 1000,
+  });
+
+  const opening = backend.page("session-1", 0, 10, "nice");
+  await Promise.resolve();
+  const disposing = backend.dispose();
+  release?.(runtime);
+
+  await expect(opening).rejects.toThrow("disposed");
+  await disposing;
+  expect(runtime.disposed).toBe(1);
+  expect(backend.describeSession("session-1")).toBeUndefined();
 });

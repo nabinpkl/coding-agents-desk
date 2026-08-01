@@ -8,6 +8,7 @@ import {
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
+import { writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { config } from "../config.ts";
 import type { EventMode } from "../transcripts/sources/transcriptTypes.ts";
@@ -56,6 +57,7 @@ export type PiRuntimeFactory = (projectPath: string, transcriptPath?: string) =>
 interface PiBackendOptions {
   resolveSession: (sessionId: string) => PiSessionLocation | undefined;
   onSessionCreated: (location: PiSessionLocation) => void;
+  onSessionChanged?: (sessionId: string) => void;
   runtimeFactory?: PiRuntimeFactory;
   idleRuntimeMs?: number;
   toolCallBudget?: number;
@@ -84,18 +86,21 @@ interface OwnedRuntime {
 export class AgentCommandConflictError extends Error {}
 export class AgentSessionNotFoundError extends Error {}
 export class AgentModeUnsupportedError extends Error {}
+export class AgentBackendDisposedError extends Error {}
+
+export const PI_AGENT_CAPABILITIES: AgentSessionCapabilities = {
+  modes: ["nice"],
+  canSend: true,
+  canSteer: true,
+  canAbort: true,
+  canFetchRaw: false,
+  canOpenTerminal: false,
+  supportsExtensionUi: true,
+};
 
 export class PiAgentBackend implements AgentBackend {
   readonly id = "pi";
-  readonly capabilities: AgentSessionCapabilities = {
-    modes: ["nice"],
-    canSend: true,
-    canSteer: true,
-    canAbort: true,
-    canFetchRaw: false,
-    canOpenTerminal: false,
-    supportsExtensionUi: true,
-  };
+  readonly capabilities = PI_AGENT_CAPABILITIES;
 
   private readonly owned = new Map<string, OwnedRuntime>();
   private readonly starts = new Map<string, Promise<OwnedRuntime>>();
@@ -105,6 +110,7 @@ export class PiAgentBackend implements AgentBackend {
   private readonly toolCallBudget: number;
   private readonly now: () => number;
   private readonly reaper: ReturnType<typeof setInterval>;
+  private disposed = false;
 
   constructor(private readonly options: PiBackendOptions) {
     this.runtimeFactory = options.runtimeFactory ?? createOfficialPiRuntime;
@@ -116,6 +122,7 @@ export class PiAgentBackend implements AgentBackend {
   }
 
   async createSession(requestId: string, projectPath: string): Promise<AgentSessionDescriptor> {
+    this.assertActive();
     const prior = this.creations.get(requestId);
     if (prior) {
       if (prior.projectPath !== projectPath) {
@@ -141,7 +148,7 @@ export class PiAgentBackend implements AgentBackend {
       throw new Error("Pi created a session without persistent JSONL identity");
     }
     const owned = await this.adoptRuntime(runtime);
-    this.owned.set(sessionId, owned);
+    await this.registerOwned(sessionId, owned);
     const location: PiSessionLocation = {
       sessionId,
       projectPath,
@@ -151,6 +158,14 @@ export class PiAgentBackend implements AgentBackend {
     };
     this.options.onSessionCreated(location);
     return this.descriptor(location, owned);
+  }
+
+  describeSession(sessionId: string): AgentSessionDescriptor | undefined {
+    if (this.disposed) return undefined;
+    const owned = this.owned.get(sessionId);
+    if (!owned) return undefined;
+    const location = this.options.resolveSession(sessionId);
+    return location ? this.descriptor(location, owned) : undefined;
   }
 
   async page(sessionId: string, offset: number, limit: number, mode: EventMode): Promise<AgentTimelinePage> {
@@ -238,15 +253,23 @@ export class PiAgentBackend implements AgentBackend {
   }
 
   async dispose(): Promise<void> {
+    if (this.disposed) return;
+    this.disposed = true;
     clearInterval(this.reaper);
     const values = [...this.owned.values()];
+    const pending = new Set<Promise<unknown>>([
+      ...this.starts.values(),
+      ...[...this.creations.values()].map((entry) => entry.promise),
+    ]);
     this.owned.clear();
     this.starts.clear();
     this.creations.clear();
     await Promise.all(values.map((owned) => this.disposeOwned(owned)));
+    await Promise.allSettled(pending);
   }
 
   private async open(sessionId: string): Promise<OwnedRuntime> {
+    this.assertActive();
     const current = this.owned.get(sessionId);
     if (current) return current;
     const pending = this.starts.get(sessionId);
@@ -255,8 +278,8 @@ export class PiAgentBackend implements AgentBackend {
     if (!location) throw new AgentSessionNotFoundError(`Pi session "${sessionId}" was not found`);
     const start = this.runtimeFactory(location.projectPath, location.transcriptPath)
       .then((runtime) => this.adoptRuntime(runtime))
-      .then((owned) => {
-        this.owned.set(sessionId, owned);
+      .then(async (owned) => {
+        await this.registerOwned(sessionId, owned);
         return owned;
       })
       .finally(() => this.starts.delete(sessionId));
@@ -294,6 +317,9 @@ export class PiAgentBackend implements AgentBackend {
         }
       }
       mapper.accept(event);
+      if (event.type === "agent_start" || event.type === "agent_settled") {
+        this.options.onSessionChanged?.(runtime.session.sessionId);
+      }
     });
     await runtime.session.bindExtensions({
       mode: "rpc",
@@ -335,7 +361,7 @@ export class PiAgentBackend implements AgentBackend {
       projectPath: location.projectPath,
       title: location.title,
       lastEventAt: location.lastEventAt,
-      activity: owned?.runtime.session.isIdle === false ? "live" : "ready",
+      activity: owned?.projection.runState === "running" ? "live" : "ready",
       capabilities: this.capabilities,
     };
   }
@@ -358,6 +384,18 @@ export class PiAgentBackend implements AgentBackend {
     owned.ui.dispose();
     await owned.runtime.dispose();
   }
+
+  private async registerOwned(sessionId: string, owned: OwnedRuntime): Promise<void> {
+    if (this.disposed) {
+      await this.disposeOwned(owned);
+      throw new AgentBackendDisposedError("Pi agent backend is disposed");
+    }
+    this.owned.set(sessionId, owned);
+  }
+
+  private assertActive(): void {
+    if (this.disposed) throw new AgentBackendDisposedError("Pi agent backend is disposed");
+  }
 }
 
 const officialRuntimeFactory: CreateAgentSessionRuntimeFactory = async ({
@@ -376,12 +414,28 @@ const officialRuntimeFactory: CreateAgentSessionRuntimeFactory = async ({
 async function createOfficialPiRuntime(projectPath: string, transcriptPath?: string): Promise<PiRuntimeFacade> {
   const sessionManager = transcriptPath
     ? SessionManager.open(transcriptPath, dirname(transcriptPath), projectPath)
-    : SessionManager.create(projectPath, piProjectSessionDirectory(projectPath));
+    : createPersistentPiSessionManager(projectPath);
   return createAgentSessionRuntime(officialRuntimeFactory, {
     cwd: projectPath,
     agentDir: config.piAgentDirectory,
     sessionManager,
   });
+}
+
+export function createPersistentPiSessionManager(
+  projectPath: string,
+  sessionsDirectory = config.piSessionsDirectory,
+): SessionManager {
+  const sessionManager = SessionManager.create(
+    projectPath,
+    piProjectSessionDirectory(projectPath, sessionsDirectory),
+  );
+  const sessionFile = sessionManager.getSessionFile();
+  const header = sessionManager.getHeader();
+  if (!sessionFile || !header) throw new Error("Pi created a session without persistent JSONL identity");
+  writeFileSync(sessionFile, `${JSON.stringify(header)}\n`, { flag: "wx" });
+  sessionManager.setSessionFile(sessionFile);
+  return sessionManager;
 }
 
 // Pi 0.83.0 does not export its project-directory helper from the package root.

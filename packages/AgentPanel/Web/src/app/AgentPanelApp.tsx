@@ -9,7 +9,7 @@ import type {
   BridgeProject,
   BridgeSessionSummary,
 } from "../features/activity-feed/data-source/BridgeDataSource";
-import type { AgentSessionState, EventMode } from "../features/activity-feed/data-source/AgentDataSource";
+import type { AgentSessionControlState, EventMode } from "../features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "../features/activity-feed/data-source/AgentDataSourceContext";
 import { ActivityFeed } from "../features/activity-feed/ActivityFeed";
 import { FontSizeRoot } from "../features/activity-feed/fontStore";
@@ -72,8 +72,7 @@ export function App({ bridge }: Props) {
   const [draft, setDraft] = useState("");
   const [commandPending, setCommandPending] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
-  const [sessionState, setSessionState] = useState<AgentSessionState>({
-    sequence: 0,
+  const [sessionState, setSessionState] = useState<AgentSessionControlState>({
     runState: "idle",
     queue: { steer: 0, followUp: 0 },
   });
@@ -205,14 +204,19 @@ export function App({ bridge }: Props) {
         return;
       }
       const request = event.request;
-      setExtensionUI((current) => [
-        ...current.filter((item) => !(
+      setExtensionUI((current) => {
+        const next = [
+          ...current.filter((item) => !(
           item.source === request.source &&
           item.sessionId === request.sessionId &&
           item.requestId === request.requestId
-        )),
-        request,
-      ].slice(-8));
+          )),
+          request,
+        ];
+        const prompts = next.filter((item) => item.expectsResponse);
+        const notices = next.filter((item) => !item.expectsResponse).slice(-8);
+        return [...notices, ...prompts];
+      });
     }),
     [bridge],
   );
@@ -242,7 +246,7 @@ export function App({ bridge }: Props) {
         : (session.capabilities.modes[0] ?? "nice"));
       setDraft("");
       setCommandError(null);
-      setSessionState({ sequence: 0, runState: "idle", queue: { steer: 0, followUp: 0 } });
+      setSessionState({ runState: "idle", queue: { steer: 0, followUp: 0 } });
       setExtensionUI([]);
       setNav({ view: "thread", project, session });
     },
@@ -522,7 +526,7 @@ function AgentComposer({
   onDraftChange: (value: string) => void;
   pending: boolean;
   error: string | null;
-  state: AgentSessionState;
+  state: AgentSessionControlState;
   canSteer: boolean;
   canAbort: boolean;
   onSend: () => void;
@@ -592,7 +596,7 @@ function ExtensionUISurface({
   onRespond: (request: AgentExtensionUIRequest, value: string | boolean | null) => Promise<void>;
   onDismiss: (request: AgentExtensionUIRequest) => void;
 }) {
-  const request = requests.at(-1);
+  const request = requests.find((candidate) => candidate.expectsResponse) ?? requests.at(-1);
   if (!request) return null;
   if (!request.expectsResponse) {
     return (

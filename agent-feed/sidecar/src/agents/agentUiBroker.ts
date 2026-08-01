@@ -11,11 +11,13 @@ interface PendingRequest {
 
 const MAXIMUM_UI_TEXT_BYTES = 64 * 1024;
 const MAXIMUM_UI_LIST_ITEMS = 128;
+const MAXIMUM_PENDING_REQUESTS = 32;
 const textEncoder = new TextEncoder();
 
 export class AgentUiBroker {
   private readonly listeners = new Set<UiListener>();
   private readonly pending = new Map<string, PendingRequest>();
+  private readonly keyedNotices = new Map<string, AgentUiRequest>();
   private readonly resolved = new Set<string>();
   private sequence = 0;
 
@@ -23,6 +25,9 @@ export class AgentUiBroker {
 
   subscribe(listener: UiListener): () => void {
     this.listeners.add(listener);
+    for (const notice of this.keyedNotices.values()) {
+      listener({ type: "request", request: notice });
+    }
     for (const pending of this.pending.values()) {
       listener({ type: "request", request: pending.request });
     }
@@ -30,14 +35,29 @@ export class AgentUiBroker {
   }
 
   notify(request: Omit<AgentUiRequest, "requestId" | "expectsResponse">): void {
-    this.publishRequest(boundUiRequest({ ...request, requestId: this.nextId(), expectsResponse: false }));
+    const key = keyedNoticeKey(request);
+    if (key) {
+      const current = this.keyedNotices.get(key);
+      if (current) this.publish({ type: "dismiss", requestId: current.requestId });
+      if (isClearedNotice(request)) {
+        this.keyedNotices.delete(key);
+        return;
+      }
+    }
+    const value = boundUiRequest({ ...request, requestId: this.nextId(), expectsResponse: false });
+    if (key) this.keyedNotices.set(key, value);
+    this.publishRequest(value);
   }
 
   request(request: Omit<AgentUiRequest, "requestId" | "expectsResponse">): Promise<unknown> {
+    if (this.pending.size >= MAXIMUM_PENDING_REQUESTS) {
+      return Promise.reject(new Error(`extension UI exceeds ${MAXIMUM_PENDING_REQUESTS} pending requests`));
+    }
     const value = boundUiRequest({ ...request, requestId: this.nextId(), expectsResponse: true });
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(value.requestId);
+        this.rememberResolved(value.requestId);
         this.publish({ type: "dismiss", requestId: value.requestId });
         resolve(undefined);
       }, this.timeoutMs);
@@ -61,11 +81,15 @@ export class AgentUiBroker {
   dispose(): void {
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
+      this.rememberResolved(pending.request.requestId);
       this.publish({ type: "dismiss", requestId: pending.request.requestId });
       pending.resolve(undefined);
     }
+    for (const notice of this.keyedNotices.values()) {
+      this.publish({ type: "dismiss", requestId: notice.requestId });
+    }
     this.pending.clear();
-    this.resolved.clear();
+    this.keyedNotices.clear();
     this.listeners.clear();
   }
 
@@ -89,6 +113,17 @@ export class AgentUiBroker {
       this.resolved.delete(oldest);
     }
   }
+}
+
+function keyedNoticeKey(request: Omit<AgentUiRequest, "requestId" | "expectsResponse">): string | null {
+  if ((request.kind !== "status" && request.kind !== "widget") || !request.key) return null;
+  return `${request.kind}:${request.key}`;
+}
+
+function isClearedNotice(request: Omit<AgentUiRequest, "requestId" | "expectsResponse">): boolean {
+  return request.kind === "status"
+    ? request.message === undefined
+    : request.kind === "widget" && request.lines === undefined;
 }
 
 function isValidResponse(request: AgentUiRequest, value: unknown): boolean {

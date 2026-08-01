@@ -34,7 +34,7 @@ import {
 } from "./ActivityEventRows";
 import { TokenMeter } from "./TokenMeter";
 import type { AgentSource, EventMode } from "./data-source/AgentDataSource";
-import type { AgentSessionState } from "./data-source/AgentDataSource";
+import type { AgentSessionControlState } from "./data-source/AgentDataSource";
 
 /** Fallback for the sticky bar's height before it has rendered once. */
 const STICKY_HEIGHT_ESTIMATE = 44;
@@ -66,13 +66,13 @@ export function ActivityFeed({
    * controls by forgetting to pass it.
    */
   controlsHost: HTMLElement | null;
-  onSessionState?: (state: AgentSessionState) => void;
+  onSessionState?: (state: AgentSessionControlState) => void;
 }) {
-  const { events, loadOlder, windowStart, usage, loading, error, sequence, runState, queue } =
+  const { events, loadOlder, windowStart, usage, loading, error, runState, queue } =
     useSessionEventsStream(source, sessionId, mode);
   useEffect(() => {
-    onSessionState?.({ sequence, runState, queue });
-  }, [onSessionState, queue, runState, sequence]);
+    onSessionState?.({ runState, queue });
+  }, [onSessionState, queue.followUp, queue.steer, runState]);
   const parentRef = useRef<HTMLDivElement>(null);
   const sizedRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLButtonElement>(null);

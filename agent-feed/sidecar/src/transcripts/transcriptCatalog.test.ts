@@ -16,6 +16,7 @@ import {
   sessionSummaries,
   sessionKey,
 } from "./transcriptCatalog.ts";
+import { PI_AGENT_CAPABILITIES } from "../agents/piAgentBackend.ts";
 import type { Session } from "./sources/transcriptTypes.ts";
 import { state } from "./transcriptState.ts";
 import { claudeAdapter } from "./sources/claudeTranscript.ts";
@@ -34,7 +35,7 @@ afterEach(async () => {
 });
 
 function session(
-  source: "claude" | "codex",
+  source: "claude" | "codex" | "pi",
   sessionId: string,
   project: string,
   lastEventAt: number,
@@ -137,6 +138,39 @@ describe("transcript catalog identity", () => {
     expect(summaries[0]?.title).toBe("bounded session title");
     expect(state.eventByteOffsets.size).toBe(0);
     expect(state.indexed.size).toBe(0);
+  });
+
+  test("uses the live Pi backend as the authority for activity and capabilities", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-feed-pi-summary-"));
+    temporaryDirectories.push(root);
+    const project = join(root, "project");
+    const transcript = join(root, "11111111-1111-1111-1111-111111111111.jsonl");
+    await mkdir(project);
+    await writeFile(transcript, `${JSON.stringify({ type: "session" })}\n`);
+    const observed = session(
+      "pi",
+      "11111111-1111-1111-1111-111111111111",
+      project,
+      Date.now(),
+    );
+    observed.transcriptPath = transcript;
+    state.sessions.set(sessionKey(observed.source, observed.sessionId), observed);
+
+    const summaries = await sessionSummaries(project, (source, sessionId) => ({
+      sessionId,
+      source,
+      projectPath: project,
+      title: sessionId,
+      lastEventAt: observed.lastEventAt,
+      activity: "live",
+      capabilities: PI_AGENT_CAPABILITIES,
+    }));
+
+    expect(summaries[0]).toMatchObject({
+      source: "pi",
+      activity: "live",
+      capabilities: PI_AGENT_CAPABILITIES,
+    });
   });
 
   test("a changed Claude transcript reports its latest direct cwd and title evidence", async () => {

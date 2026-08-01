@@ -7,7 +7,7 @@ import { authorizeApiRequest } from "./http/auth.ts";
 import { createAgentRoutes } from "./http/agentRoutes.ts";
 import { handleProjectRoutes } from "./http/projectRoutes.ts";
 import type { RouteHandler } from "./http/route.ts";
-import { handleSessionRoutes } from "./http/sessionRoutes.ts";
+import { createSessionRoutes } from "./http/sessionRoutes.ts";
 import { state } from "./transcripts/transcriptState.ts";
 import {
   getSnapshot,
@@ -16,6 +16,7 @@ import {
   stopCatalog,
   registerPiSession,
   resolvePiSession,
+  notifyPiSessionChanged,
 } from "./transcripts/transcriptCatalog.ts";
 import { AgentBackendRegistry } from "./agents/agentBackend.ts";
 import { PiAgentBackend } from "./agents/piAgentBackend.ts";
@@ -24,11 +25,14 @@ const backends = new AgentBackendRegistry();
 backends.register(new PiAgentBackend({
   resolveSession: resolvePiSession,
   onSessionCreated: registerPiSession,
+  onSessionChanged: notifyPiSessionChanged,
 }));
 const routes: RouteHandler[] = [
   handleProjectRoutes,
   createAgentRoutes((id) => backends.get(id)),
-  handleSessionRoutes,
+  createSessionRoutes((source, sessionId) =>
+    backends.get(source)?.describeSession(sessionId)
+  ),
 ];
 const SHUTDOWN_GRACE_MS = 500;
 
