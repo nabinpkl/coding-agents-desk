@@ -1415,7 +1415,7 @@ D227  2026-08-01  landed     LTR works; a session recreate is what wipes it, so 
 D228  2026-08-01  landed     carry the ladder rung across a resume, so recovery stops rescaling itself out of the cheap path
 D229  2026-08-01  landed     device run: the cheap recovery frame lands at 529 bytes; the rescale after it is the new cost
 R230  2026-08-01  open       the client display layer can wedge black, survive every reconnect, and read as healthy
-R231  2026-08-01  open       rate-limit the resolution axis; three rescales in seventeen seconds is three keyframes
+R231  2026-08-01  open       decouple resolution from the rung, so congestion is answered by the two free axes first
 
 D214 detail: a control-message pair (`liveness-probe` / `liveness-echo`) carrying a sequence
 number on the existing `frameId` field. Three unanswered probes at 2s declares ~4.5s after the
@@ -1642,9 +1642,41 @@ R231 detail: measured live during the same run: `scale=0.75` keyframe 86,644B at
 `scale=0.50` keyframe 68,598B at 00:34:06, `scale=0.75` keyframe 122,041B at 00:34:17. Three
 resolution changes in seventeen seconds, each a full keyframe by construction, on the cellular
 link least able to carry them. Separately `ltr-state-dropped` fired 25 times in eight minutes,
-since every rescale recreates the compression session and destroys the long-term references. The
-resolution axis needs a minimum dwell time or a wider hysteresis band; bitrate and fps can keep
-moving freely, because only the resolution axis invalidates references.
+since every rescale recreates the compression session and destroys the long-term references.
+
+The keyframe is not an implementation cost that could be optimised away, so do not go looking
+for a cheaper rescale. Changing resolution requires an IDR at the bitstream level, because
+HEVC has no reference picture resampling: a reference picture must match the dimensions of the
+picture referencing it, and a new SPS activates only at an IRAP. It also requires a new
+`VTCompressionSession`, whose dimensions are fixed at creation, which is what takes the LTR
+references with it. The codecs that make a rescale cheap do exist (AV1, VP9, VVC all resample
+references) and none of them is reachable: `VTCopyVideoEncoderList` on an M-series Mac returns
+hardware encoders for H.264, HEVC, ProRes and JPEG only, with no AV1/VP9/VVC entry in either
+hardware or software. The iPhone decodes AV1 and VVC and that is useless to us, because nothing
+on the host can feed it. Doing it less often is the only lever available.
+
+The shape is decoupling, not a blanket dwell. Today the ladder is a single ordinal emitting
+three coupled values (`MediaQualityController.swift:834`), so there is no way to answer
+congestion without dragging resolution along; a flat rate limit would therefore also delay the
+bitrate and fps response, which is wrong. Split it: bitrate and fps follow the rung
+immediately, since both are live session properties that cost nothing to change, and they are
+the actual congestion response. Resolution moves only on sustained evidence.
+
+Slower on that axis is the safer direction, which is the part that reads backwards. A rescale
+during congestion is the most expensive single action the encoder can take, at the moment the
+link can least carry it: answering "not enough bandwidth" with the largest possible frame
+deepens what it is responding to. The cost we accept in exchange is a confirmation window of
+high resolution at starved bitrate, which quantizes hard and blocks up around text, and clears
+the instant bitrate recovers. Against seconds of nothing while a 120KB keyframe drains, that is
+the better trade.
+
+Thresholds should be asymmetric, because the climb back up has no urgency at all: the
+122,041B frame at 00:34:17 was a return to 0.75 on a link that had just failed at it, and
+nothing bad happens if that waits. Two of the five steps are already resolution-neutral
+(native -> lossControl holds 1.00, capacity2 -> survival holds 0.50), so only three transitions
+need gating. Worth checking before implementing: whether the oscillation is the ladder or the
+estimator, since a radio transition can read as a capacity collapse and instant recovery within
+seconds, and damping the axis would only hide that.
 
 ## v16 live Pi agent loop
 
