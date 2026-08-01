@@ -57,6 +57,26 @@ actor VoiceAssetProvisioner {
         running = nil
     }
 
+    /// Stop provisioning against a session that is going away.
+    ///
+    /// This is a singleton holding a `Task` that captures the transport, so without this a
+    /// download outlives its session and keeps a dead transport alive for as long as it runs.
+    /// The transport now releases its QUIC connection at close either way, so this no longer
+    /// blocks a reconnect (R230) -- but a global grinding through a transfer on a closed lane
+    /// is work that can only fail, and the next session opens its own lane anyway.
+    func cancel() async {
+        guard let task = running else { return }
+        task.cancel()
+        // Wait for it to unwind before clearing, or `provision`'s guard goes false while the
+        // old run is still going and the next session starts a second one -- two lanes racing
+        // into the same staging files, which is the race that guard exists to prevent.
+        // Suspending here is safe: the run's own completion path re-enters this actor to clear
+        // `running`, and actor reentrancy lets it in while we wait.
+        await task.value
+        running = nil
+        progress = .idle
+    }
+
     private func run(using transport: QuicSessionClientTransport) async {
         progress = .checking
         do {

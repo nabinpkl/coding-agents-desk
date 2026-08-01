@@ -25,3 +25,10 @@ enum MediaSessionLoss: Equatable {
     /// rather than starting a recovery.
     case rejected(SessionRejected)
 }
+
+/// Thrown when a caller reaches for a transport's connection after it closed.
+///
+/// Loud on purpose. The transport releases its QUIC connection at close (see `Channels`), so
+/// every send and receive afterwards has to fail; a silent no-op here would turn "the session
+/// is gone" into "nothing happened", which is the shape of bug that takes a device run to find.
+struct QuicSessionTransportClosed: Error, Equatable {}

@@ -33,9 +33,12 @@ enum QuicSessionStreamIO {
         expectedRole: QuicSessionStreamRole? = nil
     ) async throws -> QuicSessionStreamFrame {
         let header = try await stream.receive(exactly: 5).content
-        guard header.count == 5,
-              let role = QuicSessionStreamRole(rawValue: header[header.startIndex])
-        else {
+        // A short read here is the stream ending, not a bad frame. Reporting it as `malformed`
+        // made every handover look like a protocol violation on both peers.
+        guard header.count == 5 else {
+            throw QuicSessionFrameError.streamEnded(expected: 5, received: header.count)
+        }
+        guard let role = QuicSessionStreamRole(rawValue: header[header.startIndex]) else {
             throw QuicSessionFrameError.malformed
         }
         guard expectedRole == nil || expectedRole == role else {
@@ -48,7 +51,7 @@ enum QuicSessionStreamIO {
         }
         let payload = try await stream.receive(exactly: length).content
         guard payload.count == length else {
-            throw QuicSessionFrameError.malformed
+            throw QuicSessionFrameError.streamEnded(expected: length, received: payload.count)
         }
         return QuicSessionStreamFrame(role: role, payload: payload)
     }

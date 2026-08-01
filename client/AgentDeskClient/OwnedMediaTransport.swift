@@ -9,11 +9,44 @@ import PtyClientSwift
 @available(iOS 26.0, *)
 final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTransport, @unchecked Sendable {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "session-quic")
-    private let connection: NetworkConnection<QUIC>
-    private let inputStream: QUIC.Stream<QUICStream>
-    // ADR-0034 crisp-repair: the reliable lane the host pushes crisp tiles on.
-    private let graphicsStream: QUIC.Stream<QUICStream>
-    private let datagrams: QUIC.Datagrams<QUICDatagram>
+    /// Everything whose lifetime is the QUIC connection's, in one box so `close()` can let go
+    /// of all of it at once.
+    ///
+    /// `NetworkConnection` has no `cancel()` or `close()`: its only teardown is deinit, so the
+    /// connection lives exactly as long as the last reference to it. That made closing a
+    /// transport unable to close its connection, because three long-lived tasks capture the
+    /// transport strongly -- the media-state observer, the `start()` task, and
+    /// `VoiceAssetProvisioner`'s stored task, which outlives a session by the length of an
+    /// asset download. The host kept the dead connection (measured: 7.4s in
+    /// `waiting(Network is down)`), the next redial collided with it and was reset with
+    /// ENOTCONN 58ms after becoming ready, and that reset cost a whole reconnect attempt on
+    /// every handover (R230).
+    ///
+    /// Holding the resources separately from the object fixes that: whoever still holds the
+    /// transport no longer holds the connection, so releasing here is releasing for real.
+    private struct Channels {
+        let connection: NetworkConnection<QUIC>
+        let inputStream: QUIC.Stream<QUICStream>
+        // ADR-0034 crisp-repair: the reliable lane the host pushes crisp tiles on.
+        let graphicsStream: QUIC.Stream<QUICStream>
+        let datagrams: QUIC.Datagrams<QUICDatagram>
+    }
+    private let channels: OSAllocatedUnfairLock<Channels?>
+
+    /// The live channels, or a thrown error once closed. Deliberately throwing rather than
+    /// optional-and-silent: a send after close is a caller using a dead transport, and the
+    /// old behaviour of quietly doing nothing is what lets that go unnoticed.
+    private func liveChannels() throws -> Channels {
+        guard let live = channels.withLock({ $0 }) else {
+            throw QuicSessionTransportClosed()
+        }
+        return live
+    }
+
+    private var connection: NetworkConnection<QUIC> { get throws { try liveChannels().connection } }
+    private var inputStream: QUIC.Stream<QUICStream> { get throws { try liveChannels().inputStream } }
+    private var graphicsStream: QUIC.Stream<QUICStream> { get throws { try liveChannels().graphicsStream } }
+    private var datagrams: QUIC.Datagrams<QUICDatagram> { get throws { try liveChannels().datagrams } }
     private let mediaRepairBuffer = MediaDatagramFrameRepairBuffer(
         trackedFrameLimit: Config.ownedMediaTrackedFrameLimit,
         maxResendPackets: Config.ownedMediaMaxResendPackets
@@ -92,10 +125,12 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         activeSession: ActiveSession,
         mediaKey: SymmetricKey
     ) {
-        self.connection = connection
-        self.inputStream = inputStream
-        self.graphicsStream = graphicsStream
-        self.datagrams = datagrams
+        self.channels = OSAllocatedUnfairLock(initialState: Channels(
+            connection: connection,
+            inputStream: inputStream,
+            graphicsStream: graphicsStream,
+            datagrams: datagrams
+        ))
         self.activeSession = activeSession
         self.mediaKey = mediaKey
 
@@ -163,6 +198,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         connectionState = AsyncStream { stateCont = $0 }
         stateContinuation = stateCont
 
+        // The initialiser parameter, not the accessor: this runs before anything can close,
+        // and the accessor throws.
         connection.onStateUpdate { [weak self] _, state in
             self?.handleConnectionState(state)
         }
@@ -426,7 +463,13 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         closedContinuation.finish()
         stateContinuation.yield(.closed)
         stateContinuation.finish()
-        connection.applicationError = .init(code: 0, reason: "client-close")
+        // Set the code the peer will see, then drop the resources. Releasing is the only
+        // teardown this API has, and it must happen here rather than whenever the last task
+        // holding the transport happens to finish -- see `Channels`.
+        channels.withLock { live in
+            live?.connection.applicationError = .init(code: 0, reason: "client-close")
+            live = nil
+        }
     }
 
     private func startInputReceiveLoop() {
@@ -1064,7 +1107,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     /// it -- one line when sends begin failing, one when they resume carrying how many were
     /// lost and for how long. That is the shape you actually read during an incident.
     private func sendVideoControl(_ message: OwnedMediaControlMessage) {
-        Task { [weak self, datagrams] in
+        Task { [weak self] in
             let kind = message.kind.rawValue
             guard let data = try? JSONEncoder().encode(message) else {
                 // Encoding a fixed Codable shape cannot fail for data reasons, so this is a
@@ -1074,6 +1117,9 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                 return
             }
             do {
+                // Read through the accessor rather than a capture: a control send racing a
+                // close must fail, not resurrect the connection it is sending on.
+                guard let datagrams = try? self?.datagrams else { return }
                 try await datagrams.send(data)
                 self?.noteControlSendRecovered()
             } catch {

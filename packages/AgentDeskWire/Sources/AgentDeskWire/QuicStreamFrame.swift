@@ -16,7 +16,18 @@ public enum QuicSessionStreamRole: UInt8, Codable, Equatable, Sendable {
 
 public enum QuicSessionFrameError: Error, Equatable {
     case frameTooLarge
+    /// The peer sent bytes that are not a valid frame: an unknown role, or a role other than
+    /// the one this read expected. A genuine protocol violation, and worth investigating as one.
     case malformed
+    /// The stream ended part-way through a frame, so the read came back short. Not a protocol
+    /// violation at all -- the connection went away mid-frame, which is the ordinary shape of a
+    /// network handover or a peer that closed.
+    ///
+    /// Split out from `malformed` because collapsing the two made a reset connection
+    /// indistinguishable from a bad frame. A handover reliably logged `error=malformed` on both
+    /// peers, which reads as a wire bug and is not one; the real cause was a stale connection
+    /// colliding with the redial (R230).
+    case streamEnded(expected: Int, received: Int)
 }
 
 public struct QuicSessionStreamFrame: Equatable, Sendable {

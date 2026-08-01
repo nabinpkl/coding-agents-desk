@@ -694,6 +694,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         }
         mediaTransport?.stop()
         mediaTransport = nil
+        // The provisioner is a singleton holding a task that captures this transport; the next
+        // session opens its own lane, so letting the old transfer run only burns work on a
+        // closed one.
+        if #available(iOS 26.0, *) {
+            Task { await VoiceAssetProvisioner.shared.cancel() }
+        }
         ClientRuntimeTelemetry.shared.updateMediaState(.stopped)
         videoStartupBanner.awaitFirstFrame()
         // Keep the picture when the session is being recovered rather than ended.
