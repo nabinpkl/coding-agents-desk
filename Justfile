@@ -1358,7 +1358,15 @@ reset-pty-runtime variant="stable": build-pty-runtime
         "$VAULT_SOCKET" "$VAULT_SOCKET.identity"
     echo "PTY runtime reset for {{variant}}; prior sessions are not recoverable; the next host launch starts a fresh runtime"
 
-pty-live-update-verify:
+# The only handover test that is not talking to itself. Builds the PTY runtime from an older
+# commit, gives it a live session, then lets the current binaries take over and asserts the child
+# process is the same one afterwards (ADR-0080). Every other handover test builds both peers from
+# one tree and therefore cannot catch a wire change. Pass a base ref to choose the version gap;
+# the interesting ones are the commit before a protocol change.
+pty-handover-cross-version base="HEAD~1":
+    bash '{{justfile_directory()}}/tools/pty-handover-cross-version.sh' '{{justfile_directory()}}' '{{base}}'
+
+pty-live-update-verify base="HEAD~1":
     #!/usr/bin/env bash
     set -euo pipefail
     cd '{{pty_manager_dir}}'
@@ -1369,6 +1377,8 @@ pty-live-update-verify:
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost \
         -derivedDataPath '{{derived_data}}' test CODE_SIGNING_ALLOWED=NO \
         -only-testing:AgentDeskHostTests/HostPtyRuntimeProcessTests >/dev/null
+    # The same-version tests above cannot see a wire change; this one can.
+    just pty-handover-cross-version '{{base}}'
 
 # Build client Debug for the iPhone and install (does not launch).
 # variant: "stable" (default) or "dev" (the experimental side-by-side install:

@@ -21,7 +21,7 @@ use crate::vault_protocol::generated::{
     ExitStatus, ImportSession, Session, SessionLease, SessionList, VaultHandoverCommit,
     VaultHandoverDescriptor, VaultHandoverManifest, VaultRequest, VaultResponse,
 };
-use crate::vault_protocol::VAULT_PROTOCOL_VERSION;
+use crate::vault_protocol::{VAULT_PROTOCOL_VERSION, VAULT_PROTOCOL_VERSION_MIN};
 
 #[path = "vault_handover.rs"]
 mod handover;
@@ -165,10 +165,16 @@ fn handle_client(mut stream: UnixStream, runtime: Arc<VaultRuntime>) -> Result<(
     validate_peer(&stream)?;
     let (request, descriptor) = receive_message::<VaultRequest>(&mut stream)?;
     let request_id = request.request_id;
-    let result = if request.protocol_version != VAULT_PROTOCOL_VERSION {
-        Err(TerminalError::Protocol(
-            "vault protocol version mismatch".to_owned(),
-        ))
+    // Answer in the dialect we were addressed in, so a manager from another commit reading our
+    // reply sees the version it sent rather than a mismatch it cannot act on.
+    let response_version = request.protocol_version;
+    let result = if !(VAULT_PROTOCOL_VERSION_MIN..=VAULT_PROTOCOL_VERSION)
+        .contains(&request.protocol_version)
+    {
+        Err(TerminalError::Protocol(format!(
+            "vault protocol version {} is outside the supported range {}..={}",
+            request.protocol_version, VAULT_PROTOCOL_VERSION_MIN, VAULT_PROTOCOL_VERSION
+        )))
     } else {
         match request.payload {
             Some(vault_request::Payload::BeginHandover(request)) => {
@@ -209,7 +215,7 @@ fn handle_client(mut stream: UnixStream, runtime: Arc<VaultRuntime>) -> Result<(
             send_message(
                 &mut stream,
                 &VaultResponse {
-                    protocol_version: VAULT_PROTOCOL_VERSION,
+                    protocol_version: response_version,
                     request_id,
                     error: String::new(),
                     payload: Some(payload),
@@ -220,7 +226,7 @@ fn handle_client(mut stream: UnixStream, runtime: Arc<VaultRuntime>) -> Result<(
         Err(error) => send_message(
             &mut stream,
             &VaultResponse {
-                protocol_version: VAULT_PROTOCOL_VERSION,
+                protocol_version: response_version,
                 request_id,
                 error: error.to_string(),
                 payload: None,

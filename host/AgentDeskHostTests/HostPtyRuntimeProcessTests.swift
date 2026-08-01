@@ -72,9 +72,41 @@ struct HostPtyRuntimeProcessTests {
             bundledExecutablePath: "/tmp/pty-manager",
             bundledDigest: "new",
             recordedIdentity: nil
-        ) == .block(
-            reason: "live PTY runtime has no matching durable identity; use the explicit destructive reset"
-        ))
+        ) == .block(reason: "live PTY runtime has no matching durable identity"))
+    }
+
+    /// The invariant behind ADR-0080: whatever goes wrong, a live vault keeps serving. Terminating
+    /// it would close the last master descriptor for every session on the machine.
+    @Test func liveVaultIsKeptWhateverWentWrong() {
+        #expect(HostPtyRuntimeSocketVerifier.recover(
+            recovery: .keepPredecessor,
+            predecessorAlive: true,
+            reason: "handover declined"
+        ) == .keepPredecessor(reason: "handover declined"))
+    }
+
+    /// A vault that is not actually serving holds nothing, so the bundled binary starts clean.
+    @Test func absentVaultColdStarts() {
+        #expect(HostPtyRuntimeSocketVerifier.recover(
+            recovery: .keepPredecessor,
+            predecessorAlive: false,
+            reason: "handover declined"
+        ) == .coldStart)
+    }
+
+    /// The manager is disposable: the vault still holds every master descriptor, and a cold-started
+    /// manager re-adopts them. Replacing it costs bounded replay state, not sessions.
+    @Test func failedManagerHandoverColdStarts() {
+        #expect(HostPtyRuntimeSocketVerifier.recover(
+            recovery: .replacePredecessor,
+            predecessorAlive: true,
+            reason: "handover declined"
+        ) == .coldStart)
+        #expect(HostPtyRuntimeSocketVerifier.recover(
+            recovery: .replacePredecessor,
+            predecessorAlive: false,
+            reason: "handover declined"
+        ) == .coldStart)
     }
 
     @Test func unreadableBundledDigestBlocks() {

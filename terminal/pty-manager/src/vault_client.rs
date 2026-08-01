@@ -11,7 +11,7 @@ use crate::vault_protocol::generated::{
     ExitStatus, ImportSession, KillSession, LeaseSession, ListSessions, QueryExitStatus,
     ResizeSession, Session, ShellLaunch, VaultRequest, VaultResponse,
 };
-use crate::vault_protocol::VAULT_PROTOCOL_VERSION;
+use crate::vault_protocol::{VAULT_PROTOCOL_VERSION, VAULT_PROTOCOL_VERSION_MIN};
 
 #[derive(Clone)]
 pub struct VaultClient {
@@ -178,10 +178,15 @@ impl VaultClient {
         let mut stream = UnixStream::connect(&self.inner.socket_path)?;
         send_message(&mut stream, &request, descriptor)?;
         let (response, descriptor) = receive_message::<VaultResponse>(&mut stream)?;
-        if response.protocol_version != VAULT_PROTOCOL_VERSION {
-            return Err(TerminalError::Protocol(
-                "vault protocol version mismatch".to_owned(),
-            ));
+        // A manager routinely outlives the vault binary it talks to: after a failed vault update the
+        // host keeps the older vault serving rather than end its sessions. Accept any version the
+        // frozen wire allows instead of demanding our own.
+        if !(VAULT_PROTOCOL_VERSION_MIN..=VAULT_PROTOCOL_VERSION).contains(&response.protocol_version)
+        {
+            return Err(TerminalError::Protocol(format!(
+                "vault protocol version {} is outside the supported range {}..={}",
+                response.protocol_version, VAULT_PROTOCOL_VERSION_MIN, VAULT_PROTOCOL_VERSION
+            )));
         }
         if response.request_id != request_id {
             return Err(TerminalError::Protocol(

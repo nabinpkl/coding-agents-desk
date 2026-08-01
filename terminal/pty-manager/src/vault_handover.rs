@@ -225,17 +225,10 @@ fn validate_manifest(manifest: &VaultHandoverManifest, max_sessions: usize) -> R
             ));
         }
     }
-    if manifest.checksum
-        != session_checksum(
-            manifest.vault_generation,
-            manifest.next_session_generation,
-            &manifest.sessions,
-        )
-    {
-        return Err(TerminalError::Protocol(
-            "vault handover manifest checksum mismatch".to_owned(),
-        ));
-    }
+    // Not recomputed, for the reason recorded in `manager_handover::validate_manifest`: a hash of
+    // re-encoded protobuf changes when the reader's schema changes, so recomputing it rejects a
+    // perfectly good transfer between two different builds. Session identity is validated above and
+    // each descriptor frame is cross-checked against this manifest as it arrives.
     Ok(())
 }
 
@@ -244,14 +237,10 @@ fn apply_handover_commit(
     manifest: &VaultHandoverManifest,
     commit: VaultHandoverCommit,
 ) -> Result<()> {
+    // The commit checksum is not recomputed here either; the per-session pid and generation checks
+    // below are what actually guard the commit, and they survive a schema change.
     if commit.vault_generation != manifest.vault_generation
         || commit.sessions.len() != manifest.sessions.len()
-        || commit.checksum
-            != session_checksum(
-                commit.vault_generation,
-                manifest.next_session_generation,
-                &commit.sessions,
-            )
     {
         return Err(TerminalError::Protocol(
             "invalid vault handover commit".to_owned(),

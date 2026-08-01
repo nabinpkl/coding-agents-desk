@@ -180,11 +180,15 @@ pub(crate) fn manager_handover_socket_path(manager_socket_path: &Path) -> PathBu
 
 fn validate_manifest(manifest: &ManagerHandoverManifest, max_sessions: usize) -> Result<()> {
     let pending_input_limits = pending_input_limits()?;
+    // The manifest checksum is deliberately not recomputed here. It is a hash of re-encoded
+    // protobuf, and prost drops fields the reader does not know, so a candidate built from a
+    // different schema re-encodes different bytes and fails a transfer in which nothing went
+    // wrong. That is the failure that stranded the runtime under ADR-0078's field removal.
+    // Identity, counts, and the per-descriptor frame cross-check below carry the real validation.
     if manifest.protocol_version != MANAGER_HANDOVER_PROTOCOL_VERSION
         || manifest.manager_generation == 0
         || manifest.session_count as usize != manifest.sessions.len()
         || manifest.sessions.len() > max_sessions
-        || manifest.checksum != manager_checksum(manifest.manager_generation, &manifest.sessions)
     {
         return Err(TerminalError::Protocol(
             "invalid manager handover manifest".to_owned(),

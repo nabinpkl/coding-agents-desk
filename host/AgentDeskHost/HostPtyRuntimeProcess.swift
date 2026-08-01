@@ -20,6 +20,39 @@ enum HostPtyRuntimeSocketDecision: Equatable {
     case block(reason: String)
 }
 
+/// What a component may do to a live predecessor that a handover could not replace.
+///
+/// This asymmetry is the whole reason a code update can no longer end a session. `pty-vault` holds
+/// the only durable master descriptor for every session, so terminating it closes the last master
+/// and SIGHUPs every child on the machine. `pty-manager` holds duplicate leases and re-adopts the
+/// vault's sessions when it cold starts (`recover_vault_sessions`), so replacing it costs bounded
+/// replay state and nothing else. See ADR-0080.
+enum HostPtyRuntimeRecovery: Equatable {
+    /// Never terminate a live predecessor. A failed update leaves the older binary serving.
+    case keepPredecessor
+    /// Terminate a live predecessor and cold start. Sessions live in the vault and are re-adopted.
+    case replacePredecessor
+}
+
+/// What to do after an intended action could not be carried out.
+enum HostPtyRuntimeRecoveryDecision: Equatable {
+    /// Leave the older binary serving. Sessions are intact; the bundled binary is not in use.
+    case keepPredecessor(reason: String)
+    /// Terminate any live predecessor, then launch the bundled binary fresh.
+    case coldStart
+    /// Nothing can serve this component.
+    case fail(reason: String)
+}
+
+/// The result of bringing one component up.
+enum HostPtyRuntimeOutcome: Equatable {
+    case ready
+    /// Serving, but not from the bundled binary. Terminals work; the binary lags until its
+    /// sessions end naturally.
+    case degraded(reason: String)
+    case failed(reason: String)
+}
+
 enum HostPtyRuntimeSocketVerifier {
     static func decide(
         peer: HostPtyRuntimeSocketPeer?,
@@ -38,15 +71,34 @@ enum HostPtyRuntimeSocketVerifier {
         }
         guard let recordedIdentity, recordedIdentity.pid == peer.pid else {
             return .block(
-                reason: "live PTY runtime has no matching durable identity; use the explicit destructive reset"
+                reason: "live PTY runtime has no matching durable identity"
             )
         }
         return recordedIdentity.digest == bundledDigest ? .preserve(peer) : .handover(peer)
+    }
+
+    /// Chooses what happens after a handover attempt failed or a decision blocked.
+    ///
+    /// A live vault is always kept, which is what makes "sessions never end" structural rather than
+    /// a promise: the only branch that terminates anything requires `.replacePredecessor`, and the
+    /// only component that carries it is the disposable one.
+    static func recover(
+        recovery: HostPtyRuntimeRecovery,
+        predecessorAlive: Bool,
+        reason: String
+    ) -> HostPtyRuntimeRecoveryDecision {
+        switch recovery {
+        case .keepPredecessor:
+            return predecessorAlive ? .keepPredecessor(reason: reason) : .coldStart
+        case .replacePredecessor:
+            return .coldStart
+        }
     }
 }
 
 final class HostPtyRuntimeProcess: @unchecked Sendable {
     private static let executablePathBufferLength = 4 * 1_024
+    private static let diagnosticsTailLength = 2 * 1_024
 
     private enum Component: String {
         case vault
@@ -147,10 +199,14 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
                 at: managerSocketURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            guard try ensure(
+            // The vault step never aborts the manager step. A vault that could not be replaced is
+            // still serving every live session, and the manager it serves must still be brought up
+            // to date, or the host ends up with intact sessions it cannot reach.
+            let vault = try ensure(
                 component: .vault,
                 binaryURL: vaultBinaryURL,
                 socketURL: vaultSocketURL,
+                recovery: .keepPredecessor,
                 arguments: {
                     Self.vaultLaunchArguments(
                         socketURL: $0,
@@ -158,11 +214,16 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
                         runtimeDigest: $2
                     )
                 }
-            ) else { return false }
-            guard try ensure(
+            )
+            if case .failed(let reason) = vault {
+                logger.error("PTY vault unavailable reason=\(reason, privacy: .public)")
+                return false
+            }
+            let manager = try ensure(
                 component: .manager,
                 binaryURL: managerBinaryURL,
                 socketURL: managerSocketURL,
+                recovery: .replacePredecessor,
                 arguments: {
                     Self.managerLaunchArguments(
                         socketURL: $0,
@@ -170,8 +231,16 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
                         runtimeDigest: $2
                     )
                 }
-            ) else { return false }
-            logger.notice("PTY runtime ready manager=\(self.managerSocketURL.path, privacy: .public) vault=\(self.vaultSocketURL.path, privacy: .public)")
+            )
+            if case .failed(let reason) = manager {
+                logger.error("PTY manager unavailable reason=\(reason, privacy: .public)")
+                return false
+            }
+            if case .degraded(let reason) = vault {
+                logger.error("PTY runtime ready with a lagging vault binary; live sessions are intact and the bundled vault is not in use reason=\(reason, privacy: .public)")
+            } else {
+                logger.notice("PTY runtime ready manager=\(self.managerSocketURL.path, privacy: .public) vault=\(self.vaultSocketURL.path, privacy: .public)")
+            }
             return true
         } catch {
             logger.error("PTY runtime launch failed: \(String(describing: error), privacy: .public)")
@@ -183,8 +252,9 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
         component: Component,
         binaryURL: URL,
         socketURL: URL,
+        recovery: HostPtyRuntimeRecovery,
         arguments: (URL, Bool, String) -> [String]
-    ) throws -> Bool {
+    ) throws -> HostPtyRuntimeOutcome {
         let bundledDigest = Self.sha256Hex(binaryURL)
         let peer = socketPeer(socketURL: socketURL)
         let decision = HostPtyRuntimeSocketVerifier.decide(
@@ -195,29 +265,146 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
         )
         switch decision {
         case .launch:
-            return try launch(
+            let launched = try launch(
                 component: component,
                 binaryURL: binaryURL,
                 socketURL: socketURL,
                 digest: bundledDigest,
                 arguments: arguments(socketURL, false, bundledDigest ?? "")
             )
+            return launched ? .ready : .failed(reason: "cold start did not activate")
         case .preserve(let peer):
             logger.notice("PTY \(component.rawValue, privacy: .public) unchanged pid=\(peer.pid, privacy: .public)")
-            return true
+            return .ready
         case .handover(let peer):
             logger.notice("PTY \(component.rawValue, privacy: .public) update handover oldPid=\(peer.pid, privacy: .public)")
-            return try launch(
+            if try launch(
                 component: component,
                 binaryURL: binaryURL,
                 socketURL: socketURL,
                 digest: bundledDigest,
                 arguments: arguments(socketURL, true, bundledDigest ?? "")
+            ) {
+                return .ready
+            }
+            return try recover(
+                component: component,
+                binaryURL: binaryURL,
+                socketURL: socketURL,
+                digest: bundledDigest,
+                recovery: recovery,
+                reason: "handover candidate did not activate: \(candidateDiagnostics(component: component, socketURL: socketURL))",
+                arguments: arguments
             )
         case .block(let reason):
             logger.error("PTY \(component.rawValue, privacy: .public) blocked reason=\(reason, privacy: .public)")
-            return false
+            // Without a readable bundled binary there is nothing to fall back to.
+            guard bundledDigest != nil else { return .failed(reason: reason) }
+            return try recover(
+                component: component,
+                binaryURL: binaryURL,
+                socketURL: socketURL,
+                digest: bundledDigest,
+                recovery: recovery,
+                reason: reason,
+                arguments: arguments
+            )
         }
+    }
+
+    /// The ladder that keeps a code update from ever ending a session.
+    ///
+    /// Reached only when the intended action failed. A live vault is kept and the host carries on
+    /// with a lagging binary; a manager is replaced, because the vault still holds every master
+    /// descriptor and a cold-started manager re-adopts them.
+    private func recover(
+        component: Component,
+        binaryURL: URL,
+        socketURL: URL,
+        digest: String?,
+        recovery: HostPtyRuntimeRecovery,
+        reason: String,
+        arguments: (URL, Bool, String) -> [String]
+    ) throws -> HostPtyRuntimeOutcome {
+        discardCandidateIfIdle(component: component, socketURL: socketURL)
+        let alive = socketPeer(socketURL: socketURL) != nil
+        switch HostPtyRuntimeSocketVerifier.recover(
+            recovery: recovery,
+            predecessorAlive: alive,
+            reason: reason
+        ) {
+        case .keepPredecessor(let reason):
+            logger.error("PTY \(component.rawValue, privacy: .public) kept the previous generation; its sessions are intact and the bundled binary is not in use reason=\(reason, privacy: .public)")
+            return .degraded(reason: reason)
+        case .coldStart:
+            if alive {
+                terminatePredecessor(component: component, socketURL: socketURL)
+            }
+            logger.notice("PTY \(component.rawValue, privacy: .public) cold starting after a failed update reason=\(reason, privacy: .public)")
+            let launched = try launch(
+                component: component,
+                binaryURL: binaryURL,
+                socketURL: socketURL,
+                digest: digest,
+                arguments: arguments(socketURL, false, digest ?? "")
+            )
+            return launched
+                ? .ready
+                : .failed(reason: "cold start after a failed update did not activate: \(candidateDiagnostics(component: component, socketURL: socketURL))")
+        case .fail(let reason):
+            return .failed(reason: reason)
+        }
+    }
+
+    /// Cleans up a candidate that failed without taking over, so it does not linger beside the
+    /// generation that is actually serving.
+    ///
+    /// A candidate that *did* take the socket is deliberately left alone: reaching that point means
+    /// the previous generation already handed its descriptors across and exited, so this process is
+    /// now the only holder of every master and killing it would end every session.
+    private func discardCandidateIfIdle(component: Component, socketURL: URL) {
+        guard let process = processes[component], process.isRunning else { return }
+        guard socketPeer(socketURL: socketURL)?.pid != process.processIdentifier else { return }
+        logger.notice("PTY \(component.rawValue, privacy: .public) discarding candidate pid=\(process.processIdentifier, privacy: .public) that never took the socket")
+        process.terminate()
+        processes[component] = nil
+    }
+
+    /// Ends a predecessor that is safe to replace. Only ever reached for `.replacePredecessor`.
+    private func terminatePredecessor(
+        component: Component,
+        socketURL: URL,
+        timeout: TimeInterval = Config.ptyRuntimePeerTimeoutSeconds
+    ) {
+        guard let peer = socketPeer(socketURL: socketURL) else { return }
+        logger.notice("PTY \(component.rawValue, privacy: .public) replacing predecessor pid=\(peer.pid, privacy: .public); vault-held sessions survive and are re-adopted")
+        Darwin.kill(peer.pid, SIGTERM)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if socketPeer(socketURL: socketURL)?.pid != peer.pid { return }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        logger.error("PTY \(component.rawValue, privacy: .public) predecessor pid=\(peer.pid, privacy: .public) ignored SIGTERM; escalating")
+        Darwin.kill(peer.pid, SIGKILL)
+        let killDeadline = Date().addingTimeInterval(timeout)
+        while Date() < killDeadline {
+            if socketPeer(socketURL: socketURL)?.pid != peer.pid { return }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+    }
+
+    /// The candidate's own account of why it stopped. Without this the Rust protocol error that
+    /// explains a failed handover goes to the null device and the host reports only "did not
+    /// activate".
+    private func candidateDiagnostics(component: Component, socketURL: URL) -> String {
+        guard let contents = try? String(
+            contentsOf: Self.diagnosticsURL(component: component, socketURL: socketURL),
+            encoding: .utf8
+        ) else { return "no candidate output" }
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "no candidate output" }
+        return String(trimmed.suffix(Self.diagnosticsTailLength))
+            .replacingOccurrences(of: "\n", with: " | ")
     }
 
     private func launch(
@@ -232,8 +419,17 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
         process.executableURL = binaryURL
         process.arguments = arguments
         process.environment = ProcessInfo.processInfo.environment
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
+        // Truncated per launch, so it holds this generation's output only. The daemons log a
+        // handful of lines over a process lifetime, so this cannot grow without bound.
+        let diagnostics = Self.diagnosticsURL(component: component, socketURL: socketURL)
+        FileManager.default.createFile(atPath: diagnostics.path, contents: nil)
+        if let handle = try? FileHandle(forWritingTo: diagnostics) {
+            process.standardOutput = handle
+            process.standardError = handle
+        } else {
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+        }
         process.terminationHandler = { [runtime = self] finished in
             let status = finished.terminationStatus
             runtime.queue.async {
@@ -334,6 +530,11 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
     private static func identityURL(socketURL: URL) -> URL {
         socketURL.deletingLastPathComponent()
             .appendingPathComponent("\(socketURL.lastPathComponent).identity", isDirectory: false)
+    }
+
+    private static func diagnosticsURL(component: Component, socketURL: URL) -> URL {
+        socketURL.deletingLastPathComponent()
+            .appendingPathComponent("\(component.rawValue).log", isDirectory: false)
     }
 
     private static func executablePath(pid: pid_t) -> String? {

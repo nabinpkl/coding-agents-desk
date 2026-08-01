@@ -1,7 +1,8 @@
 ---
-status: accepted
+status: partially superseded by ADR-0080
 date: 2026-07-23
 supersedes: ADR-0066 (manager process lifetime only; bounded replay remains)
+partially-superseded-by: ADR-0080 (update failure policy only; descriptor custody, the vault/manager split, and the handover mechanism stand)
 ---
 
 # Centralize PTY descriptor custody with live handover

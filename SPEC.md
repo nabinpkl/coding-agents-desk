@@ -32,7 +32,9 @@ WKWebView and xterm.js runtime while retaining PTY protocol `7`, AgentDesk proto
 manager's state authority.
 
 ADR-0072 separates PTY descriptor custody into one common, variant-scoped vault and requires stateful
-live handover for both vault and manager code updates.
+live handover for both vault and manager code updates. ADR-0080 amends its failure policy: a live
+vault is never terminated by an update, a manager that cannot hand over is replaced and re-adopts the
+vault's sessions, and no code or wire change can end a session or require a manual reset.
 
 ADR-0070 adds explicit-opt-in, foreground-only client screenshot capture over authenticated
 protocol `14`, with bounded ephemeral transfer and private host-side temporary artifacts.
