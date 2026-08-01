@@ -156,10 +156,13 @@ struct InteractionPanelTests {
         #expect(
             InteractionPanelRequest.decode(
                 tag: "voiceSocketMessage",
-                body: ["recordingSessionID": "s1", "json": #"{"type":"sessionStop"}"#]
+                body: [
+                    "recordingSessionID": "s1",
+                    "json": #"{"type":"sessionStop","finalSequence":0,"capturedSampleCount":2048}"#,
+                ]
             ) == .voiceSocketMessage(
                 recordingSessionID: "s1",
-                json: #"{"type":"sessionStop"}"#
+                json: #"{"type":"sessionStop","finalSequence":0,"capturedSampleCount":2048}"#
             )
         )
         #expect(

@@ -48,9 +48,11 @@ class SessionStartMessage(WireModel):
 
 class AudioFrameMessage(WireModel):
     type: Literal["audioFrame"] = "audioFrame"
+    sequence: int = Field(ge=0)
     pcm: str
     """Base64-encoded PCM samples in the ``encoding`` below."""
-    sample_rate: int
+    sample_count: int = Field(gt=0)
+    sample_rate: int = Field(gt=0)
     encoding: Literal["int16", "float32"] = "int16"
     channels: int = 1
     """Interleaved channel count. Only mono (1) is accepted; the decoder rejects
@@ -59,6 +61,8 @@ class AudioFrameMessage(WireModel):
 
 class SessionStopMessage(WireModel):
     type: Literal["sessionStop"] = "sessionStop"
+    final_sequence: int = Field(ge=-1)
+    captured_sample_count: int = Field(ge=0)
 
 
 # --- Server -> client WebSocket messages -----------------------------------
@@ -119,6 +123,20 @@ class WordPhoneGroup(WireModel):
     has_reference_pronunciation: bool
 
 
+class RecordingTransportAudit(WireModel):
+    protocol_identifier: Literal["voice-audio-v2"]
+    continuity_status: Literal["complete", "interrupted"]
+    received_frame_count: int = Field(ge=0)
+    received_sample_count: int = Field(ge=0)
+    received_final_sequence: int = Field(ge=-1)
+    client_final_sequence: int | None = Field(default=None, ge=-1)
+    client_captured_sample_count: int | None = Field(default=None, ge=0)
+    first_frame_received_at: str | None = None
+    last_frame_received_at: str | None = None
+    stop_received_at: str | None = None
+    interruption_reason: str | None = None
+
+
 class Recording(WireModel):
     id: str
     client_session_id: str | None = Field(
@@ -143,6 +161,7 @@ class Recording(WireModel):
     reference_dictionary_identifier: str | None = None
     reference_dictionary_hash: str | None = None
     sample_rate: int
+    transport: RecordingTransportAudit | None = None
 
 
 class RecordingListResponse(WireModel):

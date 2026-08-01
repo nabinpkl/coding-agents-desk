@@ -33,6 +33,7 @@ export class VoiceSocketError extends Error {
 }
 
 export class VoiceSocket {
+  private static readonly maximumBufferedBytes = 512 * 1024;
   private socket: WebSocket | null = null;
   private nativeReadyState: number = WebSocket.CLOSED;
   private nativeSessionID = "";
@@ -177,6 +178,11 @@ export class VoiceSocket {
     }
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       throw new VoiceSocketError("voice socket is not open");
+    }
+    if (this.socket.bufferedAmount > VoiceSocket.maximumBufferedBytes) {
+      throw new VoiceSocketError(
+        "voice transport fell behind microphone capture",
+      );
     }
     this.socket.send(JSON.stringify(message));
   }

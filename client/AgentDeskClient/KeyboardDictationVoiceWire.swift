@@ -7,11 +7,15 @@ struct KeyboardVoiceSessionStart: Encodable {
 
 struct KeyboardVoiceSessionStop: Encodable {
     let type = "sessionStop"
+    let finalSequence: Int
+    let capturedSampleCount: Int
 }
 
 struct KeyboardVoiceAudioFrame: Encodable {
     let type = "audioFrame"
+    let sequence: Int
     let pcm: String
+    let sampleCount: Int
     let sampleRate = 16_000
     let encoding = "float32"
     let channels = 1

@@ -21,7 +21,9 @@ export interface AnalyzeSignalsRequest {
  */
 export interface AudioFrameMessage {
   type?: "audioFrame";
+  sequence: number;
   pcm: string;
+  sampleCount: number;
   sampleRate: number;
   encoding?: "int16" | "float32";
   channels?: number;
@@ -116,6 +118,7 @@ export interface Recording {
   referenceDictionaryIdentifier?: string | null;
   referenceDictionaryHash?: string | null;
   sampleRate: number;
+  transport?: RecordingTransportAudit | null;
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema
@@ -126,6 +129,23 @@ export interface WordPhoneGroup {
   heardPhones: string[];
   referencePhones: string[];
   hasReferencePronunciation: boolean;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "RecordingTransportAudit".
+ */
+export interface RecordingTransportAudit {
+  protocolIdentifier: "voice-audio-v2";
+  continuityStatus: "complete" | "interrupted";
+  receivedFrameCount: number;
+  receivedSampleCount: number;
+  receivedFinalSequence: number;
+  clientFinalSequence?: number | null;
+  clientCapturedSampleCount?: number | null;
+  firstFrameReceivedAt?: string | null;
+  lastFrameReceivedAt?: string | null;
+  stopReceivedAt?: string | null;
+  interruptionReason?: string | null;
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema
@@ -242,6 +262,8 @@ export interface SessionStartMessage {
  */
 export interface SessionStopMessage {
   type?: "sessionStop";
+  finalSequence: number;
+  capturedSampleCount: number;
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema

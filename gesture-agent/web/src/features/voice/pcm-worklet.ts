@@ -13,11 +13,19 @@
 export const PCM_FRAME_SAMPLES = 2048;
 
 /** Shape of every message posted from the worklet to the main thread. */
-export interface PcmWorkletFrame {
+export interface PcmWorkletAudioFrame {
+  readonly type: "frame";
   readonly pcm: ArrayBuffer;
   readonly rms: number;
   readonly peak: number;
 }
+
+export interface PcmWorkletFlushed {
+  readonly type: "flushed";
+  readonly requestID: string;
+}
+
+export type PcmWorkletMessage = PcmWorkletAudioFrame | PcmWorkletFlushed;
 
 export const PCM_WORKLET_SOURCE: string = /* js */ `
 const FRAME_SAMPLES = ${PCM_FRAME_SAMPLES};
@@ -27,9 +35,26 @@ class PcmFrameProcessor extends AudioWorkletProcessor {
     super();
     this._buffer = new Float32Array(FRAME_SAMPLES);
     this._offset = 0;
+    this._accepting = true;
+    this.port.onmessage = (event) => {
+      if (event.data?.type !== "flush") {
+        return;
+      }
+      this._accepting = false;
+      if (this._offset > 0) {
+        this._emit(this._offset);
+      }
+      this.port.postMessage({
+        type: "flushed",
+        requestID: event.data.requestID,
+      });
+    };
   }
 
   process(inputs) {
+    if (!this._accepting) {
+      return true;
+    }
     const input = inputs[0];
     if (!input || input.length === 0) {
       return true;
@@ -43,17 +68,17 @@ class PcmFrameProcessor extends AudioWorkletProcessor {
       this._buffer[this._offset] = channel[i];
       this._offset += 1;
       if (this._offset === FRAME_SAMPLES) {
-        this._emit();
+        this._emit(FRAME_SAMPLES);
       }
     }
     return true;
   }
 
-  _emit() {
+  _emit(sampleCount) {
     const frame = this._buffer;
     let sumSquares = 0;
     let peak = 0;
-    for (let i = 0; i < FRAME_SAMPLES; i += 1) {
+    for (let i = 0; i < sampleCount; i += 1) {
       const sample = frame[i];
       sumSquares += sample * sample;
       const magnitude = sample < 0 ? -sample : sample;
@@ -61,10 +86,10 @@ class PcmFrameProcessor extends AudioWorkletProcessor {
         peak = magnitude;
       }
     }
-    const rms = Math.sqrt(sumSquares / FRAME_SAMPLES);
-    const copy = frame.slice(0);
+    const rms = Math.sqrt(sumSquares / sampleCount);
+    const copy = frame.slice(0, sampleCount);
     this.port.postMessage(
-      { pcm: copy.buffer, rms, peak },
+      { type: "frame", pcm: copy.buffer, rms, peak },
       [copy.buffer],
     );
     this._offset = 0;

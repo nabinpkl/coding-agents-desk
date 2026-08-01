@@ -26,6 +26,21 @@ private final class KeyboardAudioFrameCounter: @unchecked Sendable {
     }
 }
 
+private final class KeyboardAudioFrameCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var frames: [KeyboardDictationPCMFrame] = []
+
+    func append(_ frame: KeyboardDictationPCMFrame) {
+        lock.withLock {
+            frames.append(frame)
+        }
+    }
+
+    var snapshot: [KeyboardDictationPCMFrame] {
+        lock.withLock { frames }
+    }
+}
+
 struct KeyboardDictationAudioCaptureTests {
     /// The capture owner is main-actor isolated while AVFAudio invokes its tap
     /// on a real-time queue. Forming the callback on MainActor must not make
@@ -73,5 +88,36 @@ struct KeyboardDictationAudioCaptureTests {
         }
 
         #expect(counter.value == 1)
+    }
+
+    @Test
+    func finishEmitsShortTailAndReturnsExactFence() {
+        let format = AVAudioFormat(
+            standardFormatWithSampleRate: 16_000,
+            channels: 1
+        )!
+        let collector = KeyboardAudioFrameCollector()
+        let sink = KeyboardDictationCaptureSink(
+            outputFormat: format,
+            frameHandler: { collector.append($0) },
+            meterHandler: { _, _ in },
+            failureHandler: { _, _ in }
+        )
+        sink.begin(captureSessionID: UUID())
+        let buffer = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: 317
+        )!
+        buffer.frameLength = 317
+        sink.accept(buffer)
+
+        let fence = sink.finish()
+
+        #expect(fence == KeyboardDictationCaptureFence(
+            finalSequence: 0,
+            capturedSampleCount: 317
+        ))
+        #expect(collector.snapshot.count == 1)
+        #expect(collector.snapshot[0].samples.count == 317 * MemoryLayout<Float>.size)
     }
 }

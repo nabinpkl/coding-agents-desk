@@ -789,6 +789,12 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   transcript casing through pronunciation tokenization and resolve unknown uppercase initialisms
   from CMUdict letter names, keeping direct-IPA whole-passage Kokoro playback available without
   falling back to text G2P.
+- D166. Make shared Voice capture loss-detecting from microphone to Python. Flush and fence the
+  browser worklet tail, fail visibly on capture or transport congestion, serialize iPhone bridge and
+  role-7 writes through bounded queues, wait for the loopback WebSocket handshake before reporting it
+  open, and negotiate `voice-lane-v2`. Sequence every PCM frame and fence Stop with the captured
+  sample count; Python preserves any nonempty discontinuous take as interrupted with durable
+  transport-audit metadata instead of presenting partial audio as complete.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -859,4 +865,5 @@ D162  2026-07-28  landed     return glyph with semantic action labels and access
 D163  2026-07-28  landed     native home-row alignment, outer-key gutters, and blank Space
 D164  2026-07-28  landed     nonblocking in-app keyboard dictation activation and status
 D165  2026-07-28  landed     stable long final transcription and initialism passage playback
+D166  2026-07-28  landed     loss-detecting Voice capture and durable transport continuity audit
 ```

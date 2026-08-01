@@ -184,11 +184,19 @@ test("native socket uses the shared browser wire messages", async () => {
   });
   await connected;
 
-  socket.sendControl({ type: "sessionStop" });
+  socket.sendControl({
+    type: "sessionStop",
+    finalSequence: 4,
+    capturedSampleCount: 10_240,
+  });
   expect(posted.at(-1)).toMatchObject({
     t: "voiceSocketMessage",
     recordingSessionID: open?.recordingSessionID,
-    json: JSON.stringify({ type: "sessionStop" }),
+    json: JSON.stringify({
+      type: "sessionStop",
+      finalSequence: 4,
+      capturedSampleCount: 10_240,
+    }),
   });
   socket.close();
   expect(posted.at(-1)).toMatchObject({
@@ -216,7 +224,11 @@ test("REST errors do not close an unrelated active socket", async () => {
     m: "list failed",
   });
 
-  socket.sendControl({ type: "sessionStop" });
+  socket.sendControl({
+    type: "sessionStop",
+    finalSequence: -1,
+    capturedSampleCount: 0,
+  });
   expect(posted.at(-1)).toMatchObject({
     t: "voiceSocketMessage",
     recordingSessionID: open?.recordingSessionID,

@@ -473,6 +473,7 @@ async def finalize_session(
     source: Literal["macos", "iphone", "browserDev"],
     status: Literal["completed", "interrupted"],
     client_session_id: str | None = None,
+    transport: dict[str, Any] | None = None,
 ) -> Recording | None:
     audio = (
         np.concatenate(collected)
@@ -497,6 +498,7 @@ async def finalize_session(
         source=source,
         status=status,
         client_session_id=client_session_id,
+        transport=transport,
     )
     recording_id = recording_id_from_result(result)
     if not await send_progress_best_effort(websocket, "saving"):
@@ -578,14 +580,50 @@ async def run_voice_session(
     sample_rate = DEFAULT_SAMPLE_RATE
     started_at = datetime.now()
     session_open = False
+    expected_sequence = 0
+    received_sample_count = 0
+    first_frame_received_at: str | None = None
+    last_frame_received_at: str | None = None
+    stop_received_at: str | None = None
+    client_final_sequence: int | None = None
+    client_captured_sample_count: int | None = None
+
+    def transport_audit(
+        continuity_status: Literal["complete", "interrupted"],
+        interruption_reason: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "protocolIdentifier": "voice-audio-v2",
+            "continuityStatus": continuity_status,
+            "receivedFrameCount": expected_sequence,
+            "receivedSampleCount": received_sample_count,
+            "receivedFinalSequence": expected_sequence - 1,
+            "clientFinalSequence": client_final_sequence,
+            "clientCapturedSampleCount": client_captured_sample_count,
+            "firstFrameReceivedAt": first_frame_received_at,
+            "lastFrameReceivedAt": last_frame_received_at,
+            "stopReceivedAt": stop_received_at,
+            "interruptionReason": interruption_reason,
+        }
+
     try:
         while True:
             raw = await websocket.receive_text()
             message = parse_client_message(raw)
 
             if isinstance(message, SessionStartMessage):
+                if session_open:
+                    raise VoiceWireError("sessionStart received while a session is active")
                 started_at = datetime.now()
                 collected = []
+                sample_rate = DEFAULT_SAMPLE_RATE
+                expected_sequence = 0
+                received_sample_count = 0
+                first_frame_received_at = None
+                last_frame_received_at = None
+                stop_received_at = None
+                client_final_sequence = None
+                client_captured_sample_count = None
                 if message.preamp_gain is not None:
                     transcriber.set_preamp_gain(message.preamp_gain)
                 await run_in_threadpool(transcriber.start_session)
@@ -594,9 +632,30 @@ async def run_voice_session(
             elif isinstance(message, AudioFrameMessage):
                 if not session_open:
                     raise VoiceWireError("audioFrame received before sessionStart")
+                if message.sequence != expected_sequence:
+                    raise VoiceWireError(
+                        "audioFrame sequence mismatch: "
+                        f"expected {expected_sequence}, got {message.sequence}"
+                    )
                 samples = decode_pcm(message.pcm, message.encoding, message.channels)
+                if expected_sequence > 0 and message.sample_rate != sample_rate:
+                    raise VoiceWireError(
+                        "audioFrame sample rate changed: "
+                        f"expected {sample_rate}, got {message.sample_rate}"
+                    )
                 sample_rate = message.sample_rate
                 collected.append(samples)
+                received_at = datetime.now().isoformat()
+                if first_frame_received_at is None:
+                    first_frame_received_at = received_at
+                last_frame_received_at = received_at
+                expected_sequence += 1
+                received_sample_count += int(samples.size)
+                if samples.size != message.sample_count:
+                    raise VoiceWireError(
+                        "audioFrame sample count mismatch: "
+                        f"declared {message.sample_count}, decoded {samples.size}"
+                    )
                 transcriber.submit_audio(samples, sample_rate)
 
                 snapshot = transcriber.snapshot()
@@ -610,6 +669,25 @@ async def run_voice_session(
             else:  # SessionStopMessage
                 if not session_open:
                     raise VoiceWireError("sessionStop received before sessionStart")
+                stop_received_at = datetime.now().isoformat()
+                client_final_sequence = message.final_sequence
+                client_captured_sample_count = message.captured_sample_count
+                continuity_errors: list[str] = []
+                if message.final_sequence != expected_sequence - 1:
+                    continuity_errors.append(
+                        "final sequence mismatch: "
+                        f"client {message.final_sequence}, server {expected_sequence - 1}"
+                    )
+                if message.captured_sample_count != received_sample_count:
+                    continuity_errors.append(
+                        "sample count mismatch: "
+                        f"client {message.captured_sample_count}, "
+                        f"server {received_sample_count}"
+                    )
+                continuity_error = "; ".join(continuity_errors) or None
+                status: Literal["completed", "interrupted"] = (
+                    "interrupted" if continuity_error else "completed"
+                )
                 # Close the streaming session first, then persist and hand off.
                 # session_open flips here so the except clauses below never
                 # double-finish if persistence or the final pass raises.
@@ -622,11 +700,15 @@ async def run_voice_session(
                     sample_rate,
                     started_at,
                     source,
-                    "completed",
+                    status,
                     client_session_id,
+                    transport_audit(
+                        "interrupted" if continuity_error else "complete",
+                        continuity_error,
+                    ),
                 )
                 return
-    except WebSocketDisconnect:
+    except WebSocketDisconnect as exc:
         if session_open:
             await finish_live_transcriber(transcriber)
             session_open = False
@@ -639,6 +721,7 @@ async def run_voice_session(
                 source,
                 "interrupted",
                 client_session_id,
+                transport_audit("interrupted", f"websocket disconnected: {exc}"),
             )
     except VoiceWireError as exc:
         if session_open:
@@ -653,6 +736,7 @@ async def run_voice_session(
                 source,
                 "interrupted",
                 client_session_id,
+                transport_audit("interrupted", str(exc)),
             )
         await websocket.close(code=1003, reason=str(exc)[:120])
     except Exception as exc:
@@ -672,6 +756,7 @@ async def run_voice_session(
                     source,
                     "interrupted",
                     client_session_id,
+                    transport_audit("interrupted", str(exc)),
                 )
             except Exception:
                 logging.getLogger(__name__).exception(

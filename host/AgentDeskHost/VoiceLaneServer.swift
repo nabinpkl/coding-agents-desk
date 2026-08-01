@@ -124,12 +124,13 @@ final class VoiceLaneServer: @unchecked Sendable {
             }
             var request = URLRequest(url: url)
             request.setValue("interactionfeed://app", forHTTPHeaderField: "Origin")
-            let urlSession = URLSession(configuration: .ephemeral)
+            let openGate = VoiceLoopbackWebSocketOpenGate()
+            let urlSession = URLSession(
+                configuration: .ephemeral,
+                delegate: openGate,
+                delegateQueue: nil
+            )
             let socket = urlSession.webSocketTask(with: request)
-            let receiveTask = Task { [weak self, weak socket] in
-                guard let self, let socket else { return }
-                await receiveSocketMessages(socket, sessionID: sessionID)
-            }
             let installed = lock.withLock {
                 guard recordingSessionID == nil, webSocket == nil else {
                     return false
@@ -137,11 +138,9 @@ final class VoiceLaneServer: @unchecked Sendable {
                 webSocketSession = urlSession
                 webSocket = socket
                 recordingSessionID = sessionID
-                socketReceiveTask = receiveTask
                 return true
             }
             guard installed else {
-                receiveTask.cancel()
                 urlSession.invalidateAndCancel()
                 try await writer.send(.error(
                     requestID: requestID,
@@ -153,13 +152,35 @@ final class VoiceLaneServer: @unchecked Sendable {
             }
             socket.resume()
             do {
+                try await openGate.waitUntilOpen()
+                guard isCurrentSocket(sessionID: sessionID) else { return }
+                let receiveTask = Task { [weak self, weak socket] in
+                    guard let self, let socket else { return }
+                    await receiveSocketMessages(socket, sessionID: sessionID)
+                }
+                let receiveInstalled = lock.withLock {
+                    guard recordingSessionID == sessionID, webSocket === socket else {
+                        return false
+                    }
+                    socketReceiveTask = receiveTask
+                    return true
+                }
+                guard receiveInstalled else {
+                    receiveTask.cancel()
+                    return
+                }
                 try await writer.send(.socketOpened(
                     requestID: requestID,
                     recordingSessionID: sessionID
                 ))
             } catch {
                 closeSocket(code: .goingAway, reason: "voice lane write failed")
-                throw error
+                try await writer.send(.error(
+                    requestID: requestID,
+                    recordingSessionID: sessionID,
+                    code: .sidecarUnavailable,
+                    message: "The Mac voice service WebSocket could not open."
+                ))
             }
 
         case .socketMessage(let sessionID, let json):
@@ -463,6 +484,91 @@ final class VoiceLaneServer: @unchecked Sendable {
             of: #"^[0-9a-f]{64}$"#,
             options: .regularExpression
         ) != nil
+    }
+}
+
+private final class VoiceLoopbackWebSocketOpenGate:
+    NSObject,
+    URLSessionWebSocketDelegate,
+    @unchecked Sendable
+{
+    private enum State {
+        case waiting
+        case opened
+        case failed(Error)
+    }
+
+    private let lock = NSLock()
+    private var state: State = .waiting
+    private var waiters: [CheckedContinuation<Void, Error>] = []
+
+    func waitUntilOpen() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            let result: Result<Void, Error>? = lock.withLock {
+                switch state {
+                case .waiting:
+                    waiters.append(continuation)
+                    return nil
+                case .opened:
+                    return .success(())
+                case .failed(let error):
+                    return .failure(error)
+                }
+            }
+            if let result {
+                continuation.resume(with: result)
+            } else {
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(3))
+                    self?.resolve(.failure(VoiceLaneServerError.sidecarUnavailable))
+                }
+            }
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didOpenWithProtocol protocol: String?
+    ) {
+        resolve(.success(()))
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
+        reason: Data?
+    ) {
+        resolve(.failure(VoiceLaneServerError.sidecarUnavailable))
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        if let error {
+            resolve(.failure(error))
+        }
+    }
+
+    private func resolve(_ result: Result<Void, Error>) {
+        let continuations: [CheckedContinuation<Void, Error>] = lock.withLock {
+            guard case .waiting = state else { return [] }
+            switch result {
+            case .success:
+                state = .opened
+            case .failure(let error):
+                state = .failed(error)
+            }
+            let continuations = waiters
+            waiters.removeAll()
+            return continuations
+        }
+        for continuation in continuations {
+            continuation.resume(with: result)
+        }
     }
 }
 

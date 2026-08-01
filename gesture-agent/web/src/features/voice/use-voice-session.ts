@@ -48,6 +48,8 @@ export function useVoiceSession(
   const socketRef = useRef<VoiceSocket | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const requestGenerationRef = useRef(0);
+  const nextFrameSequenceRef = useRef(0);
+  const capturedSampleCountRef = useRef(0);
   const onCompleteRef = useRef(options.onComplete);
   onCompleteRef.current = options.onComplete;
 
@@ -88,13 +90,13 @@ export function useVoiceSession(
           }
           store.complete(message.recording.id);
           teardownSocket();
-          capture.stop();
+          capture.abort();
           break;
         case "sessionProgress":
           store.setFinalizationStage(message.stage);
           break;
         case "sessionError":
-          capture.stop();
+          capture.abort();
           store.fail(message.message);
           teardownSocket();
           break;
@@ -119,7 +121,7 @@ export function useVoiceSession(
         status === "transcribing" ||
         status === "analyzing"
       ) {
-        capture.stop();
+        capture.abort();
         teardownSocket();
         store.fail(event.reason || `voice socket closed (code ${event.code})`);
       }
@@ -173,33 +175,59 @@ export function useVoiceSession(
         type: "sessionStart",
         preampGain: store.preampGain,
       });
+      nextFrameSequenceRef.current = 0;
+      capturedSampleCountRef.current = 0;
 
       await capture.start({
         onFrame: (frame) => {
           const active = socketRef.current;
           if (!active || active.readyState !== WebSocket.OPEN) {
+            capture.abort();
+            teardownSocket();
+            useVoiceStore.getState().fail(
+              "voice socket could not accept microphone audio",
+            );
             return;
           }
-          active.sendAudioFrame({
-            type: "audioFrame",
-            pcm: frame.pcm,
-            sampleRate: frame.sampleRate,
-            encoding: "float32",
-          });
+          try {
+            active.sendAudioFrame({
+              type: "audioFrame",
+              sequence: nextFrameSequenceRef.current,
+              pcm: frame.pcm,
+              sampleCount: frame.sampleCount,
+              sampleRate: frame.sampleRate,
+              encoding: "float32",
+            });
+            nextFrameSequenceRef.current += 1;
+            capturedSampleCountRef.current += frame.sampleCount;
+          } catch (error) {
+            capture.abort();
+            teardownSocket();
+            useVoiceStore.getState().fail(
+              error instanceof Error
+                ? error.message
+                : "voice transport rejected microphone audio",
+            );
+          }
         },
         onMeter: (meter) => useVoiceStore.getState().setMeter(meter),
+        onFailure: (error) => {
+          capture.abort();
+          teardownSocket();
+          useVoiceStore.getState().fail(error.message);
+        },
       });
 
       if (
         requestGeneration !== requestGenerationRef.current ||
         socketRef.current !== socket
       ) {
-        capture.stop();
+        capture.abort();
         return;
       }
       useVoiceStore.getState().beginCapture();
     } catch (error) {
-      capture.stop();
+      capture.abort();
       if (
         requestGeneration !== requestGenerationRef.current ||
         socketRef.current !== socket
@@ -220,7 +248,7 @@ export function useVoiceSession(
       // A press-and-hold release may beat WebKit's permission callback. Cancel
       // the pending generation so it cannot begin capture after the release.
       requestGenerationRef.current += 1;
-      capture.stop();
+      capture.abort();
       teardownSocket();
       store.reset();
       return;
@@ -228,21 +256,38 @@ export function useVoiceSession(
     if (store.runState.status !== "capturing") {
       return;
     }
-    // Stop feeding frames, then hand off to the server for the final pass.
-    capture.stop();
     const socket = socketRef.current;
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.sendControl({ type: "sessionStop" });
-      store.setFinalizationStage("saving");
-    } else {
-      store.fail("voice socket closed before decode");
-      teardownSocket();
-    }
+    store.setFinalizationStage("saving");
+    void (async () => {
+      try {
+        // Stop acceptance in the worklet, emit its final short frame, then wait
+        // for the flush acknowledgement before placing Stop on the wire.
+        await capture.stop();
+        if (
+          socketRef.current !== socket ||
+          !socket ||
+          socket.readyState !== WebSocket.OPEN
+        ) {
+          throw new Error("voice socket closed before audio flush completed");
+        }
+        socket.sendControl({
+          type: "sessionStop",
+          finalSequence: nextFrameSequenceRef.current - 1,
+          capturedSampleCount: capturedSampleCountRef.current,
+        });
+      } catch (error) {
+        capture.abort();
+        teardownSocket();
+        useVoiceStore.getState().fail(
+          error instanceof Error ? error.message : "voice capture flush failed",
+        );
+      }
+    })();
   }, [capture, teardownSocket]);
 
   const reset = useCallback(() => {
     requestGenerationRef.current += 1;
-    capture.stop();
+    capture.abort();
     teardownSocket();
     useVoiceStore.getState().reset();
   }, [capture, teardownSocket]);

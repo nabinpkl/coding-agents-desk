@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import subprocess
 import tempfile
@@ -13,6 +14,7 @@ from unittest.mock import patch
 
 import numpy as np
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from interaction_agent.voice import http_server, recording, runtime, web_stream
 from interaction_agent.voice.phone_recognizer import ZIPAPhoneRecognizer
@@ -43,6 +45,22 @@ class FakeWebSocket:
 
     async def send_text(self, message: str) -> None:
         self.messages.append(json.loads(message))
+
+
+class FakeSessionWebSocket(FakeWebSocket):
+    def __init__(self, messages: list[dict[str, object]]) -> None:
+        super().__init__()
+        self.incoming = [json.dumps(message) for message in messages]
+        self.app = test_app()
+        self.closed: tuple[int, str] | None = None
+
+    async def receive_text(self) -> str:
+        if not self.incoming:
+            raise WebSocketDisconnect()
+        return self.incoming.pop(0)
+
+    async def close(self, code: int, reason: str) -> None:
+        self.closed = (code, reason)
 
 
 def test_app() -> SimpleNamespace:
@@ -76,6 +94,7 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
         source: str,
         status: str = "completed",
         client_session_id: str | None = None,
+        transport: dict[str, object] | None = None,
     ):
         async def analyze(app, recording_id):
             del app
@@ -112,6 +131,7 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
                 source,
                 status,
                 client_session_id,
+                transport,
             )
 
     async def test_macos_and_iphone_use_identical_finalization(self) -> None:
@@ -147,6 +167,30 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
             result,
         )
         self.assertTrue(web_stream.recording_wav_path(result.id).exists())
+
+    async def test_transport_audit_is_persisted_and_returned(self) -> None:
+        audit = {
+            "protocolIdentifier": "voice-audio-v2",
+            "continuityStatus": "complete",
+            "receivedFrameCount": 1,
+            "receivedSampleCount": 2048,
+            "receivedFinalSequence": 0,
+            "clientFinalSequence": 0,
+            "clientCapturedSampleCount": 2048,
+            "firstFrameReceivedAt": "2026-07-28T19:00:00",
+            "lastFrameReceivedAt": "2026-07-28T19:00:00",
+            "stopReceivedAt": "2026-07-28T19:00:01",
+            "interruptionReason": None,
+        }
+
+        result = await self._finalize("macos", transport=audit)
+
+        self.assertEqual(result.transport.received_sample_count, 2048)
+        payload = json.loads(
+            web_stream.recording_json_path(result.id).read_text(encoding="utf-8")
+        )
+        self.assertEqual(payload["schemaVersion"], 3)
+        self.assertEqual(payload["transport"], audit)
 
     async def test_recording_wire_preserves_client_session_id_acronym(
         self,
@@ -301,6 +345,124 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
         options = transcribe.call_args.args[1]
         self.assertEqual(options.preamp_gain, 4.0)
         self.assertFalse(options.condition_on_previous_text)
+
+
+class HostVoiceContinuityTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def audio_frame(
+        sequence: int,
+        samples: np.ndarray,
+        *,
+        declared_count: int | None = None,
+    ) -> dict[str, object]:
+        return {
+            "type": "audioFrame",
+            "sequence": sequence,
+            "pcm": base64.b64encode(
+                np.asarray(samples, dtype=np.float32).tobytes()
+            ).decode("ascii"),
+            "sampleCount": samples.size if declared_count is None else declared_count,
+            "sampleRate": 16_000,
+            "encoding": "float32",
+            "channels": 1,
+        }
+
+    async def run_messages(
+        self,
+        messages: list[dict[str, object]],
+    ) -> tuple[FakeSessionWebSocket, list[dict[str, object]]]:
+        websocket = FakeSessionWebSocket(messages)
+        finalized: list[dict[str, object]] = []
+
+        async def finalize(*args, **kwargs):
+            finalized.append({
+                "status": args[6],
+                "transport": args[8],
+                "sampleCount": sum(chunk.size for chunk in args[2]),
+            })
+            return None
+
+        with patch.object(http_server, "finalize_session", finalize):
+            await http_server.run_voice_session(
+                websocket,
+                FakeTranscriber(),
+                "macos",
+            )
+        return websocket, finalized
+
+    async def test_contiguous_frames_and_stop_fence_complete(self) -> None:
+        first = np.full(2_048, 0.1, dtype=np.float32)
+        tail = np.full(317, 0.2, dtype=np.float32)
+        _, finalized = await self.run_messages([
+            {"type": "sessionStart"},
+            self.audio_frame(0, first),
+            self.audio_frame(1, tail),
+            {
+                "type": "sessionStop",
+                "finalSequence": 1,
+                "capturedSampleCount": 2_365,
+            },
+        ])
+
+        self.assertEqual(finalized[0]["status"], "completed")
+        self.assertEqual(finalized[0]["sampleCount"], 2_365)
+        self.assertEqual(
+            finalized[0]["transport"]["continuityStatus"],
+            "complete",
+        )
+        self.assertEqual(
+            finalized[0]["transport"]["receivedFinalSequence"],
+            1,
+        )
+
+    async def test_sequence_gap_retains_prefix_as_interrupted(self) -> None:
+        samples = np.full(2_048, 0.1, dtype=np.float32)
+        websocket, finalized = await self.run_messages([
+            {"type": "sessionStart"},
+            self.audio_frame(0, samples),
+            self.audio_frame(2, samples),
+        ])
+
+        self.assertEqual(finalized[0]["status"], "interrupted")
+        self.assertEqual(finalized[0]["sampleCount"], 2_048)
+        self.assertIn(
+            "expected 1, got 2",
+            finalized[0]["transport"]["interruptionReason"],
+        )
+        self.assertEqual(websocket.closed[0], 1003)
+
+    async def test_stop_sample_fence_marks_recording_interrupted(self) -> None:
+        samples = np.full(2_048, 0.1, dtype=np.float32)
+        _, finalized = await self.run_messages([
+            {"type": "sessionStart"},
+            self.audio_frame(0, samples),
+            {
+                "type": "sessionStop",
+                "finalSequence": 0,
+                "capturedSampleCount": 4_096,
+            },
+        ])
+
+        self.assertEqual(finalized[0]["status"], "interrupted")
+        self.assertIn(
+            "client 4096, server 2048",
+            finalized[0]["transport"]["interruptionReason"],
+        )
+
+    async def test_declared_frame_size_mismatch_is_interrupted(self) -> None:
+        samples = np.full(317, 0.1, dtype=np.float32)
+        websocket, finalized = await self.run_messages([
+            {"type": "sessionStart"},
+            self.audio_frame(0, samples, declared_count=2_048),
+        ])
+
+        self.assertEqual(finalized[0]["status"], "interrupted")
+        self.assertEqual(finalized[0]["sampleCount"], 317)
+        self.assertIn(
+            "declared 2048, decoded 317",
+            finalized[0]["transport"]["interruptionReason"],
+        )
+        self.assertEqual(websocket.closed[0], 1003)
 
 
 class RuntimeTranscriptionOptionsTests(unittest.TestCase):

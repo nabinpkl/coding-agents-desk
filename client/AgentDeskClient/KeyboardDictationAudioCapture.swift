@@ -7,6 +7,11 @@ struct KeyboardDictationPCMFrame: Sendable {
     let samples: Data
 }
 
+struct KeyboardDictationCaptureFence: Equatable, Sendable {
+    let finalSequence: Int
+    let capturedSampleCount: Int
+}
+
 enum KeyboardDictationAudioError: LocalizedError {
     case microphoneDenied
     case inputUnavailable
@@ -52,6 +57,7 @@ final class KeyboardDictationCaptureSink:
     private var samples: [Float] = []
     private var readOffset = 0
     private var nextSequence = 0
+    private var capturedSampleCount = 0
     private var lastMeterPublish = ContinuousClock.now
 
     init(
@@ -73,6 +79,7 @@ final class KeyboardDictationCaptureSink:
             samples.removeAll(keepingCapacity: true)
             readOffset = 0
             nextSequence = 0
+            capturedSampleCount = 0
             lastMeterPublish = .now
         }
     }
@@ -80,18 +87,26 @@ final class KeyboardDictationCaptureSink:
     /// Stops acceptance synchronously on the audio thread boundary and emits a
     /// final short frame. The returned sequence is a flush fence for the actor
     /// queue, not a sample count.
-    func finish() -> Int {
+    func finish() -> KeyboardDictationCaptureFence {
         lock.withLock {
-            guard capturing else { return nextSequence - 1 }
+            guard capturing else {
+                return KeyboardDictationCaptureFence(
+                    finalSequence: nextSequence - 1,
+                    capturedSampleCount: capturedSampleCount
+                )
+            }
             capturing = false
             if readOffset < samples.count {
                 emit(Array(samples[readOffset...]))
             }
-            let lastSequence = nextSequence - 1
+            let fence = KeyboardDictationCaptureFence(
+                finalSequence: nextSequence - 1,
+                capturedSampleCount: capturedSampleCount
+            )
             captureSessionID = nil
             samples.removeAll(keepingCapacity: true)
             readOffset = 0
-            return lastSequence
+            return fence
         }
     }
 
@@ -166,6 +181,7 @@ final class KeyboardDictationCaptureSink:
             sequence: nextSequence,
             samples: data
         ))
+        capturedSampleCount += frameSamples.count
         nextSequence += 1
     }
 
@@ -273,8 +289,11 @@ final class KeyboardDictationAudioCapture {
         sink.begin(captureSessionID: sessionID)
     }
 
-    func stopCapture() -> Int {
-        sink?.finish() ?? -1
+    func stopCapture() -> KeyboardDictationCaptureFence {
+        sink?.finish() ?? KeyboardDictationCaptureFence(
+            finalSequence: -1,
+            capturedSampleCount: 0
+        )
     }
 
     func disarm() {

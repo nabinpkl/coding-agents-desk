@@ -22,7 +22,7 @@ func voiceHelloAndReadyRoundTrip() throws {
         VoiceLaneHello.self,
         from: VoiceLaneCodec.encode(VoiceLaneHello())
     )
-    #expect(hello.protocolIdentifier == "voice-lane-v1")
+    #expect(hello.protocolIdentifier == "voice-lane-v2")
     let ready = try VoiceLaneCodec.decode(
         VoiceLaneHostMessage.self,
         from: VoiceLaneCodec.encode(VoiceLaneHostMessage.ready)
@@ -34,7 +34,7 @@ func voiceHelloAndReadyRoundTrip() throws {
 func voiceSocketAndRESTEnvelopesRoundTrip() throws {
     let socket = VoiceLaneClientMessage.socketMessage(
         recordingSessionID: "session-1",
-        json: #"{"type":"audioFrame","pcm":"AA=="}"#
+        json: #"{"type":"audioFrame","sequence":0,"pcm":"AAAAAA==","sampleCount":1,"sampleRate":16000,"encoding":"float32","channels":1}"#
     )
     #expect(
         try VoiceLaneCodec.decode(

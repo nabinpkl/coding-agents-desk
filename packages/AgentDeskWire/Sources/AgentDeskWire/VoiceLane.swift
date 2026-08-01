@@ -1,7 +1,7 @@
 import Foundation
 
 public enum VoiceLaneCodec {
-    public static let protocolIdentifier = "voice-lane-v1"
+    public static let protocolIdentifier = "voice-lane-v2"
     public static let maximumFrameBytes = 256 * 1024
     public static let maximumJSONBytes = 192 * 1024
 

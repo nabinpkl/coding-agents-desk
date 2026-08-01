@@ -41,6 +41,8 @@ enum GestureSurfacePresentation: Sendable {
 /// voice lane that the Mac proxies to its loopback Python sidecar.
 @MainActor
 final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
+    private static let maximumPendingVoiceMessages = 32
+
     /// Injected by PairingViewController to forward the Space step to the input lane.
     var onSpaceStep: ((Int) -> Void)?
     /// The client dictation sheet sends only an explicit, user-reviewed final
@@ -56,6 +58,9 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
     private var panelController: InteractionPanelWebViewController?
     private var voiceLane: VoiceLaneClient?
     private var voiceLaneOpeningTask: Task<VoiceLaneClient, Error>?
+    private var voiceForwardTask: Task<Void, Never>?
+    private var voiceForwardQueue: [VoiceLaneClientMessage] = []
+    private var voiceForwardGeneration = 0
     private weak var voiceLaneTransport: QuicSessionClientTransport?
     private var panelContentView = UIView()
     private var referenceAudioDownload: ReferenceAudioDownload?
@@ -131,6 +136,10 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
 
     func teardown() {
         stopReferenceAudio(deliverStopped: false)
+        voiceForwardGeneration &+= 1
+        voiceForwardTask?.cancel()
+        voiceForwardTask = nil
+        voiceForwardQueue.removeAll()
         voiceLane?.close()
         voiceLane = nil
         voiceLaneOpeningTask?.cancel()
@@ -277,20 +286,59 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
     }
 
     private func forwardVoice(_ message: VoiceLaneClientMessage) {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let lane = try await ensureVoiceLane()
-                try await lane.send(message)
-            } catch {
-                deliverVoice(.error(
-                    requestID: message.requestID,
-                    recordingSessionID: message.recordingSessionID,
-                    code: .transportLost,
-                    message: error.localizedDescription
-                ))
-            }
+        guard voiceForwardQueue.count < Self.maximumPendingVoiceMessages else {
+            failVoiceForward(
+                message,
+                error: VoiceLaneClientError.congested
+            )
+            return
         }
+        voiceForwardQueue.append(message)
+        beginVoiceForwardIfNeeded()
+    }
+
+    private func beginVoiceForwardIfNeeded() {
+        guard voiceForwardTask == nil, !voiceForwardQueue.isEmpty else { return }
+        let generation = voiceForwardGeneration
+        voiceForwardTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled, generation == voiceForwardGeneration {
+                guard !voiceForwardQueue.isEmpty else { break }
+                let message = voiceForwardQueue.removeFirst()
+                do {
+                    let lane = try await ensureVoiceLane()
+                    guard !Task.isCancelled, generation == voiceForwardGeneration else {
+                        break
+                    }
+                    try await lane.send(message)
+                } catch {
+                    guard generation == voiceForwardGeneration else { return }
+                    failVoiceForward(message, error: error)
+                    return
+                }
+            }
+            guard generation == voiceForwardGeneration else { return }
+            voiceForwardTask = nil
+            beginVoiceForwardIfNeeded()
+        }
+    }
+
+    private func failVoiceForward(
+        _ message: VoiceLaneClientMessage,
+        error: Error
+    ) {
+        voiceForwardGeneration &+= 1
+        voiceForwardTask?.cancel()
+        voiceForwardTask = nil
+        voiceForwardQueue.removeAll()
+        voiceLane?.close()
+        voiceLane = nil
+        deliverVoice(.error(
+            requestID: message.requestID,
+            recordingSessionID: message.recordingSessionID,
+            code: .transportLost,
+            message: error.localizedDescription
+        ))
     }
 
     private func ensureVoiceLane() async throws -> VoiceLaneClient {
@@ -337,6 +385,10 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
         let handledReferenceAudio = handleReferenceAudioDelivery(message)
         if case .error(_, _, .transportLost, _) = message {
             stopReferenceAudio()
+            voiceForwardGeneration &+= 1
+            voiceForwardTask?.cancel()
+            voiceForwardTask = nil
+            voiceForwardQueue.removeAll()
             voiceLane?.close()
             voiceLane = nil
         }

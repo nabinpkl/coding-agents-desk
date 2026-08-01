@@ -426,17 +426,20 @@ final class KeyboardDictationCoordinator {
         else {
             throw KeyboardDictationCoordinatorError.invalidTransition
         }
-        let lastSequence = audioCapture.stopCapture()
+        let captureFence = audioCapture.stopCapture()
         publish(KeyboardDictationServiceSnapshot(
             generationID: generationID,
             phase: .saving,
             captureSessionID: sessionID,
             acknowledgedCommandID: commandID
         ))
-        try await frameQueue.flush(through: lastSequence)
+        try await frameQueue.flush(through: captureFence.finalSequence)
         try await lane.send(.socketMessage(
             recordingSessionID: sessionID.uuidString,
-            json: try Self.json(KeyboardVoiceSessionStop())
+            json: try Self.json(KeyboardVoiceSessionStop(
+                finalSequence: captureFence.finalSequence,
+                capturedSampleCount: captureFence.capturedSampleCount
+            ))
         ))
     }
 
@@ -450,7 +453,9 @@ final class KeyboardDictationCoordinator {
         try await lane.send(.socketMessage(
             recordingSessionID: sessionID.uuidString,
             json: try Self.json(KeyboardVoiceAudioFrame(
-                pcm: frame.samples.base64EncodedString()
+                sequence: frame.sequence,
+                pcm: frame.samples.base64EncodedString(),
+                sampleCount: frame.samples.count / MemoryLayout<Float>.size
             ))
         ))
     }

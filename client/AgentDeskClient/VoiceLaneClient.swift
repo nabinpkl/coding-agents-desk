@@ -5,11 +5,13 @@ import Network
 enum VoiceLaneClientError: LocalizedError {
     case updateHost
     case closed
+    case congested
 
     var errorDescription: String? {
         switch self {
         case .updateHost: "Update the Mac host to use iPhone recording."
         case .closed: "The iPhone voice connection closed."
+        case .congested: "The Mac connection could not keep up with microphone audio."
         }
     }
 }
@@ -28,6 +30,7 @@ final class VoiceLaneClient: @unchecked Sendable {
     typealias Delivery = @MainActor @Sendable (VoiceLaneHostMessage) -> Void
 
     private let stream: QUIC.Stream<QUICStream>
+    private let writer: VoiceLaneClientWriter
     private let delivery: Delivery
     private let lock = NSLock()
     private var receiveTask: Task<Void, Never>?
@@ -36,14 +39,11 @@ final class VoiceLaneClient: @unchecked Sendable {
     init(stream: QUIC.Stream<QUICStream>, delivery: @escaping Delivery) {
         self.stream = stream
         self.delivery = delivery
+        writer = VoiceLaneClientWriter(stream: stream)
     }
 
     func open() async throws {
-        try await QuicSessionStreamIO.sendPayload(
-            VoiceLaneCodec.encode(VoiceLaneHello()),
-            role: .voice,
-            on: stream
-        )
+        try await writer.send(VoiceLaneCodec.encode(VoiceLaneHello()))
         let ready: VoiceLaneHostMessage
         do {
             ready = try await withThrowingTaskGroup(of: VoiceLaneHostMessage.self) { group in
@@ -77,11 +77,7 @@ final class VoiceLaneClient: @unchecked Sendable {
 
     func send(_ message: VoiceLaneClientMessage) async throws {
         guard lock.withLock({ !closed }) else { throw VoiceLaneClientError.closed }
-        try await QuicSessionStreamIO.sendPayload(
-            VoiceLaneCodec.encode(message),
-            role: .voice,
-            on: stream
-        )
+        try await writer.send(VoiceLaneCodec.encode(message))
     }
 
     func close() {
@@ -91,7 +87,7 @@ final class VoiceLaneClient: @unchecked Sendable {
             return true
         }) else { return }
         receiveTask?.cancel()
-        Task { [stream] in try? await stream.send(Data(), endOfStream: true) }
+        Task { [writer] in await writer.close() }
     }
 
     private func receiveLoop() async {
@@ -121,6 +117,100 @@ final class VoiceLaneClient: @unchecked Sendable {
                 ))
             }
             close()
+        }
+    }
+}
+
+@available(iOS 26.0, *)
+private actor VoiceLaneClientWriter {
+    private struct Pending {
+        let payload: Data
+        let continuation: CheckedContinuation<Void, Error>
+    }
+
+    private static let maximumPendingMessages = 32
+    private let stream: QUIC.Stream<QUICStream>
+    private var pending: [Pending] = []
+    private var draining = false
+    private var closed = false
+    private var endSent = false
+    private var closeWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(stream: QUIC.Stream<QUICStream>) {
+        self.stream = stream
+    }
+
+    func send(_ payload: Data) async throws {
+        guard !closed else { throw VoiceLaneClientError.closed }
+        guard pending.count < Self.maximumPendingMessages else {
+            throw VoiceLaneClientError.congested
+        }
+        try await withCheckedThrowingContinuation { continuation in
+            pending.append(Pending(payload: payload, continuation: continuation))
+            beginDrainIfNeeded()
+        }
+    }
+
+    func close() async {
+        if endSent { return }
+        if !closed {
+            closed = true
+            let waiting = pending
+            pending.removeAll()
+            for item in waiting {
+                item.continuation.resume(throwing: VoiceLaneClientError.closed)
+            }
+        }
+        await withCheckedContinuation { continuation in
+            closeWaiters.append(continuation)
+            if !draining {
+                Task { await finishClose() }
+            }
+        }
+    }
+
+    private func beginDrainIfNeeded() {
+        guard !draining, !pending.isEmpty, !closed else { return }
+        draining = true
+        Task { await drain() }
+    }
+
+    private func drain() async {
+        while !closed, !pending.isEmpty {
+            let item = pending.removeFirst()
+            do {
+                try await QuicSessionStreamIO.sendPayload(
+                    item.payload,
+                    role: .voice,
+                    on: stream
+                )
+                item.continuation.resume()
+            } catch {
+                item.continuation.resume(throwing: error)
+                closed = true
+                let waiting = pending
+                pending.removeAll()
+                for pendingItem in waiting {
+                    pendingItem.continuation.resume(throwing: error)
+                }
+            }
+        }
+        draining = false
+        if closed {
+            await finishClose()
+            return
+        }
+        beginDrainIfNeeded()
+    }
+
+    private func finishClose() async {
+        guard closed, !endSent else { return }
+        endSent = true
+        try? await stream.send(Data(), endOfStream: true)
+        let waiters = closeWaiters
+        closeWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
         }
     }
 }

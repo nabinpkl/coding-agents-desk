@@ -16,7 +16,7 @@
 | Transport | One authenticated `NetworkConnection<QUIC>` per live session, ALPN `agentdesk-session-quic-v2` | Control, input, DOM, terminal, files, and iPhone voice use ordered QUIC streams. HEVC media uses the same connection's datagram lane. File and voice payloads cannot head-of-line block input. ADR-0030, ADR-0052, and ADR-0076. |
 | Network | Tailscale only | No public rendezvous, relay, or internet routing. Both peers are on the tailnet. |
 | Pairing | Mac-initiated tailnet device picker (ADR-0019), QR fallback | The Mac enumerates online iOS tailnet peers, probes each on the plain-TCP offer port (`AGENTDESK_OFFER_PORT`, default 41890) for a self-reported display name, and pushes a pre-approved signed offer to the picked device. The pick is the authorization. The iPhone runs the unchanged signed handshake. Signed token stored in Keychain on both sides. |
-| Wire compatibility | Current protocol version is 15 (ADR-0020, ADR-0057, ADR-0058, ADR-0061, ADR-0062, ADR-0064, ADR-0065, ADR-0070, ADR-0075, ADR-0076) | Protocol v8 changes the Files body codec to carry native document bytes. Protocol v9 sequences cursor input. Protocol v10 adds workspace-terminal coordination. Protocol v11 generalizes Files into the workspace lane. Protocol v12 projects the complete Chrome hierarchy to iOS. Protocol v13 adds authenticated Browser viewer viewport ownership. Protocol v14 adds opt-in, on-demand paired-client screenshots. Protocol v15 replaces the eager Agent feed digest with visibility-scoped project, session, and event subscriptions. The additive role-7 voice lane keeps protocol v15 and negotiates `voice-lane-v1` independently. Host and client reject peers below `15` with `incompatible-protocol`; matching app versions remain irrelevant. |
+| Wire compatibility | Current protocol version is 15 (ADR-0020, ADR-0057, ADR-0058, ADR-0061, ADR-0062, ADR-0064, ADR-0065, ADR-0070, ADR-0075, ADR-0076) | Protocol v8 changes the Files body codec to carry native document bytes. Protocol v9 sequences cursor input. Protocol v10 adds workspace-terminal coordination. Protocol v11 generalizes Files into the workspace lane. Protocol v12 projects the complete Chrome hierarchy to iOS. Protocol v13 adds authenticated Browser viewer viewport ownership. Protocol v14 adds opt-in, on-demand paired-client screenshots. Protocol v15 replaces the eager Agent feed digest with visibility-scoped project, session, and event subscriptions. The additive role-7 voice lane keeps protocol v15 and negotiates `voice-lane-v2` independently. Host and client reject peers below `15` with `incompatible-protocol`; matching app versions remain irrelevant. |
 | Spaces enumeration | Private SkyLight/CoreGraphics symbols bound with `dlopen` and `dlsym` | No public API exists. Risk is acceptable because App Store distribution is not the v0 target. Mission Control topology edits use event-driven entry and bounded exit observation under ADR-0071. |
 | Spaces switch | Synthesize Dock swipe `CGEvent`s via `SpacesProvider.postDockSwipeFrame` and `commitStep(delta:)` | Stock macOS path that preserves live Space transition animation. |
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
@@ -391,11 +391,23 @@ The iOS client sends open, attached acknowledgement, and close on the existing a
 ## Host-owned shared voice flow
 
 The Gesture/Voice InteractionPanel uses one browser protocol for both capture sources:
-`sessionStart`, 2,048-sample mono Float32 `audioFrame` messages, and `sessionStop`. The macOS bundle
+`sessionStart`, sequenced 2,048-sample mono Float32 `audioFrame` messages, and a fenced
+`sessionStop`. Every audio frame declares its sequence, sample count, and sample rate. Stop declares
+the final accepted sequence and total captured sample count. The Python authority compares those
+client fences with the decoded stream before marking a recording complete; a gap, duplicate,
+truncated frame, or mismatched Stop fence preserves the nonempty WAV as interrupted with durable
+transport-audit metadata rather than presenting incomplete audio as a successful take. The macOS bundle
 opens the loopback Python WebSocket directly with source `macos`. The iOS bundle posts the same
 messages through `__interactionDeliver` and native Swift, which opens authenticated stream role
-`.voice = 7`. A `voice-lane-v1` hello/ready exchange gates the lane independently from outer protocol
+`.voice = 7`. A `voice-lane-v2` hello/ready exchange gates the lane independently from outer protocol
 `15`; every handshake failure before ready becomes the bounded update-host error.
+
+Browser Stop first fences the capture worklet, emits its final short PCM tail, and waits for the
+flush acknowledgement before sending `sessionStop`. Worklet, track, and audio-context failures abort
+the take visibly. Direct WebSockets enforce a bounded buffered-byte ceiling. On iPhone, native bridge
+messages enter one ordered chain and the role-7 writer uses one bounded FIFO, so concurrent WebKit
+callbacks cannot reorder PCM frames or overtake Stop. The host reports the proxied socket open only
+after the loopback Python WebSocket confirms its handshake.
 
 The macOS all-Spaces Dictation Bar is a second, compact `dictation.html` entry in the same
 InteractionPanel bundle. It mounts only browser microphone capture and the shared voice-session

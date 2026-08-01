@@ -25,6 +25,7 @@ from interaction_agent.voice.reference_pronunciation import (
 from interaction_agent.voice.wire import (
     AudioFrameMessage,
     Recording,
+    RecordingTransportAudit,
     SessionStartMessage,
     SessionStopMessage,
     WordPhoneGroup,
@@ -137,6 +138,12 @@ def load_recording(recording_id: str) -> Recording:
         transcription_error = None
     phone_analysis = payload.get("phoneAnalysis")
     phone_analysis = phone_analysis if isinstance(phone_analysis, dict) else {}
+    transport = payload.get("transport")
+    transport_audit = (
+        RecordingTransportAudit.model_validate(transport)
+        if isinstance(transport, dict)
+        else None
+    )
     observed_phones = list(phone_analysis.get("phones") or [])
     word_phone_groups: list[WordPhoneGroup] = []
     unknown_reference_words: list[str] = []
@@ -193,6 +200,7 @@ def load_recording(recording_id: str) -> Recording:
         reference_dictionary_identifier=reference_dictionary_identifier,
         reference_dictionary_hash=reference_dictionary_hash,
         sample_rate=int(summary["sampleRate"]),
+        transport=transport_audit,
     )
 
 
