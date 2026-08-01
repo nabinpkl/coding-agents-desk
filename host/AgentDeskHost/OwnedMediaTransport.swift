@@ -827,6 +827,16 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         guard let recovery = decision.stallRecovery else { return }
         logger.notice("owned media stall recovery windowId=\(decision.observation.windowId, privacy: .public) reason=\(recovery.reason, privacy: .public) flushedFrames=\(recovery.flushedFrames, privacy: .public) flushedBytes=\(recovery.flushedBytes, privacy: .public) forcedKeyframe=\(recovery.forcedKeyframe, privacy: .public) inFlightBeforeFlush=\(decision.observation.inFlightFrames, privacy: .public) oldestInflightMs=\(self.formatMs(decision.observation.oldestInflightMs), privacy: .public) ackCount=\(decision.observation.ackCount, privacy: .public)")
         guard recovery.forcedKeyframe else { return }
+        // ADR-0090: a stall recovery is a resync, and resyncs are what long-term references
+        // exist for. The client lost frames but usually still holds an acknowledged reference,
+        // so the honest cost is the delta since that frame rather than a fresh 250KB keyframe.
+        // Measured on one session, stall recovery forced 30 keyframes against 5 from explicit
+        // client requests, so this is where most of the resync cost actually sits.
+        //
+        // The reason stays `.stallRecovery` regardless of which the encoder produces: it names
+        // why we resynced, not what came out. Whether it ended up a delta or a keyframe is
+        // already visible on the frame itself.
+        encoder.requestLtrRefresh()
         encodeGate.withLock { state in
             state.forceKeyframeReason = .stallRecovery
         }
@@ -979,6 +989,12 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         }
         switch message.kind {
         case .keyframeRequest:
+            // ADR-0090: try to answer with a long-term-reference delta rather than a keyframe.
+            // The client asks for a keyframe because it cannot decode what it has, and on a
+            // barely-changed desktop the honest answer is usually a few hundred bytes rather
+            // than a quarter of a megabyte. The encoder falls back to a keyframe on its own if
+            // it has no acknowledged reference, so the request is still always satisfied.
+            encoder.requestLtrRefresh()
             let admission = encodeGate.withLock { state in
                 state.mediaState.noteKeyframeRequest()
             }
@@ -1001,6 +1017,12 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             sendResendPackets(packets)
         case .frameAck:
             handleFrameAck(message.frameId)
+            // ADR-0090: the client confirms which long-term references it decoded, which is
+            // what lets a later resync be a delta instead of a keyframe. Rides the frame ack
+            // because that is already the "I have this frame" signal.
+            if let tokens = message.acknowledgedLtrTokens, !tokens.isEmpty {
+                encoder.acknowledgeLtrTokens(tokens)
+            }
         case .graphicsResetRequest:
             handleGraphicsResetRequest()
         case .keepalive:

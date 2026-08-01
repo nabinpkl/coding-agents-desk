@@ -184,6 +184,17 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                         OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 0)
                     )
                 }
+                // ADR-0090: an acknowledged long-term reference is what lets the host answer
+                // the next resync with a delta instead of a keyframe. Sent as its own frame ack
+                // rather than batched: long-term references are periodic, not per-frame, so the
+                // volume is low, and delaying one only delays when the cheap path unlocks.
+                mediaSink?.setLtrAcknowledgementHandler { [weak self] token in
+                    self?.sendVideoControl(OwnedMediaControlMessage(
+                        kind: .frameAck,
+                        frameId: 0,
+                        acknowledgedLtrTokens: [token]
+                    ))
+                }
                 mediaSink?.setOwnedMediaPresentationSkipHandler { [weak self] bytes in
                     self?.lock.withLock { state in
                         state.presentationSkips += 1

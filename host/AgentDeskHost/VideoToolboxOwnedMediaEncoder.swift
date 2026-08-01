@@ -143,6 +143,15 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private var frameId: UInt64 = 0
     private var forceNextKeyframe = false
     private var loggedFirstEncodedFrame = false
+    // ADR-0090 long-term references.
+    private var ltrEnabled = false
+    /// Tokens the client has confirmed it decoded, not yet handed to the encoder. Drained onto
+    /// the next encode: the encoder only references frames that appear here.
+    private var pendingLtrAcknowledgements: Set<UInt64> = []
+    /// Set instead of `forceNextKeyframe` when a resync should try a delta first. The encoder
+    /// falls back to a keyframe by itself if it has no acknowledged reference to use, so this
+    /// cannot strand the client on a frame it cannot decode.
+    private var forceNextLtrRefresh = false
     private var pendingFrames: [UInt64: PendingEncodedFrame] = [:]
 
     init(
@@ -207,9 +216,42 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
                     requestedReason: requestedKeyframe ? requestedKeyframeReason : nil
                 )
                 : nil
-            frameProperties = forceKeyframe
-                ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary
-                : nil
+            // ADR-0090: an LTR refresh REPLACES the forced keyframe, it does not accompany it.
+            //
+            // Every path that wants a refresh -- client keyframe request, stall recovery -- also
+            // sets a keyframe reason, because that is how a resync has always been expressed
+            // here. Treating the keyframe as the winner would mean the refresh never fired at
+            // all, and the whole change would be inert while looking wired up.
+            //
+            // Two reasons are not eligible and keep their true keyframe. `initial` has nothing
+            // to reference yet. `resolutionChange` invalidates every existing reference, so a
+            // delta against one would be garbage even if the client still held it.
+            //
+            // Asking for a refresh is safe regardless: with LTR off or nothing acknowledged,
+            // VideoToolbox emits an IDR anyway, so the client is never handed a frame it cannot
+            // decode. That is why this can prefer the cheap path without a fallback of its own.
+            let resyncReason = requestedKeyframe ? requestedKeyframeReason : nil
+            let requiresTrueKeyframe = encodedFrameId == 1
+                || resyncReason == .initial
+                || resyncReason == .resolutionChange
+            let refreshWithLtr = forceNextLtrRefresh && ltrEnabled && !requiresTrueKeyframe
+            forceNextLtrRefresh = false
+            var options: [CFString: Any] = [:]
+            if forceKeyframe, !refreshWithLtr {
+                options[kVTEncodeFrameOptionKey_ForceKeyFrame] = kCFBooleanTrue
+            }
+            if refreshWithLtr {
+                options[kVTEncodeFrameOptionKey_ForceLTRRefresh] = kCFBooleanTrue
+            }
+            if ltrEnabled, !pendingLtrAcknowledgements.isEmpty {
+                options[kVTEncodeFrameOptionKey_AcknowledgedLTRTokens] =
+                    pendingLtrAcknowledgements.sorted().map { NSNumber(value: $0) } as CFArray
+                pendingLtrAcknowledgements.removeAll(keepingCapacity: true)
+            }
+            frameProperties = options.isEmpty ? nil : options as CFDictionary
+            if refreshWithLtr {
+                logger.notice("owned encoder LTR refresh frame=\(encodedFrameId, privacy: .public) reason=\(resyncReason?.rawValue ?? "unknown", privacy: .public)")
+            }
             pendingFrames[encodedFrameId] = PendingEncodedFrame(
                 updateId: updateId,
                 capturedAtUptimeNs: frame.capturedAtUptimeNs,
@@ -303,6 +345,47 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         logger.notice("owned encoder fps-updated fps=\(fps, privacy: .public)")
     }
 
+    /// ADR-0090: the client decoded these long-term reference frames, so the encoder may
+    /// reference them. Accumulated rather than applied immediately -- properties attach to a
+    /// frame, and the next encode drains whatever has arrived.
+    func acknowledgeLtrTokens(_ tokens: [UInt64]) {
+        guard !tokens.isEmpty else { return }
+        lock.lock()
+        let enabled = ltrEnabled
+        if enabled {
+            pendingLtrAcknowledgements.formUnion(tokens)
+        }
+        lock.unlock()
+    }
+
+    /// Resync by referencing an acknowledged long-term frame rather than sending a keyframe.
+    ///
+    /// Safe to call unconditionally: with LTR unavailable, or with nothing acknowledged yet,
+    /// the encoder produces the keyframe it would have produced anyway.
+    /// - Returns: whether the refresh will be attempted, so the caller can still force a
+    ///   keyframe when it will not.
+    @discardableResult
+    func requestLtrRefresh() -> Bool {
+        lock.lock()
+        let enabled = ltrEnabled
+        if enabled {
+            forceNextLtrRefresh = true
+        }
+        lock.unlock()
+        return enabled
+    }
+
+    /// The encoder's handle for a frame it is willing to reference later. Absent on frames that
+    /// are not long-term references, which is most of them.
+    private static func ltrAcknowledgementToken(_ sampleBuffer: CMSampleBuffer) -> UInt64? {
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
+            as? [[CFString: Any]],
+            let first = attachments.first,
+            let token = first[kVTSampleAttachmentKey_RequireLTRAcknowledgementToken] as? NSNumber
+        else { return nil }
+        return token.uint64Value
+    }
+
     private func ensureSession(for pixelBuffer: CVPixelBuffer) throws {
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
@@ -334,6 +417,19 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             throw SessionRejected(reason: .malformed)
         }
         try setProperty(kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue, on: newSession)
+        // ADR-0090: long-term references, so a resync can cost a delta instead of a keyframe.
+        // On a mostly unchanged desktop that is ~264 bytes against ~250KB, which on a cellular
+        // link is the difference between milliseconds and about four seconds.
+        //
+        // Only available on the low-latency encoder path, which this session already requests.
+        // Not fatal if the encoder refuses: without it every resync stays a keyframe, which is
+        // exactly the behaviour this replaces, so it degrades to the status quo rather than
+        // failing the session.
+        let ltrStatus = VTSessionSetProperty(newSession, key: kVTCompressionPropertyKey_EnableLTR, value: kCFBooleanTrue)
+        ltrEnabled = ltrStatus == noErr
+        if !ltrEnabled {
+            logger.notice("owned encoder LTR unavailable status=\(ltrStatus, privacy: .public); resync stays keyframe-only")
+        }
         try setProperty(kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse, on: newSession)
         try setProperty(kVTCompressionPropertyKey_ExpectedFrameRate, value: NSNumber(value: expectedFrameRate), on: newSession)
         try setProperty(kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: currentBitrateKbps * 1000), on: newSession)
@@ -492,7 +588,8 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             presentationTimeNs: UInt64(CMSampleBufferGetPresentationTimeStamp(sampleBuffer).value),
             isKeyframe: isKeyframe,
             parameterSets: parameterSets,
-            refreshReason: refreshReason
+            refreshReason: refreshReason,
+            ltrToken: Self.ltrAcknowledgementToken(sampleBuffer)
         )
         if !loggedFirstEncodedFrame {
             loggedFirstEncodedFrame = true

@@ -149,3 +149,81 @@ private let ms = 1_000_000 as UInt64
     let partial = OwnedMediaLinkTelemetry(interfaceType: "cellular", radioAccess: "LTE")
     #expect(partial.logDescription == "iface=cellular radio=LTE")
 }
+
+// ADR-0090: the long-term reference round trip crosses three boundaries (host encoder, wire,
+// client sink), and this wire type has drifted before when abbreviated keys were reused across
+// message types. These pin both directions of the exchange.
+@Suite struct LtrWireTests {
+    @Test func aFrameHeaderCarriesItsLongTermReferenceTokenAcrossTheWire() throws {
+        let header = OwnedMediaFrameHeader(
+            surfaceGeneration: 3,
+            frameId: 42,
+            codec: .hevc,
+            width: 1920,
+            height: 1080,
+            capturedAtUptimeNs: 111,
+            presentationTimeNs: 222,
+            isKeyframe: false,
+            parameterSets: nil,
+            refreshReason: .rest,
+            ltrToken: 7
+        )
+        let decoded = try JSONDecoder().decode(
+            OwnedMediaFrameHeader.self,
+            from: try JSONEncoder().encode(header)
+        )
+        #expect(decoded.ltrToken == 7)
+        #expect(decoded == header)
+    }
+
+    @Test func anOrdinaryFrameCarriesNoToken() {
+        // Most frames are not long-term references. The field must stay absent rather than
+        // encode a zero, which the host would otherwise read back as a real token.
+        let header = OwnedMediaFrameHeader(
+            surfaceGeneration: 1,
+            frameId: 2,
+            codec: .hevc,
+            width: 640,
+            height: 480,
+            capturedAtUptimeNs: 0,
+            presentationTimeNs: 0,
+            isKeyframe: true,
+            parameterSets: nil,
+            refreshReason: .initial
+        )
+        #expect(header.ltrToken == nil)
+        let json = String(decoding: try! JSONEncoder().encode(header), as: UTF8.self)
+        #expect(!json.contains("\"lr\""))
+    }
+
+    @Test func aFrameAckCarriesAcknowledgedTokensBack() throws {
+        let message = OwnedMediaControlMessage(
+            kind: .frameAck,
+            frameId: 0,
+            acknowledgedLtrTokens: [4, 9]
+        )
+        let decoded = try JSONDecoder().decode(
+            OwnedMediaControlMessage.self,
+            from: try JSONEncoder().encode(message)
+        )
+        #expect(decoded.acknowledgedLtrTokens == [4, 9])
+    }
+
+    @Test func theTokenKeyDoesNotCollideWithLinkTelemetry() throws {
+        // The control message already uses "lt" for linkTelemetry. Reusing it for the frame
+        // header's token is the exact shape of drift that has silently broken this wire before,
+        // so this asserts the two abbreviations stay distinct.
+        let message = OwnedMediaControlMessage(
+            kind: .frameAck,
+            frameId: 1,
+            linkTelemetry: OwnedMediaLinkTelemetry(interfaceType: "wifi"),
+            acknowledgedLtrTokens: [5]
+        )
+        let json = String(decoding: try JSONEncoder().encode(message), as: UTF8.self)
+        #expect(json.contains("\"lt\""))
+        #expect(json.contains("\"la\""))
+        let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: try JSONEncoder().encode(message))
+        #expect(decoded.acknowledgedLtrTokens == [5])
+        #expect(decoded.linkTelemetry?.interfaceType == "wifi")
+    }
+}

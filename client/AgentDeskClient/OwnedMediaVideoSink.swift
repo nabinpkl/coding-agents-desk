@@ -27,6 +27,10 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
     // client's own three-run diagnostics store. Push rather than pull: `flushLinkHealth` is
     // synchronous and lock-based, and the sink is MainActor-isolated.
     @MainActor func setOwnedMediaPresentationSkipHandler(_ handler: @escaping @Sendable (Int) -> Void)
+    // ADR-0090: where the sink reports that a long-term reference frame reached the decoder.
+    // Installed by the transport, which turns it into the acknowledgement the host needs before
+    // it may encode against that frame.
+    @MainActor func setLtrAcknowledgementHandler(_ handler: @escaping @Sendable (UInt64) -> Void)
     // The sink publishes every media status change here. The diagnostics readout is fixed
     // chrome owned by the controller (like the gear and cursor dot), not a child of the
     // zoomable picture, so the sink no longer draws it; it only reports the status.
@@ -50,6 +54,7 @@ extension OwnedMediaFrameSink {
     @MainActor func noteOwnedMediaDroppedFrames(_ count: Int) {}
     @MainActor func setOwnedMediaStatus(_ status: OwnedMediaStatus) {}
     @MainActor func prepareForStreamHandover() {}
+    @MainActor func setLtrAcknowledgementHandler(_ handler: @escaping @Sendable (UInt64) -> Void) {}
     @MainActor func noteOwnedMediaRepairRequested(_ count: Int) {}
     @MainActor func noteOwnedMediaRepairExpired(_ count: Int) {}
     @MainActor func setOwnedMediaExpectedFrameRate(_ fps: Int) {}
@@ -332,6 +337,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     // ADR-0088: reports each decoded-but-never-shown frame's size to the transport, which
     // accumulates it into the link-health window.
     private var presentationSkipHandler: (@Sendable (Int) -> Void)?
+    private var ltrAcknowledgementHandler: (@Sendable (UInt64) -> Void)?
     private var stallWatchdog: OwnedMediaRenderStallWatchdog
     private let stallTimer: DispatchSourceTimer
 
@@ -387,6 +393,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
 
     func setOwnedMediaPresentationSkipHandler(_ handler: @escaping @Sendable (Int) -> Void) {
         presentationSkipHandler = handler
+    }
+
+    func setLtrAcknowledgementHandler(_ handler: @escaping @Sendable (UInt64) -> Void) {
+        ltrAcknowledgementHandler = handler
     }
 
     // Timer-driven: ask the host for a keyframe if the carrier has wedged (frames
@@ -492,6 +502,15 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         case .enqueued:
             ClientRuntimeTelemetry.shared.advanceVideoMilestone(.decoderEnqueued)
             lastVideoEnqueueUptimeNs = nowNs
+            // ADR-0090: tell the host it may reference this frame later instead of sending a
+            // keyframe to resync. Acknowledged on enqueue, which is the strongest signal
+            // available -- the display layer decodes asynchronously and reports no per-sample
+            // success. If it does fail later, the existing decode-failure paths request a
+            // keyframe, so an over-eager acknowledgement costs a round trip rather than
+            // stranding the client on a frame it cannot decode.
+            if let token = envelope.header.ltrToken {
+                ltrAcknowledgementHandler?(token)
+            }
             switch presentation {
             case .display:
                 ClientRuntimeTelemetry.shared.advanceVideoMilestone(.presentationAttempted)

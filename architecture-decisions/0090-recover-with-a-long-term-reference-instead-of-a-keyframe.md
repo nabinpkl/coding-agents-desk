@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-07-31
 ---
 
@@ -59,11 +59,11 @@ session lists 158 properties and no LTR at all; `EnableLTR` is rejected with `-1
 `EnableLTR`, which then sets with status 0. (Default H264 exposes an older
 `UseLongTermReference`, but we encode HEVC, so the low-latency path is the relevant one.)
 
-**Moving to the low-latency path costs nothing we currently use.** The property count drops from
-158 to 109, so this needed checking rather than assuming. All seven properties the encoder sets
-today -- `AllowFrameReordering`, `AverageBitRate`, `DataRateLimits`, `ExpectedFrameRate`,
-`MaxKeyFrameInterval`, `MaxKeyFrameIntervalDuration`, `RealTime` -- are listed and accepted
-under low-latency HEVC.
+**The encoder is already on that path**, so nothing had to move. It creates its session with
+`EnableLowLatencyRateControl` today, which is why the property count it sees is 109 rather than
+158 -- and why all seven properties it sets (`AllowFrameReordering`, `AverageBitRate`,
+`DataRateLimits`, `ExpectedFrameRate`, `MaxKeyFrameInterval`, `MaxKeyFrameIntervalDuration`,
+`RealTime`) already work there. LTR was one property away the whole time.
 
 **The client needs no LTR support.** LTR retention is signalled in the bitstream through HEVC
 reference picture sets, so a conformant decoder keeps the frame in its decoded picture buffer
@@ -79,7 +79,12 @@ The dangerous case cannot be reached by forgetting to handle it.
 
 ### What the change actually is
 
-1. Create the compression session with `EnableLowLatencyRateControl`, then set `EnableLTR`.
+The encoder already creates its session with `EnableLowLatencyRateControl`, so no path change
+was needed -- LTR was one property away the whole time. Probing the encoder's exact
+specification (hardware-accelerated **and** low-latency together, which the first probe omitted)
+confirms `EnableLTR` is listed and sets with status 0.
+
+1. Set `EnableLTR` on the existing session.
 2. Read `kVTSampleAttachmentKey_RequireLTRAcknowledgementToken` from output sample buffers and
    carry the token on the wire with the frame.
 3. The client acknowledges tokens for frames it decoded, extending the existing `frameAck`.
@@ -90,16 +95,32 @@ The dangerous case cannot be reached by forgetting to handle it.
    `OwnedMediaTransport`, so a new session builds a new encoder with no reference state -- which
    is why a fresh session always emits an IDR today regardless of what the client still holds.
 
+Two things about (5) that only became clear while building it.
+
+**The refresh replaces the forced keyframe rather than accompanying it.** Every path that wants
+a refresh -- client keyframe request, stall recovery -- also sets a keyframe reason, because
+that is how a resync has always been expressed. A first attempt guarded the refresh with
+`!forceKeyframe`, which meant it could never fire: the feature would have been fully wired and
+completely inert. Two reasons keep a true keyframe: `initial`, which has nothing to reference,
+and `resolutionChange`, which invalidates every existing reference so a delta against one would
+be garbage even if the client still held it.
+
+**Most of the resync cost is not the client asking for it.** Counted over one session:
+`resolution-change` 129, encoder-placed 96, `capture-requested` 33, `stall-recovery` 30,
+`client-request` 5. Routing only explicit client requests would have addressed five keyframes
+out of nearly three hundred. Stall recovery is the one that matters, and it is the same kind of
+event -- the client lost frames and needs to resync -- so it takes the same path.
+
 ### Consequences
 
 - Good, because recovery after a switch costs what changed rather than a fixed 250 KB, removing
   roughly four seconds from the tail of a cellular reconnect.
 - Good, because the acknowledgement bookkeeping is the encoder's, and its fallback is a
   keyframe, so the worst case is exactly today's behaviour.
-- Good, because low-latency rate control is designed for real-time conferencing, which is what
-  this is; it may improve steady-state behaviour independently.
-- Bad, because it changes rate-control behaviour, and the quality ladder was tuned against the
-  current encoder. The ladder's rungs should be re-measured after the switch.
+- Good, because rate control does not change at all. An earlier draft assumed a move to the
+  low-latency encoder and warned that the quality ladder, tuned against the current one, would
+  need re-measuring. The encoder was already there, so the ladder is untouched and no
+  re-measurement is owed.
 - Bad, because it only pays off when the resolution is unchanged across the recovery. The ladder
   rescales aggressively (3600x2338 -> 2700x1752 -> 1800x1168 within three seconds in one
   session), and a resolution change invalidates the references. The rung should be pinned across

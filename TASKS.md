@@ -1382,7 +1382,9 @@ unreachable. Recovery teardown now keeps the sink (and with it the decoder, whic
 ADR-0090 needs), shows "Reconnecting…" over the frozen frame so it does not read as a hang, and
 carries the Reconnect button along in case the redial never lands. A full teardown -- user
 disconnect, unpair, rejection -- still removes everything as before.
-R217  remaining   LTR recovery on the low-latency encoder path (ADR-0090); D215 is its only precondition
+D217  2026-07-31  landed     LTR recovery: a resync costs the delta since an acknowledged frame, not a keyframe
+R218  checkpoint  remaining  device run: confirm a resync frame is hundreds of bytes, not hundreds of KB, with no corruption
+R219  remaining   keep the host encoder alive across a reconnect, so LTR also covers the handover case
 ```
 
 ## Handover arc (ADR-0089)
