@@ -574,9 +574,16 @@ extension PairingViewController {
 
         surfaceControlRail.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(surfaceControlRail)
+        // Centered rather than hung from the top: the rail overlays the active
+        // surface and collapses to a single toggle, and that toggle has to be
+        // reachable one-handed. The top and bottom are inequalities so a rail too
+        // tall for the screen gives up the centering and scrolls instead.
         NSLayoutConstraint.activate([
+            surfaceControlRail.centerYAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.centerYAnchor
+            ),
             surfaceControlRail.topAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.topAnchor,
+                greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor,
                 constant: 8
             ),
             surfaceControlRail.trailingAnchor.constraint(

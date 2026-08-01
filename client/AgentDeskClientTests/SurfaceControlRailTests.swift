@@ -221,10 +221,11 @@ struct SurfaceControlRailTests {
         #expect(agent.isSelected)
     }
 
-    /// The toggle is the only control a closed rail leaves on screen, so it must
-    /// not move when the session gains or loses a surface button. Leading the
-    /// stack pins it to the top of the rail, which is itself top-anchored.
-    @Test func theToggleLeadsTheRailSoItsPositionSurvivesSurfaceChanges() {
+    /// The toggle is the only control a closed rail leaves on screen, and the rail
+    /// is centered vertically, so keeping the toggle between the two groups puts it
+    /// at the middle of the screen edge where a thumb reaches it one-handed. At
+    /// either end of the stack it would land in a corner.
+    @Test func theToggleSitsBetweenTheSurfaceAndUtilityGroupsForOneHandedReach() {
         let rail = SurfaceControlRail(
             gestureButton: utilityButton(label: "Gesture", identifier: "gesture-toggle"),
             orientationButton: utilityButton(label: "Rotate", identifier: "orientation-toggle"),
@@ -249,8 +250,12 @@ struct SurfaceControlRailTests {
         rail.layoutIfNeeded()
 
         let toggleTop = rail.collapseButton.convert(rail.collapseButton.bounds, to: rail).minY
-        let controls = rail.surfaceButtons + rail.utilityButtons
-        #expect(controls.allSatisfy { $0.convert($0.bounds, to: rail).minY > toggleTop })
+        #expect(rail.surfaceButtons.allSatisfy {
+            $0.convert($0.bounds, to: rail).minY < toggleTop
+        })
+        #expect(rail.utilityButtons.allSatisfy {
+            $0.convert($0.bounds, to: rail).minY > toggleTop
+        })
     }
 
     private func utilityButton(label: String, identifier: String) -> UIButton {
