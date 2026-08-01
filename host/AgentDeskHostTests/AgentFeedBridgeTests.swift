@@ -435,6 +435,40 @@ struct AgentFeedBridgeTests {
         #expect(response.text == #"{"exact":true}"#)
     }
 
+    @Test func threadReadsRejectInvalidPhoneIdentifiersBeforeCallingTheSidecar() throws {
+        let fake = FakeSidecarClient()
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(
+            client: fake,
+            rawEventDeliveryMode: .direct,
+            send: sink.accept
+        )
+
+        bridge.handleThreadSubscribe(AgentThreadSubscribe(
+            source: "pi", sessionId: "../other", mode: "nice"
+        ))
+        bridge.handleThreadLoadOlder(AgentThreadLoadOlder(
+            source: "pi/other", sessionId: "session", beforeIndex: 5, limit: 3, mode: "nice"
+        ))
+        bridge.handleThreadUnsubscribe(AgentThreadUnsubscribe(
+            source: "pi", sessionId: "session/other"
+        ))
+        bridge.handleRawEvent(AgentRawEventRequest(
+            requestId: "raw/1", source: "pi", sessionId: "session", eventIndex: 0, mode: "nice"
+        ))
+
+        #expect(fake.eventRequests.isEmpty)
+        #expect(fake.rawRequests.isEmpty)
+        #expect(fake.openedEventStreams == 0)
+        #expect(sink.count == 4)
+        for index in 0..<3 {
+            let error = try sink.decode(AgentThreadError.self, at: index)
+            #expect(error.reason == "invalid source or session id")
+        }
+        let rawError = try sink.decode(AgentRawEventError.self, at: 3)
+        #expect(rawError.reason == "invalid source, session id, or request id")
+    }
+
     @Test func projectAndSessionDTOsDecodeFractionalTimestamps() throws {
         let projectJSON = """
         {

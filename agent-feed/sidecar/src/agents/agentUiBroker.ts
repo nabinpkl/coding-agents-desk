@@ -10,8 +10,10 @@ interface PendingRequest {
 }
 
 const MAXIMUM_UI_TEXT_BYTES = 64 * 1024;
+const MAXIMUM_UI_KEY_BYTES = 1024;
 const MAXIMUM_UI_LIST_ITEMS = 128;
 const MAXIMUM_PENDING_REQUESTS = 32;
+const MAXIMUM_KEYED_NOTICES = 32;
 const textEncoder = new TextEncoder();
 
 export class AgentUiBroker {
@@ -35,17 +37,20 @@ export class AgentUiBroker {
   }
 
   notify(request: Omit<AgentUiRequest, "requestId" | "expectsResponse">): void {
-    const key = keyedNoticeKey(request);
+    const value = boundUiRequest({ ...request, requestId: this.nextId(), expectsResponse: false });
+    const key = keyedNoticeKey(value);
     if (key) {
       const current = this.keyedNotices.get(key);
       if (current) this.publish({ type: "dismiss", requestId: current.requestId });
-      if (isClearedNotice(request)) {
-        this.keyedNotices.delete(key);
+      this.keyedNotices.delete(key);
+      if (isClearedNotice(value)) {
         return;
       }
     }
-    const value = boundUiRequest({ ...request, requestId: this.nextId(), expectsResponse: false });
-    if (key) this.keyedNotices.set(key, value);
+    if (key) {
+      this.keyedNotices.set(key, value);
+      this.trimKeyedNotices();
+    }
     this.publishRequest(value);
   }
 
@@ -113,6 +118,16 @@ export class AgentUiBroker {
       this.resolved.delete(oldest);
     }
   }
+
+  private trimKeyedNotices(): void {
+    while (this.keyedNotices.size > MAXIMUM_KEYED_NOTICES) {
+      const oldestKey = this.keyedNotices.keys().next().value;
+      if (oldestKey === undefined) break;
+      const oldest = this.keyedNotices.get(oldestKey);
+      this.keyedNotices.delete(oldestKey);
+      if (oldest) this.publish({ type: "dismiss", requestId: oldest.requestId });
+    }
+  }
 }
 
 function keyedNoticeKey(request: Omit<AgentUiRequest, "requestId" | "expectsResponse">): string | null {
@@ -174,7 +189,12 @@ export function extensionUiContext(broker: AgentUiBroker): ExtensionUIContext {
       if (content === undefined || Array.isArray(content)) {
         broker.notify({ kind: "widget", key, lines: content });
       } else {
-        broker.notify({ kind: "notify", level: "warning", message: `Extension widget "${key}" requires terminal UI` });
+        broker.notify({
+          kind: "status",
+          key: "unsupported-widget",
+          level: "warning",
+          message: `Extension widget "${key}" requires terminal UI`,
+        });
       }
     },
     setFooter() {},
@@ -221,14 +241,18 @@ function boundUiRequest(request: AgentUiRequest): AgentUiRequest {
     }
     return result;
   };
+  const key = request.key === undefined
+    ? undefined
+    : boundText(request.key, Math.min(MAXIMUM_UI_KEY_BYTES, remainingBytes));
+  remainingBytes -= textEncoder.encode(key ?? "").byteLength;
   return {
     ...request,
+    key,
     title: take(request.title),
     message: take(request.message),
     options: takeList(request.options),
     placeholder: take(request.placeholder),
     prefill: take(request.prefill),
-    key: take(request.key),
     lines: takeList(request.lines),
   };
 }

@@ -101,8 +101,12 @@ final class AgentFeedBridge: @unchecked Sendable {
     func handleThreadSubscribe(_ request: AgentThreadSubscribe) {
         let source = request.source
         let sessionId = request.sessionId
-        guard Self.validSource(source) else {
-            sendCodable(AgentThreadError(source: source, sessionId: sessionId, reason: "invalid source"))
+        guard Self.validSource(source), Self.validRequestIdentifier(sessionId) else {
+            sendCodable(AgentThreadError(
+                source: source,
+                sessionId: sessionId,
+                reason: "invalid source or session id"
+            ))
             return
         }
         guard let mode = Self.eventMode(request.mode) else {
@@ -127,6 +131,15 @@ final class AgentFeedBridge: @unchecked Sendable {
     }
 
     func handleThreadLoadOlder(_ request: AgentThreadLoadOlder) {
+        guard Self.validSource(request.source),
+              Self.validRequestIdentifier(request.sessionId) else {
+            sendCodable(AgentThreadError(
+                source: request.source,
+                sessionId: request.sessionId,
+                reason: "invalid source or session id"
+            ))
+            return
+        }
         guard let mode = Self.eventMode(request.mode) else {
             sendCodable(AgentThreadError(
                 source: request.source,
@@ -171,6 +184,15 @@ final class AgentFeedBridge: @unchecked Sendable {
     }
 
     func handleThreadUnsubscribe(_ request: AgentThreadUnsubscribe) {
+        guard Self.validSource(request.source),
+              Self.validRequestIdentifier(request.sessionId) else {
+            sendCodable(AgentThreadError(
+                source: request.source,
+                sessionId: request.sessionId,
+                reason: "invalid source or session id"
+            ))
+            return
+        }
         let key = threadKey(source: request.source, sessionId: request.sessionId)
         queue.sync {
             threadGenerations.removeValue(forKey: key)
@@ -291,6 +313,18 @@ final class AgentFeedBridge: @unchecked Sendable {
     }
 
     func handleRawEvent(_ request: AgentRawEventRequest) {
+        guard Self.validRequestIdentifier(request.requestId),
+              Self.validSource(request.source),
+              Self.validRequestIdentifier(request.sessionId) else {
+            sendCodable(AgentRawEventError(
+                requestId: request.requestId,
+                source: request.source,
+                sessionId: request.sessionId,
+                eventIndex: request.eventIndex,
+                reason: "invalid source, session id, or request id"
+            ))
+            return
+        }
         guard request.eventIndex >= 0 else {
             sendCodable(AgentRawEventError(
                 requestId: request.requestId,

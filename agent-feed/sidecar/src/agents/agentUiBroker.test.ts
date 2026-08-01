@@ -69,6 +69,48 @@ test("keyed extension status replaces and clears one shared viewer item", () => 
   broker.dispose();
 });
 
+test("retained keyed notices stay bounded and evict the oldest viewer item", () => {
+  const broker = new AgentUiBroker(1000);
+  const ui = extensionUiContext(broker);
+  const dismissed: string[] = [];
+  broker.subscribe((event) => {
+    if (event.type === "dismiss") dismissed.push(event.requestId);
+  });
+
+  for (let index = 0; index < 40; index += 1) {
+    ui.setStatus(`key-${index}`, `status-${index}`);
+  }
+  const replayed: string[] = [];
+  broker.subscribe((event) => {
+    if (event.type === "request") replayed.push(event.request.message ?? "");
+  });
+
+  expect(dismissed).toHaveLength(8);
+  expect(replayed).toHaveLength(32);
+  expect(replayed[0]).toBe("status-8");
+  expect(replayed.at(-1)).toBe("status-39");
+  broker.dispose();
+});
+
+test("terminal-only component widget warnings coalesce under one retained key", () => {
+  const broker = new AgentUiBroker(1000);
+  const ui = extensionUiContext(broker);
+  const events: string[] = [];
+  broker.subscribe((event) => events.push(event.type));
+  const component = (() => ({})) as never;
+
+  ui.setWidget("first", component);
+  ui.setWidget("second", component);
+  const replayed: string[] = [];
+  broker.subscribe((event) => {
+    if (event.type === "request") replayed.push(event.request.message ?? "");
+  });
+
+  expect(events).toEqual(["request", "dismiss", "request"]);
+  expect(replayed).toEqual(['Extension widget "second" requires terminal UI']);
+  broker.dispose();
+});
+
 test("a late viewer receives every still-pending extension prompt", async () => {
   const broker = new AgentUiBroker(1000);
   const pending = broker.request({ kind: "confirm", title: "Continue?" });

@@ -944,9 +944,11 @@ export class BridgeDataSource implements AgentDataSource {
     if ((chunk.md ?? "raw") !== buffer.mode) return;
     // Historical pages describe an index window, not a point in the live-event
     // ordering. They may race newer SSE mutations and still have to resolve the
-    // scroll-back waiter. Snapshots and live envelopes do carry ordering/state.
+    // scroll-back waiter. A snapshot is authoritative even when its sequence is
+    // lower: projection sequences are runtime-local and reset after an idle reap
+    // or sidecar restart while this buffer deliberately survives a reconnect.
     if (chunk.k !== "page") {
-      if (chunk.seq < buffer.sequence) return;
+      if (chunk.k !== "snapshot" && chunk.seq < buffer.sequence) return;
       buffer.sequence = chunk.seq;
       buffer.runState = chunk.rs ?? buffer.runState;
       buffer.queue = { steer: chunk.qs, followUp: chunk.qf };
@@ -973,9 +975,9 @@ export class BridgeDataSource implements AgentDataSource {
       }
     }
     buffer.total = chunk.k === "snapshot" ? chunk.tot : Math.max(buffer.total, chunk.tot);
-    buffer.windowStart = buffer.seeded
-      ? Math.min(buffer.windowStart, chunk.ws)
-      : chunk.ws;
+    buffer.windowStart = chunk.k === "snapshot" || !buffer.seeded
+      ? chunk.ws
+      : Math.min(buffer.windowStart, chunk.ws);
 
     // Announced on every chunk that carries it, live or not, and before the
     // seed/older branching below returns. The seed page reads it off the buffer;

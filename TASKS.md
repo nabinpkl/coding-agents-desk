@@ -1703,3 +1703,6 @@ seconds, and damping the axis would only hide that.
   sidecar credential isolation, native command validation, typed stream errors, extension prompt
   priority, durable session identity, catalog authority, timeline identity, runtime disposal, and
   the checked-in real-Pi smoke.
+- D241. Rebase authoritative snapshots after runtime sequence resets, enforce native identifiers
+  across every phone-originated thread read, and bound retained extension notices and unsupported
+  widget warnings before replaying them to shared viewers.

@@ -101,25 +101,26 @@ describe("BridgeDataSource visibility lifecycle", () => {
     ).toHaveLength(2);
   });
 
-  it("delivers only newly observed events from a reconnect snapshot", () => {
+  it("rebases sequence and paging onto a lower-sequence reconnect snapshot", async () => {
     const { host, source } = makeSource();
     const onEvent = vi.fn();
+    const session = { source: "pi" as const, sessionId: "thread", mode: "nice" as const };
     source.subscribeSessionEvents(
-      { source: "codex", sessionId: "thread", mode: "raw" },
+      session,
       0,
       { onEvent },
     );
     host.deliver({
       t: "agent-thread-chunk",
-      src: "codex",
+      src: "pi",
       sid: "thread",
-      md: "raw",
+      md: "nice",
       ev: [{ id: "user-0", i: 0, rev: 0, ph: "complete", ts: 1, tp: "user", b: [] }],
       ws: 0,
       tot: 1,
       lv: false,
       k: "snapshot",
-      seq: 1,
+      seq: 500,
       rs: "idle",
       qs: 0,
       qf: 0,
@@ -128,25 +129,48 @@ describe("BridgeDataSource visibility lifecycle", () => {
     source.resumeAfterSessionReconnect();
     host.deliver({
       t: "agent-thread-chunk",
-      src: "codex",
+      src: "pi",
       sid: "thread",
-      md: "raw",
+      md: "nice",
       ev: [
-        { id: "user-0", i: 0, rev: 0, ph: "complete", ts: 1, tp: "user", b: [] },
-        { id: "assistant-1", i: 1, rev: 0, ph: "complete", ts: 2, tp: "assistant", b: [] },
+        { id: "assistant-100", i: 100, rev: 0, ph: "complete", ts: 2, tp: "assistant", b: [] },
       ],
-      ws: 0,
-      tot: 2,
+      ws: 100,
+      tot: 101,
       lv: false,
       k: "snapshot",
-      seq: 2,
+      seq: 12,
       rs: "idle",
       qs: 0,
       qf: 0,
     });
 
     expect(onEvent).toHaveBeenCalledTimes(1);
-    expect(onEvent.mock.calls[0]?.[0]).toMatchObject({ index: 1 });
+    expect(onEvent.mock.calls[0]?.[0]).toMatchObject({ index: 100 });
+
+    const older = source.fetchEventsPage(session, 99, 1);
+    expect(host.posted.at(-1)).toEqual({
+      t: "agent-thread-older", src: "pi", sid: "thread", bi: 100, lim: 1, md: "nice",
+    });
+    host.deliver({
+      t: "agent-thread-chunk",
+      src: "pi",
+      sid: "thread",
+      md: "nice",
+      ev: [{ id: "user-99", i: 99, rev: 0, ph: "complete", ts: 1, tp: "user", b: [] }],
+      ws: 99,
+      tot: 101,
+      lv: false,
+      k: "page",
+      seq: 12,
+      rs: "idle",
+      qs: 0,
+      qf: 0,
+    });
+    await expect(older).resolves.toMatchObject({
+      events: [expect.objectContaining({ index: 99 })],
+      total: 101,
+    });
   });
 });
 
