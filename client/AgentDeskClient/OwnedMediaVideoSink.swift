@@ -31,6 +31,17 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
     // chrome owned by the controller (like the gear and cursor dot), not a child of the
     // zoomable picture, so the sink no longer draws it; it only reports the status.
     @MainActor var onOwnedMediaStatusChange: ((OwnedMediaStatus) -> Void)? { get set }
+    /// Adopt a new transport's stream while keeping the picture that is already on screen.
+    ///
+    /// A recovery re-dial builds a fresh host encoder, so frame ids restart and new parameter
+    /// sets arrive. Decode and pacing state from the previous stream would misread that, but
+    /// the displayed image must survive: it is the only thing standing between the user and a
+    /// black screen for however long the network takes to come back, which was measured at
+    /// ~9.5s of an 11s outage on a cellular switch.
+    ///
+    /// Same mechanism the render-stall watchdog already relies on -- reset the decoder and
+    /// pacer, do not flush the layer.
+    @MainActor func prepareForStreamHandover()
 }
 
 // Default no-ops so non-video conformers (test stubs) need not implement them.
@@ -38,6 +49,7 @@ extension OwnedMediaFrameSink {
     @MainActor func renderOwnedVideoFrame(_ envelope: OwnedMediaFrameEnvelope, frameBytes: Int) {}
     @MainActor func noteOwnedMediaDroppedFrames(_ count: Int) {}
     @MainActor func setOwnedMediaStatus(_ status: OwnedMediaStatus) {}
+    @MainActor func prepareForStreamHandover() {}
     @MainActor func noteOwnedMediaRepairRequested(_ count: Int) {}
     @MainActor func noteOwnedMediaRepairExpired(_ count: Int) {}
     @MainActor func setOwnedMediaExpectedFrameRate(_ fps: Int) {}
@@ -404,6 +416,24 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         videoPresentationPacer.reset()
         pendingVideoPresentationTask?.cancel()
         pendingVideoPresentationTask = nil
+    }
+
+    /// Adopt a new transport's stream, keeping the frame that is already displayed.
+    ///
+    /// Deliberately does not touch `videoLayer`: no `flush()`, no `flushAndRemoveImage()`. The
+    /// layer holds the last decoded picture, and that picture is the entire point -- it stays
+    /// up, frozen, while the replacement session dials, instead of the user watching black.
+    /// The new stream begins with a keyframe (a fresh host encoder has no references to encode
+    /// against), so nothing here needs to survive for correctness.
+    func prepareForStreamHandover() {
+        logger.notice("owned media video stream-handover keeping last frame")
+        videoDecoder.reset()
+        videoPresentationPacer.reset()
+        pendingVideoPresentationTask?.cancel()
+        pendingVideoPresentationTask = nil
+        lastVideoArrivalUptimeNs = nil
+        lastVideoEnqueueUptimeNs = nil
+        lastKeyframeRequestUptimeNs = nil
     }
 
     // Single rate-limited keyframe-request point shared by the watchdog and the

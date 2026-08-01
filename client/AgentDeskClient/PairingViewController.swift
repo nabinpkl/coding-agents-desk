@@ -476,6 +476,13 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         }
         videoSink = sink
         mediaTransport = transport
+        // Clear the handover overlay here rather than waiting for the host's availability push.
+        // The push does arrive on connect and would hide it, but if one is ever missed the
+        // overlay would sit permanently over a working session -- and a stuck "Reconnecting…"
+        // over live video is a worse failure than a briefly absent one over a frozen frame.
+        hostAvailabilityLabel?.isHidden = true
+        hostAvailabilityLabel?.text = nil
+        hostReconnectButton?.isHidden = true
         if let owned = sink as? any OwnedMediaFrameSink {
             owned.onOwnedMediaStatusChange = { [weak self] status in
                 self?.mediaDiagnosticsLabel?.text = status.labelText
@@ -682,18 +689,43 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         mediaTransport = nil
         ClientRuntimeTelemetry.shared.updateMediaState(.stopped)
         videoStartupBanner.awaitFirstFrame()
-        videoSink?.view.removeFromSuperview()
-        videoSink = nil
-        sinkScrollView?.removeFromSuperview()
-        sinkScrollView = nil
-        mediaDiagnosticsLabel?.removeFromSuperview()
-        mediaDiagnosticsLabel = nil
-        hostAvailabilityLabel?.removeFromSuperview()
-        hostAvailabilityLabel = nil
-        hostReconnectButton?.removeFromSuperview()
-        hostReconnectButton = nil
-        cursorDotView?.removeFromSuperview()
-        cursorDotView = nil
+        // Keep the picture when the session is being recovered rather than ended.
+        //
+        // Removing the sink here is what made a network switch go black. The outage itself is
+        // mostly unavoidable -- 9.5s of an 11s cellular switch was the radio, not us -- so what
+        // matters is what is on screen during it. A frozen last frame beats black, and holding
+        // the sink also holds its decoder, which is the precondition for ever recovering with a
+        // small delta instead of a 250KB keyframe (ADR-0090).
+        //
+        // `attachMediaTransport` already adopts an existing sink rather than building one, so
+        // the reattach path needs nothing new; it was simply unreachable while this nil'd it.
+        if preservingSessionSurfaces {
+            (videoSink as? any OwnedMediaFrameSink)?.prepareForStreamHandover()
+            // A frozen picture with nothing over it is indistinguishable from a hung app, which
+            // is arguably worse than black because black at least reads as "something happened".
+            // The status label is hidden by the preserved-surfaces branch of `render`, so the
+            // overlay on the picture is the place to say it. The escape hatch rides along: if
+            // the redial succeeds in a second or two this is barely seen, and if it does not,
+            // the user is not stranded waiting for a recovery that is not coming.
+            hostAvailabilityLabel?.text = "Reconnecting…"
+            hostAvailabilityLabel?.isHidden = false
+            hostAvailabilityLabel.map { hostContentView.bringSubviewToFront($0) }
+            hostReconnectButton?.isHidden = false
+            hostReconnectButton.map { hostContentView.bringSubviewToFront($0) }
+        } else {
+            videoSink?.view.removeFromSuperview()
+            videoSink = nil
+            sinkScrollView?.removeFromSuperview()
+            sinkScrollView = nil
+            mediaDiagnosticsLabel?.removeFromSuperview()
+            mediaDiagnosticsLabel = nil
+            hostAvailabilityLabel?.removeFromSuperview()
+            hostAvailabilityLabel = nil
+            hostReconnectButton?.removeFromSuperview()
+            hostReconnectButton = nil
+            cursorDotView?.removeFromSuperview()
+            cursorDotView = nil
+        }
         cursorSourcePos = nil
         pendingCursorRetarget = nil
         isManualViewportPanActive = false
