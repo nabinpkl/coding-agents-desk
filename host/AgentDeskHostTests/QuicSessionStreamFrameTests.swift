@@ -525,7 +525,9 @@ struct QuicSessionHostMediaStateTests {
         #expect(decision.observation.signals.stalePressure)
         #expect(decision.observation.signals.cadencePressure)
         #expect(decision.outcome.target.rung == .capacity1)
-        #expect(decision.changedAxes == "bitrate,fps,resolution,rung")
+        // R231: the rung and the two free axes move on this window; resolution is not in the
+        // list because it costs a keyframe and one window of pressure has not earned one.
+        #expect(decision.changedAxes == "bitrate,fps,rung")
         #expect(decision.observation.ackCount == 0)
     }
 
@@ -606,8 +608,10 @@ struct QuicSessionHostMediaStateTests {
         )
 
         #expect(down.outcome.reason == "cadence-capacity-down")
-        #expect(down.changedAxes == "bitrate,fps,resolution,rung")
-        #expect(down.outcome.target.resolutionScale == 0.75)
+        // R231: same split. The decision is real and reaches the encoder as bitrate and fps;
+        // the resolution component of the rung waits for the pressure to persist.
+        #expect(down.changedAxes == "bitrate,fps,rung")
+        #expect(down.outcome.target.resolutionScale == 1.0)
     }
 
     @Test func ackAgeIsComputedFromSentFrameTime() throws {

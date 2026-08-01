@@ -193,6 +193,7 @@ struct MediaQualityControllerConfig: Equatable {
     let emergencyFps: Int
     let emergencyScale: Double
     let survivalScale: Double
+    let resolutionDownDwellMs: Int
 
     init(
         ceilingKbps: Int,
@@ -222,7 +223,8 @@ struct MediaQualityControllerConfig: Equatable {
         emergencyKbps: Int,
         emergencyFps: Int,
         emergencyScale: Double,
-        survivalScale: Double
+        survivalScale: Double,
+        resolutionDownDwellMs: Int = Config.ownedMediaResolutionDownDwellMs
     ) {
         self.ceilingKbps = max(1, ceilingKbps)
         self.floorKbps = min(max(1, floorKbps), self.ceilingKbps)
@@ -252,6 +254,7 @@ struct MediaQualityControllerConfig: Equatable {
         self.emergencyKbps = min(max(1, emergencyKbps), self.survivalFloorKbps)
         self.emergencyFps = min(max(1, emergencyFps), self.fpsFloor)
         self.emergencyScale = min(Self.normalizedScale(emergencyScale), self.survivalScale)
+        self.resolutionDownDwellMs = max(0, resolutionDownDwellMs)
     }
 
     static func fromConfig() -> MediaQualityControllerConfig {
@@ -283,7 +286,8 @@ struct MediaQualityControllerConfig: Equatable {
             emergencyKbps: Config.ownedMediaEmergencyBitrateKbps,
             emergencyFps: Config.ownedMediaEmergencyFps,
             emergencyScale: Config.ownedMediaEmergencyResolutionScale,
-            survivalScale: Config.ownedMediaSurvivalResolutionScale
+            survivalScale: Config.ownedMediaSurvivalResolutionScale,
+            resolutionDownDwellMs: Config.ownedMediaResolutionDownDwellMs
         )
     }
 
@@ -365,6 +369,37 @@ struct MediaQualityController {
     // credits the same unit to keep ms-accrual and probe-window counting aligned.
     private let idleRecoveryWindowMs = 1_000
 
+    // R231. The rung names a resolution the way it names a bitrate, but the two are not the
+    // same kind of instruction. Bitrate and fps are live properties of the compression
+    // session; resolution is fixed at session creation, so changing it recreates the session,
+    // which emits an IDR and destroys every long-term reference inside it. That is not an
+    // implementation cost that could be optimised away: HEVC has no reference picture
+    // resampling, and the codecs that do are not encodable on this host.
+    //
+    // So the rung's scale is treated as a REQUEST, and this is what has actually been
+    // committed to the encoder. The request has to persist to be granted. The measured
+    // failure it prevents: 0.75 -> 0.50 -> 0.75 inside seventeen seconds, three keyframes of
+    // 86,644 / 68,598 / 122,041 bytes, on the cellular link least able to carry them.
+    private var committedResolutionScale: Double = 1.0
+    // How long the rung has continuously asked for something other than the committed scale.
+    private var resolutionPressureMs = 0
+    // Whether that pressure is currently accruing, deliberately not which scale it points at.
+    // A link that is genuinely failing produces repeated stale windows, and each one walks the
+    // rung down another step, so the requested scale keeps changing: 0.75, then 0.50, then
+    // 0.33. Keyed on the exact value, every one of those steps would reset the clock and a
+    // collapsing link would never earn its rescale at all -- the precise failure this gate
+    // must not have. They accumulate instead, because they are all the same evidence.
+    private var resolutionPressureAccruing = false
+    // Duration credited to the current window, captured at the top of `observe` so the single
+    // funnel below can accrue in the same units the recovery clock uses.
+    private var currentWindowMs = 1_000
+    // Set by the paths whose evidence is about the setting actually running, rather than a
+    // guess about capacity. Two cases: a probe that failed its warmup has just demonstrated
+    // that the scale it raised to does not work, and a freeze means the stream is already
+    // broken rather than predicted to break. Waiting out a dwell in either case holds a
+    // known-bad resolution for ten seconds on purpose, so they skip the gate.
+    private var resolutionEvidenceIsProven = false
+
     init(config: MediaQualityControllerConfig) {
         self.config = config
         let initialTarget = MediaQualityTarget(
@@ -391,11 +426,19 @@ struct MediaQualityController {
         self.stableTarget = target
         cleanRecoveryMs = 0
         cadencePressureStreak = 0
+        // A pin is the encoder's scale being set directly, not a request to be gated: this is
+        // the resume path (ADR-0090) handing back the rung the previous connection ended on,
+        // and the encoder is about to run at exactly that scale. Adopting it as committed is
+        // what keeps the resume from immediately reading as pressure in one direction or the
+        // other and spending a keyframe undoing itself.
+        committedResolutionScale = target.resolutionScale
+        clearResolutionPressure()
         clearProbe()
     }
 
     mutating func observe(_ input: MediaQualityControllerInput) -> MediaQualityEvaluation {
         let previous = target
+        currentWindowMs = max(input.productionSummary?.windowMs ?? idleRecoveryWindowMs, 1)
         let signals = makeSignals(input)
         let total = input.sample.completedFrames + input.sample.expiredFrames
         if total == 0 {
@@ -484,6 +527,7 @@ struct MediaQualityController {
             }
             resetPressureStreaks()
             resetRecovery()
+            resolutionEvidenceIsProven = true
             downshiftCapacity(reason: "freeze-capacity-down")
             return evaluation(
                 signals: signals,
@@ -810,6 +854,10 @@ struct MediaQualityController {
     }
 
     private mutating func rollbackProbe(axis: MediaQualityProbeAxis? = nil) {
+        // The probe just tested this exact setting and it failed. That is the strongest
+        // evidence available about the current scale, so the rollback is not speculation and
+        // does not wait.
+        resolutionEvidenceIsProven = true
         let rollbackAxis = axis ?? probeAxis
         target = stableTarget.with(reason: "probe-\(rollbackAxis.rawValue)-rollback")
         clearProbe()
@@ -898,13 +946,18 @@ struct MediaQualityController {
         }
     }
 
-    private func evaluation(
+    /// R231. Every branch of `observe` returns through here, which is why the resolution gate
+    /// lives at this point rather than at each `downshiftCapacity` / `recover` site: the rungs
+    /// stay free to say whatever they mean, and exactly one place decides what the encoder is
+    /// allowed to act on.
+    private mutating func evaluation(
         signals: MediaQualityObservationSignals,
         previous: MediaQualityTarget,
         reason: String,
         recoveryBlocker: String
     ) -> MediaQualityEvaluation {
-        MediaQualityEvaluation(
+        gateResolution()
+        return MediaQualityEvaluation(
             signals: signals,
             outcome: MediaQualityOutcome(
                 target: target.with(reason: reason),
@@ -913,6 +966,80 @@ struct MediaQualityController {
             ),
             recoveryStatus: recoveryStatus(blocker: recoveryBlocker)
         )
+    }
+
+    /// Hold `target.resolutionScale` at the committed value until the rung has asked for a
+    /// different one for long enough to be believed.
+    ///
+    /// Asymmetric on purpose. Down is the shorter wait because a link that genuinely got
+    /// worse has to be answered, and 10s of high resolution at a starved bitrate is ugly but
+    /// bounded -- it quantizes hard and blocks up around text, then clears the moment bitrate
+    /// recovers. Up is the longer wait because the climb back has no urgency at all and was
+    /// the most expensive frame measured, spent returning to a scale the link had just failed
+    /// at. Note the direction that reads backwards: rescaling *during* congestion answers
+    /// "not enough bandwidth" by emitting the largest possible frame, so on this one axis
+    /// slow is the safe choice.
+    private mutating func gateResolution() {
+        // The request is read from the RUNG, not from `target.resolutionScale`. That looks like
+        // a detail and is the difference between working and not: this function writes its
+        // decision back into `target`, so by the next window `target.resolutionScale` is
+        // already the committed value and would compare equal to itself. Pressure would then
+        // only survive across windows that each actively reassigned the target, and in the
+        // measured trace those arrive about every six seconds -- so a ten second dwell could
+        // never be reached and a genuinely worse link would never rescale at all. The rung is
+        // the state that actually persists between windows, so the rung is what gets asked.
+        let requested = fixedTarget(for: target.rung, reason: target.reason).resolutionScale
+        guard requested != committedResolutionScale else {
+            // The rung came back on its own. Whatever move was accruing is abandoned, which is
+            // the entire point: an excursion that reverses inside the dwell commits nothing
+            // and costs no keyframe.
+            clearResolutionPressure()
+            return
+        }
+        // Only the way DOWN is gated here. The climb back is already gated, by a mechanism
+        // this controller has had all along: `recover()` does not raise resolution directly,
+        // it opens a `resolutionProbe` phase with a clean-streak requirement, a transition
+        // warmup, and a rollback if the probe fails. Adding a second, parallel dwell on top of
+        // that would model the same thing twice and break the probe, which is exactly what the
+        // first version of this gate did. If the up-move is still too eager -- and the 122,041B
+        // frame says it is -- the lever is that probe's threshold, not another clock.
+        guard requested < committedResolutionScale else {
+            committedResolutionScale = requested
+            clearResolutionPressure()
+            return
+        }
+        if resolutionEvidenceIsProven {
+            committedResolutionScale = requested
+            clearResolutionPressure()
+            return
+        }
+        if !resolutionPressureAccruing {
+            resolutionPressureAccruing = true
+            resolutionPressureMs = 0
+        }
+        resolutionPressureMs += currentWindowMs
+        if resolutionPressureMs >= config.resolutionDownDwellMs {
+            // Whatever the rung is asking for right now, not the value that opened the window:
+            // if the link kept degrading during the wait, the deepest request is the honest one.
+            committedResolutionScale = requested
+            clearResolutionPressure()
+        }
+        // The reason is carried through untouched: the branch that set it is still telling the
+        // truth about why bitrate and fps moved, and only the scale is being withheld.
+        target = target.with(resolutionScale: committedResolutionScale, reason: target.reason)
+        // `stableTarget` is the probe rollback point, so it has to describe a stream that
+        // actually ran. Left ungated it would name a scale the encoder never used, and a
+        // rollback would then install that scale as if returning to something proven.
+        stableTarget = stableTarget.with(
+            resolutionScale: committedResolutionScale,
+            reason: stableTarget.reason
+        )
+    }
+
+    private mutating func clearResolutionPressure() {
+        resolutionPressureMs = 0
+        resolutionPressureAccruing = false
+        resolutionEvidenceIsProven = false
     }
 }
 

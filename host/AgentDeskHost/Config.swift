@@ -252,6 +252,22 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_SURVIVAL_RESOLUTION_SCALE",
         defaultValue: 0.5
     )
+    // R231. How long the rung has to keep asking for a LOWER resolution before the encoder
+    // acts on it. Bitrate and fps still move on the window that asked; only this axis waits,
+    // because only this axis costs a keyframe and the whole LTR reference set to change.
+    //
+    // Down only. The climb back has its own, older gate: `recover()` raises resolution through
+    // a probe phase with a clean-streak requirement, a warmup, and a rollback. A second knob
+    // for the up-move would model the same thing twice.
+    //
+    // 10s is set against measurement, not taste: the ladder's own sawtooth held a lower rung
+    // for 6-9s at a time before climbing back, so anything shorter commits to excursions that
+    // were about to reverse. A link that genuinely got worse keeps asking and is honoured
+    // 10s in, by which point the two free axes have already absorbed it.
+    static let ownedMediaResolutionDownDwellMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_RESOLUTION_DOWN_DWELL_MS",
+        defaultValue: 10_000
+    )
     // ADR-0033 survival cadence target. A lower emergency rung exists for paths
     // that still freeze after survival.
     static let ownedMediaFpsFloor = positiveInt(

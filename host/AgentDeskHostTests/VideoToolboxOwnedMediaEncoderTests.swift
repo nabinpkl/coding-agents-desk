@@ -469,7 +469,9 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         var state = QuicSessionHostMediaState(
             qualityControllerConfig: mediaQualityConfig()
         )
-        for _ in 0..<8 {
+        // R231: the rung drops within a couple of windows, but resolution follows only after
+        // the dwell, so this setup has to run past it to reach a below-native scale.
+        for _ in 0..<16 {
             _ = state.observeLinkHealth(
                 completedFrames: 80,
                 expiredFrames: 20,
@@ -646,26 +648,35 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             XCTAssertEqual(controller.targetFps, 30, "fps holds while bitrate is still falling")
             XCTAssertFalse(outcome.fpsChanged)
         }
+        // R231: the rungs still step one window at a time, and bitrate and fps step with them.
+        // Resolution does not: it is held at the committed scale until the pressure has lasted
+        // long enough to be worth a keyframe, so every scale assertion below is 1.0 while the
+        // ladder walks down underneath it.
         let capacity1 = controller.observe(lossInput()).outcome
         XCTAssertEqual(capacity1.reason, "capacity-down")
-        XCTAssertTrue(capacity1.resolutionChanged)
+        XCTAssertFalse(capacity1.resolutionChanged)
         XCTAssertEqual(controller.targetFps, 24)
         XCTAssertEqual(controller.targetKbps, 650)
-        XCTAssertEqual(controller.targetResolutionScale, 0.75)
+        XCTAssertEqual(controller.targetResolutionScale, 1.0)
         let capacity2 = controller.observe(lossInput()).outcome
         XCTAssertEqual(capacity2.reason, "capacity-down")
         XCTAssertEqual(controller.targetFps, 15)
         XCTAssertEqual(controller.targetKbps, 400)
-        XCTAssertEqual(controller.targetResolutionScale, 0.5)
+        XCTAssertEqual(controller.targetResolutionScale, 1.0)
         let survival = controller.observe(lossInput()).outcome
         XCTAssertEqual(survival.reason, "survival-down")
         XCTAssertEqual(controller.targetFps, 10, "cadence converges to the fps floor and not below")
         XCTAssertEqual(controller.targetKbps, 300, "survival bitrate converges to the survival floor and not below")
-        XCTAssertEqual(controller.targetResolutionScale, 0.5)
+        XCTAssertEqual(controller.targetResolutionScale, 1.0)
         let emergency = controller.observe(lossInput()).outcome
         XCTAssertEqual(emergency.reason, "emergency-down")
         XCTAssertEqual(controller.targetFps, 6)
         XCTAssertEqual(controller.targetKbps, 180)
+        XCTAssertEqual(controller.targetResolutionScale, 1.0)
+        // Delayed, not withheld. Once the pressure has outlasted the dwell, the rung's scale is
+        // finally believed and the one keyframe it costs is spent on evidence rather than on a
+        // guess that four windows earlier would have been about to reverse.
+        for _ in 0..<12 { _ = controller.observe(lossInput()) }
         XCTAssertEqual(controller.targetResolutionScale, 0.33)
     }
 
@@ -820,9 +831,14 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(first.outcome.reason, "cadence-hold")
 
         let second = controller.observe(slow)
-        XCTAssertTrue(second.outcome.resolutionChanged)
         XCTAssertEqual(second.outcome.target.rung, .capacity1)
         XCTAssertEqual(second.outcome.reason, "cadence-capacity-down")
+        XCTAssertTrue(second.outcome.fpsChanged, "the free axes answer the pressure on this window")
+        XCTAssertTrue(second.outcome.bitrateChanged)
+        // R231: resolution is the one axis that costs a keyframe and the LTR reference set, so
+        // two windows of cadence pressure move the rung without yet moving the encoder's scale.
+        XCTAssertFalse(second.outcome.resolutionChanged)
+        XCTAssertEqual(controller.targetResolutionScale, 1.0)
     }
 
     func testMediaQualityControllerQueueAndCadencePressureDownshiftsImmediately() {
