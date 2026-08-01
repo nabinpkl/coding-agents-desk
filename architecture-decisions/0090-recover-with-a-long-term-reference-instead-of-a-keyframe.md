@@ -113,11 +113,24 @@ The capability findings above are reproducible with a standalone probe against
 `VTCompressionSessionCreate` and `VTSessionCopySupportedPropertyDictionary`.
 
 The behavioural confirmation is a device run showing a recovery frame in the hundreds of bytes
-rather than hundreds of kilobytes, and no visual corruption across a handover. One open risk
-remains that only a runtime test can settle: whether `AVSampleBufferDisplayLayer` releases
-decoder resources when idle or backgrounded, which would drop the retained references and
-silently degrade recovery to the keyframe fallback. That degrades safely, but it would make the
-whole change a no-op, so it should be measured before the wire work is built.
+rather than hundreds of kilobytes, and no visual corruption across a handover.
+
+An earlier draft made this conditional on first measuring whether
+`AVSampleBufferDisplayLayer` releases decoder resources while idle. That gate was wrong twice
+over and is dropped.
+
+It is not measurable as stated: proving the decoder kept a reference across a gap requires a
+frame after the gap that references one before it, and the host always opens a new encoder
+session and sends a keyframe, so no such frame exists until this ADR is implemented.
+
+More importantly it is not needed, because the failure is already caught on both sides. The
+encoder references only acknowledged LTRs and emits an IDR when none qualify. The decoder path
+already routes every failure -- `recoveredRequestKeyframe`,
+`droppedMismatchedDimensionsRequestKeyframe`, `droppedPendingKeyframe`,
+`formatDescriptionUnavailable` -- to `requestKeyframe`. So a delta whose reference has been
+released fails cleanly and pulls a keyframe: the worst case is today's behaviour plus one round
+trip, not corruption and not a hang. That is cheap enough to let the real system answer the
+question the synthetic harness was going to approximate.
 
 ## Links
 

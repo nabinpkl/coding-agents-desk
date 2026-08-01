@@ -1372,7 +1372,7 @@ D212  2026-07-31  landed     authorized handover device run: recovery fires, and
 D213  2026-07-31  landed     a way out of a session the client thinks is alive and the host has ended
 R214  checkpoint  remaining  liveness echo: recover from a dead path with no link change, sized against the 12.4s healthy-gap ceiling
 D215  2026-07-31  landed     retain the video sink across a transport swap, so a switch keeps the last frame instead of going black
-R216  remaining   measure whether AVSampleBufferDisplayLayer keeps decoder references across a 10s idle gap
+X216  2026-07-31  dropped    measure display-layer reference retention: not measurable before ADR-0090 exists, and not needed
 
 D215 detail: the only thing blacking the screen on a switch was `videoSink = nil` in
 `teardownMediaTransport`. Everything else was already in place -- `attachMediaTransport` adopts
@@ -1382,7 +1382,7 @@ unreachable. Recovery teardown now keeps the sink (and with it the decoder, whic
 ADR-0090 needs), shows "Reconnecting…" over the frozen frame so it does not read as a hang, and
 carries the Reconnect button along in case the redial never lands. A full teardown -- user
 disconnect, unpair, rejection -- still removes everything as before.
-R217  remaining   LTR recovery on the low-latency encoder path (ADR-0090), gated on R215 and R216
+R217  remaining   LTR recovery on the low-latency encoder path (ADR-0090); D215 is its only precondition
 ```
 
 ## Handover arc (ADR-0089)
