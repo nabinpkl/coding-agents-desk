@@ -79,23 +79,79 @@ struct VoiceAssetCache {
     /// Written to a temporary name and moved into place, so an interrupted write
     /// leaves no half-file that a later size check would mistake for complete.
     func store(_ bytes: Data, for descriptor: VoiceAssetDescriptor) throws {
-        guard let destination = url(for: descriptor.path) else {
+        try resetStaging(for: descriptor)
+        try appendToStaging(bytes, for: descriptor)
+        try promoteStaging(for: descriptor)
+    }
+
+    // MARK: - Streaming a large asset to disk
+
+    // The largest of these is 152MB. Accumulating it in memory to hash it at the
+    // end would be the one moment this feature spikes the phone's memory, so
+    // chunks append straight to a staging file and the hash is computed by
+    // reading that file back.
+
+    func stagingURL(for descriptor: VoiceAssetDescriptor) -> URL? {
+        url(for: descriptor.path)?.appendingPathExtension("partial")
+    }
+
+    /// How much of this asset already landed, which is where a resumed transfer
+    /// asks the Mac to start. Zero if nothing is staged.
+    func stagedByteCount(for descriptor: VoiceAssetDescriptor) -> UInt64 {
+        guard let staging = stagingURL(for: descriptor),
+              let size = try? fileManager.attributesOfItem(atPath: staging.path)[.size] as? NSNumber
+        else { return 0 }
+        return size.uint64Value
+    }
+
+    func resetStaging(for descriptor: VoiceAssetDescriptor) throws {
+        guard let staging = stagingURL(for: descriptor) else {
             throw CacheError.unsafePath(descriptor.path)
         }
-        let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
-        guard digest == descriptor.sha256 else {
-            throw CacheError.hashMismatch(path: descriptor.path)
+        try? fileManager.removeItem(at: staging)
+    }
+
+    func appendToStaging(_ bytes: Data, for descriptor: VoiceAssetDescriptor) throws {
+        guard let staging = stagingURL(for: descriptor) else {
+            throw CacheError.unsafePath(descriptor.path)
         }
         try fileManager.createDirectory(
-            at: destination.deletingLastPathComponent(),
+            at: staging.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let staging = destination.appendingPathExtension("partial")
-        try? fileManager.removeItem(at: staging)
-        try bytes.write(to: staging, options: .atomic)
+        if !fileManager.fileExists(atPath: staging.path) {
+            fileManager.createFile(atPath: staging.path, contents: nil)
+        }
+        let handle = try FileHandle(forWritingTo: staging)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: bytes)
+    }
+
+    /// Verifies the staged file and moves it into place. Only here does an asset
+    /// become cached, so a transfer that dies midway leaves a `.partial` that
+    /// resumes rather than a file that looks complete.
+    func promoteStaging(for descriptor: VoiceAssetDescriptor) throws {
+        guard let destination = url(for: descriptor.path),
+              let staging = stagingURL(for: descriptor)
+        else { throw CacheError.unsafePath(descriptor.path) }
+        guard try stagedDigest(at: staging) == descriptor.sha256 else {
+            try? fileManager.removeItem(at: staging)
+            throw CacheError.hashMismatch(path: descriptor.path)
+        }
         try? fileManager.removeItem(at: destination)
         try fileManager.moveItem(at: staging, to: destination)
         try excludeFromBackup()
+    }
+
+    private func stagedDigest(at url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let chunk = try handle.read(upToCount: 4 * 1024 * 1024), !chunk.isEmpty {
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     /// These are reproducible from the Mac, so backing up 220MB of them to

@@ -282,6 +282,14 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         return transport
     }
 
+    /// Opens the lane the voice models arrive on. Separate from `openVoiceLane`,
+    /// which carries live dictation audio a 152MB transfer would stall.
+    func openVoiceAssetLane() async throws -> VoiceAssetLaneClient {
+        let client = VoiceAssetLaneClient(stream: try await connection.openStream())
+        try await client.open()
+        return client
+    }
+
     func openVoiceLane(
         delivery: @escaping VoiceLaneClient.Delivery
     ) async throws -> VoiceLaneClient {

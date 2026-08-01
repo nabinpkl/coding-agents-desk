@@ -85,6 +85,43 @@ struct VoiceAssetCacheTests {
         #expect(cache.missingAssets(from: VoiceAssetManifest(assets: [regenerated])).count == 1)
     }
 
+    // A 152MB file cannot be held in memory to hash at the end, so chunks append
+    // to a staging file and the resumed offset is however much already landed.
+    @Test func aPartialTransferResumesFromWhatAlreadyLanded() throws {
+        let cache = try makeCache()
+        defer { try? FileManager.default.removeItem(at: cache.root) }
+        let bytes = Data("first-half second-half".utf8)
+        let asset = descriptor(path: "VoicePhoneModel.mlmodelc/weights/weight.bin", bytes: bytes)
+
+        #expect(cache.stagedByteCount(for: asset) == 0)
+        try cache.appendToStaging(Data("first-half ".utf8), for: asset)
+        #expect(cache.stagedByteCount(for: asset) == 11)
+        // Still not cached: only a promoted file counts.
+        #expect(!cache.isPresent(asset))
+
+        try cache.appendToStaging(Data("second-half".utf8), for: asset)
+        try cache.promoteStaging(for: asset)
+
+        #expect(cache.isPresent(asset))
+        #expect(cache.stagedByteCount(for: asset) == 0)
+        let url = try #require(cache.url(for: asset.path))
+        #expect(try Data(contentsOf: url) == bytes)
+    }
+
+    @Test func aStagedFileThatFailsItsHashIsDiscardedNotPromoted() throws {
+        let cache = try makeCache()
+        defer { try? FileManager.default.removeItem(at: cache.root) }
+        let asset = descriptor(path: "VoiceZIPAModel.onnx", bytes: Data("real".utf8))
+        try cache.appendToStaging(Data("corrupt".utf8), for: asset)
+
+        #expect(throws: VoiceAssetCache.CacheError.hashMismatch(path: "VoiceZIPAModel.onnx")) {
+            try cache.promoteStaging(for: asset)
+        }
+        #expect(!cache.isPresent(asset))
+        // Discarded rather than left to poison the next resume.
+        #expect(cache.stagedByteCount(for: asset) == 0)
+    }
+
     // An empty manifest means the Mac has no models, which is not the same as
     // the phone having them all.
     @Test func anEmptyManifestIsNotCompleteness() throws {
