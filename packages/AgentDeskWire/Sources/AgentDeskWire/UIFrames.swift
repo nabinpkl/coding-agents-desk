@@ -386,3 +386,32 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         try container.encode(diagnosticScreenshotsEnabled, forKey: .diagnosticScreenshotsEnabled)
     }
 }
+
+/// Whether the client is currently looking at the host's video.
+///
+/// The client's full-screen surfaces (Terminal, Agent, Workspace, IDE, Browser)
+/// cover the video entirely, so every frame encoded and sent while one of them
+/// is open is spent on pixels nobody sees. That is the whole downlink budget on
+/// a slow link, and the encode cost on the Mac. Unlike ClientConfig this is a
+/// runtime fact rather than a setting, so it gets its own message and is sent on
+/// every surface change.
+public struct MediaViewerState: Codable, Equatable, Sendable {
+    public let type: String
+    public let isWatchingVideo: Bool
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case type = "t"
+        case isWatchingVideo = "w"
+    }
+
+    public init(isWatchingVideo: Bool) {
+        self.type = "media-viewer"
+        self.isWatchingVideo = isWatchingVideo
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decodeIfPresent(String.self, forKey: .type) ?? "media-viewer"
+        isWatchingVideo = try container.decode(Bool.self, forKey: .isWatchingVideo)
+    }
+}

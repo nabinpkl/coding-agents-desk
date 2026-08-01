@@ -556,6 +556,23 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded.diagnosticScreenshotsEnabled == false)
 }
 
+@Test func mediaViewerStateRoundTripsBothDirections() throws {
+    try roundTrip(MediaViewerState(isWatchingVideo: true))
+    try roundTrip(MediaViewerState(isWatchingVideo: false))
+
+    let data = try JSONEncoder().encode(MediaViewerState(isWatchingVideo: false))
+    let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    #expect(object?["t"] as? String == "media-viewer")
+    #expect(object?["w"] as? Bool == false)
+}
+
+@Test func mediaViewerStateFromAPeerThatOmitsTheTypeTagStillDecodes() throws {
+    let data = Data(#"{"w":true}"#.utf8)
+    let decoded = try JSONDecoder().decode(MediaViewerState.self, from: data)
+    #expect(decoded.isWatchingVideo)
+    #expect(decoded.type == "media-viewer")
+}
+
 @Test func hostAvailabilityPushRoundTripsLockedAndCaptureUnavailable() throws {
     try roundTrip(HostAvailabilityPush(availability: .locked, reason: "session-resigned-active"))
     try roundTrip(HostAvailabilityPush(availability: .captureUnavailable, reason: "media-closed"))

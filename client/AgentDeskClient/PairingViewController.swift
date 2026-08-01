@@ -514,6 +514,32 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         }
     }
 
+    /// Tells the host whether this client is looking at the video.
+    ///
+    /// Sent on every surface change and again whenever a session comes up, since
+    /// a fresh session's host assumes it is being watched and would otherwise
+    /// encode into a covered surface until the next switch. Best-effort: the
+    /// host defaults to sending, so a dropped message costs bandwidth, never a
+    /// black screen.
+    func pushMediaViewerState() {
+        guard let channel = pairingClient.activeInputChannel else { return }
+        let state = MediaViewerState(isWatchingVideo: activeControlSurface.watchesHostVideo)
+        if !state.isWatchingVideo {
+            // The host stops encoding, so coming back is another wait for a
+            // keyframe on a black surface. Same explanation as a fresh connect.
+            videoStartupBanner.awaitFirstFrame(detail: "video paused")
+        }
+        Task {
+            do {
+                try await channel.sendMediaViewerState(state)
+            } catch {
+                self.sessionLogger.error(
+                    "media viewer state send failed: \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+    }
+
     /// A decoded frame reaching the display, or a live tile surface, is the
     /// moment the app has a picture. Every other status is progress to report.
     func noteOwnedMediaStatus(_ status: OwnedMediaStatus) {
@@ -887,6 +913,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             if #available(iOS 26.0, *) {
                 terminalSurface?.connect(using: pairingClient.activeSessionTransport)
             }
+            pushMediaViewerState()
             scheduleMediaTransportStartIfNeeded()
         } else if preservesSuspendedSessionSurfaces {
             ClientDiagnostics.shared.setLiveAnnouncementSender(nil)

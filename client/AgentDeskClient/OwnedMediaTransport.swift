@@ -172,6 +172,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         try await QuicSessionStreamIO.send(config, role: .input, on: inputStream)
     }
 
+    func sendMediaViewerState(_ state: MediaViewerState) async throws {
+        try await QuicSessionStreamIO.send(state, role: .input, on: inputStream)
+    }
+
     func sendRevoke() async throws {
         try await QuicSessionStreamIO.send(SessionRevoke(), role: .input, on: inputStream)
     }

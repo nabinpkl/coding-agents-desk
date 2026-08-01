@@ -157,6 +157,7 @@ private final class BrokerInputChannelServer: InputChannelServing, @unchecked Se
     }
 
     var configHandler: ((ClientConfig) -> Void)?
+    var mediaViewerHandler: ((MediaViewerState) -> Void)?
     var runtimeCheckpointHandler: ((ClientRuntimeCheckpoint) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
     var workspaceTerminalRequestHandler: ((WorkspaceTerminalClientMessage) -> Void)?

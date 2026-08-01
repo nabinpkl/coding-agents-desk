@@ -64,6 +64,14 @@ extension ControlSurface {
         }
     }
 
+    /// Whether the host's video is on screen for this surface.
+    ///
+    /// Only Control shows it. Every other surface is full-bleed and covers it
+    /// completely, so frames encoded and sent while one is open pay downlink and
+    /// Mac encode cost for pixels nobody sees. The host stops producing them for
+    /// this client while this is false.
+    var watchesHostVideo: Bool { self == .control }
+
     /// VoiceOver / Maestro accessibility label for the rail button. This is the product-facing surface
     /// name and the stable target used by accessibility-driven flows.
     /// This remains the stable label-to-surface key for accessibility-driven clients.

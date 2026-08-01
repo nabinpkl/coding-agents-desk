@@ -35,6 +35,9 @@ protocol InputChannel: AnyObject, Sendable {
     var workspaceTerminalUpdates: AsyncStream<WorkspaceTerminalHostMessage> { get }
 
     func sendConfig(_ config: ClientConfig) async throws
+    // Sent on every surface change: the host stops encoding for this client
+    // while a full-screen surface covers the video.
+    func sendMediaViewerState(_ state: MediaViewerState) async throws
     // Best-effort revoke notice sent just before teardown when the user unpairs,
     // so the host drops its paired-device record instead of holding a zombie.
     func sendRevoke() async throws

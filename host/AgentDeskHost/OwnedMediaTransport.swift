@@ -124,6 +124,35 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         clientCrispEnabledGate.withLock { $0 = enabled }
     }
 
+    /// The client covered the video with a full-screen surface, or uncovered it.
+    ///
+    /// Gated here, at this client's encode queue, rather than by stopping the
+    /// capture source: the source is shared by every session, so stopping it
+    /// would blind any other connected viewer, and restarting it would cost a
+    /// capture warm-up on the way back. Dropping frames before the encoder still
+    /// saves the encode and the whole downlink, which is what a slow link is
+    /// short of.
+    ///
+    /// Coming back forces a keyframe. The client's decoder has been starved for
+    /// however long the surface was open, so waiting for the next natural IDR
+    /// would leave it black well past the moment the user asked for video.
+    func setWatchingVideo(_ watching: Bool) {
+        let resumed = encodeGate.withLock { state -> Bool in
+            guard state.isWatchingVideo != watching else { return false }
+            state.isWatchingVideo = watching
+            guard watching else {
+                // Anything captured while away is stale by definition.
+                state.latest = nil
+                return false
+            }
+            state.forceKeyframe = true
+            return true
+        }
+        logger.notice("client watching video=\(watching, privacy: .public)")
+        guard resumed else { return }
+        startDrainIfNeeded()
+    }
+
     func setClientMediaQuality(_ config: ClientMediaQualityConfig) {
         let outcome = encodeGate.withLock { state -> MediaQualityOutcome? in
             guard let outcome = state.mediaState.applyClientMediaQuality(config) else {
@@ -174,6 +203,8 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
 
     private func enqueue(_ frame: CapturedVideoFrame) {
         let shouldStart = encodeGate.withLock { state -> Bool in
+            // Dropped before the encoder, so a covered video costs nothing.
+            guard state.isWatchingVideo else { return false }
             if state.latest != nil {
                 state.mediaState.noteCaptureReplaced()
             }
@@ -860,6 +891,9 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var recordedFirstFrameSent = false
         var recordedFirstFrameAcknowledged = false
         var latest: CapturedVideoFrame?
+        // Starts true: a client that never sends the message is watching video,
+        // which is what every client did before the message existed.
+        var isWatchingVideo = true
         var encoding = false
         var retryScheduled = false
         var forceKeyframe = false

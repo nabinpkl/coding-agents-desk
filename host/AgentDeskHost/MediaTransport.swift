@@ -16,6 +16,13 @@ protocol MediaTransport: AnyObject, Sendable {
     // lane, packet repair, and backpressure mechanics alive.
     func setClientMediaQuality(_ config: ClientMediaQualityConfig)
 
+    // Per-session: whether the client currently has the video on screen. Its
+    // full-screen surfaces cover the video completely, and encoding into a
+    // covered surface spends the downlink and the Mac's encoder on pixels
+    // nobody sees. False drops captured frames before the encoder for this
+    // client only; the capture source is shared, so other viewers are unaffected.
+    func setWatchingVideo(_ watching: Bool)
+
     var connectionState: AsyncStream<MediaConnectionState> { get }
 }
 

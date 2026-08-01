@@ -1333,6 +1333,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         thumbnailEnabledClients.insert(clientFingerprint)
         provider.setDemand(owner: thumbnailOwner, enabled: true)
         provider.forceRefresh()
+        server.mediaViewerHandler = { [weak self] state in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.sessions.transport(for: clientFingerprint)?
+                    .setWatchingVideo(state.isWatchingVideo)
+            }
+        }
         server.configHandler = { [weak self, server] config in
             let enabled = config.thumbnailsEnabled
             let refresh = config.thumbnailRefresh

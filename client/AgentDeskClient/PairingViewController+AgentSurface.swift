@@ -331,6 +331,7 @@ extension PairingViewController {
             }
         }
         applySurface(surface)
+        pushMediaViewerState()
 
         // Release this viewer whenever Browser is not the active surface. The host keeps capture
         // alive if another viewer remains active and restores native Chrome when the last releases.

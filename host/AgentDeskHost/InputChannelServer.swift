@@ -55,6 +55,8 @@ protocol InputChannelServing: AgentDataPushing {
     var diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate> { get }
     var screenshotUpdates: AsyncStream<ClientScreenshotChannelUpdate> { get }
     var configHandler: ((ClientConfig) -> Void)? { get set }
+    // Called when the client covers or uncovers the video with a full-screen surface.
+    var mediaViewerHandler: ((MediaViewerState) -> Void)? { get set }
     var runtimeCheckpointHandler: ((ClientRuntimeCheckpoint) -> Void)? { get set }
     // Called on each decoded agent-feed request from the client.
     var agentRequestHandler: ((AgentFeedRequest) -> Void)? { get set }
@@ -112,6 +114,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
     let screenshotUpdates: AsyncStream<ClientScreenshotChannelUpdate>
     var configHandler: ((ClientConfig) -> Void)?
+    var mediaViewerHandler: ((MediaViewerState) -> Void)?
     var runtimeCheckpointHandler: ((ClientRuntimeCheckpoint) -> Void)?
     var agentRequestHandler: ((AgentFeedRequest) -> Void)?
     var workspaceTerminalRequestHandler: ((WorkspaceTerminalClientMessage) -> Void)?
@@ -156,6 +159,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         screenshotContinuation?.finish()
         screenshotContinuation = nil
         configHandler = nil
+        mediaViewerHandler = nil
         runtimeCheckpointHandler = nil
         agentRequestHandler = nil
         workspaceTerminalRequestHandler = nil
@@ -334,6 +338,13 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
                 configHandler?(frame)
             } catch {
                 logger.error("client-config decode failed: \(String(describing: error), privacy: .public)")
+            }
+        case "media-viewer":
+            do {
+                let frame = try JSONDecoder().decode(MediaViewerState.self, from: data)
+                mediaViewerHandler?(frame)
+            } catch {
+                logger.error("media-viewer decode failed: \(String(describing: error), privacy: .public)")
             }
         case "diagnostics-summary":
             if let summary = try? JSONDecoder().decode(DiagnosticsSummary.self, from: data) {
