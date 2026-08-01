@@ -1,15 +1,8 @@
 import type { Server } from "bun";
 import { state, type OpenStream } from "../transcripts/transcriptState.ts";
 
-export const CORS_HEADERS: Record<string, string> = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, OPTIONS",
-  "access-control-allow-headers": "Content-Type",
-};
-
 export const JSON_HEADERS: Record<string, string> = {
   "content-type": "application/json",
-  ...CORS_HEADERS,
 };
 
 const SSE_HEADERS: ResponseInit["headers"] = {
@@ -17,7 +10,6 @@ const SSE_HEADERS: ResponseInit["headers"] = {
   "cache-control": "no-cache, no-transform",
   connection: "keep-alive",
   "x-accel-buffering": "no",
-  ...CORS_HEADERS,
 };
 
 const SSE_HEARTBEAT_MS = 20_000;

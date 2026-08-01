@@ -1,0 +1,209 @@
+import type { AgentBackend, AgentMessageDelivery } from "../agents/agentBackend.ts";
+import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "../agents/piAgentBackend.ts";
+import { canonicalProjectPath, getSnapshot } from "../transcripts/transcriptCatalog.ts";
+import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "./httpResponses.ts";
+import type { RouteHandler } from "./route.ts";
+
+const CREATE_ROUTE = "/api/agent-sessions";
+const MESSAGE_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/messages$/;
+const ABORT_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/abort$/;
+const EVENT_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/events$/;
+const STREAM_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/stream$/;
+const MAXIMUM_BODY_BYTES = 256 * 1024;
+
+export function createAgentRoutes(resolveBackend: (id: string) => AgentBackend | undefined): RouteHandler {
+  return (request, url, server) => {
+    if (request.method === "POST" && url.pathname === CREATE_ROUTE) {
+      return createSession(request, resolveBackend);
+    }
+    const message = MESSAGE_ROUTE.exec(url.pathname);
+    if (request.method === "POST" && message) {
+      return sendMessage(request, resolveBackend, message[1]!, message[2]!);
+    }
+    const abort = ABORT_ROUTE.exec(url.pathname);
+    if (request.method === "POST" && abort) {
+      return abortSession(request, resolveBackend, abort[1]!, abort[2]!);
+    }
+    const events = EVENT_ROUTE.exec(url.pathname);
+    if (request.method === "GET" && events && events[1] === "pi") {
+      return pageEvents(url, resolveBackend, events[1], events[2]!);
+    }
+    const stream = STREAM_ROUTE.exec(url.pathname);
+    if (request.method === "GET" && stream && stream[1] === "pi") {
+      return streamEvents(request, url, server, resolveBackend, stream[1], stream[2]!);
+    }
+    return undefined;
+  };
+}
+
+async function createSession(request: Request, resolveBackend: (id: string) => AgentBackend | undefined): Promise<Response> {
+  try {
+    const body = await jsonBody(request);
+    const requestId = requestIdentifier(body.requestId);
+    const source = sourceIdentifier(body.source);
+    const requestedProject = stringValue(body.projectPath);
+    if (!requestId || !source || !requestedProject) return errorResponse("invalid-request", "requestId, source and projectPath are required", 400);
+    const backend = resolveBackend(source);
+    if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404, requestId);
+    const projectPath = await canonicalProjectPath(requestedProject);
+    if (!projectPath || projectPath !== requestedProject || !getSnapshot().some((session) => session.project === projectPath)) {
+      return errorResponse("project-not-found", "projectPath is not in the discovered project catalog", 404, requestId);
+    }
+    return jsonResponse(await backend.createSession(requestId, projectPath), 201);
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+async function sendMessage(
+  request: Request,
+  resolveBackend: (id: string) => AgentBackend | undefined,
+  source: string,
+  sessionId: string,
+): Promise<Response> {
+  try {
+    const backend = resolveBackend(source);
+    if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404);
+    const body = await jsonBody(request);
+    const requestId = requestIdentifier(body.requestId);
+    const text = typeof body.text === "string" ? body.text : "";
+    const delivery = body.delivery;
+    if (!requestId || !text.trim() || (delivery !== "next" && delivery !== "steer")) {
+      return errorResponse("invalid-request", "requestId, nonempty text and delivery are required", 400, requestId ?? undefined);
+    }
+    if (new TextEncoder().encode(text).byteLength > MAXIMUM_BODY_BYTES) {
+      return errorResponse("prompt-too-large", "prompt exceeds 256 KiB", 413, requestId);
+    }
+    const receipt = await backend.send(sessionId, requestId, text, delivery as AgentMessageDelivery);
+    return jsonResponse(receipt, 202);
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+async function abortSession(
+  request: Request,
+  resolveBackend: (id: string) => AgentBackend | undefined,
+  source: string,
+  sessionId: string,
+): Promise<Response> {
+  try {
+    const backend = resolveBackend(source);
+    if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404);
+    const body = await jsonBody(request);
+    const requestId = requestIdentifier(body.requestId);
+    if (!requestId) return errorResponse("invalid-request", "requestId is required", 400);
+    return jsonResponse(await backend.abort(sessionId, requestId), 202);
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+async function pageEvents(
+  url: URL,
+  resolveBackend: (id: string) => AgentBackend | undefined,
+  source: string,
+  sessionId: string,
+): Promise<Response> {
+  try {
+    const backend = resolveBackend(source);
+    if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404);
+    const offset = integerQuery(url, "offset", 0, Number.MAX_SAFE_INTEGER);
+    const limit = integerQuery(url, "limit", 100, 500);
+    if (offset === null || limit === null || limit < 1) return errorResponse("invalid-pagination", "invalid pagination", 400);
+    if ((url.searchParams.get("mode") ?? "nice") !== "nice") return errorResponse("unsupported-mode", "Pi sessions support nice mode only", 400);
+    return jsonResponse(await backend.page(sessionId, offset, limit, "nice"));
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+function streamEvents(
+  request: Request,
+  url: URL,
+  server: Parameters<RouteHandler>[2],
+  resolveBackend: (id: string) => AgentBackend | undefined,
+  source: string,
+  sessionId: string,
+): Response {
+  const backend = resolveBackend(source);
+  if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404);
+  const after = integerQuery(url, "since", 0, Number.MAX_SAFE_INTEGER);
+  if (after === null) return errorResponse("invalid-sequence", "since must be a nonnegative integer", 400);
+  return startServerSentEventStream(request, server, (write) => {
+    let closed = false;
+    let unsubscribe: (() => void) | undefined;
+    void backend.subscribe(sessionId, after, (envelope) => write(encodeServerSentEvent(envelope)))
+      .then((value) => {
+        if (closed) value();
+        else unsubscribe = value;
+      })
+      .catch((error) => write(encodeServerSentEvent({ error: errorPayload(error) })));
+    return () => {
+      closed = true;
+      unsubscribe?.();
+    };
+  });
+}
+
+async function jsonBody(request: Request): Promise<Record<string, unknown>> {
+  const announced = Number(request.headers.get("content-length") ?? 0);
+  if (announced > MAXIMUM_BODY_BYTES) throw new BodyTooLargeError();
+  const bytes = await request.bytes();
+  if (bytes.byteLength > MAXIMUM_BODY_BYTES) throw new BodyTooLargeError();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(bytes));
+  } catch (error) {
+    throw new InvalidJsonError(error);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new InvalidJsonError();
+  return parsed as Record<string, unknown>;
+}
+
+function integerQuery(url: URL, name: string, fallback: number, maximum: number): number | null {
+  const raw = url.searchParams.get(name);
+  if (raw === null) return fallback;
+  if (!/^\d+$/.test(raw)) return null;
+  const value = Number(raw);
+  return Number.isSafeInteger(value) ? Math.min(value, maximum) : null;
+}
+
+function requestIdentifier(value: unknown): string | null {
+  return typeof value === "string" && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : null;
+}
+
+function sourceIdentifier(value: unknown): string | null {
+  return typeof value === "string" && /^[a-z][a-z0-9-]{0,31}$/.test(value) ? value : null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+class BodyTooLargeError extends Error {}
+class InvalidJsonError extends Error {
+  constructor(options?: unknown) { super("request body is not valid JSON", { cause: options }); }
+}
+
+function routeError(error: unknown): Response {
+  if (error instanceof BodyTooLargeError) return errorResponse("body-too-large", "request body exceeds 256 KiB", 413);
+  if (error instanceof InvalidJsonError) return errorResponse("invalid-json", error.message, 400);
+  if (error instanceof AgentCommandConflictError) return errorResponse("request-conflict", error.message, 409);
+  if (error instanceof AgentSessionNotFoundError) return errorResponse("session-not-found", error.message, 404);
+  if (error instanceof AgentModeUnsupportedError) return errorResponse("unsupported-mode", error.message, 400);
+  console.error("agent command route failed", error);
+  return errorResponse("agent-command-failed", error instanceof Error ? error.message : String(error), 500, undefined, true);
+}
+
+function errorPayload(error: unknown) {
+  return {
+    code: error instanceof AgentSessionNotFoundError ? "session-not-found" : "agent-stream-failed",
+    message: error instanceof Error ? error.message : String(error),
+    retryable: !(error instanceof AgentSessionNotFoundError),
+  };
+}
+
+function errorResponse(code: string, message: string, status: number, requestId?: string, retryable = false): Response {
+  return jsonResponse({ error: { code, message, requestId, retryable } }, status);
+}

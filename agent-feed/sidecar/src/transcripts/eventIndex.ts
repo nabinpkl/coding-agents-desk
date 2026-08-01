@@ -314,7 +314,7 @@ export function getSessionUsage(
  * row.
  */
 export async function readEvents(
-  source: SourceId,
+  source: TranscriptSourceId,
   sessionId: string,
   transcriptPath: string,
   offset: number,

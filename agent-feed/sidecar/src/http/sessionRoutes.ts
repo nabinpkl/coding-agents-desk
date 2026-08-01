@@ -24,10 +24,9 @@ import {
 } from "../transcripts/transcriptCatalog.ts";
 import type {
   EventMode,
-  SourceId,
+  TranscriptSourceId,
 } from "../transcripts/sources/transcriptTypes.ts";
 import {
-  CORS_HEADERS,
   encodeServerSentEvent,
   jsonResponse,
   startServerSentEventStream,
@@ -39,8 +38,8 @@ const RAW_EVENT_ROUTE =
   /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/events\/(\d+)\/raw$/i;
 const STREAM_ROUTE = /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/stream$/i;
 
-function sourceId(value: string): SourceId {
-  return value.toLowerCase() as SourceId;
+function sourceId(value: string): TranscriptSourceId {
+  return value.toLowerCase() as TranscriptSourceId;
 }
 
 // Rejected rather than defaulted when unrecognized. A mode decides what an event
@@ -135,7 +134,7 @@ async function sessionSnapshotStream(
 }
 
 async function paginatedEvents(
-  source: SourceId,
+  source: TranscriptSourceId,
   sessionId: string,
   offset: number,
   limit: number,
@@ -167,7 +166,7 @@ async function paginatedEvents(
 }
 
 async function rawEvent(
-  source: SourceId,
+  source: TranscriptSourceId,
   sessionId: string,
   eventIndex: number,
   mode: EventMode,
@@ -187,7 +186,6 @@ async function rawEvent(
     return new Response(raw, {
       headers: {
         "content-type": "text/plain; charset=utf-8",
-        ...CORS_HEADERS,
       },
     });
   } catch (error) {
@@ -203,7 +201,7 @@ async function rawEvent(
 function eventStream(
   request: Request,
   server: Parameters<RouteHandler>[2],
-  source: SourceId,
+  source: TranscriptSourceId,
   sessionId: string,
   after: number,
   mode: EventMode,

@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 function integerEnvironment(
   name: string,
@@ -92,6 +93,27 @@ export const config = {
   codexHomeDirectory: directoryEnvironment(
     "AGENT_FEED_CODEX_HOME",
     join(userHomeDirectory, ".codex"),
+  ),
+  piAgentDirectory: directoryEnvironment(
+    "AGENT_FEED_PI_AGENT_DIR",
+    getAgentDir(),
+  ),
+  piSessionsDirectory: directoryEnvironment(
+    "AGENT_FEED_PI_SESSIONS_DIR",
+    process.env.PI_CODING_AGENT_SESSION_DIR || join(getAgentDir(), "sessions"),
+  ),
+  controlToken: process.env.AGENT_FEED_CONTROL_TOKEN?.trim() || null,
+  piIdleRuntimeMs: integerEnvironment(
+    "AGENT_FEED_PI_IDLE_RUNTIME_MS",
+    10 * 60 * 1000,
+    1000,
+    24 * 60 * 60 * 1000,
+  ),
+  piToolCallBudget: integerEnvironment(
+    "AGENT_FEED_PI_TOOL_CALL_BUDGET",
+    64,
+    1,
+    1024,
   ),
   discoveryRescanMs: integerEnvironment(
     "AGENT_FEED_DISCOVERY_RESCAN_MS",

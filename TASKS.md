@@ -1414,6 +1414,8 @@ D226  2026-07-31  landed     make the LTR round trip observable, and stop two di
 D227  2026-08-01  landed     LTR works; a session recreate is what wipes it, so drop its state with the session
 D228  2026-08-01  landed     carry the ladder rung across a resume, so recovery stops rescaling itself out of the cheap path
 D229  2026-08-01  landed     device run: the cheap recovery frame lands at 529 bytes; the rescale after it is the new cost
+R230  2026-08-01  open       the client display layer can wedge black, survive every reconnect, and read as healthy
+R231  2026-08-01  open       rate-limit the resolution axis; three rescales in seventeen seconds is three keyframes
 
 D214 detail: a control-message pair (`liveness-probe` / `liveness-echo`) carrying a sequence
 number on the existing `frameId` field. Three unanswered probes at 2s declares ~4.5s after the
@@ -1616,6 +1618,33 @@ ladder oscillates in steady state and every oscillation resets the reference set
 cycles 8s apart also mean the radio transition itself is still a large part of the fifteen
 seconds. Next lever is rescaling less often, since making a rescale cheap is likely impossible --
 the reference invalidation at a new resolution is real.
+
+R230 detail: found on the D229 device run and confirmed by the operator. After the WiFi-to-
+cellular toggle the phone showed black and stayed black for minutes. Both resumes had already
+succeeded, the host was streaming, and the client reported presenting at 23-26 fps with
+`renderStallCount=0`, `decodeDropCount=0`, `droppedFrames=0`, `presentationGapCount=5`. A force
+quit and relaunch cleared it immediately, and repeating the same network switches after the
+restart worked. So transport, host capture and the encoder were all healthy: what wedged is the
+client's video display layer, and nothing in the reconnect path un-wedges it -- two transport
+rebuilds at 00:27:29 and 00:27:39 left it black, which is why it never recovered on its own.
+
+The reason this went unnoticed is that every "rendering" signal we have is measured at the wrong
+end. `fps` counts frames handed TO `AVSampleBufferDisplayLayer`; `renderStallCount` watches the
+enqueue cadence. Both read perfectly healthy while the layer emits nothing, so a wedged layer and
+a working one are indistinguishable in the logs -- the same shape as the LTR gap in D225/D226,
+where a mechanism's failure and its success printed identically. Two pieces of work, and the
+observability comes first because the recovery cannot be verified without it: a display-side
+signal (layer attached, bounds non-zero, samples actually dequeued or rendered), then a recovery
+that acts on it. Note the client already has recovery paths for a wedged layer -- they just fire
+on signals this state does not trip.
+
+R231 detail: measured live during the same run: `scale=0.75` keyframe 86,644B at 00:34:00,
+`scale=0.50` keyframe 68,598B at 00:34:06, `scale=0.75` keyframe 122,041B at 00:34:17. Three
+resolution changes in seventeen seconds, each a full keyframe by construction, on the cellular
+link least able to carry them. Separately `ltr-state-dropped` fired 25 times in eight minutes,
+since every rescale recreates the compression session and destroys the long-term references. The
+resolution axis needs a minimum dwell time or a wider hysteresis band; bitrate and fps can keep
+moving freely, because only the resolution axis invalidates references.
 
 ## v16 live Pi agent loop
 

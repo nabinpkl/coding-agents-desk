@@ -4,6 +4,9 @@ import { existsSync } from "node:fs";
 import { readdir, realpath, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { config } from "../config.ts";
+import type { AgentSessionCapabilities } from "../agents/agentBackend.ts";
+import { piLocation, scanPiSessions } from "../agents/piSessionCatalog.ts";
+import type { PiSessionLocation } from "../agents/piAgentBackend.ts";
 import { state, type WatcherState } from "./transcriptState.ts";
 import { claudeAdapter } from "./sources/claudeTranscript.ts";
 import {
@@ -20,7 +23,7 @@ import type {
 export interface ProjectSummary {
   projectPath: string;
   displayName: string;
-  sourceCounts: { claude: number; codex: number };
+  sourceCounts: Record<string, number>;
   sessionCount: number;
   lastEventAt: number;
 }
@@ -31,6 +34,7 @@ export interface SessionSummary {
   title: string;
   lastEventAt: number;
   activity: Bin;
+  capabilities: AgentSessionCapabilities;
 }
 
 const HEADER_PROBE_BYTES = 32 * 1024;
@@ -38,6 +42,27 @@ const SUMMARY_TITLE_CHARACTERS = 240;
 const CLAUDE_SESSION_PATTERN = /^[0-9a-f-]{36}\.jsonl$/i;
 const ROLLOUT_PATTERN = /^rollout-[\d-]+T[\d-]+-([0-9a-f-]{36})\.jsonl$/i;
 let codexReconcileTimer: ReturnType<typeof setTimeout> | null = null;
+let piReconcileTimer: ReturnType<typeof setTimeout> | null = null;
+
+const TRANSCRIPT_CAPABILITIES: AgentSessionCapabilities = {
+  modes: ["raw", "nice"],
+  canSend: false,
+  canSteer: false,
+  canAbort: false,
+  canFetchRaw: true,
+  canOpenTerminal: true,
+  supportsExtensionUi: false,
+};
+
+const PI_CAPABILITIES: AgentSessionCapabilities = {
+  modes: ["nice"],
+  canSend: true,
+  canSteer: true,
+  canAbort: true,
+  canFetchRaw: false,
+  canOpenTerminal: false,
+  supportsExtensionUi: true,
+};
 
 export function sessionKey(source: SourceId, sessionId: string): string {
   return `${source}:${sessionId}`;
@@ -277,6 +302,40 @@ async function reconcileCodex(): Promise<void> {
   }));
 }
 
+async function reconcilePi(): Promise<void> {
+  const startedAt = performance.now();
+  const sessions = await scanPiSessions();
+  const next = new Map(sessions.map((session) => [sessionKey("pi", session.sessionId), session]));
+  for (const [key, session] of [...state.sessions]) {
+    if (session.source === "pi" && !next.has(key)) state.sessions.delete(key);
+  }
+  for (const [key, session] of next) state.sessions.set(key, session);
+  console.log(JSON.stringify({
+    event: "agent-feed-catalog-source-ready",
+    source: "pi",
+    durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+    sessions: next.size,
+  }));
+}
+
+export function registerPiSession(location: PiSessionLocation): void {
+  state.sessions.set(sessionKey("pi", location.sessionId), {
+    sessionId: location.sessionId,
+    source: "pi",
+    project: location.projectPath,
+    transcriptPath: location.transcriptPath,
+    title: location.title,
+    lastEventAt: location.lastEventAt,
+    entrypoint: "pi",
+  });
+  broadcast();
+}
+
+export function resolvePiSession(sessionId: string): PiSessionLocation | undefined {
+  const session = findSession("pi", sessionId);
+  return session ? piLocation(session) : undefined;
+}
+
 function scheduleCodexReconcile(): void {
   if (codexReconcileTimer) clearTimeout(codexReconcileTimer);
   codexReconcileTimer = setTimeout(() => {
@@ -347,6 +406,27 @@ function attachSourceWatchers(): void {
     console.error("agent feed Codex rollout watcher failed", error);
   });
   state.sourceWatchers.push(rolloutWatcher);
+
+  const piWatcher = chokidar.watch(config.piSessionsDirectory, {
+    ignoreInitial: true,
+    depth: 2,
+    persistent: true,
+    awaitWriteFinish: false,
+  });
+  const schedulePi = (): void => {
+    if (piReconcileTimer) clearTimeout(piReconcileTimer);
+    piReconcileTimer = setTimeout(() => {
+      piReconcileTimer = null;
+      void reconcilePi().then(broadcast).catch((error) => {
+        console.error("agent feed Pi catalog reconcile failed", error);
+      });
+    }, 40);
+  };
+  piWatcher.on("add", schedulePi);
+  piWatcher.on("change", schedulePi);
+  piWatcher.on("unlink", schedulePi);
+  piWatcher.on("error", (error) => console.error("agent feed Pi catalog watcher failed", error));
+  state.sourceWatchers.push(piWatcher);
 }
 
 export function projectSummaries(sessions: Session[] = getSnapshot()): ProjectSummary[] {
@@ -364,7 +444,7 @@ export function projectSummaries(sessions: Session[] = getSnapshot()): ProjectSu
       };
       grouped.set(session.project, project);
     }
-    project.sourceCounts[session.source] += 1;
+    project.sourceCounts[session.source] = (project.sourceCounts[session.source] ?? 0) + 1;
     project.sessionCount += 1;
     project.lastEventAt = Math.max(project.lastEventAt, session.lastEventAt);
   }
@@ -399,6 +479,22 @@ function computeActivity(lastEventAt: number, lastTurnClosed: boolean): Bin {
 }
 
 export async function probeSession(session: Session): Promise<SessionSummary> {
+  if (session.source === "pi") {
+    let lastEventAt = session.lastEventAt;
+    try {
+      lastEventAt = Math.max(lastEventAt, (await stat(session.transcriptPath)).mtimeMs);
+    } catch (error) {
+      console.warn("agent feed Pi session metadata probe failed", error);
+    }
+    return {
+      sessionId: session.sessionId,
+      source: session.source,
+      title: compactTitle(session.title) ?? session.sessionId,
+      lastEventAt,
+      activity: computeActivity(lastEventAt, true),
+      capabilities: PI_CAPABILITIES,
+    };
+  }
   const adapter = session.source === "claude" ? claudeAdapter : codexAdapter;
   let metadata: Awaited<ReturnType<typeof stat>>;
   try {
@@ -410,6 +506,7 @@ export async function probeSession(session: Session): Promise<SessionSummary> {
       title: compactTitle(session.title) ?? session.sessionId,
       lastEventAt: session.lastEventAt,
       activity: computeActivity(session.lastEventAt, true),
+      capabilities: TRANSCRIPT_CAPABILITIES,
     };
   }
   const file = Bun.file(session.transcriptPath);
@@ -449,6 +546,7 @@ export async function probeSession(session: Session): Promise<SessionSummary> {
     title: title ?? firstPrompt ?? lastUserPrompt ?? session.sessionId,
     lastEventAt,
     activity: computeActivity(lastEventAt, lastTurnClosed),
+    capabilities: TRANSCRIPT_CAPABILITIES,
   };
 }
 
@@ -502,6 +600,7 @@ function reconcileAllSources(): Promise<void[]> {
   return Promise.all([
     reconcileSource("claude", reconcileClaude),
     reconcileSource("codex", reconcileCodex),
+    reconcileSource("pi", reconcilePi),
   ]);
 }
 
@@ -529,6 +628,10 @@ export async function stopCatalog(): Promise<void> {
   if (codexReconcileTimer) {
     clearTimeout(codexReconcileTimer);
     codexReconcileTimer = null;
+  }
+  if (piReconcileTimer) {
+    clearTimeout(piReconcileTimer);
+    piReconcileTimer = null;
   }
   if (state.discoveryTimer) {
     clearInterval(state.discoveryTimer);
