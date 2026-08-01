@@ -1,19 +1,23 @@
 import AppKit
 import AgentDeskWire
 import AgentPanel
-import ApplicationServices
 import PtyTerminalWebView
 import Testing
 import WebKit
 
 @testable import AgentDeskHost
 
-// R24 accessibility verification. Rather than a screenshot (blocked by the shell-context TCC screen
-// capture grant), these assert the Agents window and its content surface through the AppKit
-// accessibility API — the same identifiers an AX/Maestro driver or VoiceOver would resolve. The
-// window is AX-identified as `agentdesk-agents-window`; its content surface carries either the live
-// webview's `agents-webview` id or, if the bundled panel assets fail to resolve, the fallback's
-// `agents-unavailable` id — so the surface is always AX-reachable.
+// R24 accessibility verification. These assert that the Agents window, its content surface, and the
+// terminal split carry the identifiers an AX or Maestro driver resolves: the window is identified as
+// `agentdesk-agents-window`, and its content surface carries either the live webview's
+// `agents-webview` id or, when the bundled panel assets fail to resolve, the fallback's
+// `agents-unavailable` id, so the surface is always identified.
+//
+// What these do NOT prove is that an external client can read those identifiers out of the process.
+// That check used to live here, behind a guard on whether the test process vends its accessibility
+// tree, and that guard is false on a developer machine: `xctest` has no bundle identity or TCC grant
+// of its own, so nothing was vended and the assertions behind it never ran. The claim belongs to
+// something driving the real bundled app, not to a unit suite that has to stay fast.
 @MainActor
 @Suite(.serialized)
 struct AgentWindowControllerTests {
@@ -150,7 +154,7 @@ struct AgentWindowControllerTests {
         )
     }
 
-    @Test func nativeTerminalIdentifiersReachExternalAccessibilityClients() async throws {
+    @Test func nativeTerminalSplitExposesItsAccessibilityIdentifiers() throws {
         let split = AgentWindowSplitView(
             feedView: NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 320)),
             terminalView: PtyTerminalWebView()
@@ -159,24 +163,9 @@ struct AgentWindowControllerTests {
         split.setTerminalOpen(true)
         split.layoutSubtreeIfNeeded()
 
-        let window = OffscreenTestWindow(hosting: split, title: "R73 native terminal accessibility test")
-        window.orderInOffscreen()
-        defer { window.orderOut(nil) }
-
-        // In-process AX vending is not available to the test process on a
-        // developer machine, so this branch is skipped there and the identifier
-        // assertions below only run where it is. Verified by temporarily
-        // failing on the guard: it was already false before these windows were
-        // moved off screen, so nothing was lost by moving them.
-        guard nativeWindowAccessibilityIsExternallyVendored() else { return }
-        try await waitForAccessibilityIdentifier(
-            AgentWindowAccessibilityIdentifiers.terminalSplitter,
-            in: window
-        )
-        try await waitForAccessibilityIdentifier(
-            AgentWindowAccessibilityIdentifiers.terminalContent,
-            in: window
-        )
+        let ids = axIdentifiers(in: split)
+        #expect(ids.contains(AgentWindowAccessibilityIdentifiers.terminalSplitter))
+        #expect(ids.contains(AgentWindowAccessibilityIdentifiers.terminalContent))
     }
 
     @Test func terminalAccessibilityScriptIdentifiesDynamicWebStates() async throws {
@@ -188,10 +177,6 @@ struct AgentWindowControllerTests {
             frame: NSRect(x: 0, y: 0, width: 480, height: 240),
             configuration: configuration
         )
-        let window = OffscreenTestWindow(hosting: webView, title: "R68 terminal accessibility test")
-        window.orderInOffscreen()
-        defer { window.orderOut(nil) }
-
         webView.loadHTMLString(
             "<html><body><footer><button aria-label=\"Open Codex terminal\">Open</button></footer></body></html>",
             baseURL: nil
@@ -202,11 +187,6 @@ struct AgentWindowControllerTests {
         )
         #expect(try await elementID(for: "button", in: webView)
             == AgentWindowAccessibilityIdentifiers.terminalLauncher)
-        let exposesAccessibilityDOMIdentifiers = try await accessibilityDOMIdentifierIsAvailable(
-            AgentWindowAccessibilityIdentifiers.terminalLauncher,
-            in: window
-        )
-
         try await replaceFooter(
             with: "<span role=\"status\">Opening terminal</span>",
             in: webView
@@ -217,12 +197,6 @@ struct AgentWindowControllerTests {
         )
         #expect(try await elementID(for: "[role=status]", in: webView)
             == AgentWindowAccessibilityIdentifiers.terminalStatus)
-        if exposesAccessibilityDOMIdentifiers {
-            try await waitForAccessibilityDOMIdentifier(
-                AgentWindowAccessibilityIdentifiers.terminalStatus,
-                in: window
-            )
-        }
 
         try await replaceFooter(
             with: "<button aria-label=\"Close Codex terminal\">Close</button>",
@@ -234,12 +208,6 @@ struct AgentWindowControllerTests {
         )
         #expect(try await elementID(for: "button", in: webView)
             == AgentWindowAccessibilityIdentifiers.terminalClose)
-        if exposesAccessibilityDOMIdentifiers {
-            try await waitForAccessibilityDOMIdentifier(
-                AgentWindowAccessibilityIdentifiers.terminalClose,
-                in: window
-            )
-        }
     }
 
     @Test func panelAccessibilityScriptIdentifiesProjectAndSessionRows() async throws {
@@ -251,10 +219,6 @@ struct AgentWindowControllerTests {
             frame: NSRect(x: 0, y: 0, width: 480, height: 320),
             configuration: configuration
         )
-        let window = OffscreenTestWindow(hosting: webView, title: "R72 panel row accessibility test")
-        window.orderInOffscreen()
-        defer { window.orderOut(nil) }
-
         webView.loadHTMLString(
             """
             <html><body>
@@ -286,19 +250,6 @@ struct AgentWindowControllerTests {
             == AgentPanelAccessibilityIdentifiers.backButton)
         #expect(try await elementID(for: "ul[aria-label='Projects'] button", in: webView) == projectID)
         #expect(try await elementID(for: "ul[aria-label='Sessions'] button", in: webView) == sessionID)
-
-        let exposesAccessibilityDOMIdentifiers = try await accessibilityDOMIdentifierIsAvailable(
-            sessionID,
-            in: window
-        )
-        if exposesAccessibilityDOMIdentifiers {
-            try await waitForAccessibilityDOMIdentifier(
-                AgentPanelAccessibilityIdentifiers.backButton,
-                in: window
-            )
-            try await waitForAccessibilityDOMIdentifier(projectID, in: window)
-            try await waitForAccessibilityDOMIdentifier(sessionID, in: window)
-        }
     }
 
     private func waitUntil(
@@ -347,184 +298,6 @@ struct AgentWindowControllerTests {
         Issue.record("Timed out waiting for terminal DOM identifier \(identifier)")
     }
 
-    private func waitForAccessibilityDOMIdentifier(
-        _ identifier: String,
-        in window: NSWindow
-    ) async throws {
-        for _ in 0..<200 {
-            if accessibilityDOMIdentifiers(in: window).contains(identifier) { return }
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        Issue.record("Timed out waiting for WebKit AX DOM identifier \(identifier)")
-    }
-
-    private func waitForAccessibilityIdentifier(
-        _ identifier: String,
-        in window: NSWindow
-    ) async throws {
-        for _ in 0..<200 {
-            if accessibilityIdentifiers(in: window).contains(identifier) { return }
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        let visible = accessibilityIdentifiers(in: window).sorted().joined(separator: ", ")
-        Issue.record("Timed out waiting for native AX identifier \(identifier); visible ids: [\(visible)]")
-    }
-
-    private func accessibilityDOMIdentifierIsAvailable(
-        _ identifier: String,
-        in window: NSWindow
-    ) async throws -> Bool {
-        for _ in 0..<20 {
-            if accessibilityDOMIdentifiers(in: window).contains(identifier) { return true }
-            try await Task.sleep(for: .milliseconds(5))
-        }
-        return false
-    }
-
-    private func accessibilityDOMIdentifiers(in window: NSWindow) -> Set<String> {
-        let application = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
-        AXUIElementSetMessagingTimeout(application, 0.05)
-        return collectAccessibilityStrings(
-            attribute: kAXDOMIdentifierAttribute as String,
-            from: application
-        )
-    }
-
-    private func accessibilityIdentifiers(in window: NSWindow) -> Set<String> {
-        let application = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
-        AXUIElementSetMessagingTimeout(application, 0.05)
-        return collectAccessibilityStrings(
-            attribute: kAXIdentifierAttribute as String,
-            from: application
-        )
-    }
-
-    private func nativeWindowAccessibilityIsExternallyVendored() -> Bool {
-        let application = AXUIElementCreateApplication(ProcessInfo.processInfo.processIdentifier)
-        AXUIElementSetMessagingTimeout(application, 0.05)
-        return !collectAccessibilityWindows(from: application).isEmpty
-    }
-
-    private func axValues(_ element: AXUIElement, attribute: String) -> [AXUIElement]? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
-            return nil
-        }
-        return value as? [AXUIElement]
-    }
-
-    private func axString(_ element: AXUIElement, attribute: String) -> String? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
-            return nil
-        }
-        return value as? String
-    }
-
-    private func collectAccessibilityStrings(
-        attribute: String,
-        from root: AXUIElement
-    ) -> Set<String> {
-        var visited: Set<UInt> = []
-        return collectAccessibilityStrings(
-            attribute: attribute,
-            from: root,
-            depth: 0,
-            visited: &visited
-        )
-    }
-
-    private func collectAccessibilityStrings(
-        attribute: String,
-        from element: AXUIElement,
-        depth: Int,
-        visited: inout Set<UInt>
-    ) -> Set<String> {
-        let hash = CFHash(element)
-        guard visited.insert(hash).inserted, depth < 32 else { return [] }
-        AXUIElementSetMessagingTimeout(element, 0.05)
-
-        var result: Set<String> = []
-        if let value = axString(element, attribute: attribute), !value.isEmpty {
-            result.insert(value)
-        }
-        for related in relatedAccessibilityElements(for: element) {
-            result.formUnion(
-                collectAccessibilityStrings(
-                    attribute: attribute,
-                    from: related,
-                    depth: depth + 1,
-                    visited: &visited
-                )
-            )
-        }
-        return result
-    }
-
-    private func relatedAccessibilityElements(for element: AXUIElement) -> [AXUIElement] {
-        let role = axString(element, attribute: kAXRoleAttribute as String)
-        var related = axValues(element, attribute: kAXChildrenAttribute) ?? []
-        related.append(contentsOf: axValues(element, attribute: "AXChildrenInNavigationOrder") ?? [])
-
-        if role == kAXApplicationRole {
-            related.append(contentsOf: axValues(element, attribute: kAXWindowsAttribute as String) ?? [])
-            related.append(contentsOf: axValues(element, attribute: "AXFunctionRowTopLevelElements") ?? [])
-            if let focusedWindow = axValue(element, attribute: kAXFocusedWindowAttribute as String) {
-                related.append(focusedWindow)
-            }
-            if let mainWindow = axValue(element, attribute: kAXMainWindowAttribute as String) {
-                related.append(mainWindow)
-            }
-            if let menuBar = axValue(element, attribute: kAXMenuBarAttribute as String) {
-                related.append(menuBar)
-            }
-            if let extrasMenuBar = axValue(element, attribute: "AXExtrasMenuBar") {
-                related.append(extrasMenuBar)
-            }
-            if let focusedElement = axValue(element, attribute: kAXFocusedUIElementAttribute as String) {
-                related.append(focusedElement)
-            }
-        }
-
-        var seen: Set<UInt> = []
-        return related.filter { seen.insert(CFHash($0)).inserted }
-    }
-
-    private func collectAccessibilityWindows(from root: AXUIElement) -> [AXUIElement] {
-        var visited: Set<UInt> = []
-        return collectAccessibilityWindows(from: root, depth: 0, visited: &visited)
-    }
-
-    private func collectAccessibilityWindows(
-        from element: AXUIElement,
-        depth: Int,
-        visited: inout Set<UInt>
-    ) -> [AXUIElement] {
-        let hash = CFHash(element)
-        guard visited.insert(hash).inserted, depth < 32 else { return [] }
-
-        var result: [AXUIElement] = []
-        if axString(element, attribute: kAXRoleAttribute as String) == kAXWindowRole {
-            result.append(element)
-        }
-        for related in relatedAccessibilityElements(for: element) {
-            result.append(contentsOf: collectAccessibilityWindows(
-                from: related,
-                depth: depth + 1,
-                visited: &visited
-            ))
-        }
-        return result
-    }
-
-    private func axValue(_ element: AXUIElement, attribute: String) -> AXUIElement? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
-            return nil
-        }
-        guard let value else { return nil }
-        return unsafeBitCast(value, to: AXUIElement.self)
-    }
 }
 
 @MainActor
