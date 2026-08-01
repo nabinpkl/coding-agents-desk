@@ -19,6 +19,7 @@ final class SurfaceControlRail: UIView {
     private let separator = UIView()
     private var surfaceByButton: [ObjectIdentifier: ControlSurface] = [:]
     private var onSelection: ((ControlSurface) -> Void)?
+    private var enabledSurfaces: Set<ControlSurface>?
 
     private(set) var surfaceButtons: [UIButton] = []
     private(set) var isCollapsed = false
@@ -85,17 +86,19 @@ final class SurfaceControlRail: UIView {
             )
             rebuildStack()
         }
+        applyEnabledSurfaces()
         select(selected)
     }
 
-    func clearSurfaces() {
-        surfaceButtons.forEach {
-            $0.removeTarget(self, action: #selector(surfaceButtonPressed(_:)), for: .touchUpInside)
-        }
-        surfaceButtons = []
-        surfaceByButton = [:]
-        onSelection = nil
-        rebuildStack()
+    /// Marks which surfaces can be opened right now; nil places no restriction.
+    ///
+    /// The rail lists every surface from launch so the app's shape is legible
+    /// before pairing, but a surface is a view onto the Mac and cannot be opened
+    /// without a session. Those stay visible and dimmed rather than disappearing,
+    /// because a rail that grows buttons on connect reads as a different app.
+    func setEnabledSurfaces(_ enabled: Set<ControlSurface>?) {
+        enabledSurfaces = enabled
+        applyEnabledSurfaces()
     }
 
     func select(_ surface: ControlSurface) {
@@ -103,6 +106,15 @@ final class SurfaceControlRail: UIView {
             let isSelected = surfaceByButton[ObjectIdentifier(button)] == surface
             button.isSelected = isSelected
             updateSelectionAppearance(button, isSelected: isSelected)
+        }
+    }
+
+    private func applyEnabledSurfaces() {
+        for button in surfaceButtons {
+            guard let surface = surfaceByButton[ObjectIdentifier(button)] else { continue }
+            let isEnabled = enabledSurfaces?.contains(surface) ?? true
+            button.isEnabled = isEnabled
+            button.alpha = isEnabled ? 1 : 0.35
         }
     }
 
@@ -296,6 +308,7 @@ final class SurfaceControlRail: UIView {
     }
 
     @objc func surfaceButtonPressed(_ sender: UIButton) {
+        guard sender.isEnabled else { return }
         guard let surface = surfaceByButton[ObjectIdentifier(sender)] else { return }
         select(surface)
         onSelection?(surface)

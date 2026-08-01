@@ -181,7 +181,11 @@ extension PairingViewController {
         teardownWorkspaceSurface()
         teardownIDESurface()
 
-        surfaceControlRail.clearSurfaces()
+        // The buttons outlive the session they open. Emptying the rail on
+        // disconnect made the app look like it had lost features rather than a
+        // connection; refreshing leaves the list intact and dims what a dead
+        // session can no longer serve.
+        refreshSurfaceToggle()
         return terminalCloseTask
     }
 
@@ -386,6 +390,20 @@ extension PairingViewController {
                 self?.surfaceSelectionChanged(surface)
             }
         )
+        surfaceControlRail.setEnabledSurfaces(openableSurfaces())
+    }
+
+    /// Control is this app's own screen and works with no Mac at all. Every other
+    /// surface reads a lane off the session, so before the handshake they are
+    /// listed but not openable.
+    private func openableSurfaces() -> Set<ControlSurface> {
+        let hasSession: Bool
+        if case .connected = pairingClient.state {
+            hasSession = true
+        } else {
+            hasSession = preservesSuspendedSessionSurfaces
+        }
+        return hasSession ? Set(currentSurfaces()) : [.control]
     }
 
     // MARK: - Visibility

@@ -258,6 +258,47 @@ struct SurfaceControlRailTests {
         })
     }
 
+    /// Before the handshake the rail still lists every surface, so the app's shape
+    /// is legible while unpaired, but the ones that read a lane off the session
+    /// cannot be opened yet and must say so rather than opening onto nothing.
+    @Test func surfacesWithoutASessionAreListedDimmedAndRefuseSelection() throws {
+        let rail = SurfaceControlRail(
+            gestureButton: utilityButton(label: "Gesture", identifier: "gesture-toggle"),
+            orientationButton: utilityButton(label: "Rotate", identifier: "orientation-toggle"),
+            voiceButton: utilityButton(label: "Voice", identifier: "voice-toggle"),
+            keyboardDictationButton: utilityButton(
+                label: "Keyboard Dictation",
+                identifier: "keyboard-dictation-service"
+            ),
+            settingsButton: utilityButton(label: "Settings", identifier: "settings-button")
+        )
+        var selections: [ControlSurface] = []
+        rail.setSurfaces(
+            [.control, .agent, .terminal, .workspace, .ide],
+            selected: .control,
+            onSelection: { selections.append($0) }
+        )
+        rail.setEnabledSurfaces([.control])
+
+        #expect(rail.surfaceButtons.count == 5)
+        let control = try #require(rail.surfaceButtons.first { $0.accessibilityLabel == "Control" })
+        let terminal = try #require(rail.surfaceButtons.first { $0.accessibilityLabel == "Terminal" })
+        #expect(control.isEnabled)
+        #expect(control.alpha == 1)
+        #expect(!terminal.isEnabled)
+        #expect(terminal.alpha < 1)
+        #expect(rail.surfaceButtons.allSatisfy { !$0.isHidden })
+
+        rail.surfaceButtonPressed(terminal)
+        #expect(selections.isEmpty)
+
+        rail.setEnabledSurfaces(nil)
+        #expect(rail.surfaceButtons.allSatisfy { $0.isEnabled && $0.alpha == 1 })
+
+        rail.surfaceButtonPressed(terminal)
+        #expect(selections == [.terminal])
+    }
+
     private func utilityButton(label: String, identifier: String) -> UIButton {
         let button = UIButton(type: .system)
         button.accessibilityLabel = label
