@@ -461,6 +461,12 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     /// nothing.
     func prepareForStreamHandover() {
         logger.notice("owned media video stream-handover keeping last frame and decoder state")
+        // Durable, not just os_log: a handover is exactly the run you cannot watch on an
+        // attached console, because the phone goes unavailable to devicectl the moment its
+        // WiFi drops. This lands in the pulled NDJSON store instead, so `just
+        // client-diagnostics` can answer whether the reset fired at all -- and its ABSENCE
+        // next to a `mediaTransportStarted` is the R230 signature.
+        ClientDiagnostics.shared.record(type: "videoStreamHandoverPrepared", fields: [:], level: .default)
         videoPresentationPacer.reset()
         pendingVideoPresentationTask?.cancel()
         pendingVideoPresentationTask = nil
