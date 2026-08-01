@@ -10,12 +10,12 @@ import AgentDeskWire
 /// oscillator: climb bitrate geometrically, trip over a single frame, collapse several rungs,
 /// climb again. The host log recorded the cycle at roughly 26 seconds, indefinitely.
 ///
-/// Measured over a 25 minute run: stale pressure fired in 32 of 1,629 windows, and 30 of its 31
-/// bursts lasted exactly ONE window. Only one burst ever reached two. So requiring two
-/// consecutive windows would have fired once instead of thirty-one times, which is a far
-/// stronger filter than any magnitude test -- the median firing window produced 17 frames and
-/// 19 of the 32 firings were a single stale frame, so a rate threshold mostly measures how much
-/// the screen happened to be changing.
+/// Measured over a 25 minute run: stale pressure fired in 59 of 2,664 windows, in 51 bursts of
+/// which 47 (92%) lasted exactly ONE window. Requiring two consecutive windows would have fired
+/// 4 times instead of 51, a far stronger filter than any magnitude test -- >=2 stale frames
+/// still leaves 42% of firings and a 250-permille rate leaves 39%, because the median firing
+/// window produced only 7 frames and 58% of firings were a single stale frame, so a rate
+/// threshold mostly measures how much the screen happened to be changing.
 struct MediaQualityStalePressureTests {
     private func config() -> MediaQualityControllerConfig { .fromConfig() }
 
@@ -43,8 +43,8 @@ struct MediaQualityStalePressureTests {
         )
     }
 
-    /// The measured case: a lone stale window. Thirty of thirty-one bursts looked exactly like
-    /// this, and each one used to cost a multi-rung collapse.
+    /// The measured case: a lone stale window. Forty-seven of fifty-one bursts looked exactly
+    /// like this, and each one used to cost a multi-rung collapse.
     @Test func aSingleStaleWindowHoldsInsteadOfCollapsingTheLadder() {
         var controller = MediaQualityController(config: config())
         let outcome = controller.observe(window(stale: 1)).outcome

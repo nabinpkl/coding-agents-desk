@@ -195,6 +195,7 @@ struct MediaQualityControllerConfig: Equatable {
     let emergencyScale: Double
     let survivalScale: Double
     let resolutionDownDwellMs: Int
+    let resolutionRaiseCleanMs: Int
 
     init(
         ceilingKbps: Int,
@@ -226,7 +227,8 @@ struct MediaQualityControllerConfig: Equatable {
         emergencyFps: Int,
         emergencyScale: Double,
         survivalScale: Double,
-        resolutionDownDwellMs: Int = Config.ownedMediaResolutionDownDwellMs
+        resolutionDownDwellMs: Int = Config.ownedMediaResolutionDownDwellMs,
+        resolutionRaiseCleanMs: Int = Config.ownedMediaResolutionRaiseCleanMs
     ) {
         self.ceilingKbps = max(1, ceilingKbps)
         self.floorKbps = min(max(1, floorKbps), self.ceilingKbps)
@@ -258,6 +260,7 @@ struct MediaQualityControllerConfig: Equatable {
         self.emergencyFps = min(max(1, emergencyFps), self.fpsFloor)
         self.emergencyScale = min(Self.normalizedScale(emergencyScale), self.survivalScale)
         self.resolutionDownDwellMs = max(0, resolutionDownDwellMs)
+        self.resolutionRaiseCleanMs = max(0, resolutionRaiseCleanMs)
     }
 
     static func fromConfig() -> MediaQualityControllerConfig {
@@ -291,7 +294,8 @@ struct MediaQualityControllerConfig: Equatable {
             emergencyFps: Config.ownedMediaEmergencyFps,
             emergencyScale: Config.ownedMediaEmergencyResolutionScale,
             survivalScale: Config.ownedMediaSurvivalResolutionScale,
-            resolutionDownDwellMs: Config.ownedMediaResolutionDownDwellMs
+            resolutionDownDwellMs: Config.ownedMediaResolutionDownDwellMs,
+            resolutionRaiseCleanMs: Config.ownedMediaResolutionRaiseCleanMs
         )
     }
 
@@ -404,6 +408,11 @@ struct MediaQualityController {
     // broken rather than predicted to break. Waiting out a dwell in either case holds a
     // known-bad resolution for ten seconds on purpose, so they skip the gate.
     private var resolutionEvidenceIsProven = false
+    // R231c. Total clean time since the last thing went wrong, for the resolution axis only.
+    // `cleanRecoveryMs` cannot serve this: it is zeroed every time it reaches
+    // `requiredRecoveryMs` so the ladder can take its next recovery step, which caps it at 4s
+    // and makes "clean for thirty seconds" unrepresentable in it.
+    private var resolutionCleanMs = 0
 
     init(config: MediaQualityControllerConfig) {
         self.config = config
@@ -438,6 +447,7 @@ struct MediaQualityController {
         // what keeps the resume from immediately reading as pressure in one direction or the
         // other and spending a keyframe undoing itself.
         committedResolutionScale = target.resolutionScale
+        resolutionCleanMs = 0
         clearResolutionPressure()
         clearProbe()
     }
@@ -493,7 +503,7 @@ struct MediaQualityController {
             resetPressureStreaks()
             resetRecovery()
             // R231b: one window of stale pressure is not evidence. Measured over 25 minutes,
-            // 30 of 31 stale bursts lasted exactly one window, and reacting to each of them is
+            // 47 of 51 stale bursts lasted exactly one window, and reacting to each of them is
             // what turned the ladder into an oscillator. Same shape as `cadenceDownWindows`.
             stalePressureStreak += 1
             guard stalePressureStreak >= config.staleDownWindows else {
@@ -657,6 +667,7 @@ struct MediaQualityController {
         windowMs: Int
     ) -> MediaQualityEvaluation {
         cleanRecoveryMs += max(windowMs, 1)
+        resolutionCleanMs += max(windowMs, 1)
         if probeWindowsRemaining > 0 {
             probeWindowsRemaining -= 1
         }
@@ -805,7 +816,12 @@ struct MediaQualityController {
             recoverBitrate(toward: canonical.bitrateKbps)
             return
         }
+        // R231c: do not start the climb until the link has held clean. This HOLDS rather than
+        // falling through to fps, because the recovery sequence is one axis at a time by design
+        // -- bitrate, then resolution, then fps -- so that a probe failure is attributable to
+        // the axis that moved. Letting fps overtake a stalled resolution step would break that.
         if target.resolutionScale < canonical.resolutionScale {
+            guard resolutionClimbIsEarned else { return }
             beginProbe(
                 target.with(resolutionScale: canonical.resolutionScale, reason: "quality-up"),
                 axis: .resolution
@@ -826,6 +842,7 @@ struct MediaQualityController {
             return
         }
         if target.resolutionScale < next.resolutionScale {
+            guard resolutionClimbIsEarned else { return }
             beginProbe(
                 MediaQualityTarget(
                     bitrateKbps: next.bitrateKbps,
@@ -949,6 +966,10 @@ struct MediaQualityController {
 
     private mutating func resetRecovery() {
         cleanRecoveryMs = 0
+        // Any pressure at all restarts the climb-back clock. That is the point: the measured
+        // failure was climbing after four clean seconds onto a link that had not actually
+        // recovered, and then paying another keyframe to come back down.
+        resolutionCleanMs = 0
         clearProbe()
     }
 
@@ -1037,8 +1058,21 @@ struct MediaQualityController {
         // first version of this gate did. If the up-move is still too eager -- and the 122,041B
         // frame says it is -- the lever is that probe's threshold, not another clock.
         guard requested < committedResolutionScale else {
-            committedResolutionScale = requested
-            clearResolutionPressure()
+            // Upward. R231c: the climb has to be earned with sustained clean time, or it is held
+            // at the committed scale. This is the funnel, so it also catches the rung move and
+            // the fps probe, both of which carry the next rung's scale and would otherwise raise
+            // resolution as a side effect of climbing a free axis.
+            if resolutionClimbIsEarned {
+                committedResolutionScale = requested
+                resolutionCleanMs = 0
+                clearResolutionPressure()
+                return
+            }
+            target = target.with(resolutionScale: committedResolutionScale, reason: target.reason)
+            stableTarget = stableTarget.with(
+                resolutionScale: committedResolutionScale,
+                reason: stableTarget.reason
+            )
             return
         }
         if resolutionEvidenceIsProven {
@@ -1067,6 +1101,13 @@ struct MediaQualityController {
             resolutionScale: committedResolutionScale,
             reason: stableTarget.reason
         )
+    }
+
+    /// R231c. Has the link been clean long enough to justify spending a keyframe climbing back?
+    /// Measured: 80% of upward rescales were undone within 30 seconds, so four times out of five
+    /// this returning false is the difference between a keyframe and nothing.
+    private var resolutionClimbIsEarned: Bool {
+        resolutionCleanMs >= config.resolutionRaiseCleanMs
     }
 
     private mutating func clearResolutionPressure() {

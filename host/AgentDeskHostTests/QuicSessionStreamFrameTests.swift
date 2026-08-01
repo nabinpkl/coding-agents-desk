@@ -524,7 +524,7 @@ struct QuicSessionHostMediaStateTests {
         #expect(decision.observation.freshness.abandonedBytes == 42)
         #expect(decision.observation.signals.stalePressure)
         #expect(decision.observation.signals.cadencePressure)
-        // R231b: one window of stale pressure holds rather than downshifting -- 30 of 31
+        // R231b: one window of stale pressure holds rather than downshifting -- 47 of 51
         // measured bursts lasted exactly one window, and acting on each is what made the ladder
         // oscillate. R231: when it does downshift, resolution still is not in the list, because
         // it costs a keyframe and the other two axes are free.

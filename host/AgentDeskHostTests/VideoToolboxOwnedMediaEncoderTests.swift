@@ -390,6 +390,26 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         )
     }
 
+    /// The same ladder with R231c's climb-back requirement turned down, used as the control when
+    /// measuring that the requirement actually delays anything.
+    private func eagerResolutionClimbConfig() -> MediaQualityControllerConfig {
+        MediaQualityControllerConfig(
+            ceilingKbps: 2500, floorKbps: 800, survivalFloorKbps: 300,
+            downStep: 0.7, upStep: 1.15,
+            lossDownPermille: 50, raiseCleanWindows: 4, cadenceDownWindows: 2,
+            fpsCeiling: 30, fpsFloor: 10,
+            ackHoldP95Ms: 180, ackDownP95Ms: 350,
+            cadenceGapMs: 500, freezeGapMs: 1_000, freezeFpsCeiling: 3,
+            recoveryMaxGapMs: 300, recoveryMinFpsPermille: 800,
+            transitionWarmupWindows: 1,
+            capacity1Kbps: 650, capacity1Fps: 24, capacity1Scale: 0.75,
+            capacity2Kbps: 400, capacity2Fps: 15, capacity2Scale: 0.5,
+            emergencyKbps: 180, emergencyFps: 6, emergencyScale: 0.33,
+            survivalScale: 0.5,
+            resolutionRaiseCleanMs: 1_000
+        )
+    }
+
     private func lossySample(ackP95Ms: Double? = nil) -> MediaQualitySample {
         MediaQualitySample(completedFrames: 80, expiredFrames: 20, ackAgeP95Ms: ackP95Ms)
     }
@@ -680,6 +700,54 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(controller.targetResolutionScale, 0.33)
     }
 
+    // R231c: the resolution axis now needs a long continuous clean streak before it will climb,
+    // separately from the 4s that gates every other recovery step, because that climb costs a
+    // keyframe and 80% of measured climbs were undone within 30s. These tests are about the
+    // recovery SEQUENCE, not that threshold, so they drive clean windows until the ladder is
+    // willing to move rather than hardcoding a window count that the threshold would invalidate.
+    private func driveUntilResolutionClimbs(
+        _ controller: inout MediaQualityController,
+        cap: Int = 200
+    ) {
+        let startScale = controller.targetResolutionScale
+        var windows = 0
+        while controller.targetResolutionScale == startScale && windows < cap {
+            _ = controller.observe(cleanInput())
+            windows += 1
+        }
+        XCTAssertLessThan(windows, cap, "resolution never climbed within \(cap) clean windows")
+    }
+
+    // R231c. The climb back has a much longer clean-time requirement than every other recovery
+    // step, because it is the only one that costs a keyframe. Measured across a 25 minute run:
+    // 51 upward rescales against 52 downward ones -- a pure oscillation with no net drift -- and
+    // an upward rescale survived a median of 22.4s before being undone, 80% of them inside 30s.
+    // Four times out of five that keyframe bought nothing.
+    func testMediaQualityControllerResolutionClimbWaitsLongerThanOtherRecoverySteps() {
+        func windowsUntilResolutionClimbs(_ controller: inout MediaQualityController) -> Int {
+            for _ in 0..<40 { _ = controller.observe(lossInput()) }
+            let low = controller.targetResolutionScale
+            XCTAssertLessThan(low, 1.0, "setup must reach a scaled-down rung")
+            var windows = 0
+            while controller.targetResolutionScale <= low && windows < 400 {
+                _ = controller.observe(cleanInput())
+                windows += 1
+            }
+            XCTAssertLessThan(windows, 400, "resolution must climb back eventually")
+            return windows
+        }
+
+        var slow = MediaQualityController(config: mediaQualityConfig())
+        var fast = MediaQualityController(config: eagerResolutionClimbConfig())
+        let slowWindows = windowsUntilResolutionClimbs(&slow)
+        let fastWindows = windowsUntilResolutionClimbs(&fast)
+
+        XCTAssertLessThan(fastWindows, slowWindows, "the climb-back threshold must actually delay the climb")
+        // Each window is 1s of production, so the default must hold for at least its configured
+        // clean time before spending the keyframe.
+        XCTAssertGreaterThanOrEqual(slowWindows, 30)
+    }
+
     func testMediaQualityControllerRecoversBitrateThenProbesResolutionThenFps() {
         var controller = MediaQualityController(config: mediaQualityConfig())
         for _ in 0..<40 { _ = controller.observe(lossInput()) }
@@ -700,7 +768,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
                 XCTAssertLessThanOrEqual(controller.targetKbps, 300)
             }
         }
-        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        driveUntilResolutionClimbs(&controller)
         XCTAssertEqual(controller.targetKbps, 300)
         XCTAssertEqual(controller.targetFps, 6, "fps holds while the higher survival resolution is probed")
         XCTAssertEqual(controller.targetResolutionScale, 0.5)
@@ -758,7 +826,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         while controller.targetKbps < 300 {
             for _ in 0..<4 { _ = controller.observe(cleanInput()) }
         }
-        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        driveUntilResolutionClimbs(&controller)
         XCTAssertEqual(controller.target.rung, .survival)
         XCTAssertEqual(controller.targetFps, 6)
         XCTAssertEqual(controller.targetResolutionScale, 0.5)
@@ -785,7 +853,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         while controller.targetKbps < 300 {
             for _ in 0..<4 { _ = controller.observe(cleanInput()) }
         }
-        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        driveUntilResolutionClimbs(&controller)
         _ = controller.observe(input(
             stressedSample(),
             productionSummary: production(actualFps: 3, targetFps: 6, maxGapMs: 780)
@@ -857,7 +925,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
     }
 
     // R231b: renamed from ...DownshiftsImmediately. It no longer does, and that is the point:
-    // 30 of 31 measured stale bursts lasted a single window, and collapsing the ladder on each
+    // 47 of 51 measured stale bursts lasted a single window, and collapsing the ladder on each
     // of them is what made it oscillate. The signal still fires on the first window; only the
     // downshift waits for a second.
     func testMediaQualityControllerStaleRecoveryDownshiftsAfterConsecutiveWindows() {
@@ -977,7 +1045,11 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             capacity1Kbps: 650, capacity1Fps: 24, capacity1Scale: 0.75,
             capacity2Kbps: 400, capacity2Fps: 15, capacity2Scale: 0.5,
             emergencyKbps: 180, emergencyFps: 6, emergencyScale: 0.33,
-            survivalScale: 0.5
+            survivalScale: 0.5,
+            // This test is about how a probe failure is handled, not about R231c's climb-back
+            // threshold, so it opts out of the 30s wait the way it already opts into a 1-window
+            // raiseCleanWindows: by naming the value it wants.
+            resolutionRaiseCleanMs: 1_000
         )
         var controller = MediaQualityController(config: config)
         _ = controller.observe(input(

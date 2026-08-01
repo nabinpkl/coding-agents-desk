@@ -258,15 +258,32 @@ enum Config {
     // ladder a probe-to-failure oscillator -- climb bitrate geometrically, trip over one
     // frame, collapse, climb again.
     //
-    // 2 is set against measurement. Over a 25 minute run stale pressure fired in 32 of 1,629
-    // windows, and 30 of its 31 bursts lasted exactly ONE window; only one burst reached two.
-    // So requiring two consecutive windows would have fired once instead of thirty-one times.
-    // Magnitude tests were all weaker: the median firing window produced 17 frames and 19 of
-    // 32 firings were a single stale frame, so a rate mostly measures how much the screen
-    // happened to be changing rather than how bad the link was.
+    // 2 is set against measurement. Over a 25 minute run stale pressure fired in 59 of 2,664
+    // windows, in 51 bursts of which 47 (92%) lasted exactly ONE window. Requiring two
+    // consecutive windows would have fired 4 times instead of 51.
+    // Magnitude tests were all weaker -- >=2 stale frames still leaves 42% of firings, >=3
+    // leaves 29%, a 250-permille rate leaves 39% -- because the median firing window produced
+    // only 7 frames and 58% of firings were a single stale frame, so a rate mostly measures how
+    // much the screen happened to be changing rather than how bad the link was.
     static let ownedMediaStaleDownWindows = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_STALE_DOWN_WINDOWS",
         defaultValue: 2
+    )
+    // R231c. How long the link has to have been continuously clean before resolution is allowed
+    // to climb BACK up. Deliberately separate from `ownedMediaBitrateRaiseCleanWindows` (4s),
+    // which gates every other recovery step: a bitrate step is free and a resolution step is a
+    // keyframe, so sharing one threshold between them is the same mistake in a third place.
+    //
+    // 30s is set against measurement. Across a 25 minute run the ladder made 51 upward rescales
+    // and 52 downward ones -- a pure oscillation with no net drift -- and an upward rescale
+    // survived a median of 22.4s before being undone. 80% were undone within 30s, 43% within
+    // 20s. Nearly every climb was therefore a keyframe spent on an improvement that did not
+    // hold, the largest measured at 122,041 bytes onto a link that had just failed at that
+    // scale. Waiting costs a softer picture for another half minute; not waiting costs that
+    // keyframe four times out of five for nothing.
+    static let ownedMediaResolutionRaiseCleanMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_RESOLUTION_RAISE_CLEAN_MS",
+        defaultValue: 30_000
     )
     // R231. How long the rung has to keep asking for a LOWER resolution before the encoder
     // acts on it. Bitrate and fps still move on the window that asked; only this axis waits,

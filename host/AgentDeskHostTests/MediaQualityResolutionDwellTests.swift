@@ -115,8 +115,8 @@ struct MediaQualityResolutionDwellTests {
     }
 
     /// The shape the host log actually recorded, which is not a run of consecutive stale
-    /// windows. Stale pressure fired in only 32 of 1,629 windows across 25 minutes, in bursts
-    /// that were almost always a single window, with clean windows in between. What holds
+    /// windows. Stale pressure fired in only 59 of 2,664 windows across 25 minutes, in bursts
+    /// that were 92% of the time a single window, with clean windows in between. What holds
     /// during those gaps is the RUNG -- the ladder stays down even on a window that reports
     /// nothing new -- so the dwell has to measure how long the rung has been low, not how many
     /// windows in a row actively pushed it lower. Reading the request from the already-gated
