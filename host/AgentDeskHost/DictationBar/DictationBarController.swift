@@ -5,11 +5,17 @@ import InteractionPanel
 import os
 import WebKit
 
-/// A key-able nonactivating all-Spaces panel. The host remains an accessory app
-/// while the bundled webview can receive the explicit click that WebKit needs
-/// before it grants microphone capture.
+/// A focus-less nonactivating all-Spaces panel.
+///
+/// This panel must never hold the keyboard, because the transcript it produces
+/// is delivered as synthesized key events to whatever holds it. Taking key on
+/// the click that starts a run points that delivery back at our own webview,
+/// so the dictation lands nowhere and the field the user was typing in stays
+/// empty. The webview still receives the click WebKit needs before it grants
+/// microphone capture: `WebPanelWebView` accepts first mouse, which delivers
+/// the press without moving focus.
 private final class DictationBarPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
+    override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
 
@@ -249,7 +255,12 @@ final class DictationBarController: NSObject {
             )
             return
         }
-        logger.notice("dictation transcript committed recording=\(recordingID, privacy: .public) chars=\(trimmed.count, privacy: .public)")
+        // Name the delivery target. A committed transcript that never appears
+        // is a question about who holds the keyboard, and the answer has to be
+        // in the log next to the commit that assumed it.
+        logger.notice(
+            "dictation transcript committed recording=\(recordingID, privacy: .public) chars=\(trimmed.count, privacy: .public) panelKey=\(self.panel?.isKeyWindow == true, privacy: .public) frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "(none)", privacy: .public)"
+        )
         // This panel never activates the host app, so the focused external app
         // remains the insertion target while capture and finalization happen.
         typeText(trimmed + " ")
@@ -396,16 +407,5 @@ extension DictationBarController: NSWindowDelegate {
         guard let panel else { return }
         save(origin: panel.frame.origin)
         onFrameDidChange?()
-    }
-
-    // Whether the panel is key decides whether a click on it is spent on focus
-    // or reaches the control. Recording the transitions makes a dead-click
-    // report readable afterwards instead of a guess about window order.
-    func windowDidBecomeKey(_ notification: Notification) {
-        logger.debug("dictation panel became key")
-    }
-
-    func windowDidResignKey(_ notification: Notification) {
-        logger.debug("dictation panel resigned key")
     }
 }
