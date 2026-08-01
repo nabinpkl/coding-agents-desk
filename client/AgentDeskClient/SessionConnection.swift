@@ -2,10 +2,12 @@ import CryptoKit
 import Foundation
 import AgentDeskWire
 
+// No expiry here on purpose. The resume deadline counts from the moment contact was lost,
+// which the handshake that hands out this material cannot know, so any deadline stamped at
+// that point is wrong. The host derives the real one and states it in the resume challenge.
 struct SessionResumeMaterial: Equatable, Sendable {
     let id: Data
     let secret: Data
-    let expiresAt: Int
     let mediaKeySalt: Data
     let clientNonce: Data
     let hostNonce: Data

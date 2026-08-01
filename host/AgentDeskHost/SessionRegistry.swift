@@ -37,7 +37,11 @@ private struct ActiveSessionRecord {
     var state: SessionLifecycleState
     var resumeId: Data
     var resumeSecret: Data
-    var resumeExpiresAt: Int
+    // When the host last lost contact, or nil while it believes the session is live.
+    // The resume deadline is derived from this rather than stored, because the deadline
+    // has to count from the moment contact was lost and the handshake cannot know that
+    // moment in advance. See resumeDeadline(for:).
+    var suspendedAt: Date?
     var mediaKeySalt: Data
     var pendingResumeProof: PendingResumeProof?
 }
@@ -93,7 +97,7 @@ final class SessionRegistry {
             state: .connected,
             resumeId: ready.resumeId,
             resumeSecret: ready.resumeSecret,
-            resumeExpiresAt: ready.resumeExpiresAt,
+            suspendedAt: nil,
             mediaKeySalt: ready.mediaKeySalt,
             pendingResumeProof: nil
         )
@@ -103,11 +107,17 @@ final class SessionRegistry {
         return transition
     }
 
-    func markSuspended(_ fingerprint: DeviceFingerprint, sessionId: String? = nil) {
+    /// Returns false when there is no matching live record, so callers do not announce a
+    /// suspension or start a grace timer for a session that is already gone.
+    @discardableResult
+    func markSuspended(_ fingerprint: DeviceFingerprint, sessionId: String? = nil) -> Bool {
         guard var record = records[fingerprint],
               sessionId == nil || record.session.sessionId == sessionId
-        else { return }
+        else { return false }
         record.state = .suspended
+        // Every fresh loss of contact opens a fresh resume window. A connection that flaps
+        // is a client still trying to reach us; the session ends when the flapping stops.
+        record.suspendedAt = now()
         records[fingerprint] = record
         inputTasks[fingerprint]?.cancel()
         inputTasks.removeValue(forKey: fingerprint)
@@ -117,6 +127,18 @@ final class SessionRegistry {
         diagnosticsBrokers.removeValue(forKey: fingerprint)
         transports[fingerprint]?.stop()
         transports.removeValue(forKey: fingerprint)
+        return true
+    }
+
+    /// How long this session stays resumable: `sessionResumeTTL` from the moment the host
+    /// last had contact with the client.
+    ///
+    /// A record the host still believes is connected has contact now, so its window is
+    /// continuously refreshed. That is correct while the host notices drops, and it is the
+    /// one case a liveness echo still has to close: a session wedged as connected over a
+    /// dead path holds its resume window open until the host learns the path is dead.
+    private func resumeDeadline(for record: ActiveSessionRecord) -> Int {
+        Int((record.suspendedAt ?? now()).addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970)
     }
 
     func makeResumeChallenge(_ request: SessionResumeInit) -> SessionResumeChallengeResult {
@@ -128,7 +150,8 @@ final class SessionRegistry {
         guard request.protocolVersion >= Config.minCompatibleProtocolVersion else {
             return .rejected(.incompatibleProtocol)
         }
-        guard Int(now().timeIntervalSince1970) <= record.resumeExpiresAt else {
+        let deadline = resumeDeadline(for: record)
+        guard Int(now().timeIntervalSince1970) <= deadline else {
             return .rejected(.expiredResume)
         }
         guard !request.resumeId.isEmpty,
@@ -150,7 +173,7 @@ final class SessionRegistry {
         records[request.deviceFingerprint] = record
         return .accepted(SessionResumeChallenge(
             hostNonce: hostNonce,
-            resumeExpiresAt: record.resumeExpiresAt,
+            resumeExpiresAt: deadline,
             hostSignature: Data()
         ))
     }
@@ -164,7 +187,7 @@ final class SessionRegistry {
         guard request.protocolVersion >= Config.minCompatibleProtocolVersion else {
             return .rejected(.incompatibleProtocol)
         }
-        guard Int(now().timeIntervalSince1970) <= record.resumeExpiresAt else {
+        guard Int(now().timeIntervalSince1970) <= resumeDeadline(for: record) else {
             return .rejected(.expiredResume)
         }
         guard let pending = record.pendingResumeProof,
@@ -211,7 +234,7 @@ final class SessionRegistry {
         record.state = .connected
         record.resumeId = ready.resumeId
         record.resumeSecret = ready.resumeSecret
-        record.resumeExpiresAt = ready.resumeExpiresAt
+        record.suspendedAt = nil
         record.mediaKeySalt = ready.mediaKeySalt
         record.pendingResumeProof = nil
         records[fingerprint] = record
@@ -315,6 +338,9 @@ final class SessionRegistry {
             sessionId: record.session.sessionId,
             resumeId: try randomBytes(32),
             resumeSecret: try randomBytes(32),
+            // Advisory. The session is about to go connected, so the real deadline is
+            // whatever the next loss of contact derives; the authoritative check is the
+            // host's, on the challenge it issues at the next resume.
             resumeExpiresAt: Int(now().addingTimeInterval(Config.sessionResumeTTL).timeIntervalSince1970),
             mediaKeySalt: try randomBytes(32),
             hostSignature: Data()

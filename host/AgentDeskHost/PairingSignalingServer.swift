@@ -163,7 +163,7 @@ final class PairingSignalingServer: @unchecked Sendable {
                 }
             case .failed, .cancelled:
                 if let context {
-                    self?.notifyEnded(context)
+                    self?.notifyConnectionLost(context)
                 }
             default:
                 break
@@ -176,7 +176,7 @@ final class PairingSignalingServer: @unchecked Sendable {
             }
         } catch {
             logger.notice("inbound stream loop ended: \(String(describing: error), privacy: .public)")
-            notifyEnded(context)
+            notifyConnectionLost(context)
         }
     }
 
@@ -496,16 +496,41 @@ final class PairingSignalingServer: @unchecked Sendable {
     private func notifySuspended(_ context: ConnectionContext) {
         // AppDelegate maps this to SessionRegistry.suspended and keeps the grace
         // window alive; input/media lanes are suspended, not revoked.
-        guard let active = context.activeSession else { return }
+        guard let active = context.activeSession, !isSuperseded(context) else { return }
         sessionSuspendedHandler(active.deviceFingerprint, active.sessionId)
     }
 
-    private func notifyEnded(_ context: ConnectionContext) {
-        _ = contexts.withLock { $0.removeValue(forKey: ObjectIdentifier(context.connection)) }
+    // The QUIC connection carrying this session is gone. Under ADR-0030 a session outlives
+    // its connection: the client dials a new one and resumes onto the same session by token.
+    // So a connection that dies under an established session is a suspend, and the resume
+    // deadline decides when the session is really over. Ending here is what used to kill a
+    // resumable session about ten seconds into a network handover, well inside its own
+    // resume window, forcing a full re-dial.
+    private func notifyConnectionLost(_ context: ConnectionContext) {
+        let superseded = contexts.withLock { contexts -> Bool in
+            _ = contexts.removeValue(forKey: ObjectIdentifier(context.connection))
+            guard let sessionId = context.activeSession?.sessionId else { return false }
+            return contexts.values.contains { $0.activeSession?.sessionId == sessionId }
+        }
+        // The client already moved this session onto a newer connection, so this one dying
+        // says nothing about the session.
+        guard !superseded else {
+            logger.notice("superseded session connection closed; newer connection owns the session")
+            return
+        }
         if let active = context.activeSession {
-            sessionEndedHandler(active.deviceFingerprint, active.sessionId)
+            sessionSuspendedHandler(active.deviceFingerprint, active.sessionId)
         } else if let fingerprint = context.attemptingFingerprint {
+            // Never established, so there is no session to resume onto.
             sessionEndedHandler(fingerprint, nil)
+        }
+    }
+
+    private func isSuperseded(_ context: ConnectionContext) -> Bool {
+        guard let sessionId = context.activeSession?.sessionId else { return false }
+        let own = ObjectIdentifier(context.connection)
+        return contexts.withLock { contexts in
+            contexts.contains { $0.key != own && $0.value.activeSession?.sessionId == sessionId }
         }
     }
 

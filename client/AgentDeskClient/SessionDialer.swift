@@ -134,7 +134,6 @@ final class SessionDialer {
             resume: SessionResumeMaterial(
                 id: ready.resumeId,
                 secret: ready.resumeSecret,
-                expiresAt: ready.resumeExpiresAt,
                 mediaKeySalt: ready.mediaKeySalt,
                 clientNonce: clientNonce,
                 hostNonce: challenge.hostNonce
@@ -267,7 +266,6 @@ final class SessionDialer {
             resume: SessionResumeMaterial(
                 id: ready.resumeId,
                 secret: ready.resumeSecret,
-                expiresAt: ready.resumeExpiresAt,
                 mediaKeySalt: ready.mediaKeySalt,
                 clientNonce: clientNonce,
                 hostNonce: challenge.hostNonce

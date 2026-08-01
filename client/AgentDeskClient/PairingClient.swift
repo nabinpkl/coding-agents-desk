@@ -316,8 +316,11 @@ final class PairingClient {
                 )
             }
             let connection: SessionHandshakeOutcome
-            if let resume = pendingResume,
-               resume.resume.expiresAt >= Int(Date().timeIntervalSince1970) {
+            // Always try the resume when we hold material for one. Only the host knows how
+            // long ago it lost contact, and it states that in the challenge, which the resume
+            // path checks. An expired attempt costs one round trip and falls back below,
+            // where a client-side guess at the deadline cost every resume.
+            if let resume = pendingResume {
                 connection = try await Self.resumeOrRetryDurablePairing(
                     resume: {
                         try await dialer.resume(

@@ -1093,7 +1093,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleSessionSuspended(_ fingerprint: DeviceFingerprint, sessionId: String?) {
-        sessions.markSuspended(fingerprint, sessionId: sessionId)
+        // A revoked or replaced session leaves no record, and its connection still reports a
+        // close afterwards. Without this the close would log a suspend and arm a grace timer
+        // for a session that no longer exists.
+        guard sessions.markSuspended(fingerprint, sessionId: sessionId) else { return }
         signalingLogger.notice("session suspended fingerprint=\(fingerprint.rawValue, privacy: .public)")
         let graceTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(Config.sessionResumeTTL * 1_000_000_000))
@@ -1133,8 +1136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleSessionEnded(
         _ fingerprint: DeviceFingerprint,
-        sessionId: String? = nil,
-        closeSignaling: Bool = false
+        sessionId: String? = nil
     ) {
         guard sessions.endSession(fingerprint, sessionId: sessionId) else {
             signalingLogger.notice("ignored stale session end fingerprint=\(fingerprint.rawValue, privacy: .public) session=\(sessionId ?? "nil", privacy: .public)")
@@ -1797,7 +1799,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // pairing is gone the state is meaningless, and the hardware compression session it
         // holds should not outlive it.
         mediaEncoders.removeValue(forKey: fingerprint)?.invalidate()
-        handleSessionEnded(fingerprint, closeSignaling: true)
+        handleSessionEnded(fingerprint)
         refreshConnectedState()
     }
 

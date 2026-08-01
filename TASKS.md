@@ -1385,7 +1385,26 @@ disconnect, unpair, rejection -- still removes everything as before.
 D217  2026-07-31  landed     LTR recovery: a resync costs the delta since an acknowledged frame, not a keyframe
 R218  checkpoint  remaining  device run: confirm a resync frame is hundreds of bytes, not hundreds of KB, with no corruption
 D219  2026-07-31  landed     keep the host encoder alive across a reconnect, so LTR also covers the handover case
+D220  2026-07-31  landed     open the resume window: count the deadline from the drop, and stop a dead connection ending the session
 ```
+
+D220 detail: the TTL retune this arc kept deferring was the wrong question. `sessionResumeTTL`
+was never why resume failed. `resumeExpiresAt` was stamped once at the handshake as
+`establishedAt + 20s` and never moved, so any session older than twenty seconds carried a
+deadline already in the past -- both sides refused before trying. The deadline is now derived
+from `suspendedAt` (or now, for a session the host still believes is live), which is what the
+field always meant; the client keeps no expiry at all, because only the host can compute one.
+
+The second bug made the first academic. A QUIC connection reaching `.failed` or `.cancelled`
+ended the session outright, which D212 measured firing 9.6s into a handover with ten seconds
+still on the window. Under ADR-0030 the session outlives the connection, so a lost connection is
+a suspend; only a connection that never established one still ends anything. A superseded
+connection's close is now ignored, since after this change it would otherwise suspend the live
+session the client already moved.
+
+Neither fix does anything alone, which is why they land together. Still open: a session the host
+wrongly believes is connected holds its window open forever, because it reads "connected" as "in
+contact" -- R214's echo is what closes that.
 
 ## Handover arc (ADR-0089)
 

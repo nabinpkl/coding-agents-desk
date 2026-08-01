@@ -274,10 +274,69 @@ struct SessionRegistryTests {
         let forgedProof = SessionResumeProof(proof: Data(repeating: 0xab, count: 32))
         #expect(registry.validateResume(request, proof: forgedProof) == .rejected(.unauthorized))
 
+        registry.markSuspended(fingerprint, sessionId: "session-1")
         let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
         let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
         now = now.addingTimeInterval(Config.sessionResumeTTL + 1)
         #expect(registry.validateResume(request, proof: proof) == .rejected(.expiredResume))
+    }
+
+    // The deadline counts from the loss of contact, not from the handshake. Stamping it at
+    // the handshake made every session unresumable after TTL seconds of healthy uptime,
+    // which is every real session, so the resume path never ran.
+    @Test func aLongLivedSessionIsStillResumableAfterItDrops() throws {
+        var now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now })
+        let fingerprint = DeviceFingerprint("device-fp")
+        let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
+        let ready = makeReady(now: now)
+        let request = makeResumeRequest(ready: ready, fingerprint: fingerprint)
+        _ = registry.noteReady(active, ready: ready)
+
+        now = now.addingTimeInterval(3_600)
+        registry.markSuspended(fingerprint, sessionId: "session-1")
+
+        now = now.addingTimeInterval(Config.sessionResumeTTL - 1)
+        let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
+        #expect(challenge.resumeExpiresAt == Int(now.addingTimeInterval(1).timeIntervalSince1970))
+        let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
+        #expect(registry.validateResume(request, proof: proof) == .accepted(active, hostNonce: challenge.hostNonce))
+    }
+
+    // Each fresh loss of contact opens a fresh window: a connection that flaps is a client
+    // still trying to reach us, and the session should end only once it stops trying.
+    @Test func suspendingAgainRestartsTheResumeWindow() throws {
+        var now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now })
+        let fingerprint = DeviceFingerprint("device-fp")
+        let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
+        let ready = makeReady(now: now)
+        let request = makeResumeRequest(ready: ready, fingerprint: fingerprint)
+        _ = registry.noteReady(active, ready: ready)
+
+        registry.markSuspended(fingerprint, sessionId: "session-1")
+        now = now.addingTimeInterval(Config.sessionResumeTTL - 1)
+        registry.markSuspended(fingerprint, sessionId: "session-1")
+        now = now.addingTimeInterval(Config.sessionResumeTTL - 1)
+
+        let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
+        let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
+        #expect(registry.validateResume(request, proof: proof) == .accepted(active, hostNonce: challenge.hostNonce))
+    }
+
+    // A revoked or replaced session leaves no record, and its connection reports a close
+    // afterwards. That close must not announce a suspension or arm a grace timer.
+    @Test func suspendingAnEndedSessionIsRefused() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now })
+        let fingerprint = DeviceFingerprint("device-fp")
+        let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
+        _ = registry.noteReady(active, ready: makeReady(now: now))
+
+        #expect(registry.markSuspended(fingerprint, sessionId: "session-1"))
+        #expect(!registry.markSuspended(fingerprint, sessionId: "session-2"))
+        #expect(registry.endSession(fingerprint))
+        #expect(!registry.markSuspended(fingerprint, sessionId: "session-1"))
     }
 
     @Test func noteResumedReusesSessionIdAndRotatesResumeMaterial() throws {

@@ -34,6 +34,8 @@ That criterion has never been met, and could not have been. Two reasons, both me
   transport's own failure report -- the 18 seconds.
 - **The resume window is shorter than the detection latency.** `Config.sessionResumeTTL` is 20
   seconds. Detection takes 18. Even when resume fires, it fires with two seconds of window left.
+  This turned out to understate it: the window was not merely short, it was already closed. See
+  "The resume window had never opened" below.
 
 So the recovery path is sound and the trigger is missing. This ADR covers how the trigger gets
 chosen. Scope: `LinkChangeDetector` and `LinkPathObserver` in `packages/AgentDeskWire`,
@@ -281,6 +283,54 @@ Until it lands, `captureUnavailable` shows a **Reconnect** button. It is deliber
 backstop, not the fix: any recovery path can have a case it does not cover, and when that
 happens the user must not be left holding a dead screen with nothing to tap. The label also
 stopped claiming "Input stays connected", which R212 proved false -- the session was gone.
+
+### The resume window had never opened
+
+The TTL retune this arc kept deferring turned out to be the wrong question. `sessionResumeTTL`
+was never the reason resume failed. Two separate bugs kept the window shut, and each on its own
+was sufficient.
+
+**The deadline counted from the wrong event.** `resumeExpiresAt` was stamped once, at the
+handshake, as `establishedAt + 20s`, and never moved while the session was healthy. So a session
+that had been up for a minute carried a deadline that had passed forty seconds ago. The client
+checked its copy before even attempting a resume, and the host checked its own inside
+`makeResumeChallenge`, so both sides independently refused. Resume was reachable only in the
+first twenty seconds of a session's life, which is to say never in practice.
+
+The fix is to derive the deadline instead of storing it: `sessionResumeTTL` from the moment the
+host last had contact, which is the suspension time, or now for a session it still believes is
+live. The record keeps `suspendedAt` and computes the rest. That is what the field always meant
+-- twenty seconds to come back after dropping -- and an absolute timestamp issued at the
+handshake cannot express it, because the handshake does not know when the drop will happen. The
+client therefore stops keeping an expiry at all: only the host can compute one, and it states it
+in the challenge, which the client still checks. An over-optimistic attempt costs one round trip
+and falls back to durable pairing, which is what a client-side guess was costing on every
+single reconnect.
+
+**The session was destroyed before the window could be used.** Even inside a valid window there
+was nothing left to resume onto. A QUIC connection reaching `.failed` or `.cancelled` called
+`notifyEnded`, which ended the session outright -- and R212 measured that firing 9.6s into a
+handover, killing a session whose own resume window still had ten seconds on it. Under ADR-0030
+a session outlives its connection by design; the client is supposed to dial a new connection and
+resume onto the same session by token. So the connection dying is a suspend, and the resume
+deadline decides when the session is really over. Only a connection that never established a
+session still ends anything, because there is nothing there to resume onto.
+
+That change makes a stale connection dangerous in a way it was not before: once the client has
+moved a session to a new connection, the old one's close would suspend the live session. The
+signaling server already holds every live context, so a close checks whether another connection
+claims the same session id and stays quiet if one does.
+
+Neither fix is worth anything alone. Deriving the deadline correctly still leaves no record to
+resume onto; keeping the record still leaves both sides refusing on an expired deadline. Landing
+one without the other would have looked like no change at all.
+
+One consequence to name: a session the host wrongly believes is connected now holds its resume
+window open indefinitely, because the host reads "connected" as "in contact". That is exactly
+the wedge R212 hit and exactly what the Phase 3 liveness echo exists to close. It is a smaller
+exposure than it sounds -- the resume secret is bearer material that never leaves the
+authenticated session, and the proof is bound to session id, resume id, and both nonces -- but
+it is a real reason the echo is not optional.
 
 ### Confirmation
 
