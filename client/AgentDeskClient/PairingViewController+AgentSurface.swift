@@ -286,7 +286,7 @@ extension PairingViewController {
         surface.resumeAfterSessionReconnect()
     }
 
-    private func surfaceSelectionChanged(_ surface: ControlSurface) {
+    func surfaceSelectionChanged(_ surface: ControlSurface) {
         if activeControlSurface == .agent, surface != .agent {
             agentTerminalLifecycleRouter.route(.switchAway, to: agentSurface)
         }

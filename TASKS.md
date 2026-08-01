@@ -776,6 +776,13 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
 - D163. Match the native alphabet geometry by centering A–L at the Q–P key width, widening the
   Shift/Z and M/Delete gutters, and leaving Space visually blank while preserving its accessible
   name.
+- D164. Keep the armed Keyboard Dictation service usable inside AgentDesk instead of trapping the
+  client behind its activation screen. Make activation dismissible, add an explicit **Use in
+  AgentDesk** action that returns to the existing Control-surface keyboard field, publish service
+  state to independent screen/root observers, expose persistent status and management through the
+  control rail and Settings, and tear the service down with pairing or scene ownership. Final
+  transcripts continue through the ordinary remote-keyboard input path; no second text transport is
+  introduced.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -844,4 +851,5 @@ D160  2026-07-28  landed     bounded UIKit Character Preview for ordinary keys
 R161  implemented remaining  physical Character Preview acceptance
 D162  2026-07-28  landed     return glyph with semantic action labels and accessibility
 D163  2026-07-28  landed     native home-row alignment, outer-key gutters, and blank Space
+D164  2026-07-28  landed     nonblocking in-app keyboard dictation activation and status
 ```

@@ -1,4 +1,5 @@
 import Foundation
+import KeyboardDictation
 import Testing
 
 private actor KeyboardFrameCollector {
@@ -80,6 +81,93 @@ struct KeyboardDictationFrameQueueTests {
             captureSessionID: activeGeneration,
             activeSessionID: activeGeneration
         ))
+    }
+
+    @Test
+    func containingAppPresentationTracksEveryServicePhase() {
+        let generationID = UUID()
+        let cases: [
+            (
+                KeyboardDictationServicePhase,
+                KeyboardDictationContainingAppState
+            )
+        ] = [
+            (.inactive, .inactive),
+            (.arming, .arming),
+            (.ready, .ready),
+            (.recording, .recording),
+            (.saving, .finalizing),
+            (.transcribing, .finalizing),
+            (.analyzing, .finalizing),
+            (.completed, .ready),
+            (.failed, .failed),
+        ]
+
+        for (phase, expected) in cases {
+            let snapshot = KeyboardDictationServiceSnapshot(
+                generationID: phase == .inactive ? nil : generationID,
+                phase: phase
+            )
+            #expect(
+                KeyboardDictationContainingAppState(snapshot: snapshot)
+                    == expected
+            )
+        }
+
+        #expect(KeyboardDictationContainingAppState.inactive
+            .settingsActionTitle == "Activate Keyboard Dictation")
+        #expect(KeyboardDictationContainingAppState.ready
+            .settingsActionTitle == "Manage Keyboard Dictation")
+        #expect(KeyboardDictationLifecyclePolicy.canUseInAgentDesk(
+            snapshot: KeyboardDictationServiceSnapshot(
+                generationID: generationID,
+                phase: .ready
+            )
+        ))
+        #expect(!KeyboardDictationLifecyclePolicy.canUseInAgentDesk(
+            snapshot: KeyboardDictationServiceSnapshot(
+                generationID: generationID,
+                phase: .recording
+            )
+        ))
+        #expect(KeyboardDictationLifecyclePolicy.canUseInAgentDesk(
+            snapshot: KeyboardDictationServiceSnapshot(
+                generationID: generationID,
+                phase: .failed
+            )
+        ))
+        #expect(!KeyboardDictationLifecyclePolicy.canUseInAgentDesk(
+            snapshot: KeyboardDictationServiceSnapshot(
+                generationID: nil,
+                phase: .failed
+            )
+        ))
+    }
+
+    @Test @MainActor
+    func snapshotObserversAreIndependentAndRemovable() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let coordinator = KeyboardDictationCoordinator(
+            store: try KeyboardDictationStore(directoryURL: directory)
+        )
+        var first: [KeyboardDictationServicePhase] = []
+        var second: [KeyboardDictationServicePhase] = []
+        let firstID = coordinator.observeSnapshots {
+            first.append($0.phase)
+        }
+        let secondID = coordinator.observeSnapshots {
+            second.append($0.phase)
+        }
+
+        coordinator.turnOff()
+        coordinator.removeSnapshotObserver(firstID)
+        coordinator.turnOff()
+        coordinator.removeSnapshotObserver(secondID)
+
+        #expect(first == [.inactive, .inactive])
+        #expect(second == [.inactive, .inactive, .inactive])
     }
 
     @Test

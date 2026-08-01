@@ -5,6 +5,25 @@ import AgentDeskWire
 
 @MainActor
 struct KeyboardSurfaceTests {
+    @Test
+    func extensionTranscriptUsesTheOrdinaryMacInputPathExactlyOnce() {
+        let surface = KeyboardSurface()
+        let recorder = Recorder()
+        surface.keyboardDelegate = recorder
+
+        _ = surface.textField(
+            surface,
+            shouldChangeCharactersIn: NSRange(),
+            replacementString: "Go!"
+        )
+
+        #expect(recorder.events == [
+            .key(code: "ansi-G", modifiers: [.shift]),
+            .key(code: "ansi-O", modifiers: []),
+            .key(code: "ansi-1", modifiers: [.shift]),
+        ])
+    }
+
     @Test func unmodifiedLowercaseLetterEmitsAnsiCodeWithNoModifiers() {
         let surface = KeyboardSurface()
         let recorder = Recorder()

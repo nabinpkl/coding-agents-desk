@@ -22,11 +22,13 @@ struct SurfaceControlRailTests {
         let gesture = utilityButton(label: "Gesture", identifier: "gesture-toggle")
         let orientation = utilityButton(label: "Rotate", identifier: "orientation-toggle")
         let voice = utilityButton(label: "Voice", identifier: "voice-toggle")
+        let keyboard = utilityButton(label: "Keyboard Dictation", identifier: "keyboard-dictation-service")
         let settings = utilityButton(label: "Settings", identifier: "settings-button")
         let rail = SurfaceControlRail(
             gestureButton: gesture,
             orientationButton: orientation,
             voiceButton: voice,
+            keyboardDictationButton: keyboard,
             settingsButton: settings
         )
 
@@ -45,11 +47,13 @@ struct SurfaceControlRailTests {
         let gesture = utilityButton(label: "Gesture", identifier: "gesture-toggle")
         let orientation = utilityButton(label: "Rotate", identifier: "orientation-toggle")
         let voice = utilityButton(label: "Voice", identifier: "voice-toggle")
+        let keyboard = utilityButton(label: "Keyboard Dictation", identifier: "keyboard-dictation-service")
         let settings = utilityButton(label: "Settings", identifier: "settings-button")
         let rail = SurfaceControlRail(
             gestureButton: gesture,
             orientationButton: orientation,
             voiceButton: voice,
+            keyboardDictationButton: keyboard,
             settingsButton: settings
         )
 
@@ -70,7 +74,9 @@ struct SurfaceControlRailTests {
         #expect(rail.surfaceButtons.map(\.accessibilityLabel) == [
             "Control", "Agent", "Terminal", "Browser", "Workspace", "IDE"
         ])
-        #expect(rail.utilityButtons == [gesture, orientation, voice, settings])
+        #expect(rail.utilityButtons == [
+            gesture, orientation, voice, keyboard, settings,
+        ])
         for button in rail.surfaceButtons + rail.utilityButtons {
             #expect(button.constraints.contains { $0.firstAttribute == .height && $0.constant == 44 })
             #expect(button.constraints.contains { $0.firstAttribute == .width && $0.constant == 44 })
@@ -82,6 +88,10 @@ struct SurfaceControlRailTests {
             gestureButton: utilityButton(label: "Gesture", identifier: "gesture-toggle"),
             orientationButton: utilityButton(label: "Rotate", identifier: "orientation-toggle"),
             voiceButton: utilityButton(label: "Voice", identifier: "voice-toggle"),
+            keyboardDictationButton: utilityButton(
+                label: "Keyboard Dictation",
+                identifier: "keyboard-dictation-service"
+            ),
             settingsButton: utilityButton(label: "Settings", identifier: "settings-button")
         )
         var selections: [ControlSurface] = []
@@ -109,11 +119,13 @@ struct SurfaceControlRailTests {
         let gesture = utilityButton(label: "Gesture", identifier: "gesture-toggle")
         let orientation = utilityButton(label: "Rotate", identifier: "orientation-toggle")
         let voice = utilityButton(label: "Voice", identifier: "voice-toggle")
+        let keyboard = utilityButton(label: "Keyboard Dictation", identifier: "keyboard-dictation-service")
         let settings = utilityButton(label: "Settings", identifier: "settings-button")
         let rail = SurfaceControlRail(
             gestureButton: gesture,
             orientationButton: orientation,
             voiceButton: voice,
+            keyboardDictationButton: keyboard,
             settingsButton: settings
         )
 
@@ -130,8 +142,10 @@ struct SurfaceControlRailTests {
 
         #expect(rail.surfaceButtons.count == 5)
         #expect(rail.surfaceButtons.allSatisfy { $0.accessibilityLabel != "Browser" })
-        #expect(rail.utilityButtons == [gesture, orientation, voice, settings])
-        #expect(Set(rail.utilityButtons.map(ObjectIdentifier.init)).count == 4)
+        #expect(rail.utilityButtons == [
+            gesture, orientation, voice, keyboard, settings,
+        ])
+        #expect(Set(rail.utilityButtons.map(ObjectIdentifier.init)).count == 5)
     }
 
     @Test func utilitySelectionUsesTheSameVisualLanguageAsSurfaceSelection() {
@@ -140,6 +154,10 @@ struct SurfaceControlRailTests {
             gestureButton: gesture,
             orientationButton: utilityButton(label: "Rotate", identifier: "orientation-toggle"),
             voiceButton: utilityButton(label: "Voice", identifier: "voice-toggle"),
+            keyboardDictationButton: utilityButton(
+                label: "Keyboard Dictation",
+                identifier: "keyboard-dictation-service"
+            ),
             settingsButton: utilityButton(label: "Settings", identifier: "settings-button")
         )
 
@@ -157,6 +175,10 @@ struct SurfaceControlRailTests {
             gestureButton: gesture,
             orientationButton: utilityButton(label: "Rotate", identifier: "orientation-toggle"),
             voiceButton: utilityButton(label: "Voice", identifier: "voice-toggle"),
+            keyboardDictationButton: utilityButton(
+                label: "Keyboard Dictation",
+                identifier: "keyboard-dictation-service"
+            ),
             settingsButton: utilityButton(label: "Settings", identifier: "settings-button")
         )
         rail.setSurfaces(

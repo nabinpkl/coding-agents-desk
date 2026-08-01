@@ -547,6 +547,20 @@ extension PairingViewController {
             for: .touchUpInside
         )
 
+        keyboardDictationServiceButton.setImage(
+            UIImage(systemName: "mic.badge.plus"),
+            for: .normal
+        )
+        keyboardDictationServiceButton.accessibilityLabel =
+            "Activate Keyboard Dictation"
+        keyboardDictationServiceButton.accessibilityIdentifier =
+            "keyboard-dictation-service"
+        keyboardDictationServiceButton.addTarget(
+            self,
+            action: #selector(openKeyboardDictationService),
+            for: .touchUpInside
+        )
+
         // R24: orientation remains a global action in the same rail as surface selection.
         orientationToggleButton.accessibilityIdentifier = "orientation-toggle"
         orientationToggleButton.addTarget(self, action: #selector(toggleOrientation), for: .touchUpInside)
@@ -574,6 +588,7 @@ extension PairingViewController {
                 constant: -8
             )
         ])
+        renderKeyboardDictationStatus(.inactive)
     }
 
     func updateOrientationToggleIcon(forLandscape isLandscape: Bool) {

@@ -34,8 +34,9 @@ enum KeyboardDictationCoordinatorError: LocalizedError {
 @MainActor
 final class KeyboardDictationCoordinator {
     typealias TransportProvider = @MainActor () -> QuicSessionClientTransport?
+    typealias SnapshotObserver =
+        @MainActor (KeyboardDictationServiceSnapshot) -> Void
 
-    var onSnapshotChange: ((KeyboardDictationServiceSnapshot) -> Void)?
     var onTurnedOff: (() -> Void)?
 
     private let store: KeyboardDictationStore
@@ -62,6 +63,7 @@ final class KeyboardDictationCoordinator {
     private var pendingREST: [String: PendingREST] = [:]
     private var restTimeoutTasks: [String: Task<Void, Never>] = [:]
     private var lastPublishedMeterAt = ContinuousClock.now
+    private var snapshotObservers: [UUID: SnapshotObserver] = [:]
 
     var isArmed: Bool {
         generationID != nil && audioCapture.isArmed && lane != nil
@@ -69,6 +71,21 @@ final class KeyboardDictationCoordinator {
 
     var currentSnapshot: KeyboardDictationServiceSnapshot {
         snapshot
+    }
+
+    @discardableResult
+    func observeSnapshots(
+        _ observer: @escaping SnapshotObserver
+    ) -> UUID {
+        let id = UUID()
+        snapshotObservers[id] = observer
+        observer(snapshot)
+        return id
+    }
+
+    func removeSnapshotObserver(_ id: UUID?) {
+        guard let id else { return }
+        snapshotObservers[id] = nil
     }
 
     init(store: KeyboardDictationStore) {
@@ -703,7 +720,9 @@ final class KeyboardDictationCoordinator {
                 level: .error
             )
         }
-        onSnapshotChange?(snapshot)
+        for observer in Array(snapshotObservers.values) {
+            observer(snapshot)
+        }
     }
 
     private static func json<Value: Encodable>(_ value: Value) throws -> String {

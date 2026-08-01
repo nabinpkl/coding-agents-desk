@@ -263,6 +263,11 @@ final class SettingsViewController: UIViewController {
         loadFromStore()
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        loadKeyboardDictationServiceState()
+    }
+
     private func configureSliders() {
         // Range 0.5x - 3.0x covers "slow precision" through "fast flick"
         // without giving the user a way to set unusable extremes.
@@ -334,6 +339,7 @@ final class SettingsViewController: UIViewController {
         adaptiveMediaQualitySwitch.isOn = store.adaptiveMediaQualityEnabled
         diagnosticScreenshotsSwitch.isOn = store.diagnosticScreenshotsEnabled
         loadKeyboardDictationPreferences()
+        loadKeyboardDictationServiceState()
         manualMediaBitrateSlider.value = Float(store.manualMediaBitrateKbps)
         manualMediaFpsControl.selectedSegmentIndex = index(for: store.manualMediaFps, in: manualFpsValues())
         manualMediaResolutionControl.selectedSegmentIndex = index(for: store.manualMediaResolutionScale, in: manualResolutionValues())
@@ -752,6 +758,39 @@ final class SettingsViewController: UIViewController {
             keyHapticsSwitch.isOn = false
             keyHapticsSwitch.isEnabled = false
             keyHapticsSwitch.accessibilityHint = error.localizedDescription
+        }
+    }
+
+    private func loadKeyboardDictationServiceState() {
+        guard let keyboardDictationStore else {
+            keyboardDictationButton.setTitle(
+                "Keyboard Dictation Unavailable",
+                for: .normal
+            )
+            keyboardDictationButton.isEnabled = false
+            return
+        }
+        do {
+            let state = KeyboardDictationContainingAppState(
+                snapshot: try keyboardDictationStore.serviceSnapshot()
+            )
+            keyboardDictationButton.setTitle(
+                state.settingsActionTitle,
+                for: .normal
+            )
+            keyboardDictationButton.isEnabled = true
+            keyboardDictationButton.accessibilityHint =
+                state == .inactive
+                    ? "Connects the AgentDesk keyboard to Mac transcription."
+                    : "Shows Keyboard Dictation status and controls."
+        } catch {
+            keyboardDictationButton.setTitle(
+                "Keyboard Dictation Needs Attention",
+                for: .normal
+            )
+            keyboardDictationButton.isEnabled = true
+            keyboardDictationButton.accessibilityHint =
+                error.localizedDescription
         }
     }
 

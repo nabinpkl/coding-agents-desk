@@ -1,9 +1,9 @@
 import KeyboardDictation
 import UIKit
 
-/// Foreground owner surface for the deliberately armed keyboard microphone
-/// lease. The coordinator remains authoritative; this screen only presents its
-/// state and provides retry / turn-off controls.
+/// Temporary activation and management surface for the deliberately armed
+/// keyboard microphone lease. The coordinator remains authoritative after this
+/// screen is dismissed.
 @MainActor
 final class KeyboardDictationHandoffViewController: UIViewController {
     private let coordinator: KeyboardDictationCoordinator
@@ -12,10 +12,14 @@ final class KeyboardDictationHandoffViewController: UIViewController {
     private let detailLabel = UILabel()
     private let meter = UIProgressView(progressViewStyle: .bar)
     private let retryButton = UIButton(type: .system)
+    private let useInAgentDeskButton = UIButton(type: .system)
     private let turnOffButton = UIButton(type: .system)
     private var lastAnnouncedPhase: KeyboardDictationServicePhase?
+    private var snapshotObservationID: UUID?
 
     var onRetry: (() -> Void)?
+    var onClose: (() -> Void)?
+    var onUseInAgentDesk: (() -> Void)?
     var onTurnOff: (() -> Void)?
 
     init(coordinator: KeyboardDictationCoordinator) {
@@ -32,6 +36,11 @@ final class KeyboardDictationHandoffViewController: UIViewController {
         super.viewDidLoad()
         title = "Keyboard Dictation"
         view.backgroundColor = .systemBackground
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .done,
+            target: self,
+            action: #selector(closeTapped)
+        )
 
         let icon = UIImageView(image: UIImage(
             systemName: "mic.badge.plus"
@@ -77,6 +86,18 @@ final class KeyboardDictationHandoffViewController: UIViewController {
         )
         retryButton.isHidden = true
 
+        useInAgentDeskButton.configuration = .filled()
+        useInAgentDeskButton.configuration?.cornerStyle = .large
+        useInAgentDeskButton.setTitle("Use in AgentDesk", for: .normal)
+        useInAgentDeskButton.accessibilityIdentifier =
+            "keyboard-dictation-use-in-agentdesk"
+        useInAgentDeskButton.addTarget(
+            self,
+            action: #selector(useInAgentDeskTapped),
+            for: .touchUpInside
+        )
+        useInAgentDeskButton.isHidden = true
+
         turnOffButton.configuration = .bordered()
         turnOffButton.configuration?.cornerStyle = .large
         turnOffButton.configuration?.baseForegroundColor = .systemRed
@@ -94,6 +115,7 @@ final class KeyboardDictationHandoffViewController: UIViewController {
             detailLabel,
             meter,
             retryButton,
+            useInAgentDeskButton,
             turnOffButton,
         ])
         stack.axis = .vertical
@@ -114,19 +136,39 @@ final class KeyboardDictationHandoffViewController: UIViewController {
             retryButton.heightAnchor.constraint(
                 greaterThanOrEqualToConstant: 50
             ),
+            useInAgentDeskButton.heightAnchor.constraint(
+                greaterThanOrEqualToConstant: 50
+            ),
             turnOffButton.heightAnchor.constraint(
                 greaterThanOrEqualToConstant: 50
             ),
         ])
 
-        coordinator.onSnapshotChange = { [weak self] snapshot in
-            self?.render(snapshot)
-        }
         render(coordinator.currentSnapshot)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        if snapshotObservationID == nil {
+            snapshotObservationID = coordinator.observeSnapshots {
+                [weak self] snapshot in
+                self?.render(snapshot)
+            }
+        }
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        coordinator.removeSnapshotObserver(snapshotObservationID)
+        snapshotObservationID = nil
     }
 
     private func render(_ snapshot: KeyboardDictationServiceSnapshot) {
         retryButton.isHidden = true
+        useInAgentDeskButton.isHidden =
+            !KeyboardDictationLifecyclePolicy.canUseInAgentDesk(
+                snapshot: snapshot
+            )
         meter.isHidden = true
         switch snapshot.phase {
         case .inactive:
@@ -188,6 +230,14 @@ final class KeyboardDictationHandoffViewController: UIViewController {
 
     @objc private func retryTapped() {
         onRetry?()
+    }
+
+    @objc private func closeTapped() {
+        onClose?()
+    }
+
+    @objc private func useInAgentDeskTapped() {
+        onUseInAgentDesk?()
     }
 
     @objc private func turnOffTapped() {

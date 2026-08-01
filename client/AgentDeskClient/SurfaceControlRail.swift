@@ -26,9 +26,16 @@ final class SurfaceControlRail: UIView {
         gestureButton: UIButton,
         orientationButton: UIButton,
         voiceButton: UIButton,
+        keyboardDictationButton: UIButton,
         settingsButton: UIButton
     ) {
-        utilityButtons = [gestureButton, orientationButton, voiceButton, settingsButton]
+        utilityButtons = [
+            gestureButton,
+            orientationButton,
+            voiceButton,
+            keyboardDictationButton,
+            settingsButton,
+        ]
         super.init(frame: .zero)
         configureView()
         configureCollapseButton()

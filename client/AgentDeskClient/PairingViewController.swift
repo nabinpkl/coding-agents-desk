@@ -15,6 +15,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     private let sessionLogger = Logger(subsystem: Config.logSubsystem, category: "session-quic")
     let pairingClient = PairingClient()
     var keyboardDictationCoordinator: KeyboardDictationCoordinator?
+    var keyboardDictationSnapshotObservationID: UUID?
+    weak var keyboardDictationServiceViewController:
+        KeyboardDictationHandoffViewController?
     // One replaceable root for the pairing flow and every host-backed
     // descendant. Voice is its sibling, so selecting Voice removes this
     // complete tree from rendering, accessibility, and hit testing
@@ -144,6 +147,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     let scrollStripHint = UIImageView()
     let settingsButton = UIButton(type: .system)
     let voiceToggleButton = UIButton(type: .system)
+    let keyboardDictationServiceButton = UIButton(type: .system)
     // R24: orientation toggle. Synthesises a UIWindowScene geometry update when tapped.
     let orientationToggleButton = UIButton(type: .system)
     // Toggles the half-screen gesture panel (camera + swipe tracker for desktop
@@ -153,6 +157,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         gestureButton: gestureToggleButton,
         orientationButton: orientationToggleButton,
         voiceButton: voiceToggleButton,
+        keyboardDictationButton: keyboardDictationServiceButton,
         settingsButton: settingsButton
     )
     // MARK: - One-handed affordances
@@ -730,6 +735,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     @objc func forgetHost() {
+        turnOffKeyboardDictation()
         // Best-effort: tell the host to drop its pairing record before we tear the
         // input lane down, so both sides forget each other. Await the send so it
         // flushes before clearStoredCredentials() closes the channel; if there is no
@@ -758,6 +764,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // touching stored credentials.
     func disconnectFromHost() {
         guard !userRequestedDisconnect else { return }
+        turnOffKeyboardDictation()
         userRequestedDisconnect = true
         preservesSuspendedSessionSurfaces = false
         cancelSessionAttempt()

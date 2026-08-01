@@ -87,6 +87,11 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         ClientDiagnostics.shared.markCleanShutdown(reason: "sceneDidEnterBackground")
     }
 
+    func sceneDidDisconnect(_ scene: UIScene) {
+        (window?.rootViewController as? PairingViewController)?
+            .turnOffKeyboardDictation()
+    }
+
     private func handleIncomingURL(_ url: URL, pairingViewController: PairingViewController) {
         if pairingViewController.handleKeyboardDictationHandoffURL(url) {
             return

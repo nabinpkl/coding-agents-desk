@@ -39,25 +39,24 @@ extension PairingViewController {
         }
     }
 
+    @objc func openKeyboardDictationService() {
+        showKeyboardDictationService()
+    }
+
     func showKeyboardDictationService() {
         do {
             if activeControlSurface == .voice {
                 leaveVoiceSurface()
             }
-            let coordinator: KeyboardDictationCoordinator
-            if let existing = keyboardDictationCoordinator {
-                coordinator = existing
-            } else {
-                coordinator = try KeyboardDictationCoordinator()
-                coordinator.onTurnedOff = { [weak self] in
-                    guard let self, !isClientForeground else { return }
-                    pairingClient.handleMediaSessionFailed()
-                }
-                keyboardDictationCoordinator = coordinator
+            let coordinator = try ensureKeyboardDictationCoordinator()
+            if keyboardDictationServiceViewController?
+                .navigationController?.presentingViewController != nil {
+                return
             }
             let screen = KeyboardDictationHandoffViewController(
                 coordinator: coordinator
             )
+            keyboardDictationServiceViewController = screen
             screen.onRetry = { [weak self, weak coordinator] in
                 guard let self, let coordinator else { return }
                 triggerSessionIfPaired()
@@ -65,19 +64,19 @@ extension PairingViewController {
                     self?.pairingClient.activeSessionTransport
                 }
             }
-            screen.onTurnOff = { [weak self, weak screen] in
+            screen.onClose = { [weak self] in
+                self?.dismissKeyboardDictationService()
+            }
+            screen.onUseInAgentDesk = { [weak self] in
+                self?.useKeyboardDictationInAgentDesk()
+            }
+            screen.onTurnOff = { [weak self] in
                 self?.turnOffKeyboardDictation()
-                screen?.dismiss(animated: true)
+                self?.dismissKeyboardDictationService()
             }
             let navigation = UINavigationController(rootViewController: screen)
             navigation.modalPresentationStyle = .fullScreen
-            if presentedViewController != nil {
-                dismiss(animated: false) { [weak self] in
-                    self?.present(navigation, animated: true)
-                }
-            } else {
-                present(navigation, animated: true)
-            }
+            topmostPresentedViewController.present(navigation, animated: true)
             triggerSessionIfPaired()
             coordinator.arm { [weak self] in
                 self?.pairingClient.activeSessionTransport
@@ -93,8 +92,100 @@ extension PairingViewController {
         }
     }
 
+    private func ensureKeyboardDictationCoordinator() throws
+        -> KeyboardDictationCoordinator
+    {
+        if let existing = keyboardDictationCoordinator {
+            observeKeyboardDictationSnapshotsIfNeeded(from: existing)
+            return existing
+        }
+        let coordinator = try KeyboardDictationCoordinator()
+        coordinator.onTurnedOff = { [weak self] in
+            guard let self, !isClientForeground else { return }
+            pairingClient.handleMediaSessionFailed()
+        }
+        keyboardDictationCoordinator = coordinator
+        observeKeyboardDictationSnapshotsIfNeeded(from: coordinator)
+        return coordinator
+    }
+
+    private func observeKeyboardDictationSnapshotsIfNeeded(
+        from coordinator: KeyboardDictationCoordinator
+    ) {
+        guard keyboardDictationSnapshotObservationID == nil else { return }
+        keyboardDictationSnapshotObservationID =
+            coordinator.observeSnapshots { [weak self] snapshot in
+                self?.renderKeyboardDictationStatus(snapshot)
+            }
+    }
+
+    private var topmostPresentedViewController: UIViewController {
+        var presenter: UIViewController = self
+        while let presented = presenter.presentedViewController,
+              !presented.isBeingDismissed {
+            presenter = presented
+        }
+        return presenter
+    }
+
+    private func dismissKeyboardDictationService(
+        completion: (() -> Void)? = nil
+    ) {
+        guard let navigation =
+            keyboardDictationServiceViewController?.navigationController,
+              navigation.presentingViewController != nil
+        else {
+            completion?()
+            return
+        }
+        navigation.dismiss(animated: true, completion: completion)
+    }
+
+    private func useKeyboardDictationInAgentDesk() {
+        let showKeyboard = { [weak self] in
+            guard let self else { return }
+            surfaceSelectionChanged(.control)
+            applyKeyboardPresentationIntent(.show)
+        }
+        guard let root = view.window?.rootViewController,
+              root.presentedViewController != nil
+        else {
+            showKeyboard()
+            return
+        }
+        // This action explicitly means leaving any stacked setup or settings
+        // sheets and returning to AgentDesk's own remote-input field.
+        root.dismiss(animated: true, completion: showKeyboard)
+    }
+
+    func renderKeyboardDictationStatus(
+        _ snapshot: KeyboardDictationServiceSnapshot
+    ) {
+        let state = KeyboardDictationContainingAppState(snapshot: snapshot)
+        keyboardDictationServiceButton.setImage(
+            UIImage(systemName: state.railSymbolName),
+            for: .normal
+        )
+        keyboardDictationServiceButton.accessibilityLabel =
+            state.accessibilityLabel
+        keyboardDictationServiceButton.accessibilityHint =
+            state == .inactive
+                ? "Connects the AgentDesk keyboard to Mac transcription."
+                : "Opens Keyboard Dictation status and controls."
+        surfaceControlRail.setUtilityButton(
+            keyboardDictationServiceButton,
+            selected: state.isHighlighted
+        )
+    }
+
     func turnOffKeyboardDictation() {
-        keyboardDictationCoordinator?.turnOff()
+        let coordinator = keyboardDictationCoordinator
+        coordinator?.turnOff()
+        coordinator?.removeSnapshotObserver(
+            keyboardDictationSnapshotObservationID
+        )
+        keyboardDictationSnapshotObservationID = nil
         keyboardDictationCoordinator = nil
+        renderKeyboardDictationStatus(.inactive)
     }
 }
