@@ -4,20 +4,28 @@ import WebKit
 
 /// Native geometry that the web-owned title bar must leave clear.
 ///
-/// The traffic lights remain standard AppKit controls. Immediately after them is one native drag
-/// target, while the React header begins after both. Measuring the buttons keeps the layout correct
-/// for AppKit changes instead of baking one macOS release's traffic-light positions into CSS.
+/// The traffic lights remain standard AppKit controls. The React header begins immediately after
+/// them, and a native drag target overlays the inert title area after its leading control. Measuring
+/// the buttons keeps the layout correct for AppKit changes instead of baking one macOS release's
+/// traffic-light positions into CSS.
 struct AgentWindowTitlebarLayout: Equatable {
     static let trafficLightGap: CGFloat = 8
+    static let leadingControlWidth: CGFloat = 44
+    static let leadingControlGap: CGFloat = 4
     static let dragRegionWidth: CGFloat = 32
     static let dragRegionHeight: CGFloat = 24
-    static let contentGap: CGFloat = 8
 
-    let dragRegionLeading: CGFloat
     let dragRegionWidth: CGFloat
     let dragRegionHeight: CGFloat
     let webLeadingInset: CGFloat
 
+    func dragRegionLeading(zoomScale: Double) -> CGFloat {
+        precondition(zoomScale.isFinite && zoomScale > 0, "Agents title-bar zoom must be positive")
+        return webLeadingInset
+            + (Self.leadingControlWidth + Self.leadingControlGap) * CGFloat(zoomScale)
+    }
+
+    @MainActor
     static func measure(in window: NSWindow) -> Self {
         let contentView = window.contentView
         guard let trafficLightTrailing = [
@@ -35,12 +43,11 @@ struct AgentWindowTitlebarLayout: Equatable {
             preconditionFailure("Agents window must expose standard traffic-light controls")
         }
 
-        let dragRegionLeading = ceil(trafficLightTrailing) + trafficLightGap
+        let webLeadingInset = ceil(trafficLightTrailing) + trafficLightGap
         return Self(
-            dragRegionLeading: dragRegionLeading,
             dragRegionWidth: dragRegionWidth,
             dragRegionHeight: dragRegionHeight,
-            webLeadingInset: dragRegionLeading + dragRegionWidth + contentGap
+            webLeadingInset: webLeadingInset
         )
     }
 }

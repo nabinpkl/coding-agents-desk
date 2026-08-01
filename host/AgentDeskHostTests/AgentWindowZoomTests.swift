@@ -106,9 +106,20 @@ struct AgentWindowZoomTests {
         // The key equivalent is owned one level below the window because the window itself is one of
         // two classes depending on `Config.axAutomationEnabled`.
         let contentView = try #require(window.contentView as? AgentWindowContentView)
+        contentView.layoutSubtreeIfNeeded()
+        let initialDragLeading = contentView.titlebarDragRegionForTesting.frame.minX
 
         #expect(contentView.performKeyEquivalent(with: keyEvent("=")))
+        contentView.layoutSubtreeIfNeeded()
         #expect(controller.zoomScaleForTesting == 1.1)
+        #expect(
+            abs(
+                contentView.titlebarDragRegionForTesting.frame.minX
+                    - initialDragLeading
+                    - (AgentWindowTitlebarLayout.leadingControlWidth
+                        + AgentWindowTitlebarLayout.leadingControlGap) * 0.1
+            ) < 0.25
+        )
         #expect(contentView.performKeyEquivalent(with: keyEvent("-")))
         #expect(contentView.performKeyEquivalent(with: keyEvent("-")))
         #expect(controller.zoomScaleForTesting == 0.9)

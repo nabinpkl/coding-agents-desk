@@ -257,6 +257,10 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close projects" }));
     expect(screen.queryByRole("heading", { level: 2, name: "Projects" })).not.toBeInTheDocument();
     expect(threadHeader).toHaveClass("agent-window-titlebar-main-leading");
+    expect(
+      screen.getByRole("button", { name: "Pin projects sidebar" })
+        .querySelector(".lucide-panel-left"),
+    ).not.toBeNull();
     unmount();
   });
 

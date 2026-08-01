@@ -266,7 +266,11 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         guard let layout = titlebarLayout else {
             preconditionFailure("Agents title-bar layout must exist before content is installed")
         }
-        let view = AgentWindowContentView(content: content, titlebarLayout: layout)
+        let view = AgentWindowContentView(
+            content: content,
+            titlebarLayout: layout,
+            zoomScale: zoom.scale
+        )
         view.onZoomCommand = { [weak self] command in
             self?.applyZoom(command)
         }
@@ -289,6 +293,9 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
                 completionHandler: nil
             )
         }
+        (window?.contentView as? AgentWindowContentView)?.updateTitlebarDragRegion(
+            zoomScale: zoom.scale
+        )
         terminalController?.setZoomScale(zoom.scale)
         onZoomChanged?(zoom.step)
     }

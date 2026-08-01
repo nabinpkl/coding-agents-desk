@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { LoaderCircle, Menu, Send, Square, Terminal as TerminalIcon } from "lucide-react";
+import { LoaderCircle, PanelLeft, Send, Square, Terminal as TerminalIcon } from "lucide-react";
 import type {
   AgentExtensionUIRequest,
   AgentTerminalContext,
@@ -478,7 +478,7 @@ export function App({ bridge }: Props) {
                 title={usesModalSidebar ? "Open projects" : "Pin projects sidebar"}
                 className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
               >
-                <Menu className="size-5" aria-hidden />
+                <PanelLeft className="size-5" aria-hidden />
               </button>
             ) : null}
             <h1 className="min-w-0 flex-1 truncate px-1 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold leading-none text-foreground">

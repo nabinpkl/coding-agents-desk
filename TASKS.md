@@ -1723,3 +1723,5 @@ seconds, and damping the axis would only hide that.
   compact touch drawer.
 - D248. Let the existing AgentPanel web chrome own the Mac Agents title-bar row, retaining measured
   native traffic lights and drag behavior while removing the duplicate native title band.
+- D249. Move the panel toggle directly beside the traffic lights, put the native drag target over
+  the inert title area, and use a left-panel glyph instead of a generic hamburger.

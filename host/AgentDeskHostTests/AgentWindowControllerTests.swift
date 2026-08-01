@@ -67,6 +67,17 @@ struct AgentWindowControllerTests {
         let contentView = try #require(window.contentView as? AgentWindowContentView)
         #expect(contentView.titlebarDragRegionForTesting is AgentWindowTitlebarDragView)
         contentView.layoutSubtreeIfNeeded()
+        let titlebarLayout = AgentWindowTitlebarLayout.measure(in: window)
+        #expect(
+            titlebarLayout.dragRegionLeading(zoomScale: 1)
+                == titlebarLayout.webLeadingInset
+                    + AgentWindowTitlebarLayout.leadingControlWidth
+                    + AgentWindowTitlebarLayout.leadingControlGap
+        )
+        #expect(
+            contentView.titlebarDragRegionForTesting.frame.minX
+                == titlebarLayout.dragRegionLeading(zoomScale: 1)
+        )
         #expect(contentView.titlebarDragRegionForTesting.frame.width == AgentWindowTitlebarLayout.dragRegionWidth)
         #expect(contentView.titlebarDragRegionForTesting.frame.height == AgentWindowTitlebarLayout.dragRegionHeight)
 
