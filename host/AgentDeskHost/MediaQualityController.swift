@@ -413,6 +413,11 @@ struct MediaQualityController {
     // `requiredRecoveryMs` so the ladder can take its next recovery step, which caps it at 4s
     // and makes "clean for thirty seconds" unrepresentable in it.
     private var resolutionCleanMs = 0
+    /// Whether `adoptLinkQualityPrior` has had its one chance. Separate from whether it acted:
+    /// a client reporting `good` on its first window must not leave the door open for a later
+    /// window reporting `minimal` to reset a ladder that measurement is by then driving.
+    private var hasConsideredLinkQualityPrior = false
+    private var hasBeenPinned = false
 
     init(config: MediaQualityControllerConfig) {
         self.config = config
@@ -435,7 +440,54 @@ struct MediaQualityController {
         recoveryStatus(blocker: "none")
     }
 
+    /// The rung to open on for a client that has told us how good its link is.
+    ///
+    /// A prior, not a verdict: measurement governs from the first window, and the ladder climbs
+    /// back the moment the link proves it can carry more. It exists because the controller
+    /// otherwise learns the link the expensive way -- it opens at `.native` and discovers a weak
+    /// one by failing on it. Measured on a `linkQuality=minimal` cellular path, that discovery
+    /// cost several seconds of full-rate video the link could not carry, and it settled below
+    /// where this would have started.
+    ///
+    /// Deliberately conservative rather than accurate. It names a rung the link is very likely
+    /// to sustain, not the rung it will end on, because the two errors are not symmetric:
+    /// opening too low costs a second of climbing, opening too high costs the first seconds of
+    /// the session, which is exactly when the user is deciding whether this works at all.
+    ///
+    /// `good` and `unknown` get no opinion. An absent or optimistic reading is not evidence of
+    /// a weak link, and the ceiling is already the right guess without evidence.
+    static func startingRung(forLinkQuality quality: String?) -> MediaQualityRung? {
+        switch quality {
+        case "minimal": .capacity2
+        case "moderate": .capacity1
+        default: nil
+        }
+    }
+
+    /// Open on the rung the client's reported link quality suggests, once per connection.
+    ///
+    /// Ignored unless the controller is still exactly where it started. Anything else means
+    /// better evidence is already in play: either measurement has moved the rung, or a resume
+    /// pinned the one the previous connection ended on (ADR-0090), which is a rung this link
+    /// actually sustained seconds ago rather than an inference from a coarse label.
+    /// - Returns: the target this displaced, or `nil` if it did not act. The caller needs it:
+    ///   the prior moves the rung *before* the window is judged, so that window's own
+    ///   evaluation compares the new rung against itself and reports no change. Reported that
+    ///   way the move would never reach the encoder, and the ladder would say it had dropped
+    ///   while full-rate frames kept going out.
+    @discardableResult
+    mutating func adoptLinkQualityPrior(_ quality: String?) -> MediaQualityTarget? {
+        guard !hasConsideredLinkQualityPrior else { return nil }
+        hasConsideredLinkQualityPrior = true
+        guard !hasBeenPinned, target.rung == .native else { return nil }
+        guard let rung = Self.startingRung(forLinkQuality: quality) else { return nil }
+        let displaced = target
+        pin(to: fixedTarget(for: rung, reason: "link-quality-prior"))
+        return displaced
+    }
+
     mutating func pin(to target: MediaQualityTarget) {
+        hasBeenPinned = true
         self.target = target
         self.stableTarget = target
         cleanRecoveryMs = 0
@@ -1350,6 +1402,10 @@ struct QuicSessionHostMediaState {
         nowNs: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) -> MediaQualityDecision {
         qualityWindowId &+= 1
+        // Before this window is judged, not after: the prior's whole value is being in place
+        // for the earliest decision, and a client's first report is the earliest its link
+        // quality can be known. It no-ops on every window after the first.
+        let displacedByPrior = qualityController.adoptLinkQualityPrior(clientTelemetry?.linkQuality)
         // ADR-0088: age the round-trip floor on the window boundary, not only on new samples.
         // A freeze produces no acks at all, so a floor that could only expire inside
         // `record` would stay pinned to a pre-freeze value for the whole stall -- the one
@@ -1423,7 +1479,24 @@ struct QuicSessionHostMediaState {
             )
         }
 
-        let evaluation = qualityController.observe(input)
+        var evaluation = qualityController.observe(input)
+        if let displaced = displacedByPrior {
+            // Report this window's move against what the prior displaced, not against the rung
+            // the prior installed, so the drop is visible to the encoder and to the log. If the
+            // window's own evaluation moved further, that target stands; only the baseline
+            // changes.
+            evaluation = MediaQualityEvaluation(
+                signals: evaluation.signals,
+                outcome: MediaQualityOutcome(
+                    target: evaluation.outcome.target,
+                    previousTarget: displaced,
+                    reason: evaluation.outcome.target == displaced
+                        ? evaluation.outcome.reason
+                        : "link-quality-prior"
+                ),
+                recoveryStatus: evaluation.recoveryStatus
+            )
+        }
         let observation = MediaQualityObservation(
             windowId: qualityWindowId,
             sample: sample,
