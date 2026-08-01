@@ -428,16 +428,26 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         pendingVideoPresentationTask = nil
     }
 
-    /// Adopt a new transport's stream, keeping the frame that is already displayed.
+    /// Adopt a new transport's stream, keeping both the displayed frame and the decoder state
+    /// behind it.
     ///
-    /// Deliberately does not touch `videoLayer`: no `flush()`, no `flushAndRemoveImage()`. The
-    /// layer holds the last decoded picture, and that picture is the entire point -- it stays
-    /// up, frozen, while the replacement session dials, instead of the user watching black.
-    /// The new stream begins with a keyframe (a fresh host encoder has no references to encode
-    /// against), so nothing here needs to survive for correctness.
+    /// Deliberately does NOT call `videoDecoder.reset()`, which an earlier version did. That
+    /// reset clears the cached format description and flushes the layer's queued samples, and
+    /// both are now load-bearing:
+    ///
+    /// - the host keeps its encoder across a reconnect (ADR-0090), so the stream continues and
+    ///   the frames after it may be deltas rather than a keyframe. Deltas carry no parameter
+    ///   sets, so a cleared format description would make the first one undecodable;
+    /// - the reference frames a delta encodes against live in the layer, so flushing them would
+    ///   force the keyframe this whole change exists to avoid.
+    ///
+    /// Only the timing state is reset, because a gap of unknown length makes the previous
+    /// stream's pacing meaningless. If the host does end up sending a keyframe -- because it had
+    /// no acknowledged reference, or the resolution changed -- the keyframe carries fresh
+    /// parameter sets and the decoder re-establishes from it, so keeping the old ones costs
+    /// nothing.
     func prepareForStreamHandover() {
-        logger.notice("owned media video stream-handover keeping last frame")
-        videoDecoder.reset()
+        logger.notice("owned media video stream-handover keeping last frame and decoder state")
         videoPresentationPacer.reset()
         pendingVideoPresentationTask?.cancel()
         pendingVideoPresentationTask = nil

@@ -91,9 +91,12 @@ confirms `EnableLTR` is listed and sets with status 0.
 4. The host passes confirmed tokens back as `kVTEncodeFrameOptionKey_AcknowledgedLTRTokens`.
 5. On recovery, encode with `kVTEncodeFrameOptionKey_ForceLTRRefresh` instead of forcing a
    keyframe.
-6. The host encoder must survive the drop. It is currently `private let encoder` on
-   `OwnedMediaTransport`, so a new session builds a new encoder with no reference state -- which
-   is why a fresh session always emits an IDR today regardless of what the client still holds.
+6. The host encoder must survive the drop. It was `private let encoder` on
+   `OwnedMediaTransport`, so a new session built a new encoder with no reference state -- which
+   is why a fresh session always emitted an IDR regardless of what the client still held. It is
+   now injected and owned per device by the app delegate, keyed by fingerprint and released when
+   the device is revoked. Keyed rather than shared, because one client acknowledging a reference
+   must never authorise a delta for a different client that never received it.
 
 Two things about (5) that only became clear while building it.
 
@@ -127,6 +130,14 @@ event -- the client lost frames and needs to resync -- so it takes the same path
   a resume window, but not permanently -- adaptation is what makes cellular usable at all.
 - Neutral: this is worthless without client sink retention, because a client that rebuilds its
   decoder has no reference to receive a delta against.
+
+Keeping the encoder alive forced a correction on the client side. The handover path originally
+reset the decoder, which was right when every reconnect began with a keyframe and wrong the
+moment one could begin with a delta: that reset clears the cached format description, and deltas
+carry no parameter sets, so the first one would have been undecodable. It also flushes the
+layer's queued samples, discarding the very references a delta encodes against. Only timing
+state is reset now. If the host does fall back to a keyframe, it carries fresh parameter sets
+and the decoder re-establishes from it, so keeping the old ones costs nothing.
 
 ### Confirmation
 

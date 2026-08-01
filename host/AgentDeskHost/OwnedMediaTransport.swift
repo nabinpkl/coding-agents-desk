@@ -14,10 +14,16 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     private let mediaKey: SymmetricKey
     private let onFirstFrameSent: @Sendable (UInt64) -> Void
     private let onFirstFrameAcknowledged: @Sendable (UInt64) -> Void
-    private let encoder = VideoToolboxOwnedMediaEncoder(
-        codec: .hevc,
-        configuration: .fromConfig()
-    )
+    // ADR-0090: injected, not owned, so it can outlive this transport.
+    //
+    // A reconnect builds a new transport. When the encoder was a stored property here that
+    // meant a new encoder with no reference state, so the first frame after a handover was
+    // always a full keyframe no matter what the client still held -- which made long-term
+    // references useless for exactly the case they were introduced for.
+    //
+    // Per device, never shared: one client acknowledging a reference must not authorise the
+    // host to encode a delta against it for a different client that never received it.
+    private let encoder: VideoToolboxOwnedMediaEncoder
     // ADR-0033 + ADR-0034: capture always runs at native resolution. The quality
     // ladder's resolutionScale is applied here, downscaling the frame the video
     // encoder sees, while crisp taps the untouched native buffer so settled text
@@ -115,9 +121,11 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         source: VideoFrameSource,
         datagrams: QUIC.Datagrams<QUICDatagram>,
         mediaKey: SymmetricKey,
+        encoder: VideoToolboxOwnedMediaEncoder,
         onFirstFrameSent: @escaping @Sendable (UInt64) -> Void = { _ in },
         onFirstFrameAcknowledged: @escaping @Sendable (UInt64) -> Void = { _ in }
     ) {
+        self.encoder = encoder
         self.source = source
         self.datagrams = datagrams
         self.mediaKey = mediaKey

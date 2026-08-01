@@ -96,6 +96,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let thumbnailsLogger = Logger(subsystem: Config.logSubsystem, category: "thumbnails")
     private var signalingServer: PairingSignalingServer?
     private let sessions = SessionRegistry()
+    // ADR-0090: video encoders outlive the sessions that use them, one per paired device.
+    //
+    // A reconnect builds a new media transport, and an encoder owned by that transport would
+    // start with no long-term reference state -- so the first frame after a handover would be a
+    // full keyframe regardless of what the client still had on screen. Keyed by fingerprint
+    // rather than shared, because one client's acknowledgement must never authorise a delta for
+    // another client that never received the reference.
+    //
+    // Bounded by the number of paired devices and released when a device is revoked, so this
+    // holds at most one hardware compression session per device the user has actually paired.
+    private var mediaEncoders: [DeviceFingerprint: VideoToolboxOwnedMediaEncoder] = [:]
     private let scrollActivityHints = ScrollActivityStore()
     private let displaySelection = DisplaySelectionStore()
     private var hostAvailability = HostAvailabilityController()
@@ -778,6 +789,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             source: frameSource,
             datagrams: datagrams,
             mediaKey: mediaKey,
+            encoder: mediaEncoder(for: fingerprint),
             onFirstFrameSent: { [weak self] frameId in
                 Task { @MainActor [weak self] in
                     self?.clientTelemetryStore.record(
@@ -1767,8 +1779,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The device's video encoder, kept across reconnects so a resync after a handover can be a
+    /// delta against a frame the client still holds rather than a fresh keyframe.
+    private func mediaEncoder(for fingerprint: DeviceFingerprint) -> VideoToolboxOwnedMediaEncoder {
+        if let existing = mediaEncoders[fingerprint] {
+            signalingLogger.notice("reusing media encoder fp=\(fingerprint.rawValue, privacy: .public)")
+            return existing
+        }
+        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: .fromConfig())
+        mediaEncoders[fingerprint] = encoder
+        return encoder
+    }
+
     private func revokeDevice(_ fingerprint: DeviceFingerprint) {
         try? pairing.revoke(deviceFingerprint: fingerprint)
+        // The encoder's whole value is reference state shared with one client. Once that
+        // pairing is gone the state is meaningless, and the hardware compression session it
+        // holds should not outlive it.
+        mediaEncoders.removeValue(forKey: fingerprint)?.invalidate()
         handleSessionEnded(fingerprint, closeSignaling: true)
         refreshConnectedState()
     }
