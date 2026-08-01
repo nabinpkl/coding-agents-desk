@@ -8,6 +8,10 @@ public enum QuicSessionStreamRole: UInt8, Codable, Equatable, Sendable {
     case terminal = 5
     case files = 6
     case voice = 7
+    /// Bulk one-way asset transfer (the voice models). Separate from `voice`,
+    /// which carries live dictation audio: a 152MB model moving down the same
+    /// lane as speech would stall it.
+    case assets = 8
 }
 
 public enum QuicSessionFrameError: Error, Equatable {
@@ -59,6 +63,8 @@ public struct QuicSessionStreamFrame: Equatable, Sendable {
             WorkspaceLaneCodec.maximumFrameBytes
         case .voice:
             VoiceLaneCodec.maximumFrameBytes
+        case .assets:
+            VoiceAssetCodec.maximumFrameBytes
         default:
             maxFrameLength
         }

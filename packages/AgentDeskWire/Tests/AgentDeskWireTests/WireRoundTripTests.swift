@@ -556,6 +556,56 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded.diagnosticScreenshotsEnabled == false)
 }
 
+@Test func voiceAssetRequestsRoundTrip() throws {
+    try roundTrip(VoiceAssetLaneRequest.manifest)
+    try roundTrip(VoiceAssetLaneRequest.fetch(id: "phone-model", offset: 0))
+    // Resume is the point of the offset: restarting a 152MB asset because a
+    // session blipped turns a pause into a failure.
+    try roundTrip(VoiceAssetLaneRequest.fetch(id: "phone-model", offset: 104_857_600))
+
+    let data = Data(#"{"t":"fetch","i":"zipa-model"}"#.utf8)
+    let decoded = try JSONDecoder().decode(VoiceAssetLaneRequest.self, from: data)
+    #expect(decoded == .fetch(id: "zipa-model", offset: 0))
+}
+
+@Test func voiceAssetResponsesRoundTrip() throws {
+    let descriptor = VoiceAssetDescriptor(
+        id: "phone-model",
+        name: "VoicePhoneModel.mlmodelc",
+        byteCount: 159_383_552,
+        sha256: String(repeating: "a", count: 64),
+        isArchivedDirectory: true
+    )
+    try roundTrip(VoiceAssetLaneResponse.manifest(VoiceAssetManifest(assets: [descriptor])))
+    try roundTrip(VoiceAssetLaneResponse.chunk(
+        id: "phone-model",
+        offset: 524_288,
+        bytes: Data([0x01, 0x02, 0x03]),
+        isLast: false
+    ))
+    try roundTrip(VoiceAssetLaneResponse.failure(id: "zipa-model", message: "missing"))
+
+    let object = try JSONSerialization.jsonObject(
+        with: try JSONEncoder().encode(VoiceAssetLaneResponse.chunk(
+            id: "phone-model", offset: 0, bytes: Data(), isLast: true
+        ))
+    ) as? [String: Any]
+    #expect(object?["t"] as? String == "chunk")
+    #expect(object?["l"] as? Bool == true)
+}
+
+@Test func voiceAssetChunksFitTheLaneFrame() throws {
+    // A chunk plus its base64 expansion and envelope has to fit the frame the
+    // lane will actually encode it into, or every transfer fails at the ceiling.
+    let encoded = try JSONEncoder().encode(VoiceAssetLaneResponse.chunk(
+        id: "phone-model",
+        offset: 0,
+        bytes: Data(repeating: 0xab, count: VoiceAssetCodec.chunkBytes),
+        isLast: false
+    ))
+    #expect(encoded.count <= QuicSessionStreamFrame.maxFrameLength(for: .assets))
+}
+
 @Test func mediaViewerStateRoundTripsBothDirections() throws {
     try roundTrip(MediaViewerState(isWatchingVideo: true))
     try roundTrip(MediaViewerState(isWatchingVideo: false))
