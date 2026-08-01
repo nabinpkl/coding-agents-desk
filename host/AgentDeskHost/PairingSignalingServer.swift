@@ -268,6 +268,26 @@ final class PairingSignalingServer: @unchecked Sendable {
                 helloPayload: frame.payload
             )
             voiceLaneReadyHandler(active.deviceFingerprint, lane)
+        case .assets:
+            guard let active = context.activeSession else {
+                try await QuicSessionStreamIO.send(
+                    SessionRejected(reason: .unauthorized),
+                    role: .assets,
+                    on: stream
+                )
+                return
+            }
+            // Unlike the other data lanes this needs nothing attached to it: it
+            // reads files off disk and closes. So it starts here rather than
+            // going through a ready handler.
+            let lane = VoiceAssetLaneServer(
+                stream: stream,
+                fingerprint: active.deviceFingerprint,
+                provider: VoiceAssetProvider(
+                    root: Config.voiceAssetRootURL
+                )
+            )
+            lane.start()
         }
     }
 

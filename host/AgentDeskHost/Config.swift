@@ -814,6 +814,18 @@ enum Config {
     static var voiceUvURL: URL? {
         Bundle.main.url(forResource: "uv", withExtension: nil)
     }
+    /// The voice model files this Mac serves to a paired phone.
+    ///
+    /// These used to ship inside the phone's app bundle, where they were two
+    /// thirds of its size and were re-sent on every install despite almost never
+    /// changing. Serving them from here costs the Mac disk it has and saves the
+    /// phone a nine-minute install. Absent on a host that has never run
+    /// `just voice-phone-model` / `just voice-zipa-model`, which the lane
+    /// reports as an empty manifest.
+    static var voiceAssetRootURL: URL? {
+        Bundle.main.url(forResource: voiceAssetResourceName, withExtension: nil)
+    }
+    static let voiceAssetResourceName = "VoiceModelAssets"
     static var voiceWheelhouseURL: URL? {
         Bundle.main.url(forResource: "voice-wheelhouse", withExtension: nil)
     }
