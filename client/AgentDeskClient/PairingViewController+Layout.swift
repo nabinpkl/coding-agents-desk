@@ -96,53 +96,28 @@ extension PairingViewController {
         hostContentView.bringSubviewToFront(diag)
         mediaDiagnosticsLabel = diag
 
-        let availability = UILabel()
-        availability.backgroundColor = UIColor.black.withAlphaComponent(0.72)
-        availability.textColor = .white
-        availability.font = .preferredFont(forTextStyle: .headline)
-        availability.numberOfLines = 2
-        availability.textAlignment = .center
-        availability.layer.cornerRadius = 10
-        availability.layer.masksToBounds = true
-        availability.isHidden = true
-        availability.translatesAutoresizingMaskIntoConstraints = false
-        hostContentView.addSubview(availability)
-        NSLayoutConstraint.activate([
-            availability.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
-            availability.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
-            availability.leadingAnchor.constraint(greaterThanOrEqualTo: scroll.leadingAnchor, constant: 24),
-            availability.trailingAnchor.constraint(lessThanOrEqualTo: scroll.trailingAnchor, constant: -24)
-        ])
-        hostContentView.bringSubviewToFront(availability)
-        hostAvailabilityLabel = availability
-
-        // The manual way out of a session the client believes is alive and the host has
-        // already ended. Measured on device: the host ended the session on a connection
+        // Host status (message, spinner, and the manual escape hatch). Centered on the root
+        // view's safe area rather than on the scroll: what it has to say matters most exactly
+        // when the video is in a bad state, so it must not inherit the video's geometry. The
+        // reason it exists at all is measured -- the host ended a session on a connection
         // timeout, the client never noticed and stayed `.connected`, so the pairing screen and
-        // its Connect button never rendered and force-quitting the app was the only escape --
-        // the exact symptom the handover work exists to remove.
+        // its Connect button never rendered and force-quitting was the only way out.
         //
-        // Auto-recovery is the real fix and this is not a substitute for it. It is here because
-        // a recovery path can always have a case it does not cover, and when that happens the
-        // user should not be left holding a dead screen with nothing to tap.
-        let reconnect = UIButton(type: .system)
-        reconnect.setTitle("Reconnect", for: .normal)
-        reconnect.titleLabel?.font = .preferredFont(forTextStyle: .headline)
-        reconnect.setTitleColor(.white, for: .normal)
-        reconnect.backgroundColor = UIColor.white.withAlphaComponent(0.18)
-        reconnect.contentEdgeInsets = UIEdgeInsets(top: 10, left: 22, bottom: 10, right: 22)
-        reconnect.layer.cornerRadius = 10
-        reconnect.layer.masksToBounds = true
-        reconnect.isHidden = true
-        reconnect.translatesAutoresizingMaskIntoConstraints = false
-        reconnect.addTarget(self, action: #selector(reconnectTapped), for: .touchUpInside)
-        hostContentView.addSubview(reconnect)
+        // Auto-recovery is the real fix and this is not a substitute for it. It is here
+        // because a recovery path can always have a case it does not cover, and when that
+        // happens the user should not be left holding a dead screen with nothing to tap.
+        let status = HostStatusOverlay()
+        status.reconnectButton.addTarget(self, action: #selector(reconnectTapped), for: .touchUpInside)
+        hostContentView.addSubview(status)
+        let safe = view.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
-            reconnect.centerXAnchor.constraint(equalTo: availability.centerXAnchor),
-            reconnect.topAnchor.constraint(equalTo: availability.bottomAnchor, constant: 16)
+            status.centerXAnchor.constraint(equalTo: safe.centerXAnchor),
+            status.centerYAnchor.constraint(equalTo: safe.centerYAnchor),
+            status.leadingAnchor.constraint(greaterThanOrEqualTo: safe.leadingAnchor, constant: 24),
+            status.trailingAnchor.constraint(lessThanOrEqualTo: safe.trailingAnchor, constant: -24)
         ])
-        hostContentView.bringSubviewToFront(reconnect)
-        hostReconnectButton = reconnect
+        hostContentView.bringSubviewToFront(status)
+        hostStatusOverlay = status
     }
 
     func showTrackpad() {
@@ -302,9 +277,12 @@ extension PairingViewController {
         case .clear:
             discardSessionLayoutConstraints()
             return false
-        case .rebuild:
+        case .rebuild(let layout):
             discardSessionLayoutConstraints()
-            buildSessionLayoutConstraints()
+            switch layout {
+            case .session: buildSessionLayoutConstraints()
+            case .videoOnly: buildVideoOnlyLayoutConstraints()
+            }
             applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
             return true
         }
@@ -326,11 +304,49 @@ extension PairingViewController {
         currentUsesFullLayout = nil
     }
 
-    /// The only producer of the four orientation-variant sets.
+    /// The sink's arrangement while the control shell is gone, which is the reconnect window.
     ///
-    /// Derives all four from the mounted shell and sink together. Callers reach it through
-    /// `reconcileSessionLayout`, which discards the previous set first, so this always writes
-    /// into empty arrays and never has to reason about what a previous caller left behind.
+    /// Only the scroll view is mounted then, so every constraint here resolves against the
+    /// controller's own view: referring to the trackpad or button row would pin the video to
+    /// views that are out of the hierarchy. Default portrait keeps the exact geometry the
+    /// session layout gives it, so the frame held over the outage does not move; the other
+    /// three take back the space the absent chrome would have occupied, since leaving a gap
+    /// for controls that are not on screen only makes the outage more obvious.
+    private func buildVideoOnlyLayoutConstraints() {
+        guard let scroll = sinkScrollView else { return }
+        let safe = view.safeAreaLayoutGuide
+
+        portraitConstraints.append(contentsOf: [
+            scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: view.topAnchor),
+            scroll.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.55)
+        ])
+        fullPortraitConstraints.append(contentsOf: [
+            scroll.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: safe.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: safe.bottomAnchor)
+        ])
+        landscapeConstraints.append(contentsOf: [
+            scroll.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            scroll.topAnchor.constraint(equalTo: safe.topAnchor),
+            scroll.widthAnchor.constraint(equalTo: safe.widthAnchor, multiplier: 0.62),
+            scroll.bottomAnchor.constraint(equalTo: safe.bottomAnchor)
+        ])
+        fullLandscapeConstraints.append(contentsOf: [
+            scroll.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            scroll.topAnchor.constraint(equalTo: safe.topAnchor),
+            scroll.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: safe.bottomAnchor)
+        ])
+    }
+
+    /// The full arrangement, shell and sink together.
+    ///
+    /// Callers reach it through `reconcileSessionLayout`, which discards the previous set
+    /// first, so this always writes into empty arrays and never has to reason about what a
+    /// previous caller left behind.
     private func buildSessionLayoutConstraints() {
         guard trackpadView.superview != nil, let scroll = sinkScrollView else { return }
         let safe = view.safeAreaLayoutGuide
@@ -530,11 +546,12 @@ extension PairingViewController {
         selectedDisplayIdForClientConfig = nil
         applyKeyboardPresentationIntent(.hide)
         buttonRowBottomConstraint = nil
-        // R23: the shell's views are out of the hierarchy, so the orientation-variant set
-        // that positions things against them is meaningless. Dropping it goes through the
-        // reconciler like every other composition change, which is what guarantees the next
-        // `showTrackpad` derives a complete replacement -- including the sink's own position
-        // and extent, whether or not the sink was rebuilt with it.
+        // R23: the shell's views are out of the hierarchy, so the set that positions things
+        // against them is meaningless. Going through the reconciler rather than clearing
+        // directly is what makes the difference between the two ways to get here: a teardown
+        // that also drops the sink has nothing left to lay out, while one that preserves the
+        // sink re-derives the video-only arrangement and keeps the held frame on screen for
+        // the length of the outage.
         reconcileSessionLayout()
     }
 

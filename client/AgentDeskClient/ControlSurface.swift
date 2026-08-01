@@ -31,18 +31,36 @@ enum ControlSurface {
 /// relaunch (R230). Deriving the whole set from the current composition, every time the
 /// composition changes, is what removes that class of bug rather than this one instance of it.
 struct SessionLayoutConstraints {
+    /// Which arrangement the mounted pieces can express.
+    enum Layout: Equatable {
+        /// Shell and sink together: video, trackpad, strip, rails, button row.
+        case session
+        /// The sink alone, while the shell is torn down across a reconnect. The video keeps
+        /// its position and extent so the frame preserved for the outage stays on screen and
+        /// in place; without this the scroll view has no constraints at all for the length of
+        /// the outage and collapses, which the user sees as black (R230).
+        case videoOnly
+    }
+
     enum Reconciliation: Equatable {
         /// The installed set already matches what is mounted.
         case upToDate
-        /// Discard the installed set and derive a fresh one from both mounted pieces.
-        case rebuild
-        /// A piece the installed set refers to is gone; drop the set without replacing it.
+        /// Discard the installed set and derive the named arrangement from what is mounted.
+        case rebuild(Layout)
+        /// Nothing left to lay out; drop the set without replacing it.
         case clear
     }
 
     private struct Composition: Equatable {
         let shellMounted: Bool
         let sinkMounted: Bool
+
+        /// Nil when nothing is layoutable. A sink with no shell still is: it is the reconnect
+        /// state, and it is the one this used to get wrong by treating it as nothing.
+        var layout: Layout? {
+            guard sinkMounted else { return nil }
+            return shellMounted ? .session : .videoOnly
+        }
     }
 
     /// The composition the installed constraints were derived from, or nil when none are
@@ -54,14 +72,14 @@ struct SessionLayoutConstraints {
 
     mutating func reconcile(shellMounted: Bool, sinkMounted: Bool) -> Reconciliation {
         let current = Composition(shellMounted: shellMounted, sinkMounted: sinkMounted)
-        guard shellMounted, sinkMounted else {
+        guard let layout = current.layout else {
             guard derivedFrom != nil else { return .upToDate }
             derivedFrom = nil
             return .clear
         }
         guard derivedFrom != current else { return .upToDate }
         derivedFrom = current
-        return .rebuild
+        return .rebuild(layout)
     }
 }
 

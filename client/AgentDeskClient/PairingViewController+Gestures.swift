@@ -183,33 +183,13 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             ],
             level: .info
         )
-        guard let label = hostAvailabilityLabel else { return }
-        switch push.availability {
-        case .active:
-            label.isHidden = true
-            label.text = nil
-            hostReconnectButton?.isHidden = true
-        case .locked:
-            label.text = "Mac locked\nKeyboard input stays available"
-            label.isHidden = false
-            hostContentView.bringSubviewToFront(label)
-            // A locked Mac is a healthy session, so no escape hatch is offered here.
-            hostReconnectButton?.isHidden = true
+        guard let overlay = hostStatusOverlay else { return }
+        let presentation = HostStatusPresentation.forAvailability(push.availability)
+        overlay.apply(presentation)
+        // The rail stays above the overlay: whatever the host is doing, the user keeps a way
+        // to leave this surface.
+        if presentation.message != nil {
             view.bringSubviewToFront(surfaceControlRail)
-        case .captureUnavailable:
-            // No longer promises "Input stays connected". That claim was measured false: the
-            // host had ended the session on a connection timeout and nothing was connected at
-            // all, while this label reassured the user that input still worked.
-            label.text = "Mac display unavailable"
-            label.isHidden = false
-            hostContentView.bringSubviewToFront(label)
-            hostReconnectButton?.isHidden = false
-            hostReconnectButton.map { hostContentView.bringSubviewToFront($0) }
-            view.bringSubviewToFront(surfaceControlRail)
-        case .disconnected:
-            label.isHidden = true
-            label.text = nil
-            hostReconnectButton?.isHidden = true
         }
     }
 
@@ -225,7 +205,9 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             fields: [:],
             level: .info
         )
-        hostReconnectButton?.isHidden = true
+        // Acknowledge the tap before the teardown runs, so the button does not sit there
+        // looking unpressed while the session is already coming down.
+        hostStatusOverlay?.apply(.reconnecting)
         userRequestedDisconnect = false
         failMediaSession()
     }

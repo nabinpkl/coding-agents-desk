@@ -77,10 +77,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // like settingsButton and cursorDotView, so it never rides the sink's pinch-zoom/pan.
     // The sink publishes status into it via onOwnedMediaStatusChange.
     var mediaDiagnosticsLabel: UILabel?
-    var hostAvailabilityLabel: UILabel?
-    /// Last-resort escape from a session the client thinks is live and the host has ended.
-    /// Shown only alongside `captureUnavailable`. See `reconnectTapped`.
-    var hostReconnectButton: UIButton?
+    /// Host status: what the session is doing when it is not simply showing the Mac. Owns the
+    /// spinner, the message, and the last-resort escape from a session the client thinks is
+    /// live and the host has ended (see `reconnectTapped`). Centered on the root view's safe
+    /// area, deliberately not on the video, so what it says stays readable no matter what the
+    /// video is doing.
+    var hostStatusOverlay: HostStatusOverlay?
     // Carries the connect message across the gap between session connect and the
     // first drawable frame; see VideoStartupBanner.
     var videoStartupBanner = VideoStartupBanner()
@@ -480,9 +482,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // The push does arrive on connect and would hide it, but if one is ever missed the
         // overlay would sit permanently over a working session -- and a stuck "Reconnecting…"
         // over live video is a worse failure than a briefly absent one over a frozen frame.
-        hostAvailabilityLabel?.isHidden = true
-        hostAvailabilityLabel?.text = nil
-        hostReconnectButton?.isHidden = true
+        hostStatusOverlay?.apply(.hidden)
         if let owned = sink as? any OwnedMediaFrameSink {
             owned.onOwnedMediaStatusChange = { [weak self] status in
                 self?.mediaDiagnosticsLabel?.text = status.labelText
@@ -704,14 +704,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             // A frozen picture with nothing over it is indistinguishable from a hung app, which
             // is arguably worse than black because black at least reads as "something happened".
             // The status label is hidden by the preserved-surfaces branch of `render`, so the
-            // overlay on the picture is the place to say it. The escape hatch rides along: if
-            // the redial succeeds in a second or two this is barely seen, and if it does not,
-            // the user is not stranded waiting for a recovery that is not coming.
-            hostAvailabilityLabel?.text = "Reconnecting…"
-            hostAvailabilityLabel?.isHidden = false
-            hostAvailabilityLabel.map { hostContentView.bringSubviewToFront($0) }
-            hostReconnectButton?.isHidden = false
-            hostReconnectButton.map { hostContentView.bringSubviewToFront($0) }
+            // overlay on the picture is the place to say it. Spinner and all: this is a
+            // transition over a picture that is still there, not an error over a dead one. The
+            // escape hatch rides along, because if the redial does not come back the user is
+            // otherwise stranded waiting for a recovery that is not coming.
+            hostStatusOverlay?.apply(.switchingNetwork)
         } else {
             videoSink?.view.removeFromSuperview()
             videoSink = nil
@@ -719,10 +716,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             sinkScrollView = nil
             mediaDiagnosticsLabel?.removeFromSuperview()
             mediaDiagnosticsLabel = nil
-            hostAvailabilityLabel?.removeFromSuperview()
-            hostAvailabilityLabel = nil
-            hostReconnectButton?.removeFromSuperview()
-            hostReconnectButton = nil
+            hostStatusOverlay?.removeFromSuperview()
+            hostStatusOverlay = nil
             cursorDotView?.removeFromSuperview()
             cursorDotView = nil
         }

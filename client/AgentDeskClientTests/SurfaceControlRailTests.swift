@@ -8,11 +8,27 @@ struct SurfaceControlRailTests {
 
         #expect(layout.reconcile(shellMounted: true, sinkMounted: false) == .upToDate)
         #expect(!layout.hasInstalledConstraints)
-        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild)
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild(.session))
         #expect(layout.hasInstalledConstraints)
         // Nothing moved, so there is nothing to redo: a rebuild here would churn every
         // constraint on screen on any incidental re-entry.
         #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .upToDate)
+    }
+
+    /// The reconnect window. The surface-preserving teardown drops the shell and keeps the
+    /// sink so the last frame stays on screen, which only works if the sink keeps its
+    /// position and extent too. Treating this as "nothing to lay out" left the scroll view
+    /// unconstrained for the whole outage: it collapsed, and the user saw black with the
+    /// status label riding it up under the notch.
+    @Test func sinkWithoutShellKeepsALayoutForTheOutage() {
+        var layout = SessionLayoutConstraints()
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild(.session))
+
+        #expect(layout.reconcile(shellMounted: false, sinkMounted: true) == .rebuild(.videoOnly))
+        #expect(layout.hasInstalledConstraints)
+        #expect(layout.reconcile(shellMounted: false, sinkMounted: true) == .upToDate)
+
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild(.session))
     }
 
     /// R230. A handover tears the control shell down and rebuilds it while deliberately
@@ -20,35 +36,39 @@ struct SurfaceControlRailTests {
     /// whose sink never re-mounted. The one-shot gate this replaced reported "already
     /// installed" here, the sink kept no position or extent constraints, and the video view
     /// laid out at zero height -- frames decoding into a rect the user sees as black.
+    /// R230. A handover tears the control shell down and rebuilds it while deliberately
+    /// keeping the video sink, so the constraint set has to be re-derived from a composition
+    /// whose sink never re-mounted. The one-shot gate this replaced reported "already
+    /// installed" here, the sink kept no position or extent constraints, and the video view
+    /// laid out at zero height -- frames decoding into a rect the user sees as black.
     @Test func sessionLayoutRebuildsWhenShellRemountsOverASurvivingSink() {
         var layout = SessionLayoutConstraints()
-        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild)
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild(.session))
 
-        #expect(layout.reconcile(shellMounted: false, sinkMounted: true) == .clear)
-        #expect(!layout.hasInstalledConstraints)
-
-        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild)
+        #expect(layout.reconcile(shellMounted: false, sinkMounted: true) == .rebuild(.videoOnly))
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild(.session))
         #expect(layout.hasInstalledConstraints)
     }
 
     @Test func sessionLayoutClearsOnceAndStaysQuietWhileNothingIsMounted() {
         var layout = SessionLayoutConstraints()
-        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild)
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild(.session))
 
         #expect(layout.reconcile(shellMounted: false, sinkMounted: false) == .clear)
         // The set is already gone; repeating the teardown must not ask for a second discard.
         #expect(layout.reconcile(shellMounted: false, sinkMounted: false) == .upToDate)
-        #expect(layout.reconcile(shellMounted: false, sinkMounted: true) == .upToDate)
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: false) == .upToDate)
         #expect(!layout.hasInstalledConstraints)
     }
 
-    @Test func sessionLayoutRebuildsWhenTheSinkIsReplacedUnderALiveShell() {
+    @Test func sessionLayoutClearsWhenTheSinkGoesAndTheShellStays() {
         var layout = SessionLayoutConstraints()
-        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild)
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild(.session))
 
-        // A non-preserving teardown drops the sink and leaves the shell up.
+        // A non-preserving teardown drops the sink and leaves the shell up. With no video
+        // there is nothing the orientation-variant set can position.
         #expect(layout.reconcile(shellMounted: true, sinkMounted: false) == .clear)
-        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild)
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild(.session))
     }
 
     @Test func preVideoRailHasVisibleBackdropAndUsableUtilities() throws {
