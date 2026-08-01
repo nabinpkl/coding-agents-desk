@@ -728,6 +728,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.handleSessionEnded(fingerprint, sessionId: sessionId)
                 }
             },
+            sessionAttemptEndedHandler: { [weak self] fingerprint in
+                Task { @MainActor in
+                    self?.handleSessionAttemptEnded(fingerprint)
+                }
+            },
             inputLaneReadyHandler: { [weak self] fingerprint, server in
                 Task { @MainActor in
                     self?.handleInputLaneReady(fingerprint, server: server)
@@ -1133,6 +1138,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleClientRevoke(_ fingerprint: DeviceFingerprint) {
         signalingLogger.notice("client requested unpair fp=\(fingerprint.rawValue, privacy: .public); removing pairing")
         revokeDevice(fingerprint)
+    }
+
+    /// A dial that never established a session went away. Deliberately does not end anything:
+    /// the device may hold a suspended session on another connection that is still inside its
+    /// resume window, and the failed dials a handover produces are exactly when that matters.
+    private func handleSessionAttemptEnded(_ fingerprint: DeviceFingerprint) {
+        sessions.endAttempt(fingerprint)
+        signalingLogger.notice("session attempt ended fingerprint=\(fingerprint.rawValue, privacy: .public) state=\(String(describing: self.sessions.state(for: fingerprint)), privacy: .public)")
+        refreshConnectedState()
     }
 
     private func handleSessionEnded(

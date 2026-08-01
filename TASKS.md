@@ -1406,6 +1406,9 @@ Neither fix does anything alone, which is why they land together. Still open: a 
 wrongly believes is connected holds its window open forever, because it reads "connected" as "in
 contact" -- D214's echo is what closes that.
 D221  2026-07-31  landed     release the session's encoder when the session ends, and key it by session so a fresh decoder never inherits one
+D222  2026-07-31  landed     authorized device run: resume works (240ms, encoder reused), and a failed dial was eating the window
+D223  2026-07-31  landed     a failed dial clears only the attempt, so it stops ending the suspended session beside it
+D224  2026-07-31  landed     LTR eligibility by exclusion, and a client that flushed its decoder can say so
 
 D214 detail: a control-message pair (`liveness-probe` / `liveness-echo`) carrying a sequence
 number on the existing `frameId` field. Three unanswered probes at 2s declares ~4.5s after the
@@ -1511,3 +1514,28 @@ Two side findings from D208 worth keeping. The host's degradation machinery work
 live and not producing its old calm-screen false positive. And this freeze was one-directional:
 67 of 82 client reports still arrived while `datagramsReceived` stayed 0, so the uplink survived
 and Phase 2 can plausibly signal over it.
+
+D222 detail: the first device run where resume could happen at all. `session suspended` ->
+`session resuming` -> `session ready` in 240ms on the same session id, with `reusing media
+encoder`, which is ADR-0030's confirmation criterion met for the first time since it was
+written. It also caught two things the gate could not.
+
+A failed dial was ending the session beside it. `notifyConnectionLost`'s never-established
+branch called the session-ended handler with a nil session id, and ending by fingerprint removes
+whatever record exists -- so during a handover, where the client re-dials immediately and the
+first dials fail while the radio switches, each failure destroyed the resumable session a
+different connection had just suspended, about 40ms after it was suspended (D223).
+
+And the screen still went black, because the first frame after the resume was a 171KB keyframe:
+only two of the five paths that force a keyframe had opted into the long-term-reference path,
+and resume was not one of them (D224).
+
+D224 detail: eligibility is now an exclusion list in the encoder rather than an opt-in at each
+call site, so a new resync path gets the cheap path by default instead of silently missing it.
+That exposed a livelock the opt-in had been hiding: VideoToolbox cannot un-acknowledge a
+long-term reference, but the client discards its decoder on several recovery paths -- render
+stall, wedged layer, dimension mismatch -- each clearing the format description and flushing the
+layer. Those paths ask for a keyframe and would now get a delta against references they just
+dropped, fail to decode it, and ask again. The render-stall path had exactly that shape,
+`requestKeyframe()` immediately followed by `videoDecoder.reset()`. The keyframe request now
+carries `clientHasNoReferences`, since the client is the only party that can know.

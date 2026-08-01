@@ -324,6 +324,30 @@ struct SessionRegistryTests {
         #expect(registry.validateResume(request, proof: proof) == .accepted(active, hostNonce: challenge.hostNonce))
     }
 
+    // Measured on device: during a handover the client re-dials immediately, those first dials
+    // fail while the radio is still switching, and each failure was ending the resumable
+    // session a *different* connection had just suspended -- closing the resume window about
+    // 40ms after it opened.
+    @Test func aFailedDialDoesNotEndTheSuspendedSessionItArrivedBeside() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let registry = SessionRegistry(now: { now })
+        let fingerprint = DeviceFingerprint("device-fp")
+        let active = ActiveSession(sessionId: "session-1", deviceFingerprint: fingerprint, establishedAt: Int(now.timeIntervalSince1970))
+        let ready = makeReady(now: now)
+        let request = makeResumeRequest(ready: ready, fingerprint: fingerprint)
+        _ = registry.noteReady(active, ready: ready)
+        registry.markSuspended(fingerprint, sessionId: "session-1")
+
+        registry.noteAttempt(fingerprint)
+        registry.endAttempt(fingerprint)
+
+        #expect(!registry.isAttempting(fingerprint))
+        #expect(registry.state(for: fingerprint) == .suspended)
+        let challenge = try acceptedChallenge(from: registry.makeResumeChallenge(request))
+        let proof = makeResumeProof(ready: ready, request: request, challenge: challenge)
+        #expect(registry.validateResume(request, proof: proof) == .accepted(active, hostNonce: challenge.hostNonce))
+    }
+
     // A revoked or replaced session leaves no record, and its connection reports a close
     // afterwards. That close must not announce a suspension or arm a grace timer.
     @Test func suspendingAnEndedSessionIsRefused() throws {

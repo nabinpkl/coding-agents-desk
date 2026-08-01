@@ -252,6 +252,32 @@ private let ms = 1_000_000 as UInt64
         #expect(data.count < 200)
     }
 
+    // The host cannot infer this: a long-term reference stays acknowledged forever once
+    // confirmed, so a client that flushed its decoder has to say so or the resync it asks for
+    // comes back as a delta it cannot decode, and it asks again.
+    @Test func aKeyframeRequestCanDeclareTheClientLostItsReferences() throws {
+        let asking = OwnedMediaControlMessage(
+            kind: .keyframeRequest,
+            frameId: 0,
+            clientHasNoReferences: true
+        )
+        let decoded = try JSONDecoder().decode(
+            OwnedMediaControlMessage.self,
+            from: try JSONEncoder().encode(asking)
+        )
+        #expect(decoded.clientHasNoReferences == true)
+
+        // Absent on the ordinary request, so the host takes the cheap path by default.
+        let ordinary = OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 0)
+        let json = String(decoding: try JSONEncoder().encode(ordinary), as: UTF8.self)
+        #expect(!json.contains("\"nr\""))
+        let decodedOrdinary = try JSONDecoder().decode(
+            OwnedMediaControlMessage.self,
+            from: try JSONEncoder().encode(ordinary)
+        )
+        #expect(decodedOrdinary.clientHasNoReferences == nil)
+    }
+
     @Test func theKindsAreDistinctOnTheWire() throws {
         // A probe that decoded as an echo would have the host answering itself and the client
         // treating its own probe as proof of life.

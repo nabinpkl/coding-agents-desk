@@ -73,6 +73,14 @@ final class SessionRegistry {
         attempting.insert(fingerprint)
     }
 
+    /// A dial that never reached `noteReady` went away. Clears only the attempt: any
+    /// established or suspended session for this device belongs to a different connection and
+    /// must survive, which is what keeps a resume window open across the failed dials a
+    /// handover produces.
+    func endAttempt(_ fingerprint: DeviceFingerprint) {
+        attempting.remove(fingerprint)
+    }
+
     func noteReady(
         _ session: ActiveSession,
         ready: SessionReady,

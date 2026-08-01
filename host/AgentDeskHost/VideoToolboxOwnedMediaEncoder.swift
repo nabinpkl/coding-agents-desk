@@ -148,10 +148,14 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     /// Tokens the client has confirmed it decoded, not yet handed to the encoder. Drained onto
     /// the next encode: the encoder only references frames that appear here.
     private var pendingLtrAcknowledgements: Set<UInt64> = []
-    /// Set instead of `forceNextKeyframe` when a resync should try a delta first. The encoder
-    /// falls back to a keyframe by itself if it has no acknowledged reference to use, so this
-    /// cannot strand the client on a frame it cannot decode.
-    private var forceNextLtrRefresh = false
+    /// The client told us it threw its decoder away, so the next resync must be a real keyframe.
+    ///
+    /// VideoToolbox has no way to un-acknowledge an LTR: once told the client holds a frame, it
+    /// will happily encode against it forever. The client is the only party that knows its
+    /// decoder was flushed, so it has to say so, or a keyframe request answered with a delta
+    /// produces a frame it cannot decode, another request, and the same answer -- a livelock,
+    /// which is how the client's own render-stall recovery behaved.
+    private var clientHasNoReferences = false
     private var pendingFrames: [UInt64: PendingEncodedFrame] = [:]
 
     init(
@@ -223,9 +227,18 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             // here. Treating the keyframe as the winner would mean the refresh never fired at
             // all, and the whole change would be inert while looking wired up.
             //
+            // The eligibility rule is an exclusion list rather than an opt-in, because opt-in
+            // was measured getting it wrong. Only two of the five reasons that force a keyframe
+            // ever asked for a refresh, so a resume answered its first frame with a 171KB
+            // keyframe while the phone was mid-handover -- the exact moment the cheap path was
+            // built for. A rule that new resync paths have to remember to join is a rule that
+            // silently stops applying.
+            //
             // Two reasons are not eligible and keep their true keyframe. `initial` has nothing
             // to reference yet. `resolutionChange` invalidates every existing reference, so a
-            // delta against one would be garbage even if the client still held it.
+            // delta against one would be garbage even if the client still held it. `clientHasNo
+            // References` is the client saying it discarded its decoder, which it is the only
+            // party that can know.
             //
             // Asking for a refresh is safe regardless: with LTR off or nothing acknowledged,
             // VideoToolbox emits an IDR anyway, so the client is never handed a frame it cannot
@@ -234,8 +247,9 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             let requiresTrueKeyframe = encodedFrameId == 1
                 || resyncReason == .initial
                 || resyncReason == .resolutionChange
-            let refreshWithLtr = forceNextLtrRefresh && ltrEnabled && !requiresTrueKeyframe
-            forceNextLtrRefresh = false
+                || clientHasNoReferences
+            let refreshWithLtr = forceKeyframe && ltrEnabled && !requiresTrueKeyframe
+            clientHasNoReferences = false
             var options: [CFString: Any] = [:]
             if forceKeyframe, !refreshWithLtr {
                 options[kVTEncodeFrameOptionKey_ForceKeyFrame] = kCFBooleanTrue
@@ -358,21 +372,13 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         lock.unlock()
     }
 
-    /// Resync by referencing an acknowledged long-term frame rather than sending a keyframe.
-    ///
-    /// Safe to call unconditionally: with LTR unavailable, or with nothing acknowledged yet,
-    /// the encoder produces the keyframe it would have produced anyway.
-    /// - Returns: whether the refresh will be attempted, so the caller can still force a
-    ///   keyframe when it will not.
-    @discardableResult
-    func requestLtrRefresh() -> Bool {
+    /// The client discarded its decoder, so the next resync must be a real keyframe rather than
+    /// a delta against a reference it no longer holds.
+    func noteClientHasNoReferences() {
         lock.lock()
-        let enabled = ltrEnabled
-        if enabled {
-            forceNextLtrRefresh = true
-        }
+        clientHasNoReferences = true
+        pendingLtrAcknowledgements.removeAll(keepingCapacity: true)
         lock.unlock()
-        return enabled
     }
 
     /// The encoder's handle for a frame it is willing to reference later. Absent on frames that

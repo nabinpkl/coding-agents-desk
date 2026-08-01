@@ -362,6 +362,40 @@ exposure than it sounds -- the resume secret is bearer material that never leave
 authenticated session, and the proof is bound to session id, resume id, and both nonces -- but
 it is a real reason the echo is not optional.
 
+### What the device run showed, once resume could finally happen
+
+The first switch to reach a working resume window produced this, and it is the criterion
+ADR-0030 wrote down and never met:
+
+```
+21:12:08.583  session suspended
+21:12:08.821  session resuming      session=3nPTGD_o5V…
+21:12:08.822  reusing media encoder session=3nPTGD_o5V…
+21:12:08.823  session ready         session=3nPTGD_o5V…
+```
+
+Suspend to ready in **240ms**, same session id, encoder reused.
+
+An earlier switch in the same run did not resume, and the reason was a line that had been
+harmless for as long as ending a session was the default:
+
+```
+21:11:39.230  session suspended
+21:11:39.244  session suspended     ← the connection failure, correctly routed to suspend
+21:11:39.282  session ended         ← 52ms later
+```
+
+A connection that never established a session was calling the session-ended handler with a nil
+session id, and ending by fingerprint removes whatever record exists. During a handover the
+client re-dials immediately and those first dials fail while the radio is still switching, so
+each failed dial destroyed the resumable session a **different** connection had just suspended
+-- closing the resume window about forty milliseconds after it opened. A failed attempt now
+clears only the attempt.
+
+The screen still went black across the switch, for a reason that belongs to ADR-0090 rather than
+here: the first frame after the resume was a 171KB keyframe, because the resume path was not one
+of the two that had opted into the cheap long-term-reference path.
+
 ### Confirmation
 
 `LinkChangeDetectorTests` pins the discrimination the measurement depends on: an address change

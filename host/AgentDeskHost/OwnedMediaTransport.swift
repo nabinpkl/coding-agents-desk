@@ -844,7 +844,6 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         // The reason stays `.stallRecovery` regardless of which the encoder produces: it names
         // why we resynced, not what came out. Whether it ended up a delta or a keyframe is
         // already visible on the frame itself.
-        encoder.requestLtrRefresh()
         encodeGate.withLock { state in
             state.forceKeyframeReason = .stallRecovery
         }
@@ -997,12 +996,16 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         }
         switch message.kind {
         case .keyframeRequest:
-            // ADR-0090: try to answer with a long-term-reference delta rather than a keyframe.
-            // The client asks for a keyframe because it cannot decode what it has, and on a
-            // barely-changed desktop the honest answer is usually a few hundred bytes rather
-            // than a quarter of a megabyte. The encoder falls back to a keyframe on its own if
-            // it has no acknowledged reference, so the request is still always satisfied.
-            encoder.requestLtrRefresh()
+            // ADR-0090: the encoder answers a resync with a long-term-reference delta by
+            // default, which on a barely-changed desktop is a few hundred bytes rather than a
+            // quarter of a megabyte. The one case it cannot is a client that threw its decoder
+            // away: there is no way to un-acknowledge a reference, so unless the client says so
+            // the encoder would keep answering with a delta the client cannot decode, and the
+            // client would keep asking.
+            if message.clientHasNoReferences == true {
+                logger.notice("owned media client keyframe request declares no references")
+                encoder.noteClientHasNoReferences()
+            }
             let admission = encodeGate.withLock { state in
                 state.mediaState.noteKeyframeRequest()
             }

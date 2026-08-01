@@ -183,9 +183,13 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                 // Through the shared path, not an inline copy of it: a keyframe request is the
                 // message most likely to be sent into a broken link and the one whose loss
                 // hurts most, so it must be covered by the send-failure reporting too.
-                mediaSink?.setVideoKeyframeRequestHandler { [weak self] in
+                mediaSink?.setVideoKeyframeRequestHandler { [weak self] hasReferences in
                     self?.sendVideoControl(
-                        OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 0)
+                        OwnedMediaControlMessage(
+                            kind: .keyframeRequest,
+                            frameId: 0,
+                            clientHasNoReferences: hasReferences ? nil : true
+                        )
                     )
                 }
                 // ADR-0090: an acknowledged long-term reference is what lets the host answer

@@ -228,6 +228,11 @@ public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
     /// ADR-0090: long-term reference tokens the client has decoded and can still be encoded
     /// against. Rides the frame ack because that is already the "I have this frame" signal.
     public let acknowledgedLtrTokens: [UInt64]?
+    /// ADR-0090: set on a `.keyframeRequest` when the client has thrown its decoder away and
+    /// cannot decode a delta against anything it previously acknowledged. There is no way to
+    /// un-acknowledge a long-term reference, and the client is the only party that knows its
+    /// decoder was flushed, so it has to say so here or the resync loops forever.
+    public let clientHasNoReferences: Bool?
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case type = "t"
@@ -244,6 +249,7 @@ public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
         case linkHealthExpiredFrames = "le"
         case linkTelemetry = "lt"
         case acknowledgedLtrTokens = "la"
+        case clientHasNoReferences = "nr"
     }
 
     public init(
@@ -260,7 +266,8 @@ public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
         linkHealthCompletedFrames: Int? = nil,
         linkHealthExpiredFrames: Int? = nil,
         linkTelemetry: OwnedMediaLinkTelemetry? = nil,
-        acknowledgedLtrTokens: [UInt64]? = nil
+        acknowledgedLtrTokens: [UInt64]? = nil,
+        clientHasNoReferences: Bool? = nil
     ) {
         self.type = "owned-media-control"
         self.kind = kind
@@ -277,6 +284,7 @@ public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
         self.linkHealthExpiredFrames = linkHealthExpiredFrames
         self.linkTelemetry = linkTelemetry
         self.acknowledgedLtrTokens = acknowledgedLtrTokens
+        self.clientHasNoReferences = clientHasNoReferences
     }
 
     public init(from decoder: Decoder) throws {
@@ -296,6 +304,7 @@ public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
         linkHealthExpiredFrames = try container.decodeIfPresent(Int.self, forKey: .linkHealthExpiredFrames)
         linkTelemetry = try container.decodeIfPresent(OwnedMediaLinkTelemetry.self, forKey: .linkTelemetry)
         acknowledgedLtrTokens = try container.decodeIfPresent([UInt64].self, forKey: .acknowledgedLtrTokens)
+        clientHasNoReferences = try container.decodeIfPresent(Bool.self, forKey: .clientHasNoReferences)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -316,6 +325,7 @@ public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
         try container.encodeIfPresent(linkHealthExpiredFrames, forKey: .linkHealthExpiredFrames)
         try container.encodeIfPresent(linkTelemetry, forKey: .linkTelemetry)
         try container.encodeIfPresent(acknowledgedLtrTokens, forKey: .acknowledgedLtrTokens)
+        try container.encodeIfPresent(clientHasNoReferences, forKey: .clientHasNoReferences)
     }
 }
 public enum MediaTimingMath: Sendable {

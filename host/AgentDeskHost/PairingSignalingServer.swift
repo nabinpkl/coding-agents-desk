@@ -39,6 +39,10 @@ final class PairingSignalingServer: @unchecked Sendable {
     typealias SessionResumeHandler = (SessionResumeInit, SessionResumeProof) async throws -> (ActiveSession, SessionReady)
     typealias SessionSuspendedHandler = (DeviceFingerprint, String?) -> Void
     typealias SessionEndedHandler = (DeviceFingerprint, String?) -> Void
+    /// A connection that never established a session went away. Separate from
+    /// `SessionEndedHandler` because it must not touch an established session; see
+    /// `notifyConnectionLost`.
+    typealias SessionAttemptEndedHandler = (DeviceFingerprint) -> Void
     typealias InputLaneReadyHandler = (DeviceFingerprint, InputChannelServer) -> Void
     typealias GraphicsLaneReadyHandler = (DeviceFingerprint, GraphicsLaneServer) -> Void
     typealias DomLaneReadyHandler = (DeviceFingerprint, DomEventLaneServer) -> Void
@@ -56,6 +60,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     private let sessionResumeHandler: SessionResumeHandler
     private let sessionSuspendedHandler: SessionSuspendedHandler
     private let sessionEndedHandler: SessionEndedHandler
+    private let sessionAttemptEndedHandler: SessionAttemptEndedHandler
     private let inputLaneReadyHandler: InputLaneReadyHandler
     private let graphicsLaneReadyHandler: GraphicsLaneReadyHandler
     private let domLaneReadyHandler: DomLaneReadyHandler
@@ -76,6 +81,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         sessionResumeHandler: @escaping SessionResumeHandler = { _, _ in throw SessionRejected(reason: .unauthorized) },
         sessionSuspendedHandler: @escaping SessionSuspendedHandler = { _, _ in },
         sessionEndedHandler: @escaping SessionEndedHandler = { _, _ in },
+        sessionAttemptEndedHandler: @escaping SessionAttemptEndedHandler = { _ in },
         inputLaneReadyHandler: @escaping InputLaneReadyHandler = { _, _ in },
         graphicsLaneReadyHandler: @escaping GraphicsLaneReadyHandler = { _, _ in },
         domLaneReadyHandler: @escaping DomLaneReadyHandler = { _, _ in },
@@ -92,6 +98,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         self.sessionResumeHandler = sessionResumeHandler
         self.sessionSuspendedHandler = sessionSuspendedHandler
         self.sessionEndedHandler = sessionEndedHandler
+        self.sessionAttemptEndedHandler = sessionAttemptEndedHandler
         self.inputLaneReadyHandler = inputLaneReadyHandler
         self.graphicsLaneReadyHandler = graphicsLaneReadyHandler
         self.domLaneReadyHandler = domLaneReadyHandler
@@ -521,8 +528,13 @@ final class PairingSignalingServer: @unchecked Sendable {
         if let active = context.activeSession {
             sessionSuspendedHandler(active.deviceFingerprint, active.sessionId)
         } else if let fingerprint = context.attemptingFingerprint {
-            // Never established, so there is no session to resume onto.
-            sessionEndedHandler(fingerprint, nil)
+            // Never established, so this connection has no session of its own -- and crucially
+            // it must not end anyone else's. Ending by fingerprint here was measured closing
+            // the resume window about 40ms after it opened: during a handover the client
+            // re-dials immediately, those first dials fail while the radio is still switching,
+            // and each failure destroyed the resumable session a *different* connection had
+            // just suspended.
+            sessionAttemptEndedHandler(fingerprint)
         }
     }
 

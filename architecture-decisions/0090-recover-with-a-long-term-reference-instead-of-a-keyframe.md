@@ -123,6 +123,26 @@ completely inert. Two reasons keep a true keyframe: `initial`, which has nothing
 and `resolutionChange`, which invalidates every existing reference so a delta against one would
 be garbage even if the client still held it.
 
+**Eligibility is an exclusion list, not an opt-in.** The first version had each resync path
+call `requestLtrRefresh()` to join, and the device run showed what that costs: only two of the
+five paths that force a keyframe had joined, so a successful resume answered its first frame
+with a **171KB keyframe** while the phone was mid-handover -- the exact moment the cheap path
+exists for. The rule now lives in one place, as the set of reasons that must keep a true
+keyframe, so a new resync path gets the cheap path by default rather than silently missing it.
+
+**Acknowledgement is one-way, so the client has to be able to revoke it.** VideoToolbox has no
+un-acknowledge: once told the client holds a frame, it will encode against that frame forever.
+But the client discards its decoder on several recovery paths -- render stall, wedged layer,
+dimension mismatch -- each of which clears the format description and flushes the layer. Those
+paths ask for a keyframe, and with a delta as the default answer they would get one they cannot
+decode, ask again, and get the same answer. A livelock, not a glitch, and the render-stall path
+had exactly that shape: `requestKeyframe()` immediately followed by `videoDecoder.reset()`.
+
+The client is the only party that can know, so the keyframe request carries
+`clientHasNoReferences`. It is the same lesson as the session-keyed encoder below, in a
+different place: the encoder's belief about what the client holds is a cache, and every way that
+cache can go stale has to be able to invalidate it.
+
 **Most of the resync cost is not the client asking for it.** Counted over one session:
 `resolution-change` 129, encoder-placed 96, `capture-requested` 33, `stall-recovery` 30,
 `client-request` 5. Routing only explicit client requests would have addressed five keyframes

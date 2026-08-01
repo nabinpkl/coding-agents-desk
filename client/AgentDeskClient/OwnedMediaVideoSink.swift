@@ -21,7 +21,7 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
     @MainActor func setOwnedMediaExpectedFrameRate(_ fps: Int)
     // ADR-0027: the transport installs how the sink asks for a keyframe (the render
     // -stall watchdog and the wedged-layer recovery both use it).
-    @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void)
+    @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable (Bool) -> Void)
     // ADR-0088: the transport installs where presentation skips are counted, so the waste
     // lands in the same 500ms link-health window as everything else rather than only in the
     // client's own three-run diagnostics store. Push rather than pull: `flushLinkHealth` is
@@ -58,7 +58,7 @@ extension OwnedMediaFrameSink {
     @MainActor func noteOwnedMediaRepairRequested(_ count: Int) {}
     @MainActor func noteOwnedMediaRepairExpired(_ count: Int) {}
     @MainActor func setOwnedMediaExpectedFrameRate(_ fps: Int) {}
-    @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void) {}
+    @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable (Bool) -> Void) {}
     @MainActor func setOwnedMediaPresentationSkipHandler(_ handler: @escaping @Sendable (Int) -> Void) {}
     @MainActor var onOwnedMediaStatusChange: ((OwnedMediaStatus) -> Void)? {
         get { nil }
@@ -333,7 +333,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         expectedFrameRate: Config.ownedMediaExpectedFrameRate
     )
     private var pendingVideoPresentationTask: Task<Void, Never>?
-    private var videoKeyframeRequestHandler: (@Sendable () -> Void)?
+    /// Carries whether the client still holds decodable references. False means the host must
+    /// send a real keyframe: a long-term-reference delta would arrive undecodable and the
+    /// request would repeat forever.
+    private var videoKeyframeRequestHandler: (@Sendable (Bool) -> Void)?
     // ADR-0088: reports each decoded-but-never-shown frame's size to the transport, which
     // accumulates it into the link-health window.
     private var presentationSkipHandler: (@Sendable (Int) -> Void)?
@@ -387,7 +390,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         stallTimer.cancel()
     }
 
-    func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable () -> Void) {
+    func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable (Bool) -> Void) {
         videoKeyframeRequestHandler = handler
     }
 
@@ -421,7 +424,9 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             ],
             level: .error
         )
-        requestKeyframe(now: now)
+        // Ordered and flagged together on purpose: this path resets the decoder, so the resync
+        // it is asking for must be a true keyframe.
+        requestKeyframe(now: now, discardingReferences: true)
         videoDecoder.reset()
         videoPresentationPacer.reset()
         pendingVideoPresentationTask?.cancel()
@@ -458,14 +463,22 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
 
     // Single rate-limited keyframe-request point shared by the watchdog and the
     // wedged-layer recovery in renderOwnedVideoFrame.
-    private func requestKeyframe(now: UInt64) {
+    /// - Parameter discardingReferences: pass true when the caller is about to throw the
+    ///   decoder away. The host cannot know that -- a long-term reference stays acknowledged
+    ///   forever once confirmed -- so a resync answered with a delta against a discarded
+    ///   reference would be undecodable, prompting another request and the same answer.
+    private func requestKeyframe(now: UInt64, discardingReferences: Bool = false) {
         if let last = lastKeyframeRequestUptimeNs,
            now < last &+ UInt64(Config.ownedMediaRenderStallMs) * 1_000_000 {
             return
         }
         lastKeyframeRequestUptimeNs = now
-        ClientDiagnostics.shared.record(type: "videoKeyframeRequested", fields: [:], level: .default)
-        videoKeyframeRequestHandler?()
+        ClientDiagnostics.shared.record(
+            type: "videoKeyframeRequested",
+            fields: ["discardingReferences": String(discardingReferences)],
+            level: .default
+        )
+        videoKeyframeRequestHandler?(!discardingReferences)
     }
 
     private func ageMs(_ thenNs: UInt64?, _ nowNs: UInt64) -> Double {
@@ -554,6 +567,8 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         case .recoveredRequestKeyframe, .droppedMismatchedDimensionsRequestKeyframe:
             // The decoder reached a state that only a keyframe can resync: either a
             // wedged layer or a resolution-change delta without a matching keyframe.
+            // Both branches cleared the format description and flushed the layer, so the
+            // references the host still believes we hold are gone -- hence the flag.
             ownedMediaStderrTrace("video-frame-recovered frame=\(envelope.header.frameId)")
             videoStatusTracker.noteDroppedFrames(1)
             videoStatusTracker.noteDecodeDrop()
@@ -563,7 +578,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 fields: ["frameId": String(envelope.header.frameId)],
                 level: .error
             )
-            requestKeyframe(now: nowNs)
+            requestKeyframe(now: nowNs, discardingReferences: true)
         case .droppedPendingKeyframe:
             videoStatusTracker.noteDroppedFrames(1)
             videoStatusTracker.noteDecodeDrop()
