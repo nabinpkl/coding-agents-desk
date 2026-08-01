@@ -240,6 +240,14 @@ build-agent-feed-sidecar:
     # standalone compilation miss its normal fast path.
     cd "$BUILD_DIR"
     bun build --compile "$ENTRY" --outfile "$BUILD_DIR/agent-feed-sidecar"
+    # Pi lazy-loads OAuth flows in ordinary Node/Bun execution, but a standalone
+    # binary has no sibling JS files. Its supported bootstrap statically imports
+    # them; this marker proves the OpenAI Codex implementation survived bundling.
+    if ! /usr/bin/strings "$BUILD_DIR/agent-feed-sidecar" | rg -F \
+        'OpenAI Codex OAuth is only available in Node.js environments' >/dev/null; then
+      echo 'build-agent-feed-sidecar: compiled binary omitted Pi bundled OAuth flows' >&2
+      exit 1
+    fi
     chmod +x "$BUILD_DIR/agent-feed-sidecar"
     mv -f "$BUILD_DIR/agent-feed-sidecar" "$OUT"
     mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"

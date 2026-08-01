@@ -86,11 +86,17 @@ export class PiEventMapper {
     }
     const standard = message.role === "user" || message.role === "assistant";
     const type = message.role === "user" ? "user" : message.role === "assistant" ? "assistant" : "system";
-    const blocks = message.role === "user"
+    let blocks = message.role === "user"
       ? userBlocks(message.content)
       : message.role === "assistant"
       ? assistantBlocks(message.content)
       : [{ kind: "metadata" as const, label: message.role, text: textFromUnknown(message) }];
+    if (message.role === "assistant" && message.stopReason === "error" && message.errorMessage) {
+      blocks = [
+        ...blocks.filter((block) => block.kind !== "text" || Boolean(block.text?.trim())),
+        { kind: "metadata", label: "Error", text: message.errorMessage },
+      ];
+    }
     this.projection.upsert({
       id,
       ts: message.timestamp,

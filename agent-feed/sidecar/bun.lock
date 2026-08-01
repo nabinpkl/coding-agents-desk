@@ -5,6 +5,7 @@
     "": {
       "name": "@agentdesk/agent-feed-sidecar",
       "dependencies": {
+        "@earendil-works/pi-ai": "0.83.0",
         "@earendil-works/pi-coding-agent": "0.83.0",
         "chokidar": "^5.0.0",
       },

@@ -1712,3 +1712,6 @@ seconds, and damping the axis would only hide that.
   reconnect snapshot across the host generation, bridge routing, and React state layers.
 - D244. Remove the obsolete reconnect marker after snapshot kind and seeded-buffer state became
   the sole authoritative replacement route.
+- D245. Register Pi's static Bun OAuth loaders before runtime creation, fail the compiled-sidecar
+  build when the OpenAI Codex flow is not embedded, and show assistant runtime errors instead of
+  rendering blank failure cards.

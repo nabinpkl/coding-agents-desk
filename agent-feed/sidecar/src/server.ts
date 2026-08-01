@@ -1,3 +1,4 @@
+import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import { config } from "./config.ts";
 import {
   BYE_BYTES,
@@ -20,6 +21,11 @@ import {
 } from "./transcripts/transcriptCatalog.ts";
 import { AgentBackendRegistry } from "./agents/agentBackend.ts";
 import { PiAgentBackend } from "./agents/piAgentBackend.ts";
+
+// Pi normally lazy-loads OAuth providers from sibling files. A standalone Bun
+// executable has no such files beside it, so use Pi's static loader registry to
+// make every supported OAuth implementation part of the compiled sidecar.
+registerBunOAuthFlows();
 
 const backends = new AgentBackendRegistry();
 backends.register(new PiAgentBackend({

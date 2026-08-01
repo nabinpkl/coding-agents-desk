@@ -3,7 +3,7 @@ import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { LiveAgentProjection } from "./liveAgentProjection.ts";
 import { PiEventMapper } from "./piEventMapper.ts";
 
-function assistant(text: string, stopReason: "pending" | "stop" = "pending") {
+function assistant(text: string, stopReason: "pending" | "stop" | "error" = "pending") {
   return {
     role: "assistant" as const,
     content: [{ type: "text" as const, text }],
@@ -41,6 +41,30 @@ describe("PiEventMapper", () => {
         revision: 2,
         phase: "complete",
         blocks: [{ kind: "text", text: "hello" }],
+      }),
+    ]);
+  });
+
+  test("shows the runtime error when Pi completes an empty assistant message", () => {
+    const projection = new LiveAgentProjection();
+    const mapper = new PiEventMapper(projection);
+    mapper.accept({
+      type: "message_end",
+      message: {
+        ...assistant("", "error"),
+        errorMessage: "OAuth auth derivation failed",
+      },
+    });
+
+    expect(projection.page(0, 10)).toEqual([
+      expect.objectContaining({
+        type: "assistant",
+        phase: "complete",
+        blocks: [{
+          kind: "metadata",
+          label: "Error",
+          text: "OAuth auth derivation failed",
+        }],
       }),
     ]);
   });
