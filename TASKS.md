@@ -1708,3 +1708,5 @@ seconds, and damping the axis would only hide that.
   widget warnings before replaying them to shared viewers.
 - D242. Replace the complete visible event window when an authoritative reconnect snapshot resets
   Pi runtime-local indexes and revisions, instead of merging it with stale pre-reap rows.
+- D243. Keep in-flight historical page reads from consuming or contaminating an authoritative
+  reconnect snapshot across the host generation, bridge routing, and React state layers.

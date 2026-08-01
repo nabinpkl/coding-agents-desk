@@ -119,4 +119,58 @@ describe("useSessionEventsStream", () => {
       "fresh-message",
     ]);
   });
+
+  it("does not merge an older page that resolves after a replacement snapshot", async () => {
+    let handlers: SessionEventsHandlers | undefined;
+    let resolveOlder: ((page: EventsPage) => void) | undefined;
+    let fetchCount = 0;
+    const source: AgentDataSource = {
+      fetchEventsPage: async () => {
+        fetchCount += 1;
+        if (fetchCount === 1) return { events: [], total: 101, usage: null };
+        if (fetchCount === 2) {
+          return { events: [event(100, "current-tail", "assistant")], total: 101, usage: null };
+        }
+        return new Promise<EventsPage>((resolve) => { resolveOlder = resolve; });
+      },
+      subscribeSessionEvents: (_session, _after, nextHandlers) => {
+        handlers = nextHandlers;
+        return () => {};
+      },
+      fetchRawEvent: async () => "",
+    };
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <DataSourceProvider source={source}>{children}</DataSourceProvider>
+    );
+    const view = renderHook(
+      () => useSessionEventsStream("pi", "thread", "nice"),
+      { wrapper },
+    );
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+
+    act(() => { void view.result.current.loadOlder(); });
+    await waitFor(() => expect(resolveOlder).toBeDefined());
+    act(() => handlers?.onSnapshot({
+      events: [event(0, "fresh-message", "assistant")],
+      total: 1,
+      windowStart: 0,
+      usage: null,
+      state: {
+        sequence: 1,
+        runState: "idle",
+        queue: { steer: 0, followUp: 0 },
+      },
+    }));
+    await act(async () => resolveOlder?.({
+      events: [event(0, "stale-older-page", "system")],
+      total: 101,
+      usage: null,
+    }));
+
+    expect(view.result.current.events.map((value) => value.id)).toEqual([
+      "fresh-message",
+    ]);
+    expect(view.result.current.total).toBe(1);
+    expect(view.result.current.windowStart).toBe(0);
+  });
 });

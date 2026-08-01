@@ -402,6 +402,10 @@ struct AgentFeedBridgeTests {
             send: sink.accept
         )
 
+        bridge.handleThreadSubscribe(AgentThreadSubscribe(
+            source: "claude", sessionId: "same"
+        ))
+        await waitFor { sink.count == 1 }
         bridge.handleThreadLoadOlder(AgentThreadLoadOlder(
             source: "claude",
             sessionId: "same",
@@ -414,7 +418,7 @@ struct AgentFeedBridgeTests {
             sessionId: "same",
             eventIndex: 7
         ))
-        await waitFor { sink.count == 2 }
+        await waitFor { sink.count == 3 }
 
         #expect(fake.eventRequests.contains {
             $0.source == "claude" && $0.sessionId == "same"
@@ -433,6 +437,28 @@ struct AgentFeedBridgeTests {
         let response = try sink.decode(AgentRawEventResponse.self, at: rawIndex)
         #expect(response.source == "codex")
         #expect(response.text == #"{"exact":true}"#)
+    }
+
+    @Test func anOlderPageFromAReplacedGenerationCannotReachTheViewer() async throws {
+        let fake = FakeSidecarClient()
+        fake.eventFetchDelayMilliseconds = 100
+        fake.eventsPage = AgentFeedEventsPage(events: [event(index: 0)], total: 1)
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: sink.accept)
+        let subscription = AgentThreadSubscribe(source: "pi", sessionId: "shared", mode: "nice")
+
+        bridge.handleThreadSubscribe(subscription)
+        bridge.handleThreadLoadOlder(AgentThreadLoadOlder(
+            source: "pi", sessionId: "shared", beforeIndex: 1, limit: 1, mode: "nice"
+        ))
+        bridge.handleThreadSubscribe(subscription)
+
+        await waitFor { sink.count == 1 }
+        try await Task.sleep(for: .milliseconds(150))
+
+        #expect(sink.count == 1)
+        let snapshot = try sink.decode(AgentThreadChunk.self, at: 0)
+        #expect(snapshot.kind == "snapshot")
     }
 
     @Test func threadReadsRejectInvalidPhoneIdentifiersBeforeCallingTheSidecar() throws {

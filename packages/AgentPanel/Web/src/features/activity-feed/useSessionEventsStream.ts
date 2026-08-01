@@ -107,10 +107,12 @@ export function useSessionEventsStream(
   const [connected, setConnected] = useState(false);
   const loadingOlderRef = useRef(false);
   const windowStartRef = useRef(0);
+  const timelineEpochRef = useRef(0);
   useEffect(() => { windowStartRef.current = state.windowStart; }, [state.windowStart]);
 
   // Initial seed (last page) + SSE subscription. SSE never stops on scroll.
   useEffect(() => {
+    timelineEpochRef.current += 1;
     let cancelled = false;
     const pendingLive = new Map<number, ActivityEvent>();
     let seeded = false;
@@ -134,6 +136,7 @@ export function useSessionEventsStream(
         });
       },
       onSnapshot: (snapshot) => {
+        timelineEpochRef.current += 1;
         replacedBySnapshot = true;
         seeded = true;
         pendingLive.clear();
@@ -204,7 +207,13 @@ export function useSessionEventsStream(
           queue: current.queue,
         }));
       } catch (e) {
-        if (!cancelled) setState((s) => ({ ...s, error: String((e as Error).message ?? e), loading: false }));
+        if (!cancelled && !replacedBySnapshot) {
+          setState((s) => ({
+            ...s,
+            error: String((e as Error).message ?? e),
+            loading: false,
+          }));
+        }
       }
     })();
 
@@ -221,7 +230,9 @@ export function useSessionEventsStream(
     loadingOlderRef.current = true;
     try {
       const { targetStart, limit } = olderRange(currentStart);
+      const requestEpoch = timelineEpochRef.current;
       const data = await ds.fetchEventsPage(session, targetStart, limit);
+      if (requestEpoch !== timelineEpochRef.current) return;
       setState((s) => {
         const newMap = new Map(s.events);
         for (const ev of data.events) newMap.set(ev.index, ev);

@@ -131,7 +131,28 @@ describe("BridgeDataSource visibility lifecycle", () => {
       qf: 0,
     });
 
+    const racingOlder = source.fetchEventsPage(session, 99, 1);
     source.resumeAfterSessionReconnect();
+    host.deliver({
+      t: "agent-thread-chunk",
+      src: "pi",
+      sid: "thread",
+      md: "nice",
+      ev: [{ id: "older-99", i: 99, rev: 0, ph: "complete", ts: 1, tp: "user", b: [] }],
+      ws: 99,
+      tot: 102,
+      lv: false,
+      k: "page",
+      seq: 500,
+      rs: "idle",
+      qs: 0,
+      qf: 0,
+    });
+    await expect(racingOlder).resolves.toMatchObject({
+      events: [{ id: "older-99", index: 99 }],
+    });
+    expect(onSnapshot).not.toHaveBeenCalled();
+
     host.deliver({
       t: "agent-thread-chunk",
       src: "pi",

@@ -995,7 +995,7 @@ export class BridgeDataSource implements AgentDataSource {
     }
 
     if (!chunk.lv) {
-      if (this.reconnectingThreads.has(key) && buffer.seeded) {
+      if (chunk.k === "snapshot" && buffer.seeded) {
         this.reconnectingThreads.delete(key);
         for (const listener of this.liveListeners.get(key) ?? []) {
           listener.onSnapshot({
@@ -1012,8 +1012,8 @@ export class BridgeDataSource implements AgentDataSource {
         }
         return;
       }
-      this.reconnectingThreads.delete(key);
       if (!buffer.seeded) {
+        if (chunk.k === "snapshot") this.reconnectingThreads.delete(key);
         buffer.seeded = true;
         const waiters = this.seedWaiters.get(key) ?? [];
         this.seedWaiters.delete(key);

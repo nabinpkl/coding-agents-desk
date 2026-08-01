@@ -43,6 +43,12 @@ struct AgentPanelBridgeTransportTests {
         let bridge = AgentFeedBridge(client: fake, send: sink.accept)
         let transport = AgentPanelBridgeTransport(bridge: bridge)
 
+        transport.sendAgentPanelRequest(.threadSubscribe(
+            source: "codex",
+            sessionId: "same",
+            mode: .nice
+        ))
+        await waitFor { sink.count == 1 }
         transport.sendAgentPanelRequest(.threadLoadOlder(
             source: "codex",
             sessionId: "same",
@@ -50,15 +56,15 @@ struct AgentPanelBridgeTransportTests {
             limit: 3,
             mode: .nice
         ))
-        await waitFor { sink.count == 1 }
-        let chunk = try sink.decode(AgentThreadChunk.self, at: 0)
+        await waitFor { sink.count == 2 }
+        let chunk = try sink.decode(AgentThreadChunk.self, at: 1)
         #expect(chunk.source == "codex")
         #expect(chunk.sessionId == "same")
         // The mode has to reach the sidecar AND come back on the chunk. The page's
         // indices are counted in it, so a chunk that did not say which view it
         // answers could be merged into the other one after a toggle with every row
         // off by the number of omitted lines before it.
-        #expect(fake.eventRequests.map(\.mode) == [.nice])
+        #expect(fake.eventRequests.last?.mode == .nice)
         #expect(chunk.mode == "nice")
     }
 

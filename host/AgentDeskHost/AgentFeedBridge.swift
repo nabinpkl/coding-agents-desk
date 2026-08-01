@@ -148,17 +148,28 @@ final class AgentFeedBridge: @unchecked Sendable {
             ))
             return
         }
-        Task {
+        let key = threadKey(source: request.source, sessionId: request.sessionId)
+        guard let generation = queue.sync(execute: { threadGenerations[key] }) else {
+            sendCodable(AgentThreadError(
+                source: request.source,
+                sessionId: request.sessionId,
+                reason: "thread not subscribed"
+            ))
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
             do {
                 let offset = max(0, request.beforeIndex - request.limit)
-                let page = try await client.fetchEventsPage(
+                let page = try await self.client.fetchEventsPage(
                     source: request.source,
                     sessionId: request.sessionId,
                     offset: offset,
                     limit: request.beforeIndex - offset,
                     mode: mode
                 )
-                sendCodable(AgentThreadChunk(
+                guard self.isCurrentThread(key: key, generation: generation) else { return }
+                self.sendCodable(AgentThreadChunk(
                     source: request.source,
                     sessionId: request.sessionId,
                     events: page.events.map(Self.wireEvent),
@@ -174,7 +185,8 @@ final class AgentFeedBridge: @unchecked Sendable {
                     queueFollowUp: page.queueFollowUp
                 ))
             } catch {
-                sendCodable(AgentThreadError(
+                guard self.isCurrentThread(key: key, generation: generation) else { return }
+                self.sendCodable(AgentThreadError(
                     source: request.source,
                     sessionId: request.sessionId,
                     reason: error.localizedDescription
