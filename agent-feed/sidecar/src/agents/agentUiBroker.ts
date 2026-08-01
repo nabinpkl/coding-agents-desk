@@ -1,7 +1,7 @@
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import type { AgentUiRequest } from "./agentBackend.ts";
+import type { AgentUiEvent, AgentUiRequest, AgentUiResponseResult } from "./agentBackend.ts";
 
-type UiListener = (request: AgentUiRequest) => void;
+type UiListener = (event: AgentUiEvent) => void;
 
 interface PendingRequest {
   request: AgentUiRequest;
@@ -16,18 +16,21 @@ const textEncoder = new TextEncoder();
 export class AgentUiBroker {
   private readonly listeners = new Set<UiListener>();
   private readonly pending = new Map<string, PendingRequest>();
+  private readonly resolved = new Set<string>();
   private sequence = 0;
 
   constructor(private readonly timeoutMs = 5 * 60 * 1000) {}
 
   subscribe(listener: UiListener): () => void {
     this.listeners.add(listener);
-    for (const pending of this.pending.values()) listener(pending.request);
+    for (const pending of this.pending.values()) {
+      listener({ type: "request", request: pending.request });
+    }
     return () => this.listeners.delete(listener);
   }
 
   notify(request: Omit<AgentUiRequest, "requestId" | "expectsResponse">): void {
-    this.publish(boundUiRequest({ ...request, requestId: this.nextId(), expectsResponse: false }));
+    this.publishRequest(boundUiRequest({ ...request, requestId: this.nextId(), expectsResponse: false }));
   }
 
   request(request: Omit<AgentUiRequest, "requestId" | "expectsResponse">): Promise<unknown> {
@@ -35,28 +38,34 @@ export class AgentUiBroker {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(value.requestId);
+        this.publish({ type: "dismiss", requestId: value.requestId });
         resolve(undefined);
       }, this.timeoutMs);
       this.pending.set(value.requestId, { request: value, resolve, timer });
-      this.publish(value);
+      this.publishRequest(value);
     });
   }
 
-  respond(requestId: string, value: unknown): boolean {
+  respond(requestId: string, value: unknown): AgentUiResponseResult {
     const pending = this.pending.get(requestId);
-    if (!pending) return false;
+    if (!pending) return this.resolved.has(requestId) ? "already-resolved" : "not-found";
+    if (!isValidResponse(pending.request, value)) return "invalid";
     this.pending.delete(requestId);
     clearTimeout(pending.timer);
+    this.rememberResolved(requestId);
+    this.publish({ type: "dismiss", requestId });
     pending.resolve(value);
-    return true;
+    return "accepted";
   }
 
   dispose(): void {
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
+      this.publish({ type: "dismiss", requestId: pending.request.requestId });
       pending.resolve(undefined);
     }
     this.pending.clear();
+    this.resolved.clear();
     this.listeners.clear();
   }
 
@@ -64,8 +73,37 @@ export class AgentUiBroker {
     return `ui-${Date.now().toString(36)}-${(++this.sequence).toString(36)}`;
   }
 
-  private publish(request: AgentUiRequest): void {
-    for (const listener of this.listeners) listener(request);
+  private publishRequest(request: AgentUiRequest): void {
+    this.publish({ type: "request", request });
+  }
+
+  private publish(event: AgentUiEvent): void {
+    for (const listener of this.listeners) listener(event);
+  }
+
+  private rememberResolved(requestId: string): void {
+    this.resolved.add(requestId);
+    while (this.resolved.size > 128) {
+      const oldest = this.resolved.values().next().value;
+      if (oldest === undefined) break;
+      this.resolved.delete(oldest);
+    }
+  }
+}
+
+function isValidResponse(request: AgentUiRequest, value: unknown): boolean {
+  switch (request.kind) {
+    case "select":
+      return value === null || (typeof value === "string" && request.options?.includes(value) === true);
+    case "confirm":
+      return typeof value === "boolean";
+    case "input":
+    case "editor":
+      return value === null || typeof value === "string";
+    case "notify":
+    case "status":
+    case "widget":
+      return false;
   }
 }
 

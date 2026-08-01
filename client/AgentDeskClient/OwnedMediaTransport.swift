@@ -597,7 +597,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         case "agent-thread-error":
             logger.debug("input lane agent-thread-error received")
             deliverAgentPush(data)
-        case "agent-command-receipt", "agent-command-error", "agent-extension-ui-request":
+        case "agent-command-receipt", "agent-command-error",
+             "agent-extension-ui-request", "agent-extension-ui-dismissed":
             deliverAgentPush(data)
         case "agent-raw-event", "agent-raw-event-error":
             deliverAgentPush(data)

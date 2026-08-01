@@ -1697,3 +1697,5 @@ seconds, and damping the axis would only hide that.
 - R238. At the explicit runtime checkpoint, open the dev Mac/iPhone stack, create and steer one Pi
   session from both shared panels, answer one extension prompt from either viewer, and confirm the
   other viewer converges without a terminal or workspace surface appearing.
+- D239. Make extension responses kind-valid and resolution-multiplexed, return the authoritative
+  backend session descriptor on create, and pin the remaining protocol-v16 contract text and tests.

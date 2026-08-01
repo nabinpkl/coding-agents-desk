@@ -195,9 +195,22 @@ export function App({ bridge }: Props) {
   );
 
   useEffect(
-    () => bridge.subscribeExtensionUI((request) => {
+    () => bridge.subscribeExtensionUI((event) => {
+      if (event.type === "dismiss") {
+        setExtensionUI((current) => current.filter((item) => !(
+          item.source === event.source &&
+          item.sessionId === event.sessionId &&
+          item.requestId === event.requestId
+        )));
+        return;
+      }
+      const request = event.request;
       setExtensionUI((current) => [
-        ...current.filter((item) => item.requestId !== request.requestId),
+        ...current.filter((item) => !(
+          item.source === request.source &&
+          item.sessionId === request.sessionId &&
+          item.requestId === request.requestId
+        )),
         request,
       ].slice(-8));
     }),
@@ -264,14 +277,10 @@ export function App({ bridge }: Props) {
     setLayerError(null);
     try {
       const receipt = await bridge.createSession(nav.project.projectPath, "pi");
-      openSession(nav.project, {
-        sessionId: receipt.sid,
-        source: "pi",
-        title: "New Pi session",
-        lastEventAt: Date.now(),
-        activity: "ready",
-        capabilities: piCapabilities,
-      });
+      if (!receipt.session) {
+        throw new Error("created session response did not include a session descriptor");
+      }
+      openSession(nav.project, receipt.session);
     } catch (error) {
       setLayerError(String((error as Error).message ?? error));
     } finally {
@@ -454,9 +463,14 @@ export function App({ bridge }: Props) {
           <ExtensionUISurface
             requests={extensionUI.filter((request) =>
               request.source === nav.session.source && request.sessionId === nav.session.sessionId)}
-            onRespond={(request, value) => {
-              bridge.respondToExtensionUI(request, value);
-              setExtensionUI((current) => current.filter((item) => item.requestId !== request.requestId));
+            onRespond={async (request, value) => {
+              setCommandError(null);
+              try {
+                await bridge.respondToExtensionUI(request, value);
+              } catch (error) {
+                setCommandError(String((error as Error).message ?? error));
+                throw error;
+              }
             }}
             onDismiss={(request) =>
               setExtensionUI((current) => current.filter((item) => item.requestId !== request.requestId))}
@@ -483,16 +497,6 @@ export function App({ bridge }: Props) {
     </DataSourceProvider>
   );
 }
-
-const piCapabilities = {
-  modes: ["nice"],
-  canSend: true,
-  canSteer: true,
-  canAbort: true,
-  canFetchRaw: false,
-  canOpenTerminal: false,
-  supportsExtensionUI: true,
-} satisfies BridgeSessionSummary["capabilities"];
 
 function isTerminalSource(source: string): source is "claude" | "codex" {
   return source === "claude" || source === "codex";
@@ -585,7 +589,7 @@ function ExtensionUISurface({
   onDismiss,
 }: {
   requests: AgentExtensionUIRequest[];
-  onRespond: (request: AgentExtensionUIRequest, value: string | boolean | null) => void;
+  onRespond: (request: AgentExtensionUIRequest, value: string | boolean | null) => Promise<void>;
   onDismiss: (request: AgentExtensionUIRequest) => void;
 }) {
   const request = requests.at(-1);
@@ -610,9 +614,23 @@ function ExtensionUIPrompt({
   onRespond,
 }: {
   request: AgentExtensionUIRequest;
-  onRespond: (request: AgentExtensionUIRequest, value: string | boolean | null) => void;
+  onRespond: (request: AgentExtensionUIRequest, value: string | boolean | null) => Promise<void>;
 }) {
   const [value, setValue] = useState(request.prefill ?? "");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const respond = async (response: string | boolean | null) => {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      await onRespond(request, response);
+    } catch (caught) {
+      setError(String((caught as Error).message ?? caught));
+    } finally {
+      setPending(false);
+    }
+  };
   return (
     <section role="dialog" aria-label={request.title ?? "Pi extension request"} className="shrink-0 border-t border-primary/30 bg-primary/5 px-3 py-2">
       <p className="text-(length:--agent-panel-fs-sidebar-body,15px) font-medium">{request.title ?? "Pi extension request"}</p>
@@ -620,26 +638,27 @@ function ExtensionUIPrompt({
       {request.kind === "select" ? (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {request.options?.map((option) => (
-            <button key={option} type="button" onClick={() => onRespond(request, option)} className="rounded-lg border border-border bg-card px-3 py-1.5 hover:bg-muted">{option}</button>
+            <button key={option} type="button" disabled={pending} onClick={() => void respond(option)} className="rounded-lg border border-border bg-card px-3 py-1.5 hover:bg-muted disabled:opacity-40">{option}</button>
           ))}
-          <button type="button" onClick={() => onRespond(request, null)} className="rounded-lg px-3 py-1.5 text-muted-foreground hover:bg-muted">Cancel</button>
+          <button type="button" disabled={pending} onClick={() => void respond(null)} className="rounded-lg px-3 py-1.5 text-muted-foreground hover:bg-muted disabled:opacity-40">Cancel</button>
         </div>
       ) : request.kind === "confirm" ? (
         <div className="mt-2 flex justify-end gap-2">
-          <button type="button" onClick={() => onRespond(request, false)} className="rounded-lg px-3 py-1.5 text-muted-foreground hover:bg-muted">Cancel</button>
-          <button type="button" onClick={() => onRespond(request, true)} className="rounded-lg bg-primary px-3 py-1.5 text-primary-foreground">Confirm</button>
+          <button type="button" disabled={pending} onClick={() => void respond(false)} className="rounded-lg px-3 py-1.5 text-muted-foreground hover:bg-muted disabled:opacity-40">Cancel</button>
+          <button type="button" disabled={pending} onClick={() => void respond(true)} className="rounded-lg bg-primary px-3 py-1.5 text-primary-foreground disabled:opacity-40">Confirm</button>
         </div>
       ) : (
-        <form className="mt-2 flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); onRespond(request, value); }}>
+        <form className="mt-2 flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); void respond(value); }}>
           {request.kind === "editor" ? (
-            <textarea autoFocus rows={4} maxLength={50_000} value={value} placeholder={request.placeholder} onChange={(event) => setValue(event.target.value)} className="min-w-0 flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 outline-none focus:border-primary" />
+            <textarea autoFocus disabled={pending} rows={4} maxLength={50_000} value={value} placeholder={request.placeholder} onChange={(event) => setValue(event.target.value)} className="min-w-0 flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 outline-none focus:border-primary disabled:opacity-40" />
           ) : (
-            <input autoFocus maxLength={50_000} value={value} placeholder={request.placeholder} onChange={(event) => setValue(event.target.value)} className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 outline-none focus:border-primary" />
+            <input autoFocus disabled={pending} maxLength={50_000} value={value} placeholder={request.placeholder} onChange={(event) => setValue(event.target.value)} className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 outline-none focus:border-primary disabled:opacity-40" />
           )}
-          <button type="button" onClick={() => onRespond(request, null)} className="h-9 rounded-lg px-2 text-muted-foreground hover:bg-muted">Cancel</button>
-          <button type="submit" className="h-9 rounded-lg bg-primary px-3 text-primary-foreground">Submit</button>
+          <button type="button" disabled={pending} onClick={() => void respond(null)} className="h-9 rounded-lg px-2 text-muted-foreground hover:bg-muted disabled:opacity-40">Cancel</button>
+          <button type="submit" disabled={pending} className="h-9 rounded-lg bg-primary px-3 text-primary-foreground disabled:opacity-40">Submit</button>
         </form>
       )}
+      {error ? <p role="alert" className="mt-1 text-(length:--agent-panel-fs-sidebar-meta,13px) text-destructive">{error}</p> : null}
     </section>
   );
 }

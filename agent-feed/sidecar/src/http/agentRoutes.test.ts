@@ -12,7 +12,7 @@ function fakeBackend(): AgentBackend {
     async send(sessionId, requestId, _text, delivery) { return { requestId, delivery: delivery === "steer" ? "steer" : "immediate" }; },
     async abort(_sessionId, requestId) { return { requestId, delivery: "abort" }; },
     async subscribeUi() { return () => {}; },
-    async respondToUi() { return true; },
+    async respondToUi() { return "accepted"; },
     async dispose() {},
   };
 }
@@ -63,4 +63,32 @@ test("extension UI responses are correlated through the backend broker", async (
   const response = await route(request, new URL(request.url), server);
   expect(response?.status).toBe(202);
   expect(await response?.json()).toEqual({ requestId: "ui-1", delivery: "ui" });
+});
+
+test("extension UI rejects an invalid value without consuming the prompt", async () => {
+  const backend = fakeBackend();
+  backend.respondToUi = async () => "invalid";
+  const route = createAgentRoutes(() => backend);
+  const request = new Request("http://localhost/api/agent-sessions/pi/s1/ui/ui-1", {
+    method: "POST",
+    body: JSON.stringify({ value: "not-an-option" }),
+  });
+  const response = await route(request, new URL(request.url), server);
+  expect(response?.status).toBe(422);
+  expect(await response?.json()).toMatchObject({
+    error: { code: "invalid-ui-response", requestId: "ui-1", retryable: false },
+  });
+});
+
+test("extension UI acknowledges a valid answer that lost the viewer race", async () => {
+  const backend = fakeBackend();
+  backend.respondToUi = async () => "already-resolved";
+  const route = createAgentRoutes(() => backend);
+  const request = new Request("http://localhost/api/agent-sessions/pi/s1/ui/ui-1", {
+    method: "POST",
+    body: JSON.stringify({ value: true }),
+  });
+  const response = await route(request, new URL(request.url), server);
+  expect(response?.status).toBe(202);
+  expect(await response?.json()).toEqual({ requestId: "ui-1", delivery: "ui-already-resolved" });
 });

@@ -35,6 +35,7 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     private var sessionSnapshot: (@Sendable (AgentFeedSessionsSnapshot) -> Void)?
     private var sessionError: (@Sendable (Error) -> Void)?
     private var eventCallbacks: [String: @Sendable (AgentFeedTimelineEnvelope) -> Void] = [:]
+    private var uiCallbacks: [String: @Sendable (AgentFeedExtensionUIEvent) -> Void] = [:]
     private var eventErrorHistory: [@Sendable (Error) -> Void] = []
     private var _cancelledStreams = 0
     private var _eventRequests: [EventRequest] = []
@@ -47,6 +48,7 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     var rawRequests: [RawRequest] { lock.withLock { _rawRequests } }
     var streamModes: [AgentFeedEventMode] { lock.withLock { _streamModes } }
     var openedEventStreams: Int { lock.withLock { _openedEventStreams } }
+    var openedUIStreams: Int { lock.withLock { uiCallbacks.count } }
 
     func fetchProjects() async throws -> AgentFeedProjectsSnapshot {
         projects
@@ -171,8 +173,14 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
         AgentFeedCommandReceipt(requestId: requestId, delivery: "abort")
     }
 
-    func openExtensionUIStream(source: String, sessionId: String, onRequest: @escaping @Sendable (AgentFeedExtensionUIRequest) -> Void, onError: @escaping @Sendable (Error) -> Void) -> SidecarStreamHandle {
-        cancellableHandle()
+    func openExtensionUIStream(source: String, sessionId: String, onEvent: @escaping @Sendable (AgentFeedExtensionUIEvent) -> Void, onError: @escaping @Sendable (Error) -> Void) -> SidecarStreamHandle {
+        lock.withLock { uiCallbacks["\(source):\(sessionId)"] = onEvent }
+        return cancellableHandle()
+    }
+
+    func pushUIEvent(source: String, sessionId: String, event: AgentFeedExtensionUIEvent) {
+        let callback = lock.withLock { uiCallbacks["\(source):\(sessionId)"] }
+        callback?(event)
     }
 
     func respondToExtensionUI(source: String, sessionId: String, requestId: String, value: AgentJSONValue) async throws -> AgentFeedCommandReceipt {
@@ -485,6 +493,79 @@ struct AgentFeedBridgeTests {
         #expect(error.code == "request-conflict")
         #expect(error.message == "request id was reused")
         #expect(error.retryable == false)
+    }
+
+    @Test func createReceiptCarriesTheBackendAuthoredSessionDescriptor() async throws {
+        let fake = FakeSidecarClient()
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: sink.accept)
+
+        bridge.handleSessionCreate(AgentSessionCreate(
+            requestId: "create-1",
+            source: "pi",
+            projectPath: "/project"
+        ))
+        await waitFor { sink.count == 1 }
+
+        let receipt = try sink.decode(AgentCommandReceipt.self, at: 0)
+        let session = try #require(receipt.session)
+        #expect(receipt.sessionId == "created")
+        #expect(session.source == "pi")
+        #expect(session.capabilities.canSend)
+        #expect(session.capabilities.supportsExtensionUI)
+        #expect(session.capabilities.canOpenTerminal == false)
+    }
+
+    @Test func extensionRequestAndDismissalFanOutOnTheSameViewerStream() async throws {
+        let fake = FakeSidecarClient()
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: sink.accept)
+
+        bridge.handleThreadSubscribe(AgentThreadSubscribe(
+            source: "pi",
+            sessionId: "shared",
+            mode: "nice"
+        ))
+        await waitFor { sink.count == 1 && fake.openedUIStreams == 1 }
+        fake.pushUIEvent(
+            source: "pi",
+            sessionId: "shared",
+            event: AgentFeedExtensionUIEvent(
+                type: "request",
+                request: AgentFeedExtensionUIRequest(
+                    requestId: "ui-1",
+                    kind: "confirm",
+                    title: "Proceed?",
+                    message: "Run the extension?",
+                    options: nil,
+                    placeholder: nil,
+                    prefill: nil,
+                    level: nil,
+                    key: nil,
+                    lines: nil,
+                    expectsResponse: true
+                ),
+                requestId: nil
+            )
+        )
+        fake.pushUIEvent(
+            source: "pi",
+            sessionId: "shared",
+            event: AgentFeedExtensionUIEvent(
+                type: "dismiss",
+                request: nil,
+                requestId: "ui-1"
+            )
+        )
+        await waitFor { sink.count == 3 }
+
+        let request = try sink.decode(AgentExtensionUIRequest.self, at: 1)
+        let dismissed = try sink.decode(AgentExtensionUIDismissed.self, at: 2)
+        #expect(request.requestId == "ui-1")
+        #expect(request.expectsResponse)
+        #expect(dismissed.source == "pi")
+        #expect(dismissed.sessionId == "shared")
+        #expect(dismissed.requestId == "ui-1")
     }
 }
 

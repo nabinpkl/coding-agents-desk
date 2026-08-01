@@ -474,8 +474,15 @@ public struct AgentCommandReceipt: Codable, Equatable, Sendable {
     public let source: String
     public let sessionId: String
     public let delivery: String
-    public enum CodingKeys: String, CodingKey { case type = "t"; case requestId = "rid"; case source = "src"; case sessionId = "sid"; case delivery = "del" }
-    public init(requestId: String, source: String, sessionId: String, delivery: String) { self.requestId = requestId; self.source = source; self.sessionId = sessionId; self.delivery = delivery }
+    public let session: AgentSessionSummary?
+    public enum CodingKeys: String, CodingKey { case type = "t"; case requestId = "rid"; case source = "src"; case sessionId = "sid"; case delivery = "del"; case session = "s" }
+    public init(requestId: String, source: String, sessionId: String, delivery: String, session: AgentSessionSummary? = nil) {
+        self.requestId = requestId
+        self.source = source
+        self.sessionId = sessionId
+        self.delivery = delivery
+        self.session = session
+    }
 }
 
 public struct AgentCommandError: Codable, Equatable, Sendable {
@@ -529,6 +536,19 @@ public struct AgentExtensionUIResponse: Codable, Equatable, Sendable {
     public let value: AgentJSONValue
     public enum CodingKeys: String, CodingKey { case type = "t"; case source = "src"; case sessionId = "sid"; case requestId = "rid"; case value = "v" }
     public init(source: String, sessionId: String, requestId: String, value: AgentJSONValue) { self.source = source; self.sessionId = sessionId; self.requestId = requestId; self.value = value }
+}
+
+public struct AgentExtensionUIDismissed: Codable, Equatable, Sendable {
+    public let type = "agent-extension-ui-dismissed"
+    public let source: String
+    public let sessionId: String
+    public let requestId: String
+    public enum CodingKeys: String, CodingKey { case type = "t"; case source = "src"; case sessionId = "sid"; case requestId = "rid" }
+    public init(source: String, sessionId: String, requestId: String) {
+        self.source = source
+        self.sessionId = sessionId
+        self.requestId = requestId
+    }
 }
 
 public struct AgentThreadError: Codable, Equatable, Sendable {

@@ -4,11 +4,19 @@ import { AgentUiBroker, extensionUiContext } from "./agentUiBroker.ts";
 test("the first viewer response resolves a shared extension prompt", async () => {
   const broker = new AgentUiBroker(1000);
   const requests: string[] = [];
-  broker.subscribe((request) => requests.push(request.requestId));
+  const events: string[] = [];
+  broker.subscribe((event) => {
+    events.push(event.type);
+    if (event.type === "request") requests.push(event.request.requestId);
+  });
   const result = extensionUiContext(broker).select("Choose", ["one", "two"]);
   expect(requests).toHaveLength(1);
-  expect(broker.respond(requests[0]!, "two")).toBe(true);
-  expect(broker.respond(requests[0]!, "one")).toBe(false);
+  expect(broker.respond(requests[0]!, "not-visible")).toBe("invalid");
+  expect(events).toEqual(["request"]);
+  expect(broker.respond(requests[0]!, "two")).toBe("accepted");
+  expect(events).toEqual(["request", "dismiss"]);
+  expect(broker.respond(requests[0]!, "one")).toBe("already-resolved");
+  expect(broker.respond("never-existed", "one")).toBe("not-found");
   expect(await result).toBe("two");
   broker.dispose();
 });
@@ -25,10 +33,12 @@ test("a late viewer receives every still-pending extension prompt", async () => 
   const pending = broker.request({ kind: "confirm", title: "Continue?" });
   const requests: string[] = [];
 
-  broker.subscribe((request) => requests.push(request.requestId));
+  broker.subscribe((event) => {
+    if (event.type === "request") requests.push(event.request.requestId);
+  });
 
   expect(requests).toHaveLength(1);
-  expect(broker.respond(requests[0]!, true)).toBe(true);
+  expect(broker.respond(requests[0]!, true)).toBe("accepted");
   expect(await pending).toBe(true);
   broker.dispose();
 });

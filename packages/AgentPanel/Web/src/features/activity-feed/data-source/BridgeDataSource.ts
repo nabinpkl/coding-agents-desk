@@ -154,6 +154,7 @@ interface WireCommandReceipt {
   src: AgentSource;
   sid: string;
   del: string;
+  s?: WireSessionSummary;
 }
 
 interface WireCommandError {
@@ -197,6 +198,13 @@ interface WireExtensionUIRequest {
   er: boolean;
 }
 
+interface WireExtensionUIDismissed {
+  t: "agent-extension-ui-dismissed";
+  src: AgentSource;
+  sid: string;
+  rid: string;
+}
+
 type InboundMessage =
   | WireProjectsPush
   | WireProjectsError
@@ -209,6 +217,7 @@ type InboundMessage =
   | WireCommandReceipt
   | WireCommandError
   | WireExtensionUIRequest
+  | WireExtensionUIDismissed
   | { t: string };
 
 export type SessionActivity = "live" | "ready" | "paused" | "cold";
@@ -239,6 +248,23 @@ export interface AgentSessionCapabilities {
   canOpenTerminal: boolean;
   supportsExtensionUI: boolean;
 }
+
+export interface AgentCommandReceipt {
+  requestId: string;
+  source: AgentSource;
+  sessionId: string;
+  delivery: string;
+  session?: BridgeSessionSummary;
+}
+
+export type AgentExtensionUIEvent =
+  | { type: "request"; request: AgentExtensionUIRequest }
+  | {
+      type: "dismiss";
+      source: AgentSource;
+      sessionId: string;
+      requestId: string;
+    };
 
 export interface AgentTerminalContext {
   projectPath: string;
@@ -300,7 +326,7 @@ interface RawEventWaiter {
 }
 
 interface CommandWaiter {
-  resolve: (receipt: WireCommandReceipt) => void;
+  resolve: (receipt: AgentCommandReceipt) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -361,6 +387,25 @@ function mapEvent(wire: WireActivityEvent): ActivityEvent {
     blocks: wire.b.map(mapBlock),
     otherModeIndex: typeof wire.xi === "number" ? wire.xi : null,
   });
+}
+
+function mapSession(wire: WireSessionSummary): BridgeSessionSummary {
+  return {
+    sessionId: wire.sid,
+    source: wire.src,
+    title: wire.ttl,
+    lastEventAt: wire.lea,
+    activity: wire.ac,
+    capabilities: {
+      modes: wire.cap.md,
+      canSend: wire.cap.snd,
+      canSteer: wire.cap.str,
+      canAbort: wire.cap.abt,
+      canFetchRaw: wire.cap.raw,
+      canOpenTerminal: wire.cap.pty,
+      supportsExtensionUI: wire.cap.xui,
+    },
+  };
 }
 
 // Deliberately NOT keyed by mode. The host keys its thread streams by source and
@@ -457,7 +502,7 @@ export class BridgeDataSource implements AgentDataSource {
     (status: AgentTerminalStatus) => void
   >();
   private readonly extensionUIListeners = new Set<
-    (request: AgentExtensionUIRequest) => void
+    (event: AgentExtensionUIEvent) => void
   >();
   private activeTerminalRequest: AgentTerminalRequest | null = null;
   private unsubscribeHostMessages: (() => void) | null;
@@ -607,7 +652,7 @@ export class BridgeDataSource implements AgentDataSource {
     });
   }
 
-  createSession(projectPath: string, source = "pi"): Promise<WireCommandReceipt> {
+  createSession(projectPath: string, source: AgentSource = "pi"): Promise<AgentCommandReceipt> {
     const requestId = this.requestIDFactory("create");
     return this.postCommand(requestId, {
       t: "agent-session-create",
@@ -621,7 +666,7 @@ export class BridgeDataSource implements AgentDataSource {
     session: Pick<SessionReference, "source" | "sessionId">,
     text: string,
     delivery: "next" | "steer",
-  ): Promise<WireCommandReceipt> {
+  ): Promise<AgentCommandReceipt> {
     const requestId = this.requestIDFactory("send");
     return this.postCommand(requestId, {
       t: "agent-session-send",
@@ -635,7 +680,7 @@ export class BridgeDataSource implements AgentDataSource {
 
   abortSession(
     session: Pick<SessionReference, "source" | "sessionId">,
-  ): Promise<WireCommandReceipt> {
+  ): Promise<AgentCommandReceipt> {
     const requestId = this.requestIDFactory("abort");
     return this.postCommand(requestId, {
       t: "agent-session-abort",
@@ -648,8 +693,8 @@ export class BridgeDataSource implements AgentDataSource {
   respondToExtensionUI(
     request: AgentExtensionUIRequest,
     value: string | boolean | null,
-  ): void {
-    this.bridge.postToHost({
+  ): Promise<AgentCommandReceipt> {
+    return this.postCommand(request.requestId, {
       t: "agent-extension-ui-response",
       src: request.source,
       sid: request.sessionId,
@@ -659,7 +704,7 @@ export class BridgeDataSource implements AgentDataSource {
   }
 
   subscribeExtensionUI(
-    listener: (request: AgentExtensionUIRequest) => void,
+    listener: (event: AgentExtensionUIEvent) => void,
   ): () => void {
     this.extensionUIListeners.add(listener);
     return () => this.extensionUIListeners.delete(listener);
@@ -668,7 +713,7 @@ export class BridgeDataSource implements AgentDataSource {
   private postCommand(
     requestId: string,
     message: Record<string, unknown>,
-  ): Promise<WireCommandReceipt> {
+  ): Promise<AgentCommandReceipt> {
     if (this.destroyed) return Promise.reject(new Error("BridgeDataSource destroyed"));
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -836,6 +881,9 @@ export class BridgeDataSource implements AgentDataSource {
       case "agent-extension-ui-request":
         this.handleExtensionUI(message as WireExtensionUIRequest);
         break;
+      case "agent-extension-ui-dismissed":
+        this.handleExtensionUIDismissed(message as WireExtensionUIDismissed);
+        break;
       case "agent-terminal-ready":
       case "agent-terminal-error":
       case "agent-terminal-ended":
@@ -868,22 +916,7 @@ export class BridgeDataSource implements AgentDataSource {
     const watch = this.projectSessionsWatches.get(message.sub);
     if (!watch || watch.projectPath !== message.pp) return;
     watch.onSnapshot(
-      message.ss.map((session) => ({
-        sessionId: session.sid,
-        source: session.src,
-        title: session.ttl,
-        lastEventAt: session.lea,
-        activity: session.ac,
-        capabilities: {
-          modes: session.cap.md,
-          canSend: session.cap.snd,
-          canSteer: session.cap.str,
-          canAbort: session.cap.abt,
-          canFetchRaw: session.cap.raw,
-          canOpenTerminal: session.cap.pty,
-          supportsExtensionUI: session.cap.xui,
-        },
-      })),
+      message.ss.map(mapSession),
     );
   }
 
@@ -1039,7 +1072,13 @@ export class BridgeDataSource implements AgentDataSource {
     if (message.t === "agent-command-error") {
       waiter.reject(new Error(`${message.c}: ${message.m}`));
     } else {
-      waiter.resolve(message);
+      waiter.resolve({
+        requestId: message.rid,
+        source: message.src,
+        sessionId: message.sid,
+        delivery: message.del,
+        ...(message.s ? { session: mapSession(message.s) } : {}),
+      });
     }
   }
 
@@ -1059,7 +1098,20 @@ export class BridgeDataSource implements AgentDataSource {
       lines: message.ln,
       expectsResponse: message.er,
     };
-    for (const listener of this.extensionUIListeners) listener(request);
+    for (const listener of this.extensionUIListeners) {
+      listener({ type: "request", request });
+    }
+  }
+
+  private handleExtensionUIDismissed(message: WireExtensionUIDismissed): void {
+    for (const listener of this.extensionUIListeners) {
+      listener({
+        type: "dismiss",
+        source: message.src,
+        sessionId: message.sid,
+        requestId: message.rid,
+      });
+    }
   }
 
   private handleTerminalStatus(message: InboundMessage): void {

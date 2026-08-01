@@ -151,8 +151,11 @@ disconnects while active or queued and is disposed after ten idle minutes with n
 disposing never deletes JSONL. Commands serialize per session and use a bounded idempotency ledger.
 Normal input prompts while idle and queues a follow-up while busy; explicit steer uses Pi steering;
 abort ends only the active run. Tool-capable extensions work directly. Standard select, confirm,
-input, editor, and notification requests are projected to all viewers with first-response-wins
-resolution; terminal-only custom UI returns an explicit unsupported result instead of hanging.
+input, editor, and notification requests are projected to all viewers with first-valid-response-wins
+resolution after response-kind validation. Invalid answers leave the shared prompt pending; accepting,
+timing out, or disposing it publishes a dismissal to every viewer. A valid answer arriving after another
+viewer won receives a bounded no-op acknowledgement rather than surfacing a false error. Terminal-only
+custom UI returns an explicit unsupported result instead of hanging.
 
 This flow does not create or attach a PTY, choose arbitrary workspaces, install extensions, or expose
 a public browser server. Existing Agent Panel terminals remain the separate native flow below.
@@ -160,7 +163,7 @@ a public browser server. Existing Agent Panel terminals remain the separate nati
 ## Agent Panel Terminal Flow
 
 ADR-0056 locks the Agent Panel lifecycle below. The checked-in PTY pair now speaks protocol v7 under
-ADR-0068 and the AgentDesk session speaks protocol v15. There is no compatibility decoder for an older
+ADR-0068 and the AgentDesk session speaks protocol v16. There is no compatibility decoder for an older
 inner PTY protocol.
 
 1. The thread-view AgentPanel webview emits open intent containing project path, source, and harness
@@ -273,7 +276,7 @@ QuicStreamFrame   = UInt8 role || UInt32BE length || body
 role              = 1 control | 2 input | 3 graphics | 4 dom | 5 terminal | 6 files | 7 voice
 
 SessionInit       { deviceFingerprint, sessionToken, clientNonce,
-                    protocolVersion, minCompatibleProtocolVersion }   // current target: pv must be >= 15
+                    protocolVersion, minCompatibleProtocolVersion }   // current target: pv must be >= 16
 SessionChallenge  { hostNonce, hostSignature, protocolVersion }
 SessionProof      { clientSignature }
 SessionReady      { sessionId, resumeId, resumeSecret, resumeExpiresAt, mediaKeySalt,
@@ -339,7 +342,7 @@ and rotates resume id, resume secret, and media key salt in the next signed
 `SessionReady`; the client verifies the ready signature before accepting the new
 material.
 
-Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. Protocol v8 is required because the Files role changed from JSON text-only bodies to binary property-list bodies with native document bytes. Protocol v9 is required because cursor inputs now carry revisions and cursor feedback has distinct applied and host-moved frames. Protocol v10 is required because the iOS workbench coordinates a host-authorized workspace terminal on the input lane. Protocol v11 is required because the Files stream becomes the workspace lane and adds IDE state, Git status, and unsolicited workspace-change messages. Protocol v12 is required because the DOM stream carries full Chrome metadata and bidirectional window/tab selection. Protocol v13 adds authenticated viewer activity, ownership, profile, and source dimensions to that DOM contract. Protocol v14 adds explicit-opt-in, bounded client screenshot request and response frames to the input lane and signed foreground fallback. Protocol v15 removes the eager Agent feed digest, keys thread and raw-event traffic by source plus session ID, and replaces screen-independent pushes with subscription-scoped project and project-session snapshots. Older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
+Each side rejects with `incompatible-protocol` when the peer's advertised `protocolVersion` is below its own `minCompatibleProtocolVersion`. Protocol v8 is required because the Files role changed from JSON text-only bodies to binary property-list bodies with native document bytes. Protocol v9 is required because cursor inputs now carry revisions and cursor feedback has distinct applied and host-moved frames. Protocol v10 is required because the iOS workbench coordinates a host-authorized workspace terminal on the input lane. Protocol v11 is required because the Files stream becomes the workspace lane and adds IDE state, Git status, and unsolicited workspace-change messages. Protocol v12 is required because the DOM stream carries full Chrome metadata and bidirectional window/tab selection. Protocol v13 adds authenticated viewer activity, ownership, profile, and source dimensions to that DOM contract. Protocol v14 adds explicit-opt-in, bounded client screenshot request and response frames to the input lane and signed foreground fallback. Protocol v15 removes the eager Agent feed digest, keys thread and raw-event traffic by source plus session ID, and replaces screen-independent pushes with subscription-scoped project and project-session snapshots. Protocol v16 adds capability-described sources, mutable sequenced timeline events, correlated live-agent commands, and extension UI request and dismissal fan-out. Older builds parse only far enough to be rejected. Matching marketing versions across host and client is not a compatibility signal; the protocol version is.
 
 Terminal PTY frames travel over the reliable ordered `.terminal` stream as opaque PTY protobuf envelopes from AgentDesk's `terminal/pty-client-swift` and `terminal/pty-manager` pair (moved in-tree under ADR-0053). Both checked-in implementations enforce inner protocol v7. Protocol v4 added explicit launch and lifetime semantics; protocol v5 added immutable session creation time; protocol v6 added authoritative dimensions, revisions, and bounded chunked ANSI checkpoints; protocol v7 replaces manual resizing with authenticated-client viewer participation, ownership, and targeted viewport status. The private vault and handover protocols are local implementation details from ADR-0072 and do not change this client wire. There is no compatibility path for older inner protocols:
 

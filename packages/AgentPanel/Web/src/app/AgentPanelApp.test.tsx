@@ -676,10 +676,25 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "New Pi session" }));
     const create = fake.posted.at(-1) as { rid: string };
     await act(async () => {
-      fake.deliver({ t: "agent-command-receipt", rid: create.rid, src: "pi", sid: "pi-1", del: "created" });
+      fake.deliver({
+        t: "agent-command-receipt",
+        rid: create.rid,
+        src: "pi",
+        sid: "pi-1",
+        del: "created",
+        s: {
+          sid: "pi-1",
+          src: "pi",
+          ttl: "SDK-authored Pi session",
+          lea: 123,
+          ac: "ready",
+          cap: { md: ["nice"], snd: true, str: true, abt: true, raw: false, pty: false, xui: true },
+        },
+      });
     });
 
     expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-source", "pi");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("SDK-authored Pi session");
     expect(screen.queryByRole("button", { name: /Pi terminal/i })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox", { name: "Message Pi" }), { target: { value: "Inspect the repo" } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
@@ -694,6 +709,12 @@ describe("App shell", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
     expect(fake.posted.at(-1)).toEqual({ t: "agent-extension-ui-response", src: "pi", sid: "pi-1", rid: "ui-1", v: true });
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeDisabled();
+    await act(async () => {
+      fake.deliver({ t: "agent-command-receipt", rid: "ui-1", src: "pi", sid: "pi-1", del: "ui" });
+      fake.deliver({ t: "agent-extension-ui-dismissed", src: "pi", sid: "pi-1", rid: "ui-1" });
+    });
+    expect(screen.queryByRole("dialog", { name: "Proceed?" })).not.toBeInTheDocument();
     unmount();
   });
 });

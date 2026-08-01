@@ -192,7 +192,8 @@ final class AgentFeedBridge: @unchecked Sendable {
                     requestId: request.requestId,
                     source: request.source,
                     sessionId: session.sessionId,
-                    delivery: "created"
+                    delivery: "created",
+                    session: Self.wireSession(session)
                 ))
             } catch {
                 sendCommandError(requestId: request.requestId, error: error)
@@ -245,12 +246,18 @@ final class AgentFeedBridge: @unchecked Sendable {
     func handleExtensionUIResponse(_ response: AgentExtensionUIResponse) {
         Task {
             do {
-                _ = try await client.respondToExtensionUI(
+                let receipt = try await client.respondToExtensionUI(
                     source: response.source,
                     sessionId: response.sessionId,
                     requestId: response.requestId,
                     value: response.value
                 )
+                sendCodable(AgentCommandReceipt(
+                    requestId: receipt.requestId,
+                    source: response.source,
+                    sessionId: response.sessionId,
+                    delivery: receipt.delivery
+                ))
             } catch {
                 sendCommandError(requestId: response.requestId, error: error)
             }
@@ -356,9 +363,22 @@ final class AgentFeedBridge: @unchecked Sendable {
         let handle = client.openExtensionUIStream(
             source: source,
             sessionId: sessionId,
-            onRequest: { [weak self] request in
+            onEvent: { [weak self] event in
                 guard let self, self.isCurrentThread(key: key, generation: generation) else { return }
-                self.sendCodable(Self.wireExtensionUI(request, source: source, sessionId: sessionId))
+                switch event.type {
+                case "request":
+                    guard let request = event.request else { return }
+                    self.sendCodable(Self.wireExtensionUI(request, source: source, sessionId: sessionId))
+                case "dismiss":
+                    guard let requestId = event.requestId else { return }
+                    self.sendCodable(AgentExtensionUIDismissed(
+                        source: source,
+                        sessionId: sessionId,
+                        requestId: requestId
+                    ))
+                default:
+                    return
+                }
             },
             onError: { [weak self] error in
                 guard let self, self.isCurrentThread(key: key, generation: generation) else { return }

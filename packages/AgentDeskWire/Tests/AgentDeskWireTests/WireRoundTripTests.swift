@@ -66,10 +66,26 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
         sessionId: "session"
     ))
     try roundTrip(AgentCommandReceipt(
-        requestId: "send-1",
+        requestId: "create-1",
         source: "pi",
         sessionId: "session",
-        delivery: "steer"
+        delivery: "created",
+        session: AgentSessionSummary(
+            sessionId: "session",
+            source: "pi",
+            title: "New session",
+            lastEventAt: 10,
+            activity: "ready",
+            capabilities: AgentSessionCapabilities(
+                modes: ["nice"],
+                canSend: true,
+                canSteer: true,
+                canAbort: true,
+                canFetchRaw: false,
+                canOpenTerminal: false,
+                supportsExtensionUI: true
+            )
+        )
     ))
     try roundTrip(AgentCommandError(
         requestId: "send-1",
@@ -113,6 +129,11 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
         sessionId: "session",
         requestId: "ui-1",
         value: .object(["choice": .string("two")])
+    ))
+    try roundTrip(AgentExtensionUIDismissed(
+        source: "pi",
+        sessionId: "session",
+        requestId: "ui-1"
     ))
 }
 

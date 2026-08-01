@@ -58,7 +58,7 @@ function streamUi(
   return startServerSentEventStream(request, server, (write) => {
     let closed = false;
     let unsubscribe: (() => void) | undefined;
-    void backend.subscribeUi(sessionId, (uiRequest) => write(encodeServerSentEvent(uiRequest)))
+    void backend.subscribeUi(sessionId, (event) => write(encodeServerSentEvent(event)))
       .then((value) => {
         if (closed) value();
         else unsubscribe = value;
@@ -83,9 +83,17 @@ async function respondToUi(
     if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404, requestId);
     const body = await jsonBody(request);
     if (!("value" in body)) return errorResponse("invalid-request", "value is required", 400, requestId);
-    const accepted = await backend.respondToUi(sessionId, requestId, body.value);
-    if (!accepted) return errorResponse("ui-request-not-found", "extension UI request is no longer pending", 404, requestId);
-    return jsonResponse({ requestId, delivery: "ui" }, 202);
+    const result = await backend.respondToUi(sessionId, requestId, body.value);
+    if (result === "not-found") {
+      return errorResponse("ui-request-not-found", "extension UI request is no longer pending", 404, requestId);
+    }
+    if (result === "invalid") {
+      return errorResponse("invalid-ui-response", "value is not valid for this extension UI request", 422, requestId);
+    }
+    return jsonResponse({
+      requestId,
+      delivery: result === "already-resolved" ? "ui-already-resolved" : "ui",
+    }, 202);
   } catch (error) {
     return routeError(error);
   }

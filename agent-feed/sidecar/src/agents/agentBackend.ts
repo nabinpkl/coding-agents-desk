@@ -53,6 +53,12 @@ export interface AgentUiRequest {
   expectsResponse: boolean;
 }
 
+export type AgentUiEvent =
+  | { type: "request"; request: AgentUiRequest }
+  | { type: "dismiss"; requestId: string };
+
+export type AgentUiResponseResult = "accepted" | "already-resolved" | "not-found" | "invalid";
+
 export interface AgentBackend {
   readonly id: string;
   readonly capabilities: AgentSessionCapabilities;
@@ -61,8 +67,8 @@ export interface AgentBackend {
   subscribe(sessionId: string, afterSequence: number, listener: (envelope: TimelineEnvelope) => void): Promise<() => void>;
   send(sessionId: string, requestId: string, text: string, delivery: AgentMessageDelivery): Promise<AgentCommandReceipt>;
   abort(sessionId: string, requestId: string): Promise<AgentCommandReceipt>;
-  subscribeUi(sessionId: string, listener: (request: AgentUiRequest) => void): Promise<() => void>;
-  respondToUi(sessionId: string, requestId: string, value: unknown): Promise<boolean>;
+  subscribeUi(sessionId: string, listener: (event: AgentUiEvent) => void): Promise<() => void>;
+  respondToUi(sessionId: string, requestId: string, value: unknown): Promise<AgentUiResponseResult>;
   dispose(): Promise<void>;
 }
 

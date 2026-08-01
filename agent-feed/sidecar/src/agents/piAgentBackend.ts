@@ -18,7 +18,8 @@ import {
   type AgentSessionCapabilities,
   type AgentSessionDescriptor,
   type AgentTimelinePage,
-  type AgentUiRequest,
+  type AgentUiEvent,
+  type AgentUiResponseResult,
 } from "./agentBackend.ts";
 import { AgentUiBroker, extensionUiContext } from "./agentUiBroker.ts";
 import { LiveAgentProjection, type TimelineEnvelope } from "./liveAgentProjection.ts";
@@ -217,11 +218,11 @@ export class PiAgentBackend implements AgentBackend {
     });
   }
 
-  async respondToUi(sessionId: string, requestId: string, value: unknown): Promise<boolean> {
+  async respondToUi(sessionId: string, requestId: string, value: unknown): Promise<AgentUiResponseResult> {
     return (await this.open(sessionId)).ui.respond(requestId, value);
   }
 
-  async subscribeUi(sessionId: string, listener: (request: AgentUiRequest) => void): Promise<() => void> {
+  async subscribeUi(sessionId: string, listener: (event: AgentUiEvent) => void): Promise<() => void> {
     return (await this.open(sessionId)).ui.subscribe(listener);
   }
 

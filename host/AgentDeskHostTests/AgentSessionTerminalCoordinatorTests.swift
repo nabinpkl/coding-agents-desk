@@ -1017,7 +1017,7 @@ private struct SessionsSidecarClient: SidecarClient, @unchecked Sendable {
     func createSession(requestId: String, source: String, projectPath: String) async throws -> AgentFeedSessionSummary { throw SidecarClientError.server("unsupported") }
     func sendMessage(requestId: String, source: String, sessionId: String, text: String, delivery: String) async throws -> AgentFeedCommandReceipt { throw SidecarClientError.server("unsupported") }
     func abortSession(requestId: String, source: String, sessionId: String) async throws -> AgentFeedCommandReceipt { throw SidecarClientError.server("unsupported") }
-    func openExtensionUIStream(source: String, sessionId: String, onRequest: @escaping @Sendable (AgentFeedExtensionUIRequest) -> Void, onError: @escaping @Sendable (Error) -> Void) -> SidecarStreamHandle { SidecarStreamHandle(task: Task {}) }
+    func openExtensionUIStream(source: String, sessionId: String, onEvent: @escaping @Sendable (AgentFeedExtensionUIEvent) -> Void, onError: @escaping @Sendable (Error) -> Void) -> SidecarStreamHandle { SidecarStreamHandle(task: Task {}) }
     func respondToExtensionUI(source: String, sessionId: String, requestId: String, value: AgentJSONValue) async throws -> AgentFeedCommandReceipt { throw SidecarClientError.server("unsupported") }
 }
 

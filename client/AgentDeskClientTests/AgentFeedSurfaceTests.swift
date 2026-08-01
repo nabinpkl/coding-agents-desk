@@ -186,9 +186,13 @@ struct AgentFeedSurfaceTests {
         surface.resumeAfterReconnectForTesting = { resumeCount += 1 }
 
         surface.deliver(rawJSON: #"{"t":"agent-projects","sub":"p","p":[]}"#)
+        surface.deliver(rawJSON: #"{"t":"agent-extension-ui-dismissed","src":"pi","sid":"session","rid":"ui-1"}"#)
         surface.resumeAfterSessionReconnect()
 
-        #expect(delivered == [#"{"t":"agent-projects","sub":"p","p":[]}"#])
+        #expect(delivered == [
+            #"{"t":"agent-projects","sub":"p","p":[]}"#,
+            #"{"t":"agent-extension-ui-dismissed","src":"pi","sid":"session","rid":"ui-1"}"#,
+        ])
         #expect(resumeCount == 1)
     }
 }

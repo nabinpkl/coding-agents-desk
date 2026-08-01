@@ -183,6 +183,12 @@ struct AgentFeedExtensionUIRequest: Codable, Sendable {
     let expectsResponse: Bool
 }
 
+struct AgentFeedExtensionUIEvent: Codable, Sendable {
+    let type: String
+    let request: AgentFeedExtensionUIRequest?
+    let requestId: String?
+}
+
 struct AgentFeedCommandErrorEnvelope: Codable {
     struct Detail: Codable {
         let code: String
@@ -260,7 +266,7 @@ protocol SidecarClient: Sendable {
     func openExtensionUIStream(
         source: String,
         sessionId: String,
-        onRequest: @escaping @Sendable (AgentFeedExtensionUIRequest) -> Void,
+        onEvent: @escaping @Sendable (AgentFeedExtensionUIEvent) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle
     func respondToExtensionUI(source: String, sessionId: String, requestId: String, value: AgentJSONValue) async throws -> AgentFeedCommandReceipt
@@ -460,13 +466,13 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
     func openExtensionUIStream(
         source: String,
         sessionId: String,
-        onRequest: @escaping @Sendable (AgentFeedExtensionUIRequest) -> Void,
+        onEvent: @escaping @Sendable (AgentFeedExtensionUIEvent) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
         openJSONStream(
             request: { try await self.request(path: "/api/agent-sessions/\(source)/\(sessionId)/ui/stream") },
-            type: AgentFeedExtensionUIRequest.self,
-            onValue: onRequest,
+            type: AgentFeedExtensionUIEvent.self,
+            onValue: onEvent,
             onError: onError
         )
     }

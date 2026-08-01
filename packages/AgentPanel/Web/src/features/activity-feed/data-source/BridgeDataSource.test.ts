@@ -233,8 +233,29 @@ describe("BridgeDataSource live agent control", () => {
       src: "pi",
       pp: "/project",
     });
-    host.deliver({ t: "agent-command-receipt", rid: "create-1", src: "pi", sid: "pi-session", del: "created" });
-    await expect(pending).resolves.toMatchObject({ sid: "pi-session", del: "created" });
+    host.deliver({
+      t: "agent-command-receipt",
+      rid: "create-1",
+      src: "pi",
+      sid: "pi-session",
+      del: "created",
+      s: {
+        sid: "pi-session",
+        src: "pi",
+        ttl: "New Pi session",
+        lea: 123,
+        ac: "ready",
+        cap: { md: ["nice"], snd: true, str: true, abt: true, raw: false, pty: false, xui: true },
+      },
+    });
+    await expect(pending).resolves.toMatchObject({
+      sessionId: "pi-session",
+      delivery: "created",
+      session: {
+        sessionId: "pi-session",
+        capabilities: { canSend: true, canOpenTerminal: false, supportsExtensionUI: true },
+      },
+    });
   });
 
   it("replaces a streaming event by revision and publishes run plus queue state", () => {
@@ -261,7 +282,7 @@ describe("BridgeDataSource live agent control", () => {
     expect(onState).toHaveBeenLastCalledWith({ sequence: 2, runState: "idle", queue: { steer: 0, followUp: 1 } });
   });
 
-  it("fans extension prompts into the panel and posts the first response", () => {
+  it("correlates extension responses and broadcasts the shared dismissal", async () => {
     const { host, source } = makeSource();
     const listener = vi.fn();
     source.subscribeExtensionUI(listener);
@@ -269,11 +290,18 @@ describe("BridgeDataSource live agent control", () => {
       t: "agent-extension-ui-request", src: "pi", sid: "thread", rid: "ui-1",
       k: "confirm", ttl: "Proceed?", m: "Run the extension?", er: true,
     });
-    const request = listener.mock.calls[0]?.[0];
+    const request = listener.mock.calls[0]?.[0]?.request;
+    expect(listener.mock.calls[0]?.[0]).toMatchObject({ type: "request" });
     expect(request).toMatchObject({ requestId: "ui-1", kind: "confirm", expectsResponse: true });
-    source.respondToExtensionUI(request, true);
+    const response = source.respondToExtensionUI(request, true);
     expect(host.posted.at(-1)).toEqual({
       t: "agent-extension-ui-response", src: "pi", sid: "thread", rid: "ui-1", v: true,
+    });
+    host.deliver({ t: "agent-command-receipt", rid: "ui-1", src: "pi", sid: "thread", del: "ui" });
+    await expect(response).resolves.toMatchObject({ requestId: "ui-1", delivery: "ui" });
+    host.deliver({ t: "agent-extension-ui-dismissed", src: "pi", sid: "thread", rid: "ui-1" });
+    expect(listener.mock.calls[1]?.[0]).toEqual({
+      type: "dismiss", source: "pi", sessionId: "thread", requestId: "ui-1",
     });
   });
 });
