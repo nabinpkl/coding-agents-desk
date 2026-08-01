@@ -158,7 +158,26 @@ function createPane(pane) {
     entry.unsettledAttempts = 0;
     scheduleViewport(entry);
   }
+  applyInputOwnership(entry);
   return element;
+}
+
+function applyInputOwnership(entry) {
+  const textarea = entry.term.textarea;
+  if (!textarea) return;
+  entry.term.options.disableStdin = nativeInputProxy;
+  if (nativeInputProxy) {
+    entry.term.blur();
+    textarea.disabled = true;
+    textarea.tabIndex = -1;
+    textarea.inputMode = 'none';
+    textarea.setAttribute('aria-hidden', 'true');
+  } else {
+    textarea.disabled = false;
+    textarea.tabIndex = 0;
+    textarea.removeAttribute('inputmode');
+    textarea.removeAttribute('aria-hidden');
+  }
 }
 
 function linksForLine(term, line) {
@@ -184,10 +203,10 @@ function renderWorkspace(snapshot) {
     post('diagnostic', { code: 'invalidWorkspaceSnapshot' });
     return;
   }
-  // The first renderer can be created while UIKit still has the webview off-window. Rebuilding that
-  // stage once it is bound gives WebKit a focusable textarea. After the user has focused a pane,
-  // though, replacing the same tree would destroy the first responder and dismiss the keyboard.
-  const retainStage = stage.contains(document.activeElement)
+  // Web-owned input must retain its focused textarea across metadata-only snapshots. Native input
+  // deliberately never retains the xterm responder because UIKit is its sole keyboard owner.
+  const retainStage = !nativeInputProxy
+    && stage.contains(document.activeElement)
     && canRetainRenderedStage(workspace, snapshot);
   workspace = snapshot;
   root.dataset.profile = snapshot.profile;
@@ -404,6 +423,7 @@ function receive(message) {
   if (message.type === 'runtimeConfiguration') {
     nativeReady = true;
     nativeInputProxy = message.inputMode === 'nativeProxy';
+    for (const entry of terminals.values()) applyInputOwnership(entry);
     post('ready');
     return;
   }
