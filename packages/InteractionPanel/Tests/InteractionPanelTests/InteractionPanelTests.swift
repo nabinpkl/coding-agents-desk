@@ -205,8 +205,8 @@ struct InteractionPanelTests {
         #expect(
             InteractionPanelRequest.decode(
                 tag: "dictationLayout",
-                body: ["expanded": true]
-            ) == .dictationLayout(expanded: true)
+                body: ["width": 480, "height": 156]
+            ) == .dictationLayout(.init(width: 480, height: 156))
         )
         #expect(
             InteractionPanelRequest.decode(
@@ -231,7 +231,19 @@ struct InteractionPanelTests {
         #expect(
             InteractionPanelRequest.decode(
                 tag: "dictationLayout",
-                body: ["expanded": false, "unexpected": true]
+                body: ["width": 480, "height": 156, "unexpected": true]
+            ) == nil
+        )
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "dictationLayout",
+                body: ["width": 480, "height": 361]
+            ) == nil
+        )
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "dictationLayout",
+                body: ["width": true, "height": 156]
             ) == nil
         )
         #expect(InteractionPanelRequest.decode(tag: "dictationRunState", body: ["status": "bad"]) == nil)

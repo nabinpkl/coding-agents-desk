@@ -7,7 +7,7 @@
 "use client";
 
 import { AlertCircle, Loader2, Send, Square } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { VuMeter } from "@/features/voice/components/vu-meter";
 import {
@@ -61,6 +61,8 @@ export function DictationMini() {
   const [nativeStart, setNativeStart] = useState(false);
   const committedRecordingIDs = useRef(new Set<string>());
   const dismissTimer = useRef<number | null>(null);
+  const hostMiniRef = useRef<HTMLElement | null>(null);
+  const reportedHostLayout = useRef<string | null>(null);
   const runState = useVoiceStore((state) => state.runState);
   const meter = useVoiceStore((state) => state.meter);
   const partial = useVoiceStore((state) => state.partialTranscript);
@@ -144,9 +146,36 @@ export function DictationMini() {
 
   const status = runState.status;
   const expanded = isDictationMiniExpanded(status);
-  useEffect(() => {
-    postToHost("interaction", { t: "dictationLayout", expanded });
-  }, [expanded]);
+  const reportHostLayout = useCallback(() => {
+    if (clientDictation) return;
+    const panel = hostMiniRef.current;
+    if (!panel) return;
+
+    const bounds = panel.getBoundingClientRect();
+    const width = Math.ceil(bounds.width);
+    const height = Math.ceil(bounds.height);
+    if (width < 68 || height < 68) return;
+
+    const nextLayout = `${width}x${height}`;
+    if (reportedHostLayout.current === nextLayout) return;
+    reportedHostLayout.current = nextLayout;
+    postToHost("interaction", { t: "dictationLayout", width, height });
+  }, [clientDictation]);
+
+  useLayoutEffect(() => {
+    if (clientDictation) return;
+    const panel = hostMiniRef.current;
+    if (!panel) return;
+
+    const observer = new ResizeObserver(reportHostLayout);
+    observer.observe(panel);
+    const frame = window.requestAnimationFrame(reportHostLayout);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [clientDictation, reportHostLayout]);
+
   useEffect(() => {
     postToHost("interaction", { t: "dictationRunState", status });
   }, [status]);
@@ -347,12 +376,22 @@ export function DictationMini() {
     );
   }
 
+  const hostStage =
+    errorMessage ??
+    (status === "complete"
+      ? transcript || "Saved without a transcript"
+      : stageLabel(status));
+
   return (
-    <main className="flex h-full w-full items-center justify-center overflow-hidden rounded-[22px] border border-black/15 bg-[#e3e8ee] p-2 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.7)] dark:border-white/15 dark:bg-[#24282d] dark:shadow-[inset_0_1px_0_rgb(255_255_255_/_0.08)]">
+    <main
+      ref={hostMiniRef}
+      className={`dictation-host-mini ${expanded ? "dictation-host-mini--expanded" : ""}`}
+      data-status={status}
+    >
       <button
         type="button"
         aria-label={status === "capturing" ? "Stop dictation" : "Start dictation"}
-        className={`flex h-12 shrink-0 items-center rounded-2xl border border-black/10 bg-white text-foreground shadow-[0_2px_5px_rgb(0_0_0_/_0.14)] transition hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70 dark:border-white/10 dark:bg-[#17191c] dark:hover:bg-[#202328] ${expanded ? "min-w-12 gap-3 px-3" : "w-12 justify-center p-0"}`}
+        className="dictation-host-mini__control"
         // Requesting permission stays enabled so the pointer that started a
         // press-and-hold can still deliver its release and cancel the pending
         // capture. Only server finalization blocks a new press.
@@ -382,22 +421,21 @@ export function DictationMini() {
         ) : (
           <DictationMicArtwork />
         )}
-        {expanded ? (
-          <span className="min-w-0 text-left text-sm font-medium">
-            {errorMessage ??
-              (status === "complete"
-                ? transcript || "Saved without a transcript"
-                : stageLabel(status))}
-          </span>
-        ) : null}
       </button>
-      {status === "capturing" ? (
-        <div className="ml-2 w-44">
-          <VuMeter rms={meter.rms} peak={meter.peak} />
-          {transcript ? (
-            <p className="mt-1 truncate text-xs text-muted-foreground">{transcript}</p>
+      {expanded ? (
+        <section className="dictation-host-mini__content" aria-live="polite">
+          <p className={`dictation-host-mini__stage ${errorMessage ? "dictation-host-mini__stage--error" : ""}`}>
+            {hostStage}
+          </p>
+          {status === "capturing" ? (
+            <div className="dictation-host-mini__meter">
+              <VuMeter rms={meter.rms} peak={meter.peak} />
+            </div>
           ) : null}
-        </div>
+          {transcript && status !== "complete" ? (
+            <p className="dictation-host-mini__transcript">{transcript}</p>
+          ) : null}
+        </section>
       ) : null}
     </main>
   );

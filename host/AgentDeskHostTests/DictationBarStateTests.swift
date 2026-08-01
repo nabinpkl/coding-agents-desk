@@ -20,8 +20,7 @@ struct DictationBarStateTests {
     @Test func busyStateAndPanelSizeFollowMiniRunState() {
         var state = DictationBarState()
         #expect(!state.isBusy)
-        #expect(DictationBarState.panelSize(expanded: false) == CGSize(width: 68, height: 68))
-        #expect(DictationBarState.panelSize(expanded: true) == CGSize(width: 520, height: 76))
+        #expect(DictationBarState.compactSize == CGSize(width: 68, height: 68))
 
         state.applyRunStatus(.capturing)
         #expect(state.isBusy)

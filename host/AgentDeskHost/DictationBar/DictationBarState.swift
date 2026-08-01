@@ -11,7 +11,6 @@ struct DictationBarState {
     }
 
     static let compactSize = CGSize(width: 68, height: 68)
-    static let expandedSize = CGSize(width: 520, height: 76)
 
     private(set) var isWebReady = false
     private(set) var runStatus: InteractionDictationRunStatus = .idle
@@ -25,10 +24,6 @@ struct DictationBarState {
         case .idle, .complete, .error:
             false
         }
-    }
-
-    static func panelSize(expanded: Bool) -> CGSize {
-        expanded ? expandedSize : compactSize
     }
 
     mutating func markWebReady() {

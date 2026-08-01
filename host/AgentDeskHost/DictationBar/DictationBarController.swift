@@ -11,6 +11,45 @@ private final class DictationBarPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+/// WebKit owns the visual shell, so `NSPanel.isMovableByWindowBackground`
+/// cannot see clicks behind the webview. This narrow native hit target keeps a
+/// real macOS drag affordance without intercepting the microphone control.
+private final class DictationPanelDragHandleView: NSView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
+    }
+}
+
+private final class DictationPanelContentView: NSView {
+    init(webView: WKWebView) {
+        super.init(frame: .zero)
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(webView)
+
+        let dragHandle = DictationPanelDragHandleView()
+        dragHandle.translatesAutoresizingMaskIntoConstraints = false
+        dragHandle.toolTip = "Drag dictation"
+        dragHandle.setAccessibilityLabel("Drag dictation")
+        addSubview(dragHandle)
+
+        NSLayoutConstraint.activate([
+            webView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            webView.topAnchor.constraint(equalTo: topAnchor),
+            webView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            dragHandle.leadingAnchor.constraint(equalTo: leadingAnchor),
+            dragHandle.trailingAnchor.constraint(equalTo: trailingAnchor),
+            dragHandle.topAnchor.constraint(equalTo: topAnchor),
+            dragHandle.heightAnchor.constraint(equalToConstant: 14),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+}
+
 /// All-Spaces dictation chrome. This intentionally owns no audio pipeline: the
 /// embedded DictationMini records through the shared browser voice session and
 /// the Python sidecar. Native code owns only placement, Fn routing, permission,
@@ -47,7 +86,7 @@ final class DictationBarController: NSObject {
         self.typeText = typeText
         super.init()
         transport.onReady = { [weak self] in self?.state.markWebReady() }
-        transport.onLayout = { [weak self] expanded in self?.resizePanel(expanded: expanded) }
+        transport.onLayout = { [weak self] layout in self?.resizePanel(to: layout) }
         transport.onRunState = { [weak self] status in self?.applyRunState(status) }
         transport.onCommit = { [weak self] recordingID, transcript in
             self?.commit(recordingID: recordingID, transcript: transcript)
@@ -74,7 +113,7 @@ final class DictationBarController: NSObject {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        panel.isMovableByWindowBackground = true
+        panel.isMovableByWindowBackground = false
         panel.delegate = self
         self.panel = panel
 
@@ -94,7 +133,7 @@ final class DictationBarController: NSObject {
             webView.layer?.cornerRadius = 22
             webView.layer?.masksToBounds = true
             webView.uiDelegate = self
-            panel.contentView = webView
+            panel.contentView = DictationPanelContentView(webView: webView)
         } catch {
             logger.error("dictation mini init failed: \(String(describing: error), privacy: .public)")
             panel.contentView = makeUnavailableView()
@@ -171,9 +210,9 @@ final class DictationBarController: NSObject {
         panelController?.deliver(rawJSON: payload)
     }
 
-    private func resizePanel(expanded: Bool) {
+    private func resizePanel(to layout: InteractionDictationPanelLayout) {
         guard let panel else { return }
-        let size = DictationBarState.panelSize(expanded: expanded)
+        let size = CGSize(width: layout.width, height: layout.height)
         guard panel.frame.size != size else { return }
         let old = panel.frame
         let proposed = CGPoint(x: old.midX - size.width / 2, y: old.minY)

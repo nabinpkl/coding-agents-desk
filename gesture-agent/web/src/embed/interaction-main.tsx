@@ -7,6 +7,7 @@
 
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { ThemeProvider } from "next-themes";
 
 import { InteractionApp } from "@/embed/interaction-app";
 import { setLandmarkerAssetsMode } from "@/features/gesture/landmarker";
@@ -24,6 +25,13 @@ if (container === null) {
 
 createRoot(container).render(
   <StrictMode>
-    <InteractionApp />
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="system"
+      enableSystem
+      disableTransitionOnChange
+    >
+      <InteractionApp />
+    </ThemeProvider>
   </StrictMode>,
 );

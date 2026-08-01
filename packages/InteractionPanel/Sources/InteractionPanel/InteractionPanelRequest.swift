@@ -12,7 +12,7 @@ public enum InteractionPanelRequest: Equatable, Sendable {
     case voiceSocketClose(recordingSessionID: String)
     case voiceREST(InteractionVoiceRESTRequest)
     case dictationReady
-    case dictationLayout(expanded: Bool)
+    case dictationLayout(InteractionDictationPanelLayout)
     case dictationRunState(status: InteractionDictationRunStatus)
     case dictationCommit(recordingID: String, transcript: String)
 
@@ -82,10 +82,11 @@ public enum InteractionPanelRequest: Equatable, Sendable {
         case "dictationReady":
             return body.isEmpty ? .dictationReady : nil
         case "dictationLayout":
-            guard body.count == 1,
-                  let expanded = body["expanded"] as? Bool
+            guard body.count == 2,
+                  let width = boundedPanelDimension(body["width"], in: 68 ... 560),
+                  let height = boundedPanelDimension(body["height"], in: 68 ... 360)
             else { return nil }
-            return .dictationLayout(expanded: expanded)
+            return .dictationLayout(.init(width: width, height: height))
         case "dictationRunState":
             guard body.count == 1,
                   let rawStatus = body["status"] as? String,
@@ -119,6 +120,18 @@ public enum InteractionPanelRequest: Equatable, Sendable {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return !trimmed.isEmpty && trimmed.utf8.count <= 32_768
     }
+
+    private static func boundedPanelDimension(
+        _ rawValue: Any?,
+        in allowedRange: ClosedRange<Double>
+    ) -> Double? {
+        guard let number = rawValue as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID()
+        else { return nil }
+        let value = number.doubleValue
+        guard value.isFinite, allowedRange.contains(value) else { return nil }
+        return value
+    }
 }
 
 public enum InteractionDictationRunStatus: String, Equatable, Sendable {
@@ -130,6 +143,19 @@ public enum InteractionDictationRunStatus: String, Equatable, Sendable {
     case analyzing
     case complete
     case error
+}
+
+/// The web mini measures its visible content and asks its macOS shell for this
+/// bounded frame. It owns presentation only; capture state stays in the voice
+/// session protocol.
+public struct InteractionDictationPanelLayout: Equatable, Sendable {
+    public let width: Double
+    public let height: Double
+
+    public init(width: Double, height: Double) {
+        self.width = width
+        self.height = height
+    }
 }
 
 public struct InteractionVoiceRESTRequest: Equatable, Sendable {
