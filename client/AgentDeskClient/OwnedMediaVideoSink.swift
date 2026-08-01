@@ -636,10 +636,21 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         var fields = videoDecoder.renderDiagnostics
         fields["reason"] = reason
         fields["enqueued"] = String(videoEnqueueCount)
-        // The layer this sink actually owns, which the enqueuer cannot see: if the video floor
+        // The layers this sink actually owns, which the enqueuer cannot see. If the video floor
         // is still hidden then nothing has revealed it, and that alone is a black screen with
         // every upstream counter healthy.
         fields["floorHidden"] = String(videoLayer.isHidden)
+        // The crisp overlay composites ABOVE the video floor (ADR-0034). It is meant to be
+        // transparent wherever a region is reverted to video, so an overlay that is visible,
+        // opaque and holding a stale or blank image hides a perfectly healthy video layer --
+        // indistinguishable, from every other signal we have, from the layer being wedged.
+        fields["overlayHidden"] = String(surfaceLayer.isHidden)
+        fields["overlayOpaque"] = String(surfaceLayer.isOpaque)
+        fields["overlayHasContents"] = String(surfaceLayer.contents != nil)
+        fields["overlayOpacity"] = String(format: "%.2f", surfaceLayer.opacity)
+        fields["overlayW"] = String(format: "%.0f", surfaceLayer.bounds.width)
+        fields["overlayH"] = String(format: "%.0f", surfaceLayer.bounds.height)
+        fields["surfaceGen"] = String(compositor.committedUpdateId.surfaceGeneration)
         // Identity of the state, so an unchanged layer does not spam and a change is never
         // missed. Deliberately excludes the reason and the counters, which always differ.
         let key = fields

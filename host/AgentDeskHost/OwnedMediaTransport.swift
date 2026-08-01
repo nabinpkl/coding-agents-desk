@@ -760,8 +760,11 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             // -- the encoder logs that as `encFrame`, and the two diverge by design now that an
             // encoder outlives the transports using it. Reading a `frame=1` here as a fresh
             // encoder produced a wrong diagnosis of a resume once; `ltr=` is included so a
-            // frame's reference role is visible on the same line as its cost.
-            logger.notice("owned media video sent frame=\(envelope.header.frameId, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) ltr=\(envelope.header.ltrToken.map(String.init) ?? "none", privacy: .public) bytes=\(payload.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(liveTargets.kbps, privacy: .public) fps=\(liveTargets.fps, privacy: .public) resolutionScale=\(liveTargets.scale, privacy: .public)")
+            // frame's reference role is visible on the same line as its cost. `gen` is the
+            // surface generation, logged so a host frame can be matched to what the client says
+            // it rendered; note the client's VIDEO path ignores it (only the crisp/graphics path
+            // reads it), so a mismatch here is a correlation aid, not a discard reason.
+            logger.notice("owned media video sent frame=\(envelope.header.frameId, privacy: .public) gen=\(envelope.header.surfaceGeneration, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) ltr=\(envelope.header.ltrToken.map(String.init) ?? "none", privacy: .public) bytes=\(payload.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(liveTargets.kbps, privacy: .public) fps=\(liveTargets.fps, privacy: .public) resolutionScale=\(liveTargets.scale, privacy: .public)")
         }
         if let summary = liveTargets.productionSummary {
             logger.notice(
