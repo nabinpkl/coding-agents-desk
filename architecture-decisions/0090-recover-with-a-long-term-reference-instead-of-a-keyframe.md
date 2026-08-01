@@ -192,11 +192,35 @@ documented contract that outcome means **no LTR had ever been acknowledged**, so
 this ADR called "the worst case is exactly today's behaviour" was not a worst case at all: it
 was every case.
 
-Which half of the round trip is broken could not be determined from the run, because **none of
+Which half of the round trip was broken could not be determined from that run, because **none of
 it was observable**. 1527 client diagnostic events and a full host log contained no record of a
 token being emitted, acknowledged, or received -- the only LTR log in the system was the request
 itself. The mechanism's sole observable was the very thing it was supposed to eliminate, so a
 silent degradation to keyframes was indistinguishable from success.
+
+**The answer turned out to be neither half.** With the telemetry in, the very first minute of a
+session showed 237 tokens emitted and 237 acknowledged, the encoder nominating *every* frame as
+referenceable, and a client keyframe request answered with a **2,221-byte delta** against
+keyframes costing ~88 KB in the same session. The round trip was never broken and the mechanism
+does what this ADR promised.
+
+What killed it was `ensureSession`. A resolution change invalidates the compression session and
+builds a new one, and **every long-term reference lives inside that session and dies with it**.
+The ladder resets to full scale when a reconnect builds a new transport, so the resume ran at
+`resolutionScale` 1.0 immediately after suspending at 0.5. That rescale recreated the session
+inside the same encode call that then asked for a refresh, leaving nothing to reference. The
+encoder correctly degraded to an IDR.
+
+So the "Bad" consequence recorded below -- that this only pays off when resolution is unchanged
+across the recovery -- is not a caveat about an unlucky case. It is the mechanism's central
+failure mode, because the ladder reset puts a rescale directly in the path of every resume.
+Pinning the rung across a resume window is not a refinement; without it the cheap path cannot
+fire on a handover at all.
+
+Three pieces of state had to be reset alongside the session, or they described one that no
+longer existed: queued acknowledgements, which would be handed to a session that never issued
+those tokens, and the two counters, which would report references the new session does not hold
+-- the exact number the refresh telemetry is read for.
 
 That is the same failure as the opt-in eligibility list one paragraph up, in a different place:
 a mechanism whose non-operation looks identical to its operation will be found not working, and

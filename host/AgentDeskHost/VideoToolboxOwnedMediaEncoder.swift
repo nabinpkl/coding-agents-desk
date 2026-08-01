@@ -432,6 +432,22 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         }
         if let session {
             VTCompressionSessionInvalidate(session)
+            // Every long-term reference lived inside that session and died with it. Three
+            // pieces of state have to go too, or they describe a session that no longer
+            // exists: queued acknowledgements would be handed to a session that never issued
+            // those tokens, and the counters would report references the new session does not
+            // hold -- which is exactly the number the refresh telemetry is read for.
+            //
+            // This is also the explanation for an `outcome=idr-fallback` that is nobody's bug:
+            // a rescale resets the reference set, so the first resync after one CANNOT be a
+            // delta. The ladder resetting on reconnect is what puts a rescale directly in the
+            // path of a resume, which is the case ADR-0090 exists to make cheap.
+            if ltrTokensEmitted > 0 || !pendingLtrAcknowledgements.isEmpty {
+                logger.notice("owned encoder ltr-state-dropped reason=session-recreate emitted=\(self.ltrTokensEmitted, privacy: .public) acked=\(self.ltrTokensAcknowledged, privacy: .public)")
+            }
+            pendingLtrAcknowledgements.removeAll(keepingCapacity: true)
+            ltrTokensEmitted = 0
+            ltrTokensAcknowledged = 0
         }
         var newSession: VTCompressionSession?
         let encoderSpecification = [

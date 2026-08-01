@@ -1411,6 +1411,7 @@ D223  2026-07-31  landed     a failed dial clears only the attempt, so it stops 
 D224  2026-07-31  landed     LTR eligibility by exclusion, and a client that flushed its decoder can say so
 D225  2026-07-31  landed     second device run: LTR is enabled, fires, and degrades to an IDR every time
 D226  2026-07-31  landed     make the LTR round trip observable, and stop two different counters both logging as `frame=`
+D227  2026-08-01  landed     LTR works; a session recreate is what wipes it, so drop its state with the session
 
 D214 detail: a control-message pair (`liveness-probe` / `liveness-echo`) carrying a sequence
 number on the existing `frameId` field. Three unanswered probes at 2s declares ~4.5s after the
@@ -1567,3 +1568,17 @@ lifetime counter to `encFrame`. It and the wire's `frameId` were both logging as
 meaning different things, and once D219 made the encoder outlive the transport the two started
 diverging by design -- a `frame=1` after a resume read as a rebuilt encoder and briefly looked
 like the whole mechanism had failed, when it had carried across correctly.
+
+D227 detail: the telemetry answered in the first minute, and reversed D225's reading. 237 tokens
+emitted, 237 acknowledged, every frame nominated as referenceable, and a client keyframe request
+answered with a 2,221-byte delta where keyframes in the same session cost ~88KB. The round trip
+was never broken. What wipes it is `ensureSession`: a resolution change invalidates the
+compression session, and every long-term reference lives inside that session. The ladder resets
+to full scale when a reconnect builds a new transport, so the resume ran at scale 1.0 straight
+after suspending at 0.5 -- recreating the session inside the same encode call that then asked
+for a refresh. Three pieces of state now reset with the session: queued acknowledgements, which
+would otherwise be handed to a session that never issued those tokens, and both counters, which
+would otherwise report references the new session does not hold -- the exact number the refresh
+telemetry is read for, so leaving them would have made the instrument lie in the one case it
+exists for. Consequence for planning: pinning the ladder rung across a resume is not a
+refinement of ADR-0090, it is the precondition for the cheap path firing on a handover at all.
