@@ -1710,3 +1710,5 @@ seconds, and damping the axis would only hide that.
   Pi runtime-local indexes and revisions, instead of merging it with stale pre-reap rows.
 - D243. Keep in-flight historical page reads from consuming or contaminating an authoritative
   reconnect snapshot across the host generation, bridge routing, and React state layers.
+- D244. Remove the obsolete reconnect marker after snapshot kind and seeded-buffer state became
+  the sole authoritative replacement route.

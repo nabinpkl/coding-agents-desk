@@ -492,7 +492,6 @@ export class BridgeDataSource implements AgentDataSource {
   private readonly rawEventWaiters = new Map<string, RawEventWaiter>();
   private readonly commandWaiters = new Map<string, CommandWaiter>();
   private readonly activeThreads = new Map<string, SessionReference>();
-  private readonly reconnectingThreads = new Set<string>();
   private readonly projectWatches = new Map<string, ProjectWatch>();
   private readonly projectSessionsWatches = new Map<
     string,
@@ -789,7 +788,6 @@ export class BridgeDataSource implements AgentDataSource {
       });
     }
     for (const session of this.activeThreads.values()) {
-      this.reconnectingThreads.add(sessionKey(session));
       this.bridge.postToHost({
         t: "agent-thread-sub",
         src: session.source,
@@ -825,7 +823,6 @@ export class BridgeDataSource implements AgentDataSource {
   private closeThreadSubscription(session: SessionReference): void {
     const key = sessionKey(session);
     if (!this.activeThreads.delete(key)) return;
-    this.reconnectingThreads.delete(key);
     this.bridge.postToHost({
       t: "agent-thread-unsub",
       src: session.source,
@@ -996,7 +993,6 @@ export class BridgeDataSource implements AgentDataSource {
 
     if (!chunk.lv) {
       if (chunk.k === "snapshot" && buffer.seeded) {
-        this.reconnectingThreads.delete(key);
         for (const listener of this.liveListeners.get(key) ?? []) {
           listener.onSnapshot({
             events,
@@ -1013,7 +1009,6 @@ export class BridgeDataSource implements AgentDataSource {
         return;
       }
       if (!buffer.seeded) {
-        if (chunk.k === "snapshot") this.reconnectingThreads.delete(key);
         buffer.seeded = true;
         const waiters = this.seedWaiters.get(key) ?? [];
         this.seedWaiters.delete(key);
@@ -1048,7 +1043,6 @@ export class BridgeDataSource implements AgentDataSource {
       sessionId: message.sid,
       mode: "raw",
     });
-    this.reconnectingThreads.delete(key);
     for (const listener of this.liveListeners.get(key) ?? []) {
       listener.onError?.();
     }
@@ -1310,7 +1304,6 @@ export class BridgeDataSource implements AgentDataSource {
     this.projectWatches.clear();
     this.projectSessionsWatches.clear();
     this.activeThreads.clear();
-    this.reconnectingThreads.clear();
     this.buffers.clear();
     this.liveListeners.clear();
     this.terminalStatusListeners.clear();
