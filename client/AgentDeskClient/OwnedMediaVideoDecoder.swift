@@ -22,6 +22,20 @@ protocol OwnedMediaVideoEnqueuing: AnyObject {
     func flushAndRemoveImage()
     var displayStatus: String { get }
     var requiresFlushToResumeDecoding: Bool { get }
+    /// R230. Everything about the layer that could explain a black picture, sampled together.
+    ///
+    /// The recovery policy above reads exactly two properties, `displayStatus` and
+    /// `requiresFlushToResumeDecoding`, and a layer that is black while reporting `rendering`
+    /// with no flush required trips neither. Measured on a device: after a network handover the
+    /// host delivered three full keyframes -- 69KB, 57KB and 25KB IDRs needing no prior state --
+    /// the client acked every one, requested no keyframes, reported a steady 15fps, and showed
+    /// nothing. Every counter we had was taken at enqueue, so a wedged layer and a working one
+    /// printed identically and the failure was only ever found by someone looking at the phone.
+    ///
+    /// These are the properties that are NOT read anywhere else, each of which produces a black
+    /// picture on its own: a zero or detached frame, a hidden or transparent layer, a stalled
+    /// control timebase, and the layer's own `error`.
+    var renderDiagnostics: [String: String] { get }
 }
 
 enum OwnedMediaVideoDecodeResult: Equatable {
@@ -55,6 +69,10 @@ final class OwnedMediaVideoDecoder {
         self.layer = layer
         self.makeFormatDescription = makeFormatDescription
     }
+
+    /// R230. Passthrough so the sink can report layer state alongside its enqueue counters
+    /// without reaching past the decoder for the layer it owns.
+    var renderDiagnostics: [String: String] { layer.renderDiagnostics }
 
     @discardableResult
     func decodeAndEnqueue(
@@ -295,5 +313,37 @@ final class OwnedMediaVideoLayerEnqueuer: OwnedMediaVideoEnqueuing {
 
     var requiresFlushToResumeDecoding: Bool {
         displayLayer.requiresFlushToResumeDecoding
+    }
+
+    var renderDiagnostics: [String: String] {
+        let bounds = displayLayer.bounds
+        let frame = displayLayer.frame
+        var fields: [String: String] = [
+            "status": displayStatus,
+            "requiresFlush": String(displayLayer.requiresFlushToResumeDecoding),
+            "readyForMore": String(displayLayer.isReadyForMoreMediaData),
+            // Geometry: any of these alone renders a correctly-decoding layer invisible, and
+            // none of them was being read.
+            "hidden": String(displayLayer.isHidden),
+            "opacity": String(format: "%.2f", displayLayer.opacity),
+            "boundsW": String(format: "%.0f", bounds.width),
+            "boundsH": String(format: "%.0f", bounds.height),
+            "frameW": String(format: "%.0f", frame.width),
+            "frameH": String(format: "%.0f", frame.height),
+            "attached": String(displayLayer.superlayer != nil),
+            "gravity": displayLayer.videoGravity.rawValue
+        ]
+        // A timebase whose rate is 0 queues samples that never present, which looks exactly
+        // like a wedge from every counter we take at enqueue.
+        if let timebase = displayLayer.controlTimebase {
+            fields["timebaseRate"] = String(format: "%.2f", CMTimebaseGetRate(timebase))
+            fields["timebaseSec"] = String(format: "%.2f", CMTimeGetSeconds(CMTimebaseGetTime(timebase)))
+        } else {
+            fields["timebaseRate"] = "none"
+        }
+        if let error = displayLayer.error {
+            fields["error"] = String(describing: error)
+        }
+        return fields
     }
 }

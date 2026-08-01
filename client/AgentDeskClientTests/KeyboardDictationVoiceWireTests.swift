@@ -46,6 +46,6 @@ struct KeyboardDictationVoiceWireTests {
         )
 
         #expect(message.recording?.clientSessionID == sessionID)
-        #expect(message.recording?.transcript == "thank")
+        #expect(message.recording?.machineTranscript == "thank")
     }
 }

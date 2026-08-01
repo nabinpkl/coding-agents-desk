@@ -318,6 +318,12 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "owned-media")
     private var compositor = OwnedSurfaceCompositor()
     private var lastRenderUptimeNs: UInt64?
+    // R230. The render-side counterpart to the enqueue counters. `lastRenderDiagnosticsKey`
+    // holds the last layer state we reported so a CHANGE is emitted the moment it happens
+    // rather than waiting for the next window; `videoEnqueueCount` is the denominator that
+    // makes "frames went in, nothing came out" expressible in one line.
+    private var lastRenderDiagnosticsKey: String?
+    private var videoEnqueueCount: UInt64 = 0
     private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?
     // ADR-0027 render-stall watchdog state. lastVideoArrivalUptimeNs is set on every
     // video frame that reaches the sink (the host is sending); lastVideoEnqueueUptimeNs
@@ -525,6 +531,9 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         case .enqueued:
             ClientRuntimeTelemetry.shared.advanceVideoMilestone(.decoderEnqueued)
             lastVideoEnqueueUptimeNs = nowNs
+            videoEnqueueCount &+= 1
+            // Cheap on the hot path: this only emits when the layer state actually changed.
+            reportRenderDiagnostics(reason: "enqueued")
             // ADR-0090: tell the host it may reference this frame later instead of sending a
             // keyframe to resync. Acknowledged on enqueue, which is the strongest signal
             // available -- the display layer decodes asynchronously and reports no per-sample
@@ -554,6 +563,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                         fields: snapshot.diagnosticsFields,
                         level: .info
                     )
+                    // The window boundary already reports the enqueue-side summary; pair it
+                    // with the render side unconditionally, so a steady healthy-looking stream
+                    // still states what the layer is doing.
+                    reportRenderDiagnostics(reason: "window", force: true)
                 }
             case .decodeOnly:
                 videoStatusTracker.notePresentationSkip(bytes: frame.frameBytes)
@@ -570,6 +583,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             // Both branches cleared the format description and flushed the layer, so the
             // references the host still believes we hold are gone -- hence the flag.
             ownedMediaStderrTrace("video-frame-recovered frame=\(envelope.header.frameId)")
+            reportRenderDiagnostics(reason: "recovered", force: true)
             videoStatusTracker.noteDroppedFrames(1)
             videoStatusTracker.noteDecodeDrop()
             setOwnedMediaStatus(.videoRepairing)
@@ -608,6 +622,42 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         }
     }
 
+    /// R230. Report what the display layer is actually doing, as opposed to what we handed it.
+    ///
+    /// Everything else in this file is measured at enqueue. On a device after a network
+    /// handover the host delivered three full keyframes, the client acked all of them, reported
+    /// a steady 15fps and requested no keyframes -- and the screen was black. A wedged layer and
+    /// a working one printed identically, so the only way the failure was ever detected was
+    /// somebody looking at the phone.
+    ///
+    /// Emitted on every state change and on the periodic window, to both the diagnostics store
+    /// and the stderr trace, because the attached-console log is what a device feel-run reads.
+    private func reportRenderDiagnostics(reason: String, force: Bool = false) {
+        var fields = videoDecoder.renderDiagnostics
+        fields["reason"] = reason
+        fields["enqueued"] = String(videoEnqueueCount)
+        // The layer this sink actually owns, which the enqueuer cannot see: if the video floor
+        // is still hidden then nothing has revealed it, and that alone is a black screen with
+        // every upstream counter healthy.
+        fields["floorHidden"] = String(videoLayer.isHidden)
+        // Identity of the state, so an unchanged layer does not spam and a change is never
+        // missed. Deliberately excludes the reason and the counters, which always differ.
+        let key = fields
+            .filter { $0.key != "reason" && $0.key != "enqueued" && $0.key != "timebaseSec" }
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: " ")
+        let changed = key != lastRenderDiagnosticsKey
+        guard changed || force else { return }
+        lastRenderDiagnosticsKey = key
+        ClientDiagnostics.shared.record(
+            type: "videoRenderDiagnostics",
+            fields: fields,
+            level: changed ? .error : .info
+        )
+        ownedMediaStderrTrace("video-render-diagnostics reason=\(reason) enqueued=\(videoEnqueueCount) \(key)")
+    }
+
     private func schedulePendingVideoPresentation(nowNs: UInt64) {
         pendingVideoPresentationTask?.cancel()
         guard let deadlineNs = videoPresentationPacer.nextPresentationDeadlineNs else {
@@ -638,7 +688,11 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     // there is no whole-surface swap (this retires the ADR-0025 .video/.tiles swap). The
     // floor is revealed once video frames arrive; the overlay once a crisp frame applies.
     private func showVideoFloor() {
-        if videoLayer.isHidden { videoLayer.isHidden = false }
+        guard videoLayer.isHidden else { return }
+        videoLayer.isHidden = false
+        // The transition that makes the picture visible at all. Worth a line of its own: if it
+        // never happens, every upstream counter still reads perfectly healthy.
+        reportRenderDiagnostics(reason: "floor-revealed", force: true)
     }
 
     private func showCrispOverlay() {

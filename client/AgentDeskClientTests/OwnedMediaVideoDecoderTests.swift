@@ -17,6 +17,9 @@ final class OwnedMediaVideoDecoderTests: XCTestCase {
         func enqueue(_ sampleBuffer: CMSampleBuffer) { enqueued.append(sampleBuffer) }
         func flush() { flushCount += 1 }
         func flushAndRemoveImage() { flushAndRemoveImageCount += 1 }
+        var renderDiagnostics: [String: String] {
+            ["status": displayStatus, "requiresFlush": String(requiresFlushToResumeDecoding)]
+        }
     }
 
     private func stubFormatDescription() -> CMVideoFormatDescription {
