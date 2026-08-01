@@ -48,13 +48,15 @@ final class TaskKeyboardRepeatScheduler: KeyboardRepeatScheduling {
 
 @MainActor
 final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
+    static let defaultReturnKeyTitle = "↵"
+
     var onKey: ((KeyboardKey) -> Void)?
     var onDelete: (() -> Void)?
     var onDeleteEnded: (() -> Void)?
     var onCursorDelta: ((Int) -> Void)?
     var configureInputModeSwitchKey: ((UIButton) -> Void)?
     var hapticsEnabled = true
-    var returnKeyTitle = "return" {
+    var returnKeyTitle = defaultReturnKeyTitle {
         didSet {
             if returnKeyTitle != oldValue {
                 renderedState = nil
@@ -342,7 +344,10 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
         case .page(.symbols): "Symbols"
         case .globe: "Next keyboard"
         case .space: "Space"
-        case .return: returnKeyTitle
+        case .return:
+            returnKeyTitle == Self.defaultReturnKeyTitle
+                ? "Return"
+                : returnKeyTitle
         }
     }
 
@@ -387,7 +392,9 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
 
     private func titleSize(for key: KeyboardKey) -> CGFloat {
         switch key {
-        case .page, .return: 18
+        case .return:
+            returnKeyTitle == Self.defaultReturnKeyTitle ? 24 : 18
+        case .page: 18
         case .space: 16
         default: 22
         }

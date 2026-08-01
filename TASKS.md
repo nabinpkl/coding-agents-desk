@@ -771,6 +771,8 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
 - R161. At the explicit physical-device checkpoint, compare center and edge Character Preview
   placement with the Apple keyboard in portrait, landscape, light, and dark appearances, including
   rapid multi-touch, cancellation, shift, number, and symbol layouts.
+- D162. Replace the generic lowercase Return label with the compact `↵` glyph while preserving
+  field-specific action labels and the readable VoiceOver name.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -837,4 +839,5 @@ D158  2026-07-28  landed     fixed native-adjacent keyboard geometry and feedbac
 R159  implemented remaining  physical keyboard appearance and interaction acceptance
 D160  2026-07-28  landed     bounded UIKit Character Preview for ordinary keys
 R161  implemented remaining  physical Character Preview acceptance
+D162  2026-07-28  landed     return glyph with semantic action labels and accessibility
 ```

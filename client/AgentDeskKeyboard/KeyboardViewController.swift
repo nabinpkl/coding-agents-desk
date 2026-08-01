@@ -597,7 +597,7 @@ final class KeyboardViewController: UIInputViewController {
         case .send: "Send"
         case .join: "Join"
         case .continue: "Continue"
-        default: "return"
+        default: AgentDeskQWERTYView.defaultReturnKeyTitle
         }
     }
 

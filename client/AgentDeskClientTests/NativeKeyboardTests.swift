@@ -231,6 +231,32 @@ struct NativeKeyboardTests {
         #expect(preview.character == nil)
     }
 
+    @Test @MainActor
+    func genericReturnUsesGlyphButKeepsItsAccessibleName() throws {
+        let keyboard = makeKeyboard(metrics: .portrait, width: 390)
+        let returnKey = try #require(button(
+            "agentdesk-key-return",
+            in: keyboard
+        ))
+
+        #expect(returnKey.currentTitle == "↵")
+        #expect(returnKey.titleLabel?.font.pointSize == 24)
+        #expect(returnKey.accessibilityLabel == "Return")
+
+        keyboard.returnKeyTitle = "Send"
+        keyboard.render(KeyboardLayoutState(
+            showsInputModeSwitchKey: false
+        ))
+        keyboard.layoutIfNeeded()
+        let sendKey = try #require(button(
+            "agentdesk-key-return",
+            in: keyboard
+        ))
+        #expect(sendKey.currentTitle == "Send")
+        #expect(sendKey.titleLabel?.font.pointSize == 18)
+        #expect(sendKey.accessibilityLabel == "Send")
+    }
+
     @Test
     func characterPreviewGeometryClampsEdgesAndKeepsItsTailOnTheKey() {
         let leftKey = CGRect(x: 7, y: 14, width: 32, height: 46)
