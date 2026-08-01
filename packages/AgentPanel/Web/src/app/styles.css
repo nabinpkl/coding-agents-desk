@@ -101,6 +101,14 @@
      so the stack has exactly one definition. The system faces stay behind
      Inter as the per-glyph fallback for the subsets not bundled. */
   --font-sans: "Inter Variable", system-ui, -apple-system, sans-serif;
+  /* Leading for every prose surface in the feed. It has four consumers -- the
+     Markdown renderer plus the three text wrappers in ActivityEventRows --
+     and they had drifted apart: markdown prose sat at 1.45 while user and
+     tool text sat at Tailwind's `leading-snug`, 1.375. One number so the same
+     paragraph does not read differently depending on who wrote it.
+     Deliberately looser than headings (1.2-1.4) and code (1.5), which stay
+     tight on purpose. */
+  --agent-panel-prose-leading: 1.6;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);

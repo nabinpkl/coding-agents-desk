@@ -402,7 +402,7 @@ function Block({
     if (eventType === "assistant" && b.text) {
       return (
         <div
-          className="leading-snug text-foreground"
+          className="leading-(--agent-panel-prose-leading) text-foreground"
           style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
         >
           <Markdown content={b.text} />
@@ -411,7 +411,7 @@ function Block({
     }
     return (
       <div
-        className="whitespace-pre-wrap break-words leading-snug text-foreground"
+        className="whitespace-pre-wrap break-words leading-(--agent-panel-prose-leading) text-foreground"
         style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
       >
         {b.text}
@@ -517,7 +517,7 @@ function Block({
     // prose, so the trace still reads as commentary rather than headline.
     return (
       <div
-        className="italic leading-snug text-foreground/65"
+        className="italic leading-(--agent-panel-prose-leading) text-foreground/65"
         style={{
           fontSize: "var(--agent-panel-fs-tile-reasoning, 14px)",
           // Italic, a size step down, and 65% opacity: the thinnest text here,

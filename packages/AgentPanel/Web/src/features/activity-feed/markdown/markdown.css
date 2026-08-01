@@ -15,7 +15,10 @@
 
 .agent-panel-md__prose {
   font-size: inherit;
-  line-height: 1.45;
+  /* Defined in each surface's :root alongside the color tokens. The literal is
+     the fallback for a surface that has not defined it, not a second default
+     to keep in sync. */
+  line-height: var(--agent-panel-prose-leading, 1.6);
 }
 .agent-panel-md__prose > :first-child {
   margin-top: 0;
