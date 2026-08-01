@@ -24,17 +24,52 @@ struct HostStatusPresentationTests {
         #expect(unavailable.offersReconnect)
     }
 
-    /// A handover is a transition over a picture that is still on screen, so it spins; and it
-    /// keeps the escape hatch, because a redial that never lands would otherwise strand the
-    /// user watching a frozen frame forever.
-    @Test func networkSwitchSpinsAndStillOffersAWayOut() {
-        #expect(HostStatusPresentation.switchingNetwork.showsActivity)
-        #expect(HostStatusPresentation.switchingNetwork.offersReconnect)
-    }
-
     /// Once the user has asked for the reconnect by hand, offering it again says nothing.
     @Test func manualReconnectWithdrawsTheOfferWhileItRuns() {
         #expect(HostStatusPresentation.reconnecting.showsActivity)
         #expect(!HostStatusPresentation.reconnecting.offersReconnect)
+    }
+}
+
+/// The race this resolver exists to settle. During a handover the client applies its own
+/// state, and milliseconds later its transport reaches `.closed` and synthesizes a
+/// `captureUnavailable` push -- from the client, about itself. Under last-writer-wins that
+/// second write won, and a WiFi-to-cellular switch told the user the Mac was unavailable.
+struct HostStatusResolutionTests {
+    @Test func recoveryOutranksTheAvailabilityItsOwnTeardownSynthesizes() {
+        let resolved = HostStatusPresentation.resolve(
+            activity: .recovering(.linkChanged),
+            availability: .captureUnavailable
+        )
+        #expect(resolved == HostStatusPresentation.forLoss(.linkChanged))
+        #expect(resolved != HostStatusPresentation.forAvailability(.captureUnavailable))
+    }
+
+    /// A network switch blames the network. Naming the Mac here was the complaint.
+    @Test func aLinkChangeNeverBlamesTheMac() {
+        let message = HostStatusPresentation.forLoss(.linkChanged).message
+        #expect(message == "Switching network…")
+        #expect(HostStatusPresentation.forLoss(.linkChanged).showsActivity)
+    }
+
+    /// An unanswered probe on a path that never moved is the opposite diagnosis, and says so.
+    @Test func silenceOnAStablePathBlamesTheHost() {
+        #expect(HostStatusPresentation.forLoss(.hostSilent).message == "Mac stopped responding")
+        #expect(HostStatusPresentation.forLoss(.transportFailed).message == "Connection lost")
+    }
+
+    /// Every recovery keeps a way out, whatever it blames: any of them can fail to land.
+    @Test func everyRecoveryKeepsAnEscapeHatch() {
+        for loss in [MediaSessionLoss.linkChanged, .hostSilent, .transportFailed] {
+            #expect(HostStatusPresentation.forLoss(loss).offersReconnect)
+        }
+    }
+
+    @Test func aLiveSessionLetsTheHostSpeakForItself() {
+        #expect(
+            HostStatusPresentation.resolve(activity: .live, availability: .locked)
+                == HostStatusPresentation.forAvailability(.locked)
+        )
+        #expect(HostStatusPresentation.resolve(activity: .live, availability: .active) == .hidden)
     }
 }

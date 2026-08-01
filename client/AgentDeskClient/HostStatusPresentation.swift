@@ -1,5 +1,17 @@
 import AgentDeskWire
 
+/// What the client is doing with the session, as distinct from what the host says about
+/// itself. Only one of the two can be authoritative at a time; see `resolve`.
+enum HostSessionActivity: Equatable {
+    /// A session is up, so the host's own availability pushes are the real signal.
+    case live
+    /// The client tore the session down and is rebuilding it. Whatever availability value is
+    /// around belongs to the session that just ended.
+    case recovering(MediaSessionLoss)
+    /// The user pressed Reconnect.
+    case userRequestedReconnect
+}
+
 // What the host-status overlay should show, as a value. Dependency-free (no UIKit) so it can
 // be compiled into the test target directly, the same arrangement ControlSurface.swift uses.
 //
@@ -25,15 +37,6 @@ struct HostStatusPresentation: Equatable {
         offersReconnect: false
     )
 
-    /// The network moved and the session is being rebuilt. The last decoded frame stays on
-    /// screen underneath, so this reads as a transition over a live picture rather than an
-    /// error over a blank one.
-    static let switchingNetwork = HostStatusPresentation(
-        message: "Switching network…",
-        showsActivity: true,
-        offersReconnect: true
-    )
-
     /// The user asked for the session back by hand. The escape hatch is withheld while that
     /// is in flight, since the thing it offers is already happening.
     static let reconnecting = HostStatusPresentation(
@@ -41,6 +44,63 @@ struct HostStatusPresentation: Equatable {
         showsActivity: true,
         offersReconnect: false
     )
+
+    /// What the overlay should show, given both what the client is doing and what the host
+    /// last said about itself.
+    ///
+    /// Precedence, not last-writer-wins, and that is the whole point. These two inputs used to
+    /// race: a handover applied its own state, and milliseconds later the transport reaching
+    /// `.closed` synthesized a `captureUnavailable` push -- from the client, about itself --
+    /// which overwrote it. The user got "Mac display unavailable" during a WiFi-to-cellular
+    /// switch, blaming a Mac that was fine for the phone's own radio moving.
+    ///
+    /// A recovery in flight wins because the host cannot be speaking: there is no session to
+    /// speak over, so any availability value alongside one is the client's own inference.
+    static func resolve(
+        activity: HostSessionActivity,
+        availability: HostAvailability
+    ) -> HostStatusPresentation {
+        switch activity {
+        case .live:
+            return forAvailability(availability)
+        case .userRequestedReconnect:
+            return .reconnecting
+        case .recovering(let loss):
+            return forLoss(loss)
+        }
+    }
+
+    /// Every recovery keeps the escape hatch: the messages differ in what they blame, not in
+    /// what they offer, because any of them can be a recovery that never lands.
+    static func forLoss(_ loss: MediaSessionLoss) -> HostStatusPresentation {
+        switch loss {
+        case .linkChanged:
+            // Says what actually happened, and says nothing about the Mac. The last decoded
+            // frame stays on screen underneath, so this reads as a transition over a live
+            // picture rather than an error over a blank one.
+            return HostStatusPresentation(
+                message: "Switching network…",
+                showsActivity: true,
+                offersReconnect: true
+            )
+        case .hostSilent:
+            return HostStatusPresentation(
+                message: "Mac stopped responding",
+                showsActivity: true,
+                offersReconnect: true
+            )
+        case .transportFailed:
+            return HostStatusPresentation(
+                message: "Connection lost",
+                showsActivity: true,
+                offersReconnect: true
+            )
+        case .rejected:
+            // A refusal ends the session rather than recovering it, so the pairing screen
+            // takes over and there is nothing for this overlay to say.
+            return .hidden
+        }
+    }
 
     static func forAvailability(_ availability: HostAvailability) -> HostStatusPresentation {
         switch availability {

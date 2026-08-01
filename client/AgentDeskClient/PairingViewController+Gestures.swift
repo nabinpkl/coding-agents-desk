@@ -184,7 +184,10 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             level: .info
         )
         guard let overlay = hostStatusOverlay else { return }
-        let presentation = HostStatusPresentation.forAvailability(push.availability)
+        let presentation = HostStatusPresentation.resolve(
+            activity: hostSessionActivity,
+            availability: push.availability
+        )
         overlay.apply(presentation)
         // The rail stays above the overlay: whatever the host is doing, the user keeps a way
         // to leave this surface.
@@ -207,9 +210,10 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         )
         // Acknowledge the tap before the teardown runs, so the button does not sit there
         // looking unpressed while the session is already coming down.
+        hostSessionActivity = .userRequestedReconnect
         hostStatusOverlay?.apply(.reconnecting)
         userRequestedDisconnect = false
-        failMediaSession()
+        failMediaSession(loss: .transportFailed)
     }
 
     func stopAgentSayForegroundPresentation() {

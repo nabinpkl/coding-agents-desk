@@ -83,6 +83,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     /// area, deliberately not on the video, so what it says stays readable no matter what the
     /// video is doing.
     var hostStatusOverlay: HostStatusOverlay?
+    /// What the client is doing with the session. Outranks the host's availability while a
+    /// recovery is in flight, because there is no host connection for an availability value to
+    /// have come from then. See `HostStatusPresentation.resolve`.
+    var hostSessionActivity: HostSessionActivity = .live
     // Carries the connect message across the gap between session connect and the
     // first drawable frame; see VideoStartupBanner.
     var videoStartupBanner = VideoStartupBanner()
@@ -482,6 +486,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // The push does arrive on connect and would hide it, but if one is ever missed the
         // overlay would sit permanently over a working session -- and a stuck "Reconnecting…"
         // over live video is a worse failure than a briefly absent one over a frozen frame.
+        hostSessionActivity = .live
         hostStatusOverlay?.apply(.hidden)
         if let owned = sink as? any OwnedMediaFrameSink {
             owned.onOwnedMediaStatusChange = { [weak self] status in
@@ -606,18 +611,16 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    self?.failMediaSession()
+                    // Nothing more specific to say: the link never reported moving and no
+                    // probe went unanswered, the session simply stayed quiet past the grace.
+                    self?.failMediaSession(loss: .transportFailed)
                 }
             }
-        case .failed(let rejection):
+        case .failed(let loss):
             ClientRuntimeTelemetry.shared.updateMediaState(.failed)
             iceGraceTask?.cancel()
             iceGraceTask = nil
-            if let rejection {
-                failMediaSession(rejection: rejection)
-            } else {
-                failMediaSession()
-            }
+            failMediaSession(loss: loss)
         case .closed:
             iceGraceTask?.cancel()
             iceGraceTask = nil
@@ -628,8 +631,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         }
     }
 
-    func failMediaSession(rejection: SessionRejected? = nil) {
-        if let rejection {
+    func failMediaSession(loss: MediaSessionLoss) {
+        if case .rejected(let rejection) = loss {
             let closeTask = agentTerminalLifecycleRouter.route(
                 .rejection(rejection.reason),
                 to: agentSurface
@@ -644,6 +647,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             return
         }
 
+        // The overlay reads this rather than the availability push that follows, so what the
+        // user is told names what actually happened instead of what the closing transport
+        // made the client assume about the Mac.
+        hostSessionActivity = .recovering(loss)
         preservesSuspendedSessionSurfaces = true
         teardownMediaTransport(preservingSessionSurfaces: true)
         pairingClient.handleMediaSessionFailed()
@@ -708,7 +715,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             // transition over a picture that is still there, not an error over a dead one. The
             // escape hatch rides along, because if the redial does not come back the user is
             // otherwise stranded waiting for a recovery that is not coming.
-            hostStatusOverlay?.apply(.switchingNetwork)
+            hostStatusOverlay?.apply(HostStatusPresentation.resolve(
+                activity: hostSessionActivity,
+                availability: .captureUnavailable
+            ))
         } else {
             videoSink?.view.removeFromSuperview()
             videoSink = nil

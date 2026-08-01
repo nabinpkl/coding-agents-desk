@@ -995,7 +995,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             fields: ["silentMs": String(Int(silentMs)), "causes": causes ?? "unknown"],
             level: .error
         )
-        stateContinuation.yield(.failed(nil))
+        stateContinuation.yield(.failed(.linkChanged))
     }
 
     /// ADR-0089 Phase 3: catch a session that died without the link moving.
@@ -1047,7 +1047,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             fields: ["unansweredProbes": String(unanswered)],
             level: .error
         )
-        stateContinuation.yield(.failed(nil))
+        stateContinuation.yield(.failed(.hostSilent))
     }
 
     /// Send a control message on the datagram lane.
@@ -1138,7 +1138,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         case .waiting:
             stateContinuation.yield(.disconnected)
         case .failed:
-            stateContinuation.yield(.failed(nil))
+            stateContinuation.yield(.failed(.transportFailed))
             close()
         case .cancelled:
             close()
