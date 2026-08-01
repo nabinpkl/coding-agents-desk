@@ -41,6 +41,13 @@ enum Config {
         environmentKey: "AGENTDESK_SESSION_CONNECTION_WAITING_TIMEOUT_MS",
         defaultValue: 2_000
     )
+    // How many times a pairing dial redials itself after coming up blocked, before falling back
+    // to one patient attempt. Pairing has no retry loop above it, so it owns this; sessions do
+    // not need it because the reconnect loop already redials.
+    static let pairingBlockedDialRetries = positiveInt(
+        environmentKey: "AGENTDESK_PAIRING_BLOCKED_DIAL_RETRIES",
+        defaultValue: 2
+    )
     static let sessionReconnectRetryDelayMs = positiveInt(
         environmentKey: "AGENTDESK_SESSION_RECONNECT_RETRY_DELAY_MS",
         defaultValue: 1_000

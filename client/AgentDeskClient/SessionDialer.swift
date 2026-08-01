@@ -24,12 +24,50 @@ final class SessionDialer {
         port: UInt16,
         request: PairingHandshakeRequest
     ) async throws -> PairingHandshakeResponse {
-        let connection = try await openConnection(host: host, port: port, abandonWhenBlockedAfterMs: nil)
+        let connection = try await openPairingConnection(host: host, port: port)
         defer { connection.applicationError = .init(code: 0, reason: "pairing-done") }
         let control = try await connection.openStream()
         try await QuicSessionStreamIO.send(request, role: .control, on: control)
         let responseData = try await receiveControlPayload(on: control)
         return try JSONDecoder().decode(PairingHandshakeResponse.self, from: responseData)
+    }
+
+    /// Dials for a pairing handshake, redialing if the dial comes up blocked.
+    ///
+    /// Pairing is one-shot -- nothing retries behind it, and a failure is one the user has to
+    /// trigger again from the Mac -- so it cannot just abandon a blocked dial the way the
+    /// session reconnect loop does. It redials itself instead.
+    ///
+    /// Blocked is worth abandoning quickly here for a reason specific to how pairing starts
+    /// (ADR-0019): the Mac dials the phone over the tailnet and pushes the offer, and only then
+    /// does the phone dial back. A working path between the two was demonstrated seconds ago in
+    /// the opposite direction, so a dial that cannot proceed is far more likely wedged than
+    /// waiting on a tailnet that has yet to come up.
+    ///
+    /// Only `SessionConnectionBlocked` is retried, and only because it is raised before the
+    /// connection is ready: nothing has been sent, so the one-time nonce in the request is
+    /// still unspent. Retrying any later failure risks burning it.
+    @available(iOS 26.0, *)
+    private func openPairingConnection(host: String, port: UInt16) async throws -> NetworkConnection<QUIC> {
+        var lastBlocked: SessionConnectionBlocked?
+        for _ in 0..<Config.pairingBlockedDialRetries {
+            do {
+                return try await openConnection(
+                    host: host,
+                    port: port,
+                    abandonWhenBlockedAfterMs: Config.sessionConnectionWaitingTimeoutMs
+                )
+            } catch let blocked as SessionConnectionBlocked {
+                lastBlocked = blocked
+            }
+        }
+        // The final attempt gets the full budget: if redialing did not clear the block, the
+        // problem is not a wedged connection and giving up early would only fail sooner.
+        do {
+            return try await openConnection(host: host, port: port, abandonWhenBlockedAfterMs: nil)
+        } catch let timeout as SessionConnectionReadyTimeout {
+            throw lastBlocked ?? timeout
+        }
     }
 
     @available(iOS 26.0, *)
@@ -285,11 +323,10 @@ final class SessionDialer {
     /// - Parameter abandonWhenBlockedAfterMs: how long the dial may sit blocked in `.waiting`
     ///   before being abandoned for a fresh one, or `nil` to allow it the whole budget.
     ///
-    ///   Only the session dials pass a bound. That is where abandoning early was measured to
-    ///   win, and where it is free: the reconnect loop immediately redials. Pairing is a
-    ///   one-shot the user drives from a QR code or deeplink, with no retry behind it, and its
-    ///   `.waiting` can legitimately be a tailnet that is still coming up rather than a wedge.
-    ///   Giving it up after two seconds would turn a slow pairing into one the user has to redo.
+    ///   Abandoning early is only useful to a caller that will redial, since a fresh dial is
+    ///   what actually clears a block. The session dials get it for free from the reconnect
+    ///   loop; pairing does its own redialing in `openPairingConnection` and passes `nil` only
+    ///   on its last, patient attempt.
     @available(iOS 26.0, *)
     private func openConnection(
         host: String,
