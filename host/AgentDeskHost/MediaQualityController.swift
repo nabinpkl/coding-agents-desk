@@ -3,7 +3,7 @@ import AgentDeskWire
 
 // ADR-0033: one host-owned media-quality controller chooses bitrate, fps, and
 // capture resolution together from link-health and production smoothness.
-enum MediaQualityRung: Int, Equatable, Comparable {
+enum MediaQualityRung: Int, Equatable, Comparable, Sendable {
     case native = 0
     case lossControl = 1
     case capacity1 = 2
@@ -16,7 +16,7 @@ enum MediaQualityRung: Int, Equatable, Comparable {
     }
 }
 
-struct MediaQualityTarget: Equatable {
+struct MediaQualityTarget: Equatable, Sendable {
     let bitrateKbps: Int
     let fps: Int
     let resolutionScale: Double
@@ -1029,6 +1029,29 @@ struct QuicSessionHostMediaState {
             previousTarget: previous,
             reason: target.reason
         )
+    }
+
+    /// ADR-0090: start this connection at the rung the previous one ended on instead of at the
+    /// ceiling.
+    ///
+    /// The ladder lived entirely on the transport, so a reconnect restarted it at full scale.
+    /// That is not merely a wasted probe: the first encode at the new scale recreates the
+    /// compression session, and every long-term reference lives inside that session. So the
+    /// reset put a resolution change directly in the path of every resume, which is the one
+    /// moment the cheap recovery path exists for -- the refresh had nothing left to reference
+    /// and degraded to a full keyframe on a link that had just come back.
+    ///
+    /// Only the target carries. Backpressure, the resend ring and the round-trip samples all
+    /// describe the connection that just died and would be actively wrong applied to this one.
+    ///
+    /// Adaptation continues from here rather than being frozen: `pin` clears the recovery
+    /// credit and probe state, so the ladder re-earns its way up. A rung measured seconds ago
+    /// is a far better opening bid than the ceiling, but it is still only a bid -- the link may
+    /// genuinely have changed, which is the whole reason the drop happened.
+    mutating func resumeQualityTarget(_ target: MediaQualityTarget) {
+        qualityController.pin(to: target)
+        resetForQualityChange()
+        clearQualityWindow()
     }
 
     mutating func reserveUpdateId(nowNs: UInt64) -> Admission {

@@ -106,7 +106,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     //
     // Bounded by live sessions rather than by pairings: an encoder is released the moment its
     // session ends, so a paired device that is not connected holds no compression session.
-    private var mediaEncoders: [String: VideoToolboxOwnedMediaEncoder] = [:]
+    //
+    // The quality target rides in the same entry rather than a parallel dictionary, because the
+    // two are not independent: the encoder's references are only valid at the resolution that
+    // produced them. Keeping the encoder while resetting the ladder is precisely the bug that
+    // made the cheap recovery path unreachable -- the reset rescaled, the rescale recreated the
+    // compression session, and the references died with it. One entry, one lifetime, so they
+    // cannot drift apart again.
+    private struct SessionMediaContinuity {
+        let encoder: VideoToolboxOwnedMediaEncoder
+        /// The rung the last connection of this session ended on. Nil until the ladder first
+        /// moves, so a session that never adapted starts the next connection at the ceiling,
+        /// which is the correct opening bid when nothing has been measured.
+        var qualityTarget: MediaQualityTarget?
+    }
+    private var sessionMedia: [String: SessionMediaContinuity] = [:]
     private let scrollActivityHints = ScrollActivityStore()
     private let displaySelection = DisplaySelectionStore()
     private var hostAvailability = HostAvailabilityController()
@@ -795,6 +809,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             datagrams: datagrams,
             mediaKey: mediaKey,
             encoder: mediaEncoder(forSession: sessionId),
+            resumeQualityTarget: resumeQualityTarget(forSession: sessionId),
             onFirstFrameSent: { [weak self] frameId in
                 Task { @MainActor [weak self] in
                     self?.clientTelemetryStore.record(
@@ -813,6 +828,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         sessionId: sessionId,
                         frameId: frameId
                     )
+                }
+            },
+            onQualityTargetChanged: { [weak self] target in
+                Task { @MainActor [weak self] in
+                    self?.recordQualityTarget(target, forSession: sessionId)
                 }
             }
         )
@@ -1815,21 +1835,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// glitch. A fresh encoder emits a true keyframe on its first frame and the client starts
     /// clean.
     private func mediaEncoder(forSession sessionId: String) -> VideoToolboxOwnedMediaEncoder {
-        if let existing = mediaEncoders[sessionId] {
+        if let existing = sessionMedia[sessionId] {
             signalingLogger.notice("reusing media encoder session=\(sessionId, privacy: .public)")
-            return existing
+            return existing.encoder
         }
         let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: .fromConfig())
-        mediaEncoders[sessionId] = encoder
+        sessionMedia[sessionId] = SessionMediaContinuity(encoder: encoder, qualityTarget: nil)
         return encoder
+    }
+
+    /// The rung this session's previous connection ended on, if it had one.
+    ///
+    /// Nil for a first connection, which then opens at the ceiling and probes down as it always
+    /// has. The value only exists where the encoder does, so a target can never be carried onto
+    /// an encoder that did not produce the references it describes.
+    private func resumeQualityTarget(forSession sessionId: String) -> MediaQualityTarget? {
+        sessionMedia[sessionId]?.qualityTarget
+    }
+
+    private func recordQualityTarget(_ target: MediaQualityTarget, forSession sessionId: String) {
+        // Only for a session we still hold. A target arriving after release belongs to a
+        // transport that is on its way down, and storing it would resurrect the entry the
+        // release just cleared.
+        guard sessionMedia[sessionId] != nil else { return }
+        sessionMedia[sessionId]?.qualityTarget = target
     }
 
     /// Release the session's encoder and the hardware compression session it holds. Called when
     /// a session ends, which is the moment its reference state stops being able to help anyone:
     /// the resume window has closed, so no client will ever ask for a delta against it again.
     private func releaseMediaEncoder(forSession sessionId: String, reason: String) {
-        guard let encoder = mediaEncoders.removeValue(forKey: sessionId) else { return }
-        encoder.invalidate()
+        guard let entry = sessionMedia.removeValue(forKey: sessionId) else { return }
+        entry.encoder.invalidate()
         signalingLogger.notice("released media encoder session=\(sessionId, privacy: .public) reason=\(reason, privacy: .public)")
     }
 

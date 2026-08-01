@@ -14,6 +14,10 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     private let mediaKey: SymmetricKey
     private let onFirstFrameSent: @Sendable (UInt64) -> Void
     private let onFirstFrameAcknowledged: @Sendable (UInt64) -> Void
+    /// Reported so the rung outlives this transport. The ladder itself must not: its
+    /// backpressure and round-trip state describe one connection, but the rung it arrived at
+    /// describes the LINK, which a four-second drop rarely changes.
+    private let onQualityTargetChanged: @Sendable (MediaQualityTarget) -> Void
     // ADR-0090: injected, not owned, so it can outlive this transport.
     //
     // A reconnect builds a new transport. When the encoder was a stored property here that
@@ -122,8 +126,10 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         datagrams: QUIC.Datagrams<QUICDatagram>,
         mediaKey: SymmetricKey,
         encoder: VideoToolboxOwnedMediaEncoder,
+        resumeQualityTarget: MediaQualityTarget? = nil,
         onFirstFrameSent: @escaping @Sendable (UInt64) -> Void = { _ in },
-        onFirstFrameAcknowledged: @escaping @Sendable (UInt64) -> Void = { _ in }
+        onFirstFrameAcknowledged: @escaping @Sendable (UInt64) -> Void = { _ in },
+        onQualityTargetChanged: @escaping @Sendable (MediaQualityTarget) -> Void = { _ in }
     ) {
         self.encoder = encoder
         self.source = source
@@ -131,9 +137,20 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         self.mediaKey = mediaKey
         self.onFirstFrameSent = onFirstFrameSent
         self.onFirstFrameAcknowledged = onFirstFrameAcknowledged
+        self.onQualityTargetChanged = onQualityTargetChanged
         var stateCont: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { stateCont = $0 }
         stateContinuation = stateCont
+        if let resumeQualityTarget {
+            encodeGate.withLock { $0.mediaState.resumeQualityTarget(resumeQualityTarget) }
+            // The reused encoder already holds these values, since it is the same object that
+            // was encoding at this rung before the drop. Pushing them anyway keeps the ladder
+            // and the encoder in agreement by construction rather than by coincidence: a fresh
+            // encoder paired with a carried target would otherwise silently disagree.
+            encoder.updateBitrate(resumeQualityTarget.bitrateKbps)
+            encoder.updateExpectedFrameRate(resumeQualityTarget.fps)
+            logger.notice("owned media quality resumed rung=\(resumeQualityTarget.rung.rawValue, privacy: .public) bitrateKbps=\(resumeQualityTarget.bitrateKbps, privacy: .public) fps=\(resumeQualityTarget.fps, privacy: .public) resolutionScale=\(resumeQualityTarget.resolutionScale, privacy: .public)")
+        }
     }
 
     func start(videoSource: VideoFrameSource?, videoSink: VideoFrameSink?) async throws {
@@ -917,6 +934,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         applyStallRecovery(decision)
         let outcome = decision.outcome
         guard outcome.changed else { return }
+        onQualityTargetChanged(outcome.target)
         if outcome.bitrateChanged {
             encoder.updateBitrate(outcome.target.bitrateKbps)
             logger.notice("owned media video bitrate-step windowId=\(decision.observation.windowId, privacy: .public) target=\(outcome.target.bitrateKbps, privacy: .public)kbps rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")

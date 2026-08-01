@@ -1412,6 +1412,7 @@ D224  2026-07-31  landed     LTR eligibility by exclusion, and a client that flu
 D225  2026-07-31  landed     second device run: LTR is enabled, fires, and degrades to an IDR every time
 D226  2026-07-31  landed     make the LTR round trip observable, and stop two different counters both logging as `frame=`
 D227  2026-08-01  landed     LTR works; a session recreate is what wipes it, so drop its state with the session
+D228  2026-08-01  landed     carry the ladder rung across a resume, so recovery stops rescaling itself out of the cheap path
 
 D214 detail: a control-message pair (`liveness-probe` / `liveness-echo`) carrying a sequence
 number on the existing `frameId` field. Three unanswered probes at 2s declares ~4.5s after the
@@ -1582,3 +1583,17 @@ would otherwise report references the new session does not hold -- the exact num
 telemetry is read for, so leaving them would have made the instrument lie in the one case it
 exists for. Consequence for planning: pinning the ladder rung across a resume is not a
 refinement of ADR-0090, it is the precondition for the cheap path firing on a handover at all.
+
+D228 detail: the rung now rides in the same session-keyed entry as the encoder, so it survives a
+transport swap and a resume opens where the previous connection left off instead of at the
+ceiling. One entry and one lifetime rather than two parallel dictionaries, because the two are
+not independent: the encoder's references are only valid at the resolution that produced them,
+and keeping the encoder while resetting the ladder is exactly what broke it -- the reset
+rescaled, the rescale recreated the compression session, the references died inside it. Only the
+target carries; backpressure, the resend ring and the round-trip samples all describe the
+connection that just died and would be actively wrong applied to the new one. The rung is an
+opening bid, not a freeze: `pin` clears the recovery credit so the ladder re-earns its climb,
+since the link may genuinely have changed and that is usually why the drop happened. Tests pin
+both directions -- a first connection still opens at the ceiling, a resumed one does not, and
+the scale assertion is separate because it is the one that decides whether `ensureSession`
+recreates.

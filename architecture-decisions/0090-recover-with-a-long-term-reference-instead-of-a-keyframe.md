@@ -161,8 +161,20 @@ event -- the client lost frames and needs to resync -- so it takes the same path
   re-measurement is owed.
 - Bad, because it only pays off when the resolution is unchanged across the recovery. The ladder
   rescales aggressively (3600x2338 -> 2700x1752 -> 1800x1168 within three seconds in one
-  session), and a resolution change invalidates the references. The rung should be pinned across
-  a resume window, but not permanently -- adaptation is what makes cellular usable at all.
+  session), and a resolution change invalidates the references.
+
+  This was written as a caveat about an unlucky case and was measured to be the central failure
+  mode. The ladder lived on the media transport, which a reconnect rebuilds, so every resume
+  opened at the ceiling -- putting a rescale in the path of the one moment the cheap path exists
+  for. The rung now rides in the same session-keyed entry as the encoder, so it survives a
+  transport swap and the resume opens where the previous connection left off. One entry and one
+  lifetime, because the encoder's references are only valid at the resolution that produced
+  them: keeping one while resetting the other is exactly what broke it.
+
+  Only the target carries. Backpressure, the resend ring and the round-trip samples describe the
+  connection that died. And the rung is an opening bid rather than a freeze -- pinning clears
+  the recovery credit, so the ladder re-earns its way up. The link may genuinely have changed,
+  which is usually why the drop happened; adaptation is what makes cellular usable at all.
 - Neutral: this is worthless without client sink retention, because a client that rebuilds its
   decoder has no reference to receive a delta against.
 
