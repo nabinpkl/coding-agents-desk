@@ -502,10 +502,14 @@ final class VoiceLaneServer: @unchecked Sendable {
         queryItems: [URLQueryItem]?
     ) -> Bool {
         if components.count == 1 {
-            return method == .get && isAllowedListQuery(
-                queryItems,
-                cursorValidator: isPassageID
-            )
+            if method == .post {
+                return queryItems == nil
+            }
+            return method == .get
+                && isAllowedListQuery(
+                    queryItems,
+                    cursorValidator: isPassageID
+                )
         }
         guard components.count >= 2,
               isPassageID(String(components[1]))
@@ -517,6 +521,8 @@ final class VoiceLaneServer: @unchecked Sendable {
             return queryItems == nil
         case (.post, 3, "intended-text"), (.post, 3, "baseline"):
             return queryItems == nil
+        case (.get, 3, "reference"):
+            return isAllowedReferenceQuery(queryItems)
         case (.get, 3, "attempts"):
             return isAllowedListQuery(
                 queryItems,
@@ -529,6 +535,21 @@ final class VoiceLaneServer: @unchecked Sendable {
         default:
             return false
         }
+    }
+
+    private static func isAllowedReferenceQuery(
+        _ queryItems: [URLQueryItem]?
+    ) -> Bool {
+        guard let queryItems,
+              queryItems.count == 1,
+              queryItems[0].name == "revision",
+              let value = queryItems[0].value,
+              let revision = Int(value),
+              revision > 0
+        else {
+            return false
+        }
+        return true
     }
 
     private static func isAllowedListQuery(

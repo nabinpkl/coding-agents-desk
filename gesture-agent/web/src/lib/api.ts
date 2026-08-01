@@ -10,10 +10,12 @@ import { postNativeVoice, subscribeNativeVoice } from "@/lib/native-voice";
 import type {
   AnalyzePronunciationRequest,
   AnalyzeSignalsRequest,
+  CreatePracticePassageRequest,
   PronunciationComparison,
   PracticePassage,
   PracticePassageAttemptsResponse,
   PracticePassageListResponse,
+  PracticePassageReference,
   Recording,
   RecordingListResponse,
   CreateReferenceSpeechArtifactRequest,
@@ -143,11 +145,18 @@ function postJson<T>(path: string, payload: unknown): Promise<T> {
 
 function queryPath(
   path: string,
-  options: { readonly cursor?: string; readonly limit?: number },
+  options: {
+    readonly cursor?: string;
+    readonly limit?: number;
+    readonly revision?: number;
+  },
 ): string {
   const query = new URLSearchParams();
   if (options.cursor) query.set("cursor", options.cursor);
   if (options.limit !== undefined) query.set("limit", String(options.limit));
+  if (options.revision !== undefined) {
+    query.set("revision", String(options.revision));
+  }
   const encoded = query.toString();
   return encoded ? `${path}?${encoded}` : path;
 }
@@ -233,11 +242,29 @@ export function listPracticePassages(
   );
 }
 
+export function createPracticePassage(
+  payload: CreatePracticePassageRequest,
+): Promise<PracticePassage> {
+  return postJson<PracticePassage>("/practice-passages", payload);
+}
+
 export function getPracticePassage(
   passageID: string,
 ): Promise<PracticePassage> {
   return request<PracticePassage>(
     `/practice-passages/${encodeURIComponent(passageID)}`,
+  );
+}
+
+export function getPracticePassageReference(
+  passageID: string,
+  revision: number,
+): Promise<PracticePassageReference> {
+  return request<PracticePassageReference>(
+    queryPath(
+      `/practice-passages/${encodeURIComponent(passageID)}/reference`,
+      { revision },
+    ),
   );
 }
 

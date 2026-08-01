@@ -36,6 +36,12 @@ phones, heard-phone display grouping, and Kokoro speech resolve the current pass
 retake carries the passage ID and revision captured at start; a new free-form take creates a passage
 whose intended text is seeded from the machine transcript for explicit review.
 
+A passage may also be created directly from user-entered intended text before any attempt exists.
+That passage starts at revision 1 with no baseline, attempt count, or recording artifacts. Reference
+phones derive lazily from intended text, and Kokoro synthesis remains on demand when the user asks to
+hear the reference. The first later recording carries the existing passage ID and revision instead
+of creating another passage. Speech-first free-form capture remains a secondary entry path.
+
 Legacy recording metadata upgrades once to schema 4. Each legacy recording receives a deterministic
 one-attempt passage, and both intended text and machine transcript begin from the old transcript.
 There is no dual legacy read contract after migration.
@@ -52,6 +58,7 @@ not claim to purge the global content-addressed Kokoro cache.
   machine transcript.
 - Good, because retakes form one navigable history with explicit baseline and A/B playback.
 - Good, because stale Mac or iPhone mutations fail with a conflict instead of overwriting newer text.
+- Good, because a learner can inspect and hear a practice target before granting microphone access.
 - Bad, because passage summaries derive attempt count and activity by scanning recording metadata;
   a future large library may require an indexed store.
 - Neutral, because the separate native on-device Passage experiment remains independent.
@@ -60,10 +67,10 @@ not claim to purge the global content-addressed Kokoro cache.
 
 Python tests cover deterministic migration, immutable attempt evidence after text edits, revision
 conflicts, reference-artifact identity, pagination, baseline behavior, retake attachment,
-empty-passage retention, deletion, and failure rollback. Web tests cover word-diff semantics plus
+empty-passage creation and retention, deletion, and failure rollback. Web tests cover word-diff semantics plus
 loading, empty, error, edit, conflict, retake, cross-page A/B, unknown-word, and accessibility
 states. Host tests enforce the exact native REST allowlist. The physical acceptance script in TASKS
-R183 verifies Mac and iPhone against the same host library.
+R183/R194 verifies Mac and iPhone against the same host library.
 
 ## Pros and Cons of the Options
 

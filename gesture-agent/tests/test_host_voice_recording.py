@@ -774,6 +774,65 @@ class ReferenceSpeechHTTPTests(unittest.TestCase):
 
 
 class PracticePassageHTTPTests(unittest.TestCase):
+    def test_typed_reference_creation_and_lazy_pronunciation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with (
+                patch.object(recording, "VOICE_RECORDING_ROOT", root),
+                patch.object(web_stream, "VOICE_RECORDING_ROOT", root),
+                patch.object(
+                    practice_passages,
+                    "VOICE_RECORDING_ROOT",
+                    root,
+                ),
+                patch.object(http_server, "prewarm_transcription_model"),
+                patch.object(
+                    http_server.ReferenceSpeechArtifactStore,
+                    "prewarm",
+                    return_value=False,
+                ),
+                TestClient(http_server.app) as client,
+            ):
+                created = client.post(
+                    "/practice-passages",
+                    json={"intendedText": "Hello quuxword"},
+                )
+                passage = created.json()
+                reference = client.get(
+                    f"/practice-passages/{passage['id']}/reference",
+                    params={"revision": passage["revision"]},
+                )
+                edited = client.post(
+                    f"/practice-passages/{passage['id']}/intended-text",
+                    json={
+                        "intendedText": "Hello again",
+                        "expectedRevision": passage["revision"],
+                    },
+                )
+                stale = client.get(
+                    f"/practice-passages/{passage['id']}/reference",
+                    params={"revision": passage["revision"]},
+                )
+                listed = client.get("/practice-passages")
+                recording_metadata = list(root.glob("session-*.json"))
+                recording_audio = list(root.glob("session-*.wav"))
+
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(passage["attemptCount"], 0)
+        self.assertIsNone(passage["baselineRecordingID"])
+        self.assertIsNone(passage["latestAttemptCreatedAt"])
+        self.assertEqual(reference.status_code, 200)
+        self.assertEqual(
+            [word["word"] for word in reference.json()["words"]],
+            ["hello", "quuxword"],
+        )
+        self.assertEqual(reference.json()["unknownWords"], ["quuxword"])
+        self.assertEqual(edited.status_code, 200)
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(listed.json()["passages"][0]["id"], passage["id"])
+        self.assertEqual(recording_metadata, [])
+        self.assertEqual(recording_audio, [])
+
     def test_passage_edit_conflict_attempts_and_deletion(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

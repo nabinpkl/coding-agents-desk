@@ -70,7 +70,11 @@ export function VoiceRecorder({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {passage ? "Retake intended text" : "New passage"}
+              {passage
+                ? passage.attemptCount === 0
+                  ? "Practice reference"
+                  : "Retake intended text"
+                : "New passage"}
             </span>
             <p className="mt-1 text-base leading-relaxed">
               {passage?.intendedText ||
@@ -110,7 +114,9 @@ export function VoiceRecorder({
             <Mic />
             {status === "complete" || status === "error"
               ? "Record again"
-              : "Record"}
+              : passage?.attemptCount === 0
+                ? "Record first attempt"
+                : "Record"}
           </Button>
         )}
 

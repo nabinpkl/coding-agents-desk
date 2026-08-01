@@ -13,7 +13,16 @@ from typing import Any, Final
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from interaction_agent.paths import VOICE_RECORDING_ROOT
-from interaction_agent.voice.wire import PracticePassage, Recording
+from interaction_agent.voice.reference_pronunciation import (
+    ReferencePronunciationError,
+    reference_pronunciation,
+)
+from interaction_agent.voice.wire import (
+    PracticePassage,
+    PracticePassageReference,
+    PracticePassageReferenceWord,
+    Recording,
+)
 
 PASSAGE_SCHEMA_VERSION: Final = 1
 RECORDING_SCHEMA_VERSION: Final = 4
@@ -104,6 +113,21 @@ class PracticePassageStore:
                 payload["passageID"] = passage_id
                 self._write_json(metadata_path, payload)
 
+    def create_passage(self, intended_text: str) -> PracticePassage:
+        """Create human-owned practice intent without fabricating an attempt."""
+        normalized = self._normalize_intended_text(intended_text)
+        with _PASSAGE_LOCK:
+            passage_id = self._new_passage_id()
+            created_at = datetime.now(UTC).isoformat()
+            payload = self._new_passage_payload(
+                passage_id,
+                intended_text=normalized,
+                created_at=created_at,
+                baseline_recording_id=None,
+            )
+            self._write_json(self._passage_path(passage_id), payload)
+            return self._passage_from_payload(payload)
+
     def attach_recording(
         self,
         recording_id: str,
@@ -191,6 +215,44 @@ class PracticePassageStore:
         with _PASSAGE_LOCK:
             return self._passage_from_payload(
                 self._load_passage_payload(passage_id)
+            )
+
+    def get_reference(
+        self,
+        passage_id: str,
+        *,
+        expected_revision: int,
+    ) -> PracticePassageReference:
+        """Derive display phones from the current intended-text revision."""
+        with _PASSAGE_LOCK:
+            payload = self._load_passage_payload(passage_id)
+            self._require_revision(payload, expected_revision)
+            try:
+                pronunciation = reference_pronunciation(
+                    str(payload["intendedText"])
+                )
+            except ReferencePronunciationError as exc:
+                return PracticePassageReference(
+                    passage_id=passage_id,
+                    passage_revision=int(payload["revision"]),
+                    words=[],
+                    unknown_words=[],
+                    pronunciation_error=str(exc),
+                )
+            return PracticePassageReference(
+                passage_id=passage_id,
+                passage_revision=int(payload["revision"]),
+                words=[
+                    PracticePassageReferenceWord(
+                        word=word.word,
+                        reference_phones=list(word.display_phones),
+                        has_reference_pronunciation=word.is_known,
+                    )
+                    for word in pronunciation.words
+                ],
+                unknown_words=list(pronunciation.unknown_words),
+                dictionary_identifier=pronunciation.dictionary_identifier,
+                dictionary_hash=pronunciation.dictionary_hash,
             )
 
     def list_attempts(

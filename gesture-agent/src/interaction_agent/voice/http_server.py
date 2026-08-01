@@ -94,6 +94,7 @@ from interaction_agent.voice.wire import (
     AnalyzePronunciationRequest,
     AnalyzeSignalsRequest,
     AudioFrameMessage,
+    CreatePracticePassageRequest,
     CreateReferenceSpeechArtifactRequest,
     FinalTranscriptMessage,
     MeterMessage,
@@ -101,6 +102,7 @@ from interaction_agent.voice.wire import (
     PracticePassage,
     PracticePassageAttemptsResponse,
     PracticePassageListResponse,
+    PracticePassageReference,
     PronunciationComparison,
     Recording,
     RecordingListResponse,
@@ -1255,6 +1257,23 @@ async def list_practice_passages(
     )
 
 
+@app.post(
+    "/practice-passages",
+    response_model=PracticePassage,
+    status_code=201,
+)
+async def create_practice_passage(
+    request: CreatePracticePassageRequest,
+) -> PracticePassage:
+    try:
+        return await run_in_threadpool(
+            app.state.practice_passage_store.create_passage,
+            request.intended_text,
+        )
+    except PracticePassageError as exc:
+        raise passage_http_exception(exc) from exc
+
+
 @app.get(
     "/practice-passages/{passage_id}",
     response_model=PracticePassage,
@@ -1264,6 +1283,24 @@ async def get_practice_passage(passage_id: str) -> PracticePassage:
         return await run_in_threadpool(
             app.state.practice_passage_store.get_passage,
             passage_id,
+        )
+    except (PracticePassageError, FileNotFoundError) as exc:
+        raise passage_http_exception(exc) from exc
+
+
+@app.get(
+    "/practice-passages/{passage_id}/reference",
+    response_model=PracticePassageReference,
+)
+async def get_practice_passage_reference(
+    passage_id: str,
+    revision: int = Query(ge=1),
+) -> PracticePassageReference:
+    try:
+        return await run_in_threadpool(
+            app.state.practice_passage_store.get_reference,
+            passage_id,
+            expected_revision=revision,
         )
     except (PracticePassageError, FileNotFoundError) as exc:
         raise passage_http_exception(exc) from exc

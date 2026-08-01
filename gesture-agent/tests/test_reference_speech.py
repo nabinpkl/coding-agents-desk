@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from interaction_agent.voice.config import DEFAULT_REFERENCE_SPEECH_CACHE_BYTES
+from interaction_agent.voice.practice_passages import PracticePassageStore
 from interaction_agent.voice.reference_speech import (
     KOKORO_MAX_PHONEME_CHARACTERS,
     KOKORO_PREWARM_IPA,
@@ -45,6 +46,34 @@ class FakeSynthesizer:
 
 
 class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
+    def test_zero_attempt_passage_can_generate_reference_audio(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            passage_store = PracticePassageStore(root / "recordings")
+            passage = passage_store.create_passage("Hello")
+            synth = FakeSynthesizer()
+            store = ReferenceSpeechArtifactStore(
+                root=root / "reference-speech",
+                passage_loader=passage_store.get_passage,
+                synthesizer=synth,
+                cache_max_bytes=10_000_000,
+            )
+
+            artifact = store.create(
+                passage_id=passage.id,
+                passage_revision=passage.revision,
+                scope=ReferenceSpeechScope(kind="passage"),
+                voice_identifier="af_heart",
+                speed=1.0,
+            )
+
+            self.assertEqual(artifact.text, "Hello")
+            self.assertTrue(store.audio_path(artifact.id).is_file())
+            self.assertEqual(
+                list((root / "recordings").glob("session-*")),
+                [],
+            )
+
     def test_stale_passage_revision_is_a_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             store = ReferenceSpeechArtifactStore(

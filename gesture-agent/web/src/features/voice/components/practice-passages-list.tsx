@@ -12,6 +12,7 @@ import {
   Loader2,
   Mic,
   Pencil,
+  Plus,
   RefreshCw,
   Trash2,
   Volume2,
@@ -49,9 +50,11 @@ import {
   useReferenceSpeechSettings,
 } from "@/features/voice/reference-speech-settings";
 import {
+  useCreatePracticePassage,
   useDeletePracticePassage,
   useDeletePracticePassageAttempt,
   usePracticePassageAttempts,
+  usePracticePassageReference,
   usePracticePassages,
   useReanalyzePracticeAttempt,
   useUpdatePracticePassageBaseline,
@@ -62,6 +65,7 @@ import { ApiError, loadRecordingAudioURL, recordingAudioUrl } from "@/lib/api";
 import { getHostConfig } from "@/lib/host-bridge";
 import type {
   PracticePassage,
+  PracticePassageReferenceWord,
   Recording,
   ReferenceSpeechScopeRequest,
   WordPhoneGroup,
@@ -471,14 +475,6 @@ function Attempt({
               No dictionary entry: {recording.unknownReferenceWords.join(", ")}
             </p>
           ) : null}
-          {playback.status === "error" &&
-          playback.requestKey?.startsWith(
-            `${passage.id}:${passage.revision}:`,
-          ) ? (
-            <p className="text-sm text-destructive" role="alert">
-              {playback.error}
-            </p>
-          ) : null}
         </Section>
         <Section detail="Immutable audio from this attempt" title="Your recording">
           <LearnerAudio label="Your recording" recordingID={recording.id} />
@@ -595,7 +591,7 @@ function Attempt({
 function Passage({
   passage,
   onRetake,
-  completedPassageID,
+  openedPassageID,
   referencePreferences,
   playback,
   onDeleted,
@@ -603,13 +599,13 @@ function Passage({
 }: {
   readonly passage: PracticePassage;
   readonly onRetake: (passage: PracticePassage) => void;
-  readonly completedPassageID?: string;
+  readonly openedPassageID?: string;
   readonly referencePreferences?: ReferenceSpeechPreferences;
   readonly playback: ReturnType<typeof referenceSpeechPlaybackSnapshot>;
   readonly onDeleted: (passageID: string) => void;
   readonly onStatus: (message: string) => void;
 }) {
-  const [open, setOpen] = useState(completedPassageID === passage.id);
+  const [open, setOpen] = useState(openedPassageID === passage.id);
   const attempts = usePracticePassageAttempts(
     passage.id,
     passage.revision,
@@ -622,6 +618,11 @@ function Passage({
   const [editRevision, setEditRevision] = useState(passage.revision);
   const [selectedID, setSelectedID] = useState<string>();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const reference = usePracticePassageReference(
+    passage.id,
+    passage.revision,
+    open && !editing && passage.intendedText.length > 0,
+  );
   const passageSummaryRef = useRef<HTMLElement>(null);
   const voiceStatus = useVoiceStore((state) => state.runState.status);
   const isCaptureBusy = !["idle", "complete", "error"].includes(voiceStatus);
@@ -769,6 +770,78 @@ function Passage({
             )}
           </section>
 
+          <section
+            aria-label="Reference pronunciation"
+            className="flex flex-col gap-3"
+          >
+            <div>
+              <h3 className="font-medium">Reference pronunciation</h3>
+              <p className="text-xs text-muted-foreground">
+                Derived from intended text with the pinned pronunciation dictionary.
+              </p>
+            </div>
+            {reference.isPending ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Loading reference pronunciation
+              </p>
+            ) : reference.error ? (
+              <p className="text-sm text-destructive" role="alert">
+                {reference.error.message}
+              </p>
+            ) : reference.data?.pronunciationError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {reference.data.pronunciationError}
+              </p>
+            ) : (
+              <>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {reference.data?.words.map(
+                    (
+                      word: PracticePassageReferenceWord,
+                      index: number,
+                    ) => (
+                      <div
+                        className="flex min-w-0 items-center justify-between gap-3 rounded-md bg-muted/50 p-3"
+                        key={`${word.word}:${index}`}
+                      >
+                        <span className="min-w-0">
+                          <span className="block font-medium">{word.word}</span>
+                          <span className="block text-sm text-muted-foreground">
+                            {word.hasReferencePronunciation
+                              ? word.referencePhones.join(" ")
+                              : "No dictionary entry"}
+                          </span>
+                        </span>
+                        <Button
+                          aria-label={`Hear reference word ${word.word}`}
+                          disabled={
+                            isCaptureBusy ||
+                            !referencePreferences ||
+                            !word.hasReferencePronunciation
+                          }
+                          onClick={() =>
+                            void playReference({ kind: "word", index })
+                          }
+                          size="icon"
+                          variant="outline"
+                        >
+                          <Volume2 />
+                        </Button>
+                      </div>
+                    ),
+                  )}
+                </div>
+                {reference.data?.unknownWords.length ? (
+                  <p className="text-sm text-destructive" role="alert">
+                    No dictionary entry:{" "}
+                    {reference.data.unknownWords.join(", ")}
+                  </p>
+                ) : null}
+              </>
+            )}
+          </section>
+
           <div className="flex flex-wrap gap-2">
             <Button
               disabled={isCaptureBusy || editing}
@@ -778,7 +851,10 @@ function Passage({
                 onRetake(passage);
               }}
             >
-              <Mic /> Record another take
+              <Mic />
+              {passage.attemptCount === 0
+                ? "Record first attempt"
+                : "Record another take"}
             </Button>
             <Button
               disabled={
@@ -806,6 +882,14 @@ function Passage({
               <Trash2 /> Delete passage
             </Button>
           </div>
+          {playback.status === "error" &&
+          playback.requestKey?.startsWith(
+            `${passage.id}:${passage.revision}:`,
+          ) ? (
+            <p className="text-sm text-destructive" role="alert">
+              {playback.error}
+            </p>
+          ) : null}
 
           {baselineAttempt && selectedAttempt && baselineAttempt.id !== selectedAttempt.id ? (
             <section aria-label="A/B attempt comparison" className="rounded-lg bg-muted/50 p-4">
@@ -858,7 +942,7 @@ function Passage({
               <p className="text-sm text-destructive" role="alert">{attempts.error.message}</p>
             ) : allAttempts.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                This passage has no attempts. Record another take or delete the passage.
+                No attempts yet. Record your first take when you are ready.
               </p>
             ) : (
               <div className="flex flex-col gap-2">
@@ -940,6 +1024,108 @@ function Passage({
   );
 }
 
+function AddReferenceDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: {
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onCreated: (passage: PracticePassage) => void;
+}) {
+  const createPassage = useCreatePracticePassage();
+  const [draft, setDraft] = useState("");
+  const normalizedLength = draft.trim().length;
+
+  return (
+    <Dialog
+      onOpenChange={(nextOpen) => {
+        if (createPassage.isPending) return;
+        if (nextOpen) createPassage.reset();
+        onOpenChange(nextOpen);
+      }}
+      open={open}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add a practice reference</DialogTitle>
+          <DialogDescription>
+            Type what you want to practice. You can hear the reference before
+            making any recording.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (normalizedLength === 0 || createPassage.isPending) return;
+            createPassage.mutate(
+              { intendedText: draft },
+              {
+                onSuccess: (created) => {
+                  setDraft("");
+                  onOpenChange(false);
+                  onCreated(created);
+                },
+              },
+            );
+          }}
+        >
+          <div className="flex flex-col gap-2">
+            <label
+              className="text-sm font-medium"
+              htmlFor="practice-reference-text"
+            >
+              Reference text
+            </label>
+            <textarea
+              autoFocus
+              className="min-h-32 rounded-md border border-input bg-background p-3 text-base outline-none focus:ring-2 focus:ring-ring"
+              id="practice-reference-text"
+              maxLength={4000}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Hello, how are you?"
+              value={draft}
+            />
+            <span className="text-xs text-muted-foreground">
+              {draft.length} of 4000 characters
+            </span>
+          </div>
+          {createPassage.error ? (
+            <p className="text-sm text-destructive" role="alert">
+              {createPassage.error.message}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              disabled={createPassage.isPending}
+              onClick={() => onOpenChange(false)}
+              type="button"
+              variant="outline"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                createPassage.isPending ||
+                normalizedLength === 0
+              }
+              type="submit"
+            >
+              {createPassage.isPending ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Plus />
+              )}
+              Add reference
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function PracticePassagesList({
   onRetake,
   completedPassageID,
@@ -952,6 +1138,8 @@ export function PracticePassagesList({
     passages.data?.pages.flatMap((page) => page.passages) ?? [];
   const voiceStatus = useVoiceStore((state) => state.runState.status);
   const [status, setStatus] = useState("");
+  const [addReferenceOpen, setAddReferenceOpen] = useState(false);
+  const [createdPassageID, setCreatedPassageID] = useState<string>();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const settings = useReferenceSpeechSettings();
   const playback = useSyncExternalStore(
@@ -960,8 +1148,10 @@ export function PracticePassagesList({
     referenceSpeechPlaybackSnapshot,
   );
   useEffect(() => () => stopReferenceSpeech(), []);
+  const openedPassageID = completedPassageID ?? createdPassageID;
 
   function restoreFocusAfterPassageDeletion(passageID: string): void {
+    if (createdPassageID === passageID) setCreatedPassageID(undefined);
     const deletedIndex = allPassages.findIndex(
       (passage) => passage.id === passageID,
     );
@@ -983,6 +1173,21 @@ export function PracticePassagesList({
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
+      <AddReferenceDialog
+        onCreated={(created) => {
+          setCreatedPassageID(created.id);
+          setStatus("Practice reference added.");
+          window.requestAnimationFrame(() => {
+            document
+              .querySelector<HTMLElement>(
+                `[data-passage-summary="${created.id}"]`,
+              )
+              ?.focus();
+          });
+        }}
+        onOpenChange={setAddReferenceOpen}
+        open={addReferenceOpen}
+      />
       <Card>
         <CardContent>
           <ReferenceSpeechControls
@@ -993,18 +1198,28 @@ export function PracticePassagesList({
         </CardContent>
       </Card>
       <section aria-labelledby="practice-passages-heading" className="flex flex-col gap-4">
-        <div>
-          <h2
-            className="text-2xl font-semibold outline-none"
-            id="practice-passages-heading"
-            ref={headingRef}
-            tabIndex={-1}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2
+              className="text-2xl font-semibold outline-none"
+              id="practice-passages-heading"
+              ref={headingRef}
+              tabIndex={-1}
+            >
+              Practice passages
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Add what you want to practice, hear its reference, then keep
+              every machine observation and take.
+            </p>
+          </div>
+          <Button
+            disabled={voiceStatus === "requestingMic" || voiceStatus === "capturing"}
+            onClick={() => setAddReferenceOpen(true)}
           >
-            Practice passages
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            Keep intended text stable while retaining every machine observation and take.
-          </p>
+            <Plus />
+            Add reference
+          </Button>
         </div>
         {passages.isPending ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1015,18 +1230,28 @@ export function PracticePassagesList({
             <AlertCircle className="size-4" /> {passages.error.message}
           </p>
         ) : allPassages.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            No passages yet. Record a new passage to begin.
-          </p>
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border p-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              No practice references yet. Add text to hear and practice it
+              before making your first recording.
+            </p>
+            <Button
+              onClick={() => setAddReferenceOpen(true)}
+              variant="outline"
+            >
+              <Plus />
+              Add your first reference
+            </Button>
+          </div>
         ) : (
           <div className="flex flex-col gap-3">
             {allPassages.map((passage) => (
               <Passage
-                completedPassageID={completedPassageID}
-                key={`${passage.id}:${completedPassageID === passage.id ? "completed" : "stable"}`}
+                key={`${passage.id}:${openedPassageID === passage.id ? "opened" : "stable"}`}
                 onRetake={onRetake}
                 onDeleted={restoreFocusAfterPassageDeletion}
                 onStatus={setStatus}
+                openedPassageID={openedPassageID}
                 passage={passage}
                 playback={playback}
                 referencePreferences={

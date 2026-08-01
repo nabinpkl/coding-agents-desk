@@ -1081,6 +1081,60 @@ VoiceLaneServer tests. The repository-wide `just check` passes, including 630 Sw
 package, Python, web, Rust, host, and client build gates. R183 remains the explicit real-surface
 checkpoint; no host or device app has been launched.
 
+## v15 Phase 11: typed references before recording
+
+### Position
+
+A practice target must exist before the learner records it. **Add reference** creates a real
+zero-attempt passage from typed intended text. Saving text performs no capture or model inference.
+The learner can expand the passage, inspect revision-fenced dictionary phones, and ask Kokoro to
+speak it before choosing **Record first attempt**. The first later capture attaches to that passage;
+it never creates a duplicate or fake silent attempt.
+
+Speech-first **New passage** remains a secondary entry path for now. Reference phones stay derived
+from intended text, and synthesized WAVs stay in the bounded rebuildable cache.
+
+### Ordered implementation plan
+
+- **R189** Extend ADR-0085 and SPEC with typed creation, zero-attempt state, lazy pronunciation, and
+  the explicit no-recording/no-inference invariant.
+- **R190** Add atomic `PracticePassageStore.create_passage`, `POST /practice-passages`, and a
+  revision-fenced lazy reference-pronunciation read model. Preserve normalization, limits, unknown
+  words, duplicate text, and restart persistence.
+- **R191** Add generated wire types and narrowly allowlist root passage POST plus validated
+  `GET /practice-passages/{id}/reference?revision=N` through the native Voice lane.
+- **R192** Add the shared **Add reference** dialog, zero-attempt disclosure, independent
+  reference-phone loading, word and passage playback, focus/status recovery, and first-practice
+  handoff.
+- **R193** Refine recorder language and cover Python, native, API, React, accessibility,
+  stale-revision, failure-retention, and no-recording behavior. Run the complete automated gate and
+  self-review.
+- **R194** Stop at the device checkpoint. After explicit approval, create and hear a typed reference
+  on current-sha Mac/iPhone surfaces, record attempt 1, verify baseline attachment and relaunch
+  persistence, edit to exercise stale-reference rejection, then preserve both log streams.
+
+### Dependency and landing order
+
+```text
+R189 contract
+  -> R190 persistence and pronunciation
+  -> R191 wire and native proxy
+  -> R192 shared UI
+  -> R193 automated acceptance
+  -> R194 authorized physical acceptance
+```
+
+### Implementation checkpoint
+
+R189-R193 are implemented across atomic zero-attempt passage persistence, the revision-fenced
+reference-pronunciation read model, generated wire types, the native Voice REST allowlist, and the
+shared InteractionPanel. Typed creation stores passage metadata only; it creates no recording JSON
+or WAV and invokes no capture or synthesis path. Focused verification passes: 73 Python voice tests,
+35 web tests, TypeScript, focused ESLint, and the production embedded bundle. The repository-wide
+`just check` passes, including 666 Swift tests plus the package, Python, web, Rust, host, and client
+build gates. R194 remains the explicit real-surface checkpoint; no host or device app has been
+launched.
+
 ## v16 Phase 1: stall recovery on a manually pinned stream
 
 ### Position
@@ -1199,4 +1253,10 @@ D185  2026-07-30  landed     stall flush and rate-limited recovery keyframe, lad
 D186  2026-07-30  landed     wall-clock ceiling on the video GOP
 D187  2026-07-30  landed     host-raised quality window when the client goes silent
 R188  checkpoint  remaining  authorized device acceptance against the 42.1s-frozen baseline
+D189  2026-07-30  landed     typed-reference contract refinement
+D190  2026-07-30  landed     atomic zero-attempt creation and reference derivation
+D191  2026-07-30  landed     typed-reference wire and native proxy
+D192  2026-07-30  landed     shared typed-reference and first-practice UI
+D193  2026-07-30  landed     automated typed-reference acceptance
+R194  checkpoint  remaining  typed-reference Mac/iPhone runtime acceptance
 ```

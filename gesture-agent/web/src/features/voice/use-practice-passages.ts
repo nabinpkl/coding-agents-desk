@@ -7,6 +7,7 @@
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
   type InfiniteData,
   type QueryClient,
@@ -14,8 +15,10 @@ import {
 
 import {
   ApiError,
+  createPracticePassage,
   deletePracticePassage,
   deletePracticePassageAttempt,
+  getPracticePassageReference,
   listPracticePassageAttempts,
   listPracticePassages,
   reanalyzeRecording,
@@ -23,9 +26,11 @@ import {
   updatePracticePassageText,
 } from "@/lib/api";
 import type {
+  CreatePracticePassageRequest,
   PracticePassage,
   PracticePassageAttemptsResponse,
   PracticePassageListResponse,
+  PracticePassageReference,
   Recording,
   UpdatePracticePassageBaselineRequest,
   UpdatePracticePassageTextRequest,
@@ -56,6 +61,34 @@ function cachePassage(
   queryClient.removeQueries({
     queryKey: [...PRACTICE_PASSAGES_QUERY_KEY, updated.id],
   });
+}
+
+function cacheCreatedPassage(
+  queryClient: QueryClient,
+  created: PracticePassage,
+): void {
+  queryClient.setQueryData<InfiniteData<PracticePassageListResponse>>(
+    PRACTICE_PASSAGES_QUERY_KEY,
+    (existing) =>
+      existing
+        ? {
+            ...existing,
+            pages: existing.pages.map((page, index) =>
+              index === 0
+                ? {
+                    ...page,
+                    passages: [
+                      created,
+                      ...page.passages.filter(
+                        (passage) => passage.id !== created.id,
+                      ),
+                    ],
+                  }
+                : page,
+            ),
+          }
+        : existing,
+  );
 }
 
 function removePassageFromCache(
@@ -129,6 +162,51 @@ export function usePracticePassages() {
     initialPageParam: undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     refetchInterval: 5_000,
+  });
+}
+
+export function useCreatePracticePassage() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    PracticePassage,
+    Error,
+    CreatePracticePassageRequest
+  >({
+    mutationFn: (request) => createPracticePassage(request),
+    onSuccess: (created) => {
+      cacheCreatedPassage(queryClient, created);
+      return invalidateVoiceTruth(queryClient);
+    },
+  });
+}
+
+export function usePracticePassageReference(
+  passageID: string,
+  passageRevision: number,
+  enabled: boolean,
+) {
+  return useQuery<PracticePassageReference>({
+    queryKey: [
+      ...PRACTICE_PASSAGES_QUERY_KEY,
+      passageID,
+      passageRevision,
+      "reference",
+    ],
+    queryFn: async () => {
+      const response = await getPracticePassageReference(
+        passageID,
+        passageRevision,
+      );
+      if (response.passageRevision !== passageRevision) {
+        throw new ApiError(
+          409,
+          "Practice passage changed",
+          "Refresh the passage before displaying reference pronunciation.",
+        );
+      }
+      return response;
+    },
+    enabled,
   });
 }
 

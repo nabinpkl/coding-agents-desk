@@ -56,6 +56,71 @@ class PracticePassageStoreTests(unittest.TestCase):
             )
         return result.wav_path.stem
 
+    def test_typed_reference_creates_persistent_zero_attempt_passage(
+        self,
+    ) -> None:
+        first = self.store.create_passage("  Cafe\u0301 practice  ")
+        second = self.store.create_passage("Café practice")
+
+        self.assertNotEqual(first.id, second.id)
+        self.assertEqual(first.intended_text, "Café practice")
+        self.assertEqual(first.revision, 1)
+        self.assertEqual(first.attempt_count, 0)
+        self.assertIsNone(first.baseline_recording_id)
+        self.assertIsNone(first.latest_attempt_created_at)
+        self.assertEqual(list(self.root.glob("session-*.json")), [])
+        self.assertEqual(list(self.root.glob("session-*.wav")), [])
+
+        restored = PracticePassageStore(self.root).get_passage(first.id)
+        self.assertEqual(restored, first)
+
+        with self.assertRaisesRegex(
+            PracticePassageError,
+            "cannot be empty",
+        ):
+            self.store.create_passage(" \n ")
+        with self.assertRaisesRegex(
+            PracticePassageError,
+            "4000 character",
+        ):
+            self.store.create_passage("x" * 4_001)
+
+    def test_zero_attempt_reference_is_revision_fenced(self) -> None:
+        passage = self.store.create_passage("Hello quuxword")
+
+        reference = self.store.get_reference(
+            passage.id,
+            expected_revision=passage.revision,
+        )
+
+        self.assertEqual(reference.passage_id, passage.id)
+        self.assertEqual(reference.passage_revision, passage.revision)
+        self.assertEqual(
+            [word.word for word in reference.words],
+            ["hello", "quuxword"],
+        )
+        self.assertEqual(
+            reference.words[0].reference_phones,
+            ["h", "ə", "l", "oʊ"],
+        )
+        self.assertTrue(reference.words[0].has_reference_pronunciation)
+        self.assertFalse(reference.words[1].has_reference_pronunciation)
+        self.assertEqual(reference.unknown_words, ["quuxword"])
+        self.assertIsNone(reference.pronunciation_error)
+        self.assertTrue(reference.dictionary_identifier.startswith("CMUdict@"))
+
+        updated = self.store.update_intended_text(
+            passage.id,
+            expected_revision=passage.revision,
+            intended_text="Hello again",
+        )
+        self.assertEqual(updated.revision, passage.revision + 1)
+        with self.assertRaises(PassageRevisionConflict):
+            self.store.get_reference(
+                passage.id,
+                expected_revision=passage.revision,
+            )
+
     def test_legacy_recording_migrates_to_one_human_owned_passage(self) -> None:
         recording_id = self.save_recording(
             "Hello. How would you?",

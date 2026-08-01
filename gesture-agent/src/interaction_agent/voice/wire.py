@@ -187,6 +187,22 @@ class PracticePassage(WireModel):
     latest_attempt_created_at: str | None = None
 
 
+class PracticePassageReferenceWord(WireModel):
+    word: str
+    reference_phones: list[str]
+    has_reference_pronunciation: bool
+
+
+class PracticePassageReference(WireModel):
+    passage_id: str
+    passage_revision: int = Field(ge=1)
+    words: list[PracticePassageReferenceWord]
+    unknown_words: list[str]
+    pronunciation_error: str | None = None
+    dictionary_identifier: str | None = None
+    dictionary_hash: str | None = None
+
+
 class PracticePassageListResponse(WireModel):
     passages: list[PracticePassage]
     next_cursor: str | None = None
@@ -324,6 +340,10 @@ class SaveRecordingRequest(WireModel):
     encoding: Literal["int16", "float32"] = "int16"
 
 
+class CreatePracticePassageRequest(WireModel):
+    intended_text: str = Field(min_length=1, max_length=4_000)
+
+
 class UpdatePracticePassageTextRequest(WireModel):
     intended_text: str = Field(max_length=4_000)
     expected_revision: int = Field(ge=1)
@@ -360,6 +380,8 @@ MODELS: Final[list[type[BaseModel]]] = [
     Recording,
     RecordingListResponse,
     PracticePassage,
+    PracticePassageReferenceWord,
+    PracticePassageReference,
     PracticePassageListResponse,
     PracticePassageAttemptsResponse,
     ReferenceSpeechVoice,
@@ -376,6 +398,7 @@ MODELS: Final[list[type[BaseModel]]] = [
     PronunciationFrameCostPayload,
     PronunciationComparison,
     SaveRecordingRequest,
+    CreatePracticePassageRequest,
     AnalyzeSignalsRequest,
     AnalyzePronunciationRequest,
 ]

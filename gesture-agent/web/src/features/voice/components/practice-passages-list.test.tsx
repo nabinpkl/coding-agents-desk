@@ -18,6 +18,8 @@ import { ApiError } from "@/lib/api";
 import type { PracticePassage, Recording } from "@/lib/wire";
 
 const api = vi.hoisted(() => ({
+  createPassage: vi.fn(),
+  getReference: vi.fn(),
   listPassages: vi.fn(),
   listAttempts: vi.fn(),
   updateText: vi.fn(),
@@ -34,6 +36,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
+    createPracticePassage: api.createPassage,
+    getPracticePassageReference: api.getReference,
     listPracticePassages: api.listPassages,
     listPracticePassageAttempts: api.listAttempts,
     updatePracticePassageText: api.updateText,
@@ -144,7 +148,7 @@ const selected = attempt(
 
 function renderList(
   onRetake = vi.fn(),
-  completedPassageID: string | undefined = passage.id,
+  completedPassageID: string | null = passage.id,
 ) {
   const client = new QueryClient({
     defaultOptions: {
@@ -157,7 +161,7 @@ function renderList(
     ...render(
       <QueryClientProvider client={client}>
         <PracticePassagesList
-          completedPassageID={completedPassageID}
+          completedPassageID={completedPassageID ?? undefined}
           onRetake={onRetake}
         />
       </QueryClientProvider>,
@@ -172,6 +176,34 @@ beforeEach(() => {
   api.listPassages.mockResolvedValue({
     passages: [passage],
     nextCursor: null,
+  });
+  api.createPassage.mockResolvedValue({
+    ...passage,
+    id: `passage-${"2".repeat(32)}`,
+    attemptCount: 0,
+    baselineRecordingID: null,
+    latestAttemptCreatedAt: null,
+    revision: 1,
+  });
+  api.getReference.mockResolvedValue({
+    passageId: passage.id,
+    passageRevision: passage.revision,
+    words: [
+      {
+        word: "hello",
+        referencePhones: ["h", "ə", "l", "oʊ"],
+        hasReferencePronunciation: true,
+      },
+      {
+        word: "are",
+        referencePhones: ["ɑ", "ɹ"],
+        hasReferencePronunciation: true,
+      },
+    ],
+    unknownWords: [],
+    pronunciationError: null,
+    dictionaryIdentifier: "CMUdict@test",
+    dictionaryHash: "a".repeat(64),
   });
   api.listAttempts.mockResolvedValue({
     passage,
@@ -198,7 +230,7 @@ afterEach(() => {
 describe("PracticePassagesList", () => {
   it("renders loading, empty, and error states explicitly", async () => {
     api.listPassages.mockReturnValueOnce(new Promise(() => undefined));
-    const loading = renderList(vi.fn(), undefined);
+    const loading = renderList(vi.fn(), null);
     expect(screen.getByText("Loading passages")).toBeTruthy();
     loading.unmount();
 
@@ -206,17 +238,127 @@ describe("PracticePassagesList", () => {
       passages: [],
       nextCursor: null,
     });
-    const empty = renderList(vi.fn(), undefined);
+    const empty = renderList(vi.fn(), null);
     expect(
-      await screen.findByText("No passages yet. Record a new passage to begin."),
+      await screen.findByText(/No practice references yet/),
     ).toBeTruthy();
     empty.unmount();
 
     api.listPassages.mockRejectedValueOnce(new Error("library unavailable"));
-    renderList(vi.fn(), undefined);
+    renderList(vi.fn(), null);
     expect((await screen.findByRole("alert")).textContent).toContain(
       "library unavailable",
     );
+  });
+
+  it("creates a typed zero-attempt reference and starts its first practice", async () => {
+    const created: PracticePassage = {
+      ...passage,
+      id: `passage-${"2".repeat(32)}`,
+      intendedText: "Hello, how are you?",
+      revision: 1,
+      attemptCount: 0,
+      baselineRecordingID: null,
+      latestAttemptCreatedAt: null,
+    };
+    api.listPassages.mockResolvedValueOnce({
+      passages: [],
+      nextCursor: null,
+    });
+    api.createPassage.mockImplementation(async () => {
+      api.listPassages.mockResolvedValue({
+        passages: [created],
+        nextCursor: null,
+      });
+      return created;
+    });
+    api.getReference.mockResolvedValue({
+      passageId: created.id,
+      passageRevision: created.revision,
+      words: [
+        {
+          word: "hello",
+          referencePhones: ["h", "ə", "l", "oʊ"],
+          hasReferencePronunciation: true,
+        },
+      ],
+      unknownWords: [],
+      pronunciationError: null,
+      dictionaryIdentifier: "CMUdict@test",
+      dictionaryHash: "a".repeat(64),
+    });
+    api.listAttempts.mockResolvedValue({
+      passage: created,
+      attempts: [],
+      nextCursor: null,
+    });
+    const onRetake = vi.fn();
+    renderList(onRetake, null);
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Add your first reference",
+      }),
+    );
+    const editor = screen.getByRole("textbox", {
+      name: "Reference text",
+    });
+    fireEvent.change(editor, {
+      target: { value: "Hello, how are you?" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add reference" }),
+    );
+
+    await waitFor(() =>
+      expect(api.createPassage).toHaveBeenCalledWith({
+        intendedText: "Hello, how are you?",
+      }),
+    );
+    await waitFor(() => {
+      expect(
+        document.querySelector(
+          `[data-passage-summary="${created.id}"]`,
+        )?.textContent,
+      ).toContain("0 attempts");
+    });
+    expect(screen.getByText("h ə l oʊ")).toBeTruthy();
+    expect(screen.queryByText("Baseline set")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Record first attempt" }),
+    );
+    expect(onRetake).toHaveBeenCalledWith(created);
+  });
+
+  it("retains typed reference text after creation fails", async () => {
+    api.listPassages.mockResolvedValueOnce({
+      passages: [],
+      nextCursor: null,
+    });
+    api.createPassage.mockRejectedValueOnce(
+      new Error("reference save failed"),
+    );
+    renderList(vi.fn(), null);
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Add your first reference",
+      }),
+    );
+    const editor = screen.getByRole("textbox", {
+      name: "Reference text",
+    }) as HTMLTextAreaElement;
+    fireEvent.change(editor, {
+      target: { value: "Keep this reference" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add reference" }),
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "reference save failed",
+    );
+    expect(editor.value).toBe("Keep this reference");
   });
 
   it("keeps intended text editable while machine evidence stays visible", async () => {

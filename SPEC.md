@@ -507,7 +507,9 @@ one immutable WAV, the original Whisper machine transcript, flat ZIPA phone sequ
 provenance, and transport audit. Legacy recording schema upgrades once to schema 4: each recording
 gets a deterministic one-attempt passage whose intended text and machine transcript start from the
 old transcript. New free-form recordings seed intended text from Whisper for explicit review;
-retakes carry the selected passage ID and revision.
+retakes carry the selected passage ID and revision. A user may instead create a passage directly
+from normalized intended text with no recording, baseline, or latest-attempt timestamp. Creation
+persists only passage metadata and never invokes the microphone, Whisper, ZIPA, or Kokoro.
 
 Passage and attempt lists use cursor-bounded pages. Intended-text and baseline updates require the
 expected passage revision. While a retake is active, intended-text edits and whole-passage deletion
@@ -522,6 +524,12 @@ alignment, not acoustic word boundaries, and are not a second persisted analysis
 shared web panel shows editable intended text, immutable **Machine heard**, an accessible word diff,
 learner/reference playback, collapsible attempts, baseline selection, and unscored A/B playback.
 Technical model, dictionary, timing, and transport details stay under secondary disclosure.
+
+An expanded passage asks Python for revision-fenced reference-pronunciation data independently of
+attempt retrieval. The response carries current reference words, display phones, unknown words, and
+pinned dictionary provenance. It is derived rather than persisted, so a zero-attempt passage can
+show the same reference evidence without fabricating a silent `Recording`. Kokoro artifacts remain
+lazy and are created only after an explicit playback action.
 
 Whole-passage and per-word speaker actions ask Python for one host-owned reference-speech artifact by
 passage ID, current revision, and scope. Python resolves the current intended text and rejects stale

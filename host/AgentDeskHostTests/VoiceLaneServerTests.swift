@@ -95,6 +95,7 @@ struct VoiceLaneServerTests {
             + String(repeating: "1", count: 32)
         let allowed: [(VoiceRESTMethod, String)] = [
             (.get, "/practice-passages?limit=50"),
+            (.post, "/practice-passages"),
             (
                 .get,
                 "/practice-passages?cursor=passage-"
@@ -105,6 +106,7 @@ struct VoiceLaneServerTests {
             (.delete, passage),
             (.post, passage + "/intended-text"),
             (.post, passage + "/baseline"),
+            (.get, passage + "/reference?revision=1"),
             (.get, passage + "/attempts?limit=20"),
             (
                 .delete,
@@ -120,6 +122,10 @@ struct VoiceLaneServerTests {
             "/practice-passages?unknown=true",
             "/practice-passages?limit=20&limit=21",
             "/practice-passages/not-a-passage",
+            passage + "/reference",
+            passage + "/reference?revision=0",
+            passage + "/reference?revision=1&revision=2",
+            passage + "/reference?unknown=true",
         ]
         for path in rejected {
             #expect(!VoiceLaneServer.isAllowed(method: .get, path: path))

@@ -30,6 +30,13 @@ export interface AudioFrameMessage {
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "CreatePracticePassageRequest".
+ */
+export interface CreatePracticePassageRequest {
+  intendedText: string;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
  * via the `definition` "CreateReferenceSpeechArtifactRequest".
  */
 export interface CreateReferenceSpeechArtifactRequest {
@@ -159,6 +166,28 @@ export interface RecordingTransportAudit {
 export interface PracticePassageListResponse {
   passages: PracticePassage[];
   nextCursor?: string | null;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "PracticePassageReference".
+ */
+export interface PracticePassageReference {
+  passageId: string;
+  passageRevision: number;
+  words: PracticePassageReferenceWord[];
+  unknownWords: string[];
+  pronunciationError?: string | null;
+  dictionaryIdentifier?: string | null;
+  dictionaryHash?: string | null;
+}
+/**
+ * This interface was referenced by `WireContract`'s JSON-Schema
+ * via the `definition` "PracticePassageReferenceWord".
+ */
+export interface PracticePassageReferenceWord {
+  word: string;
+  referencePhones: string[];
+  hasReferencePronunciation: boolean;
 }
 /**
  * This interface was referenced by `WireContract`'s JSON-Schema

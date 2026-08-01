@@ -1,7 +1,9 @@
 import { afterAll, beforeAll, expect, test } from "vitest";
 
 import {
+  createPracticePassage,
   deletePracticePassageAttempt,
+  getPracticePassageReference,
   listRecordings,
 } from "@/lib/api";
 import {
@@ -216,6 +218,80 @@ test("native attempt deletion returns the authoritative passage revision", async
     },
   });
   await expect(pending).resolves.toEqual(response);
+});
+
+test("native typed reference creation and pronunciation use exact passage routes", async () => {
+  posted.length = 0;
+  const passageID = `passage-${"2".repeat(32)}`;
+  const passage: PracticePassage = {
+    id: passageID,
+    intendedText: "Hello",
+    revision: 1,
+    createdAt: "2026-07-30T02:00:00Z",
+    updatedAt: "2026-07-30T02:00:00Z",
+    baselineRecordingID: null,
+    attemptCount: 0,
+    latestAttemptCreatedAt: null,
+  };
+  const pendingCreate = createPracticePassage({
+    intendedText: "Hello",
+  });
+  const createRequest = posted.at(-1);
+  expect(createRequest).toMatchObject({
+    t: "voiceREST",
+    method: "POST",
+    path: "/practice-passages",
+  });
+  expect(
+    JSON.parse(atob(createRequest?.bodyBase64 as string)),
+  ).toEqual({ intendedText: "Hello" });
+  deliver({
+    t: "rest",
+    r: {
+      requestID: createRequest?.requestID,
+      status: 201,
+      contentType: "application/json",
+      sequence: 0,
+      isFinal: true,
+      body: Buffer.from(JSON.stringify(passage)).toString("base64"),
+    },
+  });
+  await expect(pendingCreate).resolves.toEqual(passage);
+
+  const pendingReference = getPracticePassageReference(passageID, 1);
+  const referenceRequest = posted.at(-1);
+  expect(referenceRequest).toMatchObject({
+    t: "voiceREST",
+    method: "GET",
+    path: `/practice-passages/${passageID}/reference?revision=1`,
+  });
+  const reference = {
+    passageId: passageID,
+    passageRevision: 1,
+    words: [
+      {
+        word: "hello",
+        referencePhones: ["h", "ə", "l", "oʊ"],
+        hasReferencePronunciation: true,
+      },
+    ],
+    unknownWords: [],
+    pronunciationError: null,
+    dictionaryIdentifier: "CMUdict@test",
+    dictionaryHash: "a".repeat(64),
+  };
+  deliver({
+    t: "rest",
+    r: {
+      requestID: referenceRequest?.requestID,
+      status: 200,
+      contentType: "application/json",
+      sequence: 0,
+      isFinal: true,
+      body: Buffer.from(JSON.stringify(reference)).toString("base64"),
+    },
+  });
+  await expect(pendingReference).resolves.toEqual(reference);
 });
 
 test("native socket uses the shared browser wire messages", async () => {
