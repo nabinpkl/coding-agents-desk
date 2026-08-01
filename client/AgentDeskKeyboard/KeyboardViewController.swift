@@ -544,7 +544,9 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func updateTypingTraits() {
-        keyboardView.returnKeyTitle = returnKeyTitle()
+        keyboardView.returnKeyPresentation = KeyboardReturnKeyPresentation(
+            returnKeyType: textDocumentProxy.returnKeyType
+        )
         layoutState.showsInputModeSwitchKey = needsInputModeSwitchKey
         if case .document = layoutState.typingTarget {
             switch textDocumentProxy.keyboardType {
@@ -586,19 +588,6 @@ final class KeyboardViewController: UIInputViewController {
         }
         layoutState.setAutomaticShift(shouldCapitalize)
         keyboardView.render(layoutState)
-    }
-
-    private func returnKeyTitle() -> String {
-        switch textDocumentProxy.returnKeyType {
-        case .done: "Done"
-        case .go: "Go"
-        case .next: "Next"
-        case .search: "Search"
-        case .send: "Send"
-        case .join: "Join"
-        case .continue: "Continue"
-        default: AgentDeskQWERTYView.defaultReturnKeyTitle
-        }
     }
 
     private func currentDocumentFingerprint()

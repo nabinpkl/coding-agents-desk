@@ -288,7 +288,9 @@ struct NativeKeyboardTests {
         #expect(returnKey.titleLabel?.font.pointSize == 24)
         #expect(returnKey.accessibilityLabel == "Return")
 
-        keyboard.returnKeyTitle = "Send"
+        keyboard.returnKeyPresentation = KeyboardReturnKeyPresentation(
+            returnKeyType: .send
+        )
         keyboard.render(KeyboardLayoutState(
             showsInputModeSwitchKey: false
         ))
@@ -297,9 +299,45 @@ struct NativeKeyboardTests {
             "agentdesk-key-return",
             in: keyboard
         ))
-        #expect(sendKey.currentTitle == "Send")
-        #expect(sendKey.titleLabel?.font.pointSize == 18)
+        #expect(sendKey.currentTitle == nil)
+        #expect(sendKey.currentImage != nil)
         #expect(sendKey.accessibilityLabel == "Send")
+    }
+
+    @Test
+    func returnKeyPresentationsMatchIOS26PrimaryKeyGlyphs() {
+        let cases: [(UIReturnKeyType, String, String)] = [
+            (.go, "arrow.forward", "Go"),
+            (.google, "magnifyingglass", "Google"),
+            (.join, "arrow.forward", "Join"),
+            (.next, "chevron.forward", "Next"),
+            (.route, "arrow.forward", "Route"),
+            (.search, "magnifyingglass", "Search"),
+            (.send, "arrow.up", "Send"),
+            (.yahoo, "magnifyingglass", "Yahoo"),
+            (.done, "checkmark", "Done"),
+            (.emergencyCall, "phone", "Emergency Call"),
+            (.continue, "chevron.forward", "Continue"),
+        ]
+
+        for (returnKeyType, symbolName, accessibilityLabel) in cases {
+            let presentation = KeyboardReturnKeyPresentation(
+                returnKeyType: returnKeyType
+            )
+            #expect(presentation.visual == .systemImage(symbolName))
+            #expect(
+                presentation.accessibilityLabel == accessibilityLabel
+            )
+        }
+
+        #expect(
+            KeyboardReturnKeyPresentation(returnKeyType: .default)
+                == .default
+        )
+        #expect(
+            KeyboardReturnKeyPresentation(returnKeyType: nil)
+                == .default
+        )
     }
 
     @Test @MainActor

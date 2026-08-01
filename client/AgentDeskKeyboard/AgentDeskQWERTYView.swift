@@ -1,6 +1,90 @@
 import KeyboardDictation
 import UIKit
 
+struct KeyboardReturnKeyPresentation: Equatable {
+    enum Visual: Equatable {
+        case title(String)
+        case systemImage(String)
+    }
+
+    let visual: Visual
+    let accessibilityLabel: String
+
+    static let `default` = KeyboardReturnKeyPresentation(
+        visual: .title("↵"),
+        accessibilityLabel: "Return"
+    )
+
+    init(returnKeyType: UIReturnKeyType?) {
+        switch returnKeyType {
+        case .go:
+            self.init(
+                visual: .systemImage("arrow.forward"),
+                accessibilityLabel: "Go"
+            )
+        case .google:
+            self.init(
+                visual: .systemImage("magnifyingglass"),
+                accessibilityLabel: "Google"
+            )
+        case .join:
+            self.init(
+                visual: .systemImage("arrow.forward"),
+                accessibilityLabel: "Join"
+            )
+        case .next:
+            self.init(
+                visual: .systemImage("chevron.forward"),
+                accessibilityLabel: "Next"
+            )
+        case .route:
+            self.init(
+                visual: .systemImage("arrow.forward"),
+                accessibilityLabel: "Route"
+            )
+        case .search:
+            self.init(
+                visual: .systemImage("magnifyingglass"),
+                accessibilityLabel: "Search"
+            )
+        case .send:
+            self.init(
+                visual: .systemImage("arrow.up"),
+                accessibilityLabel: "Send"
+            )
+        case .yahoo:
+            self.init(
+                visual: .systemImage("magnifyingglass"),
+                accessibilityLabel: "Yahoo"
+            )
+        case .done:
+            self.init(
+                visual: .systemImage("checkmark"),
+                accessibilityLabel: "Done"
+            )
+        case .emergencyCall:
+            self.init(
+                visual: .systemImage("phone"),
+                accessibilityLabel: "Emergency Call"
+            )
+        case .continue:
+            self.init(
+                visual: .systemImage("chevron.forward"),
+                accessibilityLabel: "Continue"
+            )
+        case .default, nil:
+            self = .default
+        @unknown default:
+            self = .default
+        }
+    }
+
+    private init(visual: Visual, accessibilityLabel: String) {
+        self.visual = visual
+        self.accessibilityLabel = accessibilityLabel
+    }
+}
+
 @MainActor
 protocol KeyboardRepeatScheduling: AnyObject {
     func start(
@@ -48,17 +132,15 @@ final class TaskKeyboardRepeatScheduler: KeyboardRepeatScheduling {
 
 @MainActor
 final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
-    static let defaultReturnKeyTitle = "↵"
-
     var onKey: ((KeyboardKey) -> Void)?
     var onDelete: (() -> Void)?
     var onDeleteEnded: (() -> Void)?
     var onCursorDelta: ((Int) -> Void)?
     var configureInputModeSwitchKey: ((UIButton) -> Void)?
     var hapticsEnabled = true
-    var returnKeyTitle = defaultReturnKeyTitle {
+    var returnKeyPresentation = KeyboardReturnKeyPresentation.default {
         didSet {
-            if returnKeyTitle != oldValue {
+            if returnKeyPresentation != oldValue {
                 renderedState = nil
             }
         }
@@ -335,6 +417,8 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
             button.setTitle(nil, for: .normal)
             button.setImage(UIImage(systemName: "globe"), for: .normal)
             button.tintColor = .label
+        } else if key == .return {
+            configureReturnKey(button)
         } else {
             button.setImage(nil, for: .normal)
             button.setTitle(title(for: key, state: state), for: .normal)
@@ -350,6 +434,28 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
         } else if key == .shift, state.shift == .on {
             button.accessibilityValue = "On"
             button.isActiveSpecial = true
+        }
+    }
+
+    private func configureReturnKey(_ button: UIButton) {
+        switch returnKeyPresentation.visual {
+        case .title(let title):
+            button.setImage(nil, for: .normal)
+            button.setTitle(title, for: .normal)
+        case .systemImage(let name):
+            let configuration = UIImage.SymbolConfiguration(
+                pointSize: 24,
+                weight: .regular
+            )
+            button.setTitle(nil, for: .normal)
+            button.setImage(
+                UIImage(
+                    systemName: name,
+                    withConfiguration: configuration
+                ),
+                for: .normal
+            )
+            button.tintColor = .label
         }
     }
 
@@ -370,7 +476,11 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
         case .page(.symbols): "#+="
         case .globe: ""
         case .space: ""
-        case .return: returnKeyTitle
+        case .return:
+            switch returnKeyPresentation.visual {
+            case .title(let title): title
+            case .systemImage: ""
+            }
         }
     }
 
@@ -384,10 +494,7 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
         case .page(.symbols): "Symbols"
         case .globe: "Next keyboard"
         case .space: "Space"
-        case .return:
-            returnKeyTitle == Self.defaultReturnKeyTitle
-                ? "Return"
-                : returnKeyTitle
+        case .return: returnKeyPresentation.accessibilityLabel
         }
     }
 
@@ -433,7 +540,7 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
     private func titleSize(for key: KeyboardKey) -> CGFloat {
         switch key {
         case .return:
-            returnKeyTitle == Self.defaultReturnKeyTitle ? 24 : 18
+            24
         case .page: 18
         case .space: 16
         default: 22
