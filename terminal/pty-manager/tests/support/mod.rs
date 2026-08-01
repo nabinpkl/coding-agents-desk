@@ -30,7 +30,11 @@ impl RunningVault {
             vault.run_until(thread_shutdown).expect("run vault");
         });
         let readiness_client = VaultClient::new(socket_path.clone());
-        for _ in 0..200 {
+        // `cargo test` runs every test binary at once and each spawns vaults and PTYs, so a 2s
+        // budget here fails under nothing worse than load: the suite passes in isolation and
+        // reports a bogus "vault socket did not become ready" when run whole. Give startup room,
+        // and name the socket so a real failure is not mistaken for this again.
+        for _ in 0..1_000 {
             if readiness_client.list().is_ok() {
                 return Self {
                     socket_path,
@@ -40,7 +44,7 @@ impl RunningVault {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        panic!("vault socket did not become ready");
+        panic!("vault socket did not become ready: {}", socket_path.display());
     }
 }
 
