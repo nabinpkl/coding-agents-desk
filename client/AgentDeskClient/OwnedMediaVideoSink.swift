@@ -324,6 +324,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     // makes "frames went in, nothing came out" expressible in one line.
     private var lastRenderDiagnosticsKey: String?
     private var videoEnqueueCount: UInt64 = 0
+    private var rendererFailureObservers: [NSObjectProtocol] = []
     private var pendingGraphicsResetRequest: OwnedGraphicsResetRequest?
     // ADR-0027 render-stall watchdog state. lastVideoArrivalUptimeNs is set on every
     // video frame that reaches the sink (the host is sending); lastVideoEnqueueUptimeNs
@@ -366,6 +367,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         // surface layer a clear background so its transparent (reverted) regions reveal the
         // video beneath. Both share resizeAspect against the same bounds, so a tile at
         // (x, y) lines up with the same point of the video floor.
+        observeRendererFailures()
         videoLayer.videoGravity = .resizeAspect
         videoLayer.backgroundColor = UIColor.black.cgColor
         videoLayer.isHidden = true
@@ -567,6 +569,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                     // with the render side unconditionally, so a steady healthy-looking stream
                     // still states what the layer is doing.
                     reportRenderDiagnostics(reason: "window", force: true)
+                    reportVideoPerformanceMetrics()
                 }
             case .decodeOnly:
                 videoStatusTracker.notePresentationSkip(bytes: frame.frameBytes)
@@ -618,6 +621,81 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                     "reason": String(describing: result)
                 ],
                 level: .error
+            )
+        }
+    }
+
+    /// R230. The decoder failure signal the layer-level API does not have.
+    ///
+    /// `decodeAndEnqueue` returns `.enqueued` the moment a sample is accepted, and the layer
+    /// reports no per-sample result -- so a decode that fails afterwards is invisible. The
+    /// renderer publishes both of these as notifications, which is the only push signal there is.
+    private func observeRendererFailures() {
+        let renderer = videoLayer.sampleBufferRenderer
+        let center = NotificationCenter.default
+        rendererFailureObservers.append(
+            center.addObserver(
+                forName: AVSampleBufferVideoRenderer.didFailToDecodeNotification,
+                object: renderer,
+                queue: .main
+            ) { [weak self] note in
+                // Flattened to a String before the hop: the userInfo value is not Sendable, and
+                // the only part of it worth keeping is its description.
+                let detail = String(
+                    describing: note.userInfo?[AVSampleBufferVideoRenderer.didFailToDecodeNotificationErrorKey]
+                )
+                MainActor.assumeIsolated {
+                    self?.noteRendererFailure(kind: "decode-failed", detail: detail)
+                }
+            }
+        )
+        rendererFailureObservers.append(
+            center.addObserver(
+                forName: AVSampleBufferVideoRenderer.requiresFlushToResumeDecodingDidChangeNotification,
+                object: renderer,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    // Read through self rather than capturing the renderer, which is not Sendable.
+                    self.noteRendererFailure(
+                        kind: "requires-flush-changed",
+                        detail: String(self.videoLayer.sampleBufferRenderer.requiresFlushToResumeDecoding)
+                    )
+                }
+            }
+        )
+    }
+
+    private func noteRendererFailure(kind: String, detail: String) {
+        ownedMediaStderrTrace("video-renderer-\(kind) detail=\(detail)")
+        ClientDiagnostics.shared.record(
+            type: "videoRendererFailure",
+            fields: ["kind": kind, "detail": detail],
+            level: .error
+        )
+        reportRenderDiagnostics(reason: kind, force: true)
+    }
+
+    /// R230. The display-side frame counters, the denominator every existing signal has been
+    /// missing: `totalNumberOfFrames` counts what the renderer actually handled, so comparing it
+    /// against our enqueue count states "frames in, frames out" directly. Async, so it rides the
+    /// window boundary rather than the hot path.
+    private func reportVideoPerformanceMetrics() {
+        let renderer = videoLayer.sampleBufferRenderer
+        let enqueued = videoEnqueueCount
+        Task { @MainActor in
+            guard let metrics = await renderer.videoPerformanceMetrics else { return }
+            ownedMediaStderrTrace("video-performance enqueued=\(enqueued) totalFrames=\(metrics.totalNumberOfFrames) dropped=\(metrics.numberOfDroppedFrames) corrupted=\(metrics.numberOfCorruptedFrames)")
+            ClientDiagnostics.shared.record(
+                type: "videoPerformanceMetrics",
+                fields: [
+                    "enqueued": String(enqueued),
+                    "totalFrames": String(metrics.totalNumberOfFrames),
+                    "dropped": String(metrics.numberOfDroppedFrames),
+                    "corrupted": String(metrics.numberOfCorruptedFrames)
+                ],
+                level: .info
             )
         }
     }

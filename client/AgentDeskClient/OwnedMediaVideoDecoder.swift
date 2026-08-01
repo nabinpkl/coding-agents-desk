@@ -302,8 +302,15 @@ final class OwnedMediaVideoLayerEnqueuer: OwnedMediaVideoEnqueuing {
         displayLayer.flushAndRemoveImage()
     }
 
-    var displayStatus: String {
-        switch displayLayer.status {
+    // R230. Read the RENDERER, not the layer. `AVSampleBufferDisplayLayer`'s own `status`,
+    // `error`, `timebase` and `enqueueSampleBuffer:` are all deprecated as of iOS 18, each
+    // pointing at `sampleBufferRenderer` instead. On a device showing a black screen the
+    // deprecated surface reported `rendering`, no error and no flush required, indefinitely --
+    // so the legacy properties are, at best, not the live state.
+    private var renderer: AVSampleBufferVideoRenderer { displayLayer.sampleBufferRenderer }
+
+    private func describe(_ status: AVQueuedSampleBufferRenderingStatus) -> String {
+        switch status {
         case .unknown: return "unknown"
         case .rendering: return "rendering"
         case .failed: return "failed"
@@ -311,8 +318,10 @@ final class OwnedMediaVideoLayerEnqueuer: OwnedMediaVideoEnqueuing {
         }
     }
 
+    var displayStatus: String { describe(renderer.status) }
+
     var requiresFlushToResumeDecoding: Bool {
-        displayLayer.requiresFlushToResumeDecoding
+        renderer.requiresFlushToResumeDecoding
     }
 
     var renderDiagnostics: [String: String] {
@@ -320,8 +329,16 @@ final class OwnedMediaVideoLayerEnqueuer: OwnedMediaVideoEnqueuing {
         let frame = displayLayer.frame
         var fields: [String: String] = [
             "status": displayStatus,
-            "requiresFlush": String(displayLayer.requiresFlushToResumeDecoding),
+            "requiresFlush": String(renderer.requiresFlushToResumeDecoding),
             "readyForMore": String(displayLayer.isReadyForMoreMediaData),
+            // The legacy surface reported alongside the renderer's, deliberately. If these ever
+            // disagree, the disagreement IS the finding: it would mean the properties this code
+            // has been trusting are not describing the thing actually on screen.
+            "legacyStatus": describe(displayLayer.status),
+            // The only signal that measures pixels rather than intent: what is displayed right
+            // now, as opposed to what has been handed over. nil here while frames are being
+            // enqueued is the black screen, stated directly for the first time.
+            "displayedFrame": renderer.displayedPixelBuffer() != nil ? "present" : "none",
             // Geometry: any of these alone renders a correctly-decoding layer invisible, and
             // none of them was being read.
             "hidden": String(displayLayer.isHidden),
@@ -341,8 +358,11 @@ final class OwnedMediaVideoLayerEnqueuer: OwnedMediaVideoEnqueuing {
         } else {
             fields["timebaseRate"] = "none"
         }
-        if let error = displayLayer.error {
+        if let error = renderer.error {
             fields["error"] = String(describing: error)
+        }
+        if let legacyError = displayLayer.error {
+            fields["legacyError"] = String(describing: legacyError)
         }
         return fields
     }
