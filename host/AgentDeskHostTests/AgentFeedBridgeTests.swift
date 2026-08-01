@@ -27,14 +27,15 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     var eventsPage = AgentFeedEventsPage(events: [], total: 0)
     var rawEvent = ""
     var eventFetchDelayMilliseconds = 0
+    var messageError: Error?
 
     private let lock = NSLock()
     private var projectSnapshot: (@Sendable (AgentFeedProjectsSnapshot) -> Void)?
     private var projectError: (@Sendable (Error) -> Void)?
     private var sessionSnapshot: (@Sendable (AgentFeedSessionsSnapshot) -> Void)?
     private var sessionError: (@Sendable (Error) -> Void)?
-    private var eventCallbacks: [String: @Sendable (AgentFeedActivityEvent) -> Void] = [:]
-    private var eventErrors: [String: @Sendable (Error) -> Void] = [:]
+    private var eventCallbacks: [String: @Sendable (AgentFeedTimelineEnvelope) -> Void] = [:]
+    private var eventErrorHistory: [@Sendable (Error) -> Void] = []
     private var _cancelledStreams = 0
     private var _eventRequests: [EventRequest] = []
     private var _rawRequests: [RawRequest] = []
@@ -113,16 +114,16 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     func openEventStream(
         source: String,
         sessionId: String,
-        after: Int,
+        afterSequence: Int,
         mode: AgentFeedEventMode,
-        onEvent: @escaping @Sendable (AgentFeedActivityEvent) -> Void,
+        onEnvelope: @escaping @Sendable (AgentFeedTimelineEnvelope) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
         lock.withLock {
             _openedEventStreams += 1
             _streamModes.append(mode)
-            eventCallbacks["\(source):\(sessionId)"] = onEvent
-            eventErrors["\(source):\(sessionId)"] = onError
+            eventCallbacks["\(source):\(sessionId)"] = onEnvelope
+            eventErrorHistory.append(onError)
         }
         return cancellableHandle()
     }
@@ -139,7 +140,43 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
 
     func pushEvent(source: String, sessionId: String, event: AgentFeedActivityEvent) {
         let callback = lock.withLock { eventCallbacks["\(source):\(sessionId)"] }
-        callback?(event)
+        callback?(AgentFeedTimelineEnvelope(
+            kind: "upsert",
+            sequence: event.index + 1,
+            mode: "nice",
+            events: [event],
+            windowStart: event.index,
+            total: event.index + 1,
+            runState: "running",
+            queue: AgentFeedQueueState(steer: 0, followUp: 0),
+            usage: event.usage
+        ))
+    }
+
+    func failEventStream(at index: Int, error: Error) {
+        let callback = lock.withLock { eventErrorHistory[index] }
+        callback(error)
+    }
+
+    func createSession(requestId: String, source: String, projectPath: String) async throws -> AgentFeedSessionSummary {
+        AgentFeedSessionSummary(sessionId: "created", source: source, title: "Created", lastEventAt: 1, activity: "ready", capabilities: piCapabilities())
+    }
+
+    func sendMessage(requestId: String, source: String, sessionId: String, text: String, delivery: String) async throws -> AgentFeedCommandReceipt {
+        if let messageError { throw messageError }
+        return AgentFeedCommandReceipt(requestId: requestId, delivery: delivery == "steer" ? "steer" : "immediate")
+    }
+
+    func abortSession(requestId: String, source: String, sessionId: String) async throws -> AgentFeedCommandReceipt {
+        AgentFeedCommandReceipt(requestId: requestId, delivery: "abort")
+    }
+
+    func openExtensionUIStream(source: String, sessionId: String, onRequest: @escaping @Sendable (AgentFeedExtensionUIRequest) -> Void, onError: @escaping @Sendable (Error) -> Void) -> SidecarStreamHandle {
+        cancellableHandle()
+    }
+
+    func respondToExtensionUI(source: String, sessionId: String, requestId: String, value: AgentJSONValue) async throws -> AgentFeedCommandReceipt {
+        AgentFeedCommandReceipt(requestId: requestId, delivery: "ui")
     }
 
     private func cancellableHandle() -> SidecarStreamHandle {
@@ -186,11 +223,22 @@ private func waitFor(
 
 private func event(index: Int) -> AgentFeedActivityEvent {
     AgentFeedActivityEvent(
+        id: "event-\(index)",
         index: index,
+        revision: 0,
+        phase: "complete",
         ts: 1_700_000_000_000,
         type: "assistant",
         blocks: [AgentFeedActivityBlock(kind: "text", text: "hello")]
     )
+}
+
+private func piCapabilities() -> AgentFeedSessionCapabilities {
+    AgentFeedSessionCapabilities(modes: ["nice"], canSend: true, canSteer: true, canAbort: true, canFetchRaw: false, canOpenTerminal: false, supportsExtensionUi: true)
+}
+
+private func transcriptCapabilities() -> AgentFeedSessionCapabilities {
+    AgentFeedSessionCapabilities(modes: ["raw", "nice"], canSend: false, canSteer: false, canAbort: false, canFetchRaw: true, canOpenTerminal: true, supportsExtensionUi: false)
 }
 
 struct AgentFeedBridgeTests {
@@ -200,7 +248,7 @@ struct AgentFeedBridgeTests {
             AgentFeedProjectSummary(
                 projectPath: "/project",
                 displayName: "project",
-                sourceCounts: AgentFeedProjectSourceCounts(claude: 1, codex: 1),
+                sourceCounts: AgentFeedProjectSourceCounts(values: ["claude": 1, "codex": 1]),
                 sessionCount: 2,
                 lastEventAt: 10
             ),
@@ -211,14 +259,16 @@ struct AgentFeedBridgeTests {
                 source: "claude",
                 title: "Claude thread",
                 lastEventAt: 10,
-                activity: "live"
+                activity: "live",
+                capabilities: transcriptCapabilities()
             ),
             AgentFeedSessionSummary(
                 sessionId: "shared",
                 source: "codex",
                 title: "Codex thread",
                 lastEventAt: 9,
-                activity: "ready"
+                activity: "ready",
+                capabilities: transcriptCapabilities()
             ),
         ])
         let sink = CapturingSink()
@@ -230,7 +280,7 @@ struct AgentFeedBridgeTests {
         let projects = try sink.decode(AgentProjectsPush.self, at: 0)
         #expect(projects.subscriptionId == "projects-1")
         #expect(projects.projects[0].sessionCount == 2)
-        #expect(projects.projects[0].sourceCounts == AgentProjectSourceCounts(claude: 1, codex: 1))
+        #expect(projects.projects[0].sourceCounts == ["claude": 1, "codex": 1])
 
         bridge.handleProjectSessionsWatch(AgentProjectSessionsWatch(
             subscriptionId: "sessions-1",
@@ -306,6 +356,27 @@ struct AgentFeedBridgeTests {
         #expect(fake.openedEventStreams == 0)
     }
 
+    @Test func aReplacedStreamCannotPublishAnErrorIntoTheNewGeneration() async throws {
+        let fake = FakeSidecarClient()
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: sink.accept)
+        let subscription = AgentThreadSubscribe(source: "pi", sessionId: "shared", mode: "nice")
+
+        bridge.handleThreadSubscribe(subscription)
+        await waitFor { fake.openedEventStreams == 1 && sink.count == 1 }
+        bridge.handleThreadSubscribe(subscription)
+        await waitFor { fake.openedEventStreams == 2 && sink.count == 2 }
+
+        fake.failEventStream(at: 0, error: SidecarClientError.server("old stream failed"))
+        try await Task.sleep(for: .milliseconds(25))
+        fake.pushEvent(source: "pi", sessionId: "shared", event: event(index: 0))
+        await waitFor { sink.count == 3 }
+
+        let live = try sink.decode(AgentThreadChunk.self, at: 2)
+        #expect(live.source == "pi")
+        #expect(live.kind == "upsert")
+    }
+
     @Test func olderAndRawRequestsRequireSource() async throws {
         let fake = FakeSidecarClient()
         fake.eventsPage = AgentFeedEventsPage(events: [event(index: 3)], total: 10)
@@ -370,7 +441,16 @@ struct AgentFeedBridgeTests {
             "source": "claude",
             "title": "Title",
             "lastEventAt": 1782851101572.0078,
-            "activity": "paused"
+            "activity": "paused",
+            "capabilities": {
+              "modes": ["raw", "nice"],
+              "canSend": false,
+              "canSteer": false,
+              "canAbort": false,
+              "canFetchRaw": true,
+              "canOpenTerminal": true,
+              "supportsExtensionUi": false
+            }
           }]
         }
         """.data(using: .utf8)!
@@ -379,6 +459,32 @@ struct AgentFeedBridgeTests {
         let sessions = try JSONDecoder().decode(AgentFeedSessionsSnapshot.self, from: sessionJSON)
         #expect(projects.projects[0].lastEventAt == 1782851101572.0078)
         #expect(sessions.sessions[0].activity == "paused")
+    }
+
+    @Test func commandErrorsPreserveSidecarCodeAndRetryability() async throws {
+        let fake = FakeSidecarClient()
+        fake.messageError = SidecarClientError.command(
+            code: "request-conflict",
+            message: "request id was reused",
+            requestId: "send-1",
+            retryable: false
+        )
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: sink.accept)
+
+        bridge.handleSessionSend(AgentSessionSend(
+            requestId: "send-1",
+            source: "pi",
+            sessionId: "session",
+            text: "hello",
+            delivery: "next"
+        ))
+        await waitFor { sink.count == 1 }
+
+        let error = try sink.decode(AgentCommandError.self, at: 0)
+        #expect(error.code == "request-conflict")
+        #expect(error.message == "request id was reused")
+        #expect(error.retryable == false)
     }
 }
 
@@ -433,7 +539,113 @@ private final class LateBaseURL: @unchecked Sendable {
     }
 }
 
-@Suite struct HttpSidecarClientReadinessTests {
+private final class RequestHeaderBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: String?
+
+    func record(_ value: String?) {
+        lock.withLock { self.value = value }
+    }
+
+    var authorization: String? {
+        lock.withLock { value }
+    }
+}
+
+private final class AgentFeedURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        do {
+            let handler = try #require(Self.handler)
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
+}
+
+@Suite(.serialized) struct HttpSidecarClientReadinessTests {
+    @Test func everySidecarRequestCarriesThePerSpawnBearerToken() async throws {
+        let headers = RequestHeaderBox()
+        AgentFeedURLProtocol.handler = { request in
+            headers.record(request.value(forHTTPHeaderField: "Authorization"))
+            let response = try #require(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            return (response, Data(#"{"projects":[]}"#.utf8))
+        }
+        defer { AgentFeedURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AgentFeedURLProtocol.self]
+        let client = HttpSidecarClient(
+            endpointProvider: {
+                AgentFeedSidecarEndpoint(
+                    baseURL: URL(string: "https://agent-feed.invalid")!,
+                    controlToken: "spawn-secret"
+                )
+            },
+            session: URLSession(configuration: configuration)
+        )
+
+        _ = try await client.fetchProjects()
+
+        #expect(headers.authorization == "Bearer spawn-secret")
+    }
+
+    @Test func commandFailuresDecodeTheSidecarErrorContract() async throws {
+        AgentFeedURLProtocol.handler = { request in
+            let response = try #require(HTTPURLResponse(
+                url: request.url!,
+                statusCode: 409,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            return (response, Data(#"{"error":{"code":"request-conflict","message":"request id was reused","requestId":"send-2","retryable":false}}"#.utf8))
+        }
+        defer { AgentFeedURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AgentFeedURLProtocol.self]
+        let client = HttpSidecarClient(
+            endpointProvider: {
+                AgentFeedSidecarEndpoint(
+                    baseURL: URL(string: "https://agent-feed.invalid")!,
+                    controlToken: "spawn-secret"
+                )
+            },
+            session: URLSession(configuration: configuration)
+        )
+
+        do {
+            _ = try await client.sendMessage(
+                requestId: "send-2",
+                source: "pi",
+                sessionId: "session",
+                text: "hello",
+                delivery: "next"
+            )
+            Issue.record("expected structured sidecar error")
+        } catch {
+            #expect(error as? SidecarClientError == .command(
+                code: "request-conflict",
+                message: "request id was reused",
+                requestId: "send-2",
+                retryable: false
+            ))
+        }
+    }
+
     /// The failure this exists to prevent: the host starts the sidecar alongside the
     /// windows that read it, so a consumer can arrive first. On 2026-07-30 the restored
     /// Agents window subscribed at 16:04:24.200 and the sidecar published its URL at
@@ -442,7 +654,9 @@ private final class LateBaseURL: @unchecked Sendable {
     /// session over a one-second overlap.
     @Test func aStreamOpenedBeforeTheSidecarIsUpWaitsForItInsteadOfFailing() async throws {
         let late = LateBaseURL()
-        let client = HttpSidecarClient(baseURLProvider: { await late.resolve() })
+        let client = HttpSidecarClient(endpointProvider: {
+            await late.resolve().map { AgentFeedSidecarEndpoint(baseURL: $0, controlToken: "test-token") }
+        })
 
         // Subscribing before anything is published must NOT report an error.
         let outcome = SidecarOutcomeBox()
@@ -461,7 +675,7 @@ private final class LateBaseURL: @unchecked Sendable {
     @Test func aStreamStillReportsFailureWhenTheSidecarNeverArrives() async {
         // Waiting must be bounded: a provider that gives up still surfaces an error, so a
         // genuinely dead sidecar shows as one rather than hanging the window forever.
-        let client = HttpSidecarClient(baseURLProvider: { nil })
+        let client = HttpSidecarClient(endpointProvider: { nil })
         let error: Error = await withCheckedContinuation { continuation in
             _ = client.openProjectsStream(
                 onSnapshot: { _ in },
@@ -472,7 +686,7 @@ private final class LateBaseURL: @unchecked Sendable {
     }
 
     @Test func oneShotAPIsThrowNotReadyWhenSidecarDown() async {
-        let client = HttpSidecarClient(baseURLProvider: { nil })
+        let client = HttpSidecarClient(endpointProvider: { nil })
         do {
             _ = try await client.fetchProjects()
             Issue.record("expected notReady")
@@ -488,14 +702,14 @@ private final class LateBaseURL: @unchecked Sendable {
     }
 
     @Test func eventStreamReportsNotReadyWhenSidecarDown() async {
-        let client = HttpSidecarClient(baseURLProvider: { nil })
+        let client = HttpSidecarClient(endpointProvider: { nil })
         let error: Error = await withCheckedContinuation { continuation in
             _ = client.openEventStream(
                 source: "codex",
                 sessionId: "session",
-                after: 0,
+                afterSequence: 0,
                 mode: .raw,
-                onEvent: { _ in },
+                onEnvelope: { _ in },
                 onError: { continuation.resume(returning: $0) }
             )
         }

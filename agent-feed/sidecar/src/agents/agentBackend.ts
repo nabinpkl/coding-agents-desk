@@ -37,6 +37,22 @@ export interface AgentCommandReceipt {
   delivery: "immediate" | "followUp" | "steer" | "abort";
 }
 
+export type AgentUiRequestKind = "select" | "confirm" | "input" | "editor" | "notify" | "status" | "widget";
+
+export interface AgentUiRequest {
+  requestId: string;
+  kind: AgentUiRequestKind;
+  title?: string;
+  message?: string;
+  options?: string[];
+  placeholder?: string;
+  prefill?: string;
+  level?: "info" | "warning" | "error";
+  key?: string;
+  lines?: string[];
+  expectsResponse: boolean;
+}
+
 export interface AgentBackend {
   readonly id: string;
   readonly capabilities: AgentSessionCapabilities;
@@ -45,6 +61,8 @@ export interface AgentBackend {
   subscribe(sessionId: string, afterSequence: number, listener: (envelope: TimelineEnvelope) => void): Promise<() => void>;
   send(sessionId: string, requestId: string, text: string, delivery: AgentMessageDelivery): Promise<AgentCommandReceipt>;
   abort(sessionId: string, requestId: string): Promise<AgentCommandReceipt>;
+  subscribeUi(sessionId: string, listener: (request: AgentUiRequest) => void): Promise<() => void>;
+  respondToUi(sessionId: string, requestId: string, value: unknown): Promise<boolean>;
   dispose(): Promise<void>;
 }
 

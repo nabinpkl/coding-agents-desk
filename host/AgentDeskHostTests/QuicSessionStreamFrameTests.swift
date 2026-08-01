@@ -250,9 +250,9 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded.cursorRevision == 11)
     }
 
-    @Test func protocolVersionIsFifteenForLayeredAgentFeed() {
-        #expect(Config.protocolVersion == 15)
-        #expect(Config.minCompatibleProtocolVersion == 15)
+    @Test func protocolVersionIsSixteenForLiveAgentSessions() {
+        #expect(Config.protocolVersion == 16)
+        #expect(Config.minCompatibleProtocolVersion == 16)
     }
 
     @available(macOS 26.0, *)
@@ -524,10 +524,12 @@ struct QuicSessionHostMediaStateTests {
         #expect(decision.observation.freshness.abandonedBytes == 42)
         #expect(decision.observation.signals.stalePressure)
         #expect(decision.observation.signals.cadencePressure)
-        #expect(decision.outcome.target.rung == .capacity1)
-        // R231: the rung and the two free axes move on this window; resolution is not in the
-        // list because it costs a keyframe and one window of pressure has not earned one.
-        #expect(decision.changedAxes == "bitrate,fps,rung")
+        // R231b: one window of stale pressure holds rather than downshifting -- 30 of 31
+        // measured bursts lasted exactly one window, and acting on each is what made the ladder
+        // oscillate. R231: when it does downshift, resolution still is not in the list, because
+        // it costs a keyframe and the other two axes are free.
+        #expect(decision.outcome.target.rung == .native)
+        #expect(decision.changedAxes == "none")
         #expect(decision.observation.ackCount == 0)
     }
 

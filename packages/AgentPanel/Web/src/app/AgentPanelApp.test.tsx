@@ -68,7 +68,7 @@ vi.mock("../features/activity-feed/DiffBlock", () => ({
 const FIXTURE_PROJECT_A = {
   pp: "/projects/alpha",
   dn: "Alpha Project",
-  sc: { cl: 1, co: 1 },
+  sc: { claude: 1, codex: 1 },
   sn: 2,
   lea: Date.now() - 10_000,
 };
@@ -76,12 +76,21 @@ const FIXTURE_PROJECT_A = {
 const FIXTURE_PROJECT_B = {
   pp: "/projects/beta",
   dn: "Beta Project",
-  sc: { cl: 1, co: 0 },
+  sc: { claude: 1, codex: 0 },
   sn: 1,
   lea: Date.now() - 5_000,
 };
 
 const FIXTURE_PROJECTS = [FIXTURE_PROJECT_A, FIXTURE_PROJECT_B];
+const READ_ONLY_CAPABILITIES = {
+  md: ["raw", "nice"],
+  snd: false,
+  str: false,
+  abt: false,
+  raw: true,
+  pty: true,
+  xui: false,
+};
 const FIXTURE_SESSIONS = [
   {
     sid: "sid-claude-01",
@@ -89,6 +98,7 @@ const FIXTURE_SESSIONS = [
     ttl: "Session Claude 01",
     lea: Date.now() - 10_000,
     ac: "live" as const,
+    cap: READ_ONLY_CAPABILITIES,
   },
   {
     sid: "sid-codex-01",
@@ -96,6 +106,7 @@ const FIXTURE_SESSIONS = [
     ttl: "Session Codex 01",
     lea: Date.now() - 60_000,
     ac: "ready" as const,
+    cap: READ_ONLY_CAPABILITIES,
   },
 ];
 
@@ -653,6 +664,36 @@ describe("App shell", () => {
       });
     });
     expect(screen.getByRole("status")).toHaveTextContent("Codex terminal ready");
+    unmount();
+  });
+
+  it("creates a Pi session, sends through the composer, and answers extension UI", async () => {
+    const { fake, unmount } = setup();
+    deliverProjects(fake);
+    fireEvent.click(screen.getByText("Alpha Project"));
+    deliverSessions(fake);
+
+    fireEvent.click(screen.getByRole("button", { name: "New Pi session" }));
+    const create = fake.posted.at(-1) as { rid: string };
+    await act(async () => {
+      fake.deliver({ t: "agent-command-receipt", rid: create.rid, src: "pi", sid: "pi-1", del: "created" });
+    });
+
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-source", "pi");
+    expect(screen.queryByRole("button", { name: /Pi terminal/i })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Message Pi" }), { target: { value: "Inspect the repo" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    const send = fake.posted.at(-1) as { rid: string };
+    expect(send).toMatchObject({ t: "agent-session-send", src: "pi", sid: "pi-1", tx: "Inspect the repo", del: "next" });
+    await act(async () => {
+      fake.deliver({ t: "agent-command-receipt", rid: send.rid, src: "pi", sid: "pi-1", del: "immediate" });
+    });
+
+    act(() => {
+      fake.deliver({ t: "agent-extension-ui-request", src: "pi", sid: "pi-1", rid: "ui-1", k: "confirm", ttl: "Proceed?", m: "Run it", er: true });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(fake.posted.at(-1)).toEqual({ t: "agent-extension-ui-response", src: "pi", sid: "pi-1", rid: "ui-1", v: true });
     unmount();
   });
 });

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { LoaderCircle, Terminal as TerminalIcon } from "lucide-react";
+import { LoaderCircle, Plus, Send, Square, Terminal as TerminalIcon } from "lucide-react";
 import type {
+  AgentExtensionUIRequest,
   AgentTerminalContext,
   AgentTerminalRequest,
   AgentTerminalStatus,
@@ -8,7 +9,7 @@ import type {
   BridgeProject,
   BridgeSessionSummary,
 } from "../features/activity-feed/data-source/BridgeDataSource";
-import type { EventMode } from "../features/activity-feed/data-source/AgentDataSource";
+import type { AgentSessionState, EventMode } from "../features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "../features/activity-feed/data-source/AgentDataSourceContext";
 import { ActivityFeed } from "../features/activity-feed/ActivityFeed";
 import { FontSizeRoot } from "../features/activity-feed/fontStore";
@@ -67,6 +68,16 @@ export function App({ bridge }: Props) {
   const [loadingLayer, setLoadingLayer] = useState(true);
   const [layerError, setLayerError] = useState<string | null>(null);
   const [terminal, setTerminal] = useState<TerminalState>({ kind: "idle" });
+  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [commandPending, setCommandPending] = useState(false);
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const [sessionState, setSessionState] = useState<AgentSessionState>({
+    sequence: 0,
+    runState: "idle",
+    queue: { steer: 0, followUp: 0 },
+  });
+  const [extensionUI, setExtensionUI] = useState<AgentExtensionUIRequest[]>([]);
   // The thread's own controls render into the header through this node, so the
   // feed does not spend a band of its own on them. Held in state, not a ref,
   // because the feed has to re-render once the node exists.
@@ -183,6 +194,16 @@ export function App({ bridge }: Props) {
     [bridge],
   );
 
+  useEffect(
+    () => bridge.subscribeExtensionUI((request) => {
+      setExtensionUI((current) => [
+        ...current.filter((item) => item.requestId !== request.requestId),
+        request,
+      ].slice(-8));
+    }),
+    [bridge],
+  );
+
   const openProject = useCallback((project: BridgeProject) => {
     setNav({ view: "sessions", project });
   }, []);
@@ -203,6 +224,13 @@ export function App({ bridge }: Props) {
   const openSession = useCallback(
     (project: BridgeProject, session: BridgeSessionSummary) => {
       if (nav.view === "thread") endCurrentTerminalContext();
+      setEventMode((current) => session.capabilities.modes.includes(current)
+        ? current
+        : (session.capabilities.modes[0] ?? "nice"));
+      setDraft("");
+      setCommandError(null);
+      setSessionState({ sequence: 0, runState: "idle", queue: { steer: 0, followUp: 0 } });
+      setExtensionUI([]);
       setNav({ view: "thread", project, session });
     },
     [endCurrentTerminalContext, nav.view],
@@ -219,6 +247,7 @@ export function App({ bridge }: Props) {
 
   const openTerminal = useCallback(() => {
     if (nav.view !== "thread") return;
+    if (!isTerminalSource(nav.session.source) || !nav.session.capabilities.canOpenTerminal) return;
     const context: AgentTerminalContext = {
       projectPath: nav.project.projectPath,
       source: nav.session.source,
@@ -228,6 +257,55 @@ export function App({ bridge }: Props) {
     setTerminal({ kind: "loading", request });
     bridge.openTerminal(request);
   }, [bridge, nav]);
+
+  const createPiSession = useCallback(async () => {
+    if (nav.view !== "sessions" || creating) return;
+    setCreating(true);
+    setLayerError(null);
+    try {
+      const receipt = await bridge.createSession(nav.project.projectPath, "pi");
+      openSession(nav.project, {
+        sessionId: receipt.sid,
+        source: "pi",
+        title: "New Pi session",
+        lastEventAt: Date.now(),
+        activity: "ready",
+        capabilities: piCapabilities,
+      });
+    } catch (error) {
+      setLayerError(String((error as Error).message ?? error));
+    } finally {
+      setCreating(false);
+    }
+  }, [bridge, creating, nav, openSession]);
+
+  const sendPrompt = useCallback(async (delivery: "next" | "steer") => {
+    if (nav.view !== "thread" || commandPending || !draft.trim()) return;
+    const text = draft.trim();
+    setCommandPending(true);
+    setCommandError(null);
+    try {
+      await bridge.sendMessage(nav.session, text, delivery);
+      setDraft("");
+    } catch (error) {
+      setCommandError(String((error as Error).message ?? error));
+    } finally {
+      setCommandPending(false);
+    }
+  }, [bridge, commandPending, draft, nav]);
+
+  const abortRun = useCallback(async () => {
+    if (nav.view !== "thread" || commandPending) return;
+    setCommandPending(true);
+    setCommandError(null);
+    try {
+      await bridge.abortSession(nav.session);
+    } catch (error) {
+      setCommandError(String((error as Error).message ?? error));
+    } finally {
+      setCommandPending(false);
+    }
+  }, [bridge, commandPending, nav]);
 
   const closeTerminal = useCallback(() => {
     const request = terminalRequest(terminal);
@@ -287,7 +365,20 @@ export function App({ bridge }: Props) {
                 : nav.session.title ?? nav.session.sessionId}
           </h1>
           <div ref={setThreadControlsHost} className="flex shrink-0 items-center" />
-          {nav.view === "thread" ? (
+          {nav.view === "sessions" ? (
+            <button
+              type="button"
+              onClick={createPiSession}
+              disabled={creating}
+              aria-label="New Pi session"
+              title="New Pi session"
+              className="flex h-8 items-center gap-1 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+            >
+              {creating ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Plus className="size-4" aria-hidden />}
+              Pi
+            </button>
+          ) : null}
+          {nav.view === "thread" && nav.session.capabilities.canOpenTerminal && isTerminalSource(nav.session.source) ? (
             <TerminalControl
               source={nav.session.source}
               state={terminal}
@@ -352,21 +443,205 @@ export function App({ bridge }: Props) {
                 sessionId={nav.session.sessionId}
                 mode={eventMode}
                 onToggleMode={toggleEventMode}
+                canToggleMode={nav.session.capabilities.modes.length > 1}
                 controlsHost={threadControlsHost}
+                onSessionState={setSessionState}
               />
             </div>
           )}
         </main>
+        {nav.view === "thread" && nav.session.capabilities.supportsExtensionUI ? (
+          <ExtensionUISurface
+            requests={extensionUI.filter((request) =>
+              request.source === nav.session.source && request.sessionId === nav.session.sessionId)}
+            onRespond={(request, value) => {
+              bridge.respondToExtensionUI(request, value);
+              setExtensionUI((current) => current.filter((item) => item.requestId !== request.requestId));
+            }}
+            onDismiss={(request) =>
+              setExtensionUI((current) => current.filter((item) => item.requestId !== request.requestId))}
+          />
+        ) : null}
+        {nav.view === "thread" && nav.session.capabilities.canSend ? (
+          <AgentComposer
+            draft={draft}
+            onDraftChange={setDraft}
+            pending={commandPending}
+            error={commandError}
+            state={sessionState}
+            canSteer={nav.session.capabilities.canSteer}
+            canAbort={nav.session.capabilities.canAbort}
+            onSend={() => void sendPrompt("next")}
+            onSteer={() => void sendPrompt("steer")}
+            onAbort={() => void abortRun()}
+          />
+        ) : null}
         {nav.view === "thread" ? (
-          <TerminalNotice source={nav.session.source} state={terminal} />
+          isTerminalSource(nav.session.source) ? <TerminalNotice source={nav.session.source} state={terminal} /> : null
         ) : null}
       </div>
     </DataSourceProvider>
   );
 }
 
+const piCapabilities = {
+  modes: ["nice"],
+  canSend: true,
+  canSteer: true,
+  canAbort: true,
+  canFetchRaw: false,
+  canOpenTerminal: false,
+  supportsExtensionUI: true,
+} satisfies BridgeSessionSummary["capabilities"];
+
+function isTerminalSource(source: string): source is "claude" | "codex" {
+  return source === "claude" || source === "codex";
+}
+
 function harnessName(source: "claude" | "codex"): string {
   return source === "claude" ? "Claude" : "Codex";
+}
+
+function AgentComposer({
+  draft,
+  onDraftChange,
+  pending,
+  error,
+  state,
+  canSteer,
+  canAbort,
+  onSend,
+  onSteer,
+  onAbort,
+}: {
+  draft: string;
+  onDraftChange: (value: string) => void;
+  pending: boolean;
+  error: string | null;
+  state: AgentSessionState;
+  canSteer: boolean;
+  canAbort: boolean;
+  onSend: () => void;
+  onSteer: () => void;
+  onAbort: () => void;
+}) {
+  const running = state.runState === "running";
+  const queued = state.queue.followUp + state.queue.steer;
+  return (
+    <section aria-label="Agent prompt" className="shrink-0 border-t border-border bg-card px-2 py-2">
+      <div className="flex items-end gap-1.5">
+        <textarea
+          value={draft}
+          onChange={(event) => onDraftChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              onSend();
+            }
+          }}
+          maxLength={200_000}
+          rows={1}
+          placeholder={running ? "Queue the next instruction…" : "Message Pi…"}
+          aria-label="Message Pi"
+          className="max-h-28 min-h-9 flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-(length:--agent-panel-fs-sidebar-body,15px) leading-5 outline-none focus:border-primary"
+        />
+        {running && canSteer ? (
+          <button
+            type="button"
+            onClick={onSteer}
+            disabled={pending || !draft.trim()}
+            className="h-9 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+          >
+            Steer
+          </button>
+        ) : null}
+        {running && canAbort ? (
+          <button type="button" onClick={onAbort} disabled={pending} aria-label="Stop agent" className="flex size-9 items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 disabled:opacity-40">
+            <Square className="size-3.5 fill-current" aria-hidden />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={onSend}
+          disabled={pending || !draft.trim()}
+          aria-label={running ? "Queue message" : "Send message"}
+          className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+        >
+          {pending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" aria-hidden />}
+        </button>
+      </div>
+      {queued > 0 || error ? (
+        <div className={`mt-1 px-1 text-(length:--agent-panel-fs-sidebar-meta,13px) ${error ? "text-destructive" : "text-muted-foreground"}`} role={error ? "alert" : "status"}>
+          {error ?? `${queued} queued${state.queue.steer ? `, ${state.queue.steer} steering` : ""}`}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function ExtensionUISurface({
+  requests,
+  onRespond,
+  onDismiss,
+}: {
+  requests: AgentExtensionUIRequest[];
+  onRespond: (request: AgentExtensionUIRequest, value: string | boolean | null) => void;
+  onDismiss: (request: AgentExtensionUIRequest) => void;
+}) {
+  const request = requests.at(-1);
+  if (!request) return null;
+  if (!request.expectsResponse) {
+    return (
+      <div role="status" className="flex shrink-0 items-start gap-2 border-t border-border bg-muted/40 px-3 py-2 text-(length:--agent-panel-fs-sidebar-meta,13px)">
+        <div className="min-w-0 flex-1">
+          <span className="font-medium">{request.title ?? request.key ?? "Pi extension"}</span>
+          {request.message ? <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{request.message}</p> : null}
+          {request.lines?.length ? <pre className="mt-1 overflow-x-auto whitespace-pre-wrap text-muted-foreground">{request.lines.join("\n")}</pre> : null}
+        </div>
+        <button type="button" onClick={() => onDismiss(request)} className="text-muted-foreground hover:text-foreground" aria-label="Dismiss extension notice">Dismiss</button>
+      </div>
+    );
+  }
+  return <ExtensionUIPrompt key={request.requestId} request={request} onRespond={onRespond} />;
+}
+
+function ExtensionUIPrompt({
+  request,
+  onRespond,
+}: {
+  request: AgentExtensionUIRequest;
+  onRespond: (request: AgentExtensionUIRequest, value: string | boolean | null) => void;
+}) {
+  const [value, setValue] = useState(request.prefill ?? "");
+  return (
+    <section role="dialog" aria-label={request.title ?? "Pi extension request"} className="shrink-0 border-t border-primary/30 bg-primary/5 px-3 py-2">
+      <p className="text-(length:--agent-panel-fs-sidebar-body,15px) font-medium">{request.title ?? "Pi extension request"}</p>
+      {request.message ? <p className="mt-1 whitespace-pre-wrap text-(length:--agent-panel-fs-sidebar-meta,13px) text-muted-foreground">{request.message}</p> : null}
+      {request.kind === "select" ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {request.options?.map((option) => (
+            <button key={option} type="button" onClick={() => onRespond(request, option)} className="rounded-lg border border-border bg-card px-3 py-1.5 hover:bg-muted">{option}</button>
+          ))}
+          <button type="button" onClick={() => onRespond(request, null)} className="rounded-lg px-3 py-1.5 text-muted-foreground hover:bg-muted">Cancel</button>
+        </div>
+      ) : request.kind === "confirm" ? (
+        <div className="mt-2 flex justify-end gap-2">
+          <button type="button" onClick={() => onRespond(request, false)} className="rounded-lg px-3 py-1.5 text-muted-foreground hover:bg-muted">Cancel</button>
+          <button type="button" onClick={() => onRespond(request, true)} className="rounded-lg bg-primary px-3 py-1.5 text-primary-foreground">Confirm</button>
+        </div>
+      ) : (
+        <form className="mt-2 flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); onRespond(request, value); }}>
+          {request.kind === "editor" ? (
+            <textarea autoFocus rows={4} maxLength={50_000} value={value} placeholder={request.placeholder} onChange={(event) => setValue(event.target.value)} className="min-w-0 flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 outline-none focus:border-primary" />
+          ) : (
+            <input autoFocus maxLength={50_000} value={value} placeholder={request.placeholder} onChange={(event) => setValue(event.target.value)} className="h-9 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 outline-none focus:border-primary" />
+          )}
+          <button type="button" onClick={() => onRespond(request, null)} className="h-9 rounded-lg px-2 text-muted-foreground hover:bg-muted">Cancel</button>
+          <button type="submit" className="h-9 rounded-lg bg-primary px-3 text-primary-foreground">Submit</button>
+        </form>
+      )}
+    </section>
+  );
 }
 
 /**
@@ -515,9 +790,10 @@ function ProjectList({
       {projects.map((project) => {
         const name =
           project.displayName ?? project.projectPath.split("/").pop() ?? project.projectPath;
-        const sources: Array<"claude" | "codex"> = [];
-        if (project.sourceCounts.claude > 0) sources.push("claude");
-        if (project.sourceCounts.codex > 0) sources.push("codex");
+        const sources = Object.entries(project.sourceCounts)
+          .filter(([, count]) => count > 0)
+          .map(([source]) => source)
+          .sort();
 
         return (
           <li key={project.projectPath}>
@@ -647,12 +923,16 @@ function RetryNotice() {
   );
 }
 
-function SourceBadge({ source }: { source: "claude" | "codex" }) {
-  const label = source === "claude" ? "Claude" : "Codex";
+function SourceBadge({ source }: { source: string }) {
+  const label = source === "claude" ? "Claude" : source === "codex" ? "Codex" : source === "pi" ? "Pi" : source;
   const cls =
     source === "claude"
       ? "bg-violet-500/20 text-violet-400"
-      : "bg-amber-500/20 text-amber-400";
+      : source === "codex"
+        ? "bg-amber-500/20 text-amber-400"
+        : source === "pi"
+          ? "bg-cyan-500/20 text-cyan-400"
+          : "bg-muted text-muted-foreground";
   return (
     <span
       aria-label={`Source: ${label}`}

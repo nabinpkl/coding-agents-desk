@@ -28,7 +28,7 @@ struct AgentFeedWireTests {
                     AgentProjectSummary(
                         projectPath: "/project",
                         displayName: "project",
-                        sourceCounts: AgentProjectSourceCounts(claude: 1, codex: 1),
+                        sourceCounts: ["claude": 1, "codex": 1, "pi": 1],
                         sessionCount: 2,
                         lastEventAt: 100
                     ),
@@ -49,20 +49,26 @@ struct AgentFeedWireTests {
                         source: "claude",
                         title: "Claude",
                         lastEventAt: 100,
-                        activity: "live"
+                        activity: "live",
+                        capabilities: transcriptCapabilities
                     ),
                     AgentSessionSummary(
                         sessionId: "same",
                         source: "codex",
                         title: "Codex",
                         lastEventAt: 90,
-                        activity: "ready"
+                        activity: "ready",
+                        capabilities: transcriptCapabilities
                     ),
                 ]
             ),
             tag: "agent-project-sessions"
         )
         #expect(sessions.sessions.map(\.source) == ["claude", "codex"])
+    }
+
+    private var transcriptCapabilities: AgentSessionCapabilities {
+        AgentSessionCapabilities(modes: ["raw", "nice"], canSend: false, canSteer: false, canAbort: false, canFetchRaw: true, canOpenTerminal: true, supportsExtensionUI: false)
     }
 
     @Test func threadAndRawMessagesCarrySourceAndSession() throws {

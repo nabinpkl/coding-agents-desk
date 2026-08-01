@@ -1,9 +1,10 @@
 import { config } from "./config.ts";
 import {
   BYE_BYTES,
-  CORS_HEADERS,
   jsonResponse,
 } from "./http/httpResponses.ts";
+import { authorizeApiRequest } from "./http/auth.ts";
+import { createAgentRoutes } from "./http/agentRoutes.ts";
 import { handleProjectRoutes } from "./http/projectRoutes.ts";
 import type { RouteHandler } from "./http/route.ts";
 import { handleSessionRoutes } from "./http/sessionRoutes.ts";
@@ -13,9 +14,22 @@ import {
   getWatcherState,
   startCatalog,
   stopCatalog,
+  registerPiSession,
+  resolvePiSession,
 } from "./transcripts/transcriptCatalog.ts";
+import { AgentBackendRegistry } from "./agents/agentBackend.ts";
+import { PiAgentBackend } from "./agents/piAgentBackend.ts";
 
-const routes: RouteHandler[] = [handleProjectRoutes, handleSessionRoutes];
+const backends = new AgentBackendRegistry();
+backends.register(new PiAgentBackend({
+  resolveSession: resolvePiSession,
+  onSessionCreated: registerPiSession,
+}));
+const routes: RouteHandler[] = [
+  handleProjectRoutes,
+  createAgentRoutes((id) => backends.get(id)),
+  handleSessionRoutes,
+];
 const SHUTDOWN_GRACE_MS = 500;
 
 const server = Bun.serve<undefined>({
@@ -23,8 +37,9 @@ const server = Bun.serve<undefined>({
   port: config.port,
   fetch(request, bunServer) {
     const url = new URL(request.url);
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: CORS_HEADERS });
+    if (url.pathname.startsWith("/api/")) {
+      const denied = authorizeApiRequest(request, config.controlToken);
+      if (denied) return denied;
     }
     if (request.method === "GET" && url.pathname === "/api/config") {
       return jsonResponse({
@@ -41,7 +56,6 @@ const server = Bun.serve<undefined>({
     }
     return new Response("not found", {
       status: 404,
-      headers: CORS_HEADERS,
     });
   },
 });
@@ -72,6 +86,11 @@ async function shutdown(signal: string): Promise<void> {
   await Bun.sleep(SHUTDOWN_GRACE_MS);
   for (const stream of [...state.openStreams]) stream.teardown();
   await stopCatalog();
+  try {
+    await backends.dispose();
+  } catch (error) {
+    console.error("agent backend shutdown failed", error);
+  }
   server.stop(true);
   process.exit(0);
 }

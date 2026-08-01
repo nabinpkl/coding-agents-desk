@@ -1,12 +1,16 @@
 import Foundation
 
-/// The harness a request addresses. One validated type for every source-carrying request, terminal
-/// intents included: the decoder is the only boundary between webview-supplied text and the host's
-/// transcript and PTY paths, so an unrecognized harness has to die here rather than travel as a
-/// string that each consumer re-checks (or forgets to).
+/// Terminal sources remain closed because they select executable argv. Feed sources are separately
+/// validated bounded strings so a registered provider such as Pi cannot gain PTY authority.
 public enum AgentPanelAgentSource: String, Equatable, Sendable {
     case claude
     case codex
+}
+
+public enum AgentPanelUIValue: Equatable, Sendable {
+    case null
+    case bool(Bool)
+    case string(String)
 }
 
 /// Which view of a transcript a request addresses: `raw` is every line in file order, `nice` is
@@ -44,22 +48,26 @@ public enum AgentPanelRequest: Equatable, Sendable {
     case projectsUnwatch(subscriptionId: String)
     case projectSessionsWatch(subscriptionId: String, projectPath: String)
     case projectSessionsUnwatch(subscriptionId: String)
-    case threadSubscribe(source: AgentPanelAgentSource, sessionId: String, mode: AgentPanelEventMode)
+    case threadSubscribe(source: String, sessionId: String, mode: AgentPanelEventMode)
     case threadLoadOlder(
-        source: AgentPanelAgentSource,
+        source: String,
         sessionId: String,
         beforeIndex: Int,
         limit: Int,
         mode: AgentPanelEventMode
     )
-    case threadUnsubscribe(source: AgentPanelAgentSource, sessionId: String)
+    case threadUnsubscribe(source: String, sessionId: String)
     case rawEvent(
         requestId: String,
-        source: AgentPanelAgentSource,
+        source: String,
         sessionId: String,
         eventIndex: Int,
         mode: AgentPanelEventMode
     )
+    case createSession(requestId: String, source: String, projectPath: String)
+    case send(requestId: String, source: String, sessionId: String, text: String, delivery: String)
+    case abort(requestId: String, source: String, sessionId: String)
+    case extensionUIResponse(source: String, sessionId: String, requestId: String, value: AgentPanelUIValue)
     case terminal(AgentPanelTerminalIntent)
 
     public static func decode(tag: String, body: [String: Any]) -> AgentPanelRequest? {
@@ -78,7 +86,7 @@ public enum AgentPanelRequest: Equatable, Sendable {
             guard let subscriptionId = nonemptyString(body["sub"]) else { return nil }
             return .projectSessionsUnwatch(subscriptionId: subscriptionId)
         case "agent-thread-sub":
-            guard let source = agentSource(body["src"]),
+            guard let source = feedSource(body["src"]),
                   let sessionId = nonemptyString(body["sid"]),
                   let mode = eventMode(body["md"]) else { return nil }
             return .threadSubscribe(source: source, sessionId: sessionId, mode: mode)
@@ -88,7 +96,7 @@ public enum AgentPanelRequest: Equatable, Sendable {
             // `lim` therefore produces a negative sidecar limit, which comes back as an HTTP 400 the
             // panel surfaces as a thread error. The window the page can cover is still bounded
             // downstream by `bi` and the sidecar's own limit cap, so no upper bound belongs here.
-            guard let source = agentSource(body["src"]),
+            guard let source = feedSource(body["src"]),
                   let sessionId = nonemptyString(body["sid"]),
                   let beforeIndex = body["bi"] as? Int,
                   beforeIndex >= 0,
@@ -105,7 +113,7 @@ public enum AgentPanelRequest: Equatable, Sendable {
                 mode: mode
             )
         case "agent-thread-unsub":
-            guard let source = agentSource(body["src"]),
+            guard let source = feedSource(body["src"]),
                   let sessionId = nonemptyString(body["sid"]) else {
                 return nil
             }
@@ -113,7 +121,7 @@ public enum AgentPanelRequest: Equatable, Sendable {
         case "agent-raw-event-get":
             guard let requestId = body["rid"] as? String,
                   !requestId.isEmpty,
-                  let source = agentSource(body["src"]),
+                  let source = feedSource(body["src"]),
                   let sessionId = nonemptyString(body["sid"]),
                   let eventIndex = body["ei"] as? Int,
                   eventIndex >= 0,
@@ -127,6 +135,31 @@ public enum AgentPanelRequest: Equatable, Sendable {
                 eventIndex: eventIndex,
                 mode: mode
             )
+        case "agent-session-create":
+            guard let requestId = requestIdentifier(body["rid"]),
+                  let source = feedSource(body["src"]),
+                  let projectPath = nonemptyString(body["pp"]) else { return nil }
+            return .createSession(requestId: requestId, source: source, projectPath: projectPath)
+        case "agent-session-send":
+            guard let requestId = requestIdentifier(body["rid"]),
+                  let source = feedSource(body["src"]),
+                  let sessionId = nonemptyString(body["sid"]),
+                  let text = body["tx"] as? String,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let delivery = body["del"] as? String,
+                  delivery == "next" || delivery == "steer" else { return nil }
+            return .send(requestId: requestId, source: source, sessionId: sessionId, text: text, delivery: delivery)
+        case "agent-session-abort":
+            guard let requestId = requestIdentifier(body["rid"]),
+                  let source = feedSource(body["src"]),
+                  let sessionId = nonemptyString(body["sid"]) else { return nil }
+            return .abort(requestId: requestId, source: source, sessionId: sessionId)
+        case "agent-extension-ui-response":
+            guard let requestId = requestIdentifier(body["rid"]),
+                  let source = feedSource(body["src"]),
+                  let sessionId = nonemptyString(body["sid"]),
+                  let value = uiValue(body["v"]) else { return nil }
+            return .extensionUIResponse(source: source, sessionId: sessionId, requestId: requestId, value: value)
         case "agent-terminal-open":
             return decodeTerminalIntent(body: body, make: AgentPanelTerminalIntent.open)
         case "agent-terminal-close":
@@ -146,6 +179,29 @@ public enum AgentPanelRequest: Equatable, Sendable {
     private static func agentSource(_ value: Any?) -> AgentPanelAgentSource? {
         guard let value = nonemptyString(value) else { return nil }
         return AgentPanelAgentSource(rawValue: value)
+    }
+
+    private static func feedSource(_ value: Any?) -> String? {
+        guard let value = nonemptyString(value),
+              value.range(of: #"^[a-z][a-z0-9-]{0,31}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return value
+    }
+
+    private static func requestIdentifier(_ value: Any?) -> String? {
+        guard let value = nonemptyString(value), value.count <= 128,
+              value.range(of: #"^[A-Za-z0-9._:-]+$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return value
+    }
+
+    private static func uiValue(_ value: Any?) -> AgentPanelUIValue? {
+        if value is NSNull { return .null }
+        if let value = value as? Bool { return .bool(value) }
+        if let value = value as? String { return .string(value) }
+        return nil
     }
 
     /// An ABSENT mode means `raw`, which is the fidelity view and the behavior every caller had

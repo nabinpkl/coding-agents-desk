@@ -8,6 +8,7 @@ import {
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
+import { dirname, join, resolve } from "node:path";
 import { config } from "../config.ts";
 import type { EventMode } from "../transcripts/sources/transcriptTypes.ts";
 import {
@@ -17,8 +18,9 @@ import {
   type AgentSessionCapabilities,
   type AgentSessionDescriptor,
   type AgentTimelinePage,
+  type AgentUiRequest,
 } from "./agentBackend.ts";
-import { AgentUiBroker, extensionUiContext, type AgentUiRequest } from "./agentUiBroker.ts";
+import { AgentUiBroker, extensionUiContext } from "./agentUiBroker.ts";
 import { LiveAgentProjection, type TimelineEnvelope } from "./liveAgentProjection.ts";
 import { PiEventMapper } from "./piEventMapper.ts";
 
@@ -372,11 +374,22 @@ const officialRuntimeFactory: CreateAgentSessionRuntimeFactory = async ({
 
 async function createOfficialPiRuntime(projectPath: string, transcriptPath?: string): Promise<PiRuntimeFacade> {
   const sessionManager = transcriptPath
-    ? SessionManager.open(transcriptPath, undefined, projectPath)
-    : SessionManager.create(projectPath);
+    ? SessionManager.open(transcriptPath, dirname(transcriptPath), projectPath)
+    : SessionManager.create(projectPath, piProjectSessionDirectory(projectPath));
   return createAgentSessionRuntime(officialRuntimeFactory, {
     cwd: projectPath,
     agentDir: config.piAgentDirectory,
     sessionManager,
   });
+}
+
+// Pi 0.83.0 does not export its project-directory helper from the package root.
+// Keep this byte-for-byte equivalent to the pinned SDK convention so AgentDesk's
+// configurable root can still be used by both SessionManager and the catalog.
+export function piProjectSessionDirectory(
+  projectPath: string,
+  sessionsDirectory = config.piSessionsDirectory,
+): string {
+  const safePath = `--${resolve(projectPath).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+  return join(resolve(sessionsDirectory), safePath);
 }

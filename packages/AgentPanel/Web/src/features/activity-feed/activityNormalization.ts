@@ -68,7 +68,13 @@ export function normalizeActivityEvent(value: unknown): ActivityEvent {
     : [{ kind: "plain", label: "Plain", text: plainText(value) } satisfies ActivityBlock];
   const rawType = source?.type;
   return {
+    id: typeof source?.id === "string" ? source.id : undefined,
     index: typeof source?.index === "number" ? source.index : -1,
+    revision: typeof source?.revision === "number" ? source.revision : undefined,
+    phase:
+      source?.phase === "streaming" || source?.phase === "complete" || source?.phase === "error"
+        ? source.phase
+        : undefined,
     ts: typeof source?.ts === "number" ? source.ts : 0,
     type:
       typeof rawType === "string" && KNOWN_EVENT_TYPES.has(rawType as ActivityEvent["type"])

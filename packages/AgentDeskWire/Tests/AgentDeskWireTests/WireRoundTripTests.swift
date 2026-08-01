@@ -42,9 +42,78 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded.payload == payload)
 }
 
-@Test func wireProtocolClientScreenshotVersionIsPinned() {
-    #expect(WireProtocol.version == 15)
-    #expect(WireProtocol.minCompatibleVersion == 15)
+@Test func wireProtocolLiveAgentVersionIsPinned() {
+    #expect(WireProtocol.version == 16)
+    #expect(WireProtocol.minCompatibleVersion == 16)
+}
+
+@Test func liveAgentCommandsTimelineAndExtensionUIRoundTrip() throws {
+    try roundTrip(AgentSessionCreate(
+        requestId: "create-1",
+        source: "pi",
+        projectPath: "/project"
+    ))
+    try roundTrip(AgentSessionSend(
+        requestId: "send-1",
+        source: "pi",
+        sessionId: "session",
+        text: "hello",
+        delivery: "steer"
+    ))
+    try roundTrip(AgentSessionAbort(
+        requestId: "abort-1",
+        source: "pi",
+        sessionId: "session"
+    ))
+    try roundTrip(AgentCommandReceipt(
+        requestId: "send-1",
+        source: "pi",
+        sessionId: "session",
+        delivery: "steer"
+    ))
+    try roundTrip(AgentCommandError(
+        requestId: "send-1",
+        code: "request-conflict",
+        message: "request id was reused",
+        retryable: false
+    ))
+    try roundTrip(AgentThreadChunk(
+        source: "pi",
+        sessionId: "session",
+        events: [ActivityEvent(
+            id: "assistant-1",
+            index: 0,
+            revision: 2,
+            phase: "streaming",
+            ts: 1,
+            type: "assistant",
+            blocks: [ActivityBlock(kind: "text", text: "hel")]
+        )],
+        windowStart: 0,
+        total: 1,
+        isLive: true,
+        mode: "nice",
+        kind: "upsert",
+        sequence: 4,
+        runState: "running",
+        queueSteer: 1,
+        queueFollowUp: 2
+    ))
+    try roundTrip(AgentExtensionUIRequest(
+        source: "pi",
+        sessionId: "session",
+        requestId: "ui-1",
+        kind: "select",
+        title: "Choose",
+        options: ["one", "two"],
+        expectsResponse: true
+    ))
+    try roundTrip(AgentExtensionUIResponse(
+        source: "pi",
+        sessionId: "session",
+        requestId: "ui-1",
+        value: .object(["choice": .string("two")])
+    ))
 }
 
 @Test func clientScreenshotContractsRoundTrip() throws {

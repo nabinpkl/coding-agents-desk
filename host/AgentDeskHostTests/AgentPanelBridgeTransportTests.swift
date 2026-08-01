@@ -44,7 +44,7 @@ struct AgentPanelBridgeTransportTests {
         let transport = AgentPanelBridgeTransport(bridge: bridge)
 
         transport.sendAgentPanelRequest(.threadLoadOlder(
-            source: .codex,
+            source: "codex",
             sessionId: "same",
             beforeIndex: 5,
             limit: 3,

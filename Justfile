@@ -284,11 +284,13 @@ agent-feed-sidecar-smoke: build-agent-feed-sidecar
     BINARY='{{agent_feed_sidecar_out}}'
     SMOKE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/agent-feed-smoke.XXXXXX")"
     CLAUDE_ROOT="$SMOKE_ROOT/claude-projects"
-    CODEX_HOME="$SMOKE_ROOT/codex"
+    SMOKE_CODEX_HOME="$SMOKE_ROOT/codex"
+    PI_SESSIONS_ROOT="$SMOKE_ROOT/pi-sessions"
     PROJECT_ONE="$SMOKE_ROOT/projects/one"
     PROJECT_TWO="$SMOKE_ROOT/projects/two"
     CLAUDE_SLUG="$CLAUDE_ROOT/discovery-only"
-    ROLLOUT_ROOT="$CODEX_HOME/sessions/2026/07/24"
+    ROLLOUT_ROOT="$SMOKE_CODEX_HOME/sessions/2026/07/24"
+    CONTROL_TOKEN="$(openssl rand -hex 32)"
     LOG_FILE="$SMOKE_ROOT/sidecar.log"
     PROJECT_STREAM="$SMOKE_ROOT/projects.sse"
     SESSION_STREAM="$SMOKE_ROOT/sessions.sse"
@@ -298,7 +300,7 @@ agent-feed-sidecar-smoke: build-agent-feed-sidecar
     CODEX_ONE=22222222-2222-2222-2222-222222222222
     CLAUDE_TWO=33333333-3333-3333-3333-333333333333
     CLAUDE_THREE=44444444-4444-4444-4444-444444444444
-    mkdir -p "$CLAUDE_SLUG" "$ROLLOUT_ROOT" "$PROJECT_ONE" "$PROJECT_TWO"
+    mkdir -p "$CLAUDE_SLUG" "$ROLLOUT_ROOT" "$PI_SESSIONS_ROOT" "$PROJECT_ONE" "$PROJECT_TWO"
     PROJECT_ONE="$(realpath "$PROJECT_ONE")"
     PROJECT_TWO="$(realpath "$PROJECT_TWO")"
     CLAUDE_FILE="$CLAUDE_SLUG/$CLAUDE_ONE.jsonl"
@@ -307,15 +309,17 @@ agent-feed-sidecar-smoke: build-agent-feed-sidecar
         "$CLAUDE_ONE" "$PROJECT_ONE" > "$CLAUDE_FILE"
     printf '{"timestamp":"2026-07-24T12:00:00.000Z","type":"session_meta","payload":{"id":"%s","cwd":"%s"}}\n' \
         "$CODEX_ONE" "$PROJECT_ONE" > "$CODEX_FILE"
-    sqlite3 "$CODEX_HOME/state_5.sqlite" \
+    sqlite3 "$SMOKE_CODEX_HOME/state_5.sqlite" \
         'CREATE TABLE threads (id TEXT PRIMARY KEY, cwd TEXT NOT NULL, title TEXT NOT NULL, rollout_path TEXT NOT NULL, archived INTEGER NOT NULL, created_at_ms INTEGER, updated_at_ms INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, git_sha TEXT, git_branch TEXT, git_origin_url TEXT);'
-    sqlite3 "$CODEX_HOME/state_5.sqlite" \
+    sqlite3 "$SMOKE_CODEX_HOME/state_5.sqlite" \
         "INSERT INTO threads VALUES ('$CODEX_ONE', '$PROJECT_ONE', 'Codex smoke', '$CODEX_FILE', 0, 0, 0, 0, 0, NULL, 'main', NULL);"
     echo "agent-feed-sidecar-smoke: launching $BINARY on port $PORT"
     AGENT_FEED_PORT=$PORT \
         AGENT_FEED_HOST=127.0.0.1 \
         AGENT_FEED_CLAUDE_PROJECTS_DIR="$CLAUDE_ROOT" \
-        AGENT_FEED_CODEX_HOME="$CODEX_HOME" \
+        AGENT_FEED_CODEX_HOME="$SMOKE_CODEX_HOME" \
+        AGENT_FEED_PI_SESSIONS_DIR="$PI_SESSIONS_ROOT" \
+        AGENT_FEED_CONTROL_TOKEN="$CONTROL_TOKEN" \
         AGENT_FEED_DISCOVERY_RESCAN_MS=1000 \
         "$BINARY" > "$LOG_FILE" 2>&1 &
     SPID=$!
@@ -330,27 +334,30 @@ agent-feed-sidecar-smoke: build-agent-feed-sidecar
     }
     trap cleanup EXIT
     for i in $(seq 1 100); do
-        if curl -sf http://127.0.0.1:$PORT/api/config 2>/dev/null | grep -q '"watcherState":"live"'; then break; fi
+        if curl -sf -H "Authorization: Bearer $CONTROL_TOKEN" http://127.0.0.1:$PORT/api/config 2>/dev/null | grep -q '"watcherState":"live"'; then break; fi
         sleep 0.1
     done
-    CFG=$(curl -sf "http://127.0.0.1:$PORT/api/config")
+    test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/config")" = "401"
+    CFG=$(curl -sf -H "Authorization: Bearer $CONTROL_TOKEN" "http://127.0.0.1:$PORT/api/config")
     echo "agent-feed-sidecar-smoke: /api/config -> ${CFG}"
-    curl -sf "http://127.0.0.1:$PORT/api/projects" -o "$PROJECTS_JSON"
+    curl -sf -H "Authorization: Bearer $CONTROL_TOKEN" "http://127.0.0.1:$PORT/api/projects" -o "$PROJECTS_JSON"
     PROJECTS_FILE="$PROJECTS_JSON" EXPECTED_PATH="$PROJECT_ONE" bun -e \
         'const body=await Bun.file(process.env.PROJECTS_FILE).json();if(body.projects.length!==1||body.projects[0].projectPath!==process.env.EXPECTED_PATH||body.projects[0].sourceCounts.claude!==1||body.projects[0].sourceCounts.codex!==1)throw new Error(JSON.stringify(body));'
-    curl -sfG "http://127.0.0.1:$PORT/api/sessions" \
+    curl -sfG -H "Authorization: Bearer $CONTROL_TOKEN" "http://127.0.0.1:$PORT/api/sessions" \
         --data-urlencode "projectPath=$PROJECT_ONE" -o "$SESSIONS_JSON"
     SESSIONS_FILE="$SESSIONS_JSON" bun -e \
         'const body=await Bun.file(process.env.SESSIONS_FILE).json();if(body.sessions.length!==2||!body.sessions.some((s)=>s.source==="claude")||!body.sessions.some((s)=>s.source==="codex"))throw new Error(JSON.stringify(body));'
     test "$(curl -s -o /dev/null -w '%{http_code}' \
+        -H "Authorization: Bearer $CONTROL_TOKEN" \
         "http://127.0.0.1:$PORT/api/projects/digest")" = "404"
     test "$(curl -sG -o /dev/null -w '%{http_code}' \
+        -H "Authorization: Bearer $CONTROL_TOKEN" \
         "http://127.0.0.1:$PORT/api/sessions/claude/$CLAUDE_ONE/events" \
         --data-urlencode 'offset=invalid')" = "400"
 
-    curl -Ns --max-time 8 "http://127.0.0.1:$PORT/api/projects/stream" > "$PROJECT_STREAM" &
+    curl -Ns --max-time 8 -H "Authorization: Bearer $CONTROL_TOKEN" "http://127.0.0.1:$PORT/api/projects/stream" > "$PROJECT_STREAM" &
     PROJECT_STREAM_PID=$!
-    curl -NsG --max-time 8 "http://127.0.0.1:$PORT/api/sessions/stream" \
+    curl -NsG --max-time 8 -H "Authorization: Bearer $CONTROL_TOKEN" "http://127.0.0.1:$PORT/api/sessions/stream" \
         --data-urlencode "projectPath=$PROJECT_ONE" > "$SESSION_STREAM" &
     SESSION_STREAM_PID=$!
     sleep 0.2

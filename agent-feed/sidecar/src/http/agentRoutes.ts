@@ -7,6 +7,8 @@ import type { RouteHandler } from "./route.ts";
 const CREATE_ROUTE = "/api/agent-sessions";
 const MESSAGE_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/messages$/;
 const ABORT_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/abort$/;
+const UI_STREAM_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/ui\/stream$/;
+const UI_RESPONSE_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/ui\/([A-Za-z0-9._:-]{1,128})$/;
 const EVENT_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/events$/;
 const STREAM_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/stream$/;
 const MAXIMUM_BODY_BYTES = 256 * 1024;
@@ -24,6 +26,14 @@ export function createAgentRoutes(resolveBackend: (id: string) => AgentBackend |
     if (request.method === "POST" && abort) {
       return abortSession(request, resolveBackend, abort[1]!, abort[2]!);
     }
+    const uiStream = UI_STREAM_ROUTE.exec(url.pathname);
+    if (request.method === "GET" && uiStream) {
+      return streamUi(request, server, resolveBackend, uiStream[1]!, uiStream[2]!);
+    }
+    const uiResponse = UI_RESPONSE_ROUTE.exec(url.pathname);
+    if (request.method === "POST" && uiResponse) {
+      return respondToUi(request, resolveBackend, uiResponse[1]!, uiResponse[2]!, uiResponse[3]!);
+    }
     const events = EVENT_ROUTE.exec(url.pathname);
     if (request.method === "GET" && events && events[1] === "pi") {
       return pageEvents(url, resolveBackend, events[1], events[2]!);
@@ -34,6 +44,51 @@ export function createAgentRoutes(resolveBackend: (id: string) => AgentBackend |
     }
     return undefined;
   };
+}
+
+function streamUi(
+  request: Request,
+  server: Parameters<RouteHandler>[2],
+  resolveBackend: (id: string) => AgentBackend | undefined,
+  source: string,
+  sessionId: string,
+): Response {
+  const backend = resolveBackend(source);
+  if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404);
+  return startServerSentEventStream(request, server, (write) => {
+    let closed = false;
+    let unsubscribe: (() => void) | undefined;
+    void backend.subscribeUi(sessionId, (uiRequest) => write(encodeServerSentEvent(uiRequest)))
+      .then((value) => {
+        if (closed) value();
+        else unsubscribe = value;
+      })
+      .catch((error) => write(encodeServerSentEvent({ error: errorPayload(error) })));
+    return () => {
+      closed = true;
+      unsubscribe?.();
+    };
+  });
+}
+
+async function respondToUi(
+  request: Request,
+  resolveBackend: (id: string) => AgentBackend | undefined,
+  source: string,
+  sessionId: string,
+  requestId: string,
+): Promise<Response> {
+  try {
+    const backend = resolveBackend(source);
+    if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404, requestId);
+    const body = await jsonBody(request);
+    if (!("value" in body)) return errorResponse("invalid-request", "value is required", 400, requestId);
+    const accepted = await backend.respondToUi(sessionId, requestId, body.value);
+    if (!accepted) return errorResponse("ui-request-not-found", "extension UI request is no longer pending", 404, requestId);
+    return jsonResponse({ requestId, delivery: "ui" }, 202);
+  } catch (error) {
+    return routeError(error);
+  }
 }
 
 async function createSession(request: Request, resolveBackend: (id: string) => AgentBackend | undefined): Promise<Response> {

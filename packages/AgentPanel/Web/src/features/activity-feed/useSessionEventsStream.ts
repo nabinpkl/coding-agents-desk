@@ -30,8 +30,11 @@ export interface ActivityBlock {
 }
 
 export interface ActivityEvent {
+  id?: string;
   /** Position in the mode this event was read in. */
   index: number;
+  revision?: number;
+  phase?: "streaming" | "complete" | "error";
   ts: number;
   type: "user" | "assistant" | "reasoning" | "system";
   blocks: ActivityBlock[];
@@ -62,6 +65,9 @@ interface State {
   usage: TokenUsage | null;
   loading: boolean;
   error: string | null;
+  sequence: number;
+  runState: "idle" | "running" | "ended" | "error";
+  queue: { steer: number; followUp: number };
 }
 
 /** Whichever occupancy report is more recent, by the timestamp on the line that
@@ -94,6 +100,9 @@ export function useSessionEventsStream(
     usage: null,
     loading: true,
     error: null,
+    sequence: 0,
+    runState: "idle",
+    queue: { steer: 0, followUp: 0 },
   });
   const [connected, setConnected] = useState(false);
   const loadingOlderRef = useRef(false);
@@ -112,7 +121,8 @@ export function useSessionEventsStream(
           return;
         }
         setState((current) => {
-          if (current.events.has(event.index)) return current;
+          const existing = current.events.get(event.index);
+          if (existing && (existing.revision ?? 0) >= (event.revision ?? 0)) return current;
           const events = new Map(current.events);
           events.set(event.index, event);
           return {
@@ -122,6 +132,12 @@ export function useSessionEventsStream(
           };
         });
       },
+      onState: (sessionState) =>
+        setState((current) =>
+          sessionState.sequence < current.sequence
+            ? current
+            : { ...current, ...sessionState },
+        ),
       // Occupancy is session state, so it arrives on the chunk rather than on an
       // event, and it must land even while the seed is still in flight: on a
       // live thread the newest usage-bearing line is often the one that arrives
@@ -166,6 +182,9 @@ export function useSessionEventsStream(
           usage: newerUsage(current.usage, seedUsage),
           loading: false,
           error: null,
+          sequence: current.sequence,
+          runState: current.runState,
+          queue: current.queue,
         }));
       } catch (e) {
         if (!cancelled) setState((s) => ({ ...s, error: String((e as Error).message ?? e), loading: false }));
@@ -211,5 +230,8 @@ export function useSessionEventsStream(
     loading: state.loading,
     error: state.error,
     connected,
+    sequence: state.sequence,
+    runState: state.runState,
+    queue: state.queue,
   };
 }

@@ -1680,17 +1680,20 @@ seconds, and damping the axis would only hide that.
 
 ## v16 live Pi agent loop
 
-- R138. Accept ADR-0091, move the product and technical contracts to an interactive Pi session,
+- D232. Accept ADR-0091, move the product and technical contracts to an interactive Pi session,
   introduce capability-described sources and revisioned timeline items, and raise the outer wire to
   protocol v16 with complete Swift, TypeScript, and decoder tests.
-- R139. Pin Pi 0.83.0, own `AgentSessionRuntime` and persisted JSONL behind a provider-neutral backend,
+- D233. Pin Pi 0.83.0, own `AgentSessionRuntime` and persisted JSONL behind a provider-neutral backend,
   add the bounded sequenced projection, authenticated HTTP/SSE, create/send/steer/abort commands,
   lifecycle cleanup, and hermetic backend/HTTP tests.
-- R140. Carry correlated commands and timeline envelopes through the host bridge and authenticated
+- D234. Carry correlated commands and timeline envelopes through the host bridge and authenticated
   phone session, preserving visibility-scoped fan-out, request idempotency, and independent viewers.
-- R141. Add Pi session creation and the capability-driven composer to the existing virtual AgentPanel,
+- D235. Add Pi session creation and the capability-driven composer to the existing virtual AgentPanel,
   with streaming replacement, queue/steer/stop state, scroll preservation, and Mac/mobile web tests.
-- R142. Bind Pi extensions in RPC mode, project tool-only extensions and standard UI requests, resolve
+- D236. Bind Pi extensions in RPC mode, project tool-only extensions and standard UI requests, resolve
   the first valid viewer response, and fail terminal-only custom UI explicitly.
-- R143. Verify compiled-sidecar packaging, authenticated smokes, persisted reopen, two-subscriber bash
-  streaming, focused tests, `just check`, complete-diff self-review, and authorized device acceptance.
+- D237. Verify compiled-sidecar packaging, authenticated smokes, persisted reopen, two-subscriber bash
+  streaming, focused tests, `just check`, and complete-diff self-review.
+- R238. At the explicit runtime checkpoint, open the dev Mac/iPhone stack, create and steer one Pi
+  session from both shared panels, answer one extension prompt from either viewer, and confirm the
+  other viewer converges without a terminal or workspace surface appearing.

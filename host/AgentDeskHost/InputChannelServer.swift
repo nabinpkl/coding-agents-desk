@@ -25,6 +25,10 @@ enum AgentFeedRequest: Sendable {
     case threadLoadOlder(AgentThreadLoadOlder)
     case threadUnsubscribe(AgentThreadUnsubscribe)
     case rawEvent(AgentRawEventRequest)
+    case sessionCreate(AgentSessionCreate)
+    case sessionSend(AgentSessionSend)
+    case sessionAbort(AgentSessionAbort)
+    case extensionUIResponse(AgentExtensionUIResponse)
     case terminal(AgentTerminalClientMessage)
 }
 
@@ -423,6 +427,22 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             logger.debug("input lane agent-raw-event-get received fp=\(self.fingerprint.rawValue, privacy: .public)")
             if let msg = try? JSONDecoder().decode(AgentRawEventRequest.self, from: data) {
                 agentRequestHandler?(.rawEvent(msg))
+            }
+        case "agent-session-create":
+            if let msg = try? JSONDecoder().decode(AgentSessionCreate.self, from: data) {
+                agentRequestHandler?(.sessionCreate(msg))
+            }
+        case "agent-session-send":
+            if let msg = try? JSONDecoder().decode(AgentSessionSend.self, from: data) {
+                agentRequestHandler?(.sessionSend(msg))
+            }
+        case "agent-session-abort":
+            if let msg = try? JSONDecoder().decode(AgentSessionAbort.self, from: data) {
+                agentRequestHandler?(.sessionAbort(msg))
+            }
+        case "agent-extension-ui-response":
+            if let msg = try? JSONDecoder().decode(AgentExtensionUIResponse.self, from: data) {
+                agentRequestHandler?(.extensionUIResponse(msg))
             }
         default:
             logger.notice("input lane unknown frame type=\(header.type, privacy: .public)")

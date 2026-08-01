@@ -70,14 +70,14 @@ struct AgentPanelTests {
             AgentPanelRequest.decode(
                 tag: "agent-thread-sub",
                 body: ["sid": "session-1", "src": "codex"]
-            ) == .threadSubscribe(source: .codex, sessionId: "session-1", mode: .raw)
+            ) == .threadSubscribe(source: "codex", sessionId: "session-1", mode: .raw)
         )
         #expect(
             AgentPanelRequest.decode(
                 tag: "agent-thread-older",
                 body: ["src": "claude", "sid": "session-1", "bi": 100, "lim": 25]
             ) == .threadLoadOlder(
-                source: .claude,
+                source: "claude",
                 sessionId: "session-1",
                 beforeIndex: 100,
                 limit: 25,
@@ -92,20 +92,20 @@ struct AgentPanelTests {
         #expect(AgentPanelRequest.decode(tag: "future-message", body: [:]) == nil)
     }
 
-    @Test func requestDecoderRejectsAnUnknownHarnessOnEveryThreadRequest() {
+    @Test func requestDecoderAcceptsProviderNeutralSourcesAndRejectsInvalidIdentifiers() {
         for tag in ["agent-thread-sub", "agent-thread-unsub"] {
             #expect(AgentPanelRequest.decode(
                 tag: tag,
                 body: ["sid": "session-1", "src": "gemini"]
-            ) == nil)
+            ) != nil)
         }
         #expect(AgentPanelRequest.decode(
             tag: "agent-thread-older",
-            body: ["src": "gemini", "sid": "session-1", "bi": 100, "lim": 25]
+            body: ["src": "Invalid Source", "sid": "session-1", "bi": 100, "lim": 25]
         ) == nil)
         #expect(AgentPanelRequest.decode(
             tag: "agent-raw-event-get",
-            body: ["rid": "r1", "src": "gemini", "sid": "s1", "ei": 9]
+            body: ["rid": "r1", "src": "../pi", "sid": "s1", "ei": 9]
         ) == nil)
     }
 
@@ -130,7 +130,7 @@ struct AgentPanelTests {
             tag: "agent-thread-older",
             body: ["src": "claude", "sid": "session-1", "bi": 0, "lim": 1]
         ) == .threadLoadOlder(
-            source: .claude,
+            source: "claude",
             sessionId: "session-1",
             beforeIndex: 0,
             limit: 1,
@@ -146,12 +146,12 @@ struct AgentPanelTests {
         #expect(AgentPanelRequest.decode(
             tag: "agent-thread-sub",
             body: ["sid": "session-1", "src": "codex", "md": "nice"]
-        ) == .threadSubscribe(source: .codex, sessionId: "session-1", mode: .nice))
+        ) == .threadSubscribe(source: "codex", sessionId: "session-1", mode: .nice))
         #expect(AgentPanelRequest.decode(
             tag: "agent-thread-older",
             body: ["src": "claude", "sid": "session-1", "bi": 100, "lim": 25, "md": "nice"]
         ) == .threadLoadOlder(
-            source: .claude,
+            source: "claude",
             sessionId: "session-1",
             beforeIndex: 100,
             limit: 25,
@@ -162,7 +162,7 @@ struct AgentPanelTests {
             body: ["rid": "r1", "src": "codex", "sid": "s1", "ei": 9, "md": "nice"]
         ) == .rawEvent(
             requestId: "r1",
-            source: .codex,
+            source: "codex",
             sessionId: "s1",
             eventIndex: 9,
             mode: .nice
@@ -191,7 +191,7 @@ struct AgentPanelTests {
             body: ["rid": "r1", "src": "codex", "sid": "s1", "ei": 9]
         ) == .rawEvent(
             requestId: "r1",
-            source: .codex,
+            source: "codex",
             sessionId: "s1",
             eventIndex: 9,
             mode: .raw

@@ -17,6 +17,7 @@ final class AgentFeedBridge: @unchecked Sendable {
     private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).agent-feed-bridge")
     private var visibilityStreams: [String: SidecarStreamHandle] = [:]
     private var threadStreams: [String: SidecarStreamHandle] = [:]
+    private var extensionUIStreams: [String: SidecarStreamHandle] = [:]
     private var threadBootstraps: [String: Task<Void, Never>] = [:]
     private var threadGenerations: [String: UUID] = [:]
 
@@ -35,9 +36,11 @@ final class AgentFeedBridge: @unchecked Sendable {
         queue.sync {
             for stream in visibilityStreams.values { stream.cancel() }
             for stream in threadStreams.values { stream.cancel() }
+            for stream in extensionUIStreams.values { stream.cancel() }
             for task in threadBootstraps.values { task.cancel() }
             visibilityStreams.removeAll()
             threadStreams.removeAll()
+            extensionUIStreams.removeAll()
             threadBootstraps.removeAll()
             threadGenerations.removeAll()
         }
@@ -98,7 +101,7 @@ final class AgentFeedBridge: @unchecked Sendable {
     func handleThreadSubscribe(_ request: AgentThreadSubscribe) {
         let source = request.source
         let sessionId = request.sessionId
-        guard source == "claude" || source == "codex" else {
+        guard Self.validSource(source) else {
             sendCodable(AgentThreadError(source: source, sessionId: sessionId, reason: "invalid source"))
             return
         }
@@ -150,7 +153,12 @@ final class AgentFeedBridge: @unchecked Sendable {
                     total: page.total,
                     isLive: false,
                     usage: Self.wireUsage(page.usage),
-                    mode: mode.rawValue
+                    mode: mode.rawValue,
+                    kind: "page",
+                    sequence: page.sequence,
+                    runState: page.runState,
+                    queueSteer: page.queueSteer,
+                    queueFollowUp: page.queueFollowUp
                 ))
             } catch {
                 sendCodable(AgentThreadError(
@@ -168,6 +176,84 @@ final class AgentFeedBridge: @unchecked Sendable {
             threadGenerations.removeValue(forKey: key)
             threadBootstraps.removeValue(forKey: key)?.cancel()
             threadStreams.removeValue(forKey: key)?.cancel()
+            extensionUIStreams.removeValue(forKey: key)?.cancel()
+        }
+    }
+
+    func handleSessionCreate(_ request: AgentSessionCreate) {
+        Task {
+            do {
+                let session = try await client.createSession(
+                    requestId: request.requestId,
+                    source: request.source,
+                    projectPath: request.projectPath
+                )
+                sendCodable(AgentCommandReceipt(
+                    requestId: request.requestId,
+                    source: request.source,
+                    sessionId: session.sessionId,
+                    delivery: "created"
+                ))
+            } catch {
+                sendCommandError(requestId: request.requestId, error: error)
+            }
+        }
+    }
+
+    func handleSessionSend(_ request: AgentSessionSend) {
+        Task {
+            do {
+                let receipt = try await client.sendMessage(
+                    requestId: request.requestId,
+                    source: request.source,
+                    sessionId: request.sessionId,
+                    text: request.text,
+                    delivery: request.delivery
+                )
+                sendCodable(AgentCommandReceipt(
+                    requestId: receipt.requestId,
+                    source: request.source,
+                    sessionId: request.sessionId,
+                    delivery: receipt.delivery
+                ))
+            } catch {
+                sendCommandError(requestId: request.requestId, error: error)
+            }
+        }
+    }
+
+    func handleSessionAbort(_ request: AgentSessionAbort) {
+        Task {
+            do {
+                let receipt = try await client.abortSession(
+                    requestId: request.requestId,
+                    source: request.source,
+                    sessionId: request.sessionId
+                )
+                sendCodable(AgentCommandReceipt(
+                    requestId: receipt.requestId,
+                    source: request.source,
+                    sessionId: request.sessionId,
+                    delivery: receipt.delivery
+                ))
+            } catch {
+                sendCommandError(requestId: request.requestId, error: error)
+            }
+        }
+    }
+
+    func handleExtensionUIResponse(_ response: AgentExtensionUIResponse) {
+        Task {
+            do {
+                _ = try await client.respondToExtensionUI(
+                    source: response.source,
+                    sessionId: response.sessionId,
+                    requestId: response.requestId,
+                    value: response.value
+                )
+            } catch {
+                sendCommandError(requestId: response.requestId, error: error)
+            }
         }
     }
 
@@ -216,7 +302,7 @@ final class AgentFeedBridge: @unchecked Sendable {
     private func openThreadStream(
         source: String,
         sessionId: String,
-        after: Int,
+        afterSequence: Int,
         mode: AgentFeedEventMode,
         generation: UUID
     ) {
@@ -224,27 +310,34 @@ final class AgentFeedBridge: @unchecked Sendable {
         let handle = client.openEventStream(
             source: source,
             sessionId: sessionId,
-            after: after,
+            afterSequence: afterSequence,
             mode: mode,
-            onEvent: { [weak self] event in
-                self?.sendCodable(AgentThreadChunk(
+            onEnvelope: { [weak self] envelope in
+                guard let self, self.isCurrentThread(key: key, generation: generation) else { return }
+                self.sendCodable(AgentThreadChunk(
                     source: source,
                     sessionId: sessionId,
-                    events: [Self.wireEvent(event)],
-                    windowStart: event.index,
-                    total: event.index + 1,
+                    events: envelope.events.map(Self.wireEvent),
+                    windowStart: envelope.windowStart,
+                    total: envelope.total,
                     isLive: true,
-                    usage: Self.wireUsage(event.usage),
-                    mode: mode.rawValue
+                    usage: Self.wireUsage(envelope.usage),
+                    mode: mode.rawValue,
+                    kind: envelope.kind,
+                    sequence: envelope.sequence,
+                    runState: envelope.runState,
+                    queueSteer: envelope.queue.steer,
+                    queueFollowUp: envelope.queue.followUp
                 ))
             },
             onError: { [weak self] error in
-                self?.sendCodable(AgentThreadError(
+                guard let self, self.isCurrentThread(key: key, generation: generation) else { return }
+                self.sendCodable(AgentThreadError(
                     source: source,
                     sessionId: sessionId,
                     reason: error.localizedDescription
                 ))
-                self?.removeThreadStream(key)
+                self.removeThreadStream(key)
             }
         )
         queue.sync {
@@ -254,6 +347,36 @@ final class AgentFeedBridge: @unchecked Sendable {
             }
             threadStreams.removeValue(forKey: key)?.cancel()
             threadStreams[key] = handle
+        }
+    }
+
+    private func openExtensionUIStream(source: String, sessionId: String, generation: UUID) {
+        guard source == "pi" else { return }
+        let key = threadKey(source: source, sessionId: sessionId)
+        let handle = client.openExtensionUIStream(
+            source: source,
+            sessionId: sessionId,
+            onRequest: { [weak self] request in
+                guard let self, self.isCurrentThread(key: key, generation: generation) else { return }
+                self.sendCodable(Self.wireExtensionUI(request, source: source, sessionId: sessionId))
+            },
+            onError: { [weak self] error in
+                guard let self, self.isCurrentThread(key: key, generation: generation) else { return }
+                self.sendCodable(AgentThreadError(
+                    source: source,
+                    sessionId: sessionId,
+                    reason: "extension UI stream: \(error.localizedDescription)"
+                ))
+                self.removeExtensionUIStream(key)
+            }
+        )
+        queue.sync {
+            guard threadGenerations[key] == generation else {
+                handle.cancel()
+                return
+            }
+            extensionUIStreams.removeValue(forKey: key)?.cancel()
+            extensionUIStreams[key] = handle
         }
     }
 
@@ -282,7 +405,15 @@ final class AgentFeedBridge: @unchecked Sendable {
                     limit: probe.total - offset,
                     mode: mode
                 )
-                : AgentFeedEventsPage(events: [], total: probe.total, usage: probe.usage)
+                : AgentFeedEventsPage(
+                    events: [],
+                    total: probe.total,
+                    usage: probe.usage,
+                    sequence: probe.sequence,
+                    runState: probe.runState,
+                    queueSteer: probe.queueSteer,
+                    queueFollowUp: probe.queueFollowUp
+                )
             guard isCurrentThread(key: key, generation: generation) else { return }
             sendCodable(AgentThreadChunk(
                 source: source,
@@ -292,15 +423,21 @@ final class AgentFeedBridge: @unchecked Sendable {
                 total: page.total,
                 isLive: false,
                 usage: Self.wireUsage(page.usage),
-                mode: mode.rawValue
+                mode: mode.rawValue,
+                kind: "snapshot",
+                sequence: page.sequence,
+                runState: page.runState,
+                queueSteer: page.queueSteer,
+                queueFollowUp: page.queueFollowUp
             ))
             openThreadStream(
                 source: source,
                 sessionId: sessionId,
-                after: page.total,
+                afterSequence: page.sequence,
                 mode: mode,
                 generation: generation
             )
+            openExtensionUIStream(source: source, sessionId: sessionId, generation: generation)
         } catch {
             guard isCurrentThread(key: key, generation: generation) else { return }
             sendCodable(AgentThreadError(
@@ -331,6 +468,12 @@ final class AgentFeedBridge: @unchecked Sendable {
         }
     }
 
+    private func removeExtensionUIStream(_ key: String) {
+        queue.sync {
+            extensionUIStreams.removeValue(forKey: key)?.cancel()
+        }
+    }
+
     private func isCurrentThread(key: String, generation: UUID) -> Bool {
         if Task.isCancelled { return false }
         return queue.sync { threadGenerations[key] == generation }
@@ -353,6 +496,24 @@ final class AgentFeedBridge: @unchecked Sendable {
         } catch {
             logger.error("agent-feed-bridge encode failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    private func sendCommandError(requestId: String, error: Error) {
+        if case let SidecarClientError.command(code, message, sidecarRequestId, retryable) = error {
+            sendCodable(AgentCommandError(
+                requestId: sidecarRequestId ?? requestId,
+                code: code,
+                message: message,
+                retryable: retryable
+            ))
+            return
+        }
+        sendCodable(AgentCommandError(
+            requestId: requestId,
+            code: "agent-command-failed",
+            message: error.localizedDescription,
+            retryable: true
+        ))
     }
 
     private func sendRawEvent(_ text: String, request: AgentRawEventRequest) throws {
@@ -391,10 +552,7 @@ final class AgentFeedBridge: @unchecked Sendable {
         AgentProjectSummary(
             projectPath: project.projectPath,
             displayName: project.displayName,
-            sourceCounts: AgentProjectSourceCounts(
-                claude: project.sourceCounts.claude,
-                codex: project.sourceCounts.codex
-            ),
+            sourceCounts: project.sourceCounts.values,
             sessionCount: project.sessionCount,
             lastEventAt: project.lastEventAt
         )
@@ -406,7 +564,16 @@ final class AgentFeedBridge: @unchecked Sendable {
             source: session.source,
             title: session.title,
             lastEventAt: session.lastEventAt,
-            activity: session.activity
+            activity: session.activity,
+            capabilities: AgentSessionCapabilities(
+                modes: session.capabilities.modes,
+                canSend: session.capabilities.canSend,
+                canSteer: session.capabilities.canSteer,
+                canAbort: session.capabilities.canAbort,
+                canFetchRaw: session.capabilities.canFetchRaw,
+                canOpenTerminal: session.capabilities.canOpenTerminal,
+                supportsExtensionUI: session.capabilities.supportsExtensionUi
+            )
         )
     }
 
@@ -430,7 +597,10 @@ final class AgentFeedBridge: @unchecked Sendable {
 
     private static func wireEvent(_ event: AgentFeedActivityEvent) -> ActivityEvent {
         ActivityEvent(
+            id: event.id,
             index: event.index,
+            revision: event.revision,
+            phase: event.phase,
             ts: event.ts,
             type: event.type,
             blocks: event.blocks.map {
@@ -441,10 +611,39 @@ final class AgentFeedBridge: @unchecked Sendable {
                     tool: $0.tool,
                     summary: $0.summary,
                     preview: $0.preview,
-                    callId: $0.callId
+                    callId: $0.callId,
+                    input: $0.input,
+                    hiddenChars: $0.hiddenChars,
+                    hiddenLines: $0.hiddenLines
                 )
             },
             otherModeIndex: event.otherModeIndex
         )
+    }
+
+    private static func wireExtensionUI(
+        _ request: AgentFeedExtensionUIRequest,
+        source: String,
+        sessionId: String
+    ) -> AgentExtensionUIRequest {
+        AgentExtensionUIRequest(
+            source: source,
+            sessionId: sessionId,
+            requestId: request.requestId,
+            kind: request.kind,
+            title: request.title,
+            message: request.message,
+            options: request.options,
+            placeholder: request.placeholder,
+            prefill: request.prefill,
+            level: request.level,
+            key: request.key,
+            lines: request.lines,
+            expectsResponse: request.expectsResponse
+        )
+    }
+
+    private static func validSource(_ source: String) -> Bool {
+        source.range(of: #"^[a-z][a-z0-9-]{0,31}$"#, options: .regularExpression) != nil
     }
 }

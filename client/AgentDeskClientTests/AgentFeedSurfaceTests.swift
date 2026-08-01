@@ -37,29 +37,33 @@ struct AgentFeedSurfaceTests {
     @Test func bridgesThreadAndRawIdentityExactly() {
         #expect(
             AgentFeedRequest(.threadSubscribe(
-                source: .claude,
-                sessionId: "same"
+                source: "claude",
+                sessionId: "same",
+                mode: .raw
             )) == .threadSubscribe(AgentThreadSubscribe(
                 source: "claude",
-                sessionId: "same"
+                sessionId: "same",
+                mode: "raw"
             ))
         )
         #expect(
             AgentFeedRequest(.threadLoadOlder(
-                source: .codex,
+                source: "codex",
                 sessionId: "same",
                 beforeIndex: 50,
-                limit: 25
+                limit: 25,
+                mode: .raw
             )) == .threadLoadOlder(AgentThreadLoadOlder(
                 source: "codex",
                 sessionId: "same",
                 beforeIndex: 50,
-                limit: 25
+                limit: 25,
+                mode: "raw"
             ))
         )
         #expect(
             AgentFeedRequest(.threadUnsubscribe(
-                source: .codex,
+                source: "codex",
                 sessionId: "same"
             )) == .threadUnsubscribe(AgentThreadUnsubscribe(
                 source: "codex",
@@ -69,16 +73,63 @@ struct AgentFeedSurfaceTests {
         #expect(
             AgentFeedRequest(.rawEvent(
                 requestId: "raw",
-                source: .claude,
+                source: "claude",
                 sessionId: "same",
-                eventIndex: 7
+                eventIndex: 7,
+                mode: .raw
             )) == .rawEvent(AgentRawEventRequest(
                 requestId: "raw",
                 source: "claude",
                 sessionId: "same",
-                eventIndex: 7
+                eventIndex: 7,
+                mode: "raw"
             ))
         )
+    }
+
+    @Test func bridgesLiveAgentCommandsAndExtensionResponsesExactly() {
+        #expect(AgentFeedRequest(.createSession(
+            requestId: "create-1",
+            source: "pi",
+            projectPath: "/project"
+        )) == .sessionCreate(AgentSessionCreate(
+            requestId: "create-1",
+            source: "pi",
+            projectPath: "/project"
+        )))
+        #expect(AgentFeedRequest(.send(
+            requestId: "send-1",
+            source: "pi",
+            sessionId: "session",
+            text: "hello",
+            delivery: "steer"
+        )) == .sessionSend(AgentSessionSend(
+            requestId: "send-1",
+            source: "pi",
+            sessionId: "session",
+            text: "hello",
+            delivery: "steer"
+        )))
+        #expect(AgentFeedRequest(.abort(
+            requestId: "abort-1",
+            source: "pi",
+            sessionId: "session"
+        )) == .sessionAbort(AgentSessionAbort(
+            requestId: "abort-1",
+            source: "pi",
+            sessionId: "session"
+        )))
+        #expect(AgentFeedRequest(.extensionUIResponse(
+            source: "pi",
+            sessionId: "session",
+            requestId: "ui-1",
+            value: .bool(true)
+        )) == .extensionUIResponse(AgentExtensionUIResponse(
+            source: "pi",
+            sessionId: "session",
+            requestId: "ui-1",
+            value: .bool(true)
+        )))
     }
 
     @Test func sendsBridgedRequestsToTheInputLaneCallback() {
@@ -88,7 +139,7 @@ struct AgentFeedSurfaceTests {
 
         surface.sendAgentPanelRequest(.projectsWatch(subscriptionId: "p"))
         surface.sendAgentPanelRequest(.threadUnsubscribe(
-            source: .codex,
+            source: "codex",
             sessionId: "s"
         ))
 

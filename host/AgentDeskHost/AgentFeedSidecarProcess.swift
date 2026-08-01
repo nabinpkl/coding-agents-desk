@@ -1,5 +1,6 @@
 import Foundation
 import os
+import Security
 
 private final class AgentFeedReadinessProbe: @unchecked Sendable {
     private let lock = NSLock()
@@ -34,6 +35,8 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
 
     // Nil until the first successful ready-poll.
     var baseURL: URL? { readiness.current }
+    private let tokenLock = NSLock()
+    private var token: String?
 
     private let binaryURL: URL
     private let port: UInt16
@@ -93,6 +96,7 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         queue.sync {
             self.stopped = true
             self.terminateCurrentProcess()
+            self.tokenLock.withLock { self.token = nil }
             self.readiness.stop()
         }
     }
@@ -111,6 +115,13 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         await readiness.value(waitingUpTo: timeout)
     }
 
+    func endpoint(waitingUpTo timeout: TimeInterval) async -> AgentFeedSidecarEndpoint? {
+        guard let baseURL = await readiness.value(waitingUpTo: timeout) else { return nil }
+        let currentToken = tokenLock.withLock { token }
+        guard let currentToken else { return nil }
+        return AgentFeedSidecarEndpoint(baseURL: baseURL, controlToken: currentToken)
+    }
+
     // MARK: - Private
 
     private func spawnAndSupervise() {
@@ -118,6 +129,11 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         // A fresh spawn clears the pending-restart latch so the next dead
         // process can schedule its own restart.
         restartScheduled = false
+
+        let controlToken = Self.makeControlToken()
+        tokenLock.lock()
+        token = controlToken
+        tokenLock.unlock()
 
         let proc = Process()
         proc.executableURL = binaryURL
@@ -128,6 +144,7 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         proc.environment = ProcessInfo.processInfo.environment.merging([
             "AGENT_FEED_PORT": String(port),
             "AGENT_FEED_HOST": "127.0.0.1",
+            "AGENT_FEED_CONTROL_TOKEN": controlToken,
         ]) { _, new in new }
         // Keep catalog and snapshot timing observable in the host unified log
         // without inheriting the host process's stdio descriptors.
@@ -167,17 +184,17 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
             return
         }
 
-        waitUntilReady()
+        waitUntilReady(controlToken: controlToken)
     }
 
-    private func waitUntilReady() {
+    private func waitUntilReady(controlToken: String) {
         let candidate = URL(string: "http://127.0.0.1:\(port)/api/config")!
         let deadline = Date().addingTimeInterval(Self.readyTimeoutSeconds)
         var reached = false
 
         while Date() < deadline {
             if stopped || isStopRequested { return }
-            if isReady(candidate) {
+            if isReady(candidate, controlToken: controlToken) {
                 reached = true
                 break
             }
@@ -196,9 +213,10 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         }
     }
 
-    private func isReady(_ url: URL) -> Bool {
+    private func isReady(_ url: URL, controlToken: String) -> Bool {
         var request = URLRequest(url: url)
         request.timeoutInterval = Self.readinessProbeTimeoutSeconds
+        request.setValue("Bearer \(controlToken)", forHTTPHeaderField: "Authorization")
         let probe = AgentFeedReadinessProbe()
         let completion = DispatchSemaphore(value: 0)
         let task = URLSession.shared.dataTask(with: request) { data, response, _ in
@@ -242,6 +260,9 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         closeOutputPipe()
         logger.notice("sidecar exited unexpectedly status=\(status, privacy: .public); scheduling restart")
         readiness.clear()
+        tokenLock.lock()
+        token = nil
+        tokenLock.unlock()
         scheduleRestart()
     }
 
@@ -296,5 +317,12 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         outputPipe?.fileHandleForReading.readabilityHandler = nil
         outputPipe = nil
         outputBuffer = ""
+    }
+
+    private static func makeControlToken() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        precondition(status == errSecSuccess, "unable to generate agent sidecar capability")
+        return bytes.map { String(format: "%02x", $0) }.joined()
     }
 }

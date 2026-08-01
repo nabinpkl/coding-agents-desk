@@ -1,6 +1,6 @@
 import type { ActivityEvent, TokenUsage } from "../useSessionEventsStream";
 
-export type AgentSource = "claude" | "codex";
+export type AgentSource = string;
 
 /**
  * Which view of a transcript to read.
@@ -32,12 +32,19 @@ export interface EventsPage {
 
 export interface SessionEventsHandlers {
   onEvent: (ev: ActivityEvent) => void;
+  onState?: (state: AgentSessionState) => void;
   /** Fired whenever a chunk carries occupancy. Separate from `onEvent` because
    *  occupancy is session state and arrives on the chunk, and because it has to
    *  land before the seed resolves as well as after. */
   onUsage?: (usage: TokenUsage | null) => void;
   onOpen?: () => void;
   onError?: () => void;
+}
+
+export interface AgentSessionState {
+  sequence: number;
+  runState: "idle" | "running" | "ended" | "error";
+  queue: { steer: number; followUp: number };
 }
 
 export interface AgentDataSource {

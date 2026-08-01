@@ -11,6 +11,8 @@ function fakeBackend(): AgentBackend {
     async subscribe() { return () => {}; },
     async send(sessionId, requestId, _text, delivery) { return { requestId, delivery: delivery === "steer" ? "steer" : "immediate" }; },
     async abort(_sessionId, requestId) { return { requestId, delivery: "abort" }; },
+    async subscribeUi() { return () => {}; },
+    async respondToUi() { return true; },
     async dispose() {},
   };
 }
@@ -49,4 +51,16 @@ test("Pi pages reject raw mode instead of silently renumbering", async () => {
   const route = createAgentRoutes(() => backend);
   const request = new Request("http://localhost/api/sessions/pi/s1/events?mode=raw");
   expect((await route(request, new URL(request.url), server))?.status).toBe(400);
+});
+
+test("extension UI responses are correlated through the backend broker", async () => {
+  const backend = fakeBackend();
+  const route = createAgentRoutes(() => backend);
+  const request = new Request("http://localhost/api/agent-sessions/pi/s1/ui/ui-1", {
+    method: "POST",
+    body: JSON.stringify({ value: true }),
+  });
+  const response = await route(request, new URL(request.url), server);
+  expect(response?.status).toBe(202);
+  expect(await response?.json()).toEqual({ requestId: "ui-1", delivery: "ui" });
 });

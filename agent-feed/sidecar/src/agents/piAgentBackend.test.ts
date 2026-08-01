@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { AgentCommandConflictError, PiAgentBackend, type PiRuntimeFacade, type PiSessionFacade } from "./piAgentBackend.ts";
+import { AgentCommandConflictError, PiAgentBackend, piProjectSessionDirectory, type PiRuntimeFacade, type PiSessionFacade } from "./piAgentBackend.ts";
 
 class FakeSession implements PiSessionFacade {
   sessionId = "session-1";
@@ -100,4 +100,9 @@ test("a runaway tool loop aborts after the configured budget", async () => {
   await Promise.resolve();
   expect(value.session.aborted).toBe(1);
   await value.backend.dispose();
+});
+
+test("new persistent sessions use Pi's encoded project directory under the configured root", () => {
+  expect(piProjectSessionDirectory("/tmp/project:one", "/tmp/pi-sessions"))
+    .toBe("/tmp/pi-sessions/--tmp-project-one--");
 });

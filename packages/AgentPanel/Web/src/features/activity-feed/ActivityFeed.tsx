@@ -34,6 +34,7 @@ import {
 } from "./ActivityEventRows";
 import { TokenMeter } from "./TokenMeter";
 import type { AgentSource, EventMode } from "./data-source/AgentDataSource";
+import type { AgentSessionState } from "./data-source/AgentDataSource";
 
 /** Fallback for the sticky bar's height before it has rendered once. */
 const STICKY_HEIGHT_ESTIMATE = 44;
@@ -43,7 +44,9 @@ export function ActivityFeed({
   sessionId,
   mode,
   onToggleMode,
+  canToggleMode = true,
   controlsHost,
+  onSessionState,
 }: {
   source: AgentSource;
   sessionId: string;
@@ -55,6 +58,7 @@ export function ActivityFeed({
    */
   mode: EventMode;
   onToggleMode: () => void;
+  canToggleMode?: boolean;
   /**
    * Where to render the thread's controls, supplied by the shell so the thread
    * spends no row of its own on them. `null` only while the shell's header is
@@ -62,9 +66,13 @@ export function ActivityFeed({
    * controls by forgetting to pass it.
    */
   controlsHost: HTMLElement | null;
+  onSessionState?: (state: AgentSessionState) => void;
 }) {
-  const { events, loadOlder, windowStart, usage, loading, error } =
+  const { events, loadOlder, windowStart, usage, loading, error, sequence, runState, queue } =
     useSessionEventsStream(source, sessionId, mode);
+  useEffect(() => {
+    onSessionState?.({ sequence, runState, queue });
+  }, [onSessionState, queue, runState, sequence]);
   const parentRef = useRef<HTMLDivElement>(null);
   const sizedRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLButtonElement>(null);
@@ -325,7 +333,7 @@ export function ActivityFeed({
           {/* The nice view omits harness machinery, so the raw view has to stay one
               press away: it is the fidelity guarantee that makes omitting allowed at
               all, and a viewer who wants to know what was dropped here needs it. */}
-          <button
+          {canToggleMode ? <button
             type="button"
             onClick={onToggleMode}
             title={
@@ -343,7 +351,7 @@ export function ActivityFeed({
             }
           >
             {mode === "raw" ? "raw" : "nice"}
-          </button>
+          </button> : null}
           <button
             type="button"
             onClick={allCollapsed ? expandAll : collapseAll}

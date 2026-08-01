@@ -161,7 +161,8 @@ struct AgentSessionTerminalCoordinatorTests {
             source: "claude",
             title: "Live thread",
             lastEventAt: 1,
-            activity: "live"
+            activity: "live",
+            capabilities: AgentFeedSessionCapabilities(modes: ["raw", "nice"], canSend: false, canSteer: false, canAbort: false, canFetchRaw: true, canOpenTerminal: true, supportsExtensionUi: false)
         )
         let client = SessionsSidecarClient(snapshot: AgentFeedSessionsSnapshot(
             projectPath: fixture.project.path,
@@ -1005,13 +1006,19 @@ private struct SessionsSidecarClient: SidecarClient, @unchecked Sendable {
     func openEventStream(
         source: String,
         sessionId: String,
-        after: Int,
+        afterSequence: Int,
         mode: AgentFeedEventMode,
-        onEvent: @escaping @Sendable (AgentFeedActivityEvent) -> Void,
+        onEnvelope: @escaping @Sendable (AgentFeedTimelineEnvelope) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
         SidecarStreamHandle(task: Task {})
     }
+
+    func createSession(requestId: String, source: String, projectPath: String) async throws -> AgentFeedSessionSummary { throw SidecarClientError.server("unsupported") }
+    func sendMessage(requestId: String, source: String, sessionId: String, text: String, delivery: String) async throws -> AgentFeedCommandReceipt { throw SidecarClientError.server("unsupported") }
+    func abortSession(requestId: String, source: String, sessionId: String) async throws -> AgentFeedCommandReceipt { throw SidecarClientError.server("unsupported") }
+    func openExtensionUIStream(source: String, sessionId: String, onRequest: @escaping @Sendable (AgentFeedExtensionUIRequest) -> Void, onError: @escaping @Sendable (Error) -> Void) -> SidecarStreamHandle { SidecarStreamHandle(task: Task {}) }
+    func respondToExtensionUI(source: String, sessionId: String, requestId: String, value: AgentJSONValue) async throws -> AgentFeedCommandReceipt { throw SidecarClientError.server("unsupported") }
 }
 
 private actor FakeAgentSessionTerminalLivenessChecker: AgentSessionTerminalLivenessChecking {

@@ -22,10 +22,16 @@ interface WireActivityBlock {
   sm?: string;
   pv?: string;
   ci?: string;
+  in?: Record<string, unknown>;
+  hc?: number;
+  hl?: number;
 }
 
 interface WireActivityEvent {
+  id: string;
   i: number;
+  rev: number;
+  ph: "streaming" | "complete" | "error";
   ts: number;
   tp: string;
   b: WireActivityBlock[];
@@ -35,7 +41,7 @@ interface WireActivityEvent {
 interface WireProjectSummary {
   pp: string;
   dn: string;
-  sc: { cl: number; co: number };
+  sc: Record<string, number>;
   sn: number;
   lea: number;
 }
@@ -46,6 +52,17 @@ interface WireSessionSummary {
   ttl: string;
   lea: number;
   ac: SessionActivity;
+  cap: WireSessionCapabilities;
+}
+
+interface WireSessionCapabilities {
+  md: EventMode[];
+  snd: boolean;
+  str: boolean;
+  abt: boolean;
+  raw: boolean;
+  pty: boolean;
+  xui: boolean;
 }
 
 interface WireProjectsPush {
@@ -91,7 +108,14 @@ interface WireThreadChunk {
   lv: boolean;
   u?: WireTokenUsage | null;
   md?: EventMode;
+  k: "snapshot" | "page" | "upsert" | "state";
+  seq: number;
+  rs?: AgentRunState;
+  qs: number;
+  qf: number;
 }
+
+type AgentRunState = "idle" | "running" | "ended" | "error";
 
 interface WireThreadError {
   t: "agent-thread-error";
@@ -124,6 +148,55 @@ interface WireRawEventError {
   r: string;
 }
 
+interface WireCommandReceipt {
+  t: "agent-command-receipt";
+  rid: string;
+  src: AgentSource;
+  sid: string;
+  del: string;
+}
+
+interface WireCommandError {
+  t: "agent-command-error";
+  rid: string;
+  c: string;
+  m: string;
+  rt: boolean;
+}
+
+export interface AgentExtensionUIRequest {
+  source: AgentSource;
+  sessionId: string;
+  requestId: string;
+  kind: "select" | "confirm" | "input" | "editor" | "notify" | "status" | "widget";
+  title?: string;
+  message?: string;
+  options?: string[];
+  placeholder?: string;
+  prefill?: string;
+  level?: "info" | "warning" | "error";
+  key?: string;
+  lines?: string[];
+  expectsResponse: boolean;
+}
+
+interface WireExtensionUIRequest {
+  t: "agent-extension-ui-request";
+  src: AgentSource;
+  sid: string;
+  rid: string;
+  k: AgentExtensionUIRequest["kind"];
+  ttl?: string;
+  m?: string;
+  o?: string[];
+  ph?: string;
+  pf?: string;
+  lv?: AgentExtensionUIRequest["level"];
+  key?: string;
+  ln?: string[];
+  er: boolean;
+}
+
 type InboundMessage =
   | WireProjectsPush
   | WireProjectsError
@@ -133,6 +206,9 @@ type InboundMessage =
   | WireThreadError
   | WireRawEvent
   | WireRawEventError
+  | WireCommandReceipt
+  | WireCommandError
+  | WireExtensionUIRequest
   | { t: string };
 
 export type SessionActivity = "live" | "ready" | "paused" | "cold";
@@ -140,7 +216,7 @@ export type SessionActivity = "live" | "ready" | "paused" | "cold";
 export interface BridgeProject {
   projectPath: string;
   displayName: string;
-  sourceCounts: { claude: number; codex: number };
+  sourceCounts: Record<string, number>;
   sessionCount: number;
   lastEventAt: number;
 }
@@ -151,11 +227,22 @@ export interface BridgeSessionSummary {
   title: string;
   lastEventAt: number;
   activity: SessionActivity;
+  capabilities: AgentSessionCapabilities;
+}
+
+export interface AgentSessionCapabilities {
+  modes: EventMode[];
+  canSend: boolean;
+  canSteer: boolean;
+  canAbort: boolean;
+  canFetchRaw: boolean;
+  canOpenTerminal: boolean;
+  supportsExtensionUI: boolean;
 }
 
 export interface AgentTerminalContext {
   projectPath: string;
-  source: AgentSource;
+  source: "claude" | "codex";
   sessionId: string;
 }
 
@@ -187,6 +274,9 @@ interface SessionBuffer {
   /** The view every index in this buffer is counted in. */
   mode: EventMode;
   seeded: boolean;
+  sequence: number;
+  runState: AgentRunState;
+  queue: { steer: number; followUp: number };
 }
 
 interface SeedWaiter {
@@ -205,6 +295,12 @@ interface RawEventWaiter {
   sessionKey: string;
   eventIndex: number;
   resolve: (text: string) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+interface CommandWaiter {
+  resolve: (receipt: WireCommandReceipt) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -229,6 +325,9 @@ function mapBlock(wire: WireActivityBlock): ActivityBlock {
     summary: wire.sm,
     preview: wire.pv,
     callId: wire.ci,
+    input: wire.in,
+    hiddenChars: wire.hc,
+    hiddenLines: wire.hl,
   };
 }
 
@@ -253,7 +352,10 @@ function mapUsage(wire: WireTokenUsage | null | undefined): TokenUsage | null {
 
 function mapEvent(wire: WireActivityEvent): ActivityEvent {
   return normalizeActivityEvent({
+    id: wire.id,
     index: wire.i,
+    revision: wire.rev,
+    phase: wire.ph,
     ts: wire.ts,
     type: wire.tp,
     blocks: wire.b.map(mapBlock),
@@ -343,6 +445,7 @@ export class BridgeDataSource implements AgentDataSource {
   private readonly seedWaiters = new Map<string, SeedWaiter[]>();
   private readonly olderWaiters = new Map<string, OlderWaiter[]>();
   private readonly rawEventWaiters = new Map<string, RawEventWaiter>();
+  private readonly commandWaiters = new Map<string, CommandWaiter>();
   private readonly activeThreads = new Map<string, SessionReference>();
   private readonly reconnectingThreads = new Set<string>();
   private readonly projectWatches = new Map<string, ProjectWatch>();
@@ -352,6 +455,9 @@ export class BridgeDataSource implements AgentDataSource {
   >();
   private readonly terminalStatusListeners = new Set<
     (status: AgentTerminalStatus) => void
+  >();
+  private readonly extensionUIListeners = new Set<
+    (request: AgentExtensionUIRequest) => void
   >();
   private activeTerminalRequest: AgentTerminalRequest | null = null;
   private unsubscribeHostMessages: (() => void) | null;
@@ -501,6 +607,79 @@ export class BridgeDataSource implements AgentDataSource {
     });
   }
 
+  createSession(projectPath: string, source = "pi"): Promise<WireCommandReceipt> {
+    const requestId = this.requestIDFactory("create");
+    return this.postCommand(requestId, {
+      t: "agent-session-create",
+      rid: requestId,
+      src: source,
+      pp: projectPath,
+    });
+  }
+
+  sendMessage(
+    session: Pick<SessionReference, "source" | "sessionId">,
+    text: string,
+    delivery: "next" | "steer",
+  ): Promise<WireCommandReceipt> {
+    const requestId = this.requestIDFactory("send");
+    return this.postCommand(requestId, {
+      t: "agent-session-send",
+      rid: requestId,
+      src: session.source,
+      sid: session.sessionId,
+      tx: text,
+      del: delivery,
+    });
+  }
+
+  abortSession(
+    session: Pick<SessionReference, "source" | "sessionId">,
+  ): Promise<WireCommandReceipt> {
+    const requestId = this.requestIDFactory("abort");
+    return this.postCommand(requestId, {
+      t: "agent-session-abort",
+      rid: requestId,
+      src: session.source,
+      sid: session.sessionId,
+    });
+  }
+
+  respondToExtensionUI(
+    request: AgentExtensionUIRequest,
+    value: string | boolean | null,
+  ): void {
+    this.bridge.postToHost({
+      t: "agent-extension-ui-response",
+      src: request.source,
+      sid: request.sessionId,
+      rid: request.requestId,
+      v: value,
+    });
+  }
+
+  subscribeExtensionUI(
+    listener: (request: AgentExtensionUIRequest) => void,
+  ): () => void {
+    this.extensionUIListeners.add(listener);
+    return () => this.extensionUIListeners.delete(listener);
+  }
+
+  private postCommand(
+    requestId: string,
+    message: Record<string, unknown>,
+  ): Promise<WireCommandReceipt> {
+    if (this.destroyed) return Promise.reject(new Error("BridgeDataSource destroyed"));
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.commandWaiters.delete(requestId);
+        reject(new Error(`agent command timed out: ${requestId}`));
+      }, this.rawEventTimeoutMs);
+      this.commandWaiters.set(requestId, { resolve, reject, timer });
+      this.bridge.postToHost(message);
+    });
+  }
+
   createTerminalRequest(context: AgentTerminalContext): AgentTerminalRequest {
     return {
       requestId: this.requestIDFactory("terminal"),
@@ -586,6 +765,9 @@ export class BridgeDataSource implements AgentDataSource {
       usage: null,
       mode: session.mode,
       seeded: false,
+      sequence: 0,
+      runState: "idle",
+      queue: { steer: 0, followUp: 0 },
     });
     this.bridge.postToHost({
       t: "agent-thread-sub",
@@ -647,6 +829,13 @@ export class BridgeDataSource implements AgentDataSource {
       case "agent-raw-event-error":
         this.handleRawEvent(message as WireRawEvent | WireRawEventError);
         break;
+      case "agent-command-receipt":
+      case "agent-command-error":
+        this.handleCommand(message as WireCommandReceipt | WireCommandError);
+        break;
+      case "agent-extension-ui-request":
+        this.handleExtensionUI(message as WireExtensionUIRequest);
+        break;
       case "agent-terminal-ready":
       case "agent-terminal-error":
       case "agent-terminal-ended":
@@ -663,8 +852,7 @@ export class BridgeDataSource implements AgentDataSource {
         projectPath: project.pp,
         displayName: project.dn,
         sourceCounts: {
-          claude: project.sc.cl,
-          codex: project.sc.co,
+          ...project.sc,
         },
         sessionCount: project.sn,
         lastEventAt: project.lea,
@@ -686,6 +874,15 @@ export class BridgeDataSource implements AgentDataSource {
         title: session.ttl,
         lastEventAt: session.lea,
         activity: session.ac,
+        capabilities: {
+          modes: session.cap.md,
+          canSend: session.cap.snd,
+          canSteer: session.cap.str,
+          canAbort: session.cap.abt,
+          canFetchRaw: session.cap.raw,
+          canOpenTerminal: session.cap.pty,
+          supportsExtensionUI: session.cap.xui,
+        },
       })),
     );
   }
@@ -712,11 +909,32 @@ export class BridgeDataSource implements AgentDataSource {
     // before them -- and nothing would report an error. An absent `md` means raw, the
     // rule this field follows at every boundary.
     if ((chunk.md ?? "raw") !== buffer.mode) return;
+    if (chunk.seq < buffer.sequence) return;
+    buffer.sequence = chunk.seq;
+    buffer.runState = chunk.rs ?? buffer.runState;
+    buffer.queue = { steer: chunk.qs, followUp: chunk.qf };
+    for (const listener of this.liveListeners.get(key) ?? []) {
+      listener.onState?.({
+        sequence: buffer.sequence,
+        runState: buffer.runState,
+        queue: buffer.queue,
+      });
+    }
 
-    const previousTotal = buffer.total;
     const events = chunk.ev.map(mapEvent);
-    for (const event of events) buffer.events.set(event.index, event);
-    buffer.total = Math.max(buffer.total, chunk.tot);
+    const previousEvents = new Map(buffer.events);
+    if (chunk.k === "snapshot") buffer.events.clear();
+    const changedEvents: ActivityEvent[] = [];
+    for (const event of events) {
+      const current = previousEvents.get(event.index);
+      if (!current || (event.revision ?? 0) > (current.revision ?? 0)) {
+        buffer.events.set(event.index, event);
+        changedEvents.push(event);
+      } else if (chunk.k === "snapshot") {
+        buffer.events.set(event.index, current);
+      }
+    }
+    buffer.total = chunk.k === "snapshot" ? chunk.tot : Math.max(buffer.total, chunk.tot);
     buffer.windowStart = buffer.seeded
       ? Math.min(buffer.windowStart, chunk.ws)
       : chunk.ws;
@@ -738,9 +956,7 @@ export class BridgeDataSource implements AgentDataSource {
       if (this.reconnectingThreads.has(key) && buffer.seeded) {
         this.reconnectingThreads.delete(key);
         for (const listener of this.liveListeners.get(key) ?? []) {
-          for (const event of events) {
-            if (event.index >= previousTotal) listener.onEvent(event);
-          }
+          for (const event of changedEvents) listener.onEvent(event);
         }
         return;
       }
@@ -770,7 +986,7 @@ export class BridgeDataSource implements AgentDataSource {
       for (const waiter of waiters) waiter.resolve(buffer);
     }
     for (const listener of this.liveListeners.get(key) ?? []) {
-      for (const event of events) listener.onEvent(event);
+      for (const event of changedEvents) listener.onEvent(event);
     }
   }
 
@@ -813,6 +1029,37 @@ export class BridgeDataSource implements AgentDataSource {
     } else {
       waiter.resolve(message.tx);
     }
+  }
+
+  private handleCommand(message: WireCommandReceipt | WireCommandError): void {
+    const waiter = this.commandWaiters.get(message.rid);
+    if (!waiter) return;
+    this.commandWaiters.delete(message.rid);
+    clearTimeout(waiter.timer);
+    if (message.t === "agent-command-error") {
+      waiter.reject(new Error(`${message.c}: ${message.m}`));
+    } else {
+      waiter.resolve(message);
+    }
+  }
+
+  private handleExtensionUI(message: WireExtensionUIRequest): void {
+    const request: AgentExtensionUIRequest = {
+      source: message.src,
+      sessionId: message.sid,
+      requestId: message.rid,
+      kind: message.k,
+      title: message.ttl,
+      message: message.m,
+      options: message.o,
+      placeholder: message.ph,
+      prefill: message.pf,
+      level: message.lv,
+      key: message.key,
+      lines: message.ln,
+      expectsResponse: message.er,
+    };
+    for (const listener of this.extensionUIListeners) listener(request);
   }
 
   private handleTerminalStatus(message: InboundMessage): void {
@@ -881,6 +1128,9 @@ export class BridgeDataSource implements AgentDataSource {
                 usage: mapUsage(chunk.u),
                 mode: chunk.md ?? "raw",
                 seeded: true,
+                sequence: chunk.seq,
+                runState: chunk.rs ?? "idle",
+                queue: { steer: chunk.qs, followUp: chunk.qf },
               },
               chunk.ws,
               chunk.ev.length,
@@ -981,6 +1231,11 @@ export class BridgeDataSource implements AgentDataSource {
       waiter.reject(error);
     }
     this.rawEventWaiters.clear();
+    for (const waiter of this.commandWaiters.values()) {
+      clearTimeout(waiter.timer);
+      waiter.reject(error);
+    }
+    this.commandWaiters.clear();
     this.projectWatches.clear();
     this.projectSessionsWatches.clear();
     this.activeThreads.clear();
@@ -988,6 +1243,7 @@ export class BridgeDataSource implements AgentDataSource {
     this.buffers.clear();
     this.liveListeners.clear();
     this.terminalStatusListeners.clear();
+    this.extensionUIListeners.clear();
     this.activeTerminalRequest = null;
   }
 }

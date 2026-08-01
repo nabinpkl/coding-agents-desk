@@ -332,6 +332,10 @@ enum AgentFeedRequest: Equatable {
     case threadLoadOlder(AgentThreadLoadOlder)
     case threadUnsubscribe(AgentThreadUnsubscribe)
     case rawEvent(AgentRawEventRequest)
+    case sessionCreate(AgentSessionCreate)
+    case sessionSend(AgentSessionSend)
+    case sessionAbort(AgentSessionAbort)
+    case extensionUIResponse(AgentExtensionUIResponse)
 
     init(_ request: AgentPanelRequest) {
         switch request {
@@ -348,13 +352,13 @@ enum AgentFeedRequest: Equatable {
             self = .projectSessionsUnwatch(AgentProjectSessionsUnwatch(subscriptionId: subscriptionId))
         case .threadSubscribe(let source, let sessionId, let mode):
             self = .threadSubscribe(AgentThreadSubscribe(
-                source: source.rawValue,
+                source: source,
                 sessionId: sessionId,
                 mode: mode.rawValue
             ))
         case .threadLoadOlder(let source, let sessionId, let beforeIndex, let limit, let mode):
             self = .threadLoadOlder(AgentThreadLoadOlder(
-                source: source.rawValue,
+                source: source,
                 sessionId: sessionId,
                 beforeIndex: beforeIndex,
                 limit: limit,
@@ -362,16 +366,48 @@ enum AgentFeedRequest: Equatable {
             ))
         case .threadUnsubscribe(let source, let sessionId):
             self = .threadUnsubscribe(AgentThreadUnsubscribe(
-                source: source.rawValue,
+                source: source,
                 sessionId: sessionId
             ))
         case .rawEvent(let requestId, let source, let sessionId, let eventIndex, let mode):
             self = .rawEvent(AgentRawEventRequest(
                 requestId: requestId,
-                source: source.rawValue,
+                source: source,
                 sessionId: sessionId,
                 eventIndex: eventIndex,
                 mode: mode.rawValue
+            ))
+        case .createSession(let requestId, let source, let projectPath):
+            self = .sessionCreate(AgentSessionCreate(
+                requestId: requestId,
+                source: source,
+                projectPath: projectPath
+            ))
+        case .send(let requestId, let source, let sessionId, let text, let delivery):
+            self = .sessionSend(AgentSessionSend(
+                requestId: requestId,
+                source: source,
+                sessionId: sessionId,
+                text: text,
+                delivery: delivery
+            ))
+        case .abort(let requestId, let source, let sessionId):
+            self = .sessionAbort(AgentSessionAbort(
+                requestId: requestId,
+                source: source,
+                sessionId: sessionId
+            ))
+        case .extensionUIResponse(let source, let sessionId, let requestId, let value):
+            let wireValue: AgentJSONValue = switch value {
+            case .null: .null
+            case .bool(let value): .bool(value)
+            case .string(let value): .string(value)
+            }
+            self = .extensionUIResponse(AgentExtensionUIResponse(
+                source: source,
+                sessionId: sessionId,
+                requestId: requestId,
+                value: wireValue
             ))
         case .terminal:
             preconditionFailure("Terminal intents must route through AgentFeedSurface.onTerminalIntent")

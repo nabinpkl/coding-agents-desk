@@ -318,6 +318,22 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
     }
 
+    func sendAgentSessionCreate(_ request: AgentSessionCreate) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
+    func sendAgentSessionSend(_ request: AgentSessionSend) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
+    func sendAgentSessionAbort(_ request: AgentSessionAbort) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
+    func sendAgentExtensionUIResponse(_ response: AgentExtensionUIResponse) async throws {
+        try await QuicSessionStreamIO.send(response, role: .input, on: inputStream)
+    }
+
     func sendAgentTerminal(_ message: AgentTerminalClientMessage) async throws {
         try await inputStream.send(try Self.agentTerminalFrame(message))
     }
@@ -580,6 +596,8 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             deliverAgentPush(data)
         case "agent-thread-error":
             logger.debug("input lane agent-thread-error received")
+            deliverAgentPush(data)
+        case "agent-command-receipt", "agent-command-error", "agent-extension-ui-request":
             deliverAgentPush(data)
         case "agent-raw-event", "agent-raw-event-error":
             deliverAgentPush(data)

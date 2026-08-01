@@ -1,5 +1,36 @@
 import Foundation
 
+public enum AgentJSONValue: Codable, Equatable, Sendable {
+    case null
+    case bool(Bool)
+    case number(Double)
+    case string(String)
+    case array([AgentJSONValue])
+    case object([String: AgentJSONValue])
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() { self = .null }
+        else if let value = try? container.decode(Bool.self) { self = .bool(value) }
+        else if let value = try? container.decode(Double.self) { self = .number(value) }
+        else if let value = try? container.decode(String.self) { self = .string(value) }
+        else if let value = try? container.decode([AgentJSONValue].self) { self = .array(value) }
+        else { self = .object(try container.decode([String: AgentJSONValue].self)) }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .null: try container.encodeNil()
+        case .bool(let value): try container.encode(value)
+        case .number(let value): try container.encode(value)
+        case .string(let value): try container.encode(value)
+        case .array(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
+        }
+    }
+}
+
 public struct ActivityBlock: Codable, Equatable, Sendable {
     public let kind: String
     public let label: String?
@@ -8,6 +39,9 @@ public struct ActivityBlock: Codable, Equatable, Sendable {
     public let summary: String?
     public let preview: String?
     public let callId: String?
+    public let input: [String: AgentJSONValue]?
+    public let hiddenChars: Int?
+    public let hiddenLines: Int?
 
     public enum CodingKeys: String, CodingKey {
         case kind = "k"
@@ -17,9 +51,12 @@ public struct ActivityBlock: Codable, Equatable, Sendable {
         case summary = "sm"
         case preview = "pv"
         case callId = "ci"
+        case input = "in"
+        case hiddenChars = "hc"
+        case hiddenLines = "hl"
     }
 
-    public init(kind: String, label: String? = nil, text: String? = nil, tool: String? = nil, summary: String? = nil, preview: String? = nil, callId: String? = nil) {
+    public init(kind: String, label: String? = nil, text: String? = nil, tool: String? = nil, summary: String? = nil, preview: String? = nil, callId: String? = nil, input: [String: AgentJSONValue]? = nil, hiddenChars: Int? = nil, hiddenLines: Int? = nil) {
         self.kind = kind
         self.label = label
         self.text = text
@@ -27,12 +64,18 @@ public struct ActivityBlock: Codable, Equatable, Sendable {
         self.summary = summary
         self.preview = preview
         self.callId = callId
+        self.input = input
+        self.hiddenChars = hiddenChars
+        self.hiddenLines = hiddenLines
     }
 }
 
 public struct ActivityEvent: Codable, Equatable, Sendable {
+    public let id: String
     /// Position in the mode this event was read in.
     public let index: Int
+    public let revision: Int
+    public let phase: String
     public let ts: Double
     public let type: String
     public let blocks: [ActivityBlock]
@@ -43,7 +86,10 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
     public let otherModeIndex: Int?
 
     public enum CodingKeys: String, CodingKey {
+        case id = "id"
         case index = "i"
+        case revision = "rev"
+        case phase = "ph"
         case ts
         case type = "tp"
         case blocks = "b"
@@ -51,13 +97,19 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
     }
 
     public init(
+        id: String,
         index: Int,
+        revision: Int,
+        phase: String,
         ts: Double,
         type: String,
         blocks: [ActivityBlock],
         otherModeIndex: Int? = nil
     ) {
+        self.id = id
         self.index = index
+        self.revision = revision
+        self.phase = phase
         self.ts = ts
         self.type = type
         self.blocks = blocks
@@ -92,25 +144,10 @@ public struct TokenUsage: Codable, Equatable, Sendable {
     }
 }
 
-public struct AgentProjectSourceCounts: Codable, Equatable, Sendable {
-    public let claude: Int
-    public let codex: Int
-
-    public enum CodingKeys: String, CodingKey {
-        case claude = "cl"
-        case codex = "co"
-    }
-
-    public init(claude: Int, codex: Int) {
-        self.claude = claude
-        self.codex = codex
-    }
-}
-
 public struct AgentProjectSummary: Codable, Equatable, Sendable {
     public let projectPath: String
     public let displayName: String
-    public let sourceCounts: AgentProjectSourceCounts
+    public let sourceCounts: [String: Int]
     public let sessionCount: Int
     public let lastEventAt: Double
 
@@ -122,12 +159,42 @@ public struct AgentProjectSummary: Codable, Equatable, Sendable {
         case lastEventAt = "lea"
     }
 
-    public init(projectPath: String, displayName: String, sourceCounts: AgentProjectSourceCounts, sessionCount: Int, lastEventAt: Double) {
+    public init(projectPath: String, displayName: String, sourceCounts: [String: Int], sessionCount: Int, lastEventAt: Double) {
         self.projectPath = projectPath
         self.displayName = displayName
         self.sourceCounts = sourceCounts
         self.sessionCount = sessionCount
         self.lastEventAt = lastEventAt
+    }
+}
+
+public struct AgentSessionCapabilities: Codable, Equatable, Sendable {
+    public let modes: [String]
+    public let canSend: Bool
+    public let canSteer: Bool
+    public let canAbort: Bool
+    public let canFetchRaw: Bool
+    public let canOpenTerminal: Bool
+    public let supportsExtensionUI: Bool
+
+    public enum CodingKeys: String, CodingKey {
+        case modes = "md"
+        case canSend = "snd"
+        case canSteer = "str"
+        case canAbort = "abt"
+        case canFetchRaw = "raw"
+        case canOpenTerminal = "pty"
+        case supportsExtensionUI = "xui"
+    }
+
+    public init(modes: [String], canSend: Bool, canSteer: Bool, canAbort: Bool, canFetchRaw: Bool, canOpenTerminal: Bool, supportsExtensionUI: Bool) {
+        self.modes = modes
+        self.canSend = canSend
+        self.canSteer = canSteer
+        self.canAbort = canAbort
+        self.canFetchRaw = canFetchRaw
+        self.canOpenTerminal = canOpenTerminal
+        self.supportsExtensionUI = supportsExtensionUI
     }
 }
 
@@ -137,6 +204,7 @@ public struct AgentSessionSummary: Codable, Equatable, Sendable {
     public let title: String
     public let lastEventAt: Double
     public let activity: String
+    public let capabilities: AgentSessionCapabilities
 
     public enum CodingKeys: String, CodingKey {
         case sessionId = "sid"
@@ -144,14 +212,16 @@ public struct AgentSessionSummary: Codable, Equatable, Sendable {
         case title = "ttl"
         case lastEventAt = "lea"
         case activity = "ac"
+        case capabilities = "cap"
     }
 
-    public init(sessionId: String, source: String, title: String, lastEventAt: Double, activity: String) {
+    public init(sessionId: String, source: String, title: String, lastEventAt: Double, activity: String, capabilities: AgentSessionCapabilities) {
         self.sessionId = sessionId
         self.source = source
         self.title = title
         self.lastEventAt = lastEventAt
         self.activity = activity
+        self.capabilities = capabilities
     }
 }
 
@@ -317,6 +387,11 @@ public struct AgentThreadChunk: Codable, Equatable, Sendable {
     /// it just left. Without it, indices counted in the old view would merge into the new one and every
     /// row would be off. Absent means `raw`.
     public let mode: String?
+    public let kind: String
+    public let sequence: Int
+    public let runState: String?
+    public let queueSteer: Int
+    public let queueFollowUp: Int
     public enum CodingKeys: String, CodingKey {
         case type = "t"
         case source = "src"
@@ -327,6 +402,11 @@ public struct AgentThreadChunk: Codable, Equatable, Sendable {
         case isLive = "lv"
         case usage = "u"
         case mode = "md"
+        case kind = "k"
+        case sequence = "seq"
+        case runState = "rs"
+        case queueSteer = "qs"
+        case queueFollowUp = "qf"
     }
     public init(
         source: String,
@@ -336,7 +416,12 @@ public struct AgentThreadChunk: Codable, Equatable, Sendable {
         total: Int,
         isLive: Bool,
         usage: TokenUsage? = nil,
-        mode: String? = nil
+        mode: String? = nil,
+        kind: String,
+        sequence: Int,
+        runState: String? = nil,
+        queueSteer: Int = 0,
+        queueFollowUp: Int = 0
     ) {
         self.source = source
         self.sessionId = sessionId
@@ -346,7 +431,104 @@ public struct AgentThreadChunk: Codable, Equatable, Sendable {
         self.isLive = isLive
         self.usage = usage
         self.mode = mode
+        self.kind = kind
+        self.sequence = sequence
+        self.runState = runState
+        self.queueSteer = queueSteer
+        self.queueFollowUp = queueFollowUp
     }
+}
+
+public struct AgentSessionCreate: Codable, Equatable, Sendable {
+    public let type = "agent-session-create"
+    public let requestId: String
+    public let source: String
+    public let projectPath: String
+    public enum CodingKeys: String, CodingKey { case type = "t"; case requestId = "rid"; case source = "src"; case projectPath = "pp" }
+    public init(requestId: String, source: String, projectPath: String) { self.requestId = requestId; self.source = source; self.projectPath = projectPath }
+}
+
+public struct AgentSessionSend: Codable, Equatable, Sendable {
+    public let type = "agent-session-send"
+    public let requestId: String
+    public let source: String
+    public let sessionId: String
+    public let text: String
+    public let delivery: String
+    public enum CodingKeys: String, CodingKey { case type = "t"; case requestId = "rid"; case source = "src"; case sessionId = "sid"; case text = "tx"; case delivery = "del" }
+    public init(requestId: String, source: String, sessionId: String, text: String, delivery: String) { self.requestId = requestId; self.source = source; self.sessionId = sessionId; self.text = text; self.delivery = delivery }
+}
+
+public struct AgentSessionAbort: Codable, Equatable, Sendable {
+    public let type = "agent-session-abort"
+    public let requestId: String
+    public let source: String
+    public let sessionId: String
+    public enum CodingKeys: String, CodingKey { case type = "t"; case requestId = "rid"; case source = "src"; case sessionId = "sid" }
+    public init(requestId: String, source: String, sessionId: String) { self.requestId = requestId; self.source = source; self.sessionId = sessionId }
+}
+
+public struct AgentCommandReceipt: Codable, Equatable, Sendable {
+    public let type = "agent-command-receipt"
+    public let requestId: String
+    public let source: String
+    public let sessionId: String
+    public let delivery: String
+    public enum CodingKeys: String, CodingKey { case type = "t"; case requestId = "rid"; case source = "src"; case sessionId = "sid"; case delivery = "del" }
+    public init(requestId: String, source: String, sessionId: String, delivery: String) { self.requestId = requestId; self.source = source; self.sessionId = sessionId; self.delivery = delivery }
+}
+
+public struct AgentCommandError: Codable, Equatable, Sendable {
+    public let type = "agent-command-error"
+    public let requestId: String
+    public let code: String
+    public let message: String
+    public let retryable: Bool
+    public enum CodingKeys: String, CodingKey { case type = "t"; case requestId = "rid"; case code = "c"; case message = "m"; case retryable = "rt" }
+    public init(requestId: String, code: String, message: String, retryable: Bool) { self.requestId = requestId; self.code = code; self.message = message; self.retryable = retryable }
+}
+
+public struct AgentExtensionUIRequest: Codable, Equatable, Sendable {
+    public let type = "agent-extension-ui-request"
+    public let source: String
+    public let sessionId: String
+    public let requestId: String
+    public let kind: String
+    public let title: String?
+    public let message: String?
+    public let options: [String]?
+    public let placeholder: String?
+    public let prefill: String?
+    public let level: String?
+    public let key: String?
+    public let lines: [String]?
+    public let expectsResponse: Bool
+    public enum CodingKeys: String, CodingKey { case type = "t"; case source = "src"; case sessionId = "sid"; case requestId = "rid"; case kind = "k"; case title = "ttl"; case message = "m"; case options = "o"; case placeholder = "ph"; case prefill = "pf"; case level = "lv"; case key; case lines = "ln"; case expectsResponse = "er" }
+    public init(source: String, sessionId: String, requestId: String, kind: String, title: String? = nil, message: String? = nil, options: [String]? = nil, placeholder: String? = nil, prefill: String? = nil, level: String? = nil, key: String? = nil, lines: [String]? = nil, expectsResponse: Bool) {
+        self.source = source
+        self.sessionId = sessionId
+        self.requestId = requestId
+        self.kind = kind
+        self.title = title
+        self.message = message
+        self.options = options
+        self.placeholder = placeholder
+        self.prefill = prefill
+        self.level = level
+        self.key = key
+        self.lines = lines
+        self.expectsResponse = expectsResponse
+    }
+}
+
+public struct AgentExtensionUIResponse: Codable, Equatable, Sendable {
+    public let type = "agent-extension-ui-response"
+    public let source: String
+    public let sessionId: String
+    public let requestId: String
+    public let value: AgentJSONValue
+    public enum CodingKeys: String, CodingKey { case type = "t"; case source = "src"; case sessionId = "sid"; case requestId = "rid"; case value = "v" }
+    public init(source: String, sessionId: String, requestId: String, value: AgentJSONValue) { self.source = source; self.sessionId = sessionId; self.requestId = requestId; self.value = value }
 }
 
 public struct AgentThreadError: Codable, Equatable, Sendable {

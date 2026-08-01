@@ -36,13 +36,13 @@ final class AgentPanelBridgeTransport: AgentPanelTransport {
             bridge.handleProjectSessionsUnwatch(AgentProjectSessionsUnwatch(subscriptionId: subscriptionId))
         case .threadSubscribe(let source, let sessionId, let mode):
             bridge.handleThreadSubscribe(AgentThreadSubscribe(
-                source: source.rawValue,
+                source: source,
                 sessionId: sessionId,
                 mode: mode.rawValue
             ))
         case .threadLoadOlder(let source, let sessionId, let beforeIndex, let limit, let mode):
             bridge.handleThreadLoadOlder(AgentThreadLoadOlder(
-                source: source.rawValue,
+                source: source,
                 sessionId: sessionId,
                 beforeIndex: beforeIndex,
                 limit: limit,
@@ -50,19 +50,54 @@ final class AgentPanelBridgeTransport: AgentPanelTransport {
             ))
         case .threadUnsubscribe(let source, let sessionId):
             bridge.handleThreadUnsubscribe(AgentThreadUnsubscribe(
-                source: source.rawValue,
+                source: source,
                 sessionId: sessionId
             ))
         case .rawEvent(let requestId, let source, let sessionId, let eventIndex, let mode):
             bridge.handleRawEvent(AgentRawEventRequest(
                 requestId: requestId,
-                source: source.rawValue,
+                source: source,
                 sessionId: sessionId,
                 eventIndex: eventIndex,
                 mode: mode.rawValue
             ))
+        case .createSession(let requestId, let source, let projectPath):
+            bridge.handleSessionCreate(AgentSessionCreate(
+                requestId: requestId,
+                source: source,
+                projectPath: projectPath
+            ))
+        case .send(let requestId, let source, let sessionId, let text, let delivery):
+            bridge.handleSessionSend(AgentSessionSend(
+                requestId: requestId,
+                source: source,
+                sessionId: sessionId,
+                text: text,
+                delivery: delivery
+            ))
+        case .abort(let requestId, let source, let sessionId):
+            bridge.handleSessionAbort(AgentSessionAbort(
+                requestId: requestId,
+                source: source,
+                sessionId: sessionId
+            ))
+        case .extensionUIResponse(let source, let sessionId, let requestId, let value):
+            bridge.handleExtensionUIResponse(AgentExtensionUIResponse(
+                source: source,
+                sessionId: sessionId,
+                requestId: requestId,
+                value: Self.wireValue(value)
+            ))
         case .terminal(let intent):
             onTerminalIntent?(intent)
+        }
+    }
+
+    private static func wireValue(_ value: AgentPanelUIValue) -> AgentJSONValue {
+        switch value {
+        case .null: .null
+        case .bool(let value): .bool(value)
+        case .string(let value): .string(value)
         }
     }
 }

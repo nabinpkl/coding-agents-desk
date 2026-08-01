@@ -113,10 +113,16 @@ describe("BridgeDataSource visibility lifecycle", () => {
       t: "agent-thread-chunk",
       src: "codex",
       sid: "thread",
-      ev: [{ i: 0, ts: 1, tp: "user", b: [] }],
+      md: "raw",
+      ev: [{ id: "user-0", i: 0, rev: 0, ph: "complete", ts: 1, tp: "user", b: [] }],
       ws: 0,
       tot: 1,
       lv: false,
+      k: "snapshot",
+      seq: 1,
+      rs: "idle",
+      qs: 0,
+      qf: 0,
     });
 
     source.resumeAfterSessionReconnect();
@@ -124,13 +130,19 @@ describe("BridgeDataSource visibility lifecycle", () => {
       t: "agent-thread-chunk",
       src: "codex",
       sid: "thread",
+      md: "raw",
       ev: [
-        { i: 0, ts: 1, tp: "user", b: [] },
-        { i: 1, ts: 2, tp: "assistant", b: [] },
+        { id: "user-0", i: 0, rev: 0, ph: "complete", ts: 1, tp: "user", b: [] },
+        { id: "assistant-1", i: 1, rev: 0, ph: "complete", ts: 2, tp: "assistant", b: [] },
       ],
       ws: 0,
       tot: 2,
       lv: false,
+      k: "snapshot",
+      seq: 2,
+      rs: "idle",
+      qs: 0,
+      qf: 0,
     });
 
     expect(onEvent).toHaveBeenCalledTimes(1);
@@ -152,6 +164,12 @@ describe("BridgeDataSource context occupancy", () => {
       ws: 0,
       tot: 1,
       lv: true,
+      md: "raw",
+      k: "upsert",
+      seq: 1,
+      rs: "idle",
+      qs: 0,
+      qf: 0,
       ...overrides,
     };
   }
@@ -201,6 +219,61 @@ describe("BridgeDataSource context occupancy", () => {
       current: 40_000,
       limit: null,
       updatedAt: 10,
+    });
+  });
+});
+
+describe("BridgeDataSource live agent control", () => {
+  it("correlates create commands and exposes the created session identity", async () => {
+    const { host, source } = makeSource();
+    const pending = source.createSession("/project");
+    expect(host.posted.at(-1)).toMatchObject({
+      t: "agent-session-create",
+      rid: "create-1",
+      src: "pi",
+      pp: "/project",
+    });
+    host.deliver({ t: "agent-command-receipt", rid: "create-1", src: "pi", sid: "pi-session", del: "created" });
+    await expect(pending).resolves.toMatchObject({ sid: "pi-session", del: "created" });
+  });
+
+  it("replaces a streaming event by revision and publishes run plus queue state", () => {
+    const { host, source } = makeSource();
+    const onEvent = vi.fn();
+    const onState = vi.fn();
+    source.subscribeSessionEvents(
+      { source: "pi", sessionId: "thread", mode: "nice" },
+      0,
+      { onEvent, onState },
+    );
+    host.deliver({
+      t: "agent-thread-chunk", src: "pi", sid: "thread", md: "nice",
+      ev: [{ id: "assistant-1", i: 0, rev: 0, ph: "streaming", ts: 1, tp: "assistant", b: [{ k: "text", tx: "Hel" }] }],
+      ws: 0, tot: 1, lv: false, k: "snapshot", seq: 1, rs: "running", qs: 0, qf: 0,
+    });
+    host.deliver({
+      t: "agent-thread-chunk", src: "pi", sid: "thread", md: "nice",
+      ev: [{ id: "assistant-1", i: 0, rev: 1, ph: "complete", ts: 1, tp: "assistant", b: [{ k: "text", tx: "Hello" }] }],
+      ws: 0, tot: 1, lv: true, k: "upsert", seq: 2, rs: "idle", qs: 0, qf: 1,
+    });
+    expect(onEvent).toHaveBeenCalledOnce();
+    expect(onEvent.mock.calls[0]?.[0]).toMatchObject({ id: "assistant-1", revision: 1, phase: "complete" });
+    expect(onState).toHaveBeenLastCalledWith({ sequence: 2, runState: "idle", queue: { steer: 0, followUp: 1 } });
+  });
+
+  it("fans extension prompts into the panel and posts the first response", () => {
+    const { host, source } = makeSource();
+    const listener = vi.fn();
+    source.subscribeExtensionUI(listener);
+    host.deliver({
+      t: "agent-extension-ui-request", src: "pi", sid: "thread", rid: "ui-1",
+      k: "confirm", ttl: "Proceed?", m: "Run the extension?", er: true,
+    });
+    const request = listener.mock.calls[0]?.[0];
+    expect(request).toMatchObject({ requestId: "ui-1", kind: "confirm", expectsResponse: true });
+    source.respondToExtensionUI(request, true);
+    expect(host.posted.at(-1)).toEqual({
+      t: "agent-extension-ui-response", src: "pi", sid: "thread", rid: "ui-1", v: true,
     });
   });
 });

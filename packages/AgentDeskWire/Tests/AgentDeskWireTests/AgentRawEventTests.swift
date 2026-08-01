@@ -4,7 +4,10 @@ import Testing
 
 @Test func rawEventLabelAndSystemRoundTrip() throws {
     let event = ActivityEvent(
+        id: "event-3",
         index: 3,
+        revision: 0,
+        phase: "complete",
         ts: 4,
         type: "system",
         blocks: [ActivityBlock(kind: "metadata", label: "Token Usage", text: "42")]

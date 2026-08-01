@@ -32,7 +32,7 @@ struct AgentFeedWireTests {
                 AgentProjectSummary(
                     projectPath: "/project",
                     displayName: "project",
-                    sourceCounts: AgentProjectSourceCounts(claude: 1, codex: 2),
+                    sourceCounts: ["claude": 1, "codex": 2, "pi": 1],
                     sessionCount: 3,
                     lastEventAt: 100
                 ),
@@ -40,7 +40,7 @@ struct AgentFeedWireTests {
         )
         let decodedProjects = try roundTrip(projects, tag: "agent-projects")
         #expect(decodedProjects.subscriptionId == "projects-1")
-        #expect(decodedProjects.projects[0].sourceCounts.codex == 2)
+        #expect(decodedProjects.projects[0].sourceCounts["codex"] == 2)
 
         let sessions = AgentProjectSessionsPush(
             subscriptionId: "sessions-1",
@@ -51,14 +51,16 @@ struct AgentFeedWireTests {
                     source: "claude",
                     title: "Claude",
                     lastEventAt: 100,
-                    activity: "live"
+                    activity: "live",
+                    capabilities: transcriptCapabilities
                 ),
                 AgentSessionSummary(
                     sessionId: "same",
                     source: "codex",
                     title: "Codex",
                     lastEventAt: 90,
-                    activity: "cold"
+                    activity: "cold",
+                    capabilities: transcriptCapabilities
                 ),
             ]
         )
@@ -94,7 +96,10 @@ struct AgentFeedWireTests {
                 sessionId: "same",
                 events: [
                     ActivityEvent(
+                        id: "event-1",
                         index: 1,
+                        revision: 2,
+                        phase: "streaming",
                         ts: 2,
                         type: "assistant",
                         blocks: [ActivityBlock(kind: "text", text: "hello")]
@@ -102,7 +107,10 @@ struct AgentFeedWireTests {
                 ],
                 windowStart: 1,
                 total: 2,
-                isLive: true
+                isLive: true,
+                kind: "upsert",
+                sequence: 3,
+                runState: "running"
             ),
             tag: "agent-thread-chunk"
         )
@@ -128,13 +136,13 @@ struct AgentFeedWireTests {
                 AgentProjectSummary(
                     projectPath: "/p",
                     displayName: "p",
-                    sourceCounts: AgentProjectSourceCounts(claude: 1, codex: 0),
+                    sourceCounts: ["claude": 1, "codex": 0],
                     sessionCount: 1,
                     lastEventAt: 1
                 ),
             ]
         ))
-        for key in ["\"t\"", "\"sub\"", "\"p\"", "\"pp\"", "\"dn\"", "\"sc\"", "\"cl\"", "\"co\"", "\"sn\"", "\"lea\""] {
+        for key in ["\"t\"", "\"sub\"", "\"p\"", "\"pp\"", "\"dn\"", "\"sc\"", "\"claude\"", "\"codex\"", "\"sn\"", "\"lea\""] {
             #expect(projectJSON.contains(key))
         }
 
@@ -147,13 +155,18 @@ struct AgentFeedWireTests {
                     source: "claude",
                     title: "title",
                     lastEventAt: 1,
-                    activity: "ready"
+                    activity: "ready",
+                    capabilities: transcriptCapabilities
                 ),
             ]
         ))
         for key in ["\"sub\"", "\"pp\"", "\"ss\"", "\"sid\"", "\"src\"", "\"ttl\"", "\"lea\"", "\"ac\""] {
             #expect(sessionJSON.contains(key))
         }
+    }
+
+    private var transcriptCapabilities: AgentSessionCapabilities {
+        AgentSessionCapabilities(modes: ["raw", "nice"], canSend: false, canSteer: false, canAbort: false, canFetchRaw: true, canOpenTerminal: true, supportsExtensionUI: false)
     }
 
     private func roundTrip<Value: Codable & Equatable>(

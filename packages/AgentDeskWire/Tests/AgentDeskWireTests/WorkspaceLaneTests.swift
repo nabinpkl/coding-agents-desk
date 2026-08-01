@@ -122,8 +122,8 @@ private func laneRoundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(result.document == bytes)
 }
 
-@Test func clientScreenshotProtocolVersionFourteenIsPinned() {
-    #expect(WireProtocol.version == 15)
-    #expect(WireProtocol.minCompatibleVersion == 15)
+@Test func liveAgentProtocolVersionSixteenIsPinned() {
+    #expect(WireProtocol.version == 16)
+    #expect(WireProtocol.minCompatibleVersion == 16)
     #expect(10 < WireProtocol.minCompatibleVersion)
 }

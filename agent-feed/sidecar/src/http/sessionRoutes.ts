@@ -159,6 +159,9 @@ async function paginatedEvents(
       total: getEventCount(source, sessionId, mode),
       mode,
       usage: getSessionUsage(source, sessionId),
+      sequence: getEventCount(source, sessionId, mode),
+      runState: "idle",
+      queue: { steer: 0, followUp: 0 },
     });
   } finally {
     releaseIndex(source, sessionId);
@@ -217,8 +220,14 @@ function eventStream(
     // field. Read per write rather than captured, so it is never stale.
     const writeEvent = (event: ActivityEvent): void => {
       write(encodeServerSentEvent({
-        ...event,
+        kind: "upsert",
+        sequence: event.index + 1,
         mode,
+        events: [event],
+        windowStart: event.index,
+        total: event.index + 1,
+        runState: "idle",
+        queue: { steer: 0, followUp: 0 },
         usage: getSessionUsage(source, sessionId),
       }));
     };
@@ -325,9 +334,9 @@ export const handleSessionRoutes: RouteHandler = (request, url, server) => {
 
   const streamMatch = STREAM_ROUTE.exec(url.pathname);
   if (streamMatch) {
-    const after = integerQuery(url, "after", 0);
+    const after = integerQuery(url, "since", 0);
     if (after === null) {
-      return jsonResponse({ error: "invalid after" }, 400);
+      return jsonResponse({ error: "invalid since" }, 400);
     }
     if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
     return eventStream(

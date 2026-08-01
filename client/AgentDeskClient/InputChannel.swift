@@ -58,6 +58,10 @@ protocol InputChannel: AnyObject, Sendable {
     func sendAgentThreadLoadOlder(_ request: AgentThreadLoadOlder) async throws
     func sendAgentThreadUnsubscribe(_ request: AgentThreadUnsubscribe) async throws
     func sendAgentRawEventRequest(_ request: AgentRawEventRequest) async throws
+    func sendAgentSessionCreate(_ request: AgentSessionCreate) async throws
+    func sendAgentSessionSend(_ request: AgentSessionSend) async throws
+    func sendAgentSessionAbort(_ request: AgentSessionAbort) async throws
+    func sendAgentExtensionUIResponse(_ response: AgentExtensionUIResponse) async throws
     func sendAgentTerminal(_ message: AgentTerminalClientMessage) async throws
     func sendWorkspaceTerminal(_ message: WorkspaceTerminalClientMessage) async throws
 

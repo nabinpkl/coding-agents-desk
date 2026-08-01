@@ -558,6 +558,14 @@ extension PairingViewController {
                     try await channel.sendAgentThreadUnsubscribe(unsub)
                 case .rawEvent(let request):
                     try await channel.sendAgentRawEventRequest(request)
+                case .sessionCreate(let request):
+                    try await channel.sendAgentSessionCreate(request)
+                case .sessionSend(let request):
+                    try await channel.sendAgentSessionSend(request)
+                case .sessionAbort(let request):
+                    try await channel.sendAgentSessionAbort(request)
+                case .extensionUIResponse(let response):
+                    try await channel.sendAgentExtensionUIResponse(response)
                 }
             } catch {
                 Self.logger.error(

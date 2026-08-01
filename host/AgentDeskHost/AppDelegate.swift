@@ -234,8 +234,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 client: PtyManagerSocketClient.makeClient()
             ),
             livenessChecker: SidecarAgentSessionTerminalLivenessChecker(
-                client: HttpSidecarClient(baseURLProvider: { [weak sidecar] in
-                    await sidecar?.baseURL(waitingUpTo: Config.agentFeedSidecarReadyWaitSeconds)
+                client: HttpSidecarClient(endpointProvider: { [weak sidecar] in
+                    await sidecar?.endpoint(waitingUpTo: Config.agentFeedSidecarReadyWaitSeconds)
                 })
             ),
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
@@ -608,8 +608,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let sidecar = agentFeedSidecar
         let agentWindows = AgentWindowRegistry(
             store: AgentWindowPresentationStore(url: Config.agentWindowPresentationsURL),
-            sidecarClient: HttpSidecarClient(baseURLProvider: { [weak sidecar] in
-                await sidecar?.baseURL(waitingUpTo: Config.agentFeedSidecarReadyWaitSeconds)
+            sidecarClient: HttpSidecarClient(endpointProvider: { [weak sidecar] in
+                await sidecar?.endpoint(waitingUpTo: Config.agentFeedSidecarReadyWaitSeconds)
             }),
             terminalCoordinator: agentSessionTerminalCoordinator,
             terminalTombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
@@ -1332,8 +1332,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // arrives once the sidecar is back succeeds, and one that arrives while it
         // is still down fails transiently and the client retries.
         let sidecar = agentFeedSidecar
-        let httpClient = HttpSidecarClient(baseURLProvider: { [weak sidecar] in
-            await sidecar?.baseURL(waitingUpTo: Config.agentFeedSidecarReadyWaitSeconds)
+        let httpClient = HttpSidecarClient(endpointProvider: { [weak sidecar] in
+            await sidecar?.endpoint(waitingUpTo: Config.agentFeedSidecarReadyWaitSeconds)
         })
         let bridge = AgentFeedBridge(client: httpClient, send: { [weak server] data in
             server?.pushAgentData(data)
@@ -1357,6 +1357,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 bridge?.handleThreadUnsubscribe(msg)
             case .rawEvent(let msg):
                 bridge?.handleRawEvent(msg)
+            case .sessionCreate(let msg):
+                bridge?.handleSessionCreate(msg)
+            case .sessionSend(let msg):
+                bridge?.handleSessionSend(msg)
+            case .sessionAbort(let msg):
+                bridge?.handleSessionAbort(msg)
+            case .extensionUIResponse(let msg):
+                bridge?.handleExtensionUIResponse(msg)
             case .terminal(let message):
                 Task {
                     await terminalPushBindingTask.value
