@@ -49,24 +49,11 @@ extension PairingViewController {
             sinkView.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor)
         ])
 
-        // R23: outer scroll constraints (position + extent in the
-        // controller view) are orientation-variant. Capture the independent
-        // portrait edges here; the shell-and-sink constraints are installed
-        // once both sides exist, regardless of which mounts first. Full
-        // layout gets its own portrait constraints because the normal
-        // portrait height is fixed at 55%.
-        portraitConstraints.append(contentsOf: [
-            scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: view.topAnchor),
-            scroll.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.55)
-        ])
-        let safe = view.safeAreaLayoutGuide
-        fullPortraitConstraints.append(contentsOf: [
-            scroll.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: safe.topAnchor)
-        ])
+        // The scroll's own position and extent are orientation-variant and belong to the
+        // set `buildSessionLayoutConstraints` derives; nothing is captured here on purpose.
+        // Producing them at mount time is what broke R230: mounting happens once per sink,
+        // the surface-preserving teardown clears the set while keeping the sink, and the
+        // constraints then had no producer left to bring them back.
 
         // Double-tap zoom toggle: 1.0 ↔ 2.0, animated, centered on the
         // tap point. See PairingViewController+EdgeFollow for the handler.
@@ -76,9 +63,7 @@ extension PairingViewController {
         videoDoubleTapZoomRecognizer = doubleTap
 
         sinkScrollView = scroll
-        if trackpadView.superview != nil {
-            installSinkDependentSessionConstraintsIfNeeded()
-            applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
+        if reconcileSessionLayout() {
             attachVideoTouchRecognizers()
         }
 
@@ -162,8 +147,7 @@ extension PairingViewController {
 
     func showTrackpad() {
         if trackpadView.superview != nil {
-            installSinkDependentSessionConstraintsIfNeeded()
-            applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
+            _ = reconcileSessionLayout()
             attachVideoTouchRecognizers()
             restartSessionSurfaceObservations()
             return
@@ -252,29 +236,6 @@ extension PairingViewController {
         let bottomConstraint = buttonRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
         buttonRowBottomConstraint = bottomConstraint
 
-        // Strip's top aligns with the video sink's bottom edge in
-        // portrait (sink occupies the top 0.55 of the view height; see
-        // mountSinkView). Multiplier on view.bottom keeps the band's
-        // position independent of when the sink mounts.
-        let bandTopAtVideoBottom = NSLayoutConstraint(
-            item: displayRailView,
-            attribute: .top,
-            relatedBy: .equal,
-            toItem: view,
-            attribute: .bottom,
-            multiplier: 0.55,
-            constant: 0
-        )
-        let fullBandTopAtVideoBottom = NSLayoutConstraint(
-            item: displayRailView,
-            attribute: .top,
-            relatedBy: .equal,
-            toItem: view,
-            attribute: .bottom,
-            multiplier: 0.55,
-            constant: 0
-        )
-
         // Shared constraints, active for the entire session in both
         // orientations. Heights, fixed widths, intra-card hint
         // placement, and anchors that resolve to the same edge in
@@ -307,36 +268,7 @@ extension PairingViewController {
             scrollStripHint.centerYAnchor.constraint(equalTo: scrollStripView.centerYAnchor)
         ])
 
-        // Portrait layout. Trackpad + scroll strip span the bottom row;
-        // strip sits at view.bottom * 0.55 above the trackpad; video
-        // scroll (constrained in mountSinkView) takes the top 0.55.
-        portraitConstraints.append(contentsOf: [
-            buttonRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            buttonRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-
-            displayRailView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            displayRailView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            bandTopAtVideoBottom,
-
-            thumbnailStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            thumbnailStripView.topAnchor.constraint(equalTo: displayRailView.bottomAnchor, constant: 4),
-
-            keyboardSurface.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            keyboardSurface.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-
-            trackpadView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
-            trackpadView.topAnchor.constraint(equalTo: thumbnailStripView.bottomAnchor, constant: 4),
-            trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
-
-            scrollStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12)
-        ])
-        installSinkDependentSessionConstraintsIfNeeded(
-            fullBandTopAtVideoBottom: fullBandTopAtVideoBottom
-        )
-
-        applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
+        _ = reconcileSessionLayout()
 
         // The rail is added before session UI. Keep it above later surfaces so its controls
         // remain tappable without letting each button become an independent overlay.
@@ -353,27 +285,108 @@ extension PairingViewController {
         restartSessionSurfaceObservations()
     }
 
-    private func installSinkDependentSessionConstraintsIfNeeded(
-        fullBandTopAtVideoBottom: NSLayoutConstraint? = nil
-    ) {
-        guard deferredMediaLayoutInstallation.beginIfReady(
+    /// Bring the installed orientation-variant constraints in line with what is mounted,
+    /// and report whether a complete set is now installed.
+    ///
+    /// Every mount and unmount of either the control shell or the video sink goes through
+    /// here, so the set on screen is always derived from the current composition rather than
+    /// accumulated across whichever call sites happened to run.
+    @discardableResult
+    func reconcileSessionLayout() -> Bool {
+        switch sessionLayoutConstraints.reconcile(
             shellMounted: trackpadView.superview != nil,
             sinkMounted: sinkScrollView != nil
-        ),
-              let scroll = sinkScrollView
-        else { return }
+        ) {
+        case .upToDate:
+            return sessionLayoutConstraints.hasInstalledConstraints
+        case .clear:
+            discardSessionLayoutConstraints()
+            return false
+        case .rebuild:
+            discardSessionLayoutConstraints()
+            buildSessionLayoutConstraints()
+            applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
+            return true
+        }
+    }
 
+    private func discardSessionLayoutConstraints() {
+        NSLayoutConstraint.deactivate(portraitConstraints)
+        NSLayoutConstraint.deactivate(landscapeConstraints)
+        NSLayoutConstraint.deactivate(fullPortraitConstraints)
+        NSLayoutConstraint.deactivate(fullLandscapeConstraints)
+        portraitConstraints.removeAll()
+        landscapeConstraints.removeAll()
+        fullPortraitConstraints.removeAll()
+        fullLandscapeConstraints.removeAll()
+        // The active set is gone, so the orientation cache no longer describes anything on
+        // screen; leaving it would let `applyOrientationConstraints` short-circuit against a
+        // set that is not installed.
+        currentIsLandscape = nil
+        currentUsesFullLayout = nil
+    }
+
+    /// The only producer of the four orientation-variant sets.
+    ///
+    /// Derives all four from the mounted shell and sink together. Callers reach it through
+    /// `reconcileSessionLayout`, which discards the previous set first, so this always writes
+    /// into empty arrays and never has to reason about what a previous caller left behind.
+    private func buildSessionLayoutConstraints() {
+        guard trackpadView.superview != nil, let scroll = sinkScrollView else { return }
         let safe = view.safeAreaLayoutGuide
-        let fullBandTop = fullBandTopAtVideoBottom ?? NSLayoutConstraint(
-            item: displayRailView,
-            attribute: .top,
-            relatedBy: .equal,
-            toItem: view,
-            attribute: .bottom,
-            multiplier: 0.55,
-            constant: 0
-        )
+
+        // The band's top tracks the video's bottom edge in portrait, where the sink occupies
+        // the top 0.55 of the view height. A multiplier on view.bottom expresses that without
+        // referring to the sink, so the two stay aligned without an ordering dependency.
+        // Each set needs its own instance: one constraint object cannot be installed twice.
+        func bandTopAtVideoBottom() -> NSLayoutConstraint {
+            NSLayoutConstraint(
+                item: displayRailView,
+                attribute: .top,
+                relatedBy: .equal,
+                toItem: view,
+                attribute: .bottom,
+                multiplier: 0.55,
+                constant: 0
+            )
+        }
+
+        // Portrait layout. Trackpad + scroll strip span the bottom row; strip sits at
+        // view.bottom * 0.55 above the trackpad; the video scroll takes the top 0.55.
+        portraitConstraints.append(contentsOf: [
+            scroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: view.topAnchor),
+            scroll.heightAnchor.constraint(equalTo: view.heightAnchor, multiplier: 0.55),
+
+            buttonRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            buttonRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+
+            displayRailView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            displayRailView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            bandTopAtVideoBottom(),
+
+            thumbnailStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            thumbnailStripView.topAnchor.constraint(equalTo: displayRailView.bottomAnchor, constant: 4),
+
+            keyboardSurface.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            keyboardSurface.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+
+            trackpadView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
+            trackpadView.topAnchor.constraint(equalTo: thumbnailStripView.bottomAnchor, constant: 4),
+            trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
+
+            scrollStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12)
+        ])
+
+        // Full portrait. The sink runs from the safe-area top down to the button row rather
+        // than stopping at a fixed fraction, so it gets its own top/bottom pair.
         fullPortraitConstraints.append(contentsOf: [
+            scroll.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: safe.topAnchor),
             scroll.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
 
             buttonRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
@@ -381,7 +394,7 @@ extension PairingViewController {
 
             displayRailView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             displayRailView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            fullBandTop,
+            bandTopAtVideoBottom(),
 
             thumbnailStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
@@ -456,8 +469,6 @@ extension PairingViewController {
             keyboardSurface.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
             keyboardSurface.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12)
         ])
-        currentIsLandscape = nil
-        currentUsesFullLayout = nil
     }
 
     func restartSessionSurfaceObservations() {
@@ -519,19 +530,12 @@ extension PairingViewController {
         selectedDisplayIdForClientConfig = nil
         applyKeyboardPresentationIntent(.hide)
         buttonRowBottomConstraint = nil
-        // R23: drop the orientation-variant constraints; the next
-        // mountSinkView/showTrackpad will repopulate fresh arrays.
-        NSLayoutConstraint.deactivate(portraitConstraints)
-        NSLayoutConstraint.deactivate(landscapeConstraints)
-        NSLayoutConstraint.deactivate(fullPortraitConstraints)
-        NSLayoutConstraint.deactivate(fullLandscapeConstraints)
-        portraitConstraints.removeAll()
-        landscapeConstraints.removeAll()
-        fullPortraitConstraints.removeAll()
-        fullLandscapeConstraints.removeAll()
-        deferredMediaLayoutInstallation.reset()
-        currentIsLandscape = nil
-        currentUsesFullLayout = nil
+        // R23: the shell's views are out of the hierarchy, so the orientation-variant set
+        // that positions things against them is meaningless. Dropping it goes through the
+        // reconciler like every other composition change, which is what guarantees the next
+        // `showTrackpad` derives a complete replacement -- including the sink's own position
+        // and extent, whether or not the sink was rebuilt with it.
+        reconcileSessionLayout()
     }
 
     // R23: swap the active orientation's constraint set. Safe to call

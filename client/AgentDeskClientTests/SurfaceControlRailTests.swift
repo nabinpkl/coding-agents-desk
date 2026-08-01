@@ -3,19 +3,52 @@ import UIKit
 
 @MainActor
 struct SurfaceControlRailTests {
-    @Test func deferredMediaLayoutInstallsWhenSinkFollowsPreVideoShell() {
-        var installation = DeferredMediaLayoutInstallation()
+    @Test func sessionLayoutBuildsWhenSinkFollowsPreVideoShell() {
+        var layout = SessionLayoutConstraints()
 
-        let beforeSink = installation.beginIfReady(shellMounted: true, sinkMounted: false)
-        let afterSink = installation.beginIfReady(shellMounted: true, sinkMounted: true)
-        let duplicate = installation.beginIfReady(shellMounted: true, sinkMounted: true)
-        #expect(!beforeSink)
-        #expect(afterSink)
-        #expect(!duplicate)
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: false) == .upToDate)
+        #expect(!layout.hasInstalledConstraints)
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild)
+        #expect(layout.hasInstalledConstraints)
+        // Nothing moved, so there is nothing to redo: a rebuild here would churn every
+        // constraint on screen on any incidental re-entry.
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .upToDate)
+    }
 
-        installation.reset()
-        let afterReset = installation.beginIfReady(shellMounted: true, sinkMounted: true)
-        #expect(afterReset)
+    /// R230. A handover tears the control shell down and rebuilds it while deliberately
+    /// keeping the video sink, so the constraint set has to be re-derived from a composition
+    /// whose sink never re-mounted. The one-shot gate this replaced reported "already
+    /// installed" here, the sink kept no position or extent constraints, and the video view
+    /// laid out at zero height -- frames decoding into a rect the user sees as black.
+    @Test func sessionLayoutRebuildsWhenShellRemountsOverASurvivingSink() {
+        var layout = SessionLayoutConstraints()
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild)
+
+        #expect(layout.reconcile(shellMounted: false, sinkMounted: true) == .clear)
+        #expect(!layout.hasInstalledConstraints)
+
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild)
+        #expect(layout.hasInstalledConstraints)
+    }
+
+    @Test func sessionLayoutClearsOnceAndStaysQuietWhileNothingIsMounted() {
+        var layout = SessionLayoutConstraints()
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild)
+
+        #expect(layout.reconcile(shellMounted: false, sinkMounted: false) == .clear)
+        // The set is already gone; repeating the teardown must not ask for a second discard.
+        #expect(layout.reconcile(shellMounted: false, sinkMounted: false) == .upToDate)
+        #expect(layout.reconcile(shellMounted: false, sinkMounted: true) == .upToDate)
+        #expect(!layout.hasInstalledConstraints)
+    }
+
+    @Test func sessionLayoutRebuildsWhenTheSinkIsReplacedUnderALiveShell() {
+        var layout = SessionLayoutConstraints()
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild)
+
+        // A non-preserving teardown drops the sink and leaves the shell up.
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: false) == .clear)
+        #expect(layout.reconcile(shellMounted: true, sinkMounted: true) == .rebuild)
     }
 
     @Test func preVideoRailHasVisibleBackdropAndUsableUtilities() throws {

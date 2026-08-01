@@ -211,19 +211,19 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var keyboardPresentationState: KeyboardPresentationState = .hidden
     var buttonRowBottomConstraint: NSLayoutConstraint?
     var dismissKeyboardTap: UITapGestureRecognizer?
-    // R23: orientation-variant constraints built fresh on every session
-    // (mountSinkView + showTrackpad both append) and one set is active
-    // at a time. viewWillTransition swaps them inside the rotation
-    // coordinator's animator block. The shared (orientation-invariant)
-    // constraints stay active for the entire session and aren't
-    // tracked here.
+    // R23: orientation-variant constraints, one set active at a time.
+    // viewWillTransition swaps them inside the rotation coordinator's animator
+    // block. `buildSessionLayoutConstraints` is their only producer, and it
+    // derives all four from scratch, so no caller ever appends to them; see
+    // `reconcileSessionLayout`. The shared (orientation-invariant) constraints
+    // stay active for the entire session and aren't tracked here.
     var portraitConstraints: [NSLayoutConstraint] = []
     var landscapeConstraints: [NSLayoutConstraint] = []
     var currentIsLandscape: Bool?
     var fullPortraitConstraints: [NSLayoutConstraint] = []
     var fullLandscapeConstraints: [NSLayoutConstraint] = []
     var currentUsesFullLayout: Bool?
-    var deferredMediaLayoutInstallation = DeferredMediaLayoutInstallation()
+    var sessionLayoutConstraints = SessionLayoutConstraints()
     // CGEvent posts at the userspace layer don't actually trigger macOS
     // pointer accel (that lives in IOKit, below CGEvent), so we apply
     // our own approximation client-side. The .mac curve keeps the

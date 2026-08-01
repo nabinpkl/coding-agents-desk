@@ -14,17 +14,54 @@ enum ControlSurface {
     case voice // VoicePlaygroundSurface: fully on-device, no session lane
 }
 
-struct DeferredMediaLayoutInstallation {
-    private(set) var isInstalled = false
-
-    mutating func beginIfReady(shellMounted: Bool, sinkMounted: Bool) -> Bool {
-        guard !isInstalled, shellMounted, sinkMounted else { return false }
-        isInstalled = true
-        return true
+/// Decides when the session's orientation-variant constraints must be rebuilt or dropped.
+///
+/// Those constraints position two pieces against each other -- the control shell (trackpad,
+/// strip, button row, rails) and the video sink's scroll view -- so the set is only meaningful
+/// while the composition it was derived from still holds. Either piece can mount and unmount
+/// on its own schedule, so this tracks the composition the installed set came from and reports
+/// what the difference requires.
+///
+/// It replaced a one-shot "install once when both are mounted" gate, which was correct for the
+/// first connect and wrong for every reconnect that kept the video. The surface-preserving
+/// teardown drops the shell and clears the constraints while deliberately holding on to the
+/// sink; the sink was mounted exactly once per sink, so after that its half of the set had no
+/// producer left. The video view then laid out at zero height with a fully healthy decoder
+/// still drawing into it -- a black screen that survived every reconnect and cleared only on
+/// relaunch (R230). Deriving the whole set from the current composition, every time the
+/// composition changes, is what removes that class of bug rather than this one instance of it.
+struct SessionLayoutConstraints {
+    enum Reconciliation: Equatable {
+        /// The installed set already matches what is mounted.
+        case upToDate
+        /// Discard the installed set and derive a fresh one from both mounted pieces.
+        case rebuild
+        /// A piece the installed set refers to is gone; drop the set without replacing it.
+        case clear
     }
 
-    mutating func reset() {
-        isInstalled = false
+    private struct Composition: Equatable {
+        let shellMounted: Bool
+        let sinkMounted: Bool
+    }
+
+    /// The composition the installed constraints were derived from, or nil when none are
+    /// installed. Never holds a composition that is missing a piece: an incomplete
+    /// composition cannot produce constraints, so there is nothing to remember.
+    private var derivedFrom: Composition?
+
+    var hasInstalledConstraints: Bool { derivedFrom != nil }
+
+    mutating func reconcile(shellMounted: Bool, sinkMounted: Bool) -> Reconciliation {
+        let current = Composition(shellMounted: shellMounted, sinkMounted: sinkMounted)
+        guard shellMounted, sinkMounted else {
+            guard derivedFrom != nil else { return .upToDate }
+            derivedFrom = nil
+            return .clear
+        }
+        guard derivedFrom != current else { return .upToDate }
+        derivedFrom = current
+        return .rebuild
     }
 }
 
