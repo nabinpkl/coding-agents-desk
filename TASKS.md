@@ -1706,3 +1706,5 @@ seconds, and damping the axis would only hide that.
 - D241. Rebase authoritative snapshots after runtime sequence resets, enforce native identifiers
   across every phone-originated thread read, and bound retained extension notices and unsupported
   widget warnings before replaying them to shared viewers.
+- D242. Replace the complete visible event window when an authoritative reconnect snapshot resets
+  Pi runtime-local indexes and revisions, instead of merging it with stale pre-reap rows.

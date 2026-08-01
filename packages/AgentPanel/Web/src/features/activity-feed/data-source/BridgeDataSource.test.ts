@@ -38,7 +38,7 @@ describe("BridgeDataSource visibility lifecycle", () => {
     const closeThread = source.subscribeSessionEvents(
       { source: "codex", sessionId: "shared", mode: "raw" },
       0,
-      { onEvent: vi.fn() },
+      { onEvent: vi.fn(), onSnapshot: vi.fn() },
     );
     const beforeThreadReconnect = host.posted.length;
     source.resumeAfterSessionReconnect();
@@ -55,12 +55,12 @@ describe("BridgeDataSource visibility lifecycle", () => {
     source.subscribeSessionEvents(
       { source: "claude", sessionId: "shared", mode: "raw" },
       0,
-      { onEvent: vi.fn() },
+      { onEvent: vi.fn(), onSnapshot: vi.fn() },
     );
     source.subscribeSessionEvents(
       { source: "codex", sessionId: "shared", mode: "raw" },
       0,
-      { onEvent: vi.fn() },
+      { onEvent: vi.fn(), onSnapshot: vi.fn() },
     );
 
     source.destroy();
@@ -90,9 +90,10 @@ describe("BridgeDataSource visibility lifecycle", () => {
     const session = { source: "codex" as const, sessionId: "thread", mode: "raw" as const };
     const close = source.subscribeSessionEvents(session, 0, {
       onEvent: vi.fn(),
+      onSnapshot: vi.fn(),
     });
     close();
-    source.subscribeSessionEvents(session, 0, { onEvent: vi.fn() });
+    source.subscribeSessionEvents(session, 0, { onEvent: vi.fn(), onSnapshot: vi.fn() });
 
     expect(
       host.posted.filter(
@@ -104,20 +105,24 @@ describe("BridgeDataSource visibility lifecycle", () => {
   it("rebases sequence and paging onto a lower-sequence reconnect snapshot", async () => {
     const { host, source } = makeSource();
     const onEvent = vi.fn();
+    const onSnapshot = vi.fn();
     const session = { source: "pi" as const, sessionId: "thread", mode: "nice" as const };
     source.subscribeSessionEvents(
       session,
       0,
-      { onEvent },
+      { onEvent, onSnapshot },
     );
     host.deliver({
       t: "agent-thread-chunk",
       src: "pi",
       sid: "thread",
       md: "nice",
-      ev: [{ id: "user-0", i: 0, rev: 0, ph: "complete", ts: 1, tp: "user", b: [] }],
-      ws: 0,
-      tot: 1,
+      ev: [
+        { id: "stale-100", i: 100, rev: 0, ph: "complete", ts: 1, tp: "system", b: [] },
+        { id: "stale-101", i: 101, rev: 0, ph: "complete", ts: 1, tp: "system", b: [] },
+      ],
+      ws: 100,
+      tot: 102,
       lv: false,
       k: "snapshot",
       seq: 500,
@@ -133,7 +138,7 @@ describe("BridgeDataSource visibility lifecycle", () => {
       sid: "thread",
       md: "nice",
       ev: [
-        { id: "assistant-100", i: 100, rev: 0, ph: "complete", ts: 2, tp: "assistant", b: [] },
+        { id: "fresh-100", i: 100, rev: 0, ph: "complete", ts: 2, tp: "assistant", b: [] },
       ],
       ws: 100,
       tot: 101,
@@ -145,8 +150,18 @@ describe("BridgeDataSource visibility lifecycle", () => {
       qf: 0,
     });
 
-    expect(onEvent).toHaveBeenCalledTimes(1);
-    expect(onEvent.mock.calls[0]?.[0]).toMatchObject({ index: 100 });
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(onSnapshot).toHaveBeenCalledOnce();
+    expect(onSnapshot.mock.calls[0]?.[0]).toMatchObject({
+      events: [{ id: "fresh-100", index: 100 }],
+      total: 101,
+      windowStart: 100,
+      state: { sequence: 12 },
+    });
+    await expect(source.fetchEventsPage(session, 100, 2)).resolves.toMatchObject({
+      events: [{ id: "fresh-100", index: 100 }],
+      total: 101,
+    });
 
     const older = source.fetchEventsPage(session, 99, 1);
     expect(host.posted.at(-1)).toEqual({
@@ -201,7 +216,7 @@ describe("BridgeDataSource context occupancy", () => {
   it("announces occupancy to a live subscriber as chunks arrive", () => {
     const { host, source } = makeSource();
     const onUsage = vi.fn();
-    source.subscribeSessionEvents(session, 0, { onEvent: vi.fn(), onUsage });
+    source.subscribeSessionEvents(session, 0, { onEvent: vi.fn(), onSnapshot: vi.fn(), onUsage });
 
     host.deliver(chunk({ u: { cur: 40_000, lim: 200_000, ua: 10 } }));
     host.deliver(chunk({ u: { cur: 52_000, lim: 200_000, ua: 11 } }));
@@ -217,7 +232,7 @@ describe("BridgeDataSource context occupancy", () => {
   it("keeps the last reading when a chunk publishes none", async () => {
     const { host, source } = makeSource();
     const onUsage = vi.fn();
-    source.subscribeSessionEvents(session, 0, { onEvent: vi.fn(), onUsage });
+    source.subscribeSessionEvents(session, 0, { onEvent: vi.fn(), onSnapshot: vi.fn(), onUsage });
 
     host.deliver(chunk({ lv: false, u: { cur: 40_000, lim: 200_000, ua: 10 } }));
     host.deliver(chunk({ u: undefined }));
@@ -233,7 +248,7 @@ describe("BridgeDataSource context occupancy", () => {
   it("reports no window rather than a malformed one", () => {
     const { host, source } = makeSource();
     const onUsage = vi.fn();
-    source.subscribeSessionEvents(session, 0, { onEvent: vi.fn(), onUsage });
+    source.subscribeSessionEvents(session, 0, { onEvent: vi.fn(), onSnapshot: vi.fn(), onUsage });
 
     host.deliver(chunk({ u: { cur: 40_000, lim: null, ua: 10 } }));
 
@@ -289,7 +304,7 @@ describe("BridgeDataSource live agent control", () => {
     source.subscribeSessionEvents(
       { source: "pi", sessionId: "thread", mode: "nice" },
       0,
-      { onEvent, onState },
+      { onEvent, onSnapshot: vi.fn(), onState },
     );
     host.deliver({
       t: "agent-thread-chunk", src: "pi", sid: "thread", md: "nice",
@@ -311,7 +326,7 @@ describe("BridgeDataSource live agent control", () => {
     source.subscribeSessionEvents(
       { source: "pi", sessionId: "thread", mode: "nice" },
       0,
-      { onEvent: vi.fn() },
+      { onEvent: vi.fn(), onSnapshot: vi.fn() },
     );
     host.deliver({
       t: "agent-thread-chunk", src: "pi", sid: "thread", md: "nice",

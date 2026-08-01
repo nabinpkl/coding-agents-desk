@@ -30,8 +30,17 @@ export interface EventsPage {
   usage: TokenUsage | null;
 }
 
+export interface SessionEventsSnapshot extends EventsPage {
+  /** First event index present in this authoritative replacement window. */
+  windowStart: number;
+  state: AgentSessionState;
+}
+
 export interface SessionEventsHandlers {
   onEvent: (ev: ActivityEvent) => void;
+  /** Replaces the visible session window after a reconnect. Runtime-local
+   *  indexes and revisions cannot be merged across this boundary. */
+  onSnapshot: (snapshot: SessionEventsSnapshot) => void;
   onState?: (state: AgentSessionState) => void;
   /** Fired whenever a chunk carries occupancy. Separate from `onEvent` because
    *  occupancy is session state and arrives on the chunk, and because it has to

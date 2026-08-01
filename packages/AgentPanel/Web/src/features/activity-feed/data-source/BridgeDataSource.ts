@@ -967,11 +967,13 @@ export class BridgeDataSource implements AgentDataSource {
     const changedEvents: ActivityEvent[] = [];
     for (const event of events) {
       const current = previousEvents.get(event.index);
-      if (!current || (event.revision ?? 0) > (current.revision ?? 0)) {
+      if (
+        chunk.k === "snapshot" ||
+        !current ||
+        (event.revision ?? 0) > (current.revision ?? 0)
+      ) {
         buffer.events.set(event.index, event);
         changedEvents.push(event);
-      } else if (chunk.k === "snapshot") {
-        buffer.events.set(event.index, current);
       }
     }
     buffer.total = chunk.k === "snapshot" ? chunk.tot : Math.max(buffer.total, chunk.tot);
@@ -996,7 +998,17 @@ export class BridgeDataSource implements AgentDataSource {
       if (this.reconnectingThreads.has(key) && buffer.seeded) {
         this.reconnectingThreads.delete(key);
         for (const listener of this.liveListeners.get(key) ?? []) {
-          for (const event of changedEvents) listener.onEvent(event);
+          listener.onSnapshot({
+            events,
+            total: buffer.total,
+            windowStart: buffer.windowStart,
+            usage: buffer.usage,
+            state: {
+              sequence: buffer.sequence,
+              runState: buffer.runState,
+              queue: buffer.queue,
+            },
+          });
         }
         return;
       }

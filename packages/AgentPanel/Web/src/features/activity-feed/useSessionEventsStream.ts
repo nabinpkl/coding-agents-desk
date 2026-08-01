@@ -114,6 +114,7 @@ export function useSessionEventsStream(
     let cancelled = false;
     const pendingLive = new Map<number, ActivityEvent>();
     let seeded = false;
+    let replacedBySnapshot = false;
     const unsubscribe = ds.subscribeSessionEvents(session, 0, {
       onEvent: (event) => {
         if (!seeded) {
@@ -131,6 +132,22 @@ export function useSessionEventsStream(
             total: Math.max(current.total, event.index + 1),
           };
         });
+      },
+      onSnapshot: (snapshot) => {
+        replacedBySnapshot = true;
+        seeded = true;
+        pendingLive.clear();
+        setState((current) => ({
+          events: new Map(snapshot.events.map((event) => [event.index, event])),
+          total: snapshot.total,
+          windowStart: snapshot.windowStart,
+          usage: newerUsage(current.usage, snapshot.usage),
+          loading: false,
+          error: null,
+          sequence: snapshot.state.sequence,
+          runState: snapshot.state.runState,
+          queue: snapshot.state.queue,
+        }));
       },
       onState: (sessionState) =>
         setState((current) =>
@@ -166,7 +183,7 @@ export function useSessionEventsStream(
           initial = data.events;
           seedUsage = data.usage;
         }
-        if (cancelled) return;
+        if (cancelled || replacedBySnapshot) return;
 
         const map = new Map<number, ActivityEvent>();
         for (const ev of initial) map.set(ev.index, ev);
