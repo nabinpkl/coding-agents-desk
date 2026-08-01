@@ -618,11 +618,13 @@ def _nearest_anchor(
 
 def _asset_path(filename: str, environment_name: str) -> Path:
     override = os.environ.get(environment_name, "").strip()
+    # Installed first: `just build-voice-sidecar` stages these next to the
+    # package source, which is the only copy a shipped host has. The repo home
+    # is the fallback for running the tests straight out of a checkout.
     candidates = (
         Path(override) if override else None,
         PROJECT_ROOT / filename,
-        PROJECT_ROOT.parent / "client" / "AgentDeskClient" / filename,
-        PROJECT_ROOT.parent / "client" / "voice-phone-calibration" / filename,
+        PROJECT_ROOT.parent / "voice-assets" / filename,
     )
     for candidate in candidates:
         if candidate is not None and candidate.is_file():

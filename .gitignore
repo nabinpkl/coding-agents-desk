@@ -55,6 +55,10 @@ host/AgentDeskHost/voice-src/
 # the folder reference, so a .gitkeep is committed; the contents are ignored.
 client/AgentDeskClient/AgentFeedWebview/*
 !client/AgentDeskClient/AgentFeedWebview/.gitkeep
+# Pinned pronunciation inputs staged into the client resource root by
+# `just voice-assets-stage-client`. Tracked once, under `voice-assets/`.
+client/AgentDeskClient/VoiceCMUDictionary.txt
+client/AgentDeskClient/VoiceCMUDictionaryLicense.txt
 # R130 phoneme model resources. Reproduced by `just voice-phone-model`; the
 # generated 160 MB Core ML package and its coupled manifest/vocabulary never
 # belong in git.

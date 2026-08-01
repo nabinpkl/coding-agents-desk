@@ -51,8 +51,7 @@ def main() -> int:
     mapping = json.loads(
         (
             root
-            / "client"
-            / "voice-phone-calibration"
+            / "voice-assets"
             / "arpabet-model-phone-map.json"
         ).read_text(encoding="utf-8")
     )

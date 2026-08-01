@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 
 
-SOURCE = Path("client/voice-phone-calibration/arpabet-model-phone-map.json")
+SOURCE = Path("voice-assets/arpabet-model-phone-map.json")
 OUTPUT = Path(
     "client/AgentDeskClient/VoiceARPABETPhoneMapping.generated.swift"
 )

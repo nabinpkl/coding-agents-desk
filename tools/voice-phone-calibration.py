@@ -210,8 +210,7 @@ def scores_path(root: Path) -> Path:
 def load_mapping(repo_root: Path) -> dict[str, str]:
     path = (
         repo_root
-        / "client"
-        / "voice-phone-calibration"
+        / "voice-assets"
         / "arpabet-model-phone-map.json"
     )
     document = json.loads(path.read_text(encoding="utf-8"))
