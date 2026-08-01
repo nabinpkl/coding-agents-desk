@@ -392,6 +392,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                     self.sessionTask = nil
                 }
             }
+            // Only when the link is what moved. Every other loss leaves the path exactly where
+            // it was, so there is nothing to wait for and waiting would be pure added outage.
+            if case .recovering(.linkChanged) = self.hostSessionActivity {
+                await SessionPathReadiness.shared.waitUntilSettled()
+                guard !Task.isCancelled, self.sessionAttemptGeneration == generation else { return }
+            }
             var shouldDelay = false
             while !Task.isCancelled, self.sessionAttemptGeneration == generation {
                 guard case .pairedDisconnected = self.pairingClient.state else { return }

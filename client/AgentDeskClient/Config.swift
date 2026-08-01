@@ -41,6 +41,22 @@ enum Config {
         environmentKey: "AGENTDESK_SESSION_CONNECTION_WAITING_TIMEOUT_MS",
         defaultValue: 2_000
     )
+    // How long the path must look unchanged before a post-handover redial trusts it. Covers the
+    // stretch where a phone leaving WiFi still reports the dying interface as satisfied.
+    static let sessionPathSettleDebounceMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_PATH_SETTLE_DEBOUNCE_MS",
+        defaultValue: 400
+    )
+    // Cap on that wait. A path that never settles still has to be dialed over, and waiting
+    // longer than the doomed dial used to cost would just trade one delay for another.
+    static let sessionPathSettleTimeoutMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_PATH_SETTLE_TIMEOUT_MS",
+        defaultValue: 2_000
+    )
+    static let sessionPathSettlePollMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_PATH_SETTLE_POLL_MS",
+        defaultValue: 50
+    )
     // How many times a pairing dial redials itself after coming up blocked, before falling back
     // to one patient attempt. Pairing has no retry loop above it, so it owns this; sessions do
     // not need it because the reconnect loop already redials.

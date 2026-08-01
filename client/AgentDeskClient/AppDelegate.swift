@@ -7,6 +7,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         ClientDiagnostics.shared.bootstrap()
+        // At launch, not at the first handover: the gate decides whether the path has held
+        // still, which it can only answer if it was already watching. Started when the link
+        // moves, it would read its very first snapshot as stable.
+        if #available(iOS 26.0, *) {
+            SessionPathReadiness.shared.start()
+        }
         return true
     }
 
