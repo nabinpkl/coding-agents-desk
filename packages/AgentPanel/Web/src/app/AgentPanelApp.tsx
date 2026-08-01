@@ -442,7 +442,11 @@ export function App({ bridge }: Props) {
             onWidthChange={previewSidebarWidth}
             onWidthCommit={commitSidebarWidth}
           >
-            <AgentSidebar {...sidebarProps} onClose={closePinnedSidebar} />
+            <AgentSidebar
+              {...sidebarProps}
+              onClose={closePinnedSidebar}
+              ownsWindowTitlebar
+            />
           </ResizableSidebar>
         ) : null}
         {hoverCapable && !sidebarPinned && hoverPreviewOpen ? (
@@ -452,12 +456,16 @@ export function App({ bridge }: Props) {
             onPointerLeave={hideSidebarAfterHover}
             onDismiss={dismissHoverPreview}
           >
-            <AgentSidebar {...sidebarProps} />
+            <AgentSidebar {...sidebarProps} ownsWindowTitlebar />
           </HoverSidebarPreview>
         ) : null}
 
         <div className="flex min-w-0 flex-1 flex-col pb-[env(safe-area-inset-bottom)]">
-          <header className="flex min-h-11 shrink-0 items-center gap-1 border-b border-border bg-card px-1.5">
+          <header
+            className={`flex min-h-11 shrink-0 items-center gap-1 border-b border-border bg-card px-1.5${
+              sidebarPinned ? "" : " agent-window-titlebar-main-leading"
+            }`}
+          >
             {!sidebarPinned ? (
               <button
                 ref={drawerTriggerRef}

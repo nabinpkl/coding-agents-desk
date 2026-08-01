@@ -109,6 +109,9 @@
      Deliberately looser than headings (1.2-1.4) and code (1.5), which stay
      tight on purpose. */
   --agent-panel-prose-leading: 1.6;
+  /* The Mac host replaces this with the measured space occupied by AppKit's
+     traffic lights and native drag target. iOS leaves it at zero. */
+  --agent-window-titlebar-leading: 0px;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -189,4 +192,15 @@
 
 .agent-sidebar-dialog:focus-visible {
   outline: none;
+}
+
+/* Exactly one web header owns the physical leading edge of the Mac window:
+   the pinned project sidebar when present, otherwise the thread header. Keep
+   each header's existing padding as the cross-platform minimum. */
+.agent-window-titlebar-main-leading {
+  padding-inline-start: max(0.375rem, var(--agent-window-titlebar-leading));
+}
+
+.agent-window-titlebar-sidebar-leading {
+  padding-inline-start: max(0.75rem, var(--agent-window-titlebar-leading));
 }

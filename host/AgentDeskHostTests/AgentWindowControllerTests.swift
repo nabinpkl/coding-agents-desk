@@ -59,6 +59,16 @@ struct AgentWindowControllerTests {
         #expect(window.accessibilityIdentifier() == AgentWindowController.windowIdentifier)
         #expect(window.frame == initialFrame)
         #expect(!window.collectionBehavior.contains(.canJoinAllSpaces))
+        #expect(window.styleMask.contains(.fullSizeContentView))
+        #expect(window.titleVisibility == .hidden)
+        #expect(window.titlebarAppearsTransparent)
+        #expect(window.titlebarSeparatorStyle == .none)
+
+        let contentView = try #require(window.contentView as? AgentWindowContentView)
+        #expect(contentView.titlebarDragRegionForTesting is AgentWindowTitlebarDragView)
+        contentView.layoutSubtreeIfNeeded()
+        #expect(contentView.titlebarDragRegionForTesting.frame.width == AgentWindowTitlebarLayout.dragRegionWidth)
+        #expect(contentView.titlebarDragRegionForTesting.frame.height == AgentWindowTitlebarLayout.dragRegionHeight)
 
         // The content surface is AX-reachable as either the live webview or the fallback label.
         let ids = axIdentifiers(in: window.contentView)

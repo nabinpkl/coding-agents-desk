@@ -246,6 +246,20 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("gives the titlebar inset to the header at the window's leading edge", () => {
+    const { unmount } = setup();
+    const projectsHeader = screen.getByRole("heading", { level: 2, name: "Projects" }).parentElement;
+    const threadHeader = screen.getByRole("banner");
+
+    expect(projectsHeader).toHaveClass("agent-window-titlebar-sidebar-leading");
+    expect(threadHeader).not.toHaveClass("agent-window-titlebar-main-leading");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close projects" }));
+    expect(screen.queryByRole("heading", { level: 2, name: "Projects" })).not.toBeInTheDocument();
+    expect(threadHeader).toHaveClass("agent-window-titlebar-main-leading");
+    unmount();
+  });
+
   it("shows loading before the first project snapshot", () => {
     const { unmount } = setup();
     expect(screen.getByText(/loading projects/i)).toBeInTheDocument();
@@ -431,6 +445,8 @@ describe("App shell", () => {
 
     fireEvent.pointerEnter(trigger);
     expect(screen.getByRole("complementary", { name: "Projects preview" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Projects" }).parentElement)
+      .toHaveClass("agent-window-titlebar-sidebar-leading");
     expect(JSON.parse(localStorage.getItem("agent-panel.sidebar.preferences")!)).toEqual({
       open: false,
       width: 300,

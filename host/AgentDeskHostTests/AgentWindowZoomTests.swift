@@ -80,6 +80,20 @@ struct AgentWindowZoomTests {
         #expect(zoom.scale == 1)
     }
 
+    @Test func webTitlebarInsetKeepsItsNativePositionAcrossPageZoom() {
+        #expect(AgentWindowPanelChrome.cssLeadingInset(points: 117, zoomScale: 1) == 117)
+        #expect(AgentWindowPanelChrome.cssLeadingInset(points: 117, zoomScale: 2) == 58.5)
+        #expect(AgentWindowPanelChrome.cssLeadingInset(points: 117, zoomScale: 0.6) == 195)
+
+        let initialScript = AgentWindowPanelChrome.userScript(leadingInset: 117, zoomScale: 2)
+        #expect(initialScript.source.contains("window.__agentDeskSetTitlebarLeadingInset = apply;"))
+        #expect(initialScript.source.contains("apply(58.5000);"))
+        #expect(
+            AgentWindowPanelChrome.updateScript(leadingInset: 117, zoomScale: 2)
+                == "window.__agentDeskSetTitlebarLeadingInset?.(58.5000);"
+        )
+    }
+
     @Test func theWindowAnswersTheChordAndScalesTheFeed() async throws {
         let controller = AgentWindowController(
             sidecarClient: FakeSidecarClient(),

@@ -10,16 +10,30 @@ import AppKit
 @MainActor
 final class AgentWindowContentView: NSView {
     var onZoomCommand: ((AgentWindowZoomCommand) -> Void)?
+    let titlebarDragRegionForTesting: NSView
 
-    init(content: NSView) {
+    init(content: NSView, titlebarLayout: AgentWindowTitlebarLayout) {
+        let titlebarDragRegion = AgentWindowTitlebarDragView()
+        self.titlebarDragRegionForTesting = titlebarDragRegion
         super.init(frame: .zero)
         content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
+        titlebarDragRegion.translatesAutoresizingMaskIntoConstraints = false
+        titlebarDragRegion.toolTip = "Drag Agents window"
+        titlebarDragRegion.setAccessibilityElement(false)
+        addSubview(titlebarDragRegion)
         NSLayoutConstraint.activate([
             content.leadingAnchor.constraint(equalTo: leadingAnchor),
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
             content.topAnchor.constraint(equalTo: topAnchor),
             content.bottomAnchor.constraint(equalTo: bottomAnchor),
+            titlebarDragRegion.leadingAnchor.constraint(
+                equalTo: leadingAnchor,
+                constant: titlebarLayout.dragRegionLeading
+            ),
+            titlebarDragRegion.topAnchor.constraint(equalTo: topAnchor),
+            titlebarDragRegion.widthAnchor.constraint(equalToConstant: titlebarLayout.dragRegionWidth),
+            titlebarDragRegion.heightAnchor.constraint(equalToConstant: titlebarLayout.dragRegionHeight),
         ])
     }
 

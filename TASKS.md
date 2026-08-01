@@ -1721,3 +1721,5 @@ seconds, and damping the axis would only hide that.
 - D247. Make desktop project navigation hover-previewable, click-persistent, and pointer/keyboard
   resizable, preserving open state and committed width across panel launches while retaining the
   compact touch drawer.
+- D248. Let the existing AgentPanel web chrome own the Mac Agents title-bar row, retaining measured
+  native traffic lights and drag behavior while removing the duplicate native title band.

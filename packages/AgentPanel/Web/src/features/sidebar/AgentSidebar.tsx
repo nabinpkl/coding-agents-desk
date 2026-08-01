@@ -39,12 +39,17 @@ interface AgentSidebarProps {
   onSelectSession: (project: BridgeProject, session: BridgeSessionSummary) => void;
   onCreatePiSession: (project: BridgeProject) => void;
   onClose?: () => void;
+  ownsWindowTitlebar?: boolean;
 }
 
 export function AgentSidebar(props: AgentSidebarProps) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-card text-foreground">
-      <div className="flex min-h-11 shrink-0 items-center border-b border-border px-3">
+      <div
+        className={`flex min-h-11 shrink-0 items-center border-b border-border px-3${
+          props.ownsWindowTitlebar ? " agent-window-titlebar-sidebar-leading" : ""
+        }`}
+      >
         <h2 className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold">
           Projects
         </h2>
@@ -156,6 +161,7 @@ export function AgentSidebarDialog({
       <AgentSidebar
         {...sidebarProps}
         onClose={closeDialog}
+        ownsWindowTitlebar
       />
     </dialog>
   );

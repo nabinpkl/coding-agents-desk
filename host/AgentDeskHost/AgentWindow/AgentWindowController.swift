@@ -41,6 +41,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     private var transport: AgentPanelBridgeTransport?
     private var bridge: AgentFeedBridge?
     private var splitView: AgentWindowSplitView?
+    private var titlebarLayout: AgentWindowTitlebarLayout?
     private var terminalController: (any AgentWindowTerminalControlling)?
     private var stopTask: Task<Void, Never>?
     /// Restored from `AgentWindowPresentationStore` at launch and reported back on every change, so
@@ -160,6 +161,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         transport = nil
         bridge = nil
         splitView = nil
+        titlebarLayout = nil
         terminalController = nil
         stopTask = nil
         onFrameChanged = nil
@@ -173,11 +175,19 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     private func build() {
         let window = makeWindow()
         self.window = window
+        let titlebarLayout = AgentWindowTitlebarLayout.measure(in: window)
+        self.titlebarLayout = titlebarLayout
 
         do {
             let controller = try AgentPanelWebViewController(
                 transport: nil,
-                additionalUserScripts: [AgentWindowPanelAccessibility.userScript]
+                additionalUserScripts: [
+                    AgentWindowPanelAccessibility.userScript,
+                    AgentWindowPanelChrome.userScript(
+                        leadingInset: titlebarLayout.webLeadingInset,
+                        zoomScale: zoom.scale
+                    ),
+                ]
             )
             // The bridge pushes already-encoded agent-feed JSON; deliver it into the webview on the
             // main actor. The closure is @Sendable and may fire on a sidecar background Task, so it
@@ -248,12 +258,15 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
             self.transport = transport
         } catch {
             logger.error("agents-window: AgentPanel init failed: \(String(describing: error), privacy: .public)")
-            window.contentView = makeUnavailableView()
+            window.contentView = makeContentView(makeUnavailableView())
         }
     }
 
     private func makeContentView(_ content: NSView) -> AgentWindowContentView {
-        let view = AgentWindowContentView(content: content)
+        guard let layout = titlebarLayout else {
+            preconditionFailure("Agents title-bar layout must exist before content is installed")
+        }
+        let view = AgentWindowContentView(content: content, titlebarLayout: layout)
         view.onZoomCommand = { [weak self] command in
             self?.applyZoom(command)
         }
@@ -267,6 +280,15 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         zoom.apply(command)
         guard zoom != previous else { return }
         panelController?.webView.pageZoom = zoom.scale
+        if let titlebarLayout, let webView = panelController?.webView {
+            webView.evaluateJavaScript(
+                AgentWindowPanelChrome.updateScript(
+                    leadingInset: titlebarLayout.webLeadingInset,
+                    zoomScale: zoom.scale
+                ),
+                completionHandler: nil
+            )
+        }
         terminalController?.setZoomScale(zoom.scale)
         onZoomChanged?(zoom.step)
     }
@@ -287,8 +309,8 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
 
     private func makeWindow() -> NSWindow {
         let styleMask: NSWindow.StyleMask = Config.axAutomationEnabled
-            ? [.titled, .closable, .resizable]
-            : [.titled, .closable, .resizable, .nonactivatingPanel]
+            ? [.titled, .closable, .resizable, .fullSizeContentView]
+            : [.titled, .closable, .resizable, .fullSizeContentView, .nonactivatingPanel]
         let contentRect = NSRect(x: 0, y: 0, width: 480, height: 720)
         let window: NSWindow
         if Config.axAutomationEnabled {
@@ -307,6 +329,10 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
             )
         }
         window.title = "Agents"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.isMovableByWindowBackground = false
         // A normal utility window, not an always-on-top HUD, matching the shell panel's level so it
         // can be covered when another app is frontmost.
         window.level = .normal
