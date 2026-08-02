@@ -818,14 +818,32 @@ enum Config {
     ///
     /// These used to ship inside the phone's app bundle, where they were two
     /// thirds of its size and were re-sent on every install despite almost never
-    /// changing. Serving them from here costs the Mac disk it has and saves the
-    /// phone a nine-minute install. Absent on a host that has never run
-    /// `just voice-phone-model` / `just voice-zipa-model`, which the lane
+    /// changing.
+    ///
+    /// Kept out of the host bundle deliberately. Xcode copies bundled resources
+    /// and code signing then seals them, so ~220MB of models would be paid on
+    /// every host build for files that change a few times a year. Application
+    /// Support costs the build nothing, survives rebuilds, and is where the
+    /// other generated voice assets already live. Absent on a Mac that has never
+    /// run `just voice-phone-model` / `just voice-zipa-model`, which the lane
     /// reports as an empty manifest.
     static var voiceAssetRootURL: URL? {
-        Bundle.main.url(forResource: voiceAssetResourceName, withExtension: nil)
+        if let override = ProcessInfo.processInfo.environment["AGENTDESK_VOICE_ASSET_ROOT"] {
+            return URL(fileURLWithPath: override)
+        }
+        return voiceAssetDirectory
     }
-    static let voiceAssetResourceName = "VoiceModelAssets"
+    /// Shared across host variants rather than living under the per-bundle-id
+    /// Application Support directory the rest of the host state uses.
+    ///
+    /// That split exists so the stable and dev hosts cannot corrupt each other's
+    /// state. These are not state: they are large, read-only, hash-verified
+    /// inputs that are byte-identical between variants, so giving each variant
+    /// its own copy would cost a spare 220MB to protect against a conflict that
+    /// cannot happen.
+    static let voiceAssetDirectory = FileManager.default
+        .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("AgentDeskVoiceAssets", isDirectory: true)
     static var voiceWheelhouseURL: URL? {
         Bundle.main.url(forResource: "voice-wheelhouse", withExtension: nil)
     }
