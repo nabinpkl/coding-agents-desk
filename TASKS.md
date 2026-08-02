@@ -741,6 +741,9 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   authenticated voice lane and host-owned recording finalizer, show the saved transcript in an
   editable field, and send only an explicit final edit through the existing remote-keyboard input
   path. Do not introduce a local PCM, on-device transcription, or a second text-injection protocol.
+- D154. Add an optional Recording prefix section to the iPhone dictation review sheet. It composes the
+  visible prefix with the reviewed transcript only for the explicit remote-keyboard send; it never
+  mutates the host-owned recording or stored transcript.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -799,4 +802,5 @@ D150  2026-07-27  landed     host Kokoro direct-IPA artifacts and cross-device p
 R151  implemented remaining  authorized Mac/iPhone reference playback acceptance
 D152  2026-07-27  landed     web-owned macOS dictation mini and retired Swift audio pipeline
 D153  2026-07-27  landed     reviewed iPhone dictation sheet via remote keyboard input
+D154  2026-07-27  landed     optional iPhone dictation recording prefix
 ```

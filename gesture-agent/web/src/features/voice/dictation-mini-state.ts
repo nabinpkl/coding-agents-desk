@@ -26,6 +26,24 @@ export function shouldCommitDictation(
 }
 
 /**
+ * The optional client prefix is presentation text for one explicit remote
+ * keyboard send. It never changes the host-owned recording or transcript.
+ */
+export function applyDictationPrefix(
+  transcript: string,
+  isEnabled: boolean,
+  prefix: string,
+): string {
+  const normalizedTranscript = transcript.trim();
+  if (!isEnabled) return normalizedTranscript;
+
+  const normalizedPrefix = prefix.trim();
+  return normalizedPrefix
+    ? `${normalizedPrefix} ${normalizedTranscript}`
+    : normalizedTranscript;
+}
+
+/**
  * Fn can begin a capture before WebKit has received a direct user gesture.
  * Only that denial needs the click-to-enable guidance. Server failures, most
  * importantly recorder contention with the full Voice panel, stay intact.

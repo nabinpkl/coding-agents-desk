@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 
 import {
   DICTATION_TERMINAL_DISMISS_MS,
+  applyDictationPrefix,
   dictationErrorMessage,
   isDictationMiniExpanded,
   isDictationRunActive,
@@ -33,6 +34,14 @@ test("only a nonempty, not-yet-committed recording can insert text", () => {
   expect(shouldCommitDictation(committed, "session-2", "   ")).toBe(false);
   expect(shouldCommitDictation(committed, "session-2", null)).toBe(false);
   expect(shouldCommitDictation(committed, "session-2", "hello")).toBe(true);
+});
+
+test("recording prefix changes only an enabled explicit send", () => {
+  expect(applyDictationPrefix("  hello  ", false, "Dictated:")).toBe("hello");
+  expect(applyDictationPrefix("  hello  ", true, " Dictated: ")).toBe(
+    "Dictated: hello",
+  );
+  expect(applyDictationPrefix("hello", true, "   ")).toBe("hello");
 });
 
 test("only native microphone permission errors receive click guidance", () => {

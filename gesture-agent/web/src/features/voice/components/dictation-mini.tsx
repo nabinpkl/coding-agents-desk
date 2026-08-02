@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { VuMeter } from "@/features/voice/components/vu-meter";
 import {
   DICTATION_TERMINAL_DISMISS_MS,
+  applyDictationPrefix,
   dictationErrorMessage,
   isDictationMiniExpanded,
   isDictationRunActive,
@@ -55,6 +56,8 @@ export function DictationMini() {
   const [completedTranscript, setCompletedTranscript] = useState("");
   const [completedRecordingID, setCompletedRecordingID] = useState<string | null>(null);
   const [editableTranscript, setEditableTranscript] = useState("");
+  const [recordingPrefixEnabled, setRecordingPrefixEnabled] = useState(false);
+  const [recordingPrefix, setRecordingPrefix] = useState("Dictated:");
   const [nativeStart, setNativeStart] = useState(false);
   const committedRecordingIDs = useRef(new Set<string>());
   const dismissTimer = useRef<number | null>(null);
@@ -171,9 +174,15 @@ export function DictationMini() {
   const transcript = completedTranscript || final || partial;
   const blocksNewPress =
     status === "saving" || status === "transcribing" || status === "analyzing";
+  const hasValidRecordingPrefix =
+    !recordingPrefixEnabled || recordingPrefix.trim().length > 0;
 
   const submit = useCallback(() => {
-    const value = editableTranscript.trim();
+    const value = applyDictationPrefix(
+      editableTranscript,
+      recordingPrefixEnabled,
+      recordingPrefix,
+    );
     if (!completedRecordingID || !value) return;
     // The iPhone native sheet owns commit deduplication because it may reject
     // this exact recording for an unavailable host or an unsupported remote
@@ -184,7 +193,12 @@ export function DictationMini() {
       recordingID: completedRecordingID,
       transcript: value,
     });
-  }, [completedRecordingID, editableTranscript]);
+  }, [
+    completedRecordingID,
+    editableTranscript,
+    recordingPrefix,
+    recordingPrefixEnabled,
+  ]);
 
   if (clientDictation) {
     const canEdit = status === "complete" && completedRecordingID !== null;
@@ -223,6 +237,64 @@ export function DictationMini() {
               value={canEdit ? editableTranscript : transcript}
             />
           </label>
+
+          <section
+            className="border-y border-border py-4"
+            aria-labelledby="recording-prefix-title"
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h2 id="recording-prefix-title" className="text-sm font-medium">
+                  Recording prefix
+                </h2>
+                <p id="recording-prefix-help" className="mt-1 text-sm text-muted-foreground">
+                  {recordingPrefixEnabled
+                    ? "This text is added before the reviewed transcript when you send it."
+                    : "Off. The reviewed transcript is sent unchanged."}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={recordingPrefixEnabled}
+                aria-describedby="recording-prefix-help"
+                aria-label="Apply recording prefix"
+                className={`relative h-11 w-12 shrink-0 rounded-full p-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+                  recordingPrefixEnabled ? "bg-primary" : "bg-muted"
+                }`}
+                disabled={!canEdit}
+                onClick={() => setRecordingPrefixEnabled((isEnabled) => !isEnabled)}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`block size-9 rounded-full bg-background shadow-sm transition-transform ${
+                    recordingPrefixEnabled ? "translate-x-1" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+
+            <label className="mt-3 flex flex-col gap-2" htmlFor="recording-prefix">
+              <span className="text-sm font-medium">Prefix text</span>
+              <input
+                id="recording-prefix"
+                aria-describedby={
+                  recordingPrefixEnabled && !recordingPrefix.trim()
+                    ? "recording-prefix-help recording-prefix-error"
+                    : "recording-prefix-help"
+                }
+                className="min-h-11 w-full rounded-xl border border-input bg-background px-3 text-base outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!canEdit || !recordingPrefixEnabled}
+                onChange={(event) => setRecordingPrefix(event.target.value)}
+                value={recordingPrefix}
+              />
+            </label>
+            {recordingPrefixEnabled && !recordingPrefix.trim() ? (
+              <p id="recording-prefix-error" className="mt-2 text-sm text-destructive" role="alert">
+                Enter a prefix or turn this off before sending.
+              </p>
+            ) : null}
+          </section>
 
           <p
             id="dictation-status"
@@ -263,7 +335,9 @@ export function DictationMini() {
             <button
               type="button"
               className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-primary px-4 text-base font-medium text-primary-foreground transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={!canEdit || !editableTranscript.trim()}
+              disabled={
+                !canEdit || !editableTranscript.trim() || !hasValidRecordingPrefix
+              }
               onClick={submit}
             >
               <Send className="size-5" aria-hidden="true" />
