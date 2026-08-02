@@ -1,3 +1,4 @@
+import PtyTerminalWebView
 import UIKit
 
 @MainActor
@@ -86,7 +87,7 @@ final class WorkspaceWorkbenchSurface: UIView {
             rightColumn.addSubview($0)
         }
 
-        terminalContainer.backgroundColor = .black
+        terminalContainer.backgroundColor = PtyTerminalSurfaceAppearance.surface
         terminalContainer.accessibilityIdentifier = "workspace-terminal"
 
         explorerWidthConstraint = explorer.widthAnchor.constraint(

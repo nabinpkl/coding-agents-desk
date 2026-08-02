@@ -1,3 +1,4 @@
+import PtyTerminalWebView
 import UIKit
 import WorkspaceIDE
 
@@ -86,7 +87,7 @@ final class WorkspaceIDESurface: UIView, WorkspaceIDEDelegate {
         sidebar.accessibilityIdentifier = "workspace-ide-sidebar"
         editor.accessibilityIdentifier = "workspace-ide-editor"
         terminalContainer.accessibilityIdentifier = "workspace-ide-terminal"
-        terminalContainer.backgroundColor = .black
+        terminalContainer.backgroundColor = PtyTerminalSurfaceAppearance.surface
 
         let state = controller.currentLocalState
         sidebarWidthConstraint = sidebar.widthAnchor.constraint(equalTo: widthAnchor, multiplier: state.sidebarFraction)

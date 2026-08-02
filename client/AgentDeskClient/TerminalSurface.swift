@@ -12,7 +12,7 @@ final class TerminalSurface: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .black
+        backgroundColor = PtyTerminalSurfaceAppearance.surface
         accessibilityIdentifier = "terminal-surface"
         terminalContent.translatesAutoresizingMaskIntoConstraints = false
         addSubview(terminalContent)

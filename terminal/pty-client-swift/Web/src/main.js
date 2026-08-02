@@ -10,7 +10,7 @@ import {
   base64FromBinary, boundedUTF8, bytesFromBase64, calculatePresentation,
   isAuthoritativeCapacity, normalizeCapacity, SerializedOperations, settledCapacity,
 } from './runtime-state.js';
-import { terminalOptions } from './terminal-options.js';
+import { terminalOptions, terminalTheme } from './terminal-options.js';
 
 const protocolVersion = 1;
 const maximumInputBytes = 64 * 1024;
@@ -475,6 +475,14 @@ window.agentDeskTerminal = Object.freeze({ receive, flushViewport: () => {
   const entry = [...terminals.values()].find(value => workspace && selectedPaneId(workspace) === value.paneId);
   if (entry) scheduleViewport(entry);
 }});
+
+// terminal.css follows the system appearance on its own, but the xterm grid paints its cells from a
+// JavaScript palette. Terminals opened after a flip pick the current scheme up through
+// terminalOptions(); the ones already on screen have to be re-themed here.
+globalThis.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', event => {
+  const theme = terminalTheme(event.matches);
+  for (const entry of terminals.values()) entry.term.options.theme = theme;
+});
 
 document.addEventListener('copy', event => {
   const entry = [...terminals.values()].find(value => value.term.hasSelection());

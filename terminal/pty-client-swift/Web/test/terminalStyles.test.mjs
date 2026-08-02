@@ -16,6 +16,19 @@ test('hiding the singleSession tab strip leaves the stage a growable row', () =>
   )
 })
 
+test('the terminal chrome follows the system appearance', () => {
+  // Neither native shell pushes an appearance into the webview, so a pinned `color-scheme: dark` was
+  // the whole reason a light-mode Mac framed its terminal in black.
+  assert.match(css, /color-scheme:\s*light dark;/)
+  assert.match(css, /@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{/)
+})
+
+test('every painted surface reads a token, so one override flips the whole scheme', () => {
+  // A literal left behind in a rule survives the dark override and shows up as a light-mode hole.
+  const outsideTokenBlocks = css.replaceAll(/:root\s*\{[^}]*\}/g, '')
+  assert.doesNotMatch(outsideTokenBlocks, /#[0-9a-f]{3,8}(?![\w-])/i)
+})
+
 test('the terminal viewport can shrink below its content in both profiles', () => {
   assert.match(css, /#terminal-stage,\s*\.split,\s*\.terminal-pane,\s*\.terminal-viewport\s*\{[^}]*min-height:\s*0;/s)
   assert.match(css, /\.terminal-pane\s*\{[^}]*grid-template-rows:\s*auto minmax\(0,\s*1fr\) auto;/s)

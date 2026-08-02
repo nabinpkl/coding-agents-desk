@@ -156,7 +156,7 @@ public final class PtyTerminalWebView: PtyTerminalWebPlatformView {
         #elseif canImport(UIKit)
         isAccessibilityElement = false
         accessibilityIdentifier = "terminal-workspace-root"
-        backgroundColor = .black
+        backgroundColor = PtyTerminalSurfaceAppearance.surface
         webView.scrollView.bounces = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         #endif

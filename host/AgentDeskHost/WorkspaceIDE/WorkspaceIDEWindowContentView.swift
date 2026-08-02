@@ -1,4 +1,5 @@
 import AppKit
+import PtyTerminalWebView
 import WorkspaceIDE
 
 @MainActor
@@ -39,6 +40,21 @@ final class WorkspaceIDEWindowContentView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("WorkspaceIDEWindowContentView is code-only") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTerminalContainerBackground()
+    }
+
+    /// The terminal web surface follows the system appearance itself; this is the backdrop it sits
+    /// on. A `CALayer` colour does not re-resolve on an appearance change, so it is reapplied here
+    /// rather than assigned once at setup.
+    private func applyTerminalContainerBackground() {
+        terminalContainer.layer?.backgroundColor = PtyTerminalSurfaceAppearance.resolved(
+            PtyTerminalSurfaceAppearance.surface,
+            for: effectiveAppearance
+        )
+    }
 
     func applyLayoutState() {
         let state = controller.currentLocalState
@@ -81,7 +97,7 @@ final class WorkspaceIDEWindowContentView: NSView {
         sidebar.setAccessibilityIdentifier("workspace-ide-sidebar")
         editor.setAccessibilityIdentifier("workspace-ide-editor")
         terminalContainer.wantsLayer = true
-        terminalContainer.layer?.backgroundColor = NSColor.black.cgColor
+        applyTerminalContainerBackground()
 
         sidebarWidthConstraint = sidebar.widthAnchor.constraint(
             equalTo: widthAnchor,

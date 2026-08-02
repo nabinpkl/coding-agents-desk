@@ -119,12 +119,12 @@ final class WorkspaceTerminalView: UIView, PtyTerminalWebViewDelegate {
     }
 
     private func setUp(workspaceName: String) {
-        backgroundColor = .black
+        backgroundColor = PtyTerminalSurfaceAppearance.surface
         accessibilityIdentifier = "workspace-terminal-\(workspaceID)"
 
         let header = UIView()
         header.translatesAutoresizingMaskIntoConstraints = false
-        header.backgroundColor = UIColor(white: 0.12, alpha: 1)
+        header.backgroundColor = PtyTerminalSurfaceAppearance.chrome
         addSubview(header)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
