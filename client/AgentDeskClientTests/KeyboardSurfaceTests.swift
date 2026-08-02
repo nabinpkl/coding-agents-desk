@@ -256,6 +256,34 @@ struct KeyboardSurfaceTests {
         #expect(surface.state(of: .shift) == .off)
     }
 
+    @Test func shiftAccessoryArmsNextArrowThenClears() throws {
+        let surface = KeyboardSurface()
+        let recorder = Recorder()
+        surface.keyboardDelegate = recorder
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let controller = UIViewController()
+        controller.view.addSubview(surface)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        #expect(surface.becomeFirstResponder())
+        let accessory = try #require(surface.inputAccessoryView as? KeyboardAccessoryView)
+        let shift = try #require(
+            button(withAccessibilityIdentifier: "keyboard-modifier-shift", in: accessory)
+        )
+
+        shift.sendActions(for: .touchUpInside)
+        #expect(surface.state(of: .shift) == .armed)
+        #expect(shift.accessibilityLabel == "Shift")
+        #expect(shift.accessibilityValue == "Armed")
+
+        surface.sendKey(code: "left")
+
+        #expect(recorder.events == [.key(code: "left", modifiers: [.shift])])
+        #expect(surface.state(of: .shift) == .off)
+        #expect(shift.accessibilityValue == "Off")
+    }
+
     @Test func multiCharacterInsertEmitsOneEventPerCharacter() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
@@ -302,6 +330,19 @@ struct KeyboardSurfaceTests {
         #expect(throws: KeyboardTextInput.EncodingError.self) {
             _ = try KeyboardTextInput.events(for: "hello \u{1F600}")
         }
+    }
+
+    private func button(
+        withAccessibilityIdentifier identifier: String,
+        in view: UIView
+    ) -> UIButton? {
+        if let button = view as? UIButton,
+           button.accessibilityIdentifier == identifier {
+            return button
+        }
+        return view.subviews.lazy.compactMap {
+            button(withAccessibilityIdentifier: identifier, in: $0)
+        }.first
     }
 }
 

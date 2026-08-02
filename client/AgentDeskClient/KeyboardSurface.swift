@@ -282,9 +282,9 @@ final class KeyboardSurface: UITextField, UITextFieldDelegate {
 
 // Sits above the iOS soft keyboard and gives the user the keys that the
 // soft keyboard doesn't expose: Esc, Tab, the arrow cluster, and the
-// sticky-tap modifiers (Cmd, Ctrl, Option). The standalone terminal also
-// opts into an explicit dismiss key. Shift comes from the soft keyboard's
-// own shift behaviour (character case), so it's not on the accessory row.
+// sticky-tap modifiers (Cmd, Ctrl, Option, Shift). The standalone terminal
+// also opts into an explicit dismiss key. Accessory Shift is distinct from
+// the soft keyboard's character-case Shift so it can compose with arrows.
 @MainActor
 final class KeyboardAccessoryView: UIInputView {
     private weak var surface: KeyboardSurface?
@@ -324,8 +324,9 @@ final class KeyboardAccessoryView: UIInputView {
         let cmd = makeModifierButton(title: "Cmd", mod: .cmd)
         let ctrl = makeModifierButton(title: "Ctrl", mod: .ctrl)
         let option = makeModifierButton(title: "Opt", mod: .option)
+        let shift = makeModifierButton(title: "⇧", mod: .shift)
 
-        var controls: [UIView] = [escape, tab, arrowCluster, cmd, ctrl, option]
+        var controls: [UIView] = [escape, tab, arrowCluster, shift, cmd, ctrl, option]
         if surface?.showsDismissKey == true {
             controls.append(makeDismissButton())
         }
@@ -410,6 +411,8 @@ final class KeyboardAccessoryView: UIInputView {
     private func makeModifierButton(title: String, mod: NormalizedInput.Modifier) -> UIButton {
         let button = UIButton(type: .system)
         button.setTitle(title, for: .normal)
+        button.accessibilityIdentifier = "keyboard-modifier-\(mod.rawValue)"
+        button.accessibilityLabel = modifierAccessibilityLabel(for: mod)
         button.layer.cornerRadius = 6
         button.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
         button.addAction(UIAction { [weak self] _ in
@@ -419,19 +422,31 @@ final class KeyboardAccessoryView: UIInputView {
         return button
     }
 
+    private func modifierAccessibilityLabel(for mod: NormalizedInput.Modifier) -> String {
+        switch mod {
+        case .cmd: "Command"
+        case .ctrl: "Control"
+        case .option: "Option"
+        case .shift: "Shift"
+        }
+    }
+
     func refreshModifierStates() {
         guard let surface else { return }
         for (mod, button) in modifierButtons {
             switch surface.state(of: mod) {
             case .off:
+                button.accessibilityValue = "Off"
                 button.backgroundColor = .tertiarySystemBackground
                 button.tintColor = .label
                 button.layer.borderWidth = 0
             case .armed:
+                button.accessibilityValue = "Armed"
                 button.backgroundColor = .tintColor.withAlphaComponent(0.30)
                 button.tintColor = .label
                 button.layer.borderWidth = 0
             case .locked:
+                button.accessibilityValue = "Locked"
                 button.backgroundColor = .tintColor
                 button.tintColor = .systemBackground
                 button.layer.borderColor = UIColor.label.cgColor
