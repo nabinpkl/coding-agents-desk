@@ -75,6 +75,7 @@ When in doubt about which direction a code path should produce, the test is: fin
 
 ## Code
 
+- Cross-platform divider callbacks expose semantic pane growth, never raw platform coordinates: positive grows the leading sidebar or lower terminal. Normalize AppKit's upward-positive and UIKit's downward-positive vertical deltas inside each divider, keep sign flips out of consumers, and test the same physical drag on both platforms.
 - No hardcoded configs. URLs, credentials, tokens, and `~/`-rooted paths go through a central config module, never inline in random files.
 - `.env` is gitignored by reflex. If you create one, gitignore it before the first commit.
 - Iteration over compatibility. Until v0 ships, breaking changes are free. After v0, breaking changes require an ADR.

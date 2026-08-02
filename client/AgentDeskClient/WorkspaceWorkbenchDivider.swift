@@ -4,7 +4,9 @@ import UIKit
 final class WorkspaceWorkbenchDivider: UIControl {
     enum Axis { case horizontal, vertical }
 
-    var onPan: ((CGFloat) -> Void)?
+    /// Positive means the pane owned by this divider grows: the leading sidebar for a vertical
+    /// divider, or the lower terminal for a horizontal divider.
+    var onPaneGrowth: ((CGFloat) -> Void)?
     var onIncrement: (() -> Void)?
     var onDecrement: (() -> Void)?
 
@@ -56,7 +58,14 @@ final class WorkspaceWorkbenchDivider: UIControl {
 
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
         let translation = recognizer.translation(in: self)
-        onPan?(axis == .vertical ? translation.x : translation.y)
+        onPaneGrowth?(Self.paneGrowthDelta(axis: axis, translation: translation))
         recognizer.setTranslation(.zero, in: self)
+    }
+
+    static func paneGrowthDelta(axis: Axis, translation: CGPoint) -> CGFloat {
+        switch axis {
+        case .vertical: translation.x
+        case .horizontal: -translation.y
+        }
     }
 }

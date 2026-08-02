@@ -7,7 +7,9 @@ final class WorkspaceIDEPaneDivider: NSView {
         case horizontal
     }
 
-    var onDrag: ((CGFloat) -> Void)?
+    /// Positive means the pane owned by this divider grows: the leading sidebar for a vertical
+    /// divider, or the lower terminal for a horizontal divider.
+    var onPaneGrowth: ((CGFloat) -> Void)?
     var onIncrement: (() -> Void)?
     var onDecrement: (() -> Void)?
 
@@ -38,8 +40,16 @@ final class WorkspaceIDEPaneDivider: NSView {
     override func mouseDragged(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         guard let lastPoint else { self.lastPoint = point; return }
-        onDrag?(axis == .vertical ? point.x - lastPoint.x : point.y - lastPoint.y)
+        let translation = NSPoint(x: point.x - lastPoint.x, y: point.y - lastPoint.y)
+        onPaneGrowth?(Self.paneGrowthDelta(axis: axis, translation: translation))
         self.lastPoint = point
+    }
+
+    static func paneGrowthDelta(axis: Axis, translation: NSPoint) -> CGFloat {
+        switch axis {
+        case .vertical: translation.x
+        case .horizontal: translation.y
+        }
     }
 
     override func mouseUp(with event: NSEvent) {

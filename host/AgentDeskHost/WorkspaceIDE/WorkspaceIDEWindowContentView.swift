@@ -141,10 +141,10 @@ final class WorkspaceIDEWindowContentView: NSView {
             terminal.bottomAnchor.constraint(equalTo: terminalContainer.bottomAnchor),
         ])
 
-        sidebarDivider.onDrag = { [weak self] delta in self?.resizeSidebar(by: delta) }
+        sidebarDivider.onPaneGrowth = { [weak self] delta in self?.resizeSidebar(by: delta) }
         sidebarDivider.onIncrement = { [weak self] in self?.adjustSidebar(by: Self.resizeStep) }
         sidebarDivider.onDecrement = { [weak self] in self?.adjustSidebar(by: -Self.resizeStep) }
-        terminalDivider.onDrag = { [weak self] delta in self?.resizeTerminal(by: delta) }
+        terminalDivider.onPaneGrowth = { [weak self] delta in self?.resizeTerminal(by: delta) }
         terminalDivider.onIncrement = { [weak self] in self?.adjustTerminal(by: Self.resizeStep) }
         terminalDivider.onDecrement = { [weak self] in self?.adjustTerminal(by: -Self.resizeStep) }
     }
@@ -156,7 +156,7 @@ final class WorkspaceIDEWindowContentView: NSView {
 
     private func resizeTerminal(by delta: CGFloat) {
         guard rightColumn.bounds.height > 0 else { return }
-        adjustTerminal(by: Double(-delta / rightColumn.bounds.height))
+        adjustTerminal(by: Double(delta / rightColumn.bounds.height))
     }
 
     private func adjustSidebar(by delta: Double) {

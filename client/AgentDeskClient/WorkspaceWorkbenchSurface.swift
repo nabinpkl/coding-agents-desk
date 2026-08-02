@@ -137,10 +137,10 @@ final class WorkspaceWorkbenchSurface: UIView {
             terminalHeightConstraint!,
         ])
 
-        sidebarDivider.onPan = { [weak self] delta in self?.resizeSidebar(by: delta) }
+        sidebarDivider.onPaneGrowth = { [weak self] delta in self?.resizeSidebar(by: delta) }
         sidebarDivider.onIncrement = { [weak self] in self?.adjustSidebar(by: Self.resizeStep) }
         sidebarDivider.onDecrement = { [weak self] in self?.adjustSidebar(by: -Self.resizeStep) }
-        terminalDivider.onPan = { [weak self] delta in self?.resizeTerminal(by: delta) }
+        terminalDivider.onPaneGrowth = { [weak self] delta in self?.resizeTerminal(by: delta) }
         terminalDivider.onIncrement = { [weak self] in self?.adjustTerminal(by: Self.resizeStep) }
         terminalDivider.onDecrement = { [weak self] in self?.adjustTerminal(by: -Self.resizeStep) }
     }
@@ -262,7 +262,7 @@ final class WorkspaceWorkbenchSurface: UIView {
 
     private func resizeTerminal(by delta: CGFloat) {
         guard state.terminalVisible, rightColumn.bounds.height > 0 else { return }
-        adjustTerminal(by: Double(-delta / rightColumn.bounds.height))
+        adjustTerminal(by: Double(delta / rightColumn.bounds.height))
     }
 
     private func adjustSidebar(by delta: Double) {
