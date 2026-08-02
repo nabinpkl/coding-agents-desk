@@ -103,6 +103,14 @@ pub(super) fn receive_handover(options: &VaultOptions) -> Result<(Vault, UnixLis
 
     let (manifest, listener_descriptor) = receive_message::<VaultHandoverManifest>(&mut transfer)?;
     validate_manifest(&manifest, options.max_sessions)?;
+    // Handover cost scales with session count, so a busy vault legitimately takes a while. Say so:
+    // without this a slow-but-working transfer is indistinguishable from a hung one, and the host
+    // gives up on it.
+    tracing::info!(
+        sessions = manifest.sessions.len(),
+        generation = manifest.vault_generation,
+        "pty vault receiving handover"
+    );
     let listener_descriptor = listener_descriptor.ok_or_else(|| {
         TerminalError::Protocol("vault handover omitted listener descriptor".to_owned())
     })?;

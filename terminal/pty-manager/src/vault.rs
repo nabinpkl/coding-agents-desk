@@ -139,6 +139,15 @@ impl Vault {
             max_sessions: self.options.max_sessions,
         });
         ready()?;
+        {
+            let state = runtime.state.lock().map_err(lock_error)?;
+            tracing::info!(
+                socket = %self.options.socket_path.display(),
+                sessions = state.sessions.len(),
+                generation = state.vault_generation,
+                "pty vault ready"
+            );
+        }
 
         while !shutdown.load(Ordering::Acquire) {
             match runtime.listener.accept() {

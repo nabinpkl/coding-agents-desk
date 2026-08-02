@@ -129,7 +129,12 @@ final class PtyClientIntegrationTests: XCTestCase {
         component: String,
         errorPipe: Pipe
     ) async throws {
-        for _ in 0..<100 {
+        // Binding takes 30-50ms unloaded, but `just check` runs this leg beside a full xcodebuild
+        // and the whole Rust suite, and a 1s budget was being missed under that load alone: the
+        // leg passes in isolation and reports a bogus "did not create socket" when run whole. A
+        // daemon that actually fails is caught by the exit check below, with its real stderr, so
+        // the only case this budget governs is a genuine hang.
+        for _ in 0..<1_000 {
             if let transport = try? UnixSocketPtyTransport(socketPath: socketPath) {
                 transport.close()
                 return

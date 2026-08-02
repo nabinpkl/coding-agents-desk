@@ -52,10 +52,23 @@ struct Args {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    // Default to info rather than the empty filter's ERROR; see the note in pty-vault.rs. The host
+    // reads this stream back when a candidate fails to activate.
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .with_target(false)
+        // Never a terminal: the host captures this to a per-launch file and reads it back into its
+        // own log, where escape codes are noise.
+        .with_ansi(false)
         .init();
+    tracing::info!(
+        socket = %args.socket.display(),
+        pid = std::process::id(),
+        mode = if args.handover { "handover" } else { "cold" },
+        "pty manager starting"
+    );
 
     let limits = PtyManagerLimits {
         max_sessions: args.max_sessions,

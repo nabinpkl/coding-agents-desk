@@ -21,10 +21,24 @@ struct Args {
 
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
+    // Default to info rather than the empty filter's ERROR. The host captures this stream to a
+    // per-launch file and reads it back when a candidate fails, so a silent daemon means a failed
+    // update reports "did not activate" and nothing else.
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .with_target(false)
+        // Never a terminal: the host captures this to a per-launch file and reads it back into its
+        // own log, where escape codes are noise.
+        .with_ansi(false)
         .init();
+    tracing::info!(
+        socket = %args.socket.display(),
+        pid = std::process::id(),
+        mode = if args.handover { "handover" } else { "cold" },
+        "pty vault starting"
+    );
     let socket_path = args.socket;
     let identity_socket_path = socket_path.clone();
     let runtime_digest = args.runtime_digest;

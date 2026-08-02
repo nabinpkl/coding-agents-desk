@@ -172,7 +172,16 @@ impl PtyManager {
         R: FnOnce() -> Result<()>,
     {
         ready()?;
-        info!(socket = %self.options.socket_path.display(), "pty manager listening");
+        // Session count distinguishes the three ways a manager arrives here: handed to, cold
+        // started onto a vault holding sessions, or cold started onto an empty one. That difference
+        // is what a human needs to know first when terminals look wrong after an update.
+        let adopted = self.state.lock().await.sessions.len();
+        info!(
+            socket = %self.options.socket_path.display(),
+            sessions = adopted,
+            generation = self.manager_generation,
+            "pty manager listening"
+        );
         tokio::pin!(shutdown);
         let mut handed_over = false;
 
