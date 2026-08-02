@@ -33,7 +33,7 @@ export function ReferenceSpeechControls({
     return (
       <section
         aria-label="Reference speech"
-        className="flex items-center gap-2 border-b border-border pb-4 text-sm text-muted-foreground"
+        className="flex items-center gap-2 text-sm text-muted-foreground"
       >
         <Loader2 className="size-4 animate-spin" />
         Loading Kokoro voices from the Mac
@@ -45,7 +45,7 @@ export function ReferenceSpeechControls({
     return (
       <section
         aria-label="Reference speech"
-        className="flex items-start gap-2 border-b border-destructive pb-4 text-sm text-destructive"
+        className="flex items-start gap-2 text-sm text-destructive"
       >
         <AlertCircle className="mt-0.5 size-4 shrink-0" />
         {view.message}
@@ -89,7 +89,7 @@ function ReadyReferenceSpeechControls({
   return (
     <section
       aria-label="Reference speech"
-      className="flex flex-col gap-3 border-b border-border pb-5"
+      className="flex flex-col gap-3"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-semibold">

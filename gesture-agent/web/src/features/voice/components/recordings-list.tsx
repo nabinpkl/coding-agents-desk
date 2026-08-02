@@ -36,6 +36,13 @@ import {
 import { ReferenceSpeechControls } from "@/features/voice/components/reference-speech-controls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { loadRecordingAudioURL, recordingAudioUrl } from "@/lib/api";
 import { getHostConfig } from "@/lib/host-bridge";
 import type {
@@ -489,15 +496,28 @@ export function RecordingsList() {
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      <ReferenceSpeechControls
-        disabled={
-          voiceStatus === "requestingMic" || voiceStatus === "capturing"
-        }
-        update={referenceSettings.update}
-        view={referenceSettings.view}
-      />
-      {content}
+    <div className="flex min-w-0 flex-col gap-6">
+      <Card>
+        <CardContent>
+          <ReferenceSpeechControls
+            disabled={
+              voiceStatus === "requestingMic" || voiceStatus === "capturing"
+            }
+            update={referenceSettings.update}
+            view={referenceSettings.view}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Saved recordings</CardTitle>
+          <CardDescription>
+            Transcript, heard phonemes, and pronunciation references by word.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="min-w-0">{content}</CardContent>
+      </Card>
     </div>
   );
 }

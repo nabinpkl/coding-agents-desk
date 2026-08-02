@@ -32,18 +32,9 @@ export function VoicePanel() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Recordings</CardTitle>
-          <CardDescription>
-            Saved transcript, heard phonemes, and reference phonemes grouped by
-            transcript word.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <RecordingsList />
-        </CardContent>
-      </Card>
+      <div className="flex min-w-0 flex-col gap-6">
+        <RecordingsList />
+      </div>
     </div>
   );
 }
