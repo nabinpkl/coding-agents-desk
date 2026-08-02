@@ -17,6 +17,12 @@ enum KeyboardKeyAppearance {
     static let restingShadowRadius: CGFloat = 0.75
     static let pressedShadowOffset = CGSize(width: 0, height: 0.5)
     static let pressedShadowRadius: CGFloat = 0.25
+    static let characterPreviewFill = UIColor { traits in
+        UIColor(
+            white: traits.userInterfaceStyle == .dark ? 0.55 : 1,
+            alpha: 1
+        )
+    }
 
     static func tokens(
         for role: KeyboardKeyRole,

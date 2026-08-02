@@ -16,6 +16,7 @@
 		B15800000000000000000012 /* KeyboardDeckMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15800000000000000000022 /* KeyboardDeckMetrics.swift */; };
 		B15800000000000000000013 /* KeyboardFeedbackEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15800000000000000000023 /* KeyboardFeedbackEngine.swift */; };
 		B15800000000000000000014 /* KeyboardKeyAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = B15800000000000000000024 /* KeyboardKeyAppearance.swift */; };
+		B16000000000000000000011 /* KeyboardCharacterPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = B16000000000000000000021 /* KeyboardCharacterPreview.swift */; };
 		C0000000000000000000EE07 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE03 /* PtyClientSwift */; };
 		C0000000000000000000EE09 /* PtyClientSwift in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE05 /* PtyClientSwift */; };
 		C0000000000000000000EE0B /* PtyTerminalSession in Frameworks */ = {isa = PBXBuildFile; productRef = C0000000000000000000EE0F /* PtyTerminalSession */; };
@@ -78,6 +79,7 @@
 		B15800000000000000000022 /* KeyboardDeckMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeskKeyboard/KeyboardDeckMetrics.swift; sourceTree = SOURCE_ROOT; };
 		B15800000000000000000023 /* KeyboardFeedbackEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeskKeyboard/KeyboardFeedbackEngine.swift; sourceTree = SOURCE_ROOT; };
 		B15800000000000000000024 /* KeyboardKeyAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeskKeyboard/KeyboardKeyAppearance.swift; sourceTree = SOURCE_ROOT; };
+		B16000000000000000000021 /* KeyboardCharacterPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentDeskKeyboard/KeyboardCharacterPreview.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -208,6 +210,7 @@
 				B15800000000000000000022 /* KeyboardDeckMetrics.swift */,
 				B15800000000000000000023 /* KeyboardFeedbackEngine.swift */,
 				B15800000000000000000024 /* KeyboardKeyAppearance.swift */,
+				B16000000000000000000021 /* KeyboardCharacterPreview.swift */,
 			);
 			name = "Native Keyboard Test Sources";
 			sourceTree = "<group>";
@@ -403,6 +406,7 @@
 				B15800000000000000000012 /* KeyboardDeckMetrics.swift in Sources */,
 				B15800000000000000000013 /* KeyboardFeedbackEngine.swift in Sources */,
 				B15800000000000000000014 /* KeyboardKeyAppearance.swift in Sources */,
+				B16000000000000000000011 /* KeyboardCharacterPreview.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

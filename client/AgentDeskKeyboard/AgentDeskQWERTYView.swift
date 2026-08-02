@@ -65,6 +65,7 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
     var enableInputClicksWhenVisible: Bool { true }
 
     private let rowsStack = UIStackView()
+    private let characterPreview = KeyboardCharacterPreviewView()
     private let feedback: KeyboardFeedbackProviding
     private var metrics = KeyboardDeckMetrics.portrait
     private var renderedState: KeyboardLayoutState?
@@ -73,6 +74,7 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
     private var rowsLeadingConstraint: NSLayoutConstraint!
     private var rowsTrailingConstraint: NSLayoutConstraint!
     private var rowsBottomConstraint: NSLayoutConstraint!
+    private weak var characterPreviewOwner: KeyboardKeyButton?
 
     init(
         frame: CGRect = .zero,
@@ -81,11 +83,13 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
         self.feedback = feedback
         super.init(frame: frame)
         backgroundColor = .clear
+        clipsToBounds = false
         rowsStack.axis = .vertical
         rowsStack.distribution = .fill
         rowsStack.spacing = metrics.verticalRowGap
         rowsStack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(rowsStack)
+        addSubview(characterPreview)
 
         rowsTopConstraint = rowsStack.topAnchor.constraint(
             equalTo: topAnchor,
@@ -132,6 +136,7 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
     func render(_ state: KeyboardLayoutState) {
         requestedState = state
         guard renderedState != state else { return }
+        dismissCharacterPreview()
         renderedState = state
         rowsStack.arrangedSubviews.forEach {
             rowsStack.removeArrangedSubview($0)
@@ -191,6 +196,17 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
                     onKey?(key)
                 }
             }
+            if case .character = key {
+                button.onCharacterPreviewChange = {
+                    [weak self, weak button] isVisible in
+                    guard let self, let button else { return }
+                    if isVisible {
+                        presentCharacterPreview(for: button)
+                    } else {
+                        dismissCharacterPreview(ownedBy: button)
+                    }
+                }
+            }
             if key == .delete {
                 button.onDelete = { [weak self] isRepeat in
                     guard let self else { return }
@@ -235,6 +251,31 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
             feedback.cursorMoved(hapticsEnabled: hapticsEnabled)
         }
         onCursorDelta?(delta)
+    }
+
+    private func presentCharacterPreview(for button: KeyboardKeyButton) {
+        guard let character = button.currentTitle, !character.isEmpty else {
+            return
+        }
+        layoutIfNeeded()
+        let keyFrame = button.convert(button.bounds, to: self)
+        let layout = KeyboardCharacterPreviewGeometry.layout(
+            above: keyFrame,
+            containerWidth: bounds.width
+        )
+        characterPreviewOwner = button
+        characterPreview.present(character: character, layout: layout)
+        bringSubviewToFront(characterPreview)
+    }
+
+    private func dismissCharacterPreview(
+        ownedBy button: KeyboardKeyButton? = nil
+    ) {
+        if let button, characterPreviewOwner !== button {
+            return
+        }
+        characterPreviewOwner = nil
+        characterPreview.dismiss()
     }
 
     private func configure(
@@ -370,6 +411,7 @@ final class KeyboardKeyButton: UIButton {
     var onDelete: ((Bool) -> Void)?
     var onDeleteEnded: (() -> Void)?
     var onCursorDelta: ((Int) -> Void)?
+    var onCharacterPreviewChange: ((Bool) -> Void)?
 
     override var isHighlighted: Bool {
         didSet { applyVisualState() }
@@ -430,6 +472,9 @@ final class KeyboardKeyButton: UIButton {
     @objc func touchDown() {
         didCancelTouch = false
         spacePanDidMove = false
+        if case .character = key {
+            onCharacterPreviewChange?(true)
+        }
         guard key == .delete else { return }
         onDelete?(false)
         repeatScheduler.start(
@@ -442,6 +487,7 @@ final class KeyboardKeyButton: UIButton {
     }
 
     @objc func touchUpInside() {
+        onCharacterPreviewChange?(false)
         stopRepeating()
         if key == .delete {
             onDeleteEnded?()
@@ -458,6 +504,7 @@ final class KeyboardKeyButton: UIButton {
 
     @objc func cancelKeyTracking() {
         didCancelTouch = true
+        onCharacterPreviewChange?(false)
         stopRepeating()
         if key == .delete {
             onDeleteEnded?()

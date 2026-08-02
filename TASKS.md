@@ -765,6 +765,12 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   light and dark appearance, verify uncompressed ready/inactive/review/recording layouts across
   rotation, confirm click and haptic settings independently, and confirm Face ID devices render
   only the system-owned globe.
+- D160. Add the native-adjacent Character Preview visual to ordinary character keys using one
+  bounded, edge-aware UIKit overlay. Show it on touch-down, clear it before insertion, cancellation,
+  rerender, and ownership replacement, and keep it out of the accessibility and hit-testing trees.
+- R161. At the explicit physical-device checkpoint, compare center and edge Character Preview
+  placement with the Apple keyboard in portrait, landscape, light, and dark appearances, including
+  rapid multi-touch, cancellation, shift, number, and symbol layouts.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -829,4 +835,6 @@ D156  2026-07-28  landed     production host-owned systemwide keyboard dictation
 R157  implemented remaining  physical production keyboard dictation acceptance
 D158  2026-07-28  landed     fixed native-adjacent keyboard geometry and feedback
 R159  implemented remaining  physical keyboard appearance and interaction acceptance
+D160  2026-07-28  landed     bounded UIKit Character Preview for ordinary keys
+R161  implemented remaining  physical Character Preview acceptance
 ```

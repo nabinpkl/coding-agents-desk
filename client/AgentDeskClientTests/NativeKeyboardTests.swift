@@ -127,6 +127,14 @@ struct NativeKeyboardTests {
         #expect(darkSpecial.restingWhite == 0.28)
         #expect(darkRegular.pressedWhite != darkRegular.restingWhite)
         #expect(darkRegular.shadowOpacity > lightRegular.shadowOpacity)
+        #expect(whiteComponent(
+            KeyboardKeyAppearance.characterPreviewFill,
+            style: .light
+        ) == 1)
+        #expect(whiteComponent(
+            KeyboardKeyAppearance.characterPreviewFill,
+            style: .dark
+        ) == 0.55)
     }
 
     @Test @MainActor
@@ -145,6 +153,129 @@ struct NativeKeyboardTests {
         #expect(q.transform == .identity)
         #expect(whiteComponent(q.backgroundColor) == restingWhite)
         #expect(q.layer.shadowOpacity == restingShadow)
+    }
+
+    @Test @MainActor
+    func characterPreviewTracksTouchDownAndClearsBeforeInsertion() throws {
+        let keyboard = makeKeyboard(metrics: .portrait, width: 390)
+        let q = try #require(button("agentdesk-key-71", in: keyboard))
+        let preview = try #require(characterPreview(in: keyboard))
+        var previewWasHiddenDuringInsertion = false
+        keyboard.onKey = { _ in
+            previewWasHiddenDuringInsertion = preview.isHidden
+        }
+
+        q.touchDown()
+        #expect(preview.isHidden == false)
+        #expect(preview.character == "q")
+        #expect(preview.isUserInteractionEnabled == false)
+        #expect(preview.isAccessibilityElement == false)
+
+        q.touchUpInside()
+        #expect(preview.isHidden)
+        #expect(preview.character == nil)
+        #expect(previewWasHiddenDuringInsertion)
+    }
+
+    @Test @MainActor
+    func characterPreviewUsesRenderedShiftTitleAndCancelsCleanly() throws {
+        let keyboard = makeKeyboard(metrics: .portrait, width: 390)
+        var state = KeyboardLayoutState(
+            showsInputModeSwitchKey: false
+        )
+        state.handleShiftTap(isDoubleTap: false)
+        keyboard.render(state)
+        keyboard.layoutIfNeeded()
+        let q = try #require(button("agentdesk-key-71", in: keyboard))
+        let preview = try #require(characterPreview(in: keyboard))
+
+        q.touchDown()
+        #expect(preview.character == "Q")
+        q.cancelKeyTracking()
+
+        #expect(preview.isHidden)
+        #expect(preview.character == nil)
+    }
+
+    @Test @MainActor
+    func newerCharacterTouchOwnsTheSinglePreviewUntilItEnds() throws {
+        let keyboard = makeKeyboard(metrics: .portrait, width: 390)
+        let q = try #require(button("agentdesk-key-71", in: keyboard))
+        let w = try #require(button("agentdesk-key-77", in: keyboard))
+        let preview = try #require(characterPreview(in: keyboard))
+
+        q.touchDown()
+        w.touchDown()
+        #expect(preview.character == "w")
+
+        q.touchUpInside()
+        #expect(preview.isHidden == false)
+        #expect(preview.character == "w")
+
+        w.touchUpInside()
+        #expect(preview.isHidden)
+    }
+
+    @Test @MainActor
+    func specialKeysNeverCreateACharacterPreview() throws {
+        let keyboard = makeKeyboard(metrics: .portrait, width: 390)
+        let shift = try #require(button(
+            "agentdesk-key-shift",
+            in: keyboard
+        ))
+        let preview = try #require(characterPreview(in: keyboard))
+
+        shift.touchDown()
+
+        #expect(preview.isHidden)
+        #expect(preview.character == nil)
+    }
+
+    @Test
+    func characterPreviewGeometryClampsEdgesAndKeepsItsTailOnTheKey() {
+        let leftKey = CGRect(x: 7, y: 14, width: 32, height: 46)
+        let left = KeyboardCharacterPreviewGeometry.layout(
+            above: leftKey,
+            containerWidth: 390
+        )
+        #expect(left.frame.minX == 3)
+        #expect(abs(left.frame.minX + left.tipX - leftKey.midX) < 0.01)
+        #expect(left.frame.maxY == leftKey.minY + 3)
+
+        let rightKey = CGRect(x: 351, y: 14, width: 32, height: 46)
+        let right = KeyboardCharacterPreviewGeometry.layout(
+            above: rightKey,
+            containerWidth: 390
+        )
+        #expect(right.frame.maxX == 387)
+        #expect(abs(
+            right.frame.minX + right.tipX - rightKey.midX
+        ) < 0.01)
+        #expect(right.frame.minY < 0)
+    }
+
+    @Test
+    func topRowPreviewStaysInsideThePrimaryKeyboardView() {
+        for metrics in [
+            KeyboardDeckMetrics.portrait,
+            KeyboardDeckMetrics.compactLandscape,
+        ] {
+            let keyFrame = CGRect(
+                x: metrics.horizontalDeckInset,
+                y: metrics.topDeckPadding,
+                width: 32,
+                height: metrics.keycapHeight
+            )
+            let preview = KeyboardCharacterPreviewGeometry.layout(
+                above: keyFrame,
+                containerWidth: 390
+            )
+            let deckOriginY = metrics.inputTopInset
+                + metrics.toolbarMinimumHeight
+                + metrics.sectionSpacing
+
+            #expect(deckOriginY + preview.frame.minY >= 0)
+        }
     }
 
     @Test @MainActor
@@ -307,11 +438,40 @@ struct NativeKeyboardTests {
     }
 
     @MainActor
+    private func characterPreview(
+        in view: UIView
+    ) -> KeyboardCharacterPreviewView? {
+        if let preview = view as? KeyboardCharacterPreviewView {
+            return preview
+        }
+        for subview in view.subviews {
+            if let match = characterPreview(in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    @MainActor
     private func whiteComponent(_ color: UIColor?) -> CGFloat? {
         guard let color else { return nil }
         var white: CGFloat = 0
         guard color
             .resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
+            .getWhite(&white, alpha: nil)
+        else {
+            return nil
+        }
+        return white
+    }
+
+    private func whiteComponent(
+        _ color: UIColor,
+        style: UIUserInterfaceStyle
+    ) -> CGFloat? {
+        var white: CGFloat = 0
+        guard color
+            .resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
             .getWhite(&white, alpha: nil)
         else {
             return nil
