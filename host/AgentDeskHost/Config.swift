@@ -982,6 +982,11 @@ enum Config {
     static let workspaceIDEWindowVisibleKey = "agentDesk.workspaceIDE.windowVisible"
     static let terminalWindowPresentationsURL = applicationSupportDirectory
         .appendingPathComponent("terminal-window-presentations.json", isDirectory: false)
+    /// Where each open Agents window was, so a host restart puts them all back. A file rather than
+    /// a frame autosave name because these windows are multi-instance and the set of them is itself
+    /// the state; AppKit's autosave holds one frame per name.
+    static let agentWindowPresentationsURL = applicationSupportDirectory
+        .appendingPathComponent("agent-window-presentations.json", isDirectory: false)
     static let donorWorkspaceStoreURL = FileManager.default
         .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("agent-workspace-ide/workspace.json", isDirectory: false)

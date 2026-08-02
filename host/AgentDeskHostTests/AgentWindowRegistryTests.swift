@@ -59,23 +59,131 @@ struct AgentWindowRegistryTests {
 
         #expect(fixture.registry.openWindowCountForTesting == 0)
     }
+
+    @Test func everyOpenWindowComesBackWhereItWasLeftWithoutTakingFocus() async {
+        let storeURL = AgentWindowRegistryFixture.makeStoreURL()
+        let before = AgentWindowRegistryFixture(storeURL: storeURL)
+        defer { before.remove() }
+        let baseFrame = CGRect(x: 100, y: 200, width: 480, height: 720)
+        before.registry.open(AgentWindowPlacement(desktopSpaceID: 41, frame: baseFrame))
+        before.registry.open(AgentWindowPlacement(desktopSpaceID: 41, frame: baseFrame))
+        let dragged = CGRect(x: 640, y: 80, width: 520, height: 600)
+        before.controllers[0].moveTo(dragged)
+        await settleFramePersist(before, contains: dragged)
+
+        // Quitting is not the user putting these windows away, so the placements survive it.
+        await before.registry.beginStopAll().value
+        #expect(before.storedFrames.count == 2)
+
+        let after = AgentWindowRegistryFixture(storeURL: storeURL)
+        after.registry.startRestoration(visibleFrames: [CGRect(x: 0, y: 0, width: 1_920, height: 1_080)])
+
+        #expect(after.controllers.count == 2)
+        #expect(Set(after.ids) == Set(before.ids))
+        #expect(Set(after.controllers.map(\.frame)) == [dragged, baseFrame.offsetBy(dx: 24, dy: -24)])
+        #expect(after.controllers.map(\.activations) == [[false], [false]])
+    }
+
+    @Test func aWindowTheUserClosedStaysClosedAcrossRestart() async {
+        let storeURL = AgentWindowRegistryFixture.makeStoreURL()
+        let before = AgentWindowRegistryFixture(storeURL: storeURL)
+        defer { before.remove() }
+        let placement = AgentWindowPlacement(
+            desktopSpaceID: 41,
+            frame: CGRect(x: 100, y: 200, width: 480, height: 720)
+        )
+        before.registry.open(placement)
+        before.registry.open(placement)
+
+        before.controllers[0].close()
+        await before.registry.beginStopAll().value
+
+        let after = AgentWindowRegistryFixture(storeURL: storeURL)
+        after.registry.startRestoration(visibleFrames: [CGRect(x: 0, y: 0, width: 1_920, height: 1_080)])
+
+        #expect(after.controllers.count == 1)
+        #expect(after.ids == [before.ids[1]])
+    }
+
+    @Test func restorationIsIdempotentAndNeverDuplicatesAWindow() {
+        let storeURL = AgentWindowRegistryFixture.makeStoreURL()
+        let before = AgentWindowRegistryFixture(storeURL: storeURL)
+        defer { before.remove() }
+        before.registry.open(AgentWindowPlacement(
+            desktopSpaceID: nil,
+            frame: CGRect(x: 10, y: 20, width: 480, height: 720)
+        ))
+
+        let after = AgentWindowRegistryFixture(storeURL: storeURL)
+        after.registry.startRestoration(visibleFrames: [CGRect(x: 0, y: 0, width: 1_920, height: 1_080)])
+        after.registry.startRestoration(visibleFrames: [CGRect(x: 0, y: 0, width: 1_920, height: 1_080)])
+
+        #expect(after.controllers.count == 1)
+    }
+
+    @Test func aFrameRememberedOnAScreenThatIsGoneLandsOnOneThatExists() {
+        let detached = CGRect(x: 2_400, y: 1_400, width: 480, height: 720)
+        let laptop = CGRect(x: 0, y: 0, width: 1_512, height: 900)
+
+        let placed = AgentWindowScreenPlacement.constrained(detached, within: [laptop])
+
+        #expect(laptop.contains(placed))
+        #expect(placed.size == detached.size)
+        #expect(AgentWindowScreenPlacement.constrained(detached, within: []) == detached)
+    }
+
+    @Test func aWindowTallerThanTheScreenIsCutDownToFitIt() {
+        let oversized = CGRect(x: -200, y: -100, width: 3_000, height: 2_000)
+        let laptop = CGRect(x: 0, y: 0, width: 1_512, height: 900)
+
+        #expect(AgentWindowScreenPlacement.constrained(oversized, within: [laptop]) == laptop)
+    }
+
+    /// The store write is debounced, so a moved window is only remembered once the coalescing
+    /// window closes. Polls rather than sleeping a fixed span so the test does not encode a timing
+    /// guess about a loaded machine.
+    private func settleFramePersist(
+        _ fixture: AgentWindowRegistryFixture,
+        contains frame: CGRect
+    ) async {
+        for _ in 0..<200 where !fixture.storedFrames.contains(frame) {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
 }
 
 @MainActor
 private final class AgentWindowRegistryFixture {
     let coordinator: AgentWindowRegistryTerminalCoordinator
     private let recorder: AgentWindowRegistryRecorder
+    let storeURL: URL
     let registry: AgentWindowRegistry
 
     var ids: [UUID] { recorder.ids }
     var controllers: [FakeManagedAgentWindow] { recorder.controllers }
+    var storedFrames: [CGRect] {
+        AgentWindowPresentationStore(url: storeURL).descriptors.map(\.frame.cgRect)
+    }
 
-    init(suspendStop: Bool = false) {
+    static func makeStoreURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("agent-presentations-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("presentations.json")
+    }
+
+    init(
+        suspendStop: Bool = false,
+        storeURL: URL = AgentWindowRegistryFixture.makeStoreURL(),
+        framePersistDelay: Duration = .milliseconds(1)
+    ) {
         let coordinator = AgentWindowRegistryTerminalCoordinator()
         let recorder = AgentWindowRegistryRecorder()
         self.coordinator = coordinator
         self.recorder = recorder
+        self.storeURL = storeURL
         registry = AgentWindowRegistry(
+            store: AgentWindowPresentationStore(url: storeURL),
+            framePersistDelay: framePersistDelay,
             endpointFactory: { id in
                 AgentSessionTerminalEndpoint(
                     coordinator: coordinator,
@@ -96,6 +204,10 @@ private final class AgentWindowRegistryFixture {
             }
         )
     }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent())
+    }
 }
 
 @MainActor
@@ -109,10 +221,12 @@ private final class FakeManagedAgentWindow: AgentWindowControlling {
     let frame: CGRect
     private let suspendStop: Bool
     private var onClosed: (@MainActor () -> Void)?
+    private var onFrameChanged: ((CGRect) -> Void)?
     private var stopTask: Task<Void, Never>?
     private var stopContinuation: CheckedContinuation<Void, Never>?
     private(set) var showCount = 0
     private(set) var stopCount = 0
+    private(set) var activations: [Bool] = []
 
     init(
         frame: CGRect,
@@ -124,8 +238,18 @@ private final class FakeManagedAgentWindow: AgentWindowControlling {
         self.onClosed = onClosed
     }
 
-    func show() {
+    func show(activating: Bool) {
         showCount += 1
+        activations.append(activating)
+    }
+
+    func observePresentation(frameChanged: @escaping (CGRect) -> Void) {
+        onFrameChanged = frameChanged
+    }
+
+    /// Stands in for the user dragging the window.
+    func moveTo(_ frame: CGRect) {
+        onFrameChanged?(frame)
     }
 
     func close() {

@@ -33,6 +33,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-window")
 
     private var onClosed: (@MainActor () -> Void)?
+    private var onFrameChanged: ((CGRect) -> Void)?
     private var window: NSWindow?
     private var panelController: AgentPanelWebViewController?
     private var transport: AgentPanelBridgeTransport?
@@ -61,12 +62,16 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     /// Test seam: the constructed window (nil until `show()`, and after close or `stop()`).
     var windowForTesting: NSWindow? { window }
 
-    func show() {
+    func observePresentation(frameChanged: @escaping (CGRect) -> Void) {
+        onFrameChanged = frameChanged
+    }
+
+    func show(activating: Bool = true) {
         guard stopTask == nil else { return }
         if window == nil {
             build()
         }
-        if Config.axAutomationEnabled {
+        if activating, Config.axAutomationEnabled {
             NSApp.activate(ignoringOtherApps: true)
             window?.makeKeyAndOrderFront(nil)
         } else {
@@ -136,6 +141,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         splitView = nil
         terminalController = nil
         stopTask = nil
+        onFrameChanged = nil
         let onClosed = onClosed
         self.onClosed = nil
         onClosed?()
@@ -279,6 +285,19 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
 
     func windowDidBecomeKey(_ notification: Notification) {
         terminalController?.claimViewportOwnership()
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        reportFrame()
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        reportFrame()
+    }
+
+    private func reportFrame() {
+        guard let window, stopTask == nil else { return }
+        onFrameChanged?(window.frame)
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

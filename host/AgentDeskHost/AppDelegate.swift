@@ -574,6 +574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // visibility and terminal pushes cannot overwrite another window's subscription.
         let sidecar = agentFeedSidecar
         let agentWindows = AgentWindowRegistry(
+            store: AgentWindowPresentationStore(url: Config.agentWindowPresentationsURL),
             sidecarClient: HttpSidecarClient(baseURLProvider: { [weak sidecar] in sidecar?.baseURL }),
             terminalCoordinator: agentSessionTerminalCoordinator,
             terminalTombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
@@ -583,6 +584,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presenter.onOpenAgents = { [weak agentWindows] placement in
             agentWindows?.open(placement)
         }
+        // Put back the Agents windows the user was working in. Same launch contract as the IDE
+        // window: reopened where they were left, without taking focus from whatever is frontmost.
+        agentWindows.startRestoration()
         presenter.onIDECommand = { [weak self] in self?.toggleWorkspaceIDE() }
         presenter.onBrowserCommand = { [weak self] in self?.toggleBrowserProjection() }
 
