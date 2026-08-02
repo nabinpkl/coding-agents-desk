@@ -250,7 +250,7 @@ export function DictationMini() {
                 <p id="recording-prefix-help" className="mt-1 text-sm text-muted-foreground">
                   {recordingPrefixEnabled
                     ? "This text is added before the reviewed transcript when you send it."
-                    : "Off. The reviewed transcript is sent unchanged."}
+                    : "Set the text now. It stays off until you turn on the switch."}
                 </p>
               </div>
               <button
@@ -259,10 +259,9 @@ export function DictationMini() {
                 aria-checked={recordingPrefixEnabled}
                 aria-describedby="recording-prefix-help"
                 aria-label="Apply recording prefix"
-                className={`relative h-11 w-12 shrink-0 rounded-full p-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 ${
+                className={`relative h-11 w-12 shrink-0 rounded-full p-1 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                   recordingPrefixEnabled ? "bg-primary" : "bg-muted"
                 }`}
-                disabled={!canEdit}
                 onClick={() => setRecordingPrefixEnabled((isEnabled) => !isEnabled)}
               >
                 <span
@@ -283,8 +282,7 @@ export function DictationMini() {
                     ? "recording-prefix-help recording-prefix-error"
                     : "recording-prefix-help"
                 }
-                className="min-h-11 w-full rounded-xl border border-input bg-background px-3 text-base outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={!canEdit || !recordingPrefixEnabled}
+                className="min-h-11 w-full rounded-xl border border-input bg-background px-3 text-base outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
                 onChange={(event) => setRecordingPrefix(event.target.value)}
                 value={recordingPrefix}
               />
