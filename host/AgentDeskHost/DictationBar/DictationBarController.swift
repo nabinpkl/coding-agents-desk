@@ -123,7 +123,14 @@ final class DictationBarController: NSObject {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.level = .floating
+        // One step above the app's other floating panels. They are surfaces the
+        // user opens and dismisses; this is a control that must answer a click
+        // whenever it is on screen. Siblings at the same level order themselves
+        // front as they work (SpaceAgent on every reveal, the shell overlays on
+        // every reveal), and the front panel swallows the press wherever the two
+        // overlap - even where the front one is fully transparent, which leaves
+        // the mini plainly visible and completely dead to the pointer.
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
@@ -163,6 +170,13 @@ final class DictationBarController: NSObject {
     }
 
     private func markWebReady() {
+        // The mini announces itself once per load. A repeat means it remounted,
+        // which is worth a line but not the notice-level one that reads as a
+        // fresh panel.
+        guard !state.isWebReady else {
+            logger.debug("dictation web re-announced readiness")
+            return
+        }
         state.markWebReady()
         logger.notice("dictation web ready; Fn capture armed")
     }
@@ -382,5 +396,16 @@ extension DictationBarController: NSWindowDelegate {
         guard let panel else { return }
         save(origin: panel.frame.origin)
         onFrameDidChange?()
+    }
+
+    // Whether the panel is key decides whether a click on it is spent on focus
+    // or reaches the control. Recording the transitions makes a dead-click
+    // report readable afterwards instead of a guess about window order.
+    func windowDidBecomeKey(_ notification: Notification) {
+        logger.debug("dictation panel became key")
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        logger.debug("dictation panel resigned key")
     }
 }

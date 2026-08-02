@@ -55,7 +55,7 @@ public final class WebPanelWebViewController: NSObject {
             WebPanelSchemeHandler(rootDirectory: rootDirectory),
             forURLScheme: contract.scheme
         )
-        let createdWebView = WKWebView(frame: .zero, configuration: configuration)
+        let createdWebView = WebPanelWebView(frame: .zero, configuration: configuration)
 
         self.webView = createdWebView
         self.messageSink = messageSink

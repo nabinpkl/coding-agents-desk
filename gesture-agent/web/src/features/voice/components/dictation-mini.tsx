@@ -118,17 +118,27 @@ export function DictationMini() {
     stopRecording();
   }, [stopRecording]);
 
+  // Readiness is announced once per mount, and Fn always reaches the current
+  // handlers. Naming a callback in this effect's dependencies instead couples
+  // that announcement to how stable the voice session's identities happen to
+  // be: when they last churned, the mini re-announced itself and re-subscribed
+  // on every meter tick, eight times a second for a whole recording.
+  const beginRef = useRef(begin);
+  beginRef.current = begin;
+  const endRef = useRef(end);
+  endRef.current = end;
+
   useEffect(() => {
     const unsubscribe = subscribeInteractionDelivery<DictationCapture>(
       "dictationCapture",
       ({ command }) => {
-        if (command === "start") begin(true);
-        else end();
+        if (command === "start") beginRef.current(true);
+        else endRef.current();
       },
     );
     postToHost("interaction", { t: "dictationReady" });
     return unsubscribe;
-  }, [begin, end]);
+  }, []);
 
   // A hidden surface cannot be stopped by its own control, so it stops itself.
   // Losing focus is NOT that case: clicking record and then clicking back into
@@ -137,13 +147,15 @@ export function DictationMini() {
   useEffect(() => {
     const stopForVisibilityLoss = () => {
       if (document.visibilityState === "visible") return;
-      if (isDictationRunActive(useVoiceStore.getState().runState.status)) end();
+      if (isDictationRunActive(useVoiceStore.getState().runState.status)) {
+        endRef.current();
+      }
     };
     document.addEventListener("visibilitychange", stopForVisibilityLoss);
     return () => {
       document.removeEventListener("visibilitychange", stopForVisibilityLoss);
     };
-  }, [end]);
+  }, []);
 
   const status = runState.status;
   const expanded = isDictationMiniExpanded(status);

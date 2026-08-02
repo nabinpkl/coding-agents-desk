@@ -13,7 +13,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { encodeFloat32Pcm } from "@/features/voice/base64";
 import {
@@ -163,5 +163,9 @@ export function useMicCapture(): MicCaptureController {
   // start a capture; the next run picks up whatever the last push said.
   useEffect(subscribeHostAudioConfig, []);
 
-  return { start, stop };
+  // A fresh object here would give every caller above a new identity on every
+  // render, and each of them feeds effect dependencies. That churn is invisible
+  // in a browser and expensive in a panel: the dictation mini re-subscribed and
+  // re-announced itself to the native host on every meter tick.
+  return useMemo(() => ({ start, stop }), [start, stop]);
 }

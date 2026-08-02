@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import WebKit
 @testable import WebPanelKit
 
 struct WebPanelKitTests {
@@ -34,6 +35,18 @@ struct WebPanelKitTests {
         #expect(payload["height"] as? Int == 156)
         #expect(WebPanelWebViewController.payload(from: ["t": "dictationReady"]).isEmpty)
     }
+
+    #if os(macOS)
+    @MainActor
+    @Test func panelWebviewAnswersTheFirstClickWhileItsWindowIsNotKey() {
+        // These panels float over an app the user is actively working in, so
+        // nearly every click on one arrives while it is not key. Without this
+        // the click is spent on focus and the control never sees it.
+        let webView = WebPanelWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        #expect(webView.acceptsFirstMouse(for: nil))
+    }
+    #endif
 
     @MainActor
     @Test func queuedPushesFlushInOrderAfterWebReadiness() {
