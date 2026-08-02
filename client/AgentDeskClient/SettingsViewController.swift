@@ -20,7 +20,9 @@ final class SettingsViewController: UIViewController {
     private let spacesDirectionSwitch = UISwitch()
     private let showSpacePreviewsSwitch = UISwitch()
     private let crispOverlaySwitch = UISwitch()
-    private let hostCursorSwitch = UISwitch()
+    private let cursorDisplayModeControl = UISegmentedControl(
+        items: CursorDisplayMode.allCases.map(\.title)
+    )
     private let adaptiveMediaQualitySwitch = UISwitch()
     private let diagnosticScreenshotsSwitch = UISwitch()
     private let manualMediaBitrateSlider = UISlider()
@@ -84,7 +86,12 @@ final class SettingsViewController: UIViewController {
             rows: [
                 ("Speed", cursorSpeedLabel, cursorSpeedSlider),
                 ("Acceleration", cursorAccelLabel, cursorAccelSlider)
-            ]
+            ],
+            customRows: [makeSegmentedRow(
+                name: "Visible cursor",
+                control: cursorDisplayModeControl
+            )],
+            footnote: "Client draws the sharp low-latency overlay. Host draws the Mac cursor into the video. Both shows both cursors."
         )
 
         let scrollSection = makeSection(
@@ -126,15 +133,6 @@ final class SettingsViewController: UIViewController {
             rows: [],
             switchRow: ("Sharp text overlay", crispOverlaySwitch),
             footnote: "Overlays crisp text on settled regions for sharper reading. Turn off for a lighter, video-only stream."
-        )
-
-        // The client always draws its own sharp cursor overlay; this only controls whether
-        // the host ALSO bakes the cursor into the video. Off by default (no double-draw).
-        let hostCursorSection = makeSection(
-            title: "Cursor",
-            rows: [],
-            switchRow: ("Show host cursor in video", hostCursorSwitch),
-            footnote: "Also draws the Mac cursor inside the video stream. Off by default; the phone already shows a sharp cursor overlay, so this is usually redundant."
         )
 
         let mediaQualitySection = makeSection(
@@ -228,7 +226,7 @@ final class SettingsViewController: UIViewController {
             footnote: "Disconnect ends the current session but stays paired, so you can reconnect with one tap. Unpair forgets this Mac and needs pairing again from the Mac."
         )
 
-        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, videoTouchSection, spacesSection, previewsSection, crispSection, hostCursorSection, mediaQualitySection, speechSection, accessorySection, keyboardDictationSection, diagnosticsSection, connectionSection])
+        let stack = UIStackView(arrangedSubviews: [cursorSection, scrollSection, videoTouchSection, spacesSection, previewsSection, crispSection, mediaQualitySection, speechSection, accessorySection, keyboardDictationSection, diagnosticsSection, connectionSection])
         stack.axis = .vertical
         stack.spacing = 28
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -288,7 +286,13 @@ final class SettingsViewController: UIViewController {
         spacesDirectionSwitch.addTarget(self, action: #selector(spacesDirectionChanged), for: .valueChanged)
         showSpacePreviewsSwitch.addTarget(self, action: #selector(showSpacePreviewsChanged), for: .valueChanged)
         crispOverlaySwitch.addTarget(self, action: #selector(crispOverlayChanged), for: .valueChanged)
-        hostCursorSwitch.addTarget(self, action: #selector(hostCursorChanged), for: .valueChanged)
+        cursorDisplayModeControl.accessibilityIdentifier = "cursor-display-mode"
+        cursorDisplayModeControl.accessibilityLabel = "Visible cursor"
+        cursorDisplayModeControl.addTarget(
+            self,
+            action: #selector(cursorDisplayModeChanged),
+            for: .valueChanged
+        )
         adaptiveMediaQualitySwitch.addTarget(self, action: #selector(adaptiveMediaQualityChanged), for: .valueChanged)
         diagnosticScreenshotsSwitch.addTarget(self, action: #selector(diagnosticScreenshotsChanged), for: .valueChanged)
         manualMediaBitrateSlider.minimumValue = Float(SettingsStore.manualMediaBitrateKbpsRange.lowerBound)
@@ -335,7 +339,9 @@ final class SettingsViewController: UIViewController {
         spacesDirectionSwitch.isOn = store.useMacOSSpacesDirection
         showSpacePreviewsSwitch.isOn = store.showSpacePreviews
         crispOverlaySwitch.isOn = store.crispTextOverlayEnabled
-        hostCursorSwitch.isOn = store.showHostCursorInVideo
+        cursorDisplayModeControl.selectedSegmentIndex = CursorDisplayMode.allCases.firstIndex(
+            of: store.cursorDisplayMode
+        ) ?? 0
         adaptiveMediaQualitySwitch.isOn = store.adaptiveMediaQualityEnabled
         diagnosticScreenshotsSwitch.isOn = store.diagnosticScreenshotsEnabled
         loadKeyboardDictationPreferences()
@@ -406,8 +412,12 @@ final class SettingsViewController: UIViewController {
         store.crispTextOverlayEnabled = crispOverlaySwitch.isOn
     }
 
-    @objc private func hostCursorChanged() {
-        store.showHostCursorInVideo = hostCursorSwitch.isOn
+    @objc private func cursorDisplayModeChanged() {
+        let modes = CursorDisplayMode.allCases
+        guard modes.indices.contains(cursorDisplayModeControl.selectedSegmentIndex) else {
+            return
+        }
+        store.cursorDisplayMode = modes[cursorDisplayModeControl.selectedSegmentIndex]
     }
 
     @objc private func adaptiveMediaQualityChanged() {

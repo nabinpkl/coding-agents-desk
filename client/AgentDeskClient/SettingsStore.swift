@@ -2,6 +2,28 @@ import CoreGraphics
 import Foundation
 import AgentDeskWire
 
+enum CursorDisplayMode: String, CaseIterable, Sendable {
+    case clientOnly
+    case both
+    case hostOnly
+
+    var title: String {
+        switch self {
+        case .clientOnly: "Client"
+        case .both: "Both"
+        case .hostOnly: "Host"
+        }
+    }
+
+    var showsClientCursor: Bool {
+        self != .hostOnly
+    }
+
+    var showsHostCursorInVideo: Bool {
+        self != .clientOnly
+    }
+}
+
 // UserDefaults-backed store for trackpad / scroll feel preferences. The
 // raw values are unitless multipliers (1.0 = default) so the UI can show
 // them as "1.0x", "1.5x" sliders without translation. SettingsViewController
@@ -35,7 +57,7 @@ final class SettingsStore: @unchecked Sendable {
         static let videoLayoutMode = "agentDesk.videoLayoutMode"
         static let autoKeyboardEnabled = "agentDesk.autoKeyboardEnabled"
         static let crispTextOverlayEnabled = "agentDesk.crispTextOverlayEnabled"
-        static let showHostCursorInVideo = "agentDesk.showHostCursorInVideo"
+        static let cursorDisplayMode = "agentDesk.cursorDisplayMode"
         static let adaptiveMediaQualityEnabled = "agentDesk.adaptiveMediaQualityEnabled"
         static let manualMediaBitrateKbps = "agentDesk.manualMediaBitrateKbps"
         static let manualMediaFps = "agentDesk.manualMediaFps"
@@ -170,14 +192,18 @@ final class SettingsStore: @unchecked Sendable {
         }
     }
 
-    // Whether the host bakes its OS cursor into the video stream. Sent to the host in
-    // ClientConfig (wire key "hc"). Default OFF: the client already draws its own sharp,
-    // low-latency cursor overlay, so the baked-in video cursor is a redundant, laggier
-    // double-draw. On is for parity/debugging or clients without the overlay.
-    var showHostCursorInVideo: Bool {
-        get { defaults.object(forKey: Key.showHostCursorInVideo) as? Bool ?? false }
+    // One cursor-display authority drives both the local sharp overlay and the host's
+    // cursor-in-video flag. Client-only preserves the low-latency default; the three
+    // cases intentionally exclude a state where neither cursor is visible.
+    var cursorDisplayMode: CursorDisplayMode {
+        get {
+            guard let rawValue = defaults.string(forKey: Key.cursorDisplayMode) else {
+                return .clientOnly
+            }
+            return CursorDisplayMode(rawValue: rawValue) ?? .clientOnly
+        }
         set {
-            defaults.set(newValue, forKey: Key.showHostCursorInVideo)
+            defaults.set(newValue.rawValue, forKey: Key.cursorDisplayMode)
             postChange()
         }
     }

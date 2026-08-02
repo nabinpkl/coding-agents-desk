@@ -239,8 +239,8 @@ extension PairingViewController: UIScrollViewDelegate {
         // Scale up by zoom and subtract the scroll offset to get viewport coords.
         let vpX = sinkX * scroll.zoomScale - scroll.contentOffset.x
         let vpY = sinkY * scroll.zoomScale - scroll.contentOffset.y
-        // Mirror the Mac when it hides its cursor (e.g. fullscreen video).
-        if cursorHidden {
+        // Mirror the Mac's hidden state and the local cursor-display preference.
+        if cursorHidden || !SettingsStore.shared.cursorDisplayMode.showsClientCursor {
             dot.isHidden = true
             return
         }

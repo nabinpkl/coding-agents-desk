@@ -5,6 +5,34 @@ import AgentDeskWire
 @testable import AgentDeskClient
 
 struct SettingsStoreTests {
+    @Test func cursorDisplayModeDefaultsToClientOnly() {
+        let store = SettingsStore(defaults: isolatedDefaults())
+
+        #expect(store.cursorDisplayMode == .clientOnly)
+        #expect(store.cursorDisplayMode.showsClientCursor)
+        #expect(store.cursorDisplayMode.showsHostCursorInVideo == false)
+    }
+
+    @Test func cursorDisplayModesCoverEveryVisibleCombination() {
+        #expect(CursorDisplayMode.allCases.map(\.title) == ["Client", "Both", "Host"])
+        #expect(CursorDisplayMode.clientOnly.showsClientCursor)
+        #expect(CursorDisplayMode.clientOnly.showsHostCursorInVideo == false)
+        #expect(CursorDisplayMode.both.showsClientCursor)
+        #expect(CursorDisplayMode.both.showsHostCursorInVideo)
+        #expect(CursorDisplayMode.hostOnly.showsClientCursor == false)
+        #expect(CursorDisplayMode.hostOnly.showsHostCursorInVideo)
+    }
+
+    @Test func cursorDisplayModePersists() {
+        let defaults = isolatedDefaults()
+        let store = SettingsStore(defaults: defaults)
+
+        store.cursorDisplayMode = .hostOnly
+
+        #expect(store.cursorDisplayMode == .hostOnly)
+        #expect(defaults.string(forKey: "agentDesk.cursorDisplayMode") == "hostOnly")
+    }
+
     @Test func autoKeyboardEnabledDefaultsTrue() {
         let defaults = isolatedDefaults()
         let store = SettingsStore(defaults: defaults)

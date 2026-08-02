@@ -12,6 +12,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     @objc func settingsChanged() {
         applySettingsToTranslator()
         applyVideoTouchState()
+        updateCursorDot()
         if !SettingsStore.shared.autoKeyboardEnabled,
            keyboardPresentationState == .pendingTextFocus {
             applyKeyboardPresentationIntent(.hide)
@@ -490,7 +491,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             thumbnailRefresh: thumbnailRefresh,
             selectedDisplayId: explicitSelectedDisplayId ?? selectedDisplayIdForConfig(),
             crispTextOverlayEnabled: SettingsStore.shared.crispTextOverlayEnabled,
-            showHostCursorInVideo: SettingsStore.shared.showHostCursorInVideo,
+            showHostCursorInVideo: SettingsStore.shared.cursorDisplayMode.showsHostCursorInVideo,
             mediaQuality: Config.launchMediaQualityOverride ?? SettingsStore.shared.mediaQualityConfig,
             autoKeyboardEnabled: SettingsStore.shared.autoKeyboardEnabled,
             diagnosticScreenshotsEnabled: SettingsStore.shared.diagnosticScreenshotsEnabled
