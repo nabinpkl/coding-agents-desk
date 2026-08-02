@@ -49,6 +49,7 @@ struct AgentWindowControllerTests {
         controller.show()
 
         let window = try #require(controller.windowForTesting)
+        window.concealFromTheDesktopUnderTest()
         #expect(window.title == "Agents")
         #expect(window.identifier?.rawValue == AgentWindowController.windowIdentifier)
         #expect(window.accessibilityIdentifier() == AgentWindowController.windowIdentifier)
@@ -74,6 +75,7 @@ struct AgentWindowControllerTests {
         )
         controller.show()
         let window = try #require(controller.windowForTesting)
+        window.concealFromTheDesktopUnderTest()
 
         #expect(controller.windowShouldClose(window) == false)
         #expect(window.isVisible)
@@ -92,6 +94,7 @@ struct AgentWindowControllerTests {
             terminalControllerForTesting: terminal
         )
         controller.show()
+        controller.windowForTesting?.concealFromTheDesktopUnderTest()
         #expect(controller.windowForTesting != nil)
 
         await controller.beginStop().value
@@ -120,6 +123,7 @@ struct AgentWindowControllerTests {
         )
 
         controller.show(activating: false)
+        controller.windowForTesting?.concealFromTheDesktopUnderTest()
         controller.resumeTerminal(attachment)
 
         #expect(terminal.resumed == [attachment])
@@ -134,6 +138,7 @@ struct AgentWindowControllerTests {
         controller.show()
 
         let window = try #require(controller.windowForTesting)
+        window.concealFromTheDesktopUnderTest()
         let panel = try #require(webView(in: window.contentView))
 
         #expect(panel.configuration.userContentController.userScripts.contains {
@@ -154,17 +159,15 @@ struct AgentWindowControllerTests {
         split.setTerminalOpen(true)
         split.layoutSubtreeIfNeeded()
 
-        let window = NSWindow(
-            contentRect: split.frame,
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "R73 native terminal accessibility test"
-        window.contentView = split
-        window.orderFront(nil)
+        let window = OffscreenTestWindow(hosting: split, title: "R73 native terminal accessibility test")
+        window.orderInOffscreen()
         defer { window.orderOut(nil) }
 
+        // In-process AX vending is not available to the test process on a
+        // developer machine, so this branch is skipped there and the identifier
+        // assertions below only run where it is. Verified by temporarily
+        // failing on the guard: it was already false before these windows were
+        // moved off screen, so nothing was lost by moving them.
         guard nativeWindowAccessibilityIsExternallyVendored() else { return }
         try await waitForAccessibilityIdentifier(
             AgentWindowAccessibilityIdentifiers.terminalSplitter,
@@ -185,15 +188,8 @@ struct AgentWindowControllerTests {
             frame: NSRect(x: 0, y: 0, width: 480, height: 240),
             configuration: configuration
         )
-        let window = NSWindow(
-            contentRect: webView.frame,
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "R68 terminal accessibility test"
-        window.contentView = webView
-        window.orderFront(nil)
+        let window = OffscreenTestWindow(hosting: webView, title: "R68 terminal accessibility test")
+        window.orderInOffscreen()
         defer { window.orderOut(nil) }
 
         webView.loadHTMLString(
@@ -255,15 +251,8 @@ struct AgentWindowControllerTests {
             frame: NSRect(x: 0, y: 0, width: 480, height: 320),
             configuration: configuration
         )
-        let window = NSWindow(
-            contentRect: webView.frame,
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = "R72 panel row accessibility test"
-        window.contentView = webView
-        window.orderFront(nil)
+        let window = OffscreenTestWindow(hosting: webView, title: "R72 panel row accessibility test")
+        window.orderInOffscreen()
         defer { window.orderOut(nil) }
 
         webView.loadHTMLString(
