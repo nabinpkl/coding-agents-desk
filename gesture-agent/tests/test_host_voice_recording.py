@@ -14,7 +14,7 @@ from unittest.mock import patch
 import numpy as np
 from fastapi.testclient import TestClient
 
-from interaction_agent.voice import http_server, recording, web_stream
+from interaction_agent.voice import http_server, recording, runtime, web_stream
 from interaction_agent.voice.phone_recognizer import ZIPAPhoneRecognizer
 from interaction_agent.voice.recording import update_recording_metadata
 from interaction_agent.voice.reference_speech import ReferenceSpeechArtifact
@@ -272,6 +272,67 @@ class HostVoiceFinalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("whisper fixture failed", result.transcription_error)
         self.assertIn("phone fixture failed", result.phone_analysis_error)
         self.assertTrue(web_stream.recording_wav_path(result.id).exists())
+
+    async def test_final_transcription_uses_preamp_without_previous_window_context(
+        self,
+    ) -> None:
+        async def analyze(app, recording_id):
+            del app
+            return web_stream.load_recording(recording_id)
+
+        with (
+            patch.object(
+                http_server,
+                "transcribe_audio_path",
+                return_value={"text": "complete paragraph"},
+            ) as transcribe,
+            patch.object(http_server, "analyze_recording_phones", analyze),
+        ):
+            await http_server.finalize_session(
+                test_app(),
+                None,
+                [np.full(2048, 0.01, dtype=np.float32)],
+                16_000,
+                datetime(2026, 7, 26, tzinfo=UTC),
+                "macos",
+                "completed",
+            )
+
+        options = transcribe.call_args.args[1]
+        self.assertEqual(options.preamp_gain, 4.0)
+        self.assertFalse(options.condition_on_previous_text)
+
+
+class RuntimeTranscriptionOptionsTests(unittest.TestCase):
+    def test_preamp_and_context_policy_reach_mlx_whisper(self) -> None:
+        loaded = np.array([0.1, -0.4, 0.7], dtype=np.float32)
+        with (
+            patch.object(runtime, "ensure_local_model", return_value=Path("/model")),
+            patch.object(
+                runtime,
+                "load_audio_for_transcription",
+                return_value=loaded,
+            ),
+            patch("mlx_whisper.transcribe", return_value={"text": "done"}) as transcribe,
+        ):
+            result = runtime.transcribe_audio_path(
+                Path("/recording.wav"),
+                runtime.VoiceTranscriptionOptions(
+                    model=runtime.FAST_MODEL,
+                    preamp_gain=4.0,
+                    condition_on_previous_text=False,
+                ),
+            )
+
+        self.assertEqual(result, {"text": "done"})
+        amplified = transcribe.call_args.args[0]
+        np.testing.assert_array_equal(
+            amplified,
+            np.array([0.4, -1.0, 1.0], dtype=np.float32),
+        )
+        self.assertFalse(
+            transcribe.call_args.kwargs["condition_on_previous_text"]
+        )
 
 
 class HostVoiceBusyTests(unittest.TestCase):

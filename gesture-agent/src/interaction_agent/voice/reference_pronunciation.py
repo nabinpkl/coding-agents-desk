@@ -96,6 +96,13 @@ class _PronunciationAssets:
     source_revision: str
 
 
+@dataclass(frozen=True)
+class _TranscriptToken:
+    normalized: str
+    source: str
+    is_punctuation: bool
+
+
 _KOKORO_BASE_PHONES: Final = {
     "AA": "ɑ",
     "AE": "æ",
@@ -139,6 +146,13 @@ _KOKORO_BASE_PHONES: Final = {
 }
 _KOKORO_ALLOWED_PUNCTUATION: Final = frozenset(",.;:!?")
 _CMU_SYMBOL: Final = re.compile(r"^([A-Z]+)([012])?$")
+_INITIALISM_MIN_LENGTH: Final = 2
+_INITIALISM_MAX_LENGTH: Final = 8
+_INITIALISM_LETTER_OVERRIDES: Final = {
+    # CMUdict's primary "a" entry is the article; its alternate is the
+    # alphabet letter name needed when spelling an initialism.
+    "a": ("EY1",),
+}
 KOKORO_SYNTHESIS_MAPPING_HASH: Final = hashlib.sha256(
     json.dumps(
         {
@@ -148,6 +162,12 @@ KOKORO_SYNTHESIS_MAPPING_HASH: Final = hashlib.sha256(
             "stress": {"1": "ˈ", "2": "ˌ"},
             "punctuation": sorted(_KOKORO_ALLOWED_PUNCTUATION),
             "tokenizer": "unicode-letters-straight-apostrophe-v1",
+            "uppercaseInitialisms": {
+                "minimumLength": _INITIALISM_MIN_LENGTH,
+                "maximumLength": _INITIALISM_MAX_LENGTH,
+                "strategy": "cmudict-letter-names-v1",
+                "overrides": _INITIALISM_LETTER_OVERRIDES,
+            },
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -158,33 +178,100 @@ KOKORO_SYNTHESIS_MAPPING_HASH: Final = hashlib.sha256(
 
 def transcript_words(transcript: str) -> tuple[str, ...]:
     """Match the native tokenizer: Unicode letters and straight apostrophes."""
-    normalized = "".join(
-        character.lower() if character.isalpha() or character == "'" else " "
-        for character in transcript
+    return tuple(
+        token.normalized
+        for token in _transcript_tokens_with_source(
+            transcript,
+            include_punctuation=False,
+        )
     )
-    return tuple(word.strip("'") for word in normalized.split() if word.strip("'"))
 
 
 def transcript_tokens(transcript: str) -> tuple[str, ...]:
     """Return pronunciation words plus the punctuation Kokoro understands."""
-    tokens: list[str] = []
+    return tuple(
+        token.normalized
+        for token in _transcript_tokens_with_source(
+            transcript,
+            include_punctuation=True,
+        )
+    )
+
+
+def _transcript_tokens_with_source(
+    transcript: str,
+    *,
+    include_punctuation: bool,
+) -> tuple[_TranscriptToken, ...]:
+    tokens: list[_TranscriptToken] = []
     word: list[str] = []
     for character in transcript:
         if character.isalpha() or character == "'":
-            word.append(character.lower())
+            word.append(character)
             continue
         if word:
-            normalized = "".join(word).strip("'")
+            source = "".join(word).strip("'")
+            normalized = source.lower()
             if normalized:
-                tokens.append(normalized)
+                tokens.append(
+                    _TranscriptToken(
+                        normalized=normalized,
+                        source=source,
+                        is_punctuation=False,
+                    )
+                )
             word = []
-        if character in _KOKORO_ALLOWED_PUNCTUATION:
-            tokens.append(character)
+        if include_punctuation and character in _KOKORO_ALLOWED_PUNCTUATION:
+            tokens.append(
+                _TranscriptToken(
+                    normalized=character,
+                    source=character,
+                    is_punctuation=True,
+                )
+            )
     if word:
-        normalized = "".join(word).strip("'")
+        source = "".join(word).strip("'")
+        normalized = source.lower()
         if normalized:
-            tokens.append(normalized)
+            tokens.append(
+                _TranscriptToken(
+                    normalized=normalized,
+                    source=source,
+                    is_punctuation=False,
+                )
+            )
     return tuple(tokens)
+
+
+def _dictionary_symbol_groups(
+    token: _TranscriptToken,
+    entries: dict[str, tuple[str, ...]],
+) -> tuple[tuple[str, ...], ...]:
+    symbols = entries.get(token.normalized)
+    if symbols is not None:
+        return (symbols,)
+
+    source = token.source
+    if not (
+        source.isascii()
+        and source.isalpha()
+        and source.isupper()
+        and _INITIALISM_MIN_LENGTH <= len(source) <= _INITIALISM_MAX_LENGTH
+    ):
+        return ()
+
+    letter_pronunciations = tuple(
+        _INITIALISM_LETTER_OVERRIDES.get(letter.lower())
+        or entries.get(letter.lower())
+        for letter in source
+    )
+    if any(symbols is None for symbols in letter_pronunciations):
+        return ()
+    return tuple(
+        symbols
+        for symbols in letter_pronunciations
+        if symbols is not None
+    )
 
 
 def parse_cmu_dictionary(text: str) -> dict[str, tuple[str, ...]]:
@@ -207,19 +294,38 @@ def pronunciations(
 ) -> tuple[tuple[WordPronunciation, ...], tuple[str, ...]]:
     words: list[WordPronunciation] = []
     unknown_words: set[str] = set()
-    for word in transcript_words(transcript):
-        symbols = entries.get(word)
-        if symbols is None:
-            unknown_words.add(word)
-            words.append(WordPronunciation(word=word, phones=(), is_known=False))
+    for token in _transcript_tokens_with_source(
+        transcript,
+        include_punctuation=False,
+    ):
+        symbol_groups = _dictionary_symbol_groups(token, entries)
+        if not symbol_groups:
+            unknown_words.add(token.normalized)
+            words.append(
+                WordPronunciation(
+                    word=token.normalized,
+                    phones=(),
+                    is_known=False,
+                )
+            )
             continue
         try:
-            phones = tuple(mapping[symbol] for symbol in symbols)
+            phones = tuple(
+                mapping[symbol]
+                for symbols in symbol_groups
+                for symbol in symbols
+            )
         except KeyError as exc:
             raise ReferencePronunciationError(
                 f"phone mapping does not cover CMUdict symbol {exc.args[0]}"
             ) from exc
-        words.append(WordPronunciation(word=word, phones=phones, is_known=True))
+        words.append(
+            WordPronunciation(
+                word=token.normalized,
+                phones=phones,
+                is_known=True,
+            )
+        )
     return tuple(words), tuple(sorted(unknown_words))
 
 
@@ -323,17 +429,20 @@ def reference_pronunciation(transcript: str) -> ReferencePronunciation:
     words: list[SynthesisWordPronunciation] = []
     unknown_words: set[str] = set()
     passage_units: list[str] = []
-    for token in transcript_tokens(transcript):
-        if token in _KOKORO_ALLOWED_PUNCTUATION:
+    for token in _transcript_tokens_with_source(
+        transcript,
+        include_punctuation=True,
+    ):
+        if token.is_punctuation:
             if passage_units:
-                passage_units[-1] += token
+                passage_units[-1] += token.normalized
             continue
-        symbols = assets.entries.get(token)
-        if symbols is None:
-            unknown_words.add(token)
+        symbol_groups = _dictionary_symbol_groups(token, assets.entries)
+        if not symbol_groups:
+            unknown_words.add(token.normalized)
             words.append(
                 SynthesisWordPronunciation(
-                    word=token,
+                    word=token.normalized,
                     arpabet=(),
                     display_phones=(),
                     kokoro_ipa="",
@@ -342,16 +451,28 @@ def reference_pronunciation(transcript: str) -> ReferencePronunciation:
             )
             continue
         try:
-            display_phones = tuple(assets.mapping[symbol] for symbol in symbols)
+            display_phones = tuple(
+                assets.mapping[symbol]
+                for symbols in symbol_groups
+                for symbol in symbols
+            )
         except KeyError as exc:
             raise ReferencePronunciationError(
                 f"phone mapping does not cover CMUdict symbol {exc.args[0]}"
             ) from exc
-        ipa = "".join(_kokoro_phone(symbol) for symbol in symbols)
+        arpabet = tuple(
+            symbol
+            for symbols in symbol_groups
+            for symbol in symbols
+        )
+        ipa = " ".join(
+            "".join(_kokoro_phone(symbol) for symbol in symbols)
+            for symbols in symbol_groups
+        )
         words.append(
             SynthesisWordPronunciation(
-                word=token,
-                arpabet=symbols,
+                word=token.normalized,
+                arpabet=arpabet,
                 display_phones=display_phones,
                 kokoro_ipa=ipa,
                 is_known=True,

@@ -513,7 +513,11 @@ async def finalize_session(
         final_result = await run_in_threadpool(
             transcribe_audio_path,
             result.wav_path,
-            VoiceTranscriptionOptions(model=config.final_transcription_model),
+            VoiceTranscriptionOptions(
+                model=config.final_transcription_model,
+                preamp_gain=config.transcription_preamp,
+                condition_on_previous_text=False,
+            ),
         )
         final_text = transcript_text(final_result)
         await run_in_threadpool(

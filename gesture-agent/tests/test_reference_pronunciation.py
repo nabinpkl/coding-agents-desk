@@ -52,6 +52,30 @@ ABOUT  AH0 B AW1 T
         self.assertFalse(words[2].is_known)
         self.assertEqual(unknown, ("mystery",))
 
+    def test_uppercase_initialism_uses_cmudict_letter_pronunciations(self) -> None:
+        entries = parse_cmu_dictionary(
+            """\
+A  EY1
+C  S IY1
+S  EH1 S
+"""
+        )
+        words, unknown = pronunciations(
+            "ACS",
+            entries=entries,
+            mapping={
+                "EY1": "eɪ",
+                "S": "s",
+                "IY1": "i",
+                "EH1": "ɛ",
+            },
+        )
+        self.assertEqual(
+            words,
+            (WordPronunciation("acs", ("eɪ", "s", "i", "ɛ", "s"), True),),
+        )
+        self.assertEqual(unknown, ())
+
     def test_grouping_matches_native_passage_insertion_assignment(self) -> None:
         groups = group_phones(
             ("a", "x", "y", "z", "b"),
@@ -118,6 +142,16 @@ ABOUT  AH0 B AW1 T
         self.assertEqual(pronunciation.passage_ipa, "θˈɪŋk, θˈæŋk.")
         self.assertEqual(pronunciation.unknown_words, ())
         self.assertEqual(len(pronunciation.synthesis_mapping_hash), 64)
+
+    def test_kokoro_pronunciation_spells_uppercase_initialism_from_cmudict(
+        self,
+    ) -> None:
+        pronunciation = resolve_reference_pronunciation("Choose auto-ACS.")
+        self.assertEqual(pronunciation.words[-1].word, "acs")
+        self.assertTrue(pronunciation.words[-1].is_known)
+        self.assertEqual(pronunciation.words[-1].kokoro_ipa, "ˈA sˈi ˈɛs")
+        self.assertEqual(pronunciation.unknown_words, ())
+        self.assertTrue(pronunciation.passage_ipa.endswith("ˈA sˈi ˈɛs."))
 
 
 if __name__ == "__main__":

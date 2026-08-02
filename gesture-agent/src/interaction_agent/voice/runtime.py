@@ -1,8 +1,12 @@
 import tempfile
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 from typing import Any, Final
 from uuid import uuid4
+
+import numpy as np
+from numpy.typing import NDArray
 
 from interaction_agent.paths import VOICE_MODEL_ROOT
 
@@ -37,6 +41,8 @@ class VoiceTranscriptionOptions:
     prompt: str | None = None
     temperature: float = 0.0
     word_timestamps: bool = False
+    preamp_gain: float = 1.0
+    condition_on_previous_text: bool = True
 
 
 def validate_model(model: str) -> str:
@@ -165,10 +171,14 @@ def transcribe_audio_path(
 
     local_model = ensure_local_model(options.model)
     temperature = validate_temperature(options.temperature)
+    if not isfinite(options.preamp_gain) or options.preamp_gain <= 0:
+        raise VoiceRuntimeError("preamp_gain must be finite and greater than zero")
+
     whisper_options: dict[str, Any] = {
         "path_or_hf_repo": str(local_model),
         "temperature": temperature,
         "word_timestamps": options.word_timestamps,
+        "condition_on_previous_text": options.condition_on_previous_text,
     }
 
     if options.language is not None:
@@ -177,11 +187,27 @@ def transcribe_audio_path(
     if options.prompt is not None:
         whisper_options["initial_prompt"] = options.prompt
 
-    result = mlx_whisper.transcribe(str(audio_path), **whisper_options)
+    audio: str | NDArray[np.float32] = str(audio_path)
+    if options.preamp_gain != 1:
+        loaded_audio = load_audio_for_transcription(audio_path)
+        audio = np.clip(
+            loaded_audio * options.preamp_gain,
+            -1,
+            1,
+        ).astype(np.float32)
+
+    result = mlx_whisper.transcribe(audio, **whisper_options)
     if not isinstance(result, dict):
         raise VoiceRuntimeError("Unexpected transcription result")
 
     return result
+
+
+def load_audio_for_transcription(audio_path: Path) -> NDArray[np.float32]:
+    """Decode and resample with the same loader used by MLX Whisper."""
+    from mlx_whisper.audio import load_audio
+
+    return np.asarray(load_audio(str(audio_path)), dtype=np.float32)
 
 
 def transcribe_audio_bytes(

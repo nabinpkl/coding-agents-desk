@@ -783,6 +783,12 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   control rail and Settings, and tear the service down with pairing or scene ownership. Final
   transcripts continue through the ordinary remote-keyboard input path; no second text transport is
   introduced.
+- D165. Make long host Voice finalization independent of Whisper's previous-window text so a quiet
+  tail cannot repeat the last decoded sentence. Apply the configured gain only to the final
+  transcription input while preserving the authoritative raw WAV for storage and ZIPA. Preserve
+  transcript casing through pronunciation tokenization and resolve unknown uppercase initialisms
+  from CMUdict letter names, keeping direct-IPA whole-passage Kokoro playback available without
+  falling back to text G2P.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -852,4 +858,5 @@ R161  implemented remaining  physical Character Preview acceptance
 D162  2026-07-28  landed     return glyph with semantic action labels and accessibility
 D163  2026-07-28  landed     native home-row alignment, outer-key gutters, and blank Space
 D164  2026-07-28  landed     nonblocking in-app keyboard dictation activation and status
+D165  2026-07-28  landed     stable long final transcription and initialism passage playback
 ```

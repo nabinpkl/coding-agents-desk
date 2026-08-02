@@ -126,6 +126,27 @@ class ReferenceSpeechArtifactStoreTests(unittest.TestCase):
                 )
             self.assertEqual(synth.calls, [])
 
+    def test_passage_spells_uppercase_initialism_without_text_g2p(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            synth = FakeSynthesizer()
+            store = ReferenceSpeechArtifactStore(
+                root=Path(temporary_directory),
+                recording_loader=lambda _: SimpleNamespace(
+                    transcript="Choose auto-ACS."
+                ),
+                synthesizer=synth,
+                cache_max_bytes=10_000_000,
+            )
+            artifact = store.create(
+                recording_id="session-20260727-010101-000001",
+                scope=ReferenceSpeechScope(kind="passage"),
+                voice_identifier="af_heart",
+                speed=1,
+            )
+
+            self.assertIn("ˈA sˈi ˈɛs", artifact.ipa)
+            self.assertEqual(synth.calls[0][0], (artifact.ipa,))
+
     def test_corrupt_cache_pair_is_replaced(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             synth = FakeSynthesizer()
