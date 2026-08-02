@@ -299,7 +299,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         ] {
             XCTAssertEqual(
                 OwnedMediaRefreshReason.fromEncodedFrame(
-                    frameId: 42,
+                    encodedFrameId: 42,
                     isKeyframe: true,
                     requestedKeyframeReason: reason,
                     expectedKeyframeReason: reason
@@ -316,7 +316,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
     func testEncoderPlacedKeyframeClassifiesAsRest() {
         let noReason: OwnedMediaKeyframeReason? = nil
         let classified = OwnedMediaRefreshReason.fromEncodedFrame(
-            frameId: 42,
+            encodedFrameId: 42,
             isKeyframe: true,
             requestedKeyframeReason: noReason,
             expectedKeyframeReason: noReason

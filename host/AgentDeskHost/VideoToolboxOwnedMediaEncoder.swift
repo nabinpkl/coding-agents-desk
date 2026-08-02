@@ -42,12 +42,12 @@ extension OwnedMediaRefreshReason {
     // `clientRequest`, so this keeps the wire values identical while the log stops lying
     // about the cause.
     static func fromEncodedFrame(
-        frameId: UInt64,
+        encodedFrameId: UInt64,
         isKeyframe: Bool,
         requestedKeyframeReason: OwnedMediaKeyframeReason?,
         expectedKeyframeReason: OwnedMediaKeyframeReason?
     ) -> OwnedMediaRefreshReason {
-        if frameId == 1 {
+        if encodedFrameId == 1 {
             return .initial
         }
         guard isKeyframe else {
@@ -121,6 +121,11 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         let capturedAtUptimeNs: UInt64
         let requestedKeyframeReason: OwnedMediaKeyframeReason?
         let expectedKeyframeReason: OwnedMediaKeyframeReason?
+        /// We asked VideoToolbox for a long-term-reference refresh on this frame. Carried
+        /// through so the output callback can report what came back: the encoder silently
+        /// substitutes an IDR when it has no acknowledged reference to build a delta against,
+        /// and that substitution is the whole failure mode worth watching.
+        let requestedLtrRefresh: Bool
         let completion: @Sendable (OwnedMediaFrameEnvelope?) -> Void
     }
 
@@ -140,7 +145,14 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private let lock = NSLock()
     private var session: VTCompressionSession?
     private var size: (width: Int, height: Int)?
-    private var frameId: UInt64 = 0
+    /// How many frames THIS encoder has compressed. Deliberately not called `frameId`: it is a
+    /// different number from the `frameId` on the wire, which is the surface update counter
+    /// (`OwnedSurfaceUpdateId.frameId`) and restarts with each new media transport. This one
+    /// restarts only when the encoder itself is replaced, which is what makes it the right
+    /// thing to test for "first frame of this stream". Reading a transport-side `frame=` as
+    /// this counter cost a wrong diagnosis once: a resume looked like it had built a fresh
+    /// encoder when the log was only showing a fresh surface.
+    private var encodedFrameCount: UInt64 = 0
     private var forceNextKeyframe = false
     private var loggedFirstEncodedFrame = false
     // ADR-0090 long-term references.
@@ -156,6 +168,14 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     /// produces a frame it cannot decode, another request, and the same answer -- a livelock,
     /// which is how the client's own render-stall recovery behaved.
     private var clientHasNoReferences = false
+    /// Long-term references the encoder has handed us a token for, cumulative. Zero here means
+    /// the encoder never nominated a frame as referenceable, so nothing could ever be
+    /// acknowledged and every refresh must degrade to an IDR.
+    private var ltrTokensEmitted = 0
+    /// Tokens the client confirmed and we passed back to VideoToolbox, cumulative. The pair of
+    /// counters is what makes a broken round trip readable: emitted-but-never-acknowledged is a
+    /// client or wire fault, both zero is an encoder that is not producing references at all.
+    private var ltrTokensAcknowledged = 0
     private var pendingFrames: [UInt64: PendingEncodedFrame] = [:]
 
     init(
@@ -205,8 +225,8 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
                 return
             }
             sessionToEncode = session
-            frameId &+= 1
-            encodedFrameId = frameId
+            encodedFrameCount &+= 1
+            encodedFrameId = encodedFrameCount
             let requestedKeyframe = forceNextKeyframe || requestedAdmissionKeyframe
             forceNextKeyframe = false
             // ADR-0087: we force keyframes only for events we own (client request, stall
@@ -216,7 +236,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             let forceKeyframe = requestedKeyframe || encodedFrameId == 1
             let expectedKeyframeReason: OwnedMediaKeyframeReason? = forceKeyframe
                 ? Self.resolveKeyframeReason(
-                    frameId: encodedFrameId,
+                    encodedFrameId: encodedFrameId,
                     requestedReason: requestedKeyframe ? requestedKeyframeReason : nil
                 )
                 : nil
@@ -260,21 +280,26 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             if ltrEnabled, !pendingLtrAcknowledgements.isEmpty {
                 options[kVTEncodeFrameOptionKey_AcknowledgedLTRTokens] =
                     pendingLtrAcknowledgements.sorted().map { NSNumber(value: $0) } as CFArray
+                ltrTokensAcknowledged += pendingLtrAcknowledgements.count
                 pendingLtrAcknowledgements.removeAll(keepingCapacity: true)
             }
             frameProperties = options.isEmpty ? nil : options as CFDictionary
             if refreshWithLtr {
-                logger.notice("owned encoder LTR refresh frame=\(encodedFrameId, privacy: .public) reason=\(resyncReason?.rawValue ?? "unknown", privacy: .public)")
+                // `acked` is the decisive number when a refresh comes back as an IDR: the
+                // encoder falls back when it holds no acknowledged reference, so a zero here
+                // says the round trip never closed rather than that the refresh misfired.
+                logger.notice("owned encoder ltr-refresh-requested encFrame=\(encodedFrameId, privacy: .public) reason=\(resyncReason?.rawValue ?? "unknown", privacy: .public) emitted=\(self.ltrTokensEmitted, privacy: .public) acked=\(self.ltrTokensAcknowledged, privacy: .public)")
             }
             pendingFrames[encodedFrameId] = PendingEncodedFrame(
                 updateId: updateId,
                 capturedAtUptimeNs: frame.capturedAtUptimeNs,
                 requestedKeyframeReason: requestedKeyframe ? requestedKeyframeReason : nil,
                 expectedKeyframeReason: expectedKeyframeReason,
+                requestedLtrRefresh: refreshWithLtr,
                 completion: completion
             )
             if requestedKeyframe {
-                logger.notice("owned encoder forcing requested keyframe frame=\(self.frameId, privacy: .public) reason=\(requestedKeyframeReason?.rawValue ?? "unknown", privacy: .public)")
+                logger.notice("owned encoder forcing requested keyframe encFrame=\(encodedFrameId, privacy: .public) reason=\(requestedKeyframeReason?.rawValue ?? "unknown", privacy: .public)")
             }
         } catch {
             if let session {
@@ -369,7 +394,13 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         if enabled {
             pendingLtrAcknowledgements.formUnion(tokens)
         }
+        let queued = pendingLtrAcknowledgements.count
         lock.unlock()
+        // The client half of the round trip closing. Logged rather than counted silently
+        // because its absence is indistinguishable from a working system without it: the whole
+        // mechanism degrades to the keyframe behaviour it replaced, which looks like nothing
+        // is wrong.
+        logger.notice("owned encoder ltr-ack-received tokens=\(tokens.map(String.init).joined(separator: ","), privacy: .public) enabled=\(enabled, privacy: .public) queued=\(queued, privacy: .public)")
     }
 
     /// The client discarded its decoder, so the next resync must be a real keyframe rather than
@@ -579,11 +610,30 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         let isKeyframe = Self.isKeyframe(sampleBuffer)
         let parameterSets = isKeyframe ? Self.parameterSets(codec: codec, formatDescription: formatDescription) : nil
         let refreshReason = OwnedMediaRefreshReason.fromEncodedFrame(
-            frameId: encodedFrameId,
+            encodedFrameId: encodedFrameId,
             isKeyframe: isKeyframe,
             requestedKeyframeReason: pending.requestedKeyframeReason,
             expectedKeyframeReason: pending.expectedKeyframeReason
         )
+        let ltrToken = Self.ltrAcknowledgementToken(sampleBuffer)
+        if let ltrToken {
+            lock.lock()
+            ltrTokensEmitted += 1
+            let emitted = ltrTokensEmitted
+            lock.unlock()
+            // The encoder nominating a frame as referenceable. Nothing downstream can work
+            // without this, so its absence has to be visible: no token means no acknowledgement
+            // is even possible, and every refresh is an IDR for a reason that is not the
+            // client's fault.
+            logger.notice("owned encoder ltr-token-emitted encFrame=\(encodedFrameId, privacy: .public) frame=\(pending.updateId.frameId, privacy: .public) token=\(ltrToken, privacy: .public) emitted=\(emitted, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(payload.count, privacy: .public)")
+        }
+        if pending.requestedLtrRefresh {
+            // What the refresh actually bought. `outcome=idr-fallback` is the failure this
+            // telemetry exists for: we asked for a delta against an acknowledged reference and
+            // VideoToolbox had none, so it sent a full frame instead and said nothing.
+            let outcome = isKeyframe ? "idr-fallback" : "ltr-delta"
+            logger.notice("owned encoder ltr-refresh-result encFrame=\(encodedFrameId, privacy: .public) outcome=\(outcome, privacy: .public) bytes=\(payload.count, privacy: .public)")
+        }
         let header = OwnedMediaFrameHeader(
             surfaceGeneration: pending.updateId.surfaceGeneration,
             frameId: pending.updateId.frameId,
@@ -595,7 +645,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             isKeyframe: isKeyframe,
             parameterSets: parameterSets,
             refreshReason: refreshReason,
-            ltrToken: Self.ltrAcknowledgementToken(sampleBuffer)
+            ltrToken: ltrToken
         )
         if !loggedFirstEncodedFrame {
             loggedFirstEncodedFrame = true
@@ -609,7 +659,11 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             // own interval. A rising `source=encoder` rate against a steady `requested` one
             // is the signal that the GOP properties are doing the work.
             let source = pending.expectedKeyframeReason != nil ? "requested" : "encoder"
-            logger.notice("owned encoder keyframe-result frame=\(encodedFrameId, privacy: .public) source=\(source, privacy: .public) requestedReason=\(pending.requestedKeyframeReason?.rawValue ?? "none", privacy: .public) forcedReason=\(pending.expectedKeyframeReason?.rawValue ?? "none", privacy: .public) bytes=\(payload.count, privacy: .public)")
+            // Both counters, because they answer different questions and reading one as the
+            // other is a mistake this log invited: `encFrame` is this encoder's lifetime count
+            // (so it shows whether the encoder survived a reconnect), `frame` is the wire id
+            // that the transport's `video sent frame=` line and the client's acks both use.
+            logger.notice("owned encoder keyframe-result encFrame=\(encodedFrameId, privacy: .public) frame=\(pending.updateId.frameId, privacy: .public) source=\(source, privacy: .public) requestedReason=\(pending.requestedKeyframeReason?.rawValue ?? "none", privacy: .public) forcedReason=\(pending.expectedKeyframeReason?.rawValue ?? "none", privacy: .public) bytes=\(payload.count, privacy: .public)")
         }
         pending.completion(OwnedMediaFrameEnvelope(header: header, payload: payload))
     }
@@ -617,10 +671,10 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     /// Why WE forced this keyframe. Only reached when we did; a keyframe the encoder chose
     /// on its own has no reason we can name, which is what `source=encoder` records.
     private static func resolveKeyframeReason(
-        frameId: UInt64,
+        encodedFrameId: UInt64,
         requestedReason: OwnedMediaKeyframeReason?
     ) -> OwnedMediaKeyframeReason {
-        if frameId == 1 {
+        if encodedFrameId == 1 {
             return .initial
         }
         // The stream's first frame aside, we never force a keyframe without a cause, so a

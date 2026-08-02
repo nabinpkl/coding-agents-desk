@@ -174,6 +174,56 @@ layer's queued samples, discarding the very references a delta encodes against. 
 state is reset now. If the host does fall back to a keyframe, it carries fresh parameter sets
 and the decoder re-establishes from it, so keeping the old ones costs nothing.
 
+### What the second device run showed: wired, enabled, and inert
+
+The exclusion-list inversion worked exactly as designed, and it bought nothing.
+
+A resume with the encoder genuinely reused -- same session id, `reusing media encoder`, the
+encoder's own counter continuing 690 to 703 across the drop -- took the cheap path and asked for
+a refresh:
+
+```
+encoder LTR refresh frame=703 reason=capture-requested
+encoder keyframe-result frame=703 ... bytes=184864
+```
+
+A 185 KB IDR. `LTR unavailable` never logged, so `EnableLTR` had succeeded. By the encoder's
+documented contract that outcome means **no LTR had ever been acknowledged**, so the fallback
+this ADR called "the worst case is exactly today's behaviour" was not a worst case at all: it
+was every case.
+
+Which half of the round trip is broken could not be determined from the run, because **none of
+it was observable**. 1527 client diagnostic events and a full host log contained no record of a
+token being emitted, acknowledged, or received -- the only LTR log in the system was the request
+itself. The mechanism's sole observable was the very thing it was supposed to eliminate, so a
+silent degradation to keyframes was indistinguishable from success.
+
+That is the same failure as the opt-in eligibility list one paragraph up, in a different place:
+a mechanism whose non-operation looks identical to its operation will be found not working, and
+only by accident. Four log points now close the loop, chosen so each one isolates a different
+half: `ltr-token-emitted` (the encoder nominated a referenceable frame at all),
+`mediaLtrAcknowledged` on the client (the frame reached the sink and an ack was sent),
+`ltr-ack-received` (the control message survived the wire), and `ltr-refresh-result` with an
+explicit `outcome=idr-fallback`, carrying the cumulative emitted/acknowledged counts at the
+moment of the request. Zero emitted is an encoder that never produces references; emitted
+without acknowledged is a client or wire fault; both non-zero with an IDR fallback is a
+VideoToolbox behaviour we would then have to characterise.
+
+The log lines quoted above are the pre-rename text, kept as the run printed them. Diagnosing
+this also cost a wrong turn on a name: the transport logged `video sent frame=N` and the encoder
+logged `keyframe-result frame=N`, and they are different counters. The wire's `frameId` is the
+surface update id, which restarts whenever a reconnect builds a new transport; the encoder's is
+its own lifetime count, which now survives that reconnect precisely because of this ADR. Seeing
+`frame=1` after a resume read as "the encoder was rebuilt" and briefly looked like this ADR's
+central mechanism had failed, when the encoder had in fact carried across correctly. Making one
+counter outlive the other made the shared name actively misleading, so the encoder's is
+`encFrame` now and the keyframe log prints both.
+
+The run also mislabelled itself as a handover test. The switch was made from Settings, which
+backgrounded the client for 3m21s, so the 20-second resume TTL had long expired and the client
+correctly fell back to durable pairing. What was measured was a cold start, not a handover. A
+real handover test has to keep the app foregrounded.
+
 ### Confirmation
 
 The capability findings above are reproducible with a standalone probe against

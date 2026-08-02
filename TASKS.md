@@ -1409,6 +1409,8 @@ D221  2026-07-31  landed     release the session's encoder when the session ends
 D222  2026-07-31  landed     authorized device run: resume works (240ms, encoder reused), and a failed dial was eating the window
 D223  2026-07-31  landed     a failed dial clears only the attempt, so it stops ending the suspended session beside it
 D224  2026-07-31  landed     LTR eligibility by exclusion, and a client that flushed its decoder can say so
+D225  2026-07-31  landed     second device run: LTR is enabled, fires, and degrades to an IDR every time
+D226  2026-07-31  landed     make the LTR round trip observable, and stop two different counters both logging as `frame=`
 
 D214 detail: a control-message pair (`liveness-probe` / `liveness-echo`) carrying a sequence
 number on the existing `frameId` field. Three unanswered probes at 2s declares ~4.5s after the
@@ -1539,3 +1541,29 @@ layer. Those paths ask for a keyframe and would now get a delta against referenc
 dropped, fail to decode it, and ask again. The render-stall path had exactly that shape,
 `requestKeyframe()` immediately followed by `videoDecoder.reset()`. The keyframe request now
 carries `clientHasNoReferences`, since the client is the only party that can know.
+
+D225 detail: the run that was supposed to confirm ADR-0090 disconfirmed it. Resume itself worked
+on hardware -- same session id, encoder reused, its counter continuing 690 to 703 across the
+drop -- and the refresh fired on the resume exactly as D224 intended. VideoToolbox answered with
+a 185 KB IDR. `EnableLTR` had succeeded, so by the encoder's contract that means no long-term
+reference had ever been acknowledged, and the "degrades to today's behaviour" fallback was not a
+worst case but the only case. Which half of the round trip is broken is still unknown, because
+nothing logged tokens at all: the request was the mechanism's only observable, so working and
+not working printed the same thing. Two secondary findings. The switch was made from Settings,
+which backgrounded the client for 3m21s and blew past the 20s resume TTL, so what the run
+measured was a cold start rather than a handover -- a real handover test must keep the app
+foregrounded. And the ladder did climb back this time, contradicting the previous run's "never
+climbs"; what it does instead is oscillate between rungs 1 and 2, with `resolution-change`
+causing 23 of 25 forced keyframes, which the exclusion list denies the cheap path by design.
+
+D226 detail: four log points, one per stage of the round trip, so the next run names the broken
+half instead of leaving it to inference: `ltr-token-emitted` (the encoder nominated a
+referenceable frame), `mediaLtrAcknowledged` client-side (it reached the sink and an ack went
+out), `ltr-ack-received` (the control message survived the wire), and `ltr-refresh-result` with
+an explicit `outcome=idr-fallback`. The refresh request carries the cumulative emitted and
+acknowledged counts, which is the decisive pair: zero emitted is an encoder producing no
+references, emitted-without-acknowledged is a client or wire fault. Also renamed the encoder's
+lifetime counter to `encFrame`. It and the wire's `frameId` were both logging as `frame=` while
+meaning different things, and once D219 made the encoder outlive the transport the two started
+diverging by design -- a `frame=1` after a resume read as a rebuilt encoder and briefly looked
+like the whole mechanism had failed, when it had carried across correctly.

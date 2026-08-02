@@ -202,6 +202,17 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                         frameId: 0,
                         acknowledgedLtrTokens: [token]
                     ))
+                    // The client half of the ADR-0090 round trip, recorded so a run can say
+                    // WHERE the loop broke rather than only that recovery cost a keyframe.
+                    // Paired with the host's `ltr-token-emitted` and `ltr-ack-received`: tokens
+                    // emitted but none acknowledged here means the frames are not reaching the
+                    // sink, acknowledged here but not received there means the control message
+                    // is being lost.
+                    ClientDiagnostics.shared.record(
+                        type: "mediaLtrAcknowledged",
+                        fields: ["token": String(token)],
+                        level: .default
+                    )
                 }
                 mediaSink?.setOwnedMediaPresentationSkipHandler { [weak self] bytes in
                     self?.lock.withLock { state in
