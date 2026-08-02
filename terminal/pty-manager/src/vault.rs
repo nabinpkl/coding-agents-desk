@@ -156,7 +156,18 @@ impl Vault {
                     let runtime = runtime.clone();
                     thread::spawn(move || {
                         if let Err(error) = handle_client(stream, runtime) {
-                            tracing::warn!(%error, "pty vault client failed");
+                            // The host checks liveness by connecting, reading LOCAL_PEERPID, and
+                            // closing without sending a request, every 50ms while it waits for a
+                            // candidate. That is a healthy probe, not a client failure, and it is
+                            // indistinguishable here from any other truncated connection. Warning
+                            // on it buried the one message that mattered under 600 lines of noise
+                            // during a 30s handover wait. Protocol faults still warn.
+                            match error {
+                                TerminalError::Io(_) => {
+                                    tracing::debug!(%error, "pty vault connection closed early");
+                                }
+                                error => tracing::warn!(%error, "pty vault client failed"),
+                            }
                         }
                     });
                 }

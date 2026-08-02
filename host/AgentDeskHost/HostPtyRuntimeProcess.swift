@@ -115,6 +115,7 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal")
     private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).pty-runtime-process")
     private var processes: [Component: Process] = [:]
+    private var diagnosticsURLs: [Component: URL] = [:]
     private let readinessLock = NSLock()
     private var readiness: Bool?
     private var readinessWaiters: [CheckedContinuation<Bool, Never>] = []
@@ -418,10 +419,9 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
     /// explains a failed handover goes to the null device and the host reports only "did not
     /// activate".
     private func candidateDiagnostics(component: Component, socketURL: URL) -> String {
-        guard let contents = try? String(
-            contentsOf: Self.diagnosticsURL(component: component, socketURL: socketURL),
-            encoding: .utf8
-        ) else { return "no candidate output" }
+        guard let url = diagnosticsURLs[component],
+              let contents = try? String(contentsOf: url, encoding: .utf8)
+        else { return "no candidate output" }
         let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return "no candidate output" }
         return String(trimmed.suffix(Self.diagnosticsTailLength))
@@ -440,9 +440,13 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
         process.executableURL = binaryURL
         process.arguments = arguments
         process.environment = ProcessInfo.processInfo.environment
-        // Truncated per launch, so it holds this generation's output only. The daemons log a
-        // handful of lines over a process lifetime, so this cannot grow without bound.
+        // One file per launch, not per component. Sharing a name meant the outgoing generation, the
+        // candidate, and its replacement all held descriptors to the same path: truncating at launch
+        // did nothing to the older processes' offsets, so the file interleaved three generations and
+        // the candidate's own error was gone by the time it was read back.
         let diagnostics = Self.diagnosticsURL(component: component, socketURL: socketURL)
+        pruneDiagnostics(component: component, socketURL: socketURL)
+        diagnosticsURLs[component] = diagnostics
         FileManager.default.createFile(atPath: diagnostics.path, contents: nil)
         if let handle = try? FileHandle(forWritingTo: diagnostics) {
             process.standardOutput = handle
@@ -555,7 +559,28 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
 
     private static func diagnosticsURL(component: Component, socketURL: URL) -> URL {
         socketURL.deletingLastPathComponent()
-            .appendingPathComponent("\(component.rawValue).log", isDirectory: false)
+            .appendingPathComponent(
+                "\(component.rawValue)-\(UUID().uuidString.prefix(8)).log",
+                isDirectory: false
+            )
+    }
+
+    /// Drops this component's logs from generations that are no longer running, so unique
+    /// per-launch names do not accumulate a file per host restart.
+    private func pruneDiagnostics(component: Component, socketURL: URL) {
+        let directory = socketURL.deletingLastPathComponent()
+        let current = diagnosticsURLs[component]
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        ) else { return }
+        for entry in entries
+        where entry.lastPathComponent.hasPrefix("\(component.rawValue)-")
+            && entry.pathExtension == "log"
+            && entry != current
+        {
+            try? FileManager.default.removeItem(at: entry)
+        }
     }
 
     private static func executablePath(pid: pid_t) -> String? {
