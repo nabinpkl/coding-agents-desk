@@ -119,9 +119,30 @@ struct MediaFreshnessDiagnosticsSummary: Equatable {
     let resendPacketsMissed: Int
 }
 
+// ADR-0087: what the transport must do when a window comes back stalled, decided
+// independently of the quality ladder so it also reaches a manually pinned stream.
+//
+// The two halves are deliberately rate-limited differently. Flushing the in-flight
+// accounting costs zero bytes and only reopens admission, so it runs on every stalled
+// window. A keyframe is 47-165KB against a link measured at 300-650kbps, so it is the
+// half that has to be spaced out.
+struct MediaStallRecovery: Equatable {
+    let reason: String
+    /// In-flight entries dropped by the flush, captured before it ran. These are the
+    /// frames whose ACKs would have been discarded anyway.
+    let flushedFrames: Int
+    let flushedBytes: Int
+    /// False when the flush ran but the keyframe was withheld: one is already on the
+    /// wire, or the rate limit has not elapsed.
+    let forcedKeyframe: Bool
+}
+
 struct MediaQualityDecision: Equatable {
     let observation: MediaQualityObservation
     let outcome: MediaQualityOutcome
+    /// Non-nil when this window detected a stalled link. Independent of `outcome`:
+    /// a manual pin never changes its target but can still need recovery.
+    var stallRecovery: MediaStallRecovery? = nil
 
     var changedAxes: String {
         var axes: [String] = []

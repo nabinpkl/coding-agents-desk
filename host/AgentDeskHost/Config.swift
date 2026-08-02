@@ -326,6 +326,40 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES",
         defaultValue: 120
     )
+    // ADR-0087: wall-clock ceiling on the same GOP. The frame-count interval above is
+    // unbounded in TIME, and capture is change-driven: a quiet screen produced 4-6fps on
+    // device, stretching 120 frames to ~21s, and ADR-0073's own 1fps validation profile
+    // stretches it to two minutes. That breaks the client's stated recovery contract
+    // ("keeps the last displayed image, and waits for one coalesced keyframe") because the
+    // wait it is told to make has no bound.
+    //
+    // 15s, not lower, is a bandwidth decision. Measured keyframes are 47-89KB at the low
+    // rungs and ~165KB at 0.5 scale, against a link measured at 300-650kbps: a 5s ceiling
+    // would spend 142-264kbps on keyframes alone, most of the link. At 15s the tax is
+    // 25-88kbps. Whichever of the two intervals comes first wins, so at 15fps+ the frame
+    // count still governs and this never fires.
+    static let ownedMediaKeyframeMaxIntervalMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_MAX_INTERVAL_MS",
+        defaultValue: 15_000
+    )
+    // ADR-0087: floor between two stall-recovery keyframes. The flush half of recovery is
+    // free and runs every stalled window; this spaces out only the keyframe, so a link
+    // that is genuinely dead cannot be driven into a keyframe storm by its own stall
+    // signal. Same budget arithmetic as the ceiling above; 5s bounds recovery keyframes to
+    // 12/min worst case, against the 6-12s freezes it exists to cut short.
+    static let ownedMediaStallRecoveryMinIntervalMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_STALL_RECOVERY_MIN_INTERVAL_MS",
+        defaultValue: 5_000
+    )
+    // ADR-0087: how long the host waits for a client link-health report before evaluating
+    // a window on its own clock. Client reports arrived every ~500ms on device, so 1s is
+    // one missed report. Without this the quality window is driven ONLY by inbound client
+    // messages, so a client that stops reporting also stops the evaluation that would
+    // notice it stopped: during a measured 12.79s freeze not one window ran.
+    static let ownedMediaLinkHealthTickMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_LINK_HEALTH_TICK_MS",
+        defaultValue: 1_000
+    )
     // ADR-0030: video datagrams ride the authenticated session QUIC connection.
     // ADR-0025 motion carrier: a frame's HEVC packets are sent in paced bursts so a
     // large frame (170+ packets) does not flood the QUIC datagram send buffer in one

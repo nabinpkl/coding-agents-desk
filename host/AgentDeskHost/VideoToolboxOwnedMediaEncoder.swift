@@ -60,6 +60,10 @@ struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
     let targetBitrateKbps: Int
     let expectedFrameRate: Int
     let keyframeIntervalFrames: Int
+    // ADR-0087: wall-clock ceiling on the same GOP, because the frame count above is
+    // unbounded in time on a change-driven capture. See Config for the bandwidth
+    // arithmetic behind the default.
+    let keyframeMaxIntervalMs: Int
     // ADR-0027: multiple of the average bitrate used for the encoder's hard
     // DataRateLimits window. Threaded through config so it tracks the bitrate and is
     // injectable in tests; defaults to the Config knob so existing call sites are
@@ -70,11 +74,13 @@ struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
         targetBitrateKbps: Int,
         expectedFrameRate: Int,
         keyframeIntervalFrames: Int,
+        keyframeMaxIntervalMs: Int = Config.ownedMediaKeyframeMaxIntervalMs,
         dataRateLimitRatio: Double = Config.ownedMediaDataRateLimitRatio
     ) {
         self.targetBitrateKbps = targetBitrateKbps
         self.expectedFrameRate = expectedFrameRate
         self.keyframeIntervalFrames = keyframeIntervalFrames
+        self.keyframeMaxIntervalMs = keyframeMaxIntervalMs
         self.dataRateLimitRatio = dataRateLimitRatio
     }
 
@@ -88,8 +94,27 @@ struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
         OwnedMediaEncodingConfiguration(
             targetBitrateKbps: Config.ownedMediaBitrateKbps,
             expectedFrameRate: Config.ownedMediaExpectedFrameRate,
-            keyframeIntervalFrames: Config.ownedMediaKeyframeIntervalFrames
+            keyframeIntervalFrames: Config.ownedMediaKeyframeIntervalFrames,
+            keyframeMaxIntervalMs: Config.ownedMediaKeyframeMaxIntervalMs
         )
+    }
+
+    /// Whether this frame is a periodic keyframe, by frame count OR elapsed time.
+    ///
+    /// Pure and static so the policy is testable without a VideoToolbox session, which is
+    /// the only way to assert the 1fps case: proving a 120-frame GOP takes two minutes of
+    /// wall clock at 1fps otherwise needs two minutes of wall clock.
+    func isPeriodicKeyframe(
+        frameId: UInt64,
+        lastKeyframeUptimeNs: UInt64?,
+        nowNs: UInt64
+    ) -> Bool {
+        if keyframeIntervalFrames > 0, frameId.isMultiple(of: UInt64(keyframeIntervalFrames)) {
+            return true
+        }
+        guard keyframeMaxIntervalMs > 0, let lastKeyframeUptimeNs else { return false }
+        let elapsedNs = nowNs >= lastKeyframeUptimeNs ? nowNs - lastKeyframeUptimeNs : 0
+        return elapsedNs >= UInt64(keyframeMaxIntervalMs) * 1_000_000
     }
 }
 
@@ -120,6 +145,10 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     private var size: (width: Int, height: Int)?
     private var frameId: UInt64 = 0
     private var forceNextKeyframe = false
+    // ADR-0087: when the last keyframe was ADMITTED, which is what the wall-clock ceiling
+    // measures against. Nil until the first frame; frame 1 is always a keyframe, so the
+    // ceiling has a baseline from the first frame onward and never fires before one.
+    private var lastKeyframeUptimeNs: UInt64?
     private var loggedFirstEncodedFrame = false
     private var pendingFrames: [UInt64: PendingEncodedFrame] = [:]
 
@@ -177,9 +206,16 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             encodedFrameId = frameId
             let requestedKeyframe = forceNextKeyframe || requestedAdmissionKeyframe
             forceNextKeyframe = false
-            let periodicKeyframe = allowPeriodicKeyframe &&
-                encodedFrameId.isMultiple(of: UInt64(configuration.keyframeIntervalFrames))
+            let nowNs = DispatchTime.now().uptimeNanoseconds
+            let periodicKeyframe = allowPeriodicKeyframe && configuration.isPeriodicKeyframe(
+                frameId: encodedFrameId,
+                lastKeyframeUptimeNs: lastKeyframeUptimeNs,
+                nowNs: nowNs
+            )
             let forceKeyframe = requestedKeyframe || encodedFrameId == 1 || periodicKeyframe
+            if forceKeyframe {
+                lastKeyframeUptimeNs = nowNs
+            }
             let expectedKeyframeReason: OwnedMediaKeyframeReason? = forceKeyframe
                 ? Self.resolveKeyframeReason(
                     frameId: encodedFrameId,

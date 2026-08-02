@@ -1081,6 +1081,60 @@ VoiceLaneServer tests. The repository-wide `just check` passes, including 630 Sw
 package, Python, web, Rust, host, and client build gates. R183 remains the explicit real-surface
 checkpoint; no host or device app has been launched.
 
+## v16 Phase 1: stall recovery on a manually pinned stream
+
+### Position
+
+Four device sessions on 2026-07-30 measured the failure: two clean, two freezing for 42.1s and
+44.2s in stalls of 1.5-12.8s. All four ran with the phone's adaptive quality switch OFF. A fifth
+session, adaptive ON, on the same link minutes after the worst manual one, froze once for 1.6s.
+
+### Authoritative facts
+
+- Not bandwidth. Across all 1,882 quality windows that day the client reported three lost frames
+  and three resend requests, none during a stall.
+- Not the pinned numbers. The client's manual floor (180kbps / 1fps / 33%) is below the adaptive
+  ladder's own emergency rung, so no reachable preset would have helped.
+- The stall shape is the client going silent (`ackCount=0`, no link-health reports) while the host
+  keeps producing, then reporting a burst of completed frames — 49 in one 0.5s window after the
+  12.79s stall. The frames arrived; the client processed them late.
+- Three recovery mechanisms were reachable only through a rung change, which a pinned target never
+  makes. See ADR-0087 for the decision and the bandwidth arithmetic behind each constant.
+
+### Ordered implementation plan
+
+- **R184** Derive pressure signals in both quality modes. `MediaQualityController.makeSignals`
+  becomes internal and the manual branch of `observeLinkHealth` calls it instead of hand-building a
+  struct with four of six classes hardcoded `false`. Target stays unmoved. Prerequisite for R185,
+  which triggers on these signals.
+- **R185** Flush and force a keyframe on a stalled window, in both modes.
+  `QuicSessionHostMediaState.recoverFromStall` returns a `MediaStallRecovery`, applied by
+  `applyQualityDecision` before its `outcome.changed` gate. The flush runs on every stalled window;
+  the keyframe is spaced by `ownedMediaStallRecoveryMinIntervalMs` and suppressed while one is in
+  flight. Reverses an ADR-0033 decision driver, recorded in ADR-0087.
+- **R186** Bound the GOP in wall clock. `ownedMediaKeyframeMaxIntervalMs` (15s) alongside the
+  existing 120-frame interval; whichever comes first wins, so 15fps+ is unaffected. Fixes the
+  two-minute worst case at ADR-0073's own 1fps validation profile.
+- **R187** Raise a quality window on the host's clock after `ownedMediaLinkHealthTickMs` of client
+  silence. Synthetic windows carry `clientReportMissing` and earn no recovery credit, so a silent
+  client is never read as a calm screen. Lands last: it changes when R184-R186 fire.
+
+### Dependency and landing order
+
+R184 before R185. R186 is independent. R187 last, and it is what makes R185 reach an in-progress
+freeze rather than only the window after one — during the measured 12.79s stall not one window was
+evaluated.
+
+### Implementation checkpoint
+
+R184-R187 are implemented across `MediaQualityController`, `MediaTransport`,
+`OwnedMediaTransport`, `VideoToolboxOwnedMediaEncoder`, and `Config`, with ADR-0087 recording the
+decision. `MediaStallRecoveryTests` adds 12 tests covering both halves of recovery, the rate limit,
+the GOP ceiling at 1fps, and the synthetic-window credit rule. Repository-wide `just check` passes
+with 666 Swift tests in 87 suites. R188 remains the real-surface checkpoint: none of this has been
+judged on a device, and the felt claim — that a manual pin stops freezing — is only measurable
+against the 42.1s-frozen baseline in a device session.
+
 ## Promotion log
 
 ```text
@@ -1140,4 +1194,9 @@ D180  2026-07-30  landed     revision-pinned retake and new-passage lifecycle
 D181  2026-07-30  landed     baseline selection and honest paginated A/B evidence
 D182  2026-07-30  landed     atomic deletion and cross-surface conflict handling
 R183  checkpoint  remaining  complete shared-surface runtime acceptance
+D184  2026-07-30  landed     honest pressure signals in both quality modes
+D185  2026-07-30  landed     stall flush and rate-limited recovery keyframe, ladder-independent
+D186  2026-07-30  landed     wall-clock ceiling on the video GOP
+D187  2026-07-30  landed     host-raised quality window when the client goes silent
+R188  checkpoint  remaining  authorized device acceptance against the 42.1s-frozen baseline
 ```

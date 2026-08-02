@@ -38,6 +38,11 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     let connectionState: AsyncStream<MediaConnectionState>
     private let encodeGate = OSAllocatedUnfairLock<EncodeState>(initialState: EncodeState())
     private var controlTask: Task<Void, Never>?
+    // ADR-0087: uptime of the last client link-health report, and the timer that notices
+    // when one stops arriving. Its own lock, not encodeGate: the receive path stamps it on
+    // every report and must not contend with the encode drain for that.
+    private let lastLinkHealthGate = OSAllocatedUnfairLock<UInt64?>(initialState: nil)
+    private var linkHealthTickTask: Task<Void, Never>?
     // ADR-0034 crisp-repair: per-tile crisp emitter and its reliable lane. Guarded by
     // its own lock because crisp runs alongside the video encode in the drain loop.
     private struct CrispState {
@@ -118,6 +123,18 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             self?.enqueue(frame)
         }
         startControlReceiveLoop()
+        startLinkHealthTickLoop()
+    }
+
+    private func startLinkHealthTickLoop() {
+        let intervalNs = UInt64(Config.ownedMediaLinkHealthTickMs) * 1_000_000
+        linkHealthTickTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: intervalNs)
+                guard !Task.isCancelled, let self else { return }
+                self.tickLinkHealthIfClientSilent()
+            }
+        }
     }
 
     func setClientCrispEnabled(_ enabled: Bool) {
@@ -177,6 +194,8 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     func stop() {
         controlTask?.cancel()
         controlTask = nil
+        linkHealthTickTask?.cancel()
+        linkHealthTickTask = nil
         source.stop()
         crispGate.withLock { state in
             state.lane?.close()
@@ -751,6 +770,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     private func handleLinkHealth(_ message: OwnedMediaControlMessage) {
         let completed = message.linkHealthCompletedFrames ?? 0
         let expired = message.linkHealthExpiredFrames ?? 0
+        lastLinkHealthGate.withLock { $0 = DispatchTime.now().uptimeNanoseconds }
         let decision = encodeGate.withLock { state in
             let productionSummary = state.latestProductionSummary
             state.latestProductionSummary = nil
@@ -764,11 +784,75 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         applyQualityDecision(decision, completed: completed, expired: expired)
     }
 
+    /// ADR-0087: flush the jammed in-flight accounting and, when the rate limit allows,
+    /// push one keyframe so the client has something to resync from.
+    ///
+    /// The state's own `recoverFromStall` already performed the flush (it owns the
+    /// backpressure); what is left here is the encoder-facing half.
+    private func applyStallRecovery(_ decision: MediaQualityDecision) {
+        guard let recovery = decision.stallRecovery else { return }
+        logger.notice("owned media stall recovery windowId=\(decision.observation.windowId, privacy: .public) reason=\(recovery.reason, privacy: .public) flushedFrames=\(recovery.flushedFrames, privacy: .public) flushedBytes=\(recovery.flushedBytes, privacy: .public) forcedKeyframe=\(recovery.forcedKeyframe, privacy: .public) inFlightBeforeFlush=\(decision.observation.inFlightFrames, privacy: .public) oldestInflightMs=\(self.formatMs(decision.observation.oldestInflightMs), privacy: .public) ackCount=\(decision.observation.ackCount, privacy: .public)")
+        guard recovery.forcedKeyframe else { return }
+        encodeGate.withLock { state in
+            state.forceKeyframe = true
+        }
+        startDrainIfNeeded()
+    }
+
+    /// ADR-0087: raise a quality window on the host's own clock when the client has gone
+    /// quiet.
+    ///
+    /// `handleLinkHealth` is driven entirely by inbound client messages, so the one event
+    /// the governor most needs to see — a client that stopped responding — is also the
+    /// event that stops it being called. During a measured 12.79s freeze not one window
+    /// was evaluated. The synthetic window carries no completed/expired counts because the
+    /// client reported none; `clientReportMissing` is what keeps that from being read as a
+    /// calm screen.
+    private func tickLinkHealthIfClientSilent() {
+        let nowNs = DispatchTime.now().uptimeNanoseconds
+        let thresholdNs = UInt64(Config.ownedMediaLinkHealthTickMs) * 1_000_000
+        let silent = lastLinkHealthGate.withLock { last -> Bool in
+            // No report yet at all (session just opened) is not silence to act on: there
+            // is nothing in flight to unjam and no baseline to measure against.
+            guard let last else { return false }
+            return nowNs &- last >= thresholdNs
+        }
+        guard silent else { return }
+        let decision = encodeGate.withLock { state -> MediaQualityDecision? in
+            guard state.isWatchingVideo else { return nil }
+            // Consumes the same single production-summary slot the client-driven path
+            // does, so a synthetic window can take a summary the next real report would
+            // have carried. Acceptable because this only runs after the client has been
+            // silent for a full tick, when there is no imminent real report to take it
+            // from — and a stalled window is worth more with production evidence than the
+            // report that is not arriving.
+            let productionSummary = state.latestProductionSummary
+            state.latestProductionSummary = nil
+            return state.mediaState.observeLinkHealth(
+                completedFrames: 0,
+                expiredFrames: 0,
+                productionSummary: productionSummary,
+                clientReportMissing: true,
+                nowNs: nowNs
+            )
+        }
+        guard let decision else { return }
+        logQualityDecision(decision)
+        applyQualityDecision(decision, completed: 0, expired: 0)
+    }
+
     private func applyQualityDecision(
         _ decision: MediaQualityDecision,
         completed: Int,
         expired: Int
     ) {
+        // ADR-0087: stall recovery is applied BEFORE the `outcome.changed` gate below,
+        // because it is not a quality change. It used to reach the wire only as a side
+        // effect of `outcome.resolutionChanged`, so a manually pinned stream — whose
+        // outcome never changes, by construction — could never recover: 240 frames were
+        // abandoned across 42s of freezing in one measured session with the flush and the
+        // keyframe both unreachable.
+        applyStallRecovery(decision)
         let outcome = decision.outcome
         guard outcome.changed else { return }
         if outcome.bitrateChanged {

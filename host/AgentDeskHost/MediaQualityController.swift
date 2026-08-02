@@ -74,6 +74,11 @@ struct MediaQualityControllerInput: Equatable {
     let inFlightBytes: Int
     let oldestInflightMs: Double?
     let staleRecoveryCount: Int
+    /// ADR-0087: this window was raised by the host's own clock because no client
+    /// link-health report arrived, not by a report. Load-bearing for the idle branch: a
+    /// silent client and a calm screen both produce a zero-frame window, and only one of
+    /// them is a reason to climb.
+    let clientReportMissing: Bool
 
     init(
         sample: MediaQualitySample,
@@ -83,8 +88,10 @@ struct MediaQualityControllerInput: Equatable {
         inFlightFrames: Int = 0,
         inFlightBytes: Int = 0,
         oldestInflightMs: Double? = nil,
-        staleRecoveryCount: Int = 0
+        staleRecoveryCount: Int = 0,
+        clientReportMissing: Bool = false
     ) {
+        self.clientReportMissing = clientReportMissing
         self.sample = sample
         self.productionSummary = productionSummary
         self.ackCount = max(0, ackCount)
@@ -334,7 +341,12 @@ struct MediaQualityController {
             // clean link is a recovery opportunity, climb back so the next motion burst
             // starts crisp, rather than wiping recovery credit. A window with frames
             // still inflight is a pre-timeout stall, not idle, and must not climb.
-            let idleLinkClean = input.inFlightFrames == 0
+            // ADR-0087: a host-raised window means the client stopped reporting, which is
+            // the opposite of evidence that the link is healthy. Without this the synthetic
+            // tick would read a silent client with an empty in-flight list as a calm screen
+            // and climb the ladder into a stall.
+            let idleLinkClean = !input.clientReportMissing
+                && input.inFlightFrames == 0
                 && input.staleRecoveryCount == 0
                 && !signals.lossPressure
                 && !signals.repairPressure
@@ -526,7 +538,13 @@ struct MediaQualityController {
         return evaluation(signals: signals, previous: previous, reason: "clean-hold", recoveryBlocker: "none")
     }
 
-    private func makeSignals(_ input: MediaQualityControllerInput) -> MediaQualityObservationSignals {
+    // ADR-0033 requires that "the same controller derives the logged pressure classes and
+    // the policy decision, so diagnostics cannot drift from behavior". Internal, not
+    // private, because a manually pinned stream must derive its signals here too: it does
+    // not run `observe`, but it still has to report (and now respond to) a stalled link.
+    // Pure: reads the input and config, mutates nothing, so it is safe on a path whose
+    // whole contract is that the target does not move.
+    func makeSignals(_ input: MediaQualityControllerInput) -> MediaQualityObservationSignals {
         let sample = input.sample
         let total = sample.completedFrames + sample.expiredFrames
         let lossPermille = total > 0 ? (sample.expiredFrames * 1000) / total : 0
@@ -861,6 +879,11 @@ struct QuicSessionHostMediaState {
     private var resendPacketsMissedInWindow = 0
     private var qualityWindowId: UInt64 = 0
     private var adaptiveQualityEnabled = true
+    // ADR-0087: rate limit for the keyframe half of stall recovery. Nil until the first
+    // one, so a session's first stall recovers immediately rather than serving out a
+    // limit window it never used.
+    private var lastStallRecoveryKeyframeNs: UInt64?
+    private let stallRecoveryMinIntervalNs: UInt64
 
     init(
         maxInflightFrames: Int = Config.ownedMediaBackpressureMaxInflightFrames,
@@ -868,8 +891,10 @@ struct QuicSessionHostMediaState {
         expectedFrameRate: Int = Config.ownedMediaExpectedFrameRate,
         qualityControllerConfig: MediaQualityControllerConfig = .fromConfig(),
         qualityController: MediaQualityController? = nil,
-        resendRingFrames: Int = Config.ownedMediaResendRingFrames
+        resendRingFrames: Int = Config.ownedMediaResendRingFrames,
+        stallRecoveryMinIntervalMs: Int = Config.ownedMediaStallRecoveryMinIntervalMs
     ) {
+        self.stallRecoveryMinIntervalNs = UInt64(max(0, stallRecoveryMinIntervalMs)) * 1_000_000
         self.backpressure = GraphicsBackpressure(
             maxUnacked: maxInflightFrames,
             maxUnackedBytes: maxInflightBytes
@@ -1006,6 +1031,7 @@ struct QuicSessionHostMediaState {
         completedFrames: Int,
         expiredFrames: Int,
         productionSummary: MediaProductionSummary?,
+        clientReportMissing: Bool = false,
         nowNs: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) -> MediaQualityDecision {
         qualityWindowId &+= 1
@@ -1018,45 +1044,10 @@ struct QuicSessionHostMediaState {
             ackAgeP50Ms: ackStats.p50,
             ackAgeP95Ms: ackStats.p95
         )
-        if !adaptiveQualityEnabled {
-            let target = qualityController.target.with(reason: "manual-quality-fixed")
-            let total = sample.completedFrames + sample.expiredFrames
-            let lossPermille = total > 0 ? (sample.expiredFrames * 1000) / total : 0
-            let observation = MediaQualityObservation(
-                windowId: qualityWindowId,
-                sample: sample,
-                previousTarget: target,
-                productionSummary: productionSummary,
-                ackCount: ackStats.count,
-                ackAgeMaxMs: ackStats.max,
-                inFlightFrames: backpressure.inFlight,
-                inFlightBytes: backpressure.bytesInFlight,
-                oldestInflightMs: backpressure.oldestSentUptimeNs.map { sentNs in
-                    Double(nowNs >= sentNs ? nowNs - sentNs : 0) / 1_000_000.0
-                },
-                staleRecoveryCount: staleRecoveryCountInWindow,
-                freshness: freshnessSummary(),
-                signals: MediaQualityObservationSignals(
-                    lossPressure: false,
-                    repairPressure: resendRequestsInWindow > 0,
-                    queuePressure: false,
-                    cadencePressure: false,
-                    stalePressure: staleRecoveryCountInWindow > 0,
-                    freezePressure: false,
-                    lossPermille: lossPermille
-                ),
-                recoveryStatus: qualityController.currentRecoveryStatus
-            )
-            clearQualityWindow()
-            return MediaQualityDecision(
-                observation: observation,
-                outcome: MediaQualityOutcome(
-                    target: target,
-                    previousTarget: target,
-                    reason: "manual-quality-fixed"
-                )
-            )
-        }
+        // One input for both modes. The manual branch used to skip building this and
+        // hand-assemble its signals with four of the six hardcoded false, so a manually
+        // pinned stream logged `queuePressure=false freezePressure=false` through a
+        // measured 12.79s freeze. Signals are derived by the controller either way now.
         let oldestInflightMs = backpressure.oldestSentUptimeNs.map { sentNs in
             Double(nowNs >= sentNs ? nowNs - sentNs : 0) / 1_000_000.0
         }
@@ -1068,8 +1059,43 @@ struct QuicSessionHostMediaState {
             inFlightFrames: backpressure.inFlight,
             inFlightBytes: backpressure.bytesInFlight,
             oldestInflightMs: oldestInflightMs,
-            staleRecoveryCount: staleRecoveryCountInWindow
+            staleRecoveryCount: staleRecoveryCountInWindow,
+            clientReportMissing: clientReportMissing
         )
+
+        if !adaptiveQualityEnabled {
+            let target = qualityController.target.with(reason: "manual-quality-fixed")
+            let signals = qualityController.makeSignals(input)
+            let observation = MediaQualityObservation(
+                windowId: qualityWindowId,
+                sample: sample,
+                previousTarget: target,
+                productionSummary: productionSummary,
+                ackCount: input.ackCount,
+                ackAgeMaxMs: input.ackAgeMaxMs,
+                inFlightFrames: input.inFlightFrames,
+                inFlightBytes: input.inFlightBytes,
+                oldestInflightMs: input.oldestInflightMs,
+                staleRecoveryCount: input.staleRecoveryCount,
+                freshness: freshnessSummary(),
+                signals: signals,
+                recoveryStatus: qualityController.currentRecoveryStatus
+            )
+            // Observation first, recovery second: the flush zeroes the in-flight counters
+            // that are the evidence this window is the one that stalled.
+            let recovery = recoverFromStall(input: input, signals: signals, nowNs: nowNs)
+            clearQualityWindow()
+            return MediaQualityDecision(
+                observation: observation,
+                outcome: MediaQualityOutcome(
+                    target: target,
+                    previousTarget: target,
+                    reason: "manual-quality-fixed"
+                ),
+                stallRecovery: recovery
+            )
+        }
+
         let evaluation = qualityController.observe(input)
         let observation = MediaQualityObservation(
             windowId: qualityWindowId,
@@ -1086,10 +1112,70 @@ struct QuicSessionHostMediaState {
             signals: evaluation.signals,
             recoveryStatus: evaluation.recoveryStatus
         )
+        // Adaptive gets the same recovery. It used to obtain the flush and the keyframe as
+        // a side effect of `outcome.resolutionChanged`, which is why it recovered at all;
+        // making it explicit means a rung that holds still recovers.
+        let recovery = recoverFromStall(input: input, signals: evaluation.signals, nowNs: nowNs)
         clearQualityWindow()
         return MediaQualityDecision(
             observation: observation,
-            outcome: evaluation.outcome
+            outcome: evaluation.outcome,
+            stallRecovery: recovery
+        )
+    }
+
+    /// ADR-0087: unjam a stalled link, in either quality mode.
+    ///
+    /// The flush is the load-bearing half. `abandonUntilCanProduce` only ever drops one
+    /// entry per produced frame, so once the cap fills it stays full and every subsequent
+    /// ACK lands on an entry that was already abandoned — which `noteAck` correctly
+    /// discards, taking the ACK-age telemetry with it. Flushing restores admission and
+    /// lets the next real ACK be measured again. It costs nothing on the wire.
+    ///
+    /// The keyframe is the expensive half and is rate-limited separately.
+    private mutating func recoverFromStall(
+        input: MediaQualityControllerInput,
+        signals: MediaQualityObservationSignals,
+        nowNs: UInt64
+    ) -> MediaStallRecovery? {
+        // `jammed` catches the case the pressure classes cannot: a client that went silent
+        // reports no loss and no expiry, so only the shape of the host's own in-flight
+        // list says anything. No ACKs at all while admission is closed is that shape.
+        // Asking `canProduce` rather than comparing the frame count keeps this agreeing
+        // with the actual admission rule, which gates on the byte ceiling too.
+        let jammed = input.ackCount == 0 && !backpressure.canProduce()
+        let reason: String
+        if signals.freezePressure {
+            reason = "freeze"
+        } else if jammed {
+            reason = "no-ack-at-cap"
+        } else if signals.stalePressure {
+            reason = "stale"
+        } else {
+            return nil
+        }
+
+        let flushedFrames = backpressure.inFlight
+        let flushedBytes = backpressure.bytesInFlight
+        backpressure.reset()
+
+        // Withhold the keyframe while one is already in flight (it is the recovery, and a
+        // second would only compete with it for the same starved link), and while the rate
+        // limit has not elapsed.
+        var forcedKeyframe = false
+        if keyframeInFlight == nil,
+           lastStallRecoveryKeyframeNs.map({ nowNs &- $0 >= stallRecoveryMinIntervalNs }) ?? true {
+            forcedKeyframe = true
+            lastStallRecoveryKeyframeNs = nowNs
+        }
+        // Those frames are gone from the accounting; a later ACK cannot retire them.
+        keyframeInFlight = nil
+
+        return MediaStallRecovery(
+            reason: reason,
+            flushedFrames: flushedFrames,
+            flushedBytes: flushedBytes,
+            forcedKeyframe: forcedKeyframe
         )
     }
 
