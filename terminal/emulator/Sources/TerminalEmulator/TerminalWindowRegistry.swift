@@ -130,7 +130,7 @@ public final class TerminalWindowRegistry {
 
     private func restore(using sessions: [PtySessionSummary]) {
         let running = Dictionary(uniqueKeysWithValues: sessions
-            .filter { $0.state == .running && $0.lifetime == .persistent }
+            .filter { $0.state == .running }
             .map { ($0.name, $0) })
         for descriptor in store.descriptors {
             guard windows[descriptor.id] == nil, !restoring.contains(descriptor.id) else { continue }

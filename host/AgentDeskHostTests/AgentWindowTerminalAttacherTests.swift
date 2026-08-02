@@ -7,16 +7,15 @@ import Testing
 
 @MainActor
 struct AgentWindowTerminalAttacherTests {
-    private let sessionName = "agent-resume-codex-session-1"
+    private let sessionName = "agent-resume-codex-5315800f-fab6-42ed-a80f-a622f563b57a"
 
-    @Test func opensExactRunningLeasedSessionWithoutCreating() async throws {
+    @Test func opensExactRunningAgentSessionWithoutCreating() async throws {
         let client = FakeAgentWindowPtyClient()
         let connection = FakeProductionAttacherConnection()
         let summary = session(
             name: sessionName,
             pid: 4_321,
-            state: .running,
-            lifetime: .leased
+            state: .running
         )
         client.sessions = [summary]
         client.openedConnection = AgentWindowOpenedPtyConnection(
@@ -36,7 +35,6 @@ struct AgentWindowTerminalAttacherTests {
         #expect(client.openRequests == [FakeAgentWindowPtyClient.OpenRequest(
             name: sessionName,
             launch: .shell(cwd: summary.cwd, shell: summary.shell),
-            lifetime: .leased,
             columns: 101,
             rows: 37,
             createIfMissing: false,
@@ -45,20 +43,28 @@ struct AgentWindowTerminalAttacherTests {
         #expect(connection.detachCount == 0)
     }
 
-    @Test func rejectsWrongNameExitedOrPersistentSessionBeforeOpening() async {
-        let unavailableCases: [[PtySessionSummary]] = [
-            [session(name: "other-session", state: .running, lifetime: .leased)],
-            [session(name: sessionName, state: .exited, lifetime: .leased)],
-            [session(name: sessionName, state: .running, lifetime: .persistent)],
+    /// The workspace terminals share this manager, so reaching for a session by name checks the
+    /// agent-resume namespace before attaching - the guard the lifetime field used to provide.
+    @Test func rejectsWrongNameExitedOrForeignNamespaceSessionBeforeOpening() async {
+        let unavailableCases: [(String, [PtySessionSummary])] = [
+            (sessionName, [session(name: "other-session", state: .running)]),
+            (sessionName, [session(name: sessionName, state: .exited)]),
+            (
+                "workspace-fab34750-4eed-4fe4-b510-33c330aa4c76-444444444444",
+                [session(
+                    name: "workspace-fab34750-4eed-4fe4-b510-33c330aa4c76-444444444444",
+                    state: .running
+                )]
+            ),
         ]
 
-        for sessions in unavailableCases {
+        for (requestedName, sessions) in unavailableCases {
             let client = FakeAgentWindowPtyClient()
             client.sessions = sessions
             let attacher = PtyClientAgentWindowTerminalAttacher(clientRouter: client)
 
             do {
-                _ = try await attacher.attach(sessionName: sessionName, columns: 80, rows: 24)
+                _ = try await attacher.attach(sessionName: requestedName, columns: 80, rows: 24)
                 Issue.record("Expected unavailable session rejection")
             } catch {
                 #expect(error as? AgentWindowTerminalAttachError == .sessionUnavailable)
@@ -82,7 +88,6 @@ struct AgentWindowTerminalAttacherTests {
                 name: sessionName,
                 pid: expectedPID,
                 state: .running,
-                lifetime: .leased
             )]
             client.openedConnection = AgentWindowOpenedPtyConnection(
                 connection: connection,
@@ -105,7 +110,6 @@ struct AgentWindowTerminalAttacherTests {
         name: String,
         pid: UInt32 = 1_234,
         state: PtySessionSummary.State,
-        lifetime: PtySessionLifetime
     ) -> PtySessionSummary {
         PtySessionSummary(
             name: name,
@@ -113,7 +117,6 @@ struct AgentWindowTerminalAttacherTests {
             shell: "/bin/zsh",
             pid: pid,
             state: state,
-            lifetime: lifetime,
             startedAtUnixMilliseconds: 1_721_344_000_123,
             clients: []
         )
@@ -136,7 +139,6 @@ private final class FakeAgentWindowPtyClient: AgentWindowPtyClientRouting {
     struct OpenRequest: Equatable {
         let name: String
         let launch: PtySessionLaunch
-        let lifetime: PtySessionLifetime
         let columns: UInt32
         let rows: UInt32
         let createIfMissing: Bool
@@ -156,7 +158,6 @@ private final class FakeAgentWindowPtyClient: AgentWindowPtyClientRouting {
     func openSession(
         name: String,
         launch: PtySessionLaunch,
-        lifetime: PtySessionLifetime,
         columns: UInt32,
         rows: UInt32,
         createIfMissing: Bool,
@@ -165,7 +166,6 @@ private final class FakeAgentWindowPtyClient: AgentWindowPtyClientRouting {
         openRequests.append(OpenRequest(
             name: name,
             launch: launch,
-            lifetime: lifetime,
             columns: columns,
             rows: rows,
             createIfMissing: createIfMissing,

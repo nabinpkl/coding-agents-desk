@@ -169,7 +169,6 @@ actor WorkspaceTerminalCoordinator {
             lease = try await ptyClient.openSession(
                 name: name,
                 launch: .shell(cwd: root.path, shell: launchShell),
-                lifetime: .persistent,
                 columns: max(request.columns, 1),
                 rows: max(request.rows, 1),
                 createIfMissing: createdSession,
@@ -283,7 +282,6 @@ actor WorkspaceTerminalCoordinator {
         if let current = sessions?.first(where: { $0.name == handoff.ready.ptySessionName }),
            current.pid == handoff.ready.pid,
            current.state == .running,
-           current.lifetime == .persistent,
            current.clients.isEmpty,
            canonicalPath(current.cwd) == handoff.workspaceRoot.path {
             try? await ptyClient.killSession(name: current.name)
@@ -298,7 +296,6 @@ actor WorkspaceTerminalCoordinator {
     ) -> Bool {
         identity.owns(sessionName: session.name)
             && session.state == .running
-            && session.lifetime == .persistent
             && session.pid > 0
             && canonicalPath(session.cwd) == root.path
     }

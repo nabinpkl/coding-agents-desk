@@ -1372,7 +1372,7 @@ pty-live-update-verify:
     cd '{{pty_manager_dir}}'
     cargo test --test manager_handover_tests sequential_live_update_gate_emits_session_evidence -- --exact --nocapture
     cargo test --lib pty_session::tests
-    cargo test --test manager_handover_tests manager_handover_does_not_reap_transferred_leased_session -- --exact
+    cargo test --test manager_handover_tests manager_handover_preserves_a_transferred_session_with_no_clients -- --exact
     cd '{{justfile_directory()}}'
     xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost \
         -derivedDataPath '{{derived_data}}' test CODE_SIGNING_ALLOWED=NO \

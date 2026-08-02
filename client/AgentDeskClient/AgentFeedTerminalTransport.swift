@@ -6,7 +6,6 @@ struct AgentFeedTerminalAttachmentRequest: Equatable, Sendable {
     let role: QuicSessionStreamRole
     let sessionName: String
     let launch: PtySessionLaunch
-    let lifetime: PtySessionLifetime
     let columns: UInt32
     let rows: UInt32
     let createIfMissing: Bool
@@ -16,7 +15,6 @@ struct AgentFeedTerminalAttachmentRequest: Equatable, Sendable {
         role = .terminal
         self.sessionName = sessionName
         launch = .shell(cwd: "", shell: "")
-        lifetime = .leased
         self.columns = columns
         self.rows = rows
         createIfMissing = false
@@ -65,7 +63,6 @@ extension QuicSessionClientTransport: AgentFeedTerminalCoordinating, AgentFeedTe
         return try await client.openSession(
             name: request.sessionName,
             launch: request.launch,
-            lifetime: request.lifetime,
             columns: request.columns,
             rows: request.rows,
             createIfMissing: request.createIfMissing,

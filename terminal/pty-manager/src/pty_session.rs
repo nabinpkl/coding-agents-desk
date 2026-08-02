@@ -195,9 +195,8 @@ impl PtySession {
         &self.master
     }
 
-    pub fn vault_metadata(&self, lifetime: i32, columns: u32, rows: u32) -> Session {
+    pub fn vault_metadata(&self, columns: u32, rows: u32) -> Session {
         let mut metadata = self.metadata.clone();
-        metadata.lifetime = lifetime;
         metadata.columns = columns;
         metadata.rows = rows;
         metadata

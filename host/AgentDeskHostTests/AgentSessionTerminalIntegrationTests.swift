@@ -23,7 +23,9 @@ struct AgentSessionTerminalIntegrationTests {
         #expect(!fixture.processExists(ready.pid))
     }
 
-    @Test func realCoordinatorPreservesSharedAndReconnectedPIDThenReapsFinalLease() async throws {
+    /// A session is the agent's process, not the panel's view of it: every client letting go leaves
+    /// it running, and reattaching later lands on the same PID. Ending it takes an explicit close.
+    @Test func realCoordinatorKeepsTheSessionAliveAcrossEveryDetachUntilAnExplicitClose() async throws {
         let fixture = try RealAgentTerminalIntegrationFixture()
         defer { fixture.cleanup() }
         try await fixture.startManager()
@@ -36,18 +38,23 @@ struct AgentSessionTerminalIntegrationTests {
 
         try await first.detach()
         try await fixture.waitForClientCount(1, sessionName: ready.ptySessionName)
-        try await fixture.waitBeyondGrace()
+        try await fixture.waitPastFormerGrace()
         try await fixture.expectRunning(sessionName: ready.ptySessionName, pid: ready.pid)
 
         try await second.detach()
         try await fixture.waitForClientCount(0, sessionName: ready.ptySessionName)
-        try await fixture.waitInsideGrace()
-        let reconnected = try await fixture.attach(to: ready, title: "r71-reconnected")
-        #expect(reconnected.attachment.pid == ready.pid)
-        try await fixture.waitBeyondGrace()
+        try await fixture.waitPastFormerGrace()
         try await fixture.expectRunning(sessionName: ready.ptySessionName, pid: ready.pid)
 
+        let reconnected = try await fixture.attach(to: ready, title: "r71-reconnected")
+        #expect(reconnected.attachment.pid == ready.pid)
+
         try await reconnected.detach()
+        try await fixture.waitForClientCount(0, sessionName: ready.ptySessionName)
+        try await fixture.waitPastFormerGrace()
+        try await fixture.expectRunning(sessionName: ready.ptySessionName, pid: ready.pid)
+
+        await fixture.close(ready)
         try await fixture.waitForSessionRemoval(ready.ptySessionName)
         try await fixture.waitForProcessExit(ready.pid)
         #expect(!fixture.processExists(ready.pid))
@@ -82,7 +89,7 @@ struct AgentSessionTerminalIntegrationTests {
         }
     }
 
-    @Test func realManagerRestartRecoversCoordinatorOwnedLeasedChild() async throws {
+    @Test func realManagerRestartRecoversCoordinatorOwnedChild() async throws {
         let fixture = try RealAgentTerminalIntegrationFixture()
         defer { fixture.cleanup() }
         try await fixture.startManager()

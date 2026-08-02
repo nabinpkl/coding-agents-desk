@@ -25,7 +25,6 @@ final class LocalTerminalWorkspaceBackend: PtyTerminalWorkspaceBackend {
         try await client.openSession(
             name: request.sessionName,
             launch: .shell(cwd: cwd, shell: shell),
-            lifetime: .persistent,
             columns: request.dimensions.columns,
             rows: request.dimensions.rows,
             createIfMissing: request.createIfMissing,
@@ -78,7 +77,6 @@ public final class WebPtyManagerTerminalSpawn: TerminalEmulatorSpawn {
                     let connection = try await self.client.openSession(
                         name: sessionName,
                         launch: .shell(cwd: cwd.path, shell: self.shell),
-                        lifetime: .persistent,
                         columns: dimensions.columns,
                         rows: dimensions.rows,
                         createIfMissing: true,
@@ -126,7 +124,6 @@ public final class WebPtyManagerTerminalSpawn: TerminalEmulatorSpawn {
                         connections[pane.paneID] = try await self.client.openSession(
                             name: session.name,
                             launch: .shell(cwd: session.cwd, shell: session.shell),
-                            lifetime: .persistent,
                             columns: dimensions.columns,
                             rows: dimensions.rows,
                             createIfMissing: false,

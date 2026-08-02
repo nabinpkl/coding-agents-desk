@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use pty_manager::protocol::{ClientSummary, SessionLifetime};
+use pty_manager::protocol::{ClientSummary};
 use pty_manager::session_registry::SessionRegistry;
 
 #[test]
@@ -13,7 +13,6 @@ fn ensure_running_creates_once_and_lists_supplied_clients() {
             "/tmp/work",
             "/bin/zsh",
             42,
-            SessionLifetime::Persistent,
             1_000,
         )
         .expect("create"));
@@ -23,7 +22,6 @@ fn ensure_running_creates_once_and_lists_supplied_clients() {
             "/tmp/other",
             "/bin/bash",
             100,
-            SessionLifetime::Leased,
             2_000,
         )
         .expect("reuse"));
@@ -57,7 +55,6 @@ fn ensure_running_creates_once_and_lists_supplied_clients() {
     assert_eq!(sessions[0].cwd, "/tmp/work");
     assert_eq!(sessions[0].shell, "/bin/zsh");
     assert_eq!(sessions[0].pid, 42);
-    assert_eq!(sessions[0].lifetime(), SessionLifetime::Persistent);
     assert_eq!(sessions[0].started_at_unix_milliseconds, 1_000);
     assert_eq!(sessions[0].clients.len(), 2);
     assert_eq!(sessions[0].clients[1].title, "right");
@@ -72,7 +69,6 @@ fn exited_sessions_are_not_listed_and_can_be_recreated() {
             "/tmp/work",
             "/bin/zsh",
             42,
-            SessionLifetime::Persistent,
             3_000,
         )
         .expect("create");
@@ -86,7 +82,6 @@ fn exited_sessions_are_not_listed_and_can_be_recreated() {
             "/tmp/new",
             "/bin/sh",
             100,
-            SessionLifetime::Leased,
             4_000,
         )
         .expect("recreate"));
@@ -97,7 +92,6 @@ fn exited_sessions_are_not_listed_and_can_be_recreated() {
     assert_eq!(sessions[0].cwd, "/tmp/new");
     assert_eq!(sessions[0].shell, "/bin/sh");
     assert_eq!(sessions[0].pid, 100);
-    assert_eq!(sessions[0].lifetime(), SessionLifetime::Leased);
     assert_eq!(sessions[0].started_at_unix_milliseconds, 4_000);
     assert!(sessions[0].clients.is_empty());
 }
@@ -111,7 +105,6 @@ fn remove_returns_record_and_drops_only_selected_session() {
             "/tmp/main",
             "/bin/zsh",
             42,
-            SessionLifetime::Persistent,
             5_000,
         )
         .expect("main");
@@ -121,7 +114,6 @@ fn remove_returns_record_and_drops_only_selected_session() {
             "/tmp/server",
             "/bin/zsh",
             43,
-            SessionLifetime::Persistent,
             6_000,
         )
         .expect("server");

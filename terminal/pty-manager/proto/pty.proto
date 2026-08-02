@@ -45,7 +45,7 @@ message CreateOrAttach {
   uint32 rows = 4;
   bool create_if_missing = 5;
   string client_title = 6;
-  SessionLifetime lifetime = 7;
+  reserved 7;  // was SessionLifetime lifetime
 }
 
 message ShellLaunch {
@@ -147,7 +147,7 @@ message SessionSummary {
   uint32 pid = 4;
   SessionState state = 5;
   repeated ClientSummary clients = 6;
-  SessionLifetime lifetime = 7;
+  reserved 7;  // was SessionLifetime lifetime
   uint64 started_at_unix_milliseconds = 8;
   uint32 columns = 9;
   uint32 rows = 10;
@@ -169,12 +169,6 @@ enum SessionState {
   SESSION_STATE_UNSPECIFIED = 0;
   SESSION_STATE_RUNNING = 1;
   SESSION_STATE_EXITED = 2;
-}
-
-enum SessionLifetime {
-  SESSION_LIFETIME_UNSPECIFIED = 0;
-  SESSION_LIFETIME_PERSISTENT = 1;
-  SESSION_LIFETIME_LEASED = 2;
 }
 
 message KillSession {}

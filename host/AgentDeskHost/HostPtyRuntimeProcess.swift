@@ -57,7 +57,6 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
     private let managerBinaryURL: URL
     private let vaultSocketURL: URL
     private let managerSocketURL: URL
-    private let leasedSessionGraceSeconds: Int
     private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal")
     private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).pty-runtime-process")
     private var processes: [Component: Process] = [:]
@@ -69,26 +68,20 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
         vaultBinaryURL: URL,
         managerBinaryURL: URL,
         vaultSocketURL: URL = Config.ptyVaultSocketURL,
-        managerSocketURL: URL = Config.ptyManagerSocketURL,
-        leasedSessionGraceSeconds: Int = Config.ptyLeasedSessionGraceSeconds
+        managerSocketURL: URL = Config.ptyManagerSocketURL
     ) {
         self.vaultBinaryURL = vaultBinaryURL
         self.managerBinaryURL = managerBinaryURL
         self.vaultSocketURL = vaultSocketURL
         self.managerSocketURL = managerSocketURL
-        self.leasedSessionGraceSeconds = leasedSessionGraceSeconds
     }
 
     static func managerLaunchArguments(
         socketURL: URL,
-        leasedSessionGraceSeconds: Int,
         handover: Bool = false,
         runtimeDigest: String? = nil
     ) -> [String] {
-        var arguments = [
-            "--socket", socketURL.path,
-            "--leased-session-grace-seconds", String(leasedSessionGraceSeconds),
-        ]
+        var arguments = ["--socket", socketURL.path]
         if handover { arguments.append("--handover") }
         if let runtimeDigest {
             arguments.append(contentsOf: ["--runtime-digest", runtimeDigest])
@@ -173,7 +166,6 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
                 arguments: {
                     Self.managerLaunchArguments(
                         socketURL: $0,
-                        leasedSessionGraceSeconds: self.leasedSessionGraceSeconds,
                         handover: $1,
                         runtimeDigest: $2
                     )

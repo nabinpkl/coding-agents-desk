@@ -22,7 +22,7 @@
 | Input dispatch | `CGEventPost` for mouse, keyboard, modifiers | One host code path for all remote input. |
 | Distribution | Developer ID notarized DMG for Mac, TestFlight internal for iOS | One author, one device. |
 
-ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with ordered role streams and media datagrams. ADR-0031 records client-visible selected-display projection. ADR-0032 records bounded client diagnostics. ADR-0033 records the adaptive media quality ladder. ADR-0035 records the phone Agent feed. ADR-0051 (superseded by ADR-0053) records the terminal lane. ADR-0052 makes AgentDesk the workspace owner and adds the authenticated files lane at protocol version `6`. ADR-0053 moves the terminal `pty-manager` and `pty-client-swift` packages in-tree, removing the last build dependency on the retired `agent-workspace-ide` donor. ADR-0054 established the shared workspace-data boundary; ADR-0062 supersedes only its platform-presentation decision. ADR-0056 adds host-coordinated leased Agent Panel terminals and raises the session target to protocol version `7`. ADR-0057 adds the shared responsive DOCX renderer, a binary Files codec, and protocol version `8`. ADR-0058 sequences cursor input, separates feedback provenance, and raises the session target to protocol version `9`. ADR-0059 isolates Dock desktop-content mutation behind a transactional yabai adapter without changing the wire protocol or the single SkyLight reader. ADR-0060 keeps the input frame ceiling at 4 MiB while fragmenting only large on-demand Agent raw events. ADR-0061 composes the iOS workspace workbench, shares a host-owned workspace-terminal namespace with macOS, and raises the AgentDesk session protocol to `10`. ADR-0062 adds the shared responsive Workspace IDE and raises the AgentDesk session protocol to `11`. ADR-0063 established the one-recorder multi-window Chrome projection; ADR-0064 supersedes its local-only surface boundary, projects the same hierarchy to iOS, and raises the AgentDesk session protocol to `12`. ADR-0065 adds viewer-owned responsive browser source sizing and protocol `13`. ADR-0066 raises the inner PTY protocol to `6` for bounded Rust-owned terminal checkpoints, one shared logical grid, client-local fit, and metadata-only window restoration; the outer protocol stays `13`. ADR-0067 removes client window minimums and holds local terminal rendering at a readable scale floor before cropping around the parser cursor. ADR-0075 replaces the Agent feed digest with visibility-scoped no-cache subscriptions and raises the outer protocol to `15`. ADR-0076 adds the independently negotiated role-7 voice lane while keeping protocol `15`, and makes the Mac Python sidecar authoritative for shared-panel recordings.
+ADR-0001 records the original v0 stack decision. ADR-0015 records the owned single-surface media baseline. ADR-0016 records the scroll-first hybrid retained-graphics worktree architecture that has since been narrowed by the video-primary work. ADR-0019 records Mac-initiated tailnet pairing with a host-side device picker. ADR-0020 records the handshake-negotiated wire protocol version. ADR-0021 through ADR-0025 record the retained-graphics and motion-carrier iterations. ADR-0026 through ADR-0029 record the video-primary, adaptive bitrate, NACK, and slow-link survival work. ADR-0030 records the current live-session transport: a single authenticated QUIC connection with ordered role streams and media datagrams. ADR-0031 records client-visible selected-display projection. ADR-0032 records bounded client diagnostics. ADR-0033 records the adaptive media quality ladder. ADR-0035 records the phone Agent feed. ADR-0051 (superseded by ADR-0053) records the terminal lane. ADR-0052 makes AgentDesk the workspace owner and adds the authenticated files lane at protocol version `6`. ADR-0053 moves the terminal `pty-manager` and `pty-client-swift` packages in-tree, removing the last build dependency on the retired `agent-workspace-ide` donor. ADR-0054 established the shared workspace-data boundary; ADR-0062 supersedes only its platform-presentation decision. ADR-0056 adds host-coordinated Agent Panel terminals and raises the session target to protocol version `7`. ADR-0057 adds the shared responsive DOCX renderer, a binary Files codec, and protocol version `8`. ADR-0058 sequences cursor input, separates feedback provenance, and raises the session target to protocol version `9`. ADR-0059 isolates Dock desktop-content mutation behind a transactional yabai adapter without changing the wire protocol or the single SkyLight reader. ADR-0060 keeps the input frame ceiling at 4 MiB while fragmenting only large on-demand Agent raw events. ADR-0061 composes the iOS workspace workbench, shares a host-owned workspace-terminal namespace with macOS, and raises the AgentDesk session protocol to `10`. ADR-0062 adds the shared responsive Workspace IDE and raises the AgentDesk session protocol to `11`. ADR-0063 established the one-recorder multi-window Chrome projection; ADR-0064 supersedes its local-only surface boundary, projects the same hierarchy to iOS, and raises the AgentDesk session protocol to `12`. ADR-0065 adds viewer-owned responsive browser source sizing and protocol `13`. ADR-0066 raises the inner PTY protocol to `6` for bounded Rust-owned terminal checkpoints, one shared logical grid, client-local fit, and metadata-only window restoration; the outer protocol stays `13`. ADR-0067 removes client window minimums and holds local terminal rendering at a readable scale floor before cropping around the parser cursor. ADR-0075 replaces the Agent feed digest with visibility-scoped no-cache subscriptions and raises the outer protocol to `15`. ADR-0076 adds the independently negotiated role-7 voice lane while keeping protocol `15`, and makes the Mac Python sidecar authoritative for shared-panel recordings. ADR-0078 removes the session lifetime distinction and every timed reap: a PTY session lives as long as its process, and only an explicit act ends it.
 
 ADR-0068 raises the inner PTY protocol to `7`, removes manual terminal sizing, and lets the last
 selected or interacted-with active terminal viewer own the shared source grid dimensions.
@@ -84,7 +84,7 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 26. **WorkspaceLane.** Owns the host `.files` stream as a typed workspace lane. It serializes correlated file and Git requests with IDE subscriptions, idempotent shared-state operations, and unsolicited change/state pushes. Native document bytes retain the existing binary codec and frame bound. It never runs workspace I/O on the input or media lanes.
 27. **AgentPanel.** Reusable WebKit surface whose authored Vite project lives at `packages/AgentPanel/Web`. React owns one visible layer at a time: projects, sessions for one canonical project, or events for one source-scoped session. Navigation closes the deeper subscription and opens its parent; no project or session response cache survives leaving that screen. The macOS adapter reads the AgentDesk-owned transcript sidecar directly; the iOS adapter carries the same request/push contract over the authenticated session. For the bottom terminal it emits session-scoped open, close, and context-ended intent only; it never renders a terminal or forwards terminal keystrokes (ADR-0075).
 28. **AgentSessionTerminalCoordinator.** Host-only authority for Agent Panel resume terminals (ADR-0056). It validates project/source/session context, derives `agent-resume-<source>-<session-id>`, constructs the fixed Claude or Codex argv, serializes create-or-attach, holds a bootstrap client through native renderer handoff, rejects `activeElsewhere`, and owns immediate explicit kill. macOS calls it directly; iOS reaches the same coordinator through the terminal messages introduced in protocol v7 and carried by current protocol v10.
-29. **WorkspaceTerminalCoordinator.** Host-only authority for persistent workspace shells (ADR-0061). It resolves an opaque workspace id through `WorkspaceStore`, validates a remembered running session against the workspace namespace, canonical root, and persistent lifetime, otherwise selects the newest eligible session by immutable PTY creation time, and creates one login shell at the root only when none exists. macOS and iOS use the same host-generated `workspace-<workspace-id>-<suffix>` names; no workspace root crosses the wire.
+29. **WorkspaceTerminalCoordinator.** Host-only authority for persistent workspace shells (ADR-0061). It resolves an opaque workspace id through `WorkspaceStore`, validates a remembered running session against the workspace namespace and canonical root, otherwise selects the newest eligible session by immutable PTY creation time, and creates one login shell at the root only when none exists. macOS and iOS use the same host-generated `workspace-<workspace-id>-<suffix>` names; no workspace root crosses the wire.
 30. **WorkspaceIDEStateCoordinator.** Persists revisioned ordered open paths and expanded directory paths per workspace, applies idempotent operations, and fans snapshots to local and remote subscribers. It never owns selected workspace, active tab, drafts, cursor positions, or pane geometry.
 31. **WorkspaceObservationCoordinator.** Reference-counts one watcher per observed workspace, advances one change generation, reads Git status once for that generation, and fans the result to the existing shell and all IDE subscribers. Clean open files refresh; dirty files become conflicted without replacing their buffers.
 32. **DomBridgeServer.** Owns the `0600` Unix socket and token-authenticated native-messaging shim. It validates bounded complete browser snapshots separately from DOM batches and forwards validated projection metadata to local and authenticated remote viewers.
@@ -115,7 +115,7 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 17. **TerminalSurface.** Thin UIKit host for `PtyTerminalWebView` in workspace mode. The shared runtime owns bounded tabs, recursive splits, pane chrome, the session drawer, xterm rendering, selection, and input. Its remote backend opens one authenticated `.terminal` stream per pane, creates only fixed persistent login-shell sessions, and preserves close-client and close-session authority. UIKit owns visibility, safe-area lifecycle, and keyboard dismissal only.
 18. **WorkspaceTransport.** Opens the authenticated `.files` workspace lane, correlates file and Git responses, serializes subscriptions and shared-state operations, and delivers unsolicited IDE-state and change pushes. It cancels pending work and subscriptions when the session ends.
 19. **WorkspaceWorkbenchSurface.** UIKit composition selected from the Workspace control. Its resizable left sidebar owns workspace and directory navigation; its upper-right editor owns the existing shared WebKit file viewer/editor; its lower-right pane hosts `PtyTerminalWebView` in single-session mode for the selected workspace. The sidebar and terminal start visible, the editor starts empty, and pane geometry persists per workspace. Collapse and resize retain both webviews. The file SPA owns content-aware zoom: text, Markdown, and notebooks scale their typography, while DOCX retains responsive fit-width, page scaling, and pinch zoom. Text saves carry the last observed file revision and surface conflicts instead of overwriting host changes.
-20. **AgentFeedSurface.** UIKit vertical container for the AgentPanel webview, native resize handle, and `PtyTerminalWebView` in single-session mode. It requests a host-coordinated leased PTY over protocol v7, attaches over `.terminal` with `createIfMissing=false`, acknowledges handoff, and owns iOS layout and explicit or involuntary lifecycle mapping. It does not construct harness commands or own process lifetime.
+20. **AgentFeedSurface.** UIKit vertical container for the AgentPanel webview, native resize handle, and `PtyTerminalWebView` in single-session mode. It requests a host-coordinated agent PTY over protocol v7, attaches over `.terminal` with `createIfMissing=false`, acknowledges handoff, and owns iOS layout and explicit or involuntary lifecycle mapping. It does not construct harness commands or own process lifetime.
 21. **WorkspaceIDEController.** Cross-platform package coordinator owning retained sidebar and editor WKWebViews, strict intent decoding, serialized data-source calls, request-generation fencing, device-local active state and drafts, 700 ms autosave, and tailored projections. Platform containers receive terminal and layout intents through a delegate.
 22. **WorkspaceIDESurface.** Separate UIKit entry that composes the retained sidebar webview beside an editor webview and `PtyTerminalWebView` in single-session mode. The terminal starts open and reattaches through the existing workspace-terminal coordinator. Its active tab and pane geometry remain local while shared editor-tab membership and expanded folders reconcile from host pushes.
 
@@ -136,16 +136,17 @@ inner PTY protocol.
    the fixed resume command. The session id remains a positional argument through the login-zsh
    forwarding wrapper and PTY protocol; no joined command string or terminal-input injection exists.
 4. The coordinator serializes opens by deterministic PTY name. It attaches an existing panel-owned
-   PTY or creates one `leased + CommandLaunch` PTY and holds a bootstrap attachment until the native
+   PTY or creates one `CommandLaunch` PTY and holds a bootstrap attachment until the native
    renderer acknowledges attachment. A failed or timed-out handoff kills the new PTY. If the agent feed says the
    harness is live and the deterministic PTY is absent, open fails with `activeElsewhere`.
 5. AppKit and UIKit each compose the AgentPanel webview above a native resize handle and
    `PtyTerminalWebView` in single-session mode. The feed shrinks as the terminal grows. The shared web
    terminal owns input, paste, selection, output, viewport participation, and focus; React owns none
    of them.
-6. Explicit panel/context exit asks the coordinator to kill immediately. Unexpected renderer/socket
-   loss detaches. A leased PTY is reaped only after its final client lease is absent for the configured
-   grace, and a reattach during grace preserves its PID.
+6. Explicit panel/context exit asks the coordinator to kill immediately. Everything else detaches:
+   unexpected renderer or socket loss, a failed attach, the phone backgrounding or switching surfaces,
+   and host termination. A session with no clients keeps running for as long as its process does, and
+   reattaching preserves its PID (ADR-0078).
 
 Platform ownership remains explicit:
 
@@ -157,7 +158,7 @@ Platform ownership remains explicit:
 | iOS UIKit adapter | Vertical and keyboard-safe layout, v7 request routing, surface/background lifecycle. |
 | Host coordinator | Context validation, deterministic identity, command construction, handoff, explicit kill, and `activeElsewhere`. |
 | Rust `pty-vault` | PTY launch, primary descriptor custody, process identity, exact exit observation, signal, close, and vault handover. |
-| Rust `pty-manager` | Descriptor leases, headless terminal state, bounded replay, client leases, viewport ownership, final-lease grace, manager handover, and session policy. |
+| Rust `pty-manager` | Descriptor leases, headless terminal state, bounded replay, client leases, viewport ownership, manager handover, and session policy. A session is removed only when its process exits or someone kills it explicitly (ADR-0078). |
 
 ## Wire Shapes
 
@@ -312,8 +313,7 @@ Terminal stream body = UInt32BE ptyFrameLength || Envelope {
   session_name,
   payload: CreateOrAttach {
     createIfMissing,
-    launch: ShellLaunch | CommandLaunch { executable, arguments: [String] },
-    lifetime: persistent | leased
+    launch: ShellLaunch | CommandLaunch { executable, arguments: [String] }
   }
   } | Output { data, revision }
     | TerminalViewerState { sequence, active, claim, columns, rows }
@@ -328,7 +328,7 @@ Terminal stream body = UInt32BE ptyFrameLength || Envelope {
 }
 
 SessionSummary {
-  sessionName, lifetime, startedAtUnixMilliseconds, columns, rows, revision,
+  sessionName, startedAtUnixMilliseconds, columns, rows, revision,
   ownerClientId, ownershipEpoch, clients { active, columns, rows, isOwner, ... }, ...
 }
 ```
@@ -365,9 +365,9 @@ mode; context-bound Agent and Workspace terminals use single-session mode with m
 absent. Hidden panes release viewport participation. Selecting or interacting with a pane claims using
 its measured capacity, while passive follower layout remains presentation-only.
 
-The outer `QuicStreamFrame` identifies the stream role. The inner PTY frame is owned by the Rust manager and Swift PTY client; AgentDesk's host bridge does not reinterpret create/attach, viewer-state, viewport-status, input, output, detach, kill, close-client, subscribe, or session-list messages. `ShellLaunch` preserves the existing login-interactive shell behavior. `CommandLaunch` executes the supplied executable with its argument array directly through Rust `CommandBuilder`; argument boundaries survive protobuf decoding and no shell command string is assembled by `pty-manager`. Every caller must choose a lifetime explicitly.
+The outer `QuicStreamFrame` identifies the stream role. The inner PTY frame is owned by the Rust manager and Swift PTY client; AgentDesk's host bridge does not reinterpret create/attach, viewer-state, viewport-status, input, output, detach, kill, close-client, subscribe, or session-list messages. `ShellLaunch` preserves the existing login-interactive shell behavior. `CommandLaunch` executes the supplied executable with its argument array directly through Rust `CommandBuilder`; argument boundaries survive protobuf decoding and no shell command string is assembled by `pty-manager`. Sessions carry no lifetime distinction: every one lives while its process lives (ADR-0078).
 
-Persistent full-screen/workspace terminals retain the authenticated paired client's existing multiplexer authority: they can list sessions, join with `createIfMissing=false`, detach a manager-assigned client id, or kill a session. Leased Agent Panel terminals use a narrower host-coordinated creation path. The iOS panel receives a deterministic PTY name from the host, may only attach to it with `createIfMissing=false`, and sends explicit close through the coordinator. This keeps executable construction, creation, and lifecycle policy out of the webview and iOS client even though terminal bytes still use the opaque `.terminal` bridge.
+Full-screen/workspace terminals retain the authenticated paired client's existing multiplexer authority: they can list sessions, join with `createIfMissing=false`, detach a manager-assigned client id, or kill a session. Agent Panel terminals use a narrower host-coordinated creation path. The iOS panel receives a deterministic PTY name from the host, may only attach to it with `createIfMissing=false`, and sends explicit close through the coordinator. This keeps executable construction, creation, and lifecycle policy out of the webview and iOS client even though terminal bytes still use the opaque `.terminal` bridge.
 
 Agent Panel terminal coordination rides the authenticated input/Agent push contract and therefore requires AgentDesk session protocol v7:
 
@@ -458,7 +458,7 @@ Terminal surface or exposing host filesystem authority:
    the remembered name again; the host still validates it before reuse.
 5. macOS workspace terminal launch uses the same host-owned identity generator. It does not use the
    global `agentdesk-N` namespace, so the iPhone can discover the newest same-workspace Mac terminal
-   without treating unrelated shells or leased Agent Panel terminals as candidates.
+   without treating unrelated shells or Agent Panel terminals as candidates.
 
 Workspace terminal coordination requires AgentDesk session protocol v10:
 
@@ -821,12 +821,19 @@ The host verifies the manifest, exact aggregate size, chunk sequence, and SHA-25
 - Standalone macOS terminal windows persist metadata-only presentation descriptors and reattach on host
   restart without creating missing shells, taking focus, or claiming terminal ownership. Embedded
   panes keep their owner lifecycle.
-- PTY lifetime is independent of the QUIC session state. Persistent workspace PTYs survive client detach and remain manager-owned until explicit kill, natural exit, or manager replacement.
-- Agent Panel resume PTYs are leased. The manager schedules the configured final-lease grace only when detach, close-client, or socket loss removes the final attached client. The production target is 30 seconds through host central config; tests inject shorter values.
-- Reattach during PTY grace cancels reaping and preserves the PTY/PID. With Mac and iPhone attached, the first detach cannot schedule a reap; only loss of the final lease can do so.
-- Explicit terminal close, panel back/context change, session replacement, iOS switch away from Agent or teardown, macOS Agents-window close, revoke, and app termination go through the host coordinator and kill the leased PTY immediately. They do not wait for grace.
-- If the final lease is still absent when grace expires, `pty-manager` asks `pty-vault` to kill the harness and removes its PTY, clients, and registry state. Natural harness exit and explicit kill cancel pending reap work. Manager handover transfers leased sessions without applying shutdown policy.
-- An unexpected renderer failure, terminal socket loss, transport loss, or iOS suspension detaches rather than issuing explicit kill, preserving the bounded reattach path.
+- PTY lifetime is independent of the QUIC session state and of client presence. A session lives as
+  long as its process; workspace and Agent Panel PTYs are alike in this (ADR-0078). There is no timed
+  reap: the last client detaching, however that happens, leaves the session running, and reattaching
+  later preserves the PTY/PID and replays a checkpoint.
+- Exactly three things end a session. Its process exits, and `pty-manager` removes its PTY, clients,
+  and registry state. Someone explicitly ends the terminal - user close, context ended, macOS
+  Agents-window close, session replacement - and the host coordinator kills it immediately. Or someone
+  kills it from the session drawer, which offers any running session with no clients as a `detached`
+  orphan.
+- Everything else detaches: an unexpected renderer failure, terminal socket loss, transport loss, a
+  failed attach, iOS backgrounding or switching away from Agent, unpairing, and host termination. None
+  of these is a decision about the session, so none of them may end one.
+- Manager handover transfers sessions without applying shutdown policy.
 
 ## Risks Tracked Outside This Doc
 

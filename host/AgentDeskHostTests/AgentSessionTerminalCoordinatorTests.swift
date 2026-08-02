@@ -36,7 +36,6 @@ struct AgentSessionTerminalCoordinatorTests {
         let calls = await fixture.pty.openCalls
         #expect(calls.count == 2)
         #expect(calls.filter(\.createIfMissing).count == 1)
-        #expect(calls.allSatisfy { $0.lifetime == .leased })
     }
 
     @Test func handoffTimeoutReleasesBootstrapAndKillsNewSession() async throws {
@@ -141,7 +140,6 @@ struct AgentSessionTerminalCoordinatorTests {
         await fixture.pty.seedSession(
             name: identity.ptySessionName,
             pid: 991,
-            lifetime: .leased
         )
         let existing = try await fixture.coordinator.open(fixture.request(
             id: "existing",
@@ -1068,7 +1066,6 @@ private actor FakeAgentSessionTerminalPtyClient: AgentSessionTerminalPtyClient {
     struct OpenCall: Equatable, Sendable {
         let name: String
         let launch: PtySessionLaunch
-        let lifetime: PtySessionLifetime
         let createIfMissing: Bool
         let clientTitle: String
     }
@@ -1078,7 +1075,6 @@ private actor FakeAgentSessionTerminalPtyClient: AgentSessionTerminalPtyClient {
         let cwd: String
         let shell: String
         let pid: UInt32
-        let lifetime: PtySessionLifetime
         var clients: [PtySessionClientSummary]
 
         var summary: PtySessionSummary {
@@ -1088,7 +1084,6 @@ private actor FakeAgentSessionTerminalPtyClient: AgentSessionTerminalPtyClient {
                 shell: shell,
                 pid: pid,
                 state: .running,
-                lifetime: lifetime,
                 startedAtUnixMilliseconds: 1_721_344_000_123,
                 clients: clients
             )
@@ -1118,7 +1113,6 @@ private actor FakeAgentSessionTerminalPtyClient: AgentSessionTerminalPtyClient {
     func openSession(
         name: String,
         launch: PtySessionLaunch,
-        lifetime: PtySessionLifetime,
         columns: UInt32,
         rows: UInt32,
         createIfMissing: Bool,
@@ -1128,7 +1122,6 @@ private actor FakeAgentSessionTerminalPtyClient: AgentSessionTerminalPtyClient {
         openCalls.append(OpenCall(
             name: name,
             launch: launch,
-            lifetime: lifetime,
             createIfMissing: createIfMissing,
             clientTitle: clientTitle
         ))
@@ -1150,7 +1143,6 @@ private actor FakeAgentSessionTerminalPtyClient: AgentSessionTerminalPtyClient {
                 cwd: cwd,
                 shell: shell,
                 pid: nextPID,
-                lifetime: lifetime,
                 clients: []
             )
             nextPID += 1
@@ -1184,13 +1176,12 @@ private actor FakeAgentSessionTerminalPtyClient: AgentSessionTerminalPtyClient {
         sessions.removeValue(forKey: name)
     }
 
-    func seedSession(name: String, pid: UInt32, lifetime: PtySessionLifetime) {
+    func seedSession(name: String, pid: UInt32) {
         sessions[name] = Session(
             name: name,
             cwd: "/seed",
             shell: "/bin/zsh",
             pid: pid,
-            lifetime: lifetime,
             clients: []
         )
     }

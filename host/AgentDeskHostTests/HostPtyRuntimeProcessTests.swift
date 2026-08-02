@@ -4,19 +4,16 @@ import Testing
 @testable import AgentDeskHost
 
 struct HostPtyRuntimeProcessTests {
-    @Test func managerLaunchArgumentsIncludeGraceAndOptionalHandover() {
+    @Test func managerLaunchArgumentsIncludeSocketAndOptionalHandover() {
         let socket = URL(fileURLWithPath: "/tmp/agentdesk-pty.sock")
 
         #expect(HostPtyRuntimeProcess.managerLaunchArguments(
-            socketURL: socket,
-            leasedSessionGraceSeconds: 30
+            socketURL: socket
         ) == [
             "--socket", "/tmp/agentdesk-pty.sock",
-            "--leased-session-grace-seconds", "30",
         ])
         #expect(Array(HostPtyRuntimeProcess.managerLaunchArguments(
             socketURL: socket,
-            leasedSessionGraceSeconds: 30,
             handover: true,
             runtimeDigest: "manager-digest"
         ).suffix(3)) == ["--handover", "--runtime-digest", "manager-digest"])
@@ -100,8 +97,7 @@ struct HostPtyRuntimeProcessTests {
             vaultBinaryURL: missing,
             managerBinaryURL: missing,
             vaultSocketURL: socketDirectory.appendingPathComponent("vault.sock"),
-            managerSocketURL: socketDirectory.appendingPathComponent("manager.sock"),
-            leasedSessionGraceSeconds: 30
+            managerSocketURL: socketDirectory.appendingPathComponent("manager.sock")
         )
         process.start()
 

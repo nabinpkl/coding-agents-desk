@@ -12,7 +12,6 @@ public struct PtySessionSummary: Equatable, Sendable {
     public let shell: String
     public let pid: UInt32
     public let state: State
-    public let lifetime: PtySessionLifetime
     public let startedAtUnixMilliseconds: UInt64
     public let columns: UInt32
     public let rows: UInt32
@@ -31,7 +30,6 @@ public struct PtySessionSummary: Equatable, Sendable {
         shell: String,
         pid: UInt32,
         state: State,
-        lifetime: PtySessionLifetime,
         startedAtUnixMilliseconds: UInt64,
         columns: UInt32 = 80,
         rows: UInt32 = 24,
@@ -45,7 +43,6 @@ public struct PtySessionSummary: Equatable, Sendable {
         self.shell = shell
         self.pid = pid
         self.state = state
-        self.lifetime = lifetime
         self.startedAtUnixMilliseconds = startedAtUnixMilliseconds
         self.columns = columns
         self.rows = rows

@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::time::Duration;
 
 use clap::Parser;
 use pty_manager::manager::{PtyManager, PtyManagerLimits, PtyManagerOptions};
@@ -9,9 +8,6 @@ use tracing_subscriber::EnvFilter;
 struct Args {
     #[arg(long, default_value = "/tmp/pty-manager.sock")]
     socket: PathBuf,
-
-    #[arg(long, default_value_t = 30)]
-    leased_session_grace_seconds: u64,
 
     #[arg(long, default_value_t = 64)]
     max_sessions: usize,
@@ -85,11 +81,7 @@ async fn main() -> anyhow::Result<()> {
         Ok(())
     };
     let manager = PtyManager::new_configured(
-        PtyManagerOptions {
-            socket_path,
-            leased_session_grace: Duration::from_secs(args.leased_session_grace_seconds),
-        }
-        .with_limits(limits),
+        PtyManagerOptions { socket_path }.with_limits(limits),
     );
     if args.handover {
         manager.run_handover_with_ready(publish_identity).await?;

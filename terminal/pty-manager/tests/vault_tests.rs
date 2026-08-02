@@ -40,7 +40,6 @@ fn vault_owns_primary_descriptor_and_leases_live_session() {
             },
             80,
             24,
-            1,
         )
         .expect("create session");
     let pid = created.session.pid;
@@ -83,13 +82,13 @@ fn vault_rejects_stale_generation_and_enforces_session_bound() {
     let vault = RunningVault::start(1);
     let client = VaultClient::new(vault.socket_path());
     let session = client
-        .create("first", waiting_launch(vault.root()), 80, 24, 1)
+        .create("first", waiting_launch(vault.root()), 80, 24)
         .expect("create first");
     let stale = session.session.generation.wrapping_add(1);
     assert!(client.resize("first", stale, 90, 30).is_err());
     assert!(client.kill("first", stale).is_err());
     assert!(client
-        .create("second", waiting_launch(vault.root()), 80, 24, 1,)
+        .create("second", waiting_launch(vault.root()), 80, 24)
         .is_err());
     assert_eq!(
         client
@@ -107,7 +106,7 @@ fn vault_rejects_import_with_reused_or_missing_child_pid() {
     let origin_client = VaultClient::new(origin.socket_path());
     let target_client = VaultClient::new(target.socket_path());
     let lease = origin_client
-        .create("main", waiting_launch(origin.root()), 80, 24, 1)
+        .create("main", waiting_launch(origin.root()), 80, 24)
         .expect("create source session");
     let mut forged = lease.session.clone();
     forged.pid = u32::MAX;
@@ -147,7 +146,6 @@ fn vault_candidate_inherits_listener_sessions_and_exact_exit() {
             },
             80,
             24,
-            1,
         )
         .expect("create handover session");
     let pid = created.session.pid;
@@ -213,7 +211,7 @@ fn vault_handover_preserves_many_session_descriptors() {
     let mut expected = Vec::new();
     for name in ["one", "two", "three"] {
         let lease = client
-            .create(name, waiting_launch(old.root()), 80, 24, 1)
+            .create(name, waiting_launch(old.root()), 80, 24)
             .expect("create session before many-session handover");
         expected.push((
             name.to_owned(),
@@ -268,7 +266,7 @@ fn failed_vault_candidate_leaves_old_generation_authoritative() {
     let vault = RunningVault::start(2);
     let client = VaultClient::new(vault.socket_path());
     let session = client
-        .create("main", waiting_launch(vault.root()), 80, 24, 1)
+        .create("main", waiting_launch(vault.root()), 80, 24)
         .expect("create session");
     let mut control = UnixStream::connect(vault.socket_path()).expect("connect old vault");
     pty_manager::fd_transfer::send_message(
@@ -307,7 +305,7 @@ fn candidate_disconnect_after_ready_rolls_back_to_old_vault() {
     let vault = RunningVault::start(2);
     let client = VaultClient::new(vault.socket_path());
     let session = client
-        .create("main", waiting_launch(vault.root()), 80, 24, 1)
+        .create("main", waiting_launch(vault.root()), 80, 24)
         .expect("create session");
     let transfer_path = vault.root().join("fake-candidate.sock");
     let transfer_listener = UnixListener::bind(&transfer_path).expect("bind fake candidate");
@@ -379,7 +377,6 @@ fn exact_exit_during_vault_transfer_is_retained_after_rollback() {
             },
             80,
             24,
-            1,
         )
         .expect("create exiting session");
     let generation = session.session.generation;
@@ -491,7 +488,6 @@ fn vault_candidate_rejects_partial_descriptor_delivery() {
             started_at_unix_milliseconds: 1,
             columns: 80,
             rows: 24,
-            lifetime: 1,
             exited: false,
             exit_status: 0,
         };

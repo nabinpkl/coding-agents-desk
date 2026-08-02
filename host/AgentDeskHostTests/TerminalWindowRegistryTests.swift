@@ -68,7 +68,6 @@ private func fixtureSession() -> PtySessionSummary {
         shell: "/bin/zsh",
         pid: 42,
         state: .running,
-        lifetime: .persistent,
         startedAtUnixMilliseconds: 1,
         columns: 80,
         rows: 24,

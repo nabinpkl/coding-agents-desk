@@ -8,7 +8,7 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size as terminal_si
 use futures_util::{SinkExt, StreamExt};
 use pty_manager::client::{connect, kill_session, next_numeric_session_name};
 use pty_manager::protocol::{
-    self, create_or_attach, CreateOrAttach, Detach, Input, Payload, SessionLifetime, ShellLaunch,
+    self, create_or_attach, CreateOrAttach, Detach, Input, Payload, ShellLaunch,
 };
 use pty_manager::pty_client_footer::{child_pty_rows, FooterRenderer, FooterState, TerminalSize};
 use tokio::sync::{mpsc, Mutex};
@@ -91,7 +91,6 @@ async fn run_client(
                     cwd: cwd.to_string_lossy().into_owned(),
                     shell,
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
                 columns: attach_columns,
                 rows: attach_rows,
                 create_if_missing: true,

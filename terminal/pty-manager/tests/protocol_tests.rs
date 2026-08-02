@@ -1,6 +1,6 @@
 use pty_manager::protocol::{
     create_or_attach, decode, encode, envelope, payload, validate_session_name, CommandLaunch,
-    CreateOrAttach, Envelope, Output, Payload, RequestTerminalCheckpoint, SessionLifetime,
+    CreateOrAttach, Envelope, Output, Payload, RequestTerminalCheckpoint,
     SessionState, SessionSummary, ShellLaunch, SubscribeSessions, TerminalCheckpointBegin,
     TerminalCheckpointChunk, TerminalCheckpointEnd, TerminalViewerState, TerminalViewportStatus,
     PROTOCOL_VERSION,
@@ -92,7 +92,6 @@ fn envelope_roundtrips_shell_launch_and_persistent_lifetime() {
                 cwd: "/tmp/work".to_owned(),
                 shell: "/bin/zsh".to_owned(),
             })),
-            lifetime: SessionLifetime::Persistent as i32,
             columns: 120,
             rows: 40,
             create_if_missing: true,
@@ -111,7 +110,7 @@ fn envelope_roundtrips_shell_launch_and_persistent_lifetime() {
 }
 
 #[test]
-fn envelope_roundtrips_command_launch_argument_boundaries_and_leased_lifetime() {
+fn envelope_roundtrips_command_launch_argument_boundaries() {
     let arguments = vec![
         "resume".to_owned(),
         "id with spaces".to_owned(),
@@ -127,7 +126,6 @@ fn envelope_roundtrips_command_launch_argument_boundaries_and_leased_lifetime() 
                 executable: "/usr/local/bin/codex".to_owned(),
                 arguments: arguments.clone(),
             })),
-            lifetime: SessionLifetime::Leased as i32,
             columns: 100,
             rows: 30,
             create_if_missing: true,
@@ -139,7 +137,6 @@ fn envelope_roundtrips_command_launch_argument_boundaries_and_leased_lifetime() 
     let Payload::CreateOrAttach(request) = payload(decoded).expect("payload") else {
         panic!("expected create or attach");
     };
-    assert_eq!(request.lifetime(), SessionLifetime::Leased);
     let Some(create_or_attach::Launch::CommandLaunch(command)) = request.launch else {
         panic!("expected command launch");
     };
@@ -161,7 +158,6 @@ fn session_summary_roundtrips_lifetime_and_creation_time() {
                 pid: 42,
                 state: SessionState::Running as i32,
                 clients: Vec::new(),
-                lifetime: SessionLifetime::Persistent as i32,
                 started_at_unix_milliseconds: 1_721_344_000_123,
                 columns: 80,
                 rows: 24,
@@ -176,7 +172,6 @@ fn session_summary_roundtrips_lifetime_and_creation_time() {
     let Payload::SessionList(list) = payload(decoded).expect("payload") else {
         panic!("expected session list");
     };
-    assert_eq!(list.sessions[0].lifetime(), SessionLifetime::Persistent);
     assert_eq!(
         list.sessions[0].started_at_unix_milliseconds,
         1_721_344_000_123

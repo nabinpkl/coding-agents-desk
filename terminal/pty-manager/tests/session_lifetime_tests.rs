@@ -1,3 +1,7 @@
+//! A session lives exactly as long as its process. Detaching - however it happens - never ends one,
+//! so a rebuilt host, a backgrounded phone, and a dropped socket all leave the terminal running.
+//! The only things that end a session are its process exiting and someone explicitly killing it.
+
 use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -5,8 +9,7 @@ use std::time::Duration;
 
 use pty_manager::manager::{PtyManager, PtyManagerOptions};
 use pty_manager::protocol::{
-    self, create_or_attach, Attached, CommandLaunch, CreateOrAttach, Detach, Payload,
-    SessionLifetime, ShellLaunch,
+    self, create_or_attach, Attached, CommandLaunch, CreateOrAttach, Detach, Payload, ShellLaunch,
 };
 use pty_manager::transport::{receive, send, TerminalFramed};
 use tempfile::{tempdir, TempDir};
@@ -15,91 +18,80 @@ use tokio::task::JoinHandle;
 
 mod support;
 
-const TEST_GRACE: Duration = Duration::from_millis(80);
+/// Comfortably longer than the reap grace this manager used to run, so a session that would have
+/// been killed by the old timer has had every chance to die before the assertion.
+const FORMER_GRACE_WINDOW: Duration = Duration::from_millis(400);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn leased_final_detach_reaps_and_allows_clean_recreation() {
-    let manager = RunningManager::start(TEST_GRACE).await;
+async fn final_detach_keeps_the_session_running_for_reattach() {
+    let manager = RunningManager::start().await;
     let mut client = manager.connect().await;
-    let original = create_shell(&mut client, "leased", manager.root(), true).await;
+    let original = create_shell(&mut client, "detached", manager.root(), true).await;
 
-    detach(&mut client, "leased").await;
+    detach(&mut client, "detached").await;
     drop(client);
-    wait_for_no_sessions(&manager.socket_path).await;
-    wait_for_process_exit(original.pid).await;
+    tokio::time::sleep(FORMER_GRACE_WINDOW).await;
 
-    let mut recreated = manager.connect().await;
-    let attached = create_shell(&mut recreated, "leased", manager.root(), true).await;
-    assert!(attached.pid > 0);
+    assert!(
+        process_exists(original.pid),
+        "the last client letting go killed the session"
+    );
     let sessions = list_sessions(&manager.socket_path).await;
     assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0].clients.len(), 1);
-    assert_eq!(sessions[0].clients[0].id, attached.client_id);
-    manager.shutdown(&[attached.pid]).await;
-}
+    assert!(sessions[0].clients.is_empty());
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn leased_session_waits_for_final_of_two_clients() {
-    let manager = RunningManager::start(TEST_GRACE).await;
-    let mut first = manager.connect().await;
-    let original = create_shell(&mut first, "shared", manager.root(), true).await;
-    let mut second = manager.connect().await;
-    let attached = create_shell(&mut second, "shared", manager.root(), false).await;
+    // The point of keeping it: reattaching lands on the same process, not a fresh shell.
+    let mut reattached = manager.connect().await;
+    let attached = create_shell(&mut reattached, "detached", manager.root(), false).await;
     assert_eq!(attached.pid, original.pid);
-
-    detach(&mut first, "shared").await;
-    drop(first);
-    tokio::time::sleep(TEST_GRACE * 2).await;
-
-    let sessions = list_sessions(&manager.socket_path).await;
-    assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0].pid, original.pid);
-    assert_eq!(sessions[0].clients.len(), 1);
-    assert_eq!(sessions[0].clients[0].id, attached.client_id);
     manager.shutdown(&[original.pid]).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn leased_reattach_cancels_reap_and_later_detach_starts_fresh_grace() {
-    let grace = Duration::from_millis(150);
-    let manager = RunningManager::start(grace).await;
+async fn session_outlives_every_client_detaching() {
+    let manager = RunningManager::start().await;
     let mut first = manager.connect().await;
-    let original = create_shell(&mut first, "reconnect", manager.root(), true).await;
-    detach(&mut first, "reconnect").await;
-    drop(first);
-
-    tokio::time::sleep(Duration::from_millis(30)).await;
+    let original = create_shell(&mut first, "shared", manager.root(), true).await;
     let mut second = manager.connect().await;
-    let reattached = create_shell(&mut second, "reconnect", manager.root(), false).await;
-    assert_eq!(reattached.pid, original.pid);
+    assert_eq!(
+        create_shell(&mut second, "shared", manager.root(), false)
+            .await
+            .pid,
+        original.pid
+    );
 
-    tokio::time::sleep(grace * 2).await;
+    detach(&mut first, "shared").await;
+    drop(first);
+    detach(&mut second, "shared").await;
+    drop(second);
+    tokio::time::sleep(FORMER_GRACE_WINDOW).await;
+
     let sessions = list_sessions(&manager.socket_path).await;
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].pid, original.pid);
-
-    detach(&mut second, "reconnect").await;
-    drop(second);
-    wait_for_no_sessions(&manager.socket_path).await;
-    wait_for_process_exit(original.pid).await;
-    manager.shutdown(&[]).await;
+    assert!(sessions[0].clients.is_empty());
+    manager.shutdown(&[original.pid]).await;
 }
 
+/// A dropped connection is a transport fact, and the manager cannot tell one apart from a phone
+/// going into a pocket. It must not be an ending.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn dropped_socket_reaps_final_lease() {
-    let manager = RunningManager::start(TEST_GRACE).await;
+async fn dropped_socket_leaves_the_session_running() {
+    let manager = RunningManager::start().await;
     let mut client = manager.connect().await;
     let attached = create_shell(&mut client, "dropped", manager.root(), true).await;
 
     drop(client);
-    wait_for_no_sessions(&manager.socket_path).await;
-    wait_for_process_exit(attached.pid).await;
-    manager.shutdown(&[]).await;
+    tokio::time::sleep(FORMER_GRACE_WINDOW).await;
+
+    assert!(process_exists(attached.pid));
+    assert_eq!(list_sessions(&manager.socket_path).await.len(), 1);
+    manager.shutdown(&[attached.pid]).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn close_client_reaps_final_lease() {
-    let manager = RunningManager::start(TEST_GRACE).await;
+async fn close_client_leaves_the_session_running() {
+    let manager = RunningManager::start().await;
     let mut terminal = manager.connect().await;
     let attached = create_shell(&mut terminal, "closed", manager.root(), true).await;
 
@@ -108,79 +100,37 @@ async fn close_client_reaps_final_lease() {
             .await
             .expect("close final client");
     assert_eq!(closed, attached.client_id);
-    wait_for_no_sessions(&manager.socket_path).await;
-    wait_for_process_exit(attached.pid).await;
-    manager.shutdown(&[]).await;
+    tokio::time::sleep(FORMER_GRACE_WINDOW).await;
+
+    assert!(process_exists(attached.pid));
+    assert_eq!(list_sessions(&manager.socket_path).await.len(), 1);
+    manager.shutdown(&[attached.pid]).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn grace_expiry_broadcasts_empty_session_snapshot() {
-    let manager = RunningManager::start(TEST_GRACE).await;
-    let mut subscriber = pty_manager::client::subscribe_sessions(&manager.socket_path)
-        .await
-        .expect("subscribe sessions");
-    assert!(
-        pty_manager::client::receive_session_snapshot(&mut subscriber)
-            .await
-            .expect("initial snapshot")
-            .is_empty()
-    );
-
+async fn explicit_kill_ends_a_detached_session_immediately() {
+    let manager = RunningManager::start().await;
     let mut client = manager.connect().await;
-    let attached = create_shell(&mut client, "observed", manager.root(), true).await;
-    let created = pty_manager::client::receive_session_snapshot(&mut subscriber)
-        .await
-        .expect("created snapshot");
-    assert_eq!(created.len(), 1);
-    assert_eq!(created[0].clients.len(), 1);
-
-    detach(&mut client, "observed").await;
+    let original = create_shell(&mut client, "killed", manager.root(), true).await;
+    detach(&mut client, "killed").await;
     drop(client);
-    let detached = pty_manager::client::receive_session_snapshot(&mut subscriber)
-        .await
-        .expect("detached snapshot");
-    assert_eq!(detached.len(), 1);
-    assert!(detached[0].clients.is_empty());
-
-    let reaped = pty_manager::client::receive_session_snapshot(&mut subscriber)
-        .await
-        .expect("reaped snapshot");
-    assert!(reaped.is_empty());
-    wait_for_process_exit(attached.pid).await;
-    manager.shutdown(&[]).await;
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn explicit_kill_is_immediate_and_old_timer_cannot_kill_recreated_name() {
-    let grace = Duration::from_millis(150);
-    let manager = RunningManager::start(grace).await;
-    let mut first = manager.connect().await;
-    let original = create_shell(&mut first, "recreated", manager.root(), true).await;
-    detach(&mut first, "recreated").await;
-    drop(first);
 
     assert_eq!(
-        pty_manager::client::kill_session(&manager.socket_path, "recreated")
+        pty_manager::client::kill_session(&manager.socket_path, "killed")
             .await
-            .expect("kill detached leased session"),
+            .expect("kill detached session"),
         129
     );
     assert!(list_sessions(&manager.socket_path).await.is_empty());
     wait_for_process_exit(original.pid).await;
-
-    let mut second = manager.connect().await;
-    let recreated = create_shell(&mut second, "recreated", manager.root(), true).await;
-    tokio::time::sleep(grace * 2).await;
-    let sessions = list_sessions(&manager.socket_path).await;
-    assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0].pid, recreated.pid);
-    assert_eq!(sessions[0].clients.len(), 1);
-    manager.shutdown(&[recreated.pid]).await;
+    manager.shutdown(&[]).await;
 }
 
+/// The one reaper left. It fires off the process, not off client presence, so it works the same
+/// whether or not anyone is watching.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn natural_exit_clears_leased_session_state() {
-    let manager = RunningManager::start(TEST_GRACE).await;
+async fn natural_exit_clears_session_state() {
+    let manager = RunningManager::start().await;
     let mut client = manager.connect().await;
     send(
         &mut client,
@@ -193,7 +143,6 @@ async fn natural_exit_clears_leased_session_state() {
                     executable: "/bin/sh".to_owned(),
                     arguments: vec!["-c".to_owned(), "exit 7".to_owned()],
                 })),
-                lifetime: SessionLifetime::Leased as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: true,
@@ -212,12 +161,11 @@ async fn natural_exit_clears_leased_session_state() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn manager_shutdown_preserves_leased_child_in_vault() {
+async fn manager_shutdown_preserves_the_child_in_vault() {
     let tempdir = tempdir().expect("tempdir");
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(5),
     });
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     let manager_task = tokio::spawn(async move {
@@ -256,7 +204,6 @@ async fn manager_shutdown_preserves_leased_child_in_vault() {
                         marker.to_string_lossy().into_owned(),
                     ],
                 })),
-                lifetime: SessionLifetime::Leased as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: true,
@@ -265,7 +212,7 @@ async fn manager_shutdown_preserves_leased_child_in_vault() {
         ),
     )
     .await
-    .expect("queue racing leased creation");
+    .expect("queue racing session creation");
 
     shutdown_tx.send(()).expect("signal manager shutdown");
     tokio::time::timeout(Duration::from_secs(2), manager_task)
@@ -299,12 +246,11 @@ struct RunningManager {
 }
 
 impl RunningManager {
-    async fn start(leased_session_grace: Duration) -> Self {
+    async fn start() -> Self {
         let tempdir = tempdir().expect("tempdir");
         let socket_path = tempdir.path().join("terminal.sock");
         let manager = PtyManager::new(PtyManagerOptions {
             socket_path: socket_path.clone(),
-            leased_session_grace,
         });
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
         let task = tokio::spawn(async move {
@@ -334,7 +280,7 @@ impl RunningManager {
             .expect("connect client")
     }
 
-    async fn shutdown(mut self, leased_pids: &[u32]) {
+    async fn shutdown(mut self, surviving_pids: &[u32]) {
         if let Some(shutdown_tx) = self.shutdown_tx.take() {
             shutdown_tx.send(()).expect("signal manager shutdown");
         }
@@ -344,14 +290,14 @@ impl RunningManager {
                 .expect("manager shutdown timed out")
                 .expect("manager task failed");
         }
-        for pid in leased_pids {
+        for pid in surviving_pids {
             assert!(
                 process_exists(*pid),
-                "leased child {pid} did not survive manager shutdown"
+                "child {pid} did not survive manager shutdown"
             );
         }
         support::close_all_vault_sessions(&self.socket_path);
-        for pid in leased_pids {
+        for pid in surviving_pids {
             wait_for_process_exit(*pid).await;
         }
     }
@@ -381,7 +327,6 @@ async fn create_shell(
                     cwd: cwd.to_string_lossy().into_owned(),
                     shell: "/bin/sh".to_owned(),
                 })),
-                lifetime: SessionLifetime::Leased as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing,
@@ -390,7 +335,7 @@ async fn create_shell(
         ),
     )
     .await
-    .expect("create or attach leased session");
+    .expect("create or attach session");
     read_first_attached(framed, 1, session_name).await
 }
 
@@ -476,5 +421,5 @@ async fn wait_for_process_exit(pid: u32) {
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    panic!("leased child {pid} survived manager shutdown");
+    panic!("child {pid} did not exit");
 }

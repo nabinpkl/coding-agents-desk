@@ -181,7 +181,6 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
                 executable: "/bin/bash",
                 arguments: ["--noprofile", "--norc"]
             ),
-            lifetime: .persistent,
             columns: 100,
             rows: 30,
             createIfMissing: true,
@@ -344,7 +343,6 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
         let slow = try await client.openSession(
             name: sessionName,
             launch: .shell(cwd: summary.cwd, shell: summary.shell),
-            lifetime: .persistent,
             columns: 1,
             rows: 1,
             createIfMissing: false,

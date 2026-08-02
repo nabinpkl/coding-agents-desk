@@ -74,7 +74,6 @@ private final class RemoteTerminalWorkspaceBackend: PtyTerminalWorkspaceBackend 
         return try await client.openSession(
             name: request.sessionName,
             launch: .shell(cwd: "", shell: ""),
-            lifetime: .persistent,
             columns: request.dimensions.columns,
             rows: request.dimensions.rows,
             createIfMissing: request.createIfMissing,

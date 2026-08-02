@@ -116,3 +116,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0075 | Load the agent feed by visible layer | accepted | 2026-07-24 |
 | ADR-0076 | Let the Mac host own shared voice recordings and analysis | accepted | 2026-07-27 |
 | ADR-0077 | Build the workspace IDE surface on Vite, TypeScript and Tailwind, and defer React | accepted | 2026-07-27 |
+| ADR-0078 | A PTY session lives as long as its process, and only an explicit act ends it | accepted | 2026-07-27 |

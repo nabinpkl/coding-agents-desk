@@ -897,10 +897,6 @@ enum Config {
     }
     static let ptyManagerResourceName = "pty-manager"
     static let ptyVaultResourceName = "pty-vault"
-    static let ptyLeasedSessionGraceSeconds = positiveInt(
-        environmentKey: "AGENTDESK_PTY_LEASED_SESSION_GRACE_SECONDS",
-        defaultValue: 30
-    )
     static let ptyRuntimePeerTimeoutSeconds = positiveDouble(
         environmentKey: "AGENTDESK_PTY_RUNTIME_PEER_TIMEOUT_SECONDS",
         defaultValue: 5

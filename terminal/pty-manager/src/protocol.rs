@@ -14,7 +14,7 @@ pub use generated::envelope::Payload;
 pub use generated::{
     Attached, ClientDetached, ClientSummary, CloseClient, CommandLaunch, CreateOrAttach, Detach,
     Envelope, Error, Hello, Input, KillSession, ListSessions, Output, RequestTerminalCheckpoint,
-    SessionExited, SessionLifetime, SessionList, SessionSnapshot, SessionState, SessionSummary,
+    SessionExited, SessionList, SessionSnapshot, SessionState, SessionSummary,
     ShellLaunch, SubscribeSessions, TerminalCheckpointBegin, TerminalCheckpointChunk,
     TerminalCheckpointEnd, TerminalViewerState, TerminalViewportStatus,
 };

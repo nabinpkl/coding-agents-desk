@@ -26,11 +26,10 @@ async fn main() -> anyhow::Result<()> {
             println!("{}", session.name);
         } else {
             println!(
-                "{}\tpid={}\tclients={}\tlifetime={:?}\tcwd={}\tshell={}",
+                "{}\tpid={}\tclients={}\tcwd={}\tshell={}",
                 session.name,
                 session.pid,
                 session.clients.len(),
-                session.lifetime(),
                 session.cwd,
                 session.shell
             );

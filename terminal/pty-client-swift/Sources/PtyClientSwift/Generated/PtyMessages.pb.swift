@@ -44,7 +44,7 @@ nonisolated extension Pty_V1_Hello: SwiftProtobuf.Message, SwiftProtobuf._Messag
 
 nonisolated extension Pty_V1_CreateOrAttach: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".CreateOrAttach"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}shell_launch\0\u{3}command_launch\0\u{1}columns\0\u{1}rows\0\u{3}create_if_missing\0\u{3}client_title\0\u{1}lifetime\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}shell_launch\0\u{3}command_launch\0\u{1}columns\0\u{1}rows\0\u{3}create_if_missing\0\u{3}client_title\0\u{c}\u{7}\u{1}")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -82,7 +82,6 @@ nonisolated extension Pty_V1_CreateOrAttach: SwiftProtobuf.Message, SwiftProtobu
       case 4: try { try decoder.decodeSingularUInt32Field(value: &self.rows) }()
       case 5: try { try decoder.decodeSingularBoolField(value: &self.createIfMissing) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.clientTitle) }()
-      case 7: try { try decoder.decodeSingularEnumField(value: &self.lifetime) }()
       default: break
       }
     }
@@ -116,9 +115,6 @@ nonisolated extension Pty_V1_CreateOrAttach: SwiftProtobuf.Message, SwiftProtobu
     if !self.clientTitle.isEmpty {
       try visitor.visitSingularStringField(value: self.clientTitle, fieldNumber: 6)
     }
-    if self.lifetime != .unspecified {
-      try visitor.visitSingularEnumField(value: self.lifetime, fieldNumber: 7)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -128,7 +124,6 @@ nonisolated extension Pty_V1_CreateOrAttach: SwiftProtobuf.Message, SwiftProtobu
     if lhs.rows != rhs.rows {return false}
     if lhs.createIfMissing != rhs.createIfMissing {return false}
     if lhs.clientTitle != rhs.clientTitle {return false}
-    if lhs.lifetime != rhs.lifetime {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -753,7 +748,7 @@ nonisolated extension Pty_V1_SessionSnapshot: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".SessionSummary"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}cwd\0\u{1}shell\0\u{1}pid\0\u{1}state\0\u{1}clients\0\u{1}lifetime\0\u{3}started_at_unix_milliseconds\0\u{1}columns\0\u{1}rows\0\u{1}revision\0\u{3}owner_client_id\0\u{3}ownership_epoch\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{1}cwd\0\u{1}shell\0\u{1}pid\0\u{1}state\0\u{1}clients\0\u{4}\u{2}started_at_unix_milliseconds\0\u{1}columns\0\u{1}rows\0\u{1}revision\0\u{3}owner_client_id\0\u{3}ownership_epoch\0\u{c}\u{7}\u{1}")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -767,7 +762,6 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
       case 4: try { try decoder.decodeSingularUInt32Field(value: &self.pid) }()
       case 5: try { try decoder.decodeSingularEnumField(value: &self.state) }()
       case 6: try { try decoder.decodeRepeatedMessageField(value: &self.clients) }()
-      case 7: try { try decoder.decodeSingularEnumField(value: &self.lifetime) }()
       case 8: try { try decoder.decodeSingularUInt64Field(value: &self.startedAtUnixMilliseconds) }()
       case 9: try { try decoder.decodeSingularUInt32Field(value: &self.columns) }()
       case 10: try { try decoder.decodeSingularUInt32Field(value: &self.rows) }()
@@ -798,9 +792,6 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
     if !self.clients.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.clients, fieldNumber: 6)
     }
-    if self.lifetime != .unspecified {
-      try visitor.visitSingularEnumField(value: self.lifetime, fieldNumber: 7)
-    }
     if self.startedAtUnixMilliseconds != 0 {
       try visitor.visitSingularUInt64Field(value: self.startedAtUnixMilliseconds, fieldNumber: 8)
     }
@@ -829,7 +820,6 @@ nonisolated extension Pty_V1_SessionSummary: SwiftProtobuf.Message, SwiftProtobu
     if lhs.pid != rhs.pid {return false}
     if lhs.state != rhs.state {return false}
     if lhs.clients != rhs.clients {return false}
-    if lhs.lifetime != rhs.lifetime {return false}
     if lhs.startedAtUnixMilliseconds != rhs.startedAtUnixMilliseconds {return false}
     if lhs.columns != rhs.columns {return false}
     if lhs.rows != rhs.rows {return false}

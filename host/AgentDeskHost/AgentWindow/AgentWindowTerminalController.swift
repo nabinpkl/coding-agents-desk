@@ -124,7 +124,6 @@ protocol AgentWindowPtyClientRouting: AnyObject {
     func openSession(
         name: String,
         launch: PtySessionLaunch,
-        lifetime: PtySessionLifetime,
         columns: UInt32,
         rows: UInt32,
         createIfMissing: Bool,
@@ -147,7 +146,6 @@ private final class LiveAgentWindowPtyClientRouter: AgentWindowPtyClientRouting 
     func openSession(
         name: String,
         launch: PtySessionLaunch,
-        lifetime: PtySessionLifetime,
         columns: UInt32,
         rows: UInt32,
         createIfMissing: Bool,
@@ -156,7 +154,6 @@ private final class LiveAgentWindowPtyClientRouter: AgentWindowPtyClientRouting 
         let connection = try await client.openSession(
             name: name,
             launch: launch,
-            lifetime: lifetime,
             columns: columns,
             rows: rows,
             createIfMissing: createIfMissing,
@@ -200,15 +197,14 @@ final class PtyClientAgentWindowTerminalAttacher: AgentWindowTerminalAttaching {
         rows: UInt32
     ) async throws -> any PtyTerminalConnection {
         let sessions = try await client.listSessions()
-        guard let session = sessions.first(where: { $0.name == sessionName }),
-              session.state == .running,
-              session.lifetime == .leased else {
+        guard AgentResumeTerminalIdentity.owns(sessionName: sessionName),
+              let session = sessions.first(where: { $0.name == sessionName }),
+              session.state == .running else {
             throw AgentWindowTerminalAttachError.sessionUnavailable
         }
         let opened = try await client.openSession(
             name: sessionName,
             launch: .shell(cwd: session.cwd, shell: session.shell),
-            lifetime: .leased,
             columns: columns,
             rows: rows,
             createIfMissing: false,

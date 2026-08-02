@@ -36,7 +36,6 @@ extension QuicSessionClientTransport: WorkspaceTerminalCoordinating, WorkspaceTe
         return try await client.openSession(
             name: request.sessionName,
             launch: .shell(cwd: "", shell: ""),
-            lifetime: .persistent,
             columns: request.columns,
             rows: request.rows,
             createIfMissing: false,

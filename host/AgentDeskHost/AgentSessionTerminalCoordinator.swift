@@ -213,9 +213,9 @@ actor AgentSessionTerminalCoordinator {
             let existing = sessions.first { $0.name == name }
 
             if let existing {
-                guard existing.state == .running, existing.lifetime == .leased else {
+                guard existing.state == .running else {
                     throw AgentSessionTerminalCoordinatorError.launchFailed(
-                        "deterministic PTY exists with incompatible state or lifetime"
+                        "deterministic PTY exists with incompatible state"
                     )
                 }
                 sawExistingPanelSession = true
@@ -231,7 +231,6 @@ actor AgentSessionTerminalCoordinator {
             lease = try await ptyClient.openSession(
                 name: name,
                 launch: launch.ptyLaunch,
-                lifetime: .leased,
                 columns: PtyTerminalDimensions.bootstrap.columns,
                 rows: PtyTerminalDimensions.bootstrap.rows,
                 createIfMissing: existing == nil,

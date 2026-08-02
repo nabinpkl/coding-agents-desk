@@ -14,7 +14,6 @@ async fn pty_client_exits_when_child_session_exits_with_stdin_open() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;

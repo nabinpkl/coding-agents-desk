@@ -11,7 +11,7 @@ enum AgentResumeValidationError: Error, Equatable, Sendable {
 }
 
 struct AgentResumeTerminalIdentity: Equatable, Sendable {
-    enum Source: String, Equatable, Sendable {
+    enum Source: String, Equatable, Sendable, CaseIterable {
         case claude
         case codex
     }
@@ -67,6 +67,20 @@ struct AgentResumeTerminalIdentity: Equatable, Sendable {
         harnessSessionID = canonicalSessionID
         projectDirectory = canonicalProject
         ptySessionName = "agent-resume-\(source.rawValue)-\(canonicalSessionID)"
+    }
+
+    /// Whether a session name belongs to the agent-resume namespace at all. The workspace terminals
+    /// and the agent terminals share one PTY manager, so anything that attaches by name checks that
+    /// it is reaching into its own namespace first. This is the same guard
+    /// `WorkspaceTerminalIdentity.owns(sessionName:)` performs from the other side.
+    static func owns(sessionName: String) -> Bool {
+        for source in Source.allCases {
+            let prefix = "agent-resume-\(source.rawValue)-"
+            guard sessionName.hasPrefix(prefix) else { continue }
+            let suffix = String(sessionName.dropFirst(prefix.count))
+            return UUID(uuidString: suffix)?.uuidString.lowercased() == suffix
+        }
+        return false
     }
 
     private static func canonicalDirectory(_ url: URL) -> URL {

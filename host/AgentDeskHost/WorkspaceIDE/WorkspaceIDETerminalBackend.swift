@@ -77,15 +77,14 @@ final class WorkspaceIDETerminalBackend: PtyTerminalWorkspaceBackend {
         request: PtyTerminalOpenRequest
     ) async throws -> PtySessionConnection {
         let sessions = try await ptyClient.listSessions()
-        guard let session = sessions.first(where: { $0.name == ready.ptySessionName }),
-              session.state == .running,
-              session.lifetime == .persistent else {
+        guard identity.owns(sessionName: ready.ptySessionName),
+              let session = sessions.first(where: { $0.name == ready.ptySessionName }),
+              session.state == .running else {
             throw WorkspaceIDETerminalError.sessionUnavailable
         }
         let connection = try await ptyClient.openSession(
             name: session.name,
             launch: .shell(cwd: session.cwd, shell: session.shell),
-            lifetime: .persistent,
             columns: max(request.dimensions.columns, 1),
             rows: max(request.dimensions.rows, 1),
             createIfMissing: false,

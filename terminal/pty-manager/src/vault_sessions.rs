@@ -73,7 +73,6 @@ pub(super) fn create_session(
         started_at_unix_milliseconds: unix_time_milliseconds(),
         columns: u32::from(columns),
         rows: u32::from(rows),
-        lifetime: request.lifetime,
         exited: false,
         exit_status: 0,
     };

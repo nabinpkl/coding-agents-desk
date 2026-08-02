@@ -122,10 +122,11 @@ struct WorkspaceTerminalCoordinatorTests {
         let harness = try await Harness.make()
         defer { harness.cleanup() }
         let identity = WorkspaceTerminalIdentity(workspaceID: harness.workspaceID)
+        // Right namespace, wrong root: a workspace's session is only reusable for that workspace,
+        // so this one is skipped and a fresh shell is launched at the host's workspace root.
         await harness.pty.seed(
             name: identity.makeSessionName(id: UUID(uuidString: "44444444-4444-4444-8444-444444444444")!),
-            cwd: harness.root.path,
-            lifetime: .leased,
+            cwd: "/tmp/some-other-workspace-root",
             startedAt: 100
         )
 
@@ -133,7 +134,6 @@ struct WorkspaceTerminalCoordinatorTests {
         #expect(identity.owns(sessionName: ready.ptySessionName))
         let call = try #require(await harness.pty.openCalls.first)
         #expect(call.createIfMissing)
-        #expect(call.lifetime == .persistent)
         #expect(call.launch == .shell(cwd: harness.root.path, shell: "/bin/zsh"))
     }
 
@@ -254,7 +254,6 @@ private final class Harness: @unchecked Sendable {
         try await pty.openSession(
             name: name,
             launch: .shell(cwd: root.path, shell: "/bin/zsh"),
-            lifetime: .persistent,
             columns: 100,
             rows: 30,
             createIfMissing: false,
@@ -285,7 +284,6 @@ private actor FakeWorkspaceTerminalPtyClient: AgentSessionTerminalPtyClient {
     struct OpenCall: Equatable, Sendable {
         let name: String
         let launch: PtySessionLaunch
-        let lifetime: PtySessionLifetime
         let createIfMissing: Bool
     }
 
@@ -294,7 +292,6 @@ private actor FakeWorkspaceTerminalPtyClient: AgentSessionTerminalPtyClient {
         let cwd: String
         let shell: String
         let pid: UInt32
-        let lifetime: PtySessionLifetime
         let startedAt: UInt64
         var clients: [PtySessionClientSummary]
 
@@ -305,7 +302,6 @@ private actor FakeWorkspaceTerminalPtyClient: AgentSessionTerminalPtyClient {
                 shell: shell,
                 pid: pid,
                 state: .running,
-                lifetime: lifetime,
                 startedAtUnixMilliseconds: startedAt,
                 clients: clients
             )
@@ -322,7 +318,6 @@ private actor FakeWorkspaceTerminalPtyClient: AgentSessionTerminalPtyClient {
     func seed(
         name: String,
         cwd: String,
-        lifetime: PtySessionLifetime = .persistent,
         startedAt: UInt64
     ) {
         sessions[name] = Session(
@@ -330,7 +325,6 @@ private actor FakeWorkspaceTerminalPtyClient: AgentSessionTerminalPtyClient {
             cwd: cwd,
             shell: "/bin/zsh",
             pid: nextPID,
-            lifetime: lifetime,
             startedAt: startedAt,
             clients: []
         )
@@ -344,7 +338,6 @@ private actor FakeWorkspaceTerminalPtyClient: AgentSessionTerminalPtyClient {
     func openSession(
         name: String,
         launch: PtySessionLaunch,
-        lifetime: PtySessionLifetime,
         columns: UInt32,
         rows: UInt32,
         createIfMissing: Bool,
@@ -353,7 +346,6 @@ private actor FakeWorkspaceTerminalPtyClient: AgentSessionTerminalPtyClient {
         openCalls.append(OpenCall(
             name: name,
             launch: launch,
-            lifetime: lifetime,
             createIfMissing: createIfMissing
         ))
         if sessions[name] == nil {
@@ -364,7 +356,6 @@ private actor FakeWorkspaceTerminalPtyClient: AgentSessionTerminalPtyClient {
                 cwd: cwd,
                 shell: shell,
                 pid: nextPID,
-                lifetime: lifetime,
                 startedAt: 1_000,
                 clients: []
             )

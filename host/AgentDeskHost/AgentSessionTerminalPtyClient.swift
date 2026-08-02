@@ -23,7 +23,6 @@ protocol AgentSessionTerminalPtyClient: Sendable {
     func openSession(
         name: String,
         launch: PtySessionLaunch,
-        lifetime: PtySessionLifetime,
         columns: UInt32,
         rows: UInt32,
         createIfMissing: Bool,
@@ -42,7 +41,6 @@ struct PtyClientAgentSessionTerminalAdapter: AgentSessionTerminalPtyClient, @unc
     func openSession(
         name: String,
         launch: PtySessionLaunch,
-        lifetime: PtySessionLifetime,
         columns: UInt32,
         rows: UInt32,
         createIfMissing: Bool,
@@ -51,7 +49,6 @@ struct PtyClientAgentSessionTerminalAdapter: AgentSessionTerminalPtyClient, @unc
         let connection = try await client.openSession(
             name: name,
             launch: launch,
-            lifetime: lifetime,
             columns: columns,
             rows: rows,
             createIfMissing: createIfMissing,

@@ -60,7 +60,6 @@ impl VaultClient {
         launch: VaultLaunch,
         columns: u16,
         rows: u16,
-        lifetime: i32,
     ) -> Result<VaultLease> {
         let launch = match launch {
             VaultLaunch::Shell { cwd, shell } => {
@@ -81,7 +80,6 @@ impl VaultClient {
                 name: name.to_owned(),
                 columns: u32::from(columns),
                 rows: u32::from(rows),
-                lifetime,
                 launch: Some(launch),
             }))?;
         lease_response(response, descriptor)

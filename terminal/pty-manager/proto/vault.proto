@@ -35,7 +35,7 @@ message CreateSession {
   string name = 1;
   uint32 columns = 2;
   uint32 rows = 3;
-  int32 lifetime = 4;
+  reserved 4;  // was int32 lifetime
 
   oneof launch {
     ShellLaunch shell_launch = 10;
@@ -105,7 +105,7 @@ message Session {
   uint64 started_at_unix_milliseconds = 7;
   uint32 columns = 8;
   uint32 rows = 9;
-  int32 lifetime = 10;
+  reserved 10;  // was int32 lifetime
   bool exited = 11;
   int32 exit_status = 12;
 }

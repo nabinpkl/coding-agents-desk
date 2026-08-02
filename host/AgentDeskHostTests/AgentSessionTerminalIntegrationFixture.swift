@@ -12,7 +12,7 @@ struct AgentTerminalFixtureInvocation: Equatable {
 }
 
 final class RealAgentTerminalIntegrationFixture: @unchecked Sendable {
-    private static let leaseGraceSeconds = 1
+    private static let formerGraceSeconds = 1
     private static let claudeSessionID = "11111111-1111-4111-8111-111111111111"
     private static let codexSessionID = "22222222-2222-4222-8222-222222222222"
 
@@ -121,7 +121,6 @@ final class RealAgentTerminalIntegrationFixture: @unchecked Sendable {
         process.executableURL = managerBinaryURL
         process.arguments = HostPtyRuntimeProcess.managerLaunchArguments(
             socketURL: socketURL,
-            leasedSessionGraceSeconds: Self.leaseGraceSeconds
         )
         process.environment = environment
         process.standardOutput = logHandle
@@ -164,7 +163,6 @@ final class RealAgentTerminalIntegrationFixture: @unchecked Sendable {
         return try await client.openSession(
             name: ready.ptySessionName,
             launch: launch.ptyLaunch,
-            lifetime: .leased,
             columns: 80,
             rows: 24,
             createIfMissing: false,
@@ -192,23 +190,21 @@ final class RealAgentTerminalIntegrationFixture: @unchecked Sendable {
         }
     }
 
-    func waitBeyondGrace() async throws {
-        try await Task.sleep(for: .milliseconds((Self.leaseGraceSeconds * 1_000) + 250))
-    }
-
-    func waitInsideGrace() async throws {
-        try await Task.sleep(for: .milliseconds(250))
+    /// Comfortably past the reap grace this manager used to run, so a session that would have been
+    /// killed for having no clients has had every chance to die before the assertion.
+    func waitPastFormerGrace() async throws {
+        try await Task.sleep(for: .milliseconds((Self.formerGraceSeconds * 1_000) + 250))
     }
 
     func expectRunning(sessionName: String, pid: UInt32) async throws {
         guard let session = try await session(named: sessionName) else {
-            throw IntegrationFixtureError("session \(sessionName) was reaped while leased")
+            throw IntegrationFixtureError("session \(sessionName) was reaped instead of left running")
         }
-        guard session.pid == pid, session.state == .running, session.lifetime == .leased else {
-            throw IntegrationFixtureError("session \(sessionName) changed identity or lifetime")
+        guard session.pid == pid, session.state == .running else {
+            throw IntegrationFixtureError("session \(sessionName) changed identity or stopped running")
         }
         guard processExists(pid) else {
-            throw IntegrationFixtureError("leased child \(pid) is not running")
+            throw IntegrationFixtureError("agent child \(pid) is not running")
         }
     }
 
@@ -219,7 +215,7 @@ final class RealAgentTerminalIntegrationFixture: @unchecked Sendable {
     }
 
     func waitForProcessExit(_ pid: UInt32) async throws {
-        try await waitUntil("leased child \(pid) survived cleanup") {
+        try await waitUntil("agent child \(pid) survived cleanup") {
             !self.processExists(pid)
         }
         _ = childLock.withLock { knownChildPIDs.remove(pid) }

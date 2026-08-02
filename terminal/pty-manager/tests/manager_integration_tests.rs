@@ -4,7 +4,7 @@ use std::time::Duration;
 use pty_manager::manager::{PtyManager, PtyManagerOptions};
 use pty_manager::protocol::{
     self, create_or_attach, Attached, CommandLaunch, CreateOrAttach, Input, ListSessions, Payload,
-    SessionLifetime, ShellLaunch, TerminalViewerState,
+    ShellLaunch, TerminalViewerState,
 };
 use pty_manager::transport::{receive, send};
 use tempfile::tempdir;
@@ -18,7 +18,6 @@ async fn resize_updates_child_pty_size() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -68,7 +67,6 @@ async fn spawned_session_reports_terminal_environment() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -102,7 +100,6 @@ async fn spawned_session_uses_login_interactive_shell() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -143,7 +140,6 @@ async fn spawned_session_uses_delete_as_erase_key() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -177,7 +173,6 @@ async fn command_launch_preserves_exact_arguments_and_terminal_environment() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -208,7 +203,6 @@ async fn command_launch_preserves_exact_arguments_and_terminal_environment() {
                     executable: executable.to_string_lossy().into_owned(),
                     arguments,
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
                 columns: 93,
                 rows: 31,
                 create_if_missing: true,
@@ -250,7 +244,6 @@ async fn command_launch_summary_identifies_direct_executable() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -273,7 +266,6 @@ async fn command_launch_summary_identifies_direct_executable() {
                     executable: executable.to_string_lossy().into_owned(),
                     arguments: vec!["--wait-for-input".to_owned()],
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: true,
@@ -303,7 +295,6 @@ async fn command_launch_summary_identifies_direct_executable() {
         .expect("command session summary");
     assert_eq!(summary.cwd, tempdir.path().to_string_lossy());
     assert_eq!(summary.shell, executable.to_string_lossy());
-    assert_eq!(summary.lifetime(), SessionLifetime::Persistent);
 
     send(
         &mut client,
@@ -328,7 +319,6 @@ async fn command_launch_rejects_empty_executable() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -347,7 +337,6 @@ async fn command_launch_rejects_empty_executable() {
                     executable: String::new(),
                     arguments: vec!["ignored".to_owned()],
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: true,
@@ -372,12 +361,11 @@ async fn command_launch_rejects_empty_executable() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn attach_ignores_launch_and_cannot_change_original_lifetime() {
+async fn attach_ignores_launch_and_joins_the_original_session() {
     let tempdir = tempdir().expect("tempdir");
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -402,7 +390,6 @@ async fn attach_ignores_launch_and_cannot_change_original_lifetime() {
                     executable: "/ignored/executable".to_owned(),
                     arguments: vec!["ignored argument".to_owned()],
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
                 columns: 100,
                 rows: 30,
                 create_if_missing: false,
@@ -424,47 +411,6 @@ async fn attach_ignores_launch_and_cannot_change_original_lifetime() {
     .expect("list sessions after attach");
     read_session_list_without_duplicate_attach(&mut matching_attach, 20).await;
 
-    let mut mismatched_attach = pty_manager::client::connect(&socket_path)
-        .await
-        .expect("connect mismatched attach");
-    send(
-        &mut mismatched_attach,
-        &protocol::envelope(
-            3,
-            "main",
-            Payload::CreateOrAttach(CreateOrAttach {
-                launch: Some(create_or_attach::Launch::ShellLaunch(ShellLaunch {
-                    cwd: tempdir.path().to_string_lossy().into_owned(),
-                    shell: "/bin/sh".to_owned(),
-                })),
-                lifetime: SessionLifetime::Leased as i32,
-                columns: 80,
-                rows: 24,
-                create_if_missing: false,
-                client_title: "mismatched attach".to_owned(),
-            }),
-        ),
-    )
-    .await
-    .expect("send mismatched attach");
-    let mismatch = receive(&mut mismatched_attach)
-        .await
-        .expect("receive mismatch")
-        .expect("mismatch frame");
-    match protocol::payload(mismatch).expect("mismatch payload") {
-        Payload::Error(error) => assert!(error.message.contains("lifetime"), "{}", error.message),
-        other => panic!("expected lifetime error, got {other:?}"),
-    }
-
-    send(
-        &mut creator,
-        &protocol::envelope(4, "", Payload::ListSessions(ListSessions {})),
-    )
-    .await
-    .expect("list sessions");
-    let list = read_session_list_without_duplicate_attach(&mut creator, 4).await;
-    assert_eq!(list.sessions[0].lifetime(), SessionLifetime::Persistent);
-
     manager_task.abort();
 }
 
@@ -474,7 +420,6 @@ async fn viewer_state_for_missing_session_returns_error() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -538,7 +483,6 @@ async fn send_create(
                     cwd: cwd.to_string_lossy().into_owned(),
                     shell: "/bin/sh".to_owned(),
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: true,

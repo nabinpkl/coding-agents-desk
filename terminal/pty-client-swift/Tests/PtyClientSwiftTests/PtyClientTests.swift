@@ -13,7 +13,6 @@ final class PtyClientTests: XCTestCase {
                     $0.shell = "/bin/zsh"
                     $0.pid = 42
                     $0.state = .running
-                    $0.lifetime = .persistent
                     $0.startedAtUnixMilliseconds = 1_721_344_000_123
                     $0.columns = 80
                     $0.rows = 24
@@ -42,7 +41,6 @@ final class PtyClientTests: XCTestCase {
                 shell: "/bin/zsh",
                 pid: 42,
                 state: .running,
-                lifetime: .persistent,
                 startedAtUnixMilliseconds: 1_721_344_000_123,
                 clients: [
                     PtySessionClientSummary(id: 10, title: "first"),
@@ -63,7 +61,6 @@ final class PtyClientTests: XCTestCase {
                     $0.shell = "/bin/zsh"
                     $0.pid = 42
                     $0.state = .running
-                    $0.lifetime = .persistent
                 }]
             })
         }
@@ -95,7 +92,6 @@ final class PtyClientTests: XCTestCase {
         let connection = try await PtyClient(transport: transport).openSession(
             name: "main",
             launch: .shell(cwd: "/tmp/work", shell: "/bin/zsh"),
-            lifetime: .persistent,
             columns: 120,
             rows: 40,
             createIfMissing: false,
@@ -120,7 +116,6 @@ final class PtyClientTests: XCTestCase {
         }
         XCTAssertEqual(shell.cwd, "/tmp/work")
         XCTAssertEqual(shell.shell, "/bin/zsh")
-        XCTAssertEqual(request.lifetime, .persistent)
         XCTAssertEqual(request.columns, 120)
         XCTAssertEqual(request.rows, 40)
         XCTAssertFalse(request.createIfMissing)
@@ -149,7 +144,6 @@ final class PtyClientTests: XCTestCase {
                 executable: "/usr/local/bin/codex",
                 arguments: arguments
             ),
-            lifetime: .leased,
             columns: 100,
             rows: 30,
             createIfMissing: true,
@@ -164,7 +158,6 @@ final class PtyClientTests: XCTestCase {
         XCTAssertEqual(command.cwd, "/tmp/project with spaces")
         XCTAssertEqual(command.executable, "/usr/local/bin/codex")
         XCTAssertEqual(command.arguments, arguments)
-        XCTAssertEqual(request.lifetime, .leased)
     }
 
     func testSessionConnectionYieldsOutputAndExitEvents() async throws {

@@ -26,9 +26,8 @@ use crate::protocol::{
 };
 use crate::pty_manager_client_sessions::{
     broadcast_session_snapshot, close_client, create_or_attach, detach_client, handle_natural_exit,
-    kill_session, reap_session, remove_observer, request_checkpoint, retry_pending_client_state,
-    send_input, subscribe_sessions, update_viewer_state, PtyManagerState, ReapRequest,
-    ReapScheduler,
+    kill_session, remove_observer, request_checkpoint, retry_pending_client_state, send_input,
+    subscribe_sessions, update_viewer_state, PtyManagerState,
 };
 use crate::pty_session::PtyEvent;
 use crate::vault_client::VaultClient;
@@ -38,7 +37,6 @@ pub use crate::pty_manager_client_sessions::PtyManagerLimits;
 #[derive(Debug, Clone)]
 pub struct PtyManagerOptions {
     pub socket_path: PathBuf,
-    pub leased_session_grace: std::time::Duration,
 }
 
 impl PtyManagerOptions {
@@ -58,8 +56,6 @@ pub struct PtyManager {
     state: Arc<Mutex<PtyManagerState>>,
     events_tx: mpsc::Sender<PtyEvent>,
     events_rx: mpsc::Receiver<PtyEvent>,
-    reaper: ReapScheduler,
-    reap_rx: mpsc::Receiver<ReapRequest>,
     client_tasks: JoinSet<()>,
     handover_gate: Arc<RwLock<()>>,
     manager_generation: u64,
@@ -74,16 +70,12 @@ impl PtyManager {
 
     pub fn new_configured(options: PtyManagerConfiguredOptions) -> Self {
         let (events_tx, events_rx) = mpsc::channel(options.limits.pty_event_frames);
-        let (reap_tx, reap_rx) = mpsc::channel(64);
-        let reaper = ReapScheduler::new(options.base.leased_session_grace, reap_tx);
         let vault = VaultClient::new(options.base.socket_path.with_file_name("pty-vault.sock"));
         Self {
             options: options.base,
             state: Arc::new(Mutex::new(PtyManagerState::new(options.limits, vault))),
             events_tx,
             events_rx,
-            reaper,
-            reap_rx,
             client_tasks: JoinSet::new(),
             handover_gate: Arc::new(RwLock::new(())),
             manager_generation: 1,
@@ -163,7 +155,6 @@ impl PtyManager {
         {
             let mut state = self.state.lock().await;
             state.recover_vault_sessions(self.events_tx.clone())?;
-            state.schedule_unattached_leases(&self.reaper);
         }
         self.run_with_listeners(listener, handover_listener, shutdown, ready)
             .await
@@ -219,11 +210,6 @@ impl PtyManager {
                 }
                 Some(event) = self.events_rx.recv() => {
                     self.handle_pty_event(event).await;
-                }
-                Some(request) = self.reap_rx.recv() => {
-                    if reap_session(&self.state, request).await {
-                        broadcast_session_snapshot(&self.state).await;
-                    }
                 }
                 _ = resync_tick.tick() => {
                     retry_pending_client_state(&self.state).await;
@@ -319,10 +305,9 @@ impl PtyManager {
     fn spawn_client(&mut self, stream: UnixStream) {
         let state = self.state.clone();
         let events = self.events_tx.clone();
-        let reaper = self.reaper.clone();
         let handover_gate = self.handover_gate.clone();
         self.client_tasks.spawn(async move {
-            if let Err(error) = handle_client(stream, state, events, reaper, handover_gate).await {
+            if let Err(error) = handle_client(stream, state, events, handover_gate).await {
                 warn!(%error, "client connection ended with error");
             }
         });
@@ -412,7 +397,6 @@ async fn handle_client(
     stream: UnixStream,
     state: Arc<Mutex<PtyManagerState>>,
     events: mpsc::Sender<PtyEvent>,
-    reaper: ReapScheduler,
     handover_gate: Arc<RwLock<()>>,
 ) -> Result<()> {
     let client_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
@@ -540,7 +524,7 @@ async fn handle_client(
                 }
             }
             Payload::Detach(Detach {}) => {
-                match detach_client(&state, &reaper, client_id).await {
+                match detach_client(&state, client_id).await {
                     Ok(true) => broadcast_session_snapshot(&state).await,
                     Ok(false) => {}
                     Err(error) => {
@@ -584,7 +568,7 @@ async fn handle_client(
                 }
             }
             Payload::CloseClient(CloseClient { client_id }) => {
-                match close_client(&state, &reaper, &session_name, client_id).await {
+                match close_client(&state, &session_name, client_id).await {
                     Ok(()) => {
                         let _ = client_tx.try_send(protocol::envelope(
                             request_id,
@@ -627,7 +611,7 @@ async fn handle_client(
     }
 
     let _handover_guard = handover_gate.read().await;
-    let detached = match detach_client(&state, &reaper, client_id).await {
+    let detached = match detach_client(&state, client_id).await {
         Ok(detached) => detached,
         Err(error) => {
             warn!(client_id, %error, "failed to release terminal viewport during disconnect");

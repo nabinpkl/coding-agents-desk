@@ -4,7 +4,7 @@ use std::time::Duration;
 use pty_manager::manager::{PtyManager, PtyManagerOptions};
 use pty_manager::protocol::{
     self, create_or_attach, Attached, CreateOrAttach, Detach, Input, KillSession, Payload,
-    SessionExited, SessionLifetime, ShellLaunch,
+    SessionExited, ShellLaunch,
 };
 use pty_manager::transport::{receive, send};
 use tempfile::tempdir;
@@ -18,7 +18,6 @@ async fn persistent_final_detach_survives_grace_until_killed() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_millis(40),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -36,7 +35,6 @@ async fn persistent_final_detach_survives_grace_until_killed() {
                     cwd: tempdir.path().to_string_lossy().into_owned(),
                     shell: "/bin/sh".to_owned(),
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: true,
@@ -92,7 +90,6 @@ async fn persistent_final_detach_survives_grace_until_killed() {
                     cwd: tempdir.path().to_string_lossy().into_owned(),
                     shell: "/bin/sh".to_owned(),
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: true,
@@ -123,7 +120,6 @@ async fn session_subscriber_receives_snapshots_without_attaching() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -185,7 +181,6 @@ async fn dropped_session_subscriber_does_not_change_attached_clients() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -222,7 +217,6 @@ async fn close_client_detaches_only_target_and_keeps_session_running() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -246,7 +240,6 @@ async fn close_client_detaches_only_target_and_keeps_session_running() {
                     cwd: tempdir.path().to_string_lossy().into_owned(),
                     shell: "/bin/sh".to_owned(),
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: true,
@@ -305,7 +298,6 @@ async fn kill_session_detaches_attached_clients() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -349,7 +341,6 @@ async fn attach_without_create_fails_for_missing_session() {
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -367,7 +358,6 @@ async fn attach_without_create_fails_for_missing_session() {
                     cwd: tempdir.path().to_string_lossy().into_owned(),
                     shell: "/bin/sh".to_owned(),
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: false,
@@ -393,7 +383,6 @@ async fn late_client_replays_output_produced_with_no_clients_then_receives_conse
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -437,7 +426,6 @@ async fn late_client_replays_output_produced_with_no_clients_then_receives_conse
                     cwd: tempdir.path().to_string_lossy().into_owned(),
                     shell: "/bin/sh".to_owned(),
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
                 columns: 160,
                 rows: 60,
                 create_if_missing: false,
@@ -481,7 +469,6 @@ async fn owner_viewport_resize_advances_once_and_checkpoints_every_client_at_the
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -537,7 +524,6 @@ async fn viewer_claims_passive_reports_equal_size_transfer_and_fallback_are_seri
     let socket_path = tempdir.path().join("terminal.sock");
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -688,7 +674,6 @@ async fn send_create(
                     cwd: cwd.to_string_lossy().into_owned(),
                     shell: "/bin/sh".to_owned(),
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing: true,

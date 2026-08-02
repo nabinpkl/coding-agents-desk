@@ -11,7 +11,7 @@ use pty_manager::manager_handover_protocol::generated::{
 };
 use pty_manager::protocol::{
     self, create_or_attach, Attached, CommandLaunch, CreateOrAttach, Input, Payload,
-    RequestTerminalCheckpoint, SessionLifetime, TerminalViewerState, TerminalViewportStatus,
+    RequestTerminalCheckpoint, TerminalViewerState, TerminalViewportStatus,
 };
 use pty_manager::transport::{receive, send, TerminalFramed};
 use pty_manager::vault_client::VaultClient;
@@ -28,7 +28,6 @@ async fn manager_candidate_preserves_checkpoint_revision_pid_and_io() {
     support::ensure_vault_for_manager(&socket_path);
     let options = PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     };
     let old = PtyManager::new(options.clone());
     let old_task = tokio::spawn(async move { old.run().await });
@@ -168,7 +167,6 @@ async fn manager_candidate_preserves_busy_ordinary_shell_identity_and_exit() {
     support::ensure_vault_for_manager(&socket_path);
     let options = PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     };
     let old = PtyManager::new(options.clone());
     let old_task = tokio::spawn(async move { old.run().await });
@@ -249,13 +247,12 @@ async fn manager_candidate_preserves_busy_ordinary_shell_identity_and_exit() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn manager_handover_does_not_reap_transferred_leased_session() {
+async fn manager_handover_preserves_a_transferred_session_with_no_clients() {
     let root = tempdir().expect("tempdir");
     let socket_path = root.path().join("terminal.sock");
     support::ensure_vault_for_manager(&socket_path);
     let options = PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_millis(100),
     };
     let old = PtyManager::new(options.clone());
     let old_task = tokio::spawn(async move { old.run().await });
@@ -264,15 +261,7 @@ async fn manager_handover_does_not_reap_transferred_leased_session() {
     let mut old_client = pty_manager::client::connect(&socket_path)
         .await
         .expect("connect old manager");
-    send_session_with_lifetime(
-        &mut old_client,
-        1,
-        "leased",
-        root.path(),
-        true,
-        SessionLifetime::Leased,
-    )
-    .await;
+    send_session(&mut old_client, 1, "handed-over", root.path(), true).await;
     let before = read_attached(&mut old_client).await;
     let _ = read_checkpoint(&mut old_client).await;
     read_until_output(&mut old_client, "TUI:steady").await;
@@ -290,39 +279,31 @@ async fn manager_handover_does_not_reap_transferred_leased_session() {
     let vault = VaultClient::new(socket_path.with_file_name("pty-vault.sock"));
     let preserved = vault
         .list()
-        .expect("list vault after leased grace")
+        .expect("list vault after handover")
         .into_iter()
-        .find(|session| session.name == "leased")
-        .expect("handover must not reap transferred leased session");
+        .find(|session| session.name == "handed-over")
+        .expect("handover must preserve a transferred session");
     assert_eq!(preserved.pid, before.pid);
     assert!(process_exists(before.pid));
 
     let mut new_client = pty_manager::client::connect(&socket_path)
         .await
         .expect("connect candidate manager");
-    send_session_with_lifetime(
-        &mut new_client,
-        2,
-        "leased",
-        root.path(),
-        false,
-        SessionLifetime::Leased,
-    )
-    .await;
+    send_session(&mut new_client, 2, "handed-over", root.path(), false).await;
     assert_eq!(read_attached(&mut new_client).await.pid, before.pid);
     let _ = read_checkpoint(&mut new_client).await;
     send(
         &mut new_client,
         &protocol::envelope(
             3,
-            "leased",
+            "handed-over",
             Payload::Input(Input {
                 data: b"quit\n".to_vec(),
             }),
         ),
     )
     .await
-    .expect("quit preserved leased session");
+    .expect("quit preserved session");
     assert_eq!(read_exit(&mut new_client).await, 17);
 
     candidate_task.abort();
@@ -337,7 +318,6 @@ async fn failed_manager_candidate_resumes_old_reader_and_client() {
     support::ensure_vault_for_manager(&socket_path);
     let options = PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     };
     let manager = PtyManager::new(options);
     let manager_task = tokio::spawn(async move { manager.run().await });
@@ -417,7 +397,6 @@ async fn replacement_manager_recovers_live_vault_session_after_crash() {
     support::ensure_vault_for_manager(&socket_path);
     let options = PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     };
     let old = PtyManager::new(options.clone());
     let (old_shutdown_tx, old_shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -495,7 +474,6 @@ async fn live_manager_reseeds_replacement_vault_from_its_lease() {
     support::ensure_vault_for_manager(&socket_path);
     let manager = PtyManager::new(PtyManagerOptions {
         socket_path: socket_path.clone(),
-        leased_session_grace: Duration::from_secs(30),
     });
     let manager_task = tokio::spawn(async move { manager.run().await });
     wait_for_socket(&socket_path).await;
@@ -803,25 +781,6 @@ async fn send_session(
     cwd: &Path,
     create_if_missing: bool,
 ) {
-    send_session_with_lifetime(
-        framed,
-        request_id,
-        session_name,
-        cwd,
-        create_if_missing,
-        SessionLifetime::Persistent,
-    )
-    .await;
-}
-
-async fn send_session_with_lifetime(
-    framed: &mut TerminalFramed,
-    request_id: u64,
-    session_name: &str,
-    cwd: &Path,
-    create_if_missing: bool,
-    lifetime: SessionLifetime,
-) {
     send(
         framed,
         &protocol::envelope(
@@ -837,7 +796,6 @@ async fn send_session_with_lifetime(
                             .to_owned(),
                     ],
                 })),
-                lifetime: lifetime as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing,
@@ -871,7 +829,6 @@ async fn send_ordinary_shell_session(
                             .to_owned(),
                     ],
                 })),
-                lifetime: SessionLifetime::Persistent as i32,
                 columns: 80,
                 rows: 24,
                 create_if_missing,

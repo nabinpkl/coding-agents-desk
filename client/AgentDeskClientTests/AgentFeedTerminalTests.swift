@@ -51,7 +51,6 @@ struct AgentFeedTerminalTests {
         #expect(request.role == .terminal)
         #expect(request.sessionName == "agent-resume-claude-a4cdd7b8-3f9a-4d80-bc72-5f4aab6f39e1")
         #expect(request.launch == .shell(cwd: "", shell: ""))
-        #expect(request.lifetime == .leased)
         #expect(!request.createIfMissing)
     }
 

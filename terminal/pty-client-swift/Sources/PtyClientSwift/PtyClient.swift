@@ -76,7 +76,6 @@ public final class PtyClient: @unchecked Sendable {
     public func openSession(
         name: String,
         launch: PtySessionLaunch,
-        lifetime: PtySessionLifetime,
         columns: UInt32,
         rows: UInt32,
         createIfMissing: Bool = true,
@@ -90,7 +89,6 @@ public final class PtyClient: @unchecked Sendable {
                 $0.sessionName = name
                 $0.payload = .createOrAttach(.with {
                     $0.launch = launch.proto
-                    $0.lifetime = lifetime.proto
                     $0.columns = columns
                     $0.rows = rows
                     $0.createIfMissing = createIfMissing
@@ -190,7 +188,6 @@ private extension PtySessionSummary {
             shell: proto.shell,
             pid: proto.pid,
             state: .init(proto: proto.state),
-            lifetime: try .init(proto: proto.lifetime),
             startedAtUnixMilliseconds: proto.startedAtUnixMilliseconds,
             columns: proto.columns,
             rows: proto.rows,
