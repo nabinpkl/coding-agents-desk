@@ -1,5 +1,6 @@
 import AppKit
 import WorkspaceIDE
+import os
 
 @MainActor
 final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, WorkspaceIDEDelegate {
@@ -9,6 +10,13 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
     private let ideController: WorkspaceIDEController
     private let terminalController: WorkspaceIDEMacTerminalController
     private let ideContentView: WorkspaceIDEWindowContentView
+    private let windowPlacement: WorkspaceIDEWindowPlacementCoordinator
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-ide-window")
+    private var spaceObserver: NSObjectProtocol?
+    private var placementCaptureTask: Task<Void, Never>?
+    private var didAttemptPlacementRestore = false
+    private var isPreparingWindowPlacement = false
+    private var preserveUnresolvedPlacement = false
     private var isStopping = false
 
     init(
@@ -37,6 +45,11 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
             controller: ideController,
             terminalController: terminalController
         )
+        windowPlacement = WorkspaceIDEWindowPlacementCoordinator(
+            store: WorkspaceIDEWindowPlacementFileStore(url: Config.workspaceIDEWindowPlacementURL),
+            desktopAudit: HostWorkspaceDesktopAudit(),
+            mover: HostWorkspaceWindowSpaceMover()
+        )
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1_180, height: 760),
@@ -46,7 +59,9 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         )
         window.title = "Workspace IDE"
         window.minSize = NSSize(width: 720, height: 480)
-        window.collectionBehavior = [.moveToActiveSpace, .fullScreenPrimary]
+        // Normal single-Space behavior lets activation switch to this window's Desktop. The former
+        // `.moveToActiveSpace` did the opposite by dragging the IDE onto whichever Desktop was active.
+        window.collectionBehavior = [.fullScreenPrimary]
         window.isReleasedWhenClosed = false
         window.contentView = ideContentView
         // Naming the frame only tells AppKit where to *save* it; a code-created window (no nib)
@@ -60,6 +75,7 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         ideController.delegate = self
         terminalController.setZoomScale(ideController.currentLocalState.zoomScale)
         ideController.start()
+        observeSpaceChanges()
     }
 
     @available(*, unavailable)
@@ -74,15 +90,14 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
     /// takes focus out from under whatever you were doing is worse than no restore at all.
     func show(activating: Bool = true) {
         guard let window else { return }
-        showWindow(nil)
+        restorePlacementAndOrderFront(window)
         if activating {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
-        } else {
-            window.orderFront(nil)
         }
         terminalController.setWindowPresented(true)
         recordWindowVisible(true)
+        schedulePlacementCapture()
     }
 
     /// Whether the window was on screen when the host last quit. Read before the controller
@@ -94,7 +109,14 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
 
     func stop() {
         guard !isStopping else { return }
+        capturePlacementNow()
         isStopping = true
+        placementCaptureTask?.cancel()
+        placementCaptureTask = nil
+        if let spaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver)
+            self.spaceObserver = nil
+        }
         // Deliberately not recording visibility here: quitting closes the window, and treating
         // that as "the user closed it" would lose the very state this is meant to restore.
         terminalController.stop()
@@ -160,10 +182,22 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
 
     func windowDidEndLiveResize(_ notification: Notification) {
         terminalController.contentView.flushViewportResize()
+        schedulePlacementCapture()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
         terminalController.claimViewportOwnership()
+        schedulePlacementCapture()
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        schedulePlacementCapture()
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        guard !isPreparingWindowPlacement else { return }
+        preserveUnresolvedPlacement = false
+        schedulePlacementCapture()
     }
 
     func windowDidMiniaturize(_ notification: Notification) {
@@ -172,6 +206,89 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
 
     func windowDidDeminiaturize(_ notification: Notification) {
         terminalController.setWindowPresented(true)
+        schedulePlacementCapture()
+    }
+
+    private func restorePlacementAndOrderFront(_ window: NSWindow) {
+        guard !didAttemptPlacementRestore else {
+            window.orderFront(nil)
+            return
+        }
+        didAttemptPlacementRestore = true
+        isPreparingWindowPlacement = true
+        let priorAlpha = window.alphaValue
+        window.alphaValue = 0
+        window.orderFront(nil)
+
+        if let windowID = windowID(for: window) {
+            do {
+                _ = try windowPlacement.restore(windowID: windowID)
+                preserveUnresolvedPlacement = false
+            } catch {
+                // Keep the saved destination intact. The window remains usable on the current
+                // Desktop, and a deliberate move records a new destination later.
+                preserveUnresolvedPlacement = true
+                logger.error("Workspace IDE placement restore failed: \(String(describing: error), privacy: .public)")
+            }
+        } else {
+            preserveUnresolvedPlacement = true
+            logger.error("Workspace IDE placement restore skipped: AppKit returned no window number")
+        }
+
+        window.alphaValue = priorAlpha
+        window.orderFront(nil)
+        isPreparingWindowPlacement = false
+    }
+
+    private func observeSpaceChanges() {
+        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.schedulePlacementCapture()
+            }
+        }
+    }
+
+    private func schedulePlacementCapture() {
+        guard !isStopping,
+              !isPreparingWindowPlacement,
+              !preserveUnresolvedPlacement,
+              let window,
+              window.isVisible,
+              let windowID = windowID(for: window)
+        else { return }
+        placementCaptureTask?.cancel()
+        placementCaptureTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled, let self, !self.isStopping else { return }
+            self.capturePlacement(windowID: windowID)
+        }
+    }
+
+    private func capturePlacementNow() {
+        guard !isPreparingWindowPlacement,
+              !preserveUnresolvedPlacement,
+              let window,
+              window.isVisible,
+              let windowID = windowID(for: window)
+        else { return }
+        capturePlacement(windowID: windowID)
+    }
+
+    private func capturePlacement(windowID: UInt32) {
+        do {
+            _ = try windowPlacement.record(windowID: windowID)
+        } catch {
+            logger.error("Workspace IDE placement capture failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private func windowID(for window: NSWindow) -> UInt32? {
+        guard window.windowNumber > 0 else { return nil }
+        return UInt32(window.windowNumber)
     }
 
     private func addWorkspace() {

@@ -58,12 +58,14 @@ private struct SkyLight {
     // (ADR-0054) needs to know which Desktop each window lives on. Optional so a macOS build that
     // drops it degrades the enrichment to ungrouped rather than failing the whole binding.
     typealias CopySpacesForWindowsFn = @convention(c) (Int32, Int32, CFArray) -> CFArray?
+    typealias MoveWindowsToManagedSpaceFn = @convention(c) (Int32, CFArray, UInt64) -> Void
 
     let mainConnectionID: MainConnectionIDFn
     let getActiveSpace: GetActiveSpaceFn
     let copyManagedDisplaySpaces: CopyManagedDisplaySpacesFn
     let managedDisplaySetCurrentSpace: ManagedDisplaySetCurrentSpaceFn?
     let copySpacesForWindows: CopySpacesForWindowsFn?
+    let moveWindowsToManagedSpace: MoveWindowsToManagedSpaceFn?
     let registerConnectionNotifyProc: RegisterConnectionNotifyProcFn?
 
     static let shared: SkyLight? = {
@@ -78,6 +80,7 @@ private struct SkyLight {
         else { return nil }
         let setter = resolve("SLSManagedDisplaySetCurrentSpace", "CGSManagedDisplaySetCurrentSpace")
         let winSpaces = resolve("SLSCopySpacesForWindows", "CGSCopySpacesForWindows")
+        let moveWindows = resolve("SLSMoveWindowsToManagedSpace", "CGSMoveWindowsToManagedSpace")
         let registerNotify = resolve("SLSRegisterConnectionNotifyProc", "CGSRegisterConnectionNotifyProc")
         return SkyLight(
             mainConnectionID: unsafeBitCast(m1, to: MainConnectionIDFn.self),
@@ -89,11 +92,42 @@ private struct SkyLight {
             copySpacesForWindows: winSpaces.map {
                 unsafeBitCast($0, to: CopySpacesForWindowsFn.self)
             },
+            moveWindowsToManagedSpace: moveWindows.map {
+                unsafeBitCast($0, to: MoveWindowsToManagedSpaceFn.self)
+            },
             registerConnectionNotifyProc: registerNotify.map {
                 unsafeBitCast($0, to: RegisterConnectionNotifyProcFn.self)
             }
         )
     }()
+}
+
+/// App-owned window movement stays on the same isolated SkyLight binding as desktop switching and
+/// membership audit. The private move call is fire-and-verify; callers must check membership after it.
+struct HostWorkspaceWindowSpaceMover: WorkspaceWindowSpaceMoving {
+    func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {
+        guard let sl = SkyLight.shared, let moveWindowsToManagedSpace = sl.moveWindowsToManagedSpace else {
+            throw WorkspaceWindowSpaceMoveError.missingSymbols
+        }
+        let windows = [NSNumber(value: windowID)] as CFArray
+        moveWindowsToManagedSpace(sl.mainConnectionID(), windows, targetSpaceID)
+    }
+
+    func spaceIDs(for windowID: UInt32) throws -> [UInt64] {
+        guard let sl = SkyLight.shared, let copySpacesForWindows = sl.copySpacesForWindows else {
+            throw WorkspaceWindowSpaceMoveError.missingSymbols
+        }
+        let windows = [NSNumber(value: windowID)] as CFArray
+        let connectionID = sl.mainConnectionID()
+        guard let raw = copySpacesForWindows(connectionID, 7, windows),
+              let spaces = raw as? [NSNumber]
+        else {
+            throw WorkspaceWindowSpaceMoveError.unavailable(
+                "SLSCopySpacesForWindows returned no membership for window \(windowID)"
+            )
+        }
+        return spaces.map(\.uint64Value)
+    }
 }
 
 // MARK: - Dock-enrichment desktop/window audit (ADR-0054)
