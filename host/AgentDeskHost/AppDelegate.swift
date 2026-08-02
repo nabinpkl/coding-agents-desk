@@ -644,7 +644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// nothing, and the controller stays lazy until they ask for it.
     private func restoreWorkspaceIDEWindowIfPreviouslyOpen() {
         guard WorkspaceIDEWindowController.wasVisibleAtLastQuit else { return }
-        workspaceIDEWindow().show(activating: false)
+        workspaceIDEWindow().show()
     }
 
     private func workspaceIDEWindow() -> WorkspaceIDEWindowController {

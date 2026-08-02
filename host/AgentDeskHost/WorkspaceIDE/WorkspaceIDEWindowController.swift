@@ -59,9 +59,8 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         )
         window.title = "Workspace IDE"
         window.minSize = NSSize(width: 720, height: 480)
-        // An explicit IDE click reopens the hidden window on the Desktop where the click happened.
-        // Launch restoration overrides this below by moving the alpha-zero window to its saved Space.
-        window.collectionBehavior = [.moveToActiveSpace, .fullScreenPrimary]
+        // The IDE owns its saved Desktop. Opening it never follows the active Desktop or steals focus.
+        window.collectionBehavior = [.fullScreenPrimary]
         window.isReleasedWhenClosed = false
         window.contentView = ideContentView
         // Naming the frame only tells AppKit where to *save* it; a code-created window (no nib)
@@ -86,17 +85,9 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         if window.isVisible { hide() } else { show() }
     }
 
-    /// `activating` is false for the launch restore: the host starts at login, and a window that
-    /// takes focus out from under whatever you were doing is worse than no restore at all.
-    func show(activating: Bool = true) {
+    func show() {
         guard let window else { return }
-        if activating {
-            showWindow(nil)
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-        } else {
-            restorePlacementAndOrderFront(window)
-        }
+        restorePlacementAndOrderFront(window)
         terminalController.setWindowPresented(true)
         recordWindowVisible(true)
         schedulePlacementCapture()
@@ -219,10 +210,6 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         didAttemptPlacementRestore = true
         isPreparingWindowPlacement = true
         let priorAlpha = window.alphaValue
-        let priorCollectionBehavior = window.collectionBehavior
-        // `.moveToActiveSpace` is correct for an explicit IDE click, but would pull the window
-        // back off its restored Space when AppKit orders it during launch recovery.
-        window.collectionBehavior = priorCollectionBehavior.subtracting(.moveToActiveSpace)
         window.alphaValue = 0
         window.orderBack(nil)
         window.displayIfNeeded()
@@ -257,7 +244,6 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
             }
         }
         window.alphaValue = priorAlpha
-        window.collectionBehavior = priorCollectionBehavior
         isPreparingWindowPlacement = false
     }
 
