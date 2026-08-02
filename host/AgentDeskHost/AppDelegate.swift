@@ -312,7 +312,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startPtyManager()
         startAgentFeedSidecar()
         startVoiceEngineSidecar()
-        restoreWorkspaceIDEWindowIfPreviouslyOpen()
         if !ScreenCaptureKitFrameSource.hasScreenRecordingPermission() {
             ScreenCaptureKitFrameSource.requestScreenRecordingPermission()
         }
@@ -584,9 +583,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presenter.onOpenAgents = { [weak agentWindows] placement in
             agentWindows?.open(placement)
         }
-        // Put back the Agents windows the user was working in. Same launch contract as the IDE
-        // window: reopened where they were left, without taking focus from whatever is frontmost.
-        agentWindows.startRestoration()
         presenter.onIDECommand = { [weak self] in self?.toggleWorkspaceIDE() }
         presenter.onBrowserCommand = { [weak self] in self?.toggleBrowserProjection() }
 
@@ -898,6 +894,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startPtyManager() {
         guard let managerURL = Config.ptyManagerURL, let vaultURL = Config.ptyVaultURL else {
             signalingLogger.error("PTY runtime binaries not found in bundle")
+            restoreWorkspaceIDEWindowIfPreviouslyOpen()
             return
         }
         let process = HostPtyRuntimeProcess(
@@ -906,7 +903,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         ptyRuntimeProcess = process
         process.start()
-        terminalWindowRegistry.startRestoration()
+        startRestoresOnceRuntimeIsReady(process)
+    }
+
+    /// Everything that puts a terminal back on screen needs the PTY runtime to be answering, and
+    /// `process.start()` only queues the launch. Restoring ahead of it silently fails: the standalone
+    /// terminal windows retry, but an Agents window's resume failure used to clear the very
+    /// attachment it was restoring, so a cold launch lost the terminal for good.
+    ///
+    /// The IDE window is restored either way. Its terminal pane wants the runtime, but the window
+    /// itself is an editor the user left open, and a runtime that never came up is no reason to
+    /// withhold it.
+    private func startRestoresOnceRuntimeIsReady(_ runtime: HostPtyRuntimeProcess) {
+        Task { @MainActor [weak self] in
+            let isReady = await runtime.waitUntilReady()
+            guard let self else { return }
+            if isReady {
+                self.terminalWindowRegistry.startRestoration()
+                self.agentWindowRegistry?.startRestoration()
+            }
+            self.restoreWorkspaceIDEWindowIfPreviouslyOpen()
+        }
     }
 
     // Start the Chrome-fed native-messaging bridge and pipe its batches into the relay, but only

@@ -90,6 +90,28 @@ struct HostPtyRuntimeProcessTests {
         ) == .block(reason: "bundled PTY runtime digest could not be read"))
     }
 
+    /// A runtime that cannot launch has to settle its readiness rather than leave awaiting restores
+    /// parked forever; a launch-blocked host should come up without terminals, not hang.
+    @Test func blockedLaunchResolvesWaitersFalse() async {
+        let missing = URL(fileURLWithPath: "/tmp/agentdesk-nonexistent-pty-runtime")
+        let socketDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentdesk-readiness-\(UUID().uuidString)", isDirectory: true)
+        let process = HostPtyRuntimeProcess(
+            vaultBinaryURL: missing,
+            managerBinaryURL: missing,
+            vaultSocketURL: socketDirectory.appendingPathComponent("vault.sock"),
+            managerSocketURL: socketDirectory.appendingPathComponent("manager.sock"),
+            leasedSessionGraceSeconds: 30
+        )
+        process.start()
+
+        #expect(await process.waitUntilReady() == false)
+        // Settled state is remembered, so a later waiter answers immediately instead of re-waiting.
+        #expect(await process.waitUntilReady() == false)
+
+        try? FileManager.default.removeItem(at: socketDirectory)
+    }
+
     @Test func differentExecutablePathBlocksWithoutKilling() {
         let peer = HostPtyRuntimeSocketPeer(pid: 42, executablePath: "/tmp/other-manager")
         #expect(HostPtyRuntimeSocketVerifier.decide(

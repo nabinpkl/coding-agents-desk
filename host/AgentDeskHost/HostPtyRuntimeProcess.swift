@@ -61,6 +61,9 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal")
     private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).pty-runtime-process")
     private var processes: [Component: Process] = [:]
+    private let readinessLock = NSLock()
+    private var readiness: Bool?
+    private var readinessWaiters: [CheckedContinuation<Bool, Never>] = []
 
     init(
         vaultBinaryURL: URL,
@@ -112,7 +115,40 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
         }
     }
 
+    /// Resolves true once both components are verified up, false if the launch was blocked or threw.
+    /// `start()` returns immediately and does its work on a background queue, so anything that needs
+    /// to talk to the manager - every window restore - awaits this instead of racing the socket.
+    func waitUntilReady() async -> Bool {
+        await withCheckedContinuation { continuation in
+            readinessLock.lock()
+            if let readiness {
+                readinessLock.unlock()
+                continuation.resume(returning: readiness)
+                return
+            }
+            readinessWaiters.append(continuation)
+            readinessLock.unlock()
+        }
+    }
+
+    private func settleReadiness(_ ready: Bool) {
+        readinessLock.lock()
+        guard readiness == nil else {
+            readinessLock.unlock()
+            return
+        }
+        readiness = ready
+        let waiters = readinessWaiters
+        readinessWaiters.removeAll()
+        readinessLock.unlock()
+        for waiter in waiters { waiter.resume(returning: ready) }
+    }
+
     private func startOnQueue() {
+        settleReadiness(launchComponents())
+    }
+
+    private func launchComponents() -> Bool {
         do {
             try FileManager.default.createDirectory(
                 at: managerSocketURL.deletingLastPathComponent(),
@@ -129,7 +165,7 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
                         runtimeDigest: $2
                     )
                 }
-            ) else { return }
+            ) else { return false }
             guard try ensure(
                 component: .manager,
                 binaryURL: managerBinaryURL,
@@ -142,10 +178,12 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
                         runtimeDigest: $2
                     )
                 }
-            ) else { return }
+            ) else { return false }
             logger.notice("PTY runtime ready manager=\(self.managerSocketURL.path, privacy: .public) vault=\(self.vaultSocketURL.path, privacy: .public)")
+            return true
         } catch {
             logger.error("PTY runtime launch failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 
