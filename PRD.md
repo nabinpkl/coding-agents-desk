@@ -76,7 +76,7 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
 - **Not multi-user.** Single bearer token in Keychain. No accounts, no sharing.
 - **Not internet-routable.** Tailscale-only. No STUN, no TURN, no VPS, no relay.
 - **Not cross-platform.** macOS host and iOS client only. No Android, no web, no Windows host.
-- **No arbitrary filesystem or bulk file-transfer surface.** Files are exposed only through registered workspace roots. The iPhone file lane supports bounded UTF-8 browse, read, and revision-checked write operations, not downloads from unrelated host paths. Clipboard sync and remote audio remain out of scope. One host-local exception remains the push-to-talk dictation bar (ADR-0010).
+- **No arbitrary filesystem or bulk file-transfer surface.** Files are exposed only through registered workspace roots. The iPhone file lane supports bounded UTF-8 browse, read, and revision-checked write operations, not downloads from unrelated host paths. Clipboard sync and remote audio remain out of scope. One host-local exception remains the push-to-talk dictation bar (ADR-0079).
 - **No Chrome management surface.** Browser Projection does not create, close, reorder, pin, group, navigate, reload, resize, move, or focus Chrome windows. It selects only an existing projected window or an existing tab.
 - **No continuous client screenshot telemetry.** Paired-client screenshots are explicit, default-off,
   foreground-only debugging captures. There is no background capture, scheduled upload, client pixel

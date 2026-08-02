@@ -46,11 +46,27 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
 
     func show() {
         if window == nil {
-            build()
+            build(voiceFirst: false)
         }
         // orderFrontRegardless (not makeKeyAndOrderFront) so the LSUIElement app
         // never activates; the nonactivating panel can still become key.
         window?.orderFrontRegardless()
+    }
+
+    /// Opens the retained InteractionPanel on Voice and refreshes its host
+    /// recording library. A fresh window gets the view as document-start config;
+    /// a retained one receives the typed native delivery after it is surfaced.
+    func showVoice() {
+        let isFresh = window == nil
+        if isFresh {
+            build(voiceFirst: true)
+        }
+        window?.orderFrontRegardless()
+        if !isFresh {
+            panelController?.deliver(
+                rawJSON: #"{"type":"interactionView","payload":{"view":"voice","refreshRecordings":true}}"#
+            )
+        }
     }
 
     func stop() {
@@ -61,7 +77,7 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
         transport = nil
     }
 
-    private func build() {
+    private func build(voiceFirst: Bool) {
         let window = makeWindow()
         self.window = window
 
@@ -69,7 +85,7 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
             let transport = GesturePanelSpaceStepTransport(onSpaceStep: onSpaceStep)
             let controller = try InteractionPanelWebViewController(
                 transport: transport,
-                additionalUserScripts: [Self.makeHostConfigScript()]
+                additionalUserScripts: [InteractionPanelHostConfiguration.voiceConfigScript(voiceFirst: voiceFirst)]
             )
             self.transport = transport
             self.panelController = controller
@@ -85,30 +101,6 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
             logger.error("gesture-window: InteractionPanel init failed: \(String(describing: error), privacy: .public)")
             window.contentView = makeUnavailableView()
         }
-    }
-
-    /// Injects `window.__interactionConfig` before the bundle boots so the voice
-    /// tab reaches the host-owned sidecar's loopback WebSocket / REST. The port
-    /// is deterministic (Config.voiceSidecarPort), so this is injected whether or
-    /// not the sidecar is up yet — the webview retries the socket. Gesture ignores
-    /// this config entirely.
-    private static func makeHostConfigScript() -> WKUserScript {
-        let port = Config.voiceSidecarPort
-        let config: [String: Any] = [
-            "voiceTransport": "websocket",
-            "voiceWsUrl": "ws://127.0.0.1:\(port)/ws/voice?source=macos",
-            "apiBaseUrl": "http://127.0.0.1:\(port)",
-        ]
-        // JSONSerialization keeps the injected literal valid even if a value ever
-        // contains characters that would break a hand-built string.
-        let json =
-            (try? JSONSerialization.data(withJSONObject: config))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
-        return WKUserScript(
-            source: "window.__interactionConfig = \(json);",
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: true
-        )
     }
 
     private func makeWindow() -> NSWindow {

@@ -12,6 +12,18 @@ extension WebPanelContract {
         deliveryFunctionName: "__interactionDeliver",
         bridgeGlobalName: "__interactionBridge"
     )
+
+    /// The compact macOS all-Spaces dictation panel. It deliberately uses the
+    /// same bridge namespace as the full interaction panel, but has an
+    /// independent HTML entry so it never mounts gesture or library UI.
+    public static let dictation = WebPanelContract(
+        scheme: "interactionfeed",
+        host: "app",
+        indexPath: "dictation.html",
+        messageHandlerName: "interaction",
+        deliveryFunctionName: "__interactionDeliver",
+        bridgeGlobalName: "__interactionBridge"
+    )
 }
 
 public enum InteractionPanelResources {

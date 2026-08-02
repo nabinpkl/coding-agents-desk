@@ -731,6 +731,12 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
 - R151. At the explicit runtime checkpoint, accept first-use model preparation, passage and per-word
   playback, independent Mac/iPhone chooser persistence, byte-identical cross-device artifacts,
   unknown-word errors, cache reuse, and microphone/audio-session cleanup on Mac and physical iPhone.
+- D152. Replace the all-Spaces macOS Dictation Bar's isolated Swift recorder with the compact
+  `dictation.html` InteractionPanel entry. Browser capture sends `source=macos` through the existing
+  loopback VoiceSocket and Python finalizer; Swift retains only window/Fn chrome, bundled-origin mic
+  permission, and one final insertion per host recording ID. The same completed recording appears in
+  the full Voice library, which the new top-bar Voice command opens directly after the mini run is
+  terminal. ADR-0079 supersedes the retired `MicRecorder`/WAV/multipart path.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -787,4 +793,5 @@ D148  2026-07-27  landed     local whole-passage and per-word reference TTS
 D149  2026-07-27  landed     retired split native reference TTS authority
 D150  2026-07-27  landed     host Kokoro direct-IPA artifacts and cross-device playback
 R151  implemented remaining  authorized Mac/iPhone reference playback acceptance
+D152  2026-07-27  landed     web-owned macOS dictation mini and retired Swift audio pipeline
 ```

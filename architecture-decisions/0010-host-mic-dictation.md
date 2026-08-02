@@ -1,6 +1,7 @@
 ---
-status: proposed
+status: superseded by ADR-0079
 date: 2026-05-28
+superseded-by: ADR-0079
 ---
 
 # Host-side push-to-talk dictation via in-memory clip transcription

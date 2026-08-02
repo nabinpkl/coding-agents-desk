@@ -594,6 +594,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         })
         gestureWindowController = gestureWindow
         presenter.onGestureCommand = { [weak gestureWindow] in gestureWindow?.toggle() }
+        presenter.onVoiceCommand = { [weak gestureWindow] in gestureWindow?.showVoice() }
 
         presenter.show()
     }
@@ -1543,9 +1544,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startDictationBar() {
-        let transcriber = TranscriptionClient()
         let controller = DictationBarController(
-            transcriber: transcriber,
             typeText: { [inputDispatcher] text in inputDispatcher.typeText(text) }
         )
         // Set the handle-frame provider before start() so the bar's first
@@ -1554,6 +1553,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.spaceAgentController?.currentHandleScreenFrame()
         }
         dictationBarController = controller
+        controller.onBusyChanged = { [weak self] busy in
+            self?.workspaceShellPresenter?.voiceCommandEnabled = !busy
+        }
         controller.start()
         // And keep dodging as the handle is dragged or the popover resizes.
         spaceAgentController?.onHandleFrameDidChange = { [weak self] in

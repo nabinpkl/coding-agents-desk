@@ -395,6 +395,16 @@ messages through `__interactionDeliver` and native Swift, which opens authentica
 `.voice = 7`. A `voice-lane-v1` hello/ready exchange gates the lane independently from outer protocol
 `15`; every handshake failure before ready becomes the bounded update-host error.
 
+The macOS all-Spaces Dictation Bar is a second, compact `dictation.html` entry in the same
+InteractionPanel bundle. It mounts only browser microphone capture and the shared voice-session
+state machine. Swift owns the nonactivating all-Spaces window, saved placement, SpaceAgent avoidance,
+Fn/Globe start/stop delivery after web readiness, microphone permission restricted to
+`interactionfeed://app`, and one final `InputDispatcher.typeText` per recording ID. The mini shows
+capture, saving, transcription, and phone-analysis state until `sessionComplete`; only its saved
+nonempty transcript is inserted. There is no Swift PCM/WAV/transcription fallback. The top-bar Voice
+command opens the existing full panel on Voice and refreshes the same recording library, but is
+disabled while the mini owns the global sidecar recording.
+
 The lane carries typed socket open/message/close envelopes and correlated allowlisted recording REST
 requests. JSON is limited to 192 KiB and complete lane frames to 256 KiB. Recording audio playback
 responses are split into 96 KiB chunks with per-request sequence and final markers. REST work may run

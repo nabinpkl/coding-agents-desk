@@ -1057,8 +1057,8 @@ private final class SpaceAgentHandleView: NSControl {
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
 
         let circle = bounds.insetBy(dx: 2, dy: 2)
-        // Same surface as the dictation bar (DictationPillView.draw) so the
-        // two floating overlays share one translucency. Keep these in step.
+        // Keep the SpaceAgent handle legible against the same varying desktop
+        // backgrounds as its sibling floating controls.
         (isDark
             ? NSColor(calibratedWhite: 0.06, alpha: 0.72)
             : NSColor(calibratedWhite: 1.0, alpha: 0.95)).setFill()
@@ -1071,10 +1071,8 @@ private final class SpaceAgentHandleView: NSControl {
         border.lineWidth = 1
         border.stroke()
 
-        // In light mode the rocket sits in a gray disc on the white pill, to
-        // match the dictation bar's mic (white pill, gray circle, icon on
-        // top). In dark mode the pill is already dark, so the rocket draws on
-        // it directly.
+        // In light mode the rocket sits in a gray disc for contrast. In dark
+        // mode the pill is already dark, so the rocket draws on it directly.
         if !isDark {
             let disc = bounds.insetBy(dx: 7, dy: 7)
             NSColor.systemGray.withAlphaComponent(0.25).setFill()

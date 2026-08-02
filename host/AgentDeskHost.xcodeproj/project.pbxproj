@@ -62,11 +62,9 @@
 				"agent-feed-sidecar",
 				ClientDiagnosticsRequester.swift,
 				DictationBar/DictationBarController.swift,
-				DictationBar/DictationBarViewController.swift,
 				Info.plist,
 				main.swift,
 				MediaStack.swift,
-				MicRecorder.swift,
 				OwnedMediaTransport.swift,
 				PairingSignalingServer.swift,
 				PopoverViewController.swift,
@@ -76,7 +74,6 @@
 				ScreenCaptureKitFrameSource.swift,
 				TestPatternFrameSource.swift,
 				TLSIdentityLoader.swift,
-				TranscriptionClient.swift,
 			);
 			target = A00000000000000000000005 /* AgentDeskHostTests */;
 		};

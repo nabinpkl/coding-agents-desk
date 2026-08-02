@@ -20,7 +20,7 @@ import { useMicCapture } from "@/features/voice/use-mic-capture";
 import { RECORDINGS_QUERY_KEY } from "@/features/voice/use-recordings";
 import { useVoiceStore } from "@/stores/voice-store";
 import { VoiceSocket } from "@/lib/ws";
-import type { ServerWireMessage } from "@/lib/wire";
+import type { Recording, ServerWireMessage } from "@/lib/wire";
 
 export interface VoiceSessionController {
   /** idle/complete/error -> start a fresh live run. */
@@ -31,11 +31,25 @@ export interface VoiceSessionController {
   reset: () => void;
 }
 
-export function useVoiceSession(): VoiceSessionController {
+export interface VoiceSessionOptions {
+  /**
+   * Called with the server-owned recording before the ephemeral live state is
+   * cleared. Consumers that need the persisted result, such as the macOS
+   * dictation mini, must use this rather than a partial transcript.
+   */
+  readonly onComplete?: (recording: Recording) => void;
+}
+
+export function useVoiceSession(
+  options: VoiceSessionOptions = {},
+): VoiceSessionController {
   const queryClient = useQueryClient();
   const capture = useMicCapture();
   const socketRef = useRef<VoiceSocket | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  const requestGenerationRef = useRef(0);
+  const onCompleteRef = useRef(options.onComplete);
+  onCompleteRef.current = options.onComplete;
 
   const teardownSocket = useCallback(() => {
     unsubscribeRef.current?.();
@@ -65,6 +79,13 @@ export function useVoiceSession(): VoiceSessionController {
           void queryClient.invalidateQueries({
             queryKey: RECORDINGS_QUERY_KEY,
           });
+          try {
+            onCompleteRef.current?.(message.recording);
+          } catch (error) {
+            // The recording is already durable. A consumer-side bridge failure
+            // must not strand the shared capture state or keep its socket open.
+            console.error("voice session completion callback failed", error);
+          }
           store.complete(message.recording.id);
           teardownSocket();
           capture.stop();
@@ -121,6 +142,7 @@ export function useVoiceSession(): VoiceSessionController {
     }
     // Release any socket lingering from a prior terminal run before opening one.
     teardownSocket();
+    const requestGeneration = ++requestGenerationRef.current;
     // A live run owns the session mode; it is set once here, not folded into
     // the run-state union.
     store.setMode("live");
@@ -137,6 +159,16 @@ export function useVoiceSession(): VoiceSessionController {
 
     try {
       await socket.connect();
+      // Pointer release/reset can happen while WebKit is still resolving the
+      // microphone permission prompt. Never let that stale async start revive a
+      // run the caller has already cancelled.
+      if (
+        requestGeneration !== requestGenerationRef.current ||
+        socketRef.current !== socket
+      ) {
+        socket.close();
+        return;
+      }
       socket.sendControl({
         type: "sessionStart",
         preampGain: store.preampGain,
@@ -158,9 +190,23 @@ export function useVoiceSession(): VoiceSessionController {
         onMeter: (meter) => useVoiceStore.getState().setMeter(meter),
       });
 
+      if (
+        requestGeneration !== requestGenerationRef.current ||
+        socketRef.current !== socket
+      ) {
+        capture.stop();
+        return;
+      }
       useVoiceStore.getState().beginCapture();
     } catch (error) {
       capture.stop();
+      if (
+        requestGeneration !== requestGenerationRef.current ||
+        socketRef.current !== socket
+      ) {
+        socket.close();
+        return;
+      }
       teardownSocket();
       const message =
         error instanceof Error ? error.message : "voice capture failed";
@@ -170,6 +216,15 @@ export function useVoiceSession(): VoiceSessionController {
 
   const stopRecording = useCallback(() => {
     const store = useVoiceStore.getState();
+    if (store.runState.status === "requestingMic") {
+      // A press-and-hold release may beat WebKit's permission callback. Cancel
+      // the pending generation so it cannot begin capture after the release.
+      requestGenerationRef.current += 1;
+      capture.stop();
+      teardownSocket();
+      store.reset();
+      return;
+    }
     if (store.runState.status !== "capturing") {
       return;
     }
@@ -186,6 +241,7 @@ export function useVoiceSession(): VoiceSessionController {
   }, [capture, teardownSocket]);
 
   const reset = useCallback(() => {
+    requestGenerationRef.current += 1;
     capture.stop();
     teardownSocket();
     useVoiceStore.getState().reset();

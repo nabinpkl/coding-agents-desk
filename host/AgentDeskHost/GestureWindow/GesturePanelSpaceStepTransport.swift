@@ -15,7 +15,8 @@ final class GesturePanelSpaceStepTransport: InteractionPanelTransport {
         case .spaceStep(let delta):
             onSpaceStep(delta)
         case .referenceAudioPlay, .referenceAudioStop,
-             .voiceSocketOpen, .voiceSocketMessage, .voiceSocketClose, .voiceREST:
+             .voiceSocketOpen, .voiceSocketMessage, .voiceSocketClose, .voiceREST,
+             .dictationReady, .dictationLayout, .dictationRunState, .dictationCommit:
             break
         }
     }

@@ -9,17 +9,22 @@ import { defineConfig, type Plugin } from "vite";
 const distDir = fileURLToPath(new URL("./gesture-webview-dist", import.meta.url));
 
 /**
- * The Vite entry is index.embed.html (so it never collides with the Next app);
- * the WKWebView scheme handler serves index.html. Rename after the bundle is
- * written.
+ * The Vite entries use an `.embed.html` suffix so they never collide with the
+ * Next app. The WKWebView scheme handler serves the stable index.html and
+ * dictation.html names after bundling.
  */
-function renameEmbedIndex(): Plugin {
+function renameEmbedEntries(): Plugin {
   return {
-    name: "rename-embed-index",
+    name: "rename-embed-entries",
     closeBundle() {
-      const from = join(distDir, "index.embed.html");
-      const to = join(distDir, "index.html");
-      if (existsSync(from)) renameSync(from, to);
+      for (const [source, target] of [
+        ["index.embed.html", "index.html"],
+        ["dictation.embed.html", "dictation.html"],
+      ]) {
+        const from = join(distDir, source);
+        const to = join(distDir, target);
+        if (existsSync(from)) renameSync(from, to);
+      }
     },
   };
 }
@@ -28,7 +33,7 @@ function renameEmbedIndex(): Plugin {
 // handler requires. publicDir copies the vendored MediaPipe assets to the
 // bundle root (/mediapipe, /models).
 export default defineConfig({
-  plugins: [react(), tailwindcss(), renameEmbedIndex()],
+  plugins: [react(), tailwindcss(), renameEmbedEntries()],
   base: "./",
   publicDir: "embed-public",
   resolve: {
@@ -40,7 +45,10 @@ export default defineConfig({
     outDir: "gesture-webview-dist",
     emptyOutDir: true,
     rollupOptions: {
-      input: fileURLToPath(new URL("./index.embed.html", import.meta.url)),
+      input: {
+        interaction: fileURLToPath(new URL("./index.embed.html", import.meta.url)),
+        dictation: fileURLToPath(new URL("./dictation.embed.html", import.meta.url)),
+      },
     },
   },
 });

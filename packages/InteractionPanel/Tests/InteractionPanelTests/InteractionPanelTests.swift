@@ -188,6 +188,61 @@ struct InteractionPanelTests {
         )
     }
 
+    @Test func dictationContractUsesDedicatedEntry() {
+        #expect(WebPanelContract.dictation.scheme == "interactionfeed")
+        #expect(WebPanelContract.dictation.messageHandlerName == "interaction")
+        #expect(
+            WebPanelContract.dictation.indexRequestURL?.absoluteString
+                == "interactionfeed://app/dictation.html"
+        )
+    }
+
+    @Test func decodesStrictDictationRequests() {
+        #expect(
+            InteractionPanelRequest.decode(tag: "dictationReady", body: [:])
+                == .dictationReady
+        )
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "dictationLayout",
+                body: ["expanded": true]
+            ) == .dictationLayout(expanded: true)
+        )
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "dictationRunState",
+                body: ["status": "transcribing"]
+            ) == .dictationRunState(status: .transcribing)
+        )
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "dictationCommit",
+                body: [
+                    "recordingID": "session-20260727-123456-000001",
+                    "transcript": "  Hello world.  ",
+                ]
+            ) == .dictationCommit(
+                recordingID: "session-20260727-123456-000001",
+                transcript: "Hello world."
+            )
+        )
+        #expect(InteractionPanelRequest.decode(tag: "dictationReady", body: ["x": true]) == nil)
+        #expect(InteractionPanelRequest.decode(tag: "dictationLayout", body: [:]) == nil)
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "dictationLayout",
+                body: ["expanded": false, "unexpected": true]
+            ) == nil
+        )
+        #expect(InteractionPanelRequest.decode(tag: "dictationRunState", body: ["status": "bad"]) == nil)
+        #expect(
+            InteractionPanelRequest.decode(
+                tag: "dictationCommit",
+                body: ["recordingID": "bad/id", "transcript": "hello"]
+            ) == nil
+        )
+    }
+
     @Test func bundledWebviewOrCleanBuildFixtureResolves() throws {
         let locator = WebPanelResourceLocator(
             bundle: .module,
@@ -202,6 +257,24 @@ struct InteractionPanelTests {
         } else {
             #expect(root.lastPathComponent == "InteractionPanelFixture")
             #expect(html.contains("InteractionPanel fixture"))
+        }
+    }
+
+    @Test func bundledDictationOrCleanBuildFixtureResolves() throws {
+        let locator = WebPanelResourceLocator(
+            bundle: .module,
+            webviewDirectoryName: InteractionPanelResources.webviewDirectoryName,
+            fixtureDirectoryName: InteractionPanelResources.fixtureDirectoryName,
+            indexPath: WebPanelContract.dictation.indexPath
+        )
+        let root = try #require(locator.rootDirectory())
+        let index = try #require(locator.indexURL())
+        let html = String(decoding: try Data(contentsOf: index), as: UTF8.self)
+        if root.lastPathComponent == "InteractionPanelWebview" {
+            #expect(html.contains(#"<div id="root"></div>"#))
+        } else {
+            #expect(root.lastPathComponent == "InteractionPanelFixture")
+            #expect(html.contains("Dictation fixture"))
         }
     }
 }

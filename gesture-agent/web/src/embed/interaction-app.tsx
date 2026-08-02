@@ -15,12 +15,14 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Hand, Mic } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { GestureView } from "@/features/gesture/gesture-view";
 import { VoicePanel } from "@/features/voice/voice-panel";
 import { getHostConfig } from "@/lib/host-bridge";
+import { subscribeInteractionDelivery } from "@/lib/interaction-delivery";
+import { RECORDINGS_QUERY_KEY } from "@/features/voice/use-recordings";
 
 type InteractionView = "gesture" | "voice";
 
@@ -66,6 +68,21 @@ export function InteractionApp() {
           queries: { staleTime: 60_000, refetchOnWindowFocus: false },
         },
       }),
+  );
+
+  useEffect(
+    () =>
+      subscribeInteractionDelivery<{
+        readonly view: InteractionView;
+        readonly refreshRecordings?: boolean;
+      }>("interactionView", ({ view: nextView, refreshRecordings }) => {
+        if (nextView !== "voice" && nextView !== "gesture") return;
+        setView(nextView);
+        if (nextView === "voice" && refreshRecordings) {
+          void queryClient.invalidateQueries({ queryKey: RECORDINGS_QUERY_KEY });
+        }
+      }),
+    [queryClient],
   );
 
   return (

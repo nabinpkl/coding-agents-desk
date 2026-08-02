@@ -141,6 +141,11 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
                 path: request.path,
                 body: request.body
             )))
+        case .dictationReady, .dictationLayout, .dictationRunState, .dictationCommit:
+            // The all-Spaces mini dictation window exists only on macOS. Keep
+            // the shared contract additive without making the iPhone surface
+            // invent a second recorder ownership path.
+            break
         }
     }
 

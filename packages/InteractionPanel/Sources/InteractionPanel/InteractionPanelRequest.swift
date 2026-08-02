@@ -11,6 +11,10 @@ public enum InteractionPanelRequest: Equatable, Sendable {
     case voiceSocketMessage(recordingSessionID: String, json: String)
     case voiceSocketClose(recordingSessionID: String)
     case voiceREST(InteractionVoiceRESTRequest)
+    case dictationReady
+    case dictationLayout(expanded: Bool)
+    case dictationRunState(status: InteractionDictationRunStatus)
+    case dictationCommit(recordingID: String, transcript: String)
 
     public static func decode(tag: String, body: [String: Any]) -> InteractionPanelRequest? {
         switch tag {
@@ -75,10 +79,57 @@ public enum InteractionPanelRequest: Equatable, Sendable {
                 path: path,
                 body: requestBody
             ))
+        case "dictationReady":
+            return body.isEmpty ? .dictationReady : nil
+        case "dictationLayout":
+            guard body.count == 1,
+                  let expanded = body["expanded"] as? Bool
+            else { return nil }
+            return .dictationLayout(expanded: expanded)
+        case "dictationRunState":
+            guard body.count == 1,
+                  let rawStatus = body["status"] as? String,
+                  let status = InteractionDictationRunStatus(rawValue: rawStatus)
+            else { return nil }
+            return .dictationRunState(status: status)
+        case "dictationCommit":
+            guard body.count == 2,
+                  let recordingID = body["recordingID"] as? String,
+                  let transcript = body["transcript"] as? String,
+                  isBoundedIdentifier(recordingID),
+                  isBoundedTranscript(transcript)
+            else { return nil }
+            return .dictationCommit(
+                recordingID: recordingID,
+                transcript: transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
         default:
             return nil
         }
     }
+
+    private static func isBoundedIdentifier(_ value: String) -> Bool {
+        value.range(
+            of: #"^session-\d{8}-\d{6}-\d{6}$"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private static func isBoundedTranscript(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed.utf8.count <= 32_768
+    }
+}
+
+public enum InteractionDictationRunStatus: String, Equatable, Sendable {
+    case idle
+    case requestingMic
+    case capturing
+    case saving
+    case transcribing
+    case analyzing
+    case complete
+    case error
 }
 
 public struct InteractionVoiceRESTRequest: Equatable, Sendable {

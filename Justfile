@@ -1,6 +1,5 @@
-# Load the gitignored .env so recipes (notably host-run) can forward
-# config such as AGENTDESK_TRANSCRIBE_URL into the launched app without
-# the value being hardcoded here. .env.example documents every knob.
+# Load the gitignored .env so launch recipes can forward their documented
+# host configuration without values being hardcoded here.
 set dotenv-load := true
 
 ios_test_destination := env_var_or_default("AGENTDESK_IOS_TEST_DESTINATION", "platform=iOS Simulator,name=iPhone 17,OS=latest")
@@ -968,13 +967,6 @@ iphone-log-collect variant="stable":
 # the launchd-managed GUI launch inherits them. The unsetenv after launch
 # keeps the variable from polluting other apps started later in the same
 # login session.
-#
-# AGENTDESK_TRANSCRIBE_URL (and _MODEL) come from .env via dotenv-load
-# and are forwarded the same way so dictation has its now-required
-# endpoint without a hand-run `launchctl setenv` each launch. The app
-# captures its environment at launch, so the post-open unsetenv does not
-# disturb the running host. Each var is only unset if we set it, so a
-# value the user pinned into launchd out-of-band survives.
 #
 # AGENTDESK_OWNED_MEDIA_* is forwarded for one-shot owned media feel runs
 # with `just fresh-install`. The retained-tile repair knobs are documented

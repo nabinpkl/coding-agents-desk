@@ -746,27 +746,6 @@ enum Config {
     static let spaceSwitchMode = SpaceSwitchMode(
         rawEnvironmentValue: ProcessInfo.processInfo.environment["AGENTDESK_SPACE_SWITCH_MODE"]
     )
-    // Host-local transcription service, OpenAI-compatible. The clip never
-    // touches disk; it is POSTed as multipart/form-data (fields "file" and
-    // "model") from an in-memory WAV buffer. Required: set
-    // Dictation transcription endpoint. Defaults to the host-owned voice
-    // sidecar's OpenAI-compatible route on loopback (the sidecar serves
-    // /v1/audio/transcriptions on voiceSidecarPort), so dictation works out of
-    // the box once the sidecar is up. Override with AGENTDESK_TRANSCRIBE_URL to
-    // point at a different local server.
-    static let transcriptionEndpoint: URL? = {
-        if let raw = ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_URL"],
-           let url = URL(string: raw),
-           url.scheme != nil {
-            return url
-        }
-        return URL(string: "http://127.0.0.1:\(voiceSidecarPort)/v1/audio/transcriptions")
-    }()
-    // Model name sent in the multipart body for OpenAI-compatible servers.
-    // Defaults to the quantized turbo model the sidecar ships/caches locally.
-    static let transcriptionModel: String = {
-        ProcessInfo.processInfo.environment["AGENTDESK_TRANSCRIBE_MODEL"] ?? "mlx-community/whisper-large-v3-turbo-q4"
-    }()
     // Agent feed transcript sidecar. The binary is compiled in-repository and
     // bundled as a host resource. It is reachable only over loopback.
     static let agentFeedSidecarPort: UInt16 = port(

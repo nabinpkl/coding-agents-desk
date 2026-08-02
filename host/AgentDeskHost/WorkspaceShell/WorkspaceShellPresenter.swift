@@ -69,6 +69,7 @@ final class WorkspaceShellPresenter: NSObject {
     private let sidebarPinButton = HoverButton(frame: .zero)
     private let topBarPinButton = HoverButton(frame: .zero)
     private let resizeHandle = SidebarResizeHandle()
+    private weak var voiceButton: NSButton?
 
     /// Invoked when the top-bar "＋ Agents" command is tapped. The placement identifies the Desktop
     /// and current shell slot where AppDelegate should create an independent Agents window.
@@ -83,6 +84,14 @@ final class WorkspaceShellPresenter: NSObject {
     /// Toggles the macOS gesture window (InteractionPanel webview: camera + swipe
     /// tracker -> Space step). AppDelegate wires this, keeping the shell decoupled.
     var onGestureCommand: (() -> Void)?
+
+    /// Opens the retained full InteractionPanel on Voice. Dictation owns this
+    /// availability while it has the shared recorder in flight.
+    var onVoiceCommand: (() -> Void)?
+
+    var voiceCommandEnabled = true {
+        didSet { voiceButton?.isEnabled = voiceCommandEnabled }
+    }
 
     /// Invoked when the top-bar "＋ Terminal" command is tapped (R54). AppDelegate/session wires this
     /// to spawn an in-app terminal on our pty socket (R55); the shell stays decoupled from the terminal.
@@ -557,6 +566,10 @@ final class WorkspaceShellPresenter: NSObject {
         browserButton.setAccessibilityIdentifier("workspace-shell-browser")
         let gestureButton = NSButton(title: "Gesture", target: self, action: #selector(gestureTapped))
         gestureButton.setAccessibilityIdentifier("workspace-shell-gesture")
+        let voiceButton = NSButton(title: "Voice", target: self, action: #selector(voiceTapped))
+        voiceButton.setAccessibilityIdentifier("workspace-shell-voice")
+        voiceButton.isEnabled = voiceCommandEnabled
+        self.voiceButton = voiceButton
         let ptyManagerButton = NSButton(title: "PTY Manager", target: self, action: #selector(openPtyManagerTapped))
         ptyManagerButton.setAccessibilityIdentifier("open-pty-manager")
         let agentsButton = NSButton(title: "＋ Agents", target: self, action: #selector(openAgentsTapped))
@@ -571,7 +584,7 @@ final class WorkspaceShellPresenter: NSObject {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let topBarStack = NSStackView(views: [ideButton, browserButton, gestureButton, spacer, ptyManagerButton, agentsButton, terminalButton, topBarPinButton])
+        let topBarStack = NSStackView(views: [ideButton, browserButton, gestureButton, voiceButton, spacer, ptyManagerButton, agentsButton, terminalButton, topBarPinButton])
         topBarStack.orientation = .horizontal
         topBarStack.alignment = .centerY
         topBarStack.spacing = 8
@@ -641,6 +654,8 @@ final class WorkspaceShellPresenter: NSObject {
     @objc private func browserTapped() { onBrowserCommand?() }
 
     @objc private func gestureTapped() { onGestureCommand?() }
+
+    @objc private func voiceTapped() { onVoiceCommand?() }
 
     @objc private func openTerminalTapped() { onOpenTerminal?() }
 
