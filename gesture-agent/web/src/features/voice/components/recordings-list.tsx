@@ -240,7 +240,7 @@ function RecordingRow({
   }
 
   return (
-    <li className="flex flex-col gap-5 border-b border-border py-5 first:pt-0 last:border-b-0 last:pb-0">
+    <li className="flex flex-col gap-5 overflow-hidden rounded-xl bg-card px-4 py-5 text-sm text-card-foreground ring-1 ring-foreground/10">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <span className="text-sm font-medium text-foreground">
           {formatCreatedAt(recording.createdAt)}
@@ -474,7 +474,7 @@ export function RecordingsList() {
               : "Failed to delete recording"}
           </div>
         )}
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col gap-3">
           {data.map((recording) => (
             <RecordingRow
               key={recording.id}
