@@ -1,7 +1,14 @@
+import AppKit
 import Foundation
 
 struct WorkspaceIDEWindowPlacement: Codable, Equatable, Sendable {
     let desktop: WorkspaceDesktopAssignment
+    let frame: CGRect?
+
+    init(desktop: WorkspaceDesktopAssignment, frame: CGRect? = nil) {
+        self.desktop = desktop
+        self.frame = frame
+    }
 }
 
 protocol WorkspaceIDEWindowPlacementStoring: AnyObject {
@@ -98,7 +105,7 @@ final class WorkspaceIDEWindowPlacementCoordinator {
     }
 
     @discardableResult
-    func record(windowID: UInt32) throws -> WorkspaceDesktopAssignment? {
+    func record(windowID: UInt32, frame: CGRect) throws -> WorkspaceDesktopAssignment? {
         let observed = try mover.spaceIDs(for: windowID)
         guard observed.count == 1 else { return nil }
         let snapshot = desktopAudit.snapshot()
@@ -109,11 +116,14 @@ final class WorkspaceIDEWindowPlacementCoordinator {
             return nil
         }
         let assignment = WorkspaceDesktopAssignment(desktop)
-        try store.save(WorkspaceIDEWindowPlacement(desktop: assignment))
+        try store.save(WorkspaceIDEWindowPlacement(desktop: assignment, frame: frame))
         return assignment
     }
 
-    func restore(windowID: UInt32) throws -> WorkspaceIDEWindowPlacementRestore {
+    func restore(
+        windowID: UInt32,
+        applyFrame: (CGRect) -> Void = { _ in }
+    ) throws -> WorkspaceIDEWindowPlacementRestore {
         guard let saved = try store.load() else { return .noSavedPlacement }
         let snapshot = desktopAudit.snapshot()
         if let diagnostic = snapshot.diagnostic {
@@ -124,6 +134,9 @@ final class WorkspaceIDEWindowPlacementCoordinator {
                 displayID: saved.desktop.displayID,
                 ordinal: saved.desktop.ordinal
             )
+        }
+        if let frame = saved.frame {
+            applyFrame(frame)
         }
         do {
             try mover.move(windowID: windowID, toSpaceID: target.id)
@@ -137,7 +150,7 @@ final class WorkspaceIDEWindowPlacementCoordinator {
         try verify(windowID: windowID, targetSpaceID: target.id)
         let resolved = WorkspaceDesktopAssignment(target)
         if resolved != saved.desktop {
-            try store.save(WorkspaceIDEWindowPlacement(desktop: resolved))
+            try store.save(WorkspaceIDEWindowPlacement(desktop: resolved, frame: saved.frame))
         }
         return .restored(resolved)
     }

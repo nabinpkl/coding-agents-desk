@@ -17,6 +17,7 @@ struct WorkspaceIDEWindowPlacementTests {
     }
 
     @Test func recordsExactSingleDesktopMembership() throws {
+        let frame = CGRect(x: 1_900, y: 120, width: 1_180, height: 760)
         let store = MemoryWorkspaceIDEWindowPlacementStore()
         let mover = RecordingWorkspaceWindowSpaceMover(spaceIDs: [42: [20]])
         let coordinator = WorkspaceIDEWindowPlacementCoordinator(
@@ -25,10 +26,11 @@ struct WorkspaceIDEWindowPlacementTests {
             mover: mover
         )
 
-        let recorded = try coordinator.record(windowID: 42)
+        let recorded = try coordinator.record(windowID: 42, frame: frame)
 
         #expect(recorded == WorkspaceDesktopAssignment(spaceID: 20, displayID: "D1", ordinal: 1))
         #expect(store.placement?.desktop == recorded)
+        #expect(store.placement?.frame == frame)
     }
 
     @Test func doesNotReplacePlacementForUnassignedOrMultiSpaceWindow() throws {
@@ -43,14 +45,38 @@ struct WorkspaceIDEWindowPlacementTests {
             mover: mover
         )
 
-        #expect(try coordinator.record(windowID: 42) == nil)
-        #expect(try coordinator.record(windowID: 43) == nil)
+        #expect(try coordinator.record(windowID: 42, frame: .zero) == nil)
+        #expect(try coordinator.record(windowID: 43, frame: .zero) == nil)
         #expect(store.placement == original)
+    }
+
+    @Test func restoresSavedFrameBeforeMovingToDesktop() throws {
+        let frame = CGRect(x: 1_900, y: 120, width: 1_180, height: 760)
+        let placement = WorkspaceIDEWindowPlacement(
+            desktop: WorkspaceDesktopAssignment(spaceID: 20, displayID: "D1", ordinal: 1),
+            frame: frame
+        )
+        let mover = RecordingWorkspaceWindowSpaceMover(spaceIDs: [42: [10]])
+        var events: [String] = []
+        mover.onMove = { events.append("move") }
+        let coordinator = WorkspaceIDEWindowPlacementCoordinator(
+            store: MemoryWorkspaceIDEWindowPlacementStore(placement: placement),
+            desktopAudit: StaticWorkspaceDesktopAudit(Self.snapshot()),
+            mover: mover
+        )
+
+        _ = try coordinator.restore(windowID: 42) { restoredFrame in
+            #expect(restoredFrame == frame)
+            events.append("frame")
+        }
+
+        #expect(events == ["frame", "move"])
     }
 
     @Test func restoresExactSavedSpaceAndVerifiesMembership() throws {
         let placement = WorkspaceIDEWindowPlacement(
-            desktop: WorkspaceDesktopAssignment(spaceID: 20, displayID: "D1", ordinal: 1)
+            desktop: WorkspaceDesktopAssignment(spaceID: 20, displayID: "D1", ordinal: 1),
+            frame: CGRect(x: 1_900, y: 120, width: 1_180, height: 760)
         )
         let store = MemoryWorkspaceIDEWindowPlacementStore(placement: placement)
         let mover = RecordingWorkspaceWindowSpaceMover(spaceIDs: [42: [10]])
@@ -202,6 +228,7 @@ private final class RecordingWorkspaceWindowSpaceMover: WorkspaceWindowSpaceMovi
 
     private var membership: [UInt32: [UInt64]]
     var membershipAfterMove: [UInt64]?
+    var onMove: (() -> Void)?
     private(set) var moves: [Move] = []
 
     init(spaceIDs: [UInt32: [UInt64]]) {
@@ -209,6 +236,7 @@ private final class RecordingWorkspaceWindowSpaceMover: WorkspaceWindowSpaceMovi
     }
 
     func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {
+        onMove?()
         moves.append(Move(windowID: windowID, spaceID: targetSpaceID))
         membership[windowID] = membershipAfterMove ?? [targetSpaceID]
     }

@@ -12,7 +12,6 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
     private let ideContentView: WorkspaceIDEWindowContentView
     private let windowPlacement: WorkspaceIDEWindowPlacementCoordinator
     private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-ide-window")
-    private var spaceObserver: NSObjectProtocol?
     private var placementCaptureTask: Task<Void, Never>?
     private var didAttemptPlacementRestore = false
     private var isPreparingWindowPlacement = false
@@ -63,18 +62,13 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         window.collectionBehavior = [.fullScreenPrimary]
         window.isReleasedWhenClosed = false
         window.contentView = ideContentView
-        // Naming the frame only tells AppKit where to *save* it; a code-created window (no nib)
-        // still has to ask for the saved rectangle back, and centres when there is nothing stored.
-        window.setFrameAutosaveName(Config.workspaceIDEWindowFrameAutosaveName)
-        if !window.setFrameUsingName(Config.workspaceIDEWindowFrameAutosaveName) {
-            window.center()
-        }
+        // Desktop membership and frame are restored together from one placement record.
+        window.center()
         super.init(window: window)
         window.delegate = self
         ideController.delegate = self
         terminalController.setZoomScale(ideController.currentLocalState.zoomScale)
         ideController.start()
-        observeSpaceChanges()
     }
 
     @available(*, unavailable)
@@ -90,7 +84,6 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         restorePlacementAndOrderFront(window)
         terminalController.setWindowPresented(true)
         recordWindowVisible(true)
-        schedulePlacementCapture()
     }
 
     /// Whether the window was on screen when the host last quit. Read before the controller
@@ -102,14 +95,9 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
 
     func stop() {
         guard !isStopping else { return }
-        capturePlacementNow()
         isStopping = true
         placementCaptureTask?.cancel()
         placementCaptureTask = nil
-        if let spaceObserver {
-            NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver)
-            self.spaceObserver = nil
-        }
         // Deliberately not recording visibility here: quitting closes the window, and treating
         // that as "the user closed it" would lose the very state this is meant to restore.
         terminalController.stop()
@@ -175,16 +163,12 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
 
     func windowDidEndLiveResize(_ notification: Notification) {
         terminalController.contentView.flushViewportResize()
+        preserveUnresolvedPlacement = false
         schedulePlacementCapture()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
         terminalController.claimViewportOwnership()
-        schedulePlacementCapture()
-    }
-
-    func windowDidResignKey(_ notification: Notification) {
-        schedulePlacementCapture()
     }
 
     func windowDidMove(_ notification: Notification) {
@@ -199,6 +183,11 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
 
     func windowDidDeminiaturize(_ notification: Notification) {
         terminalController.setWindowPresented(true)
+    }
+
+    func windowDidChangeScreen(_ notification: Notification) {
+        guard !isPreparingWindowPlacement else { return }
+        preserveUnresolvedPlacement = false
         schedulePlacementCapture()
     }
 
@@ -217,7 +206,10 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         var restoredDesktop: WorkspaceDesktopAssignment?
         if let windowID = windowID(for: window) {
             do {
-                if case .restored(let desktop) = try windowPlacement.restore(windowID: windowID) {
+                if case .restored(let desktop) = try windowPlacement.restore(
+                    windowID: windowID,
+                    applyFrame: { window.setFrame($0, display: false) }
+                ) {
                     restoredDesktop = desktop
                 }
                 preserveUnresolvedPlacement = false
@@ -247,18 +239,6 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         isPreparingWindowPlacement = false
     }
 
-    private func observeSpaceChanges() {
-        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.activeSpaceDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.schedulePlacementCapture()
-            }
-        }
-    }
-
     private func schedulePlacementCapture() {
         guard !isStopping,
               !isPreparingWindowPlacement,
@@ -275,19 +255,10 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         }
     }
 
-    private func capturePlacementNow() {
-        guard !isPreparingWindowPlacement,
-              !preserveUnresolvedPlacement,
-              let window,
-              window.isVisible,
-              let windowID = windowID(for: window)
-        else { return }
-        capturePlacement(windowID: windowID)
-    }
-
     private func capturePlacement(windowID: UInt32) {
+        guard let window else { return }
         do {
-            _ = try windowPlacement.record(windowID: windowID)
+            _ = try windowPlacement.record(windowID: windowID, frame: window.frame)
         } catch {
             logger.error("Workspace IDE placement capture failed: \(String(describing: error), privacy: .public)")
         }
