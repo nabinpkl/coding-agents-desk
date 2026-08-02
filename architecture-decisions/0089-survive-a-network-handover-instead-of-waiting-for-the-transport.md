@@ -284,6 +284,36 @@ backstop, not the fix: any recovery path can have a case it does not cover, and 
 happens the user must not be left holding a dead screen with nothing to tap. The label also
 stopped claiming "Input stays connected", which R212 proved false -- the session was gone.
 
+### What the liveness echo turned out to be
+
+`livenessProbe` and `livenessEcho` are a control-message pair carrying a sequence number on the
+existing `frameId` field. The client sends a probe, the host answers immediately, and the client
+counts probes that go unanswered. Three unanswered at a two-second interval declares the session
+dead about 4.5 seconds after the last arrival -- sooner than the 9.6 seconds the transport took
+to notice the same death, and far inside the host's resume window, so the session can be resumed
+rather than re-paired.
+
+Three details decided themselves once the code existed.
+
+**No echo-to-probe matching is needed.** The receive loop counts every datagram before
+dispatching it, so an echo is already an arrival, and an arrival from any source proves the same
+thing the echo would. The unanswered run therefore clears on ordinary video traffic too, which
+is what makes an active session cost nothing: it never probes, because it never has a silent
+window to probe in.
+
+**The echo bypasses the send pacer.** Queueing it behind video would defeat the measurement --
+the client probes precisely when frames have stopped arriving, so an echo stuck behind a backlog
+of undeliverable packets would report the link dead exactly as slowly as the thing it is
+measuring. A failed echo send is also deliberately silent: the client's unanswered count is the
+signal, and tearing down a session because one echo was dropped is the false positive the
+threshold exists to prevent.
+
+**It stays quiet until the session has carried something.** Probing from the first silent window
+would have declared a slow-starting session dead about six seconds into its own startup, because
+a host that has not begun reading control messages cannot answer and looks identical to one that
+has died. Liveness detects a session dying; a session failing to start is the dial path's
+problem and already has one.
+
 ### The resume window had never opened
 
 The TTL retune this arc kept deferring turned out to be the wrong question. `sessionResumeTTL`

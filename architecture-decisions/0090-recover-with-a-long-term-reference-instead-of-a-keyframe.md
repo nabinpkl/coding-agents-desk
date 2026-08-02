@@ -94,9 +94,24 @@ confirms `EnableLTR` is listed and sets with status 0.
 6. The host encoder must survive the drop. It was `private let encoder` on
    `OwnedMediaTransport`, so a new session built a new encoder with no reference state -- which
    is why a fresh session always emitted an IDR regardless of what the client still held. It is
-   now injected and owned per device by the app delegate, keyed by fingerprint and released when
-   the device is revoked. Keyed rather than shared, because one client acknowledging a reference
-   must never authorise a delta for a different client that never received it.
+   now injected and owned by the app delegate, **keyed by session id**, and released when the
+   session ends.
+
+   Keyed by session rather than by device, and that took a correction. Keying by device was
+   wrong in a way that only shows up on a path nobody exercises during development: the app
+   restarting. A resume keeps its session id and takes the surface-preserving teardown, so the
+   client still holds the decoder the encoder's references live in -- that is the case this ADR
+   is for. A fresh dial does not. Its client builds an empty decoder, and the resume material
+   is in-memory only, so a restarted app always dials fresh. A device-keyed encoder would hand
+   that new decoder its predecessor's reference state.
+
+   The failure is worse than a corrupt frame. The encoder's frame counter persists too, so
+   `frameId == 1` never fires and nothing forces a true keyframe. The new client cannot decode
+   the first delta, asks for a keyframe, and that request routes straight back through
+   `requestLtrRefresh` into another delta against the same unreachable reference. It is a
+   livelock, not a glitch, and it would have looked like "the app just shows black after a
+   restart". Keying by session id makes the encoder's lifetime exactly the client decoder's
+   lifetime, which is the invariant the whole mechanism rests on.
 
 Two things about (5) that only became clear while building it.
 

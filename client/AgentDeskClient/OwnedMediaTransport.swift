@@ -63,6 +63,10 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     /// ADR-0089 Phase 2. Armed when the detector sees the link move, disarmed by the first
     /// datagram that arrives afterwards. See `evaluateHandoverRecovery`.
     private let handoverWatch = OSAllocatedUnfairLock(initialState: HandoverWatch())
+    /// ADR-0089 Phase 3. Runs only while nothing is arriving, and catches the death a link
+    /// change cannot: a session that dies with the link completely stable. See
+    /// `evaluateLivenessProbe`.
+    private let livenessWatch = OSAllocatedUnfairLock(initialState: LivenessWatch())
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
     private let rawEventReassembly = OSAllocatedUnfairLock<AgentRawEventReassembler>(
         initialState: AgentRawEventReassembler()
@@ -661,6 +665,14 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             close()
             return
         }
+        // ADR-0089: the echo needs no handling beyond having arrived -- the receive loop already
+        // counted it, and that count is what clears the unanswered run in `evaluateLivenessProbe`.
+        // Decoded explicitly anyway so it does not fall through to the frame decoder and read as
+        // a malformed packet.
+        if let control = try? JSONDecoder().decode(OwnedMediaControlMessage.self, from: data),
+           control.kind == .livenessEcho {
+            return
+        }
         guard let packet = try? MediaDatagramFramePacket.decode(data, key: mediaKey) else {
             return
         }
@@ -808,6 +820,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             arrivals: counts.arrivals,
             nowNs: nowNs
         )
+        evaluateLivenessProbe(arrivals: counts.arrivals, nowNs: nowNs)
         let telemetry = OwnedMediaLinkTelemetry(
             interfaceType: pathSnapshot?.interfaceType,
             expensive: pathSnapshot?.expensive,
@@ -951,6 +964,58 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         stateContinuation.yield(.failed(nil))
     }
 
+    /// ADR-0089 Phase 3: catch a session that died without the link moving.
+    ///
+    /// `evaluateHandoverRecovery` is armed by a link change, and R212 measured the death that
+    /// gate cannot see -- the connection timed out twice with the link completely stable, and
+    /// the client sat on a dead session showing "Mac display unavailable" until it was force
+    /// quit. This probes instead of inferring, because a quiet host is indistinguishable from a
+    /// dead one by silence alone: healthy idle windows in that same run went 12.4s with nothing
+    /// arriving.
+    private func evaluateLivenessProbe(arrivals: Int, nowNs: UInt64) {
+        let outcome = livenessWatch.withLock { watch -> (probeId: UInt64?, dead: Int?) in
+            if arrivals > 0 {
+                watch.hasEverArrived = true
+                watch.unanswered = 0
+                watch.declared = false
+            }
+            guard !watch.declared else { return (nil, nil) }
+            let decision = LivenessProbePolicy.evaluate(
+                hasEverArrived: watch.hasEverArrived,
+                sawArrival: arrivals > 0,
+                msSinceLastProbe: watch.lastProbeUptimeNs.map {
+                    Double(nowNs >= $0 ? nowNs - $0 : 0) / 1_000_000
+                },
+                unansweredProbes: watch.unanswered,
+                probeIntervalMs: Double(Config.ownedMediaLivenessProbeIntervalMs),
+                failureThreshold: Config.ownedMediaLivenessFailureThreshold
+            )
+            if decision.declareDead {
+                // Latch, so the teardown that follows does not re-declare every window.
+                watch.declared = true
+                return (nil, watch.unanswered)
+            }
+            guard decision.sendProbe else { return (nil, nil) }
+            let probeId = watch.nextProbeId
+            watch.nextProbeId &+= 1
+            watch.lastProbeUptimeNs = nowNs
+            watch.unanswered += 1
+            return (probeId, nil)
+        }
+
+        if let probeId = outcome.probeId {
+            sendVideoControl(OwnedMediaControlMessage(kind: .livenessProbe, frameId: probeId))
+        }
+        guard let unanswered = outcome.dead else { return }
+        logger.notice("liveness declaring session dead unansweredProbes=\(unanswered, privacy: .public)")
+        ClientDiagnostics.shared.record(
+            type: "livenessRecoveryDeclared",
+            fields: ["unansweredProbes": String(unanswered)],
+            level: .error
+        )
+        stateContinuation.yield(.failed(nil))
+    }
+
     /// Send a control message on the datagram lane.
     ///
     /// This used to swallow both failure paths with `try?`, and that silence cost a device run.
@@ -1062,6 +1127,17 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         var changedAtUptimeNs: UInt64?
         var sawArrivalSinceChange: Bool = false
         var recoveryDeclared: Bool = false
+    }
+
+    /// State for the liveness probe: the next probe's sequence number, when the last one went
+    /// out, how many have gone unanswered, and whether we have already declared -- the same
+    /// latch as `HandoverWatch`, for the same reason.
+    private struct LivenessWatch {
+        var hasEverArrived: Bool = false
+        var nextProbeId: UInt64 = 1
+        var lastProbeUptimeNs: UInt64?
+        var unanswered: Int = 0
+        var declared: Bool = false
     }
 
     private struct State {

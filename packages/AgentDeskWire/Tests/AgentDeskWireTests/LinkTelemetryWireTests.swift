@@ -227,3 +227,34 @@ private let ms = 1_000_000 as UInt64
         #expect(decoded.linkTelemetry?.interfaceType == "wifi")
     }
 }
+
+@Suite struct LivenessWireTests {
+    // The probe's whole contract is that the id comes back unchanged, and it rides `frameId`
+    // rather than a new field. Both directions are asserted because they are decoded by
+    // different peers, which is where this wire has drifted before.
+    @Test func aProbeAndItsEchoCarryTheSameIdInEitherDirection() throws {
+        for kind in [OwnedMediaControlKind.livenessProbe, .livenessEcho] {
+            let message = OwnedMediaControlMessage(kind: kind, frameId: 9_001)
+            let data = try JSONEncoder().encode(message)
+            let decoded = try JSONDecoder().decode(OwnedMediaControlMessage.self, from: data)
+            #expect(decoded.kind == kind)
+            #expect(decoded.frameId == 9_001)
+        }
+    }
+
+    @Test func theProbeStaysSmallEnoughToPoll() throws {
+        // The reason this is not a keyframe request: keyframes ran ~244KB in R212, which is
+        // affordable once per handover and not as a poll. If this ever grows past a couple of
+        // hundred bytes the tradeoff that justified a new message has been lost.
+        let data = try JSONEncoder().encode(
+            OwnedMediaControlMessage(kind: .livenessProbe, frameId: .max)
+        )
+        #expect(data.count < 200)
+    }
+
+    @Test func theKindsAreDistinctOnTheWire() throws {
+        // A probe that decoded as an echo would have the host answering itself and the client
+        // treating its own probe as proof of life.
+        #expect(OwnedMediaControlKind.livenessProbe.rawValue != OwnedMediaControlKind.livenessEcho.rawValue)
+    }
+}

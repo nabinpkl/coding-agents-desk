@@ -1037,6 +1037,30 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             break
         case .linkHealth:
             handleLinkHealth(message)
+        case .livenessProbe:
+            sendLivenessEcho(probeId: message.frameId)
+        case .livenessEcho:
+            // Host-to-client only. A client sending one is confused, not dangerous.
+            break
+        }
+    }
+
+    /// Answer a liveness probe immediately, deliberately bypassing the burst scheduler.
+    ///
+    /// Queueing it behind video would defeat the point: the client probes precisely when frames
+    /// have stopped arriving, so an echo stuck behind a backlog of undeliverable video packets
+    /// would report the link dead exactly as slowly as the thing it is measuring. A failed send
+    /// is left silent here too -- the client's unanswered-probe count is the signal, and yielding
+    /// `.failed` on a dropped echo would let one lost datagram tear down the session.
+    private func sendLivenessEcho(probeId: UInt64) {
+        Task { [datagrams, logger] in
+            let echo = OwnedMediaControlMessage(kind: .livenessEcho, frameId: probeId)
+            guard let data = try? JSONEncoder().encode(echo) else { return }
+            do {
+                try await datagrams.send(data)
+            } catch {
+                logger.notice("liveness echo send failed probe=\(probeId, privacy: .public) reason=\(String(describing: error), privacy: .public)")
+            }
         }
     }
 

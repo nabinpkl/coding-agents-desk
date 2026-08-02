@@ -96,17 +96,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let thumbnailsLogger = Logger(subsystem: Config.logSubsystem, category: "thumbnails")
     private var signalingServer: PairingSignalingServer?
     private let sessions = SessionRegistry()
-    // ADR-0090: video encoders outlive the sessions that use them, one per paired device.
+    // ADR-0090: video encoders outlive the media transports that use them, keyed by session id.
     //
     // A reconnect builds a new media transport, and an encoder owned by that transport would
     // start with no long-term reference state -- so the first frame after a handover would be a
-    // full keyframe regardless of what the client still had on screen. Keyed by fingerprint
-    // rather than shared, because one client's acknowledgement must never authorise a delta for
-    // another client that never received the reference.
+    // full keyframe regardless of what the client still had on screen. The session is the right
+    // unit because it is exactly the span over which the client keeps its decoder; see
+    // `mediaEncoder(forSession:)` for why a device-keyed one livelocks.
     //
-    // Bounded by the number of paired devices and released when a device is revoked, so this
-    // holds at most one hardware compression session per device the user has actually paired.
-    private var mediaEncoders: [DeviceFingerprint: VideoToolboxOwnedMediaEncoder] = [:]
+    // Bounded by live sessions rather than by pairings: an encoder is released the moment its
+    // session ends, so a paired device that is not connected holds no compression session.
+    private var mediaEncoders: [String: VideoToolboxOwnedMediaEncoder] = [:]
     private let scrollActivityHints = ScrollActivityStore()
     private let displaySelection = DisplaySelectionStore()
     private var hostAvailability = HostAvailabilityController()
@@ -789,7 +789,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             source: frameSource,
             datagrams: datagrams,
             mediaKey: mediaKey,
-            encoder: mediaEncoder(for: fingerprint),
+            encoder: mediaEncoder(forSession: sessionId),
             onFirstFrameSent: { [weak self] frameId in
                 Task { @MainActor [weak self] in
                     self?.clientTelemetryStore.record(
@@ -813,6 +813,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let transition = sessions.noteReady(active, ready: ready, transport: transport)
         if case .replaced(let previousSessionID) = transition {
+            releaseMediaEncoder(forSession: previousSessionID, reason: "session-replaced")
             agentSessionTerminalEndpoints.endBinding(for: active.deviceFingerprint)
             workspaceTerminalEndpoints.endBinding(for: active.deviceFingerprint)
             signalingLogger.notice("retired terminal endpoint for replaced session fingerprint=\(active.deviceFingerprint.rawValue, privacy: .public) previous=\(previousSessionID, privacy: .public) current=\(active.sessionId, privacy: .public)")
@@ -1138,9 +1139,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ fingerprint: DeviceFingerprint,
         sessionId: String? = nil
     ) {
+        // Resolved before the record goes away, since that is the only place the id lives when
+        // the caller did not supply one (the resume-grace timer does not).
+        let endedSessionId = sessionId ?? sessions.sessionId(for: fingerprint)
         guard sessions.endSession(fingerprint, sessionId: sessionId) else {
             signalingLogger.notice("ignored stale session end fingerprint=\(fingerprint.rawValue, privacy: .public) session=\(sessionId ?? "nil", privacy: .public)")
             return
+        }
+        if let endedSessionId {
+            releaseMediaEncoder(forSession: endedSessionId, reason: "session-ended")
         }
         agentSessionTerminalEndpoints.endBinding(for: fingerprint)
         workspaceTerminalEndpoints.endBinding(for: fingerprint)
@@ -1781,24 +1788,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// The device's video encoder, kept across reconnects so a resync after a handover can be a
-    /// delta against a frame the client still holds rather than a fresh keyframe.
-    private func mediaEncoder(for fingerprint: DeviceFingerprint) -> VideoToolboxOwnedMediaEncoder {
-        if let existing = mediaEncoders[fingerprint] {
-            signalingLogger.notice("reusing media encoder fp=\(fingerprint.rawValue, privacy: .public)")
+    /// The session's video encoder, kept across the reconnects *within* one session so a resync
+    /// after a handover can be a delta against a frame the client still holds.
+    ///
+    /// Keyed by session id, not by device, and that distinction is load-bearing. The encoder's
+    /// value is reference state shared with one client decoder, and the two stay in step only
+    /// where the client also kept its decoder -- which is exactly a resume, since a resume
+    /// preserves the session id and takes the surface-preserving teardown. A fresh dial builds
+    /// an empty decoder, so it must get an empty encoder: a reused one would answer the new
+    /// client's first keyframe request with a delta against a frame only the *previous* session
+    /// ever decoded, which the new decoder cannot decode, so it asks again -- a livelock, not a
+    /// glitch. A fresh encoder emits a true keyframe on its first frame and the client starts
+    /// clean.
+    private func mediaEncoder(forSession sessionId: String) -> VideoToolboxOwnedMediaEncoder {
+        if let existing = mediaEncoders[sessionId] {
+            signalingLogger.notice("reusing media encoder session=\(sessionId, privacy: .public)")
             return existing
         }
         let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: .fromConfig())
-        mediaEncoders[fingerprint] = encoder
+        mediaEncoders[sessionId] = encoder
         return encoder
+    }
+
+    /// Release the session's encoder and the hardware compression session it holds. Called when
+    /// a session ends, which is the moment its reference state stops being able to help anyone:
+    /// the resume window has closed, so no client will ever ask for a delta against it again.
+    private func releaseMediaEncoder(forSession sessionId: String, reason: String) {
+        guard let encoder = mediaEncoders.removeValue(forKey: sessionId) else { return }
+        encoder.invalidate()
+        signalingLogger.notice("released media encoder session=\(sessionId, privacy: .public) reason=\(reason, privacy: .public)")
     }
 
     private func revokeDevice(_ fingerprint: DeviceFingerprint) {
         try? pairing.revoke(deviceFingerprint: fingerprint)
-        // The encoder's whole value is reference state shared with one client. Once that
-        // pairing is gone the state is meaningless, and the hardware compression session it
-        // holds should not outlive it.
-        mediaEncoders.removeValue(forKey: fingerprint)?.invalidate()
+        // The encoder goes with the session, which handleSessionEnded releases.
         handleSessionEnded(fingerprint)
         refreshConnectedState()
     }

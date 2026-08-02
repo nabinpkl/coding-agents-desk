@@ -1370,7 +1370,7 @@ D210  2026-07-31  landed     control sends that fail say so, edge-triggered rath
 D211  2026-07-31  landed     probe-then-resume: a link change arms recovery, unanswered silence fires it
 D212  2026-07-31  landed     authorized handover device run: recovery fires, and a silent death still wedges the client
 D213  2026-07-31  landed     a way out of a session the client thinks is alive and the host has ended
-R214  checkpoint  remaining  liveness echo: recover from a dead path with no link change, sized against the 12.4s healthy-gap ceiling
+D214  2026-07-31  landed     liveness echo: recover from a dead path with no link change, sized against the 12.4s healthy-gap ceiling
 D215  2026-07-31  landed     retain the video sink across a transport swap, so a switch keeps the last frame instead of going black
 X216  2026-07-31  dropped    measure display-layer reference retention: not measurable before ADR-0090 exists, and not needed
 
@@ -1404,7 +1404,29 @@ session the client already moved.
 
 Neither fix does anything alone, which is why they land together. Still open: a session the host
 wrongly believes is connected holds its window open forever, because it reads "connected" as "in
-contact" -- R214's echo is what closes that.
+contact" -- D214's echo is what closes that.
+D221  2026-07-31  landed     release the session's encoder when the session ends, and key it by session so a fresh decoder never inherits one
+
+D214 detail: a control-message pair (`liveness-probe` / `liveness-echo`) carrying a sequence
+number on the existing `frameId` field. Three unanswered probes at 2s declares ~4.5s after the
+last arrival, against the 9.6s the transport took to notice the same death, and inside the resume
+window so it resumes rather than re-pairs. No echo-to-probe matching: the receive loop counts
+every datagram before dispatch, so an echo is already an arrival and any arrival proves the same
+thing -- which is also why an active session never probes at all. The echo bypasses the send
+pacer, since queueing it behind undeliverable video would make it exactly as slow as the thing it
+measures. It stays quiet until the session has carried one datagram, because otherwise a
+slow-starting session gets declared dead ~6s into its own startup by probes the host is not yet
+reading.
+
+D221 detail: keying the encoder by device (D219) was wrong on a path development never
+exercises -- the app restarting. Resume material is in-memory only, so a restarted app always
+dials fresh and builds an empty decoder, while a device-keyed encoder would hand it the previous
+session's reference state. The encoder's frame counter persists too, so nothing forces a true
+keyframe: the client cannot decode the delta, requests a keyframe, and that request routes back
+through `requestLtrRefresh` into another delta against the same unreachable reference. A
+livelock, presenting as "black screen after restart". Keying by session id makes the encoder's
+lifetime the client decoder's lifetime, and releasing on session end is then also the idle
+release -- a paired device that is not connected holds no compression session.
 
 ## Handover arc (ADR-0089)
 
