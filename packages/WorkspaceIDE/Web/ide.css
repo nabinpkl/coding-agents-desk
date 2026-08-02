@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 /* Tailwind infers its sources from this file's directory, but the trap is real enough in this repo
    to name them: a webview build that misses a reused source tree silently purges the classes only
@@ -89,17 +90,14 @@
 }
 
 @layer components {
-  /* The editor pane hosts DOM this project does not author — CodeMirror's editor, markdown-it's
-     output, docx-preview's page geometry, the notebook renderer's cells. There is no element to
-     hang a utility on, so these few stay selectors. */
+  /* Tailwind Typography owns markdown-it output. The remaining hosted surfaces have no authored
+     wrapper to hang a utility on, so these few layout rules stay selectors. */
   .ide-file-content > .cm-editor,
-  .ide-file-content > .markdown-body,
   .ide-file-content > .nb,
   .ide-file-content > .docx-scroll {
     height: 100%;
   }
 
-  .ide-file-content > .markdown-body,
   .ide-file-content > .nb {
     overflow: auto;
   }

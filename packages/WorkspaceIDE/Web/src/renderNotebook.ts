@@ -8,6 +8,7 @@
 // Run buttons send a typed message to Swift, and Swift streams run events back.
 
 import { parseNotebook, NotebookParseError } from './ipynbModel.ts'
+import { markdownFragmentClassName } from './markdownPresentation.ts'
 
 const el = (tag, className, text) => {
   const node = document.createElement(tag)
@@ -20,7 +21,7 @@ const el = (tag, className, text) => {
 // (pre.cm-static.cm-pending[data-lang]) so the viewer's existing highlightFenced
 // pass styles it in the same sweep — one highlighter, no duplication.
 function codeBlock(source, langExt, escapeHtml) {
-  const pre = el('pre', 'cm-static cm-pending')
+  const pre = el('pre', 'not-prose cm-static cm-pending')
   pre.setAttribute('data-lang', langExt || '')
   pre.innerHTML = `<code>${escapeHtml(source)}</code>`
   return pre
@@ -42,7 +43,7 @@ function renderOutput(output, deps) {
       return img
     }
     case 'markdown': {
-      const div = el('div', 'nb-out nb-md markdown-body')
+      const div = el('div', `nb-md ${markdownFragmentClassName}`)
       div.innerHTML = md.render(output.text)
       return div
     }
@@ -105,7 +106,7 @@ function region(kind, bodyEl, label) {
 function renderMarkdownCell(cell, deps) {
   const cellEl = el('section', 'nb-cell nb-cell-markdown')
   cellEl.setAttribute('data-cell-index', String(cell.cellIndex))
-  const body = el('div', 'nb-md markdown-body')
+  const body = el('div', `nb-md ${markdownFragmentClassName}`)
   body.innerHTML = deps.md.render(cell.source)
   cellEl.appendChild(region('md', body, 'markdown'))
   return cellEl

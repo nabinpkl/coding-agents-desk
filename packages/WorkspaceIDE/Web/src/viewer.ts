@@ -9,6 +9,7 @@ import { highlightCode, classHighlighter, tags } from '@lezer/highlight'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { detectLanguage } from './detectLanguage.ts'
 import { genericLanguage } from './genericLanguage.ts'
+import { markdownDocumentClassName } from './markdownPresentation.ts'
 import { applyNotebookRunEvent, renderNotebook } from './renderNotebook.ts'
 import { renderDocx } from './renderDocx.ts'
 import {
@@ -48,8 +49,8 @@ const md = new MarkdownIt({
   html: false,
   linkify: true,
   highlight(code, lang) {
-    if (lang === 'mermaid') return `<div class="mermaid-pending">${escapeHtml(code)}</div>`
-    return `<pre class="cm-static cm-pending" data-lang="${escapeHtml(lang || '')}"><code>${escapeHtml(code)}</code></pre>`
+    if (lang === 'mermaid') return `<div class="not-prose mermaid-pending">${escapeHtml(code)}</div>`
+    return `<pre class="not-prose cm-static cm-pending" data-lang="${escapeHtml(lang || '')}"><code>${escapeHtml(code)}</code></pre>`
   },
 })
 
@@ -156,7 +157,7 @@ function zoomOut() {
 
 function renderMarkdown(state) {
   const article = document.createElement('article')
-  article.className = 'markdown-body'
+  article.className = markdownDocumentClassName
   article.innerHTML = md.render(state.text)
   content.replaceChildren(article)
   runMermaid(article)
@@ -260,12 +261,12 @@ async function runMermaid(container) {
   for (const block of blocks) {
     if (!block.isConnected) continue
     const el = document.createElement('div')
-    el.className = 'mermaid-rendered'
+    el.className = 'not-prose mermaid-rendered'
     try {
       const { svg } = await mermaid.render(`mermaid-${n++}-${block.textContent.length}`, block.textContent)
       el.innerHTML = svg
     } catch (error) {
-      el.className = 'mermaid-error'
+      el.className = 'not-prose mermaid-error'
       el.textContent = `Mermaid error: ${error?.message ?? error}`
     }
     if (!block.isConnected) continue

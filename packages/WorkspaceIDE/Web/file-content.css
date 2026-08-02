@@ -1,7 +1,6 @@
-/* Styles for *rendered file content* — markdown, highlighted code, notebooks, DOCX. Loaded by every
-   document that renders a file: the standalone viewer and the IDE's editor pane. Nothing in here may
-   lay out `html` or `body`; that belongs to the owning document, which is why this file exists. See
-   viewer.css for the standalone viewer's own chrome. */
+/* Renderer-specific styles shared by both file documents: highlighted code, Mermaid, notebooks,
+   and DOCX. Tailwind Typography owns ordinary Markdown semantics in each document stylesheet.
+   Nothing here may lay out `html` or `body`; that belongs to the owning document. */
 
 :root {
   color-scheme: light dark;
@@ -86,15 +85,6 @@
   color: var(--fg-dim);
 }
 
-.markdown-body {
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 24px 28px 64px;
-}
-.markdown-body h1, .markdown-body h2 {
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 4px;
-}
 /* Fenced code inside rendered markdown (statically highlighted, tok-* classes). */
 .cm-static {
   margin: 0;
@@ -116,23 +106,6 @@
 .cm-static .tok-meta, .cm-static .tok-punctuation, .cm-static .tok-bracket { color: var(--fg-dim); }
 .cm-static .tok-heading { color: var(--tok-heading); font-weight: 600; }
 .cm-static .tok-link, .cm-static .tok-url { color: var(--accent); }
-.markdown-body code:not(pre code) {
-  background: var(--bg-elev);
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.92em;
-}
-.markdown-body a { color: var(--accent); }
-.markdown-body table { border-collapse: collapse; }
-.markdown-body th, .markdown-body td { border: 1px solid var(--border); padding: 4px 10px; }
-.markdown-body blockquote {
-  margin: 0;
-  padding-left: 12px;
-  border-left: 3px solid var(--border);
-  color: var(--fg-dim);
-}
-
 .mermaid-rendered { padding: 12px; background: var(--code-bg); border-radius: 6px; }
 .mermaid-error { padding: 12px; color: var(--danger-fg); font-family: ui-monospace, monospace; }
 
@@ -227,10 +200,6 @@
   pointer-events: none;
 }
 
-/* Markdown cells reuse .markdown-body content styling, but drop its page
-   layout (centered 860px, large padding) so each cell sits flush in the flow. */
-.nb-md.markdown-body { max-width: none; margin: 0; padding: 4px 6px; }
-
 .nb-prompt {
   color: var(--fg-dim);
   font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -253,7 +222,6 @@
 .nb-stream-stderr { background: var(--stderr-bg); color: var(--stderr-fg); }
 .nb-error { background: var(--danger-bg); color: var(--danger-fg); }
 .nb-image { display: block; max-width: 100%; background: var(--image-bg); border-radius: 4px; padding: 4px; }
-.nb-out.nb-md.markdown-body { background: none; padding: 4px 6px; }
 .nb-html-deferred { background: var(--bg-elev); border-radius: 4px; padding: 6px 10px; }
 .nb-html-note { color: var(--fg-dim); font-style: italic; font-size: 0.9em; margin-bottom: 4px; }
 .nb-raw { color: var(--fg-dim); white-space: pre-wrap; padding: 6px 10px; }

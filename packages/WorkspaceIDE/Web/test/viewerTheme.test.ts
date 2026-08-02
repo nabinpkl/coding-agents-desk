@@ -6,7 +6,24 @@ import { fileURLToPath } from 'node:url'
 const readFixture = (path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')
 
 const css = readFixture('../file-content.css')
+const ideCss = readFixture('../ide.css')
+const viewerCss = readFixture('../viewer.css')
 const viewer = readFixture('../src/viewer.ts')
+const markdownPresentation = readFixture('../src/markdownPresentation.ts')
+
+test('both webview documents register the official Tailwind Typography plugin', () => {
+  assert.match(ideCss, /@plugin\s+["']@tailwindcss\/typography["']/)
+  assert.match(viewerCss, /@plugin\s+["']@tailwindcss\/typography["']/)
+})
+
+test('rendered Markdown uses one shared prose contract instead of handwritten semantic CSS', () => {
+  assert.match(markdownPresentation, /['"]prose['"]/)
+  assert.match(markdownPresentation, /['"]prose-neutral['"]/)
+  assert.match(markdownPresentation, /['"]dark:prose-invert['"]/)
+  assert.match(markdownPresentation, /\[font-size:var\(--markdown-font-size\)\]/)
+  assert.doesNotMatch(css, /\.markdown-body/)
+  assert.match(viewer, /article\.className\s*=\s*markdownDocumentClassName/)
+})
 
 test('viewer exposes light and dark system theme variables', () => {
   assert.match(css, /color-scheme:\s*light dark/)

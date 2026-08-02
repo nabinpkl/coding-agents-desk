@@ -1,6 +1,9 @@
-/* The standalone single-file viewer *document*: how `index.html` lays itself out. Content styling
-   lives in file-content.css, which this document loads alongside. Keeping the two apart is what stops
-   this file's `body` layout from reaching documents that only wanted the content styles. */
+/* The standalone single-file viewer document: Tailwind Typography plus the layout that owns
+   `index.html`. Renderer-specific styles remain in the shared file-content.css. */
+
+@import "tailwindcss" source(none);
+@plugin "@tailwindcss/typography";
+@source "./src/markdownPresentation.ts";
 
 * { box-sizing: border-box; }
 
@@ -29,8 +32,8 @@ body {
   height: 100%;
   font: var(--editor-code-font-size)/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-/* Markdown bodies and notebooks scroll (the editor handles its own scrolling). */
-#content > .markdown-body, #content > .nb { height: 100%; overflow: auto; }
+/* Notebooks scroll here; rendered Markdown carries its layout through Tailwind utilities. */
+#content > .nb { height: 100%; overflow: auto; }
 
 /* DOCX is one shared reader on macOS and iOS. docx-preview owns Word's page
    geometry; DocxViewport scales that complete geometry to fit this scroller. */

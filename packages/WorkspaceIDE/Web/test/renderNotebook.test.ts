@@ -204,3 +204,14 @@ test('run error event appends a visible error block', () => {
   assert.equal(errors.length, 1)
   assert.equal(errors[0].textContent, 'ValueError: bad')
 })
+
+test('markdown output keeps prose typography instead of inheriting monospace output chrome', () => {
+  const container = render(sample)
+  applyNotebookRunEvent(container, { type: 'markdown', cellIndex: 1, text: '# Result' }, deps)
+
+  const firstCell = findAll(container, 'nb-cell-code')[0]
+  const markdown = findAll(firstCell, 'nb-md')
+  assert.equal(markdown.length, 1)
+  assert.ok(markdown[0].className.split(/\s+/).includes('prose'))
+  assert.ok(!markdown[0].className.split(/\s+/).includes('nb-out'))
+})
