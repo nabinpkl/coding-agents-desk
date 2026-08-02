@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertCircle, CloudDownload, Loader2, Volume2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type {
   ReferenceSpeechSettingsView,
@@ -33,7 +33,7 @@ export function ReferenceSpeechControls({
     return (
       <section
         aria-label="Reference speech"
-        className="flex items-center gap-2 rounded-lg border border-border bg-background/70 p-3 text-sm text-muted-foreground"
+        className="flex items-center gap-2 border-b border-border pb-4 text-sm text-muted-foreground"
       >
         <Loader2 className="size-4 animate-spin" />
         Loading Kokoro voices from the Mac
@@ -45,7 +45,7 @@ export function ReferenceSpeechControls({
     return (
       <section
         aria-label="Reference speech"
-        className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+        className="flex items-start gap-2 border-b border-destructive pb-4 text-sm text-destructive"
       >
         <AlertCircle className="mt-0.5 size-4 shrink-0" />
         {view.message}
@@ -74,7 +74,6 @@ function ReadyReferenceSpeechControls({
 }) {
   const { state, preferences } = view;
   const [draftSpeed, setDraftSpeed] = useState(preferences.speed);
-  useEffect(() => setDraftSpeed(preferences.speed), [preferences.speed]);
   const controlsDisabled = disabled;
   const speedRange = state.speed.maximum - state.speed.minimum;
   const defaultPosition =
@@ -90,7 +89,7 @@ function ReadyReferenceSpeechControls({
   return (
     <section
       aria-label="Reference speech"
-      className="flex flex-col gap-3 rounded-lg border border-border bg-background/70 p-3"
+      className="flex flex-col gap-3 border-b border-border pb-5"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-sm font-semibold">

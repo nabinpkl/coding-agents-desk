@@ -63,7 +63,7 @@ function formatCreatedAt(iso: string): string {
   });
 }
 
-function PassageCard({
+function PassageSection({
   title,
   detail,
   action,
@@ -75,13 +75,13 @@ function PassageCard({
   readonly children: ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border bg-background/70 p-3">
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        <div className="flex items-center gap-1">
+    <section className="flex flex-col gap-3 border-t border-border pt-4 first:border-t-0 first:pt-0">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <h3 className="text-base font-semibold tracking-tight">{title}</h3>
           <span className="text-xs text-muted-foreground">{detail}</span>
-          {action}
         </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
       </div>
       {children}
     </section>
@@ -108,7 +108,7 @@ function GroupedPhones({
   }
 
   return (
-    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-3 leading-relaxed">
+    <div className="flex flex-wrap gap-2.5" role="list">
       {groups.map((group, index) => {
         const word = group.word;
         const phones =
@@ -123,42 +123,44 @@ function GroupedPhones({
                 : "No dictionary entry";
         }
         return (
-          <span
-            className="inline-flex max-w-full items-baseline gap-2"
+          <div
+            className="flex max-w-full items-center gap-2 rounded-md bg-muted/60 px-2.5 py-2"
             key={`${group.word ?? "unassigned"}-${index}`}
+            role="listitem"
           >
-            <span className="shrink-0 text-sm font-semibold text-muted-foreground">
+            <span className="shrink-0 text-sm font-semibold text-foreground">
               {word ?? "No word anchor"}
             </span>
             {column === "reference" && word !== null && onSpeakWord ? (
               <Button
                 aria-label={`Hear reference word ${word}`}
+                className="size-11 border-border bg-background text-foreground shadow-none"
                 disabled={
                   referenceSpeechDisabled ||
                   !group.hasReferencePronunciation
                 }
                 onClick={() => onSpeakWord(index)}
-                size="icon-xs"
+                size="icon-sm"
                 title={`Hear “${word}”`}
-                variant="ghost"
+                variant="outline"
               >
                 {activeRequestKey === `${recordingID}:word:${index}` ? (
-                  <Loader2 className="animate-spin" />
+                  <Loader2 className="size-4 animate-spin" />
                 ) : (
-                  <Volume2 />
+                  <Volume2 className="size-4" />
                 )}
               </Button>
             ) : null}
             <span
               className={
                 phones.length > 0
-                  ? "font-mono text-base"
+                  ? "min-w-0 break-words font-mono text-[0.95rem] leading-6 text-foreground"
                   : "text-xs italic text-muted-foreground"
               }
             >
               {phones.length > 0 ? phones.join("\u00a0\u00a0") : emptyText}
             </span>
-          </span>
+          </div>
         );
       })}
     </div>
@@ -231,12 +233,12 @@ function RecordingRow({
   }
 
   return (
-    <li className="flex flex-col gap-3 rounded-xl border border-border bg-card/50 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-muted-foreground">
+    <li className="flex flex-col gap-5 border-b border-border py-5 first:pt-0 last:border-b-0 last:pb-0">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <span className="text-sm font-medium text-foreground">
           {formatCreatedAt(recording.createdAt)}
         </span>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant="secondary">{formatDuration(recording.durationSeconds)}</Badge>
           <Badge variant="outline">
             {recording.source === "iphone" ? "iPhone" : recording.source === "macos" ? "Mac" : "Browser"}
@@ -247,9 +249,9 @@ function RecordingRow({
           <Badge variant="outline">{recording.sampleRate} Hz</Badge>
         </div>
       </div>
-      <div className="grid gap-2">
-        <PassageCard detail="Saved transcript" title="Transcript">
-          <p className="text-base leading-relaxed">
+      <div className="flex flex-col gap-4">
+        <PassageSection detail="Saved transcript" title="Transcript">
+          <p className="text-lg leading-relaxed text-foreground">
             {recording.transcript && recording.transcript.length > 0 ? (
               recording.transcript
             ) : (
@@ -257,52 +259,58 @@ function RecordingRow({
             )}
           </p>
           {recording.transcriptionError && (
-            <p className="text-xs text-destructive">
+            <p className="border-l-2 border-destructive px-2 text-sm text-destructive">
               Transcription failed: {recording.transcriptionError}
             </p>
           )}
-        </PassageCard>
+        </PassageSection>
 
-        <PassageCard detail="Transcript-aligned" title="Phonemes heard">
+        <PassageSection detail="Transcript-aligned" title="Phonemes heard">
           <GroupedPhones column="heard" groups={wordPhoneGroups} />
           {recording.phoneAnalysisError && (
-            <p className="text-xs text-destructive">
+            <p className="border-l-2 border-destructive px-2 text-sm text-destructive">
               Phone analysis failed: {recording.phoneAnalysisError}
             </p>
           )}
           {recording.phoneModelIdentifier && (
-            <p className="text-xs text-muted-foreground">
-              {recording.phoneModelIdentifier}
-              {recording.phoneRuntimeIdentifier
-                ? ` · ${recording.phoneRuntimeIdentifier}`
-                : ""}
-            </p>
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer select-none font-medium text-foreground">
+                Analysis details
+              </summary>
+              <p className="mt-1.5 break-all">
+                {recording.phoneModelIdentifier}
+                {recording.phoneRuntimeIdentifier
+                  ? ` · ${recording.phoneRuntimeIdentifier}`
+                  : ""}
+              </p>
+            </details>
           )}
-        </PassageCard>
+        </PassageSection>
 
-        <PassageCard
+        <PassageSection
           action={
             <Button
+              className="min-h-11 border-border bg-background px-3 text-foreground"
               disabled={
                 referenceSpeechDisabled ||
                 referenceText.length === 0 ||
                 unknownReferenceWords.length > 0
               }
               onClick={() => void playReference({ kind: "passage" })}
-              size="xs"
+              size="sm"
               title="Hear the full reference passage"
-              variant="ghost"
+              variant="outline"
             >
               {playback.requestKey === `${recording.id}:passage` &&
               playback.status === "preparing" ? (
-                <Loader2 className="animate-spin" />
+                <Loader2 className="size-4 animate-spin" />
               ) : (
-                <Volume2 />
+                <Volume2 className="size-4" />
               )}
-              Hear all
+              Hear passage
             </Button>
           }
-          detail={recording.referenceDictionaryIdentifier ?? "CMUdict by word"}
+          detail="Pronunciation reference"
           title="Reference phonemes"
         >
           <GroupedPhones
@@ -320,37 +328,53 @@ function RecordingRow({
             recordingID={recording.id}
           />
           {recording.referencePronunciationError && (
-            <p className="text-xs text-destructive">
+            <p className="border-l-2 border-destructive px-2 text-sm text-destructive">
               Reference pronunciation failed:{" "}
               {recording.referencePronunciationError}
             </p>
           )}
           {unknownReferenceWords.length > 0 && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               No dictionary entry: {unknownReferenceWords.join(", ")}
             </p>
           )}
+          <details className="text-xs text-muted-foreground">
+            <summary className="cursor-pointer select-none font-medium text-foreground">
+              Reference source
+            </summary>
+            <p className="mt-1.5 break-all">
+              {recording.referenceDictionaryIdentifier ?? "CMUdict by word"}
+            </p>
+          </details>
           {referenceSpeechError && (
-            <p className="text-xs text-destructive">{referenceSpeechError}</p>
+            <p className="border-l-2 border-destructive px-2 text-sm text-destructive">
+              {referenceSpeechError}
+            </p>
           )}
           {playback.status === "error" &&
           playback.requestKey?.startsWith(`${recording.id}:`) ? (
-            <p className="text-xs text-destructive">{playback.error}</p>
+            <p className="border-l-2 border-destructive px-2 text-sm text-destructive">
+              {playback.error}
+            </p>
           ) : null}
-        </PassageCard>
+        </PassageSection>
       </div>
       {reanalyze.isError && (
-        <p className="text-xs text-destructive">
+        <p className="border-l-2 border-destructive px-2 text-sm text-destructive">
           {reanalyze.error instanceof Error
             ? reanalyze.error.message
             : "Reanalysis failed"}
         </p>
       )}
-      {audioError && <p className="text-xs text-destructive">{audioError}</p>}
-      <div className="flex items-center gap-2">
+      {audioError && (
+        <p className="border-l-2 border-destructive px-2 text-sm text-destructive">
+          {audioError}
+        </p>
+      )}
+      <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center">
         {audioURL ? (
           <audio
-            className="h-8 min-w-0 flex-1"
+            className="h-11 w-full min-w-0 sm:flex-1"
             controls
             preload="none"
             src={audioURL}
@@ -359,35 +383,36 @@ function RecordingRow({
           <Button
             disabled={isLoadingAudio}
             onClick={() => void loadAudio()}
-            size="sm"
+            size="default"
             variant="outline"
+            className="min-h-11 w-full sm:w-auto"
           >
             {isLoadingAudio && <Loader2 className="animate-spin" />}
             Load audio
           </Button>
         )}
-        <Button
-          aria-label="Reanalyze recording"
-          disabled={reanalyze.isPending}
-          onClick={() => reanalyze.mutate(recording.id)}
-          size="icon-sm"
-          variant="ghost"
-        >
-          <RefreshCw className={reanalyze.isPending ? "animate-spin" : ""} />
-        </Button>
-        <Button
-          aria-label="Delete recording"
-          disabled={isDeleting}
-          onClick={() => onDelete(recording.id)}
-          size="icon-sm"
-          variant="ghost"
-        >
-          {isDeleting ? (
-            <Loader2 className="animate-spin" />
-          ) : (
-            <Trash2 className="text-muted-foreground" />
-          )}
-        </Button>
+        <div className="grid grid-cols-2 gap-2 sm:flex">
+          <Button
+            className="min-h-11 border-border bg-background text-foreground"
+            disabled={reanalyze.isPending}
+            onClick={() => reanalyze.mutate(recording.id)}
+            size="default"
+            variant="outline"
+          >
+            <RefreshCw className={reanalyze.isPending ? "animate-spin" : ""} />
+            Reanalyze
+          </Button>
+          <Button
+            className="min-h-11"
+            disabled={isDeleting}
+            onClick={() => onDelete(recording.id)}
+            size="default"
+            variant="destructive"
+          >
+            {isDeleting ? <Loader2 className="animate-spin" /> : <Trash2 />}
+            Delete
+          </Button>
+        </div>
       </div>
     </li>
   );
