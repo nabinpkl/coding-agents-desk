@@ -133,6 +133,12 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
         )
         window.title = "Gesture"
         window.level = .normal
+        // The top bar's Voice command and the gesture surface open this one
+        // window, and both are things you reach for while working on whichever
+        // Desktop you are on. Parking it on the Desktop that happened to be
+        // front when it was built means the next invocation either switches
+        // Spaces under you or appears to do nothing.
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.hidesOnDeactivate = false
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         window.setAccessibilityIdentifier(Self.windowIdentifier)
