@@ -1,5 +1,18 @@
+import AgentDeskWire
 import CoreGraphics
 import Foundation
+
+/// What a window's terminal pane was serving, in the form the open flow needs to ask for it again.
+///
+/// The PTY session name is deterministic from the agent identity, so this is enough to land back on
+/// the same terminal two ways: the leased session is still running and the pane reattaches to the
+/// live process, or it was reaped and the harness relaunches with `--resume` against the same
+/// session in the same project.
+struct AgentWindowTerminalAttachment: Codable, Equatable, Sendable {
+    let requestID: String
+    let context: AgentResumeTerminalContext
+    let ptySessionName: String
+}
 
 struct AgentWindowFrame: Codable, Equatable, Sendable {
     let x: Double
@@ -31,6 +44,22 @@ struct AgentWindowPresentationDescriptor: Codable, Equatable, Identifiable, Send
     /// per-Desktop cascade placement when the user opens another one there.
     let desktopSpaceID: UInt64?
     let cascadeOrdinal: Int
+    /// Absent when the window had no terminal pane open, which is also what a window restores to.
+    var terminal: AgentWindowTerminalAttachment?
+
+    init(
+        id: UUID,
+        frame: AgentWindowFrame,
+        desktopSpaceID: UInt64?,
+        cascadeOrdinal: Int,
+        terminal: AgentWindowTerminalAttachment? = nil
+    ) {
+        self.id = id
+        self.frame = frame
+        self.desktopSpaceID = desktopSpaceID
+        self.cascadeOrdinal = cascadeOrdinal
+        self.terminal = terminal
+    }
 }
 
 enum AgentWindowPresentationStoreError: Error, Equatable {

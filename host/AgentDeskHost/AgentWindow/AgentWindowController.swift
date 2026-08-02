@@ -34,6 +34,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
 
     private var onClosed: (@MainActor () -> Void)?
     private var onFrameChanged: ((CGRect) -> Void)?
+    private var onTerminalChanged: ((AgentWindowTerminalAttachment?) -> Void)?
     private var window: NSWindow?
     private var panelController: AgentPanelWebViewController?
     private var transport: AgentPanelBridgeTransport?
@@ -62,8 +63,12 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     /// Test seam: the constructed window (nil until `show()`, and after close or `stop()`).
     var windowForTesting: NSWindow? { window }
 
-    func observePresentation(frameChanged: @escaping (CGRect) -> Void) {
+    func observePresentation(
+        frameChanged: @escaping (CGRect) -> Void,
+        terminalChanged: @escaping (AgentWindowTerminalAttachment?) -> Void
+    ) {
         onFrameChanged = frameChanged
+        onTerminalChanged = terminalChanged
     }
 
     func show(activating: Bool = true) {
@@ -116,18 +121,25 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         return result
     }
 
-    /// Establishes terminal close synchronously, then tears down the retained feed only after the
-    /// endpoint close barrier commits. The returned task keeps this controller alive through commit.
+    /// Host termination. The terminal lets go of its PTY without ending the agent's session, so a
+    /// restarting host can pick it back up; only a window the user closed ends its terminal.
     @discardableResult
     func beginStop() -> Task<Void, Never> {
         if let stopTask { return stopTask }
-        let terminalClose = terminalController?.beginExplicitClose(reason: .appTermination)
+        terminalController?.beginPreservingDetach()
         let task = Task { @MainActor [self] in
-            await terminalClose?.value
             finishStop()
         }
         stopTask = task
         return task
+    }
+
+    func resumeTerminal(_ attachment: AgentWindowTerminalAttachment) {
+        guard stopTask == nil else { return }
+        if window == nil {
+            build()
+        }
+        terminalController?.resume(attachment)
     }
 
     private func finishStop() {
@@ -142,6 +154,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         terminalController = nil
         stopTask = nil
         onFrameChanged = nil
+        onTerminalChanged = nil
         let onClosed = onClosed
         self.onClosed = nil
         onClosed?()
@@ -198,6 +211,9 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
                 )
                 self.splitView = splitView
                 self.terminalController = terminalController
+                terminalController.observeAttachment { [weak self] attachment in
+                    self?.onTerminalChanged?(attachment)
+                }
                 window.contentView = splitView
             } else {
                 window.contentView = webView

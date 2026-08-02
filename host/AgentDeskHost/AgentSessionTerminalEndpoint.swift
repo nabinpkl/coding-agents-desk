@@ -72,22 +72,38 @@ actor AgentSessionTerminalEndpoint {
 
     func shutdown() async {
         guard !isShutdown else { return }
-        isShutdown = true
         while let requestID = pendingTransfers.keys.first {
             await settleTransfer(for: requestID)
         }
-        let requestsToClose = activeRequests
-        activeRequests.removeAll(keepingCapacity: false)
-        tombstones.removeAll()
-        pushBindingID = nil
-        push = nil
-
+        guard let requestsToClose = beginShutdown() else { return }
         for (requestID, state) in requestsToClose {
             await coordinator.close(
                 requestID: namespacedRequestID(requestID),
                 ptySessionName: state.ptySessionName
             )
         }
+    }
+
+    /// Host termination. Drops this endpoint's state without asking the coordinator to close its
+    /// requests, because closing kills the deterministic PTY. The sessions are left leased with no
+    /// client, which the manager reaps on its own schedule unless a restarted host reattaches
+    /// first, so quitting the host stops being the thing that ends an agent's terminal.
+    ///
+    /// A transfer still in flight is abandoned rather than settled: settling exists to decide which
+    /// request owns a session, and nothing in this process will be around to act on the answer.
+    func shutdownPreservingSessions() async {
+        _ = beginShutdown()
+    }
+
+    private func beginShutdown() -> [String: RequestState]? {
+        guard !isShutdown else { return nil }
+        isShutdown = true
+        let requestsToClose = activeRequests
+        activeRequests.removeAll(keepingCapacity: false)
+        tombstones.removeAll()
+        pushBindingID = nil
+        push = nil
+        return requestsToClose
     }
 
     func setPush(_ push: Push?) {

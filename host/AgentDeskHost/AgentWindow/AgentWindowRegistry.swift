@@ -15,9 +15,16 @@ protocol AgentWindowControlling: AnyObject {
     /// restore at all.
     func show(activating: Bool)
 
-    /// Reports the window's frame whenever the user moves or resizes it, so the registry can keep
-    /// the remembered placement current without polling.
-    func observePresentation(frameChanged: @escaping (CGRect) -> Void)
+    /// Reports the window's frame whenever the user moves or resizes it, and its terminal pane's
+    /// attachment as that opens and closes, so the registry keeps the remembered presentation
+    /// current without polling and without depending on a clean exit to write it.
+    func observePresentation(
+        frameChanged: @escaping (CGRect) -> Void,
+        terminalChanged: @escaping (AgentWindowTerminalAttachment?) -> Void
+    )
+
+    /// Reopens the terminal pane against an attachment a previous host run left behind.
+    func resumeTerminal(_ attachment: AgentWindowTerminalAttachment)
 
     @discardableResult
     func beginStop() -> Task<Void, Never>
@@ -41,6 +48,8 @@ final class AgentWindowRegistry {
         let cascadeOrdinal: Int
         let endpoint: AgentSessionTerminalEndpoint
         let controller: any AgentWindowControlling
+        var frame: CGRect
+        var terminal: AgentWindowTerminalAttachment?
     }
 
     private let store: AgentWindowPresentationStore
@@ -141,6 +150,7 @@ final class AgentWindowRegistry {
                     descriptor.frame.cgRect,
                     within: visibleFrames
                 ),
+                terminal: descriptor.terminal,
                 activating: false
             )
         }
@@ -151,6 +161,7 @@ final class AgentWindowRegistry {
         desktopSpaceID: UInt64?,
         cascadeOrdinal: Int,
         frame: CGRect,
+        terminal: AgentWindowTerminalAttachment? = nil,
         activating: Bool
     ) {
         let endpoint = endpointFactory(id)
@@ -161,13 +172,23 @@ final class AgentWindowRegistry {
             desktopSpaceID: desktopSpaceID,
             cascadeOrdinal: cascadeOrdinal,
             endpoint: endpoint,
-            controller: controller
+            controller: controller,
+            frame: frame,
+            terminal: terminal
         )
-        persist(frame: frame, id: id)
-        controller.observePresentation { [weak self] frame in
-            self?.scheduleFrame(frame, id: id)
-        }
+        persist(id: id)
+        controller.observePresentation(
+            frameChanged: { [weak self] frame in
+                self?.scheduleFrame(frame, id: id)
+            },
+            terminalChanged: { [weak self] attachment in
+                self?.recordTerminal(attachment, id: id)
+            }
+        )
         controller.show(activating: activating)
+        if let terminal {
+            controller.resumeTerminal(terminal)
+        }
     }
 
     /// Coalesces a drag or resize into one write. A live drag emits a frame per event, and the
@@ -179,18 +200,28 @@ final class AgentWindowRegistry {
         frameTasks[id] = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self, self.entries[id] != nil else { return }
-            self.persist(frame: frame, id: id)
+            self.entries[id]?.frame = frame
+            self.persist(id: id)
             self.frameTasks[id] = nil
         }
     }
 
-    private func persist(frame: CGRect, id: UUID) {
+    /// Written straight through rather than debounced: a terminal opens or closes once, and the
+    /// write has to already be on disk if the host is killed rather than quit.
+    private func recordTerminal(_ attachment: AgentWindowTerminalAttachment?, id: UUID) {
+        guard !shuttingDown, entries[id]?.terminal != attachment else { return }
+        entries[id]?.terminal = attachment
+        persist(id: id)
+    }
+
+    private func persist(id: UUID) {
         guard let entry = entries[id] else { return }
         try? store.upsert(AgentWindowPresentationDescriptor(
             id: id,
-            frame: AgentWindowFrame(frame),
+            frame: AgentWindowFrame(entry.frame),
             desktopSpaceID: entry.desktopSpaceID,
-            cascadeOrdinal: entry.cascadeOrdinal
+            cascadeOrdinal: entry.cascadeOrdinal,
+            terminal: entry.terminal
         ))
     }
 
@@ -219,7 +250,7 @@ final class AgentWindowRegistry {
                 await controllerTask.value
             }
             for entry in entries {
-                await entry.endpoint.shutdown()
+                await entry.endpoint.shutdownPreservingSessions()
             }
             for endpointShutdownTask in existingEndpointShutdownTasks {
                 await endpointShutdownTask.value
@@ -232,11 +263,10 @@ final class AgentWindowRegistry {
     private func removeWindow(_ id: UUID) {
         guard let entry = entries.removeValue(forKey: id) else { return }
         frameTasks.removeValue(forKey: id)?.cancel()
-        // Only a window the user closed forfeits its place; on the way out every window closes
-        // without meaning to.
-        if !shuttingDown {
-            try? store.remove(id: id)
-        }
+        // Only a window the user closed forfeits its place, and with it the agent terminal it was
+        // running; on the way out every window closes without meaning to.
+        guard !shuttingDown else { return }
+        try? store.remove(id: id)
         let task = Task {
             await entry.endpoint.shutdown()
         }

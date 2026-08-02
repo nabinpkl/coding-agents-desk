@@ -1,4 +1,5 @@
 import AppKit
+import AgentDeskWire
 import AgentPanel
 import ApplicationServices
 import PtyTerminalWebView
@@ -84,9 +85,8 @@ struct AgentWindowControllerTests {
         #expect(closeCount == 1)
     }
 
-    @Test func stopAwaitsTerminalCloseAndTearsDownTheWindow() async {
+    @Test func stopDetachesTheTerminalWithoutEndingItAndTearsDownTheWindow() async {
         let terminal = FakeAgentWindowTerminalController()
-        terminal.suspendClose = true
         let controller = AgentWindowController(
             sidecarClient: FakeSidecarClient(),
             terminalControllerForTesting: terminal
@@ -94,14 +94,35 @@ struct AgentWindowControllerTests {
         controller.show()
         #expect(controller.windowForTesting != nil)
 
-        let stop = controller.beginStop()
-        await Task.yield()
-        #expect(terminal.closeReasons == [.appTermination])
-        #expect(controller.windowForTesting != nil)
+        await controller.beginStop().value
 
-        terminal.resumeClose()
-        await stop.value
+        // Quitting hands the PTY back rather than closing it: an explicit close would kill the
+        // deterministic session the next launch resumes.
+        #expect(terminal.preservingDetachCount == 1)
+        #expect(terminal.closeReasons.isEmpty)
         #expect(controller.windowForTesting == nil)
+    }
+
+    @Test func resumingATerminalBuildsTheWindowAndReplaysTheStoredAttachment() {
+        let terminal = FakeAgentWindowTerminalController()
+        let controller = AgentWindowController(
+            sidecarClient: FakeSidecarClient(),
+            terminalControllerForTesting: terminal
+        )
+        let attachment = AgentWindowTerminalAttachment(
+            requestID: "request-restored",
+            context: AgentResumeTerminalContext(
+                projectPath: "/Users/dev/project-a",
+                source: "claude",
+                harnessSessionID: "a4cdd7b8-3f9a-4d80-bc72-5f4aab6f39e1"
+            ),
+            ptySessionName: "agent-claude-a4cdd7b8"
+        )
+
+        controller.show(activating: false)
+        controller.resumeTerminal(attachment)
+
+        #expect(terminal.resumed == [attachment])
     }
 
     @Test func panelAndNativeTerminalControlsExposeStableAccessibilityIdentifiers() throws {
@@ -523,13 +544,32 @@ private final class FakeAgentWindowTerminalController: AgentWindowTerminalContro
     var handledIntents: [AgentPanelTerminalIntent] = []
     var closeReasons: [AgentWindowTerminalExplicitCloseReason] = []
     var suspendClose = false
+    private(set) var preservingDetachCount = 0
+    private(set) var resumed: [AgentWindowTerminalAttachment] = []
 
     private var closeTask: Task<Void, Never>?
     private var closeContinuation: CheckedContinuation<Void, Never>?
     private var closeWasResumed = false
+    private var attachmentObserver: ((AgentWindowTerminalAttachment?) -> Void)?
 
     func handle(_ intent: AgentPanelTerminalIntent) {
         handledIntents.append(intent)
+    }
+
+    func observeAttachment(_ observer: @escaping (AgentWindowTerminalAttachment?) -> Void) {
+        attachmentObserver = observer
+    }
+
+    func reportAttachment(_ attachment: AgentWindowTerminalAttachment?) {
+        attachmentObserver?(attachment)
+    }
+
+    func beginPreservingDetach() {
+        preservingDetachCount += 1
+    }
+
+    func resume(_ attachment: AgentWindowTerminalAttachment) {
+        resumed.append(attachment)
     }
 
     func beginExplicitClose(

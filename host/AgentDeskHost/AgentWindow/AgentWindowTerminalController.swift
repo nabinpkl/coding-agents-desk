@@ -6,9 +6,10 @@ import PtyClientSwift
 import PtyTerminalSession
 import PtyTerminalWebView
 
+/// Why a terminal is being ended for good. Host termination is deliberately not one of these: it
+/// hands the PTY back through `beginPreservingDetach` so a restarted host can resume it.
 enum AgentWindowTerminalExplicitCloseReason: String, Equatable {
     case windowShouldClose = "window-should-close"
-    case appTermination = "app-termination"
 }
 
 @MainActor
@@ -20,6 +21,18 @@ protocol AgentWindowTerminalControlling: AnyObject {
     func beginExplicitClose(
         reason: AgentWindowTerminalExplicitCloseReason
     ) -> Task<Void, Never>?
+
+    /// Reports the pane's attachment as it opens and closes, so the window's stored presentation
+    /// stays current even when the host dies without running its termination path.
+    func observeAttachment(_ observer: @escaping (AgentWindowTerminalAttachment?) -> Void)
+
+    /// Lets go of the PTY without ending the agent's session, for host termination only. The
+    /// ordinary close path kills the deterministic session because the user is done with it;
+    /// quitting is not that, and killing here is what made a restart lose the terminal.
+    func beginPreservingDetach()
+
+    /// Re-enters the open flow for an attachment a previous host run left behind.
+    func resume(_ attachment: AgentWindowTerminalAttachment)
 }
 
 extension AgentWindowTerminalControlling {
@@ -376,6 +389,8 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
     private var nextGeneration: UInt64 = 0
     private var phase: Phase = .idle
     private var isTerminalPresented = false
+    private var attachmentObserver: ((AgentWindowTerminalAttachment?) -> Void)?
+    private var reportedAttachment: AgentWindowTerminalAttachment?
 
     init(
         endpoint: any AgentWindowTerminalEndpointRouting,
@@ -393,6 +408,46 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
         self.deliverStatus = deliverStatus
         super.init()
         contentView.delegate = self
+    }
+
+    /// Reports changes only. A fresh controller has no attachment yet, and replaying that emptiness
+    /// would tell the registry to forget the very attachment it is about to ask this controller to
+    /// resume.
+    func observeAttachment(_ observer: @escaping (AgentWindowTerminalAttachment?) -> Void) {
+        attachmentObserver = observer
+    }
+
+    func resume(_ attachment: AgentWindowTerminalAttachment) {
+        beginOpen(OpenRequest(requestID: attachment.requestID, context: attachment.context))
+    }
+
+    /// Host termination. Everything the ordinary close does except telling the coordinator to end
+    /// the request, because that is the step that kills the deterministic PTY. What is left is a
+    /// leased session with no clients, which the manager reaps after its grace period unless a
+    /// restarting host reattaches first.
+    func beginPreservingDetach() {
+        guard activeBinding != nil || isDetached else {
+            return
+        }
+        cancelActiveOperation()
+        phase = .idle
+        contentView.detach()
+        updatePresentation(open: false)
+        stateForTesting = .idle
+    }
+
+    private var isDetached: Bool {
+        if case .detached = phase { return true }
+        return false
+    }
+
+    /// Only a terminal that is genuinely finished reports `nil`. A preserving detach deliberately
+    /// leaves the last attachment standing, because that is the thing a restarted host resumes; an
+    /// unexpected loss keeps it too, since the session outlives a dropped connection.
+    private func reportAttachment(_ attachment: AgentWindowTerminalAttachment?) {
+        guard attachment != reportedAttachment else { return }
+        reportedAttachment = attachment
+        attachmentObserver?(attachment)
     }
 
     func handle(_ intent: AgentPanelTerminalIntent) {
@@ -658,6 +713,11 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
             context: ready.context,
             ptySessionName: ready.ptySessionName
         )
+        reportAttachment(AgentWindowTerminalAttachment(
+            requestID: ready.requestID,
+            context: ready.context,
+            ptySessionName: ready.ptySessionName
+        ))
         updatePresentation(open: true)
         deliverStatus(.ready(ready))
         contentView.focus()
@@ -738,6 +798,7 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
         contentView.detach()
         updatePresentation(open: false)
         stateForTesting = .idle
+        reportAttachment(nil)
 
         barrier.task = Task { [weak self, weak barrier] in
             guard let self, let barrier else { return }
@@ -791,6 +852,7 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
             contentView.stop()
             updatePresentation(open: false)
             stateForTesting = .idle
+            reportAttachment(nil)
             deliverStatus(message)
         }
     }
@@ -804,6 +866,7 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
         contentView.detach()
         updatePresentation(open: false)
         stateForTesting = .idle
+        reportAttachment(nil)
         deliverStatus(.error(error))
     }
 

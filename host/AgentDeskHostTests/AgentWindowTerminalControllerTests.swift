@@ -610,7 +610,7 @@ struct AgentWindowTerminalControllerTests {
 
         controller.handle(.open(requestID: "request-stale-lifecycle", context: firstContext))
         try await waitUntil { endpoint.openRequests.count == 1 }
-        let close = controller.beginExplicitClose(reason: .appTermination)
+        let close = controller.beginExplicitClose(reason: .windowShouldClose)
         await close?.value
         endpoint.resumeOpen(
             requestID: "request-stale-lifecycle",
@@ -622,7 +622,7 @@ struct AgentWindowTerminalControllerTests {
             requestID: "request-stale-lifecycle",
             context: wireContext(firstContext),
             ptySessionName: nil,
-            reason: "app-termination"
+            reason: "window-should-close"
         )])
         #expect(attacher.requests.isEmpty)
         #expect(status.messages.isEmpty)
@@ -666,25 +666,155 @@ struct AgentWindowTerminalControllerTests {
         #expect(controller.contentView.isBound == false)
     }
 
-    @Test func socketLossThenAppTerminationConsumesExactCloseOnce() async throws {
+    @Test func socketLossThenHostTerminationStillLeavesTheSessionAlive() async throws {
         let (controller, endpoint, connection) = try await socketLostTerminal(
             requestID: "request-loss-app"
         )
 
-        let firstClose = controller.beginExplicitClose(reason: .appTermination)
-        let repeatedClose = controller.beginExplicitClose(reason: .appTermination)
-        await firstClose?.value
-        await repeatedClose?.value
+        controller.beginPreservingDetach()
+        controller.beginPreservingDetach()
 
-        #expect(endpoint.closeMessages == [AgentTerminalClose(
-            requestID: "request-loss-app",
-            context: wireContext(firstContext),
-            ptySessionName: ptyName(for: firstContext),
-            reason: "app-termination"
-        )])
+        // The connection was already gone with the socket; what matters is that quitting adds no
+        // close, because a close is what kills the deterministic PTY the next launch resumes.
+        #expect(endpoint.closeMessages.isEmpty)
         #expect(endpoint.terminalEnds.isEmpty)
         #expect(connection.detachCount == 1)
         #expect(controller.contentView.isBound == false)
+    }
+
+    @Test func hostTerminationHandsTheRunningSessionBackInsteadOfEndingIt() async throws {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let status = AgentWindowTerminalStatusRecorder()
+        let layout = AgentWindowTerminalLayoutRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { layout.values.append($0) },
+            deliverStatus: { status.messages.append($0) }
+        )
+        let attachments = AgentWindowTerminalAttachmentRecorder()
+        controller.observeAttachment { attachments.values.append($0) }
+        endpoint.completeOpen(
+            requestID: "request-preserve",
+            with: .ready(ready(requestID: "request-preserve", context: firstContext))
+        )
+        controller.handle(.open(requestID: "request-preserve", context: firstContext))
+        try await waitUntil { status.messages.count == 1 }
+        let connection = attacher.connections[ptyName(for: firstContext)]
+
+        controller.beginPreservingDetach()
+
+        // Detached, not stopped: the client lets go and the leased session stays up for whoever
+        // reattaches next. The driver detaches asynchronously, so this is the settle point.
+        try await waitUntil { connection?.detachCount == 1 }
+        #expect(endpoint.closeMessages.isEmpty)
+        #expect(endpoint.terminalEnds.isEmpty)
+        #expect(controller.contentView.isBound == false)
+        #expect(controller.stateForTesting == .idle)
+        // The last reported attachment stands, because it is what the next launch resumes.
+        #expect(attachments.values == [AgentWindowTerminalAttachment(
+            requestID: "request-preserve",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext)
+        )])
+    }
+
+    @Test func aTerminalTheUserClosesStopsBeingSomethingToResume() async throws {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let status = AgentWindowTerminalStatusRecorder()
+        let layout = AgentWindowTerminalLayoutRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { layout.values.append($0) },
+            deliverStatus: { status.messages.append($0) }
+        )
+        let attachments = AgentWindowTerminalAttachmentRecorder()
+        controller.observeAttachment { attachments.values.append($0) }
+        endpoint.completeOpen(
+            requestID: "request-user-close",
+            with: .ready(ready(requestID: "request-user-close", context: firstContext))
+        )
+        controller.handle(.open(requestID: "request-user-close", context: firstContext))
+        try await waitUntil { status.messages.count == 1 }
+
+        await controller.beginExplicitClose(reason: .windowShouldClose)?.value
+
+        #expect(endpoint.closeMessages.count == 1)
+        #expect(attachments.values.last == .some(nil))
+    }
+
+    @Test func observingAFreshControllerReportsNothingUntilATerminalOpens() async throws {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let status = AgentWindowTerminalStatusRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { _ in },
+            deliverStatus: { status.messages.append($0) }
+        )
+        let attachments = AgentWindowTerminalAttachmentRecorder()
+
+        controller.observeAttachment { attachments.values.append($0) }
+
+        // An immediate `nil` here would read as "this window has no terminal" and drop the stored
+        // attachment the restore is about to replay, since observing happens before the resume.
+        #expect(attachments.values.isEmpty)
+
+        endpoint.completeOpen(
+            requestID: "request-observed",
+            with: .ready(ready(requestID: "request-observed", context: firstContext))
+        )
+        controller.resume(AgentWindowTerminalAttachment(
+            requestID: "request-observed",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext)
+        ))
+        try await waitUntil { status.messages.count == 1 }
+
+        #expect(attachments.values == [AgentWindowTerminalAttachment(
+            requestID: "request-observed",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext)
+        )])
+    }
+
+    @Test func resumingReopensTheExactRequestAPreviousRunLeftBehind() async throws {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let status = AgentWindowTerminalStatusRecorder()
+        let layout = AgentWindowTerminalLayoutRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { layout.values.append($0) },
+            deliverStatus: { status.messages.append($0) }
+        )
+        endpoint.completeOpen(
+            requestID: "request-resumed",
+            with: .ready(ready(requestID: "request-resumed", context: firstContext))
+        )
+
+        controller.resume(AgentWindowTerminalAttachment(
+            requestID: "request-resumed",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext)
+        ))
+        try await waitUntil { status.messages.count == 1 }
+
+        // Resuming goes through the ordinary open, so the coordinator decides whether that means
+        // reattaching to the live PTY or relaunching the harness against the same session.
+        #expect(endpoint.openRequests == [open(requestID: "request-resumed", context: firstContext)])
+        #expect(attacher.requests.map(\.sessionName) == [ptyName(for: firstContext)])
+        #expect(layout.values == [true])
+        #expect(controller.stateForTesting == .ready(
+            requestID: "request-resumed",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext)
+        ))
     }
 
     @Test func socketLossThenWindowCloseConsumesExactCloseOnce() async throws {
@@ -832,7 +962,7 @@ struct AgentWindowTerminalControllerTests {
             .ready(ready(requestID: "request-new", context: firstContext)),
         ])
 
-        await controller.beginExplicitClose(reason: .appTermination)?.value
+        await controller.beginExplicitClose(reason: .windowShouldClose)?.value
 
         #expect(await coordinator.killCount == 1)
         #expect(await coordinator.activeRequestIDs.isEmpty)
@@ -1296,4 +1426,8 @@ private final class AgentWindowTerminalStatusRecorder {
 @MainActor
 private final class AgentWindowTerminalLayoutRecorder {
     var values: [Bool] = []
+}
+
+private final class AgentWindowTerminalAttachmentRecorder {
+    var values: [AgentWindowTerminalAttachment?] = []
 }

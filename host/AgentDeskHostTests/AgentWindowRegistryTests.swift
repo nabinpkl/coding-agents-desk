@@ -105,6 +105,97 @@ struct AgentWindowRegistryTests {
         #expect(after.ids == [before.ids[1]])
     }
 
+    @Test func aRunningAgentTerminalIsHandedBackToTheWindowItBelongedTo() async {
+        let storeURL = AgentWindowRegistryFixture.makeStoreURL()
+        let before = AgentWindowRegistryFixture(storeURL: storeURL)
+        defer { before.remove() }
+        let placement = AgentWindowPlacement(
+            desktopSpaceID: 7,
+            frame: CGRect(x: 40, y: 60, width: 480, height: 720)
+        )
+        before.registry.open(placement)
+        before.registry.open(placement)
+        let attachment = AgentWindowTerminalAttachment(
+            requestID: "request-1",
+            context: AgentResumeTerminalContext(
+                projectPath: "/Users/someone/project",
+                source: "claude",
+                harnessSessionID: "0f4a1b2c-3d4e-5f60-8a9b-0c1d2e3f4a5b"
+            ),
+            ptySessionName: "agent-claude-0f4a1b2c"
+        )
+        before.controllers[0].reportTerminal(attachment)
+
+        await before.registry.beginStopAll().value
+
+        let after = AgentWindowRegistryFixture(storeURL: storeURL)
+        after.registry.startRestoration(visibleFrames: [CGRect(x: 0, y: 0, width: 1_920, height: 1_080)])
+
+        let resumedByWindow = zip(after.ids, after.controllers)
+            .reduce(into: [UUID: [AgentWindowTerminalAttachment]]()) { result, pair in
+                result[pair.0] = pair.1.resumedTerminals
+            }
+        #expect(resumedByWindow[before.ids[0]] == [attachment])
+        #expect(resumedByWindow[before.ids[1]] == [])
+    }
+
+    @Test func aTerminalTheAgentEndedIsNotResumedLater() async {
+        let storeURL = AgentWindowRegistryFixture.makeStoreURL()
+        let before = AgentWindowRegistryFixture(storeURL: storeURL)
+        defer { before.remove() }
+        before.registry.open(AgentWindowPlacement(
+            desktopSpaceID: nil,
+            frame: CGRect(x: 40, y: 60, width: 480, height: 720)
+        ))
+        before.controllers[0].reportTerminal(AgentWindowTerminalAttachment(
+            requestID: "request-1",
+            context: AgentResumeTerminalContext(
+                projectPath: "/Users/someone/project",
+                source: "codex",
+                harnessSessionID: "0f4a1b2c-3d4e-5f60-8a9b-0c1d2e3f4a5b"
+            ),
+            ptySessionName: "agent-codex-0f4a1b2c"
+        ))
+        // The pane closing is the terminal being finished with, and that has to reach the store
+        // before the quit, or the next launch reopens something the agent already ended.
+        before.controllers[0].reportTerminal(nil)
+
+        await before.registry.beginStopAll().value
+
+        let after = AgentWindowRegistryFixture(storeURL: storeURL)
+        after.registry.startRestoration(visibleFrames: [CGRect(x: 0, y: 0, width: 1_920, height: 1_080)])
+
+        #expect(after.controllers.count == 1)
+        #expect(after.controllers[0].resumedTerminals.isEmpty)
+    }
+
+    @Test func aTerminalIsRememberedEvenIfTheHostNeverGetsToQuit() {
+        let storeURL = AgentWindowRegistryFixture.makeStoreURL()
+        let before = AgentWindowRegistryFixture(storeURL: storeURL)
+        defer { before.remove() }
+        before.registry.open(AgentWindowPlacement(
+            desktopSpaceID: nil,
+            frame: CGRect(x: 40, y: 60, width: 480, height: 720)
+        ))
+        let attachment = AgentWindowTerminalAttachment(
+            requestID: "request-1",
+            context: AgentResumeTerminalContext(
+                projectPath: "/Users/someone/project",
+                source: "claude",
+                harnessSessionID: "0f4a1b2c-3d4e-5f60-8a9b-0c1d2e3f4a5b"
+            ),
+            ptySessionName: "agent-claude-0f4a1b2c"
+        )
+        before.controllers[0].reportTerminal(attachment)
+
+        // No beginStopAll: this is the pkill case, which is how the host usually dies in
+        // development. The attachment is written when it happens, not on the way out.
+        let after = AgentWindowRegistryFixture(storeURL: storeURL)
+        after.registry.startRestoration(visibleFrames: [CGRect(x: 0, y: 0, width: 1_920, height: 1_080)])
+
+        #expect(after.controllers[0].resumedTerminals == [attachment])
+    }
+
     @Test func restorationIsIdempotentAndNeverDuplicatesAWindow() {
         let storeURL = AgentWindowRegistryFixture.makeStoreURL()
         let before = AgentWindowRegistryFixture(storeURL: storeURL)
@@ -222,11 +313,13 @@ private final class FakeManagedAgentWindow: AgentWindowControlling {
     private let suspendStop: Bool
     private var onClosed: (@MainActor () -> Void)?
     private var onFrameChanged: ((CGRect) -> Void)?
+    private var onTerminalChanged: ((AgentWindowTerminalAttachment?) -> Void)?
     private var stopTask: Task<Void, Never>?
     private var stopContinuation: CheckedContinuation<Void, Never>?
     private(set) var showCount = 0
     private(set) var stopCount = 0
     private(set) var activations: [Bool] = []
+    private(set) var resumedTerminals: [AgentWindowTerminalAttachment] = []
 
     init(
         frame: CGRect,
@@ -243,13 +336,26 @@ private final class FakeManagedAgentWindow: AgentWindowControlling {
         activations.append(activating)
     }
 
-    func observePresentation(frameChanged: @escaping (CGRect) -> Void) {
+    func observePresentation(
+        frameChanged: @escaping (CGRect) -> Void,
+        terminalChanged: @escaping (AgentWindowTerminalAttachment?) -> Void
+    ) {
         onFrameChanged = frameChanged
+        onTerminalChanged = terminalChanged
+    }
+
+    func resumeTerminal(_ attachment: AgentWindowTerminalAttachment) {
+        resumedTerminals.append(attachment)
     }
 
     /// Stands in for the user dragging the window.
     func moveTo(_ frame: CGRect) {
         onFrameChanged?(frame)
+    }
+
+    /// Stands in for the panel opening or ending a terminal in this window.
+    func reportTerminal(_ attachment: AgentWindowTerminalAttachment?) {
+        onTerminalChanged?(attachment)
     }
 
     func close() {
