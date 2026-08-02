@@ -59,9 +59,9 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         )
         window.title = "Workspace IDE"
         window.minSize = NSSize(width: 720, height: 480)
-        // Normal single-Space behavior lets activation switch to this window's Desktop. The former
-        // `.moveToActiveSpace` did the opposite by dragging the IDE onto whichever Desktop was active.
-        window.collectionBehavior = [.fullScreenPrimary]
+        // An explicit IDE click reopens the hidden window on the Desktop where the click happened.
+        // Launch restoration overrides this below by moving the alpha-zero window to its saved Space.
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenPrimary]
         window.isReleasedWhenClosed = false
         window.contentView = ideContentView
         // Naming the frame only tells AppKit where to *save* it; a code-created window (no nib)
@@ -90,10 +90,12 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
     /// takes focus out from under whatever you were doing is worse than no restore at all.
     func show(activating: Bool = true) {
         guard let window else { return }
-        restorePlacementAndOrderFront(window)
         if activating {
+            showWindow(nil)
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+        } else {
+            restorePlacementAndOrderFront(window)
         }
         terminalController.setWindowPresented(true)
         recordWindowVisible(true)
