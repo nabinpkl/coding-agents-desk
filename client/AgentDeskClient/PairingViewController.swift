@@ -76,6 +76,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // The sink publishes status into it via onOwnedMediaStatusChange.
     var mediaDiagnosticsLabel: UILabel?
     var hostAvailabilityLabel: UILabel?
+    // Carries the connect message across the gap between session connect and the
+    // first drawable frame; see VideoStartupBanner.
+    var videoStartupBanner = VideoStartupBanner()
     // Cursor-image mirror state. The host pushes the real cursor glyph on
     // shape change; we cache it and stamp it at the predicted position.
     // Defaults describe the drawn-arrow fallback (tip hotspot, small size).
@@ -471,6 +474,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         if let owned = sink as? any OwnedMediaFrameSink {
             owned.onOwnedMediaStatusChange = { [weak self] status in
                 self?.mediaDiagnosticsLabel?.text = status.labelText
+                self?.noteOwnedMediaStatus(status)
             }
             owned.setOwnedMediaStatus(.connecting)
         }
@@ -508,6 +512,27 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             else { return }
             self.startMediaTransportIfNeeded()
         }
+    }
+
+    /// A decoded frame reaching the display, or a live tile surface, is the
+    /// moment the app has a picture. Every other status is progress to report.
+    func noteOwnedMediaStatus(_ status: OwnedMediaStatus) {
+        let hasPicture: Bool
+        switch status {
+        case .video, .tilesLive:
+            hasPicture = true
+        case .connecting, .connected, .videoRepairing, .videoWaitingKeyframe, .videoDropped:
+            hasPicture = false
+        }
+        videoStartupBanner.note(hasPicture: hasPicture, detail: status.labelText)
+        renderVideoStartupBanner()
+    }
+
+    func renderVideoStartupBanner() {
+        guard case .connected(let active) = pairingClient.state else { return }
+        let text = videoStartupBanner.text(deviceFingerprint: "\(active.deviceFingerprint)")
+        statusLabel.text = text
+        statusLabel.isHidden = text == nil
     }
 
     private func activeSessionForMedia() -> ActiveSession? {
@@ -584,6 +609,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         mediaTransport?.stop()
         mediaTransport = nil
         ClientRuntimeTelemetry.shared.updateMediaState(.stopped)
+        // Frames stop here, so the next foreground starts black again and owes
+        // the user the same explanation the first connect did.
+        videoStartupBanner.awaitFirstFrame(detail: "media suspended")
         mediaDiagnosticsLabel?.text = "media suspended"
         if #available(iOS 26.0, *) {
             terminalSurface?.detach()
@@ -600,6 +628,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         mediaTransport?.stop()
         mediaTransport = nil
         ClientRuntimeTelemetry.shared.updateMediaState(.stopped)
+        videoStartupBanner.awaitFirstFrame()
         videoSink?.view.removeFromSuperview()
         videoSink = nil
         sinkScrollView?.removeFromSuperview()
@@ -825,8 +854,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             actionButton.isHidden = true
             stopCamera()
         case .connected(let active):
-            statusLabel.text = "Connected (device \(active.deviceFingerprint))"
-            statusLabel.isHidden = true
+            let waiting = videoStartupBanner.text(deviceFingerprint: "\(active.deviceFingerprint)")
+            statusLabel.text = waiting
+            statusLabel.isHidden = waiting == nil
             actionButton.isHidden = true
             stopCamera()
         case .revoked:
