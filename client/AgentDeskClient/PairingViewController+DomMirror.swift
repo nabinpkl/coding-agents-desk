@@ -34,7 +34,7 @@ extension PairingViewController {
             // Hidden at creation; applySurface(.browser) reveals it on select.
             created.isHidden = true
             hostContentView.addSubview(created)
-            constrainSurfaceBesideControlRail(created, bottomAnchor: view.bottomAnchor)
+            constrainSurfaceUnderControlRail(created, bottomAnchor: view.bottomAnchor)
             domMirrorSurface = created
             surface = created
         }

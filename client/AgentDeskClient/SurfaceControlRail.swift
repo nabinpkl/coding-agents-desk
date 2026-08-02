@@ -2,6 +2,11 @@ import UIKit
 
 /// One vertical home for surface selection and global presentation actions.
 ///
+/// The rail is an overlay: the surface underneath runs the full width of the screen and the
+/// rail floats on top of it, the same way it already floats over the gesture webview. Its
+/// chevron opens and closes the panel, and closing it leaves only that chevron on screen, so
+/// a terminal or agent surface can be read edge to edge without being switched away from.
+///
 /// The rail owns presentation and selection state only. PairingViewController remains the
 /// authoritative owner of the active surface and of every action performed by the utility buttons.
 final class SurfaceControlRail: UIView {
@@ -58,14 +63,6 @@ final class SurfaceControlRail: UIView {
             width: isCollapsed ? Self.buttonSide : Self.railWidth,
             height: contentHeight + (Self.contentInset * 2)
         )
-    }
-
-    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        guard isCollapsed else {
-            return super.point(inside: point, with: event)
-        }
-        let collapseButtonPoint = collapseButton.convert(point, from: self)
-        return collapseButton.point(inside: collapseButtonPoint, with: event)
     }
 
     func setSurfaces(
@@ -183,10 +180,13 @@ final class SurfaceControlRail: UIView {
             stackView.removeArrangedSubview($0)
             $0.removeFromSuperview()
         }
+        // The toggle leads the stack so it keeps one fixed position at the top
+        // trailing corner: the panel grows downward from it, and a closed rail is
+        // that button alone, in the place the user last reached for it.
+        stackView.addArrangedSubview(collapseButton)
         surfaceButtons.forEach(stackView.addArrangedSubview)
         stackView.addArrangedSubview(separator)
         utilityButtons.forEach(stackView.addArrangedSubview)
-        stackView.addArrangedSubview(collapseButton)
         applyCollapsedState(animated: false)
     }
 
@@ -251,30 +251,33 @@ final class SurfaceControlRail: UIView {
     }
 
     private func applyCollapsedState(animated: Bool) {
-        // Preserve layout slots so the final collapse button stays at the same vertical position.
-        // point(inside:with:) makes the resulting transparent area pass touches through.
+        // Closing the panel removes the controls from the stack outright rather
+        // than fading them in place. The rail overlays the active surface, so a
+        // full-height transparent column would keep covering content that the
+        // user closed the panel to see, and hidden views leave the hit-testing
+        // and accessibility trees on their own.
         let controls = surfaceButtons + utilityButtons
-        controls.forEach {
-            $0.isHidden = false
-            $0.alpha = isCollapsed ? 0 : 1
-            $0.isUserInteractionEnabled = !isCollapsed
-            $0.accessibilityElementsHidden = isCollapsed
+        let apply = { [self] in
+            controls.forEach { $0.isHidden = isCollapsed }
+            separator.isHidden = isCollapsed || surfaceButtons.isEmpty
+            invalidateIntrinsicContentSize()
+            superview?.layoutIfNeeded()
         }
-        separator.isHidden = surfaceButtons.isEmpty
-        separator.alpha = isCollapsed ? 0 : 1
+
         scrollView.isScrollEnabled = !isCollapsed
         updateCollapseButtonAppearance()
-        invalidateIntrinsicContentSize()
         superview?.setNeedsLayout()
 
-        guard animated else { return }
+        guard animated else {
+            apply()
+            return
+        }
         UIView.animate(
             withDuration: 0.2,
             delay: 0,
-            options: [.beginFromCurrentState, .curveEaseInOut]
-        ) {
-            self.superview?.layoutIfNeeded()
-        }
+            options: [.beginFromCurrentState, .curveEaseInOut],
+            animations: apply
+        )
     }
 
     private func updateCollapseButtonAppearance() {

@@ -104,7 +104,7 @@ extension PairingViewController {
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = activeControlSurface != .ide
         hostContentView.addSubview(surface)
-        constrainSurfaceBesideControlRail(surface, bottomAnchor: view.bottomAnchor)
+        constrainSurfaceUnderControlRail(surface, bottomAnchor: view.bottomAnchor)
         view.bringSubviewToFront(surfaceControlRail)
 
         let state = workspaceIDEState

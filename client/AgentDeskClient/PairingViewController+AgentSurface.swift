@@ -6,10 +6,10 @@ import WebKit
 // Terminal, Browser, Workspace, and IDE.
 // The ControlSurface enum + visibility(for:) mapping live in ControlSurface.swift.
 //
-// Each non-control surface sits beside the shared right-side control rail. The
-// rail lets the user switch between them without consuming the top status row.
-// When a non-control surface is shown the interactive control surfaces are
-// hidden so gestures do not conflict; the inactive surfaces are hidden too.
+// Each non-control surface fills the screen and the shared right-side control
+// rail overlays it, so switching between them costs no width. When a non-control
+// surface is shown the interactive control surfaces are hidden so gestures do
+// not conflict; the inactive surfaces are hidden too.
 //
 // Lifecycle (state-driven, race-free):
 //   - The TOGGLE is added from render()'s .connected case via
@@ -221,8 +221,8 @@ extension PairingViewController {
 
     // MARK: - Lazy webview creation
 
-    // Creates the hidden AgentFeedSurface (inset below the Control/Agent toggle,
-    // full-bleed on the other three edges) and wires both bridge directions,
+    // Creates the hidden AgentFeedSurface (full-bleed under the overlaid control
+    // rail, starting at the top safe area) and wires both bridge directions,
     // pulling the live channel and transport at call time. A nil
     // channel (not yet connected) is tolerated: the surface is still created so
     // the UI does not crash, and the inbound closure no-ops until a channel is
@@ -237,7 +237,7 @@ extension PairingViewController {
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = true
         hostContentView.addSubview(surface)
-        constrainSurfaceBesideControlRail(surface, bottomAnchor: view.bottomAnchor)
+        constrainSurfaceUnderControlRail(surface, bottomAnchor: view.bottomAnchor)
         agentSurface = surface
         let transport = pairingClient.activeSessionTransport
         agentSurfaceBoundTransport = transport
@@ -390,17 +390,22 @@ extension PairingViewController {
 
     // MARK: - Visibility
 
-    func constrainSurfaceBesideControlRail(
+    /// Gives a surface the whole width and lets the control rail overlay it.
+    ///
+    /// Reserving a column for the rail cost every surface ~68pt of width for a
+    /// panel that is idle most of the time, and a terminal pays that in columns
+    /// of text. The rail is a sibling of `hostContentView` on `view` and is kept
+    /// in front, so it floats over the surface the way it already floats over the
+    /// gesture webview; its chevron closes it down to a single button when the
+    /// surface needs the full screen.
+    func constrainSurfaceUnderControlRail(
         _ surface: UIView,
         bottomAnchor: NSLayoutYAxisAnchor
     ) {
         NSLayoutConstraint.activate([
             surface.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            surface.trailingAnchor.constraint(
-                equalTo: surfaceControlRail.leadingAnchor,
-                constant: -8
-            ),
+            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             surface.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
     }
@@ -468,7 +473,7 @@ extension PairingViewController {
                 surface.translatesAutoresizingMaskIntoConstraints = false
                 surface.isHidden = self.activeControlSurface != .workspace
                 self.hostContentView.addSubview(surface)
-                self.constrainSurfaceBesideControlRail(
+                self.constrainSurfaceUnderControlRail(
                     surface,
                     bottomAnchor: self.view.bottomAnchor
                 )
@@ -506,7 +511,7 @@ extension PairingViewController {
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = true
         hostContentView.addSubview(surface)
-        constrainSurfaceBesideControlRail(
+        constrainSurfaceUnderControlRail(
             surface,
             bottomAnchor: view.keyboardLayoutGuide.topAnchor
         )
