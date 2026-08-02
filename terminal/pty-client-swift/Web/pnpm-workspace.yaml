@@ -1,0 +1,6 @@
+# pnpm 11 refuses to run a dependency's build script unless it is named here, and reads these
+# settings only from this file — the `pnpm` field in package.json is ignored as of v11.
+#
+# esbuild's build step resolves the platform binary the bundle build shells out to.
+allowBuilds:
+  esbuild: true

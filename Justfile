@@ -367,8 +367,8 @@ workspace-ide-web:
     }
     trap cleanup EXIT
     node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" workspace-ide "$WEB" "$ROOT/.build/js-dependencies"
-    npm test --prefix "$WEB"
-    npm run build --prefix "$WEB" -- "$STAGING"
+    pnpm --dir "$WEB" test
+    pnpm --dir "$WEB" run build "$STAGING"
     node "$ROOT/tools/build-system/publish-generated-tree.mjs" "$STAGING/viewer" "$VIEWER_OUT"
     node "$ROOT/tools/build-system/publish-generated-tree.mjs" "$STAGING/ide" "$IDE_OUT"
     just workspace-ide-fitness
@@ -675,14 +675,14 @@ terminal-web-check:
     trap cleanup EXIT
     node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" terminal-web "$WEB" "$ROOT/.build/js-dependencies"
     cd "$WEB"
-    npm test
+    pnpm test
     node "$ROOT/terminal/vendor/xterm/scripts/check-built-module.mjs"
-    npm run build -- "$STAGING" "$OUTPUT"
+    pnpm run build "$STAGING" "$OUTPUT"
     node "$ROOT/tools/build-system/publish-generated-tree.mjs" \
       "$STAGING" "$OUTPUT" \
       --preserve index.html \
       --preserve JetBrainsMonoNerdFontMono-Regular.ttf
-    npm run check-generated
+    pnpm run check-generated
 
 # ADR-0044 Tier B autonomous gate: capture a REAL DOMSnapshot.captureSnapshot (piercing a CLOSED
 # shadow root) via Playwright's CDP session, run it through the SAME reconstructProjectionHtml the
