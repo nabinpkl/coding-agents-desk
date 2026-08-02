@@ -209,6 +209,21 @@ const FIXTURE_LINES: FixtureLine[] = [
       { k: "raw" },
     ],
   },
+  // An assistant answer with the structure these actually have: a heading, a
+  // paragraph under it, and a nested heading. The fixture rendered no heading at
+  // all, so the one host-free surface for judging this panel could not show the
+  // heading-to-body scale -- which is the thing that goes wrong when the body
+  // size moves, because headings are sized in `em` and follow it.
+  {
+    age: 104_000,
+    tp: "assistant",
+    b: [
+      {
+        k: "text",
+        tx: "## To see it\n\nThe running host still has the earlier build, so neither the size nor the leading is in it yet. Both need a rebuild.\n\n### What a pass should confirm\n\nBoth saved windows come back at their remembered frames.",
+      },
+    ],
+  },
   // A reasoning trace, with the bolded topic line these routinely open with. The
   // fixture had no reasoning event at all, which is how reasoning came to be the one
   // content kind rendered as raw text.
