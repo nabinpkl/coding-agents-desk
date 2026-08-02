@@ -464,7 +464,20 @@ function renderDrawer(sessions, status) {
     const open = document.createElement('button');
     open.type = 'button'; open.textContent = 'Open'; open.disabled = session.state !== 'running';
     open.addEventListener('click', () => post('workspaceIntent', { intent: 'openSession', sessionName: session.name }));
-    row.append(name, open); drawer.append(row);
+    row.append(name);
+    // A running session with no clients is detached, not dead: nothing reaps it on a timer, so this
+    // row is the only place it can be found and ended.
+    if (session.state === 'running' && session.clientCount === 0) {
+      const orphan = document.createElement('span');
+      orphan.className = 'drawer-orphan'; orphan.textContent = 'detached';
+      const kill = document.createElement('button');
+      kill.type = 'button'; kill.textContent = 'Kill'; kill.className = 'drawer-kill';
+      kill.addEventListener('click', () => post('workspaceIntent', { intent: 'killSession', sessionName: session.name }));
+      row.append(orphan, open, kill);
+    } else {
+      row.append(open);
+    }
+    drawer.append(row);
   }
   const close = document.createElement('button');
   close.type = 'button'; close.textContent = 'Done'; close.addEventListener('click', () => { drawer.hidden = true; });

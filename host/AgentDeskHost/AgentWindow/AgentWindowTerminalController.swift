@@ -419,8 +419,7 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
 
     /// Host termination. Everything the ordinary close does except telling the coordinator to end
     /// the request, because that is the step that kills the deterministic PTY. What is left is a
-    /// leased session with no clients, which the manager reaps after its grace period unless a
-    /// restarting host reattaches first.
+    /// session with no clients, which keeps running until a restarting host reattaches to it.
     func beginPreservingDetach() {
         guard activeBinding != nil || isDetached else {
             return
@@ -554,9 +553,9 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
             )
         case .detached(let binding):
             if binding.context == request.context {
-                // Re-enter the coordinator for the same deterministic leased PTY while its manager
-                // grace is active. A fresh panel request ID atomically takes endpoint/coordinator
-                // ownership before attach; exact-ID retry uses the endpoint's cached-ready path.
+                // Re-enter the coordinator for the same deterministic PTY, which is still running.
+                // A fresh panel request ID atomically takes endpoint/coordinator ownership before
+                // attach; exact-ID retry uses the endpoint's cached-ready path.
                 startOpen(
                     request,
                     transferFromRequestID: binding.requestID == request.requestID

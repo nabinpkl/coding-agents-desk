@@ -85,9 +85,9 @@ actor AgentSessionTerminalEndpoint {
     }
 
     /// Host termination. Drops this endpoint's state without asking the coordinator to close its
-    /// requests, because closing kills the deterministic PTY. The sessions are left leased with no
-    /// client, which the manager reaps on its own schedule unless a restarted host reattaches
-    /// first, so quitting the host stops being the thing that ends an agent's terminal.
+    /// requests, because closing kills the deterministic PTY. The sessions are left running with no
+    /// client, which is a resting state and not a countdown, so quitting the host stops being the
+    /// thing that ends an agent's terminal and a rebuild of any length is survivable.
     ///
     /// A transfer still in flight is abandoned rather than settled: settling exists to decide which
     /// request owns a session, and nothing in this process will be around to act on the answer.
@@ -201,7 +201,7 @@ actor AgentSessionTerminalEndpoint {
         }
     }
 
-    /// Moves one live request identity without closing its leased PTY. Both IDs are fenced while the
+    /// Moves one live request identity without closing its PTY. Both IDs are fenced while the
     /// coordinator moves its handoff key; close/shutdown and stale callbacks await the same transfer
     /// task before observing ownership. The old wire ID is tombstoned before the new ID can return
     /// ready. Transfer failure retires both IDs and closes the old coordinator authority.

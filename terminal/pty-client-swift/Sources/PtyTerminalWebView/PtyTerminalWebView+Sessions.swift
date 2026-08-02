@@ -125,6 +125,7 @@ extension PtyTerminalWebView {
         case "closeTab": if let tabID { closeTab(tabID) }
         case "closePane": if let paneID { closePane(paneID) }
         case "openSession": if let sessionName { paneToOpen = workspaceState.openExistingSession(sessionName) }
+        case "killSession": if let sessionName { killSession(named: sessionName) }
         case "showSessions": sendSessionDrawer()
         default: return
         }
@@ -153,6 +154,27 @@ extension PtyTerminalWebView {
         }
         if let replacement = workspaceState.panes.first(where: { slots[$0.terminalID] == nil }) {
             open(pane: replacement)
+        }
+    }
+
+    /// Ends a session from the drawer. Sessions outlive the surfaces that showed them, so a session
+    /// nothing is attached to is not garbage the manager should collect on a timer - it is a running
+    /// process only its owner can decide about. This is that decision, made explicitly.
+    func killSession(named sessionName: String) {
+        guard let backend else { return }
+        Task { [weak self, weak backend] in
+            guard let backend else { return }
+            do {
+                try await backend.killSession(named: sessionName)
+                guard let self else { return }
+                // The snapshot stream will catch up on its own, but the drawer only renders when
+                // asked, so drop the row now rather than leaving a dead session on screen.
+                self.latestSessions.removeAll { $0.name == sessionName }
+                self.sendSessionDrawer()
+            } catch {
+                guard let self else { return }
+                self.delegate?.ptyTerminalContent(self, didFail: error)
+            }
         }
     }
 
@@ -200,7 +222,16 @@ extension PtyTerminalWebView {
             let state = session.state == .running ? "running" : "exited"
             return ["name": session.name, "state": state, "clientCount": session.clientCount]
         }
-        deliver(["type": "sessionDrawer", "sessions": sessions, "status": sessions.isEmpty ? "No PTY sessions" : ""])
+        let orphanCount = latestSessions.filter { $0.state == .running && $0.clients.isEmpty }.count
+        let status: String
+        if sessions.isEmpty {
+            status = "No PTY sessions"
+        } else if orphanCount > 0 {
+            status = "\(orphanCount) detached — still running, nothing attached"
+        } else {
+            status = ""
+        }
+        deliver(["type": "sessionDrawer", "sessions": sessions, "status": status])
     }
 
     func updateSlotParticipation(claimSelected: Bool) {

@@ -113,7 +113,7 @@ actor AgentSessionTerminalCoordinator {
         try? await lease?.detach()
     }
 
-    /// Transfers request ownership for an existing handoff without releasing or killing its leased
+    /// Transfers request ownership for an existing handoff without releasing or killing its
     /// PTY. The old ID becomes a coordinator tombstone; only the new ID may acknowledge or close.
     /// The handoff's bootstrap lease, acknowledgement state, and original timeout task move together
     /// with the identity. Transfer never restarts or extends the unacknowledged handoff deadline.

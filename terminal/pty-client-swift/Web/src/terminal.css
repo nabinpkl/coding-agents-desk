@@ -176,6 +176,11 @@ button:hover, button:focus-visible { color: var(--text); background: var(--hover
 /* The raised fill is what lifts these off the drawer in the dark scheme, but in the light one both
    are near-white, so the border is the only thing that keeps them reading as buttons. */
 #terminal-session-drawer button { border-radius: 7px; border-color: var(--border); background: var(--chrome-raised); }
+/* Detached is the ordinary resting state here, not an error: the session is running and unattached,
+   which is exactly what surviving a host restart looks like. Muted, not alarming. */
+.drawer-orphan { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+#terminal-session-drawer button.drawer-kill { color: var(--muted); }
+#terminal-session-drawer button.drawer-kill:hover { color: var(--text); background: var(--hover); }
 
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
