@@ -251,6 +251,57 @@ struct EdgeFollowTests {
             contentOffset: .zero) == nil)
     }
 
+    @Test func viewportSettleReconcilesCursorAtFinalOffset() throws {
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
+        let sink = CGSize(width: 400, height: 240)
+        let state = Self.singleDisplayState(
+            id: "d1",
+            width: bounds.width,
+            height: bounds.height,
+            originX: 100,
+            originY: 200
+        )
+        let settled = try #require(PointerRetargeting.panFollowSettle(
+            anchorViewportPoint: CGPoint(x: sink.width / 2, y: sink.height / 2),
+            state: state,
+            displayId: "d1",
+            displayBounds: bounds,
+            sinkViewSize: sink,
+            zoomScale: 2,
+            contentOffset: CGPoint(x: 200, y: 120),
+            lastSentHostPoint: CGPoint(x: 350, y: 350)
+        ))
+
+        #expect(abs(settled.cursorSourcePoint.x - 500) < 0.001)
+        #expect(abs(settled.cursorSourcePoint.y - 300) < 0.001)
+        #expect(settled.cursorRetarget?.hostPoint == CGPoint(x: 600, y: 500))
+    }
+
+    @Test func viewportSettleSuppressesAlreadySentCursorPoint() throws {
+        let bounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
+        let sink = CGSize(width: 400, height: 240)
+        let state = Self.singleDisplayState(
+            id: "d1",
+            width: bounds.width,
+            height: bounds.height,
+            originX: 100,
+            originY: 200
+        )
+        let settled = try #require(PointerRetargeting.panFollowSettle(
+            anchorViewportPoint: CGPoint(x: sink.width / 2, y: sink.height / 2),
+            state: state,
+            displayId: "d1",
+            displayBounds: bounds,
+            sinkViewSize: sink,
+            zoomScale: 2,
+            contentOffset: CGPoint(x: 200, y: 120),
+            lastSentHostPoint: CGPoint(x: 600, y: 500)
+        ))
+
+        #expect(settled.cursorSourcePoint == CGPoint(x: 500, y: 300))
+        #expect(settled.cursorRetarget == nil)
+    }
+
     @Test func panFollowEdgeProjectionInvertsOverscrolledAxesOnly() {
         let projection = PointerRetargeting.panFollowEdgeProjection(
             contentOffset: CGPoint(x: 410, y: 30),

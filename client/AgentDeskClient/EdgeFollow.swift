@@ -164,6 +164,11 @@ struct PanFollowStepResult: Equatable {
     let edgeGestureFrames: [PanFollowEdgeGestureFrame]
 }
 
+struct PanFollowSettleResult: Equatable {
+    let cursorSourcePoint: CGPoint
+    let cursorRetarget: CursorViewportRetarget?
+}
+
 enum PanFollowDiagnostics {
     private static let logger = Logger(subsystem: Config.logSubsystem, category: "pan-follow")
 
@@ -255,6 +260,35 @@ enum PointerRetargeting {
             hostPoint: CGPoint(
                 x: CGFloat(display.originX) + clamped.x,
                 y: CGFloat(display.originY) + clamped.y))
+    }
+
+    // Reconcile the fixed overlay anchor after UIScrollView momentum or
+    // rubber-band settling has stopped. The local source point is always
+    // refreshed for the final contentOffset; the host retarget is omitted
+    // only when the active drag already sent that exact point.
+    static func panFollowSettle(
+        anchorViewportPoint anchor: CGPoint,
+        state: DesktopState?,
+        displayId: String?,
+        displayBounds: CGRect,
+        sinkViewSize: CGSize,
+        zoomScale: CGFloat,
+        contentOffset: CGPoint,
+        lastSentHostPoint: CGPoint?
+    ) -> PanFollowSettleResult? {
+        guard let retarget = panFollowRetarget(
+            anchorViewportPoint: anchor,
+            state: state,
+            displayId: displayId,
+            displayBounds: displayBounds,
+            sinkViewSize: sinkViewSize,
+            zoomScale: zoomScale,
+            contentOffset: contentOffset
+        ) else { return nil }
+        return PanFollowSettleResult(
+            cursorSourcePoint: retarget.sourcePoint,
+            cursorRetarget: retarget.hostPoint == lastSentHostPoint ? nil : retarget
+        )
     }
 
     // Projects a UIScrollView rubber-band pan into the trackpad cursor domain.

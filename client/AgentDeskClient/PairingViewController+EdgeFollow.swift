@@ -360,8 +360,8 @@ extension PairingViewController: UIScrollViewDelegate {
 
     public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         guard scrollView === sinkScrollView else { return }
-        // Freeze at finger-lift: ignore momentum/bounce frames so the cursor
-        // holds where the user aimed it (this is a pointing gesture).
+        // Pause live pan-follow at finger lift. The settle callback reconciles
+        // once after momentum or rubber-band movement reaches its final offset.
         panFollowActive = false
         finishPanFollowEdgePush()
         if !decelerate {
@@ -377,9 +377,35 @@ extension PairingViewController: UIScrollViewDelegate {
     func finishManualViewportPan(_ scrollView: UIScrollView) {
         guard isManualViewportPanActive else { return }
         isManualViewportPanActive = false
-        // No viewport-center snap: the continuous reconcile has already kept the
-        // host cursor under the dot, so a center cursorSet would jump it.
         panFollowActive = false
+        if let anchor = panFollowAnchor,
+           let settle = PointerRetargeting.panFollowSettle(
+               anchorViewportPoint: anchor,
+               state: lastDesktopState,
+               displayId: activeDisplayIdMirror,
+               displayBounds: activeDisplayRect,
+               sinkViewSize: scrollView.bounds.size,
+               zoomScale: scrollView.zoomScale,
+               contentOffset: scrollView.contentOffset,
+               lastSentHostPoint: lastSentPanFollowHostPoint
+           ) {
+            // Momentum and rubber-band settling continue after finger lift while
+            // live pan-follow is paused. Reproject once at the settled offset so
+            // the fixed overlay anchor and the host cursor share one final source
+            // point instead of remaining separated by the unobserved scroll.
+            cursorSourcePos = settle.cursorSourcePoint
+            updateCursorDot()
+            if let retarget = settle.cursorRetarget {
+                PanFollowDiagnostics.log(
+                    "settle cursorSet display=\(retarget.displayId) host=\(retarget.hostPoint) source=\(retarget.sourcePoint) offset=\(scrollView.contentOffset)"
+                )
+                sendInput(.cursorSet(
+                    displayId: retarget.displayId,
+                    x: Float(retarget.hostPoint.x),
+                    y: Float(retarget.hostPoint.y)
+                ))
+            }
+        }
         panFollowAnchor = nil
         lastSentPanFollowHostPoint = nil
         finishPanFollowEdgePush()
