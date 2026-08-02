@@ -4,7 +4,8 @@ const prose = [
   'prose',
   'prose-neutral',
   'dark:prose-invert',
-  '[font-size:var(--markdown-font-size)]',
+  '[font-size:calc(var(--markdown-font-size)*1.125)]',
+  'prose-h1:text-[1.75em]',
 ].join(' ')
 
 export const markdownDocumentClassName = [
