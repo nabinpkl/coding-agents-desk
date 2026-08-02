@@ -47,6 +47,9 @@ enum HostPtyRuntimeRecoveryDecision: Equatable {
 /// The result of bringing one component up.
 enum HostPtyRuntimeOutcome: Equatable {
     case ready
+    /// Serving the bundled binary, but started clean rather than handed to. Its state was
+    /// reconstructed, not transferred, which matters to whoever runs next.
+    case recovered(reason: String)
     /// Serving, but not from the bundled binary. Terminals work; the binary lags until its
     /// sessions end naturally.
     case degraded(reason: String)
@@ -219,11 +222,21 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
                 logger.error("PTY vault unavailable reason=\(reason, privacy: .public)")
                 return false
             }
+            // A cold-started vault comes up empty. Until it reseeds custody from the running
+            // manager's leases, that manager holds the only descriptors keeping these children
+            // alive, so replacing it in the same pass would close the last master for every
+            // session. Downgrade to keeping it; the next launch updates it once the vault is
+            // holding the sessions again.
+            var managerRecovery = HostPtyRuntimeRecovery.replacePredecessor
+            if case .recovered(let reason) = vault {
+                logger.error("PTY vault was rebuilt rather than handed to, so the manager will not be replaced this pass; it holds the only live descriptors until custody is reseeded reason=\(reason, privacy: .public)")
+                managerRecovery = .keepPredecessor
+            }
             let manager = try ensure(
                 component: .manager,
                 binaryURL: managerBinaryURL,
                 socketURL: managerSocketURL,
-                recovery: .replacePredecessor,
+                recovery: managerRecovery,
                 arguments: {
                     Self.managerLaunchArguments(
                         socketURL: $0,
@@ -236,9 +249,12 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
                 logger.error("PTY manager unavailable reason=\(reason, privacy: .public)")
                 return false
             }
-            if case .degraded(let reason) = vault {
+            switch vault {
+            case .degraded(let reason):
                 logger.error("PTY runtime ready with a lagging vault binary; live sessions are intact and the bundled vault is not in use reason=\(reason, privacy: .public)")
-            } else {
+            case .recovered(let reason):
+                logger.error("PTY runtime ready with a rebuilt vault; sessions are held by the manager's leases until custody is reseeded reason=\(reason, privacy: .public)")
+            case .ready, .failed:
                 logger.notice("PTY runtime ready manager=\(self.managerSocketURL.path, privacy: .public) vault=\(self.vaultSocketURL.path, privacy: .public)")
             }
             return true
@@ -272,7 +288,12 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
                 digest: bundledDigest,
                 arguments: arguments(socketURL, false, bundledDigest ?? "")
             )
-            return launched ? .ready : .failed(reason: "cold start did not activate")
+            // `.recovered` rather than `.ready`: a component started from nothing holds nothing.
+            // On a clean boot that is the same thing, but when only the vault died, a live manager
+            // is still holding the descriptors and must not be replaced until custody is reseeded.
+            return launched
+                ? .recovered(reason: "started fresh; no previous generation was serving")
+                : .failed(reason: "cold start did not activate")
         case .preserve(let peer):
             logger.notice("PTY \(component.rawValue, privacy: .public) unchanged pid=\(peer.pid, privacy: .public)")
             return .ready
@@ -349,7 +370,7 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
                 arguments: arguments(socketURL, false, digest ?? "")
             )
             return launched
-                ? .ready
+                ? .recovered(reason: reason)
                 : .failed(reason: "cold start after a failed update did not activate: \(candidateDiagnostics(component: component, socketURL: socketURL))")
         case .fail(let reason):
             return .failed(reason: reason)

@@ -876,13 +876,20 @@ enum Config {
     }
     static let ptyManagerResourceName = "pty-manager"
     static let ptyVaultResourceName = "pty-vault"
+    /// Backstop for a candidate that hangs, not a budget for one that is working.
+    ///
+    /// A handover transfers one descriptor per session, so it takes longer the more terminals are
+    /// open, and the waiter already fails immediately when the candidate process dies. A 5s ceiling
+    /// meant a vault with twelve sessions was declared failed at 5.006s while it was still
+    /// transferring, throwing away a healthy handover for a cold start. Keep this generous enough
+    /// that only a genuinely stuck candidate hits it.
     static let ptyRuntimePeerTimeoutSeconds = positiveDouble(
         environmentKey: "AGENTDESK_PTY_RUNTIME_PEER_TIMEOUT_SECONDS",
-        defaultValue: 5
+        defaultValue: 30
     )
     static let ptyRuntimeIdentityTimeoutSeconds = positiveDouble(
         environmentKey: "AGENTDESK_PTY_RUNTIME_IDENTITY_TIMEOUT_SECONDS",
-        defaultValue: 2
+        defaultValue: 10
     )
     static let agentTerminalHandoffTimeoutSeconds = positiveInt(
         environmentKey: "AGENTDESK_AGENT_TERMINAL_HANDOFF_TIMEOUT_SECONDS",

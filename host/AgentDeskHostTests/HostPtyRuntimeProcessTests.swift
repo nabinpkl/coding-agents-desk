@@ -94,6 +94,18 @@ struct HostPtyRuntimeProcessTests {
         ) == .coldStart)
     }
 
+    /// A cold-started vault is empty until it reseeds custody from the running manager's leases, so
+    /// during that window the manager holds the only descriptors keeping the children alive.
+    /// Replacing it there would close the last master for every session, which is the one way the
+    /// ladder could still lose everything.
+    @Test func rebuiltVaultKeepsTheManagerThatHoldsTheOnlyDescriptors() {
+        #expect(HostPtyRuntimeSocketVerifier.recover(
+            recovery: .keepPredecessor,
+            predecessorAlive: true,
+            reason: "vault was rebuilt"
+        ) == .keepPredecessor(reason: "vault was rebuilt"))
+    }
+
     /// The manager is disposable: the vault still holds every master descriptor, and a cold-started
     /// manager re-adopts them. Replacing it costs bounded replay state, not sessions.
     @Test func failedManagerHandoverColdStarts() {

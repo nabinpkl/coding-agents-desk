@@ -62,6 +62,13 @@ cold-started manager already re-adopts the vault's sessions (`recover_vault_sess
 - **The vault step never aborts the manager step.** A vault that could not be replaced is still
   serving live sessions, and the manager must still be brought up to date, or the host ends up with
   intact sessions it cannot reach. That was the actual shape of the outage.
+- **Never replace the last holder.** A vault that started fresh, whether cold-started after a failed
+  handover or launched because none was running, comes up empty and reseeds custody from the running
+  manager's leases. For that window the manager holds the only descriptors keeping the children
+  alive, so it is kept for that pass even if its own handover fails. Replacing both in one pass is
+  the one remaining way the ladder could close the last master for every session, and it is reachable
+  from two directions: a failed vault handover, and a vault that died while the manager kept running.
+  On a clean boot the same rule costs nothing, because there is no manager to keep.
 - **Handover payloads are no longer validated by re-encoding them.** The checksums are still sent
   for older peers that check them, and no longer recomputed on receipt. Session identity, counts,
   and the per-descriptor cross-check against the manifest carry the real validation and survive a
@@ -96,6 +103,10 @@ session, which is the thing ADR-0078 exists to prevent.
   client sees an empty scrollback on a live shell.
 - Neutral, because the handover checksums remain on the wire, computed but not trusted by current
   receivers.
+- Neutral, because the candidate activation timeout is now a backstop for a hung process rather than
+  a budget for a working one. Handover cost scales with session count: the first live run declared a
+  healthy twelve-session vault failed at 5.006s against a 5s ceiling and threw the transfer away for
+  a cold start, which the ladder absorbed but should not have had to.
 
 ### Confirmation
 
