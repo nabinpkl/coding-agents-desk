@@ -212,11 +212,21 @@ interface CodexThreadRow {
   git_origin_url: string | null;
 }
 
-function readCodexRows(): CodexThreadRow[] {
-  const databasePath = resolveStateDbPath();
-  if (!databasePath || !existsSync(databasePath)) return [];
-  const database = new Database(databasePath, { readonly: true });
+/**
+ * Reads Codex's thread list out of its own state database.
+ *
+ * Opened read-write rather than read-only, which reads backwards but is not.
+ * Codex keeps this database in WAL mode, and a WAL database needs a -shm file
+ * that a read-only SQLite connection is not allowed to create. Codex deletes
+ * that file when it exits cleanly, so a read-only open worked only while Codex
+ * happened to be running and raised SQLITE_CANTOPEN the rest of the time.
+ * `query_only` then makes the connection refuse writes at the SQLite level, so
+ * this stays what it should be: a reader of somebody else's data.
+ */
+export function readCodexThreadRows(databasePath: string): CodexThreadRow[] {
+  const database = new Database(databasePath, { readwrite: true });
   try {
+    database.exec("PRAGMA query_only = ON");
     return database.prepare(`
       SELECT id, cwd, title, rollout_path,
              created_at_ms, updated_at_ms, created_at, updated_at,
@@ -228,6 +238,12 @@ function readCodexRows(): CodexThreadRow[] {
   } finally {
     database.close();
   }
+}
+
+function readCodexRows(): CodexThreadRow[] {
+  const databasePath = resolveStateDbPath();
+  if (!databasePath || !existsSync(databasePath)) return [];
+  return readCodexThreadRows(databasePath);
 }
 
 async function reconcileCodex(): Promise<void> {
@@ -457,14 +473,46 @@ export async function sessionSummaries(projectPath: string): Promise<SessionSumm
   return summaries;
 }
 
+/**
+ * Runs one source's reconcile and contains its failure to that source.
+ *
+ * The sources are independent, and the caller of startCatalog treats a startup
+ * failure as fatal. So one unreadable transcript store used to kill the whole
+ * sidecar, taking every healthy source with it, and the restart read the same
+ * unreadable thing and died again: a crash loop that left the agent feed with
+ * no data at all rather than the partial data it had. Loud in the log, empty
+ * for that source, alive for the rest.
+ */
+export async function reconcileSource(
+  source: SourceId,
+  reconcile: () => Promise<void>,
+): Promise<void> {
+  try {
+    await reconcile();
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "agent-feed-catalog-source-failed",
+      source,
+      message: error instanceof Error ? error.message : String(error),
+    }));
+  }
+}
+
+function reconcileAllSources(): Promise<void[]> {
+  return Promise.all([
+    reconcileSource("claude", reconcileClaude),
+    reconcileSource("codex", reconcileCodex),
+  ]);
+}
+
 export async function startCatalog(): Promise<void> {
   if (state.sourceWatchers.length > 0 || state.watcherState !== "idle") return;
   const startedAt = performance.now();
   state.watcherState = "reconciling";
-  await Promise.all([reconcileClaude(), reconcileCodex()]);
+  await reconcileAllSources();
   attachSourceWatchers();
   state.discoveryTimer = setInterval(() => {
-    void Promise.all([reconcileClaude(), reconcileCodex()])
+    void reconcileAllSources()
       .then(broadcast)
       .catch((error) => console.error("agent feed catalog safety rescan failed", error));
   }, config.discoveryRescanMs);
