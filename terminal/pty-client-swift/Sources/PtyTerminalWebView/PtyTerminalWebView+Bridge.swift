@@ -76,7 +76,11 @@ extension PtyTerminalWebView {
     func handle(_ intent: PtyTerminalWebIntent) {
         switch intent {
         case .booted:
-            directDeliver(["type": "runtimeConfiguration", "profile": profile.rawValue])
+            directDeliver([
+                "type": "runtimeConfiguration",
+                "profile": profile.rawValue,
+                "inputMode": inputMode.rawValue,
+            ])
         case .ready:
             runtimeReady = true
             deliveryInFlight = true
@@ -110,6 +114,9 @@ extension PtyTerminalWebView {
             guard workspaceState.focusPane(paneID) else { return }
             updateSlotParticipation(claimSelected: claim)
             delegate?.ptyTerminalContent(self, didUpdateWorkspace: workspaceState)
+            if inputMode == .nativeProxy {
+                delegate?.ptyTerminalContentDidRequestInputFocus(self)
+            }
         case .input(let terminalID, let data):
             guard isInputEnabled, let slot = slots[terminalID] else { return }
             _ = workspaceState.focusPane(slot.paneID)

@@ -6,6 +6,29 @@ import AgentDeskWire
 @MainActor
 struct KeyboardSurfaceTests {
     @Test
+    func terminalProxyRoutesTextWithoutAccumulatingInvisibleEcho() {
+        let surface = KeyboardSurface(
+            echoesLocally: false,
+            showsDismissKey: true
+        )
+        let recorder = Recorder()
+        surface.keyboardDelegate = recorder
+
+        let accepted = surface.textField(
+            surface,
+            shouldChangeCharactersIn: NSRange(),
+            replacementString: "ls"
+        )
+
+        #expect(!accepted)
+        #expect(surface.text?.isEmpty != false)
+        #expect(recorder.events == [
+            .key(code: "ansi-L", modifiers: []),
+            .key(code: "ansi-S", modifiers: []),
+        ])
+    }
+
+    @Test
     func extensionTranscriptUsesTheOrdinaryMacInputPathExactlyOnce() {
         let surface = KeyboardSurface()
         let recorder = Recorder()

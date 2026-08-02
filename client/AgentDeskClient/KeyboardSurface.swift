@@ -36,6 +36,8 @@ final class KeyboardSurface: UITextField, UITextFieldDelegate {
     // Named keyboardDelegate to avoid colliding with UITextField.delegate
     // (which is UITextFieldDelegate).
     weak var keyboardDelegate: KeyboardSurfaceDelegate?
+    private let echoesLocally: Bool
+    fileprivate let showsDismissKey: Bool
 
     // MARK: Modifier state
     enum ModifierState { case off, armed, locked }
@@ -68,7 +70,20 @@ final class KeyboardSurface: UITextField, UITextFieldDelegate {
 
     // MARK: Lifecycle
     override init(frame: CGRect) {
+        echoesLocally = true
+        showsDismissKey = false
         super.init(frame: frame)
+        configure()
+    }
+
+    init(echoesLocally: Bool, showsDismissKey: Bool) {
+        self.echoesLocally = echoesLocally
+        self.showsDismissKey = showsDismissKey
+        super.init(frame: .zero)
+        configure()
+    }
+
+    private func configure() {
         configureTraits()
         // Self-delegate so shouldChangeCharactersIn fires for every
         // mutation path iOS uses (insertText, replace(_:withText:),
@@ -196,7 +211,7 @@ final class KeyboardSurface: UITextField, UITextFieldDelegate {
             if char == "\n" { containsReturn = true }
             emitForCharacter(char)
         }
-        if containsReturn {
+        if containsReturn || !echoesLocally {
             // Reset the local echo on Enter so each press starts a
             // fresh line. Wire events for the batch already went out
             // above; returning false stops iOS from inserting the "\n"
@@ -204,8 +219,10 @@ final class KeyboardSurface: UITextField, UITextFieldDelegate {
             // would also leave the previously-typed text in place.
             // Async because mutating text inside the delegate callback
             // is unsupported on some iOS versions.
-            DispatchQueue.main.async {
-                textField.text = ""
+            if echoesLocally {
+                DispatchQueue.main.async {
+                    textField.text = ""
+                }
             }
             return false
         }
@@ -265,9 +282,9 @@ final class KeyboardSurface: UITextField, UITextFieldDelegate {
 
 // Sits above the iOS soft keyboard and gives the user the keys that the
 // soft keyboard doesn't expose: Esc, Tab, the arrow cluster, and the
-// sticky-tap modifiers (Cmd, Ctrl, Option). Shift comes from the soft
-// keyboard's own shift behaviour (character case), so it's not on the
-// accessory row.
+// sticky-tap modifiers (Cmd, Ctrl, Option). The standalone terminal also
+// opts into an explicit dismiss key. Shift comes from the soft keyboard's
+// own shift behaviour (character case), so it's not on the accessory row.
 @MainActor
 final class KeyboardAccessoryView: UIInputView {
     private weak var surface: KeyboardSurface?
@@ -308,7 +325,11 @@ final class KeyboardAccessoryView: UIInputView {
         let ctrl = makeModifierButton(title: "Ctrl", mod: .ctrl)
         let option = makeModifierButton(title: "Opt", mod: .option)
 
-        let stack = UIStackView(arrangedSubviews: [escape, tab, arrowCluster, cmd, ctrl, option])
+        var controls: [UIView] = [escape, tab, arrowCluster, cmd, ctrl, option]
+        if surface?.showsDismissKey == true {
+            controls.append(makeDismissButton())
+        }
+        let stack = UIStackView(arrangedSubviews: controls)
         stack.axis = .horizontal
         stack.spacing = keySpacing
         stack.distribution = .fillEqually
@@ -338,6 +359,19 @@ final class KeyboardAccessoryView: UIInputView {
         button.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
         button.addAction(UIAction { [weak self] _ in
             self?.surface?.sendKey(code: code)
+        }, for: .touchUpInside)
+        return button
+    }
+
+    private func makeDismissButton() -> UIButton {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "keyboard.chevron.compact.down"), for: .normal)
+        button.accessibilityLabel = "Hide keyboard"
+        button.backgroundColor = .tertiarySystemBackground
+        button.tintColor = .label
+        button.layer.cornerRadius = 6
+        button.addAction(UIAction { [weak self] _ in
+            self?.surface?.setVisible(false)
         }, for: .touchUpInside)
         return button
     }

@@ -795,6 +795,11 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   open, and negotiate `voice-lane-v2`. Sequence every PCM frame and fence Stop with the captured
   sample count; Python preserves any nonempty discontinuous take as interrupted with durable
   transport-audit metadata instead of presenting partial audio as complete.
+- D167. Make the standalone iOS terminal own one durable keyboard responder. Reuse the existing
+  `KeyboardSurface` and accessory controls without local echo, encode their key and sticky-modifier
+  events through the shared xterm runtime, size the terminal above `UIKeyboardLayoutGuide`, and close
+  only through the explicit accessory control or surface teardown. Reconcile metadata-only workspace
+  snapshots without replacing the focused terminal DOM.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -866,4 +871,5 @@ D163  2026-07-28  landed     native home-row alignment, outer-key gutters, and b
 D164  2026-07-28  landed     nonblocking in-app keyboard dictation activation and status
 D165  2026-07-28  landed     stable long final transcription and initialism passage playback
 D166  2026-07-28  landed     loss-detecting Voice capture and durable transport continuity audit
+D167  2026-07-28  landed     durable standalone terminal keyboard focus and accessory controls
 ```

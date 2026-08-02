@@ -4,8 +4,10 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import '@agentdesk/xterm/css/xterm.css';
 import './terminal.css';
 import {
-  focusPaneSnapshot, paneIds, selectedPaneId, validateSnapshot, visiblePaneIds,
+  canRetainRenderedStage, focusPaneSnapshot, paneIds, selectedPaneId,
+  validateSnapshot, visiblePaneIds,
 } from './workspace-state.js';
+import { encodeTerminalKey } from './key-input.js';
 import {
   base64FromBinary, boundedUTF8, bytesFromBase64, calculatePresentation,
   isAuthoritativeCapacity, normalizeCapacity, SerializedOperations, settledCapacity,
@@ -23,6 +25,7 @@ const announcer = document.querySelector('#terminal-announcer');
 const terminals = new Map();
 let workspace = null;
 let nativeReady = false;
+let nativeInputProxy = false;
 
 function post(type, payload = {}) {
   bridge?.postMessage({ version: protocolVersion, type, ...payload });
@@ -181,6 +184,11 @@ function renderWorkspace(snapshot) {
     post('diagnostic', { code: 'invalidWorkspaceSnapshot' });
     return;
   }
+  // The first renderer can be created while UIKit still has the webview off-window. Rebuilding that
+  // stage once it is bound gives WebKit a focusable textarea. After the user has focused a pane,
+  // though, replacing the same tree would destroy the first responder and dismiss the keyboard.
+  const retainStage = stage.contains(document.activeElement)
+    && canRetainRenderedStage(workspace, snapshot);
   workspace = snapshot;
   root.dataset.profile = snapshot.profile;
   const liveTerminalIds = new Set();
@@ -236,11 +244,29 @@ function renderWorkspace(snapshot) {
     tabStrip.append(add, sessions);
   }
   const selected = snapshot.tabs.find(tab => tab.id === snapshot.selectedTabId);
-  stage.replaceChildren(createNode(selected.root));
+  if (retainStage) {
+    refreshPaneMetadata(selected.root);
+  } else {
+    stage.replaceChildren(createNode(selected.root));
+  }
   applyFocusedPane(selected.focusedPaneId);
   requestAnimationFrame(() => {
     for (const entry of terminals.values()) updatePresentation(entry);
   });
+}
+
+function refreshPaneMetadata(node) {
+  if (node.kind === 'split') {
+    refreshPaneMetadata(node.first);
+    refreshPaneMetadata(node.second);
+    return;
+  }
+  const entry = terminals.get(node.terminalId);
+  if (!entry || entry.paneId !== node.paneId) return;
+  const title = node.title || 'Terminal';
+  entry.element.setAttribute('aria-label', title);
+  const titleElement = entry.element.querySelector('.pane-title');
+  if (titleElement) titleElement.textContent = title;
 }
 
 function collectTerminalIds(node, result) {
@@ -257,7 +283,7 @@ function focusPane(paneId, claim) {
   const entry = [...terminals.values()].find(value => value.paneId === paneId);
   if (entry) {
     flushViewport(entry, claim);
-    if (claim) entry.term.focus();
+    if (claim && !nativeInputProxy) entry.term.focus();
   }
 }
 
@@ -377,6 +403,7 @@ function receive(message) {
   if (!message || message.version !== protocolVersion) return;
   if (message.type === 'runtimeConfiguration') {
     nativeReady = true;
+    nativeInputProxy = message.inputMode === 'nativeProxy';
     post('ready');
     return;
   }
@@ -403,6 +430,16 @@ function receive(message) {
       flushViewport(target, true);
       target.term.paste(message.text);
     }
+    return;
+  }
+  if (message.type === 'keyInput') {
+    const target = terminals.get(message.terminalId);
+    const data = target && encodeTerminalKey(
+      message.code,
+      message.modifiers,
+      target.term.modes.applicationCursorKeysMode,
+    );
+    if (target && data !== null) emitInput(target, data);
     return;
   }
   const entry = terminals.get(message.terminalId);

@@ -1,12 +1,20 @@
 import Foundation
+import AgentDeskWire
 import PtyClientSwift
 import PtyTerminalWebView
 import UIKit
 
 @available(iOS 26.0, *)
 @MainActor
-final class TerminalSurface: UIView {
-    private let terminalContent = PtyTerminalWebView(profile: .workspace)
+final class TerminalSurface: UIView, KeyboardSurfaceDelegate, PtyTerminalWebViewDelegate {
+    let terminalContent = PtyTerminalWebView(
+        profile: .workspace,
+        inputMode: .nativeProxy
+    )
+    let terminalKeyboardSurface = KeyboardSurface(
+        echoesLocally: false,
+        showsDismissKey: true
+    )
     private var backend: RemoteTerminalWorkspaceBackend?
     private var isViewportPresented = false
 
@@ -15,12 +23,23 @@ final class TerminalSurface: UIView {
         backgroundColor = PtyTerminalSurfaceAppearance.surface
         accessibilityIdentifier = "terminal-surface"
         terminalContent.translatesAutoresizingMaskIntoConstraints = false
+        terminalContent.delegate = self
         addSubview(terminalContent)
+        terminalKeyboardSurface.translatesAutoresizingMaskIntoConstraints = false
+        terminalKeyboardSurface.keyboardDelegate = self
+        terminalKeyboardSurface.alpha = 0.01
+        terminalKeyboardSurface.isAccessibilityElement = false
+        terminalKeyboardSurface.accessibilityIdentifier = "terminal-keyboard-proxy"
+        addSubview(terminalKeyboardSurface)
         NSLayoutConstraint.activate([
             terminalContent.leadingAnchor.constraint(equalTo: leadingAnchor),
             terminalContent.trailingAnchor.constraint(equalTo: trailingAnchor),
             terminalContent.topAnchor.constraint(equalTo: topAnchor),
             terminalContent.bottomAnchor.constraint(equalTo: bottomAnchor),
+            terminalKeyboardSurface.leadingAnchor.constraint(equalTo: leadingAnchor),
+            terminalKeyboardSurface.bottomAnchor.constraint(equalTo: bottomAnchor),
+            terminalKeyboardSurface.widthAnchor.constraint(equalToConstant: 1),
+            terminalKeyboardSurface.heightAnchor.constraint(equalToConstant: 1),
         ])
     }
 
@@ -41,6 +60,7 @@ final class TerminalSurface: UIView {
     }
 
     func detach() {
+        terminalKeyboardSurface.setVisible(false)
         terminalContent.setViewportActive(false)
         terminalContent.detach()
         backend = nil
@@ -49,10 +69,34 @@ final class TerminalSurface: UIView {
     func setViewportPresented(_ presented: Bool) {
         guard isViewportPresented != presented else { return }
         isViewportPresented = presented
+        if !presented {
+            terminalKeyboardSurface.setVisible(false)
+        }
         terminalContent.setViewportActive(presented, claim: presented)
     }
 
     func flushViewportResize() { terminalContent.flushViewportResize() }
+
+    func ptyTerminalContentDidRequestInputFocus(_ content: PtyTerminalWebView) {
+        guard content === terminalContent, isViewportPresented else { return }
+        terminalKeyboardSurface.setVisible(true)
+    }
+
+    func keyboardSurface(_ surface: KeyboardSurface, didProduce input: NormalizedInput) {
+        guard surface === terminalKeyboardSurface,
+              case .key(let code, let modifiers) = input else { return }
+        terminalContent.sendKey(
+            code: code,
+            modifiers: modifiers.map { modifier in
+                switch modifier {
+                case .cmd: .command
+                case .ctrl: .control
+                case .option: .option
+                case .shift: .shift
+                }
+            }
+        )
+    }
 }
 
 @available(iOS 26.0, *)

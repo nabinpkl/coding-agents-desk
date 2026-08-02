@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  focusPaneSnapshot, paneIds, selectedPaneId, validateSnapshot, visiblePaneIds,
+  canRetainRenderedStage, focusPaneSnapshot, paneIds, selectedPaneId,
+  validateSnapshot, visiblePaneIds,
 } from '../src/workspace-state.js';
 
 const snapshot = {
@@ -63,4 +64,20 @@ test('focus updates the selected pane without mutating the delivered snapshot', 
   assert.equal(selectedPaneId(focused), 'pane-1');
   assert.equal(selectedPaneId(snapshot), 'pane-2');
   assert.equal(focusPaneSnapshot(snapshot, 'missing'), null);
+});
+
+test('retains the rendered stage only when the selected pane tree is unchanged', () => {
+  const renamed = structuredClone(snapshot);
+  renamed.tabs[0].title = 'Renamed';
+  renamed.tabs[0].root.second.title = 'Shell';
+  assert.equal(canRetainRenderedStage(snapshot, renamed), true);
+
+  const splitChanged = structuredClone(snapshot);
+  splitChanged.tabs[0].root.axis = 'vertical';
+  assert.equal(canRetainRenderedStage(snapshot, splitChanged), false);
+
+  assert.equal(canRetainRenderedStage(snapshot, { ...snapshot, profile: 'singleSession' }), false);
+
+  const selectionChanged = { ...snapshot, selectedTabId: 'missing' };
+  assert.equal(canRetainRenderedStage(snapshot, selectionChanged), false);
 });

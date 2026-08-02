@@ -25,6 +25,7 @@ public protocol PtyTerminalWebViewDelegate: AnyObject {
     )
     func ptyTerminalContentDidDetachByManager(_ content: PtyTerminalWebView, terminalID: String)
     func ptyTerminalContent(_ content: PtyTerminalWebView, didUpdateWorkspace state: PtyTerminalWorkspaceState)
+    func ptyTerminalContentDidRequestInputFocus(_ content: PtyTerminalWebView)
 }
 
 public extension PtyTerminalWebViewDelegate {
@@ -44,6 +45,7 @@ public extension PtyTerminalWebViewDelegate {
         ptyTerminalContentDidDetachByManager(content)
     }
     func ptyTerminalContent(_ content: PtyTerminalWebView, didUpdateWorkspace state: PtyTerminalWorkspaceState) {}
+    func ptyTerminalContentDidRequestInputFocus(_ content: PtyTerminalWebView) {}
 }
 
 public enum PtyTerminalWebViewError: Error, Equatable {
@@ -52,6 +54,18 @@ public enum PtyTerminalWebViewError: Error, Equatable {
     case resourceUnavailable
     case javascriptEvaluationFailed
     case workspaceBackendUnavailable
+}
+
+public enum PtyTerminalWebInputMode: String, Sendable {
+    case web
+    case nativeProxy
+}
+
+public enum PtyTerminalKeyModifier: String, Sendable {
+    case command
+    case control
+    case option
+    case shift
 }
 
 @MainActor
@@ -99,6 +113,7 @@ public final class PtyTerminalWebView: PtyTerminalWebPlatformView {
 
     public weak var delegate: PtyTerminalWebViewDelegate?
     public let profile: PtyTerminalWebViewProfile
+    public let inputMode: PtyTerminalWebInputMode
     public let webView: WKWebView
     public var isInputEnabled = true
     public internal(set) var isBound = false
@@ -127,8 +142,12 @@ public final class PtyTerminalWebView: PtyTerminalWebPlatformView {
     var viewportPresented = false
     var pendingViewportClaimPaneID: String?
 
-    public init(profile: PtyTerminalWebViewProfile = .singleSession) {
+    public init(
+        profile: PtyTerminalWebViewProfile = .singleSession,
+        inputMode: PtyTerminalWebInputMode = .web
+    ) {
         self.profile = profile
+        self.inputMode = inputMode
         workspaceState = PtyTerminalWorkspaceState(profile: profile)
         schemeHandler = PtyTerminalResourceSchemeHandler(root: PtyTerminalResourceSchemeHandler.bundledRoot)
         let content = WKUserContentController()
@@ -250,6 +269,10 @@ public final class PtyTerminalWebView: PtyTerminalWebPlatformView {
 
     public func focus() {
         claimViewportOwnership()
+        if inputMode == .nativeProxy {
+            delegate?.ptyTerminalContentDidRequestInputFocus(self)
+            return
+        }
         webView.evaluateJavaScript("document.querySelector('.terminal-pane[data-focused=\\\"true\\\"] .xterm-helper-textarea')?.focus()")
     }
 
@@ -268,6 +291,17 @@ public final class PtyTerminalWebView: PtyTerminalWebPlatformView {
     public func paste(text: String) {
         guard text.utf8.count <= PtyTerminalWebBridgeLimits.maximumInputBytes else { return }
         deliver(["type": "paste", "terminalId": selectedSlot?.terminalID ?? "", "text": text])
+    }
+
+    public func sendKey(code: String, modifiers: [PtyTerminalKeyModifier]) {
+        guard let terminalID = selectedSlot?.terminalID,
+              Self.isSupportedKeyCode(code) else { return }
+        deliver([
+            "type": "keyInput",
+            "terminalId": terminalID,
+            "code": code,
+            "modifiers": modifiers.map(\.rawValue),
+        ])
     }
 
     public func sendInput(_ data: Data) {
@@ -336,4 +370,19 @@ public final class PtyTerminalWebView: PtyTerminalWebPlatformView {
         webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData))
     }
 
+    private static func isSupportedKeyCode(_ code: String) -> Bool {
+        if ["escape", "tab", "up", "down", "left", "right", "return", "delete", "space"].contains(code) {
+            return true
+        }
+        guard code.hasPrefix("ansi-") else { return false }
+        let suffix = code.dropFirst("ansi-".count)
+        return !suffix.isEmpty
+            && suffix.utf8.count <= 16
+            && suffix.utf8.allSatisfy {
+                (65...90).contains($0)
+                    || (97...122).contains($0)
+                    || (48...57).contains($0)
+                    || $0 == 45
+            }
+    }
 }

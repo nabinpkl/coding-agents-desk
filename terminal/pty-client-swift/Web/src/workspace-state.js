@@ -46,12 +46,31 @@ export function focusPaneSnapshot(snapshot, paneId) {
   };
 }
 
+export function canRetainRenderedStage(previous, next) {
+  if (!previous || !next
+      || previous.profile !== next.profile
+      || previous.selectedTabId !== next.selectedTabId) return false;
+  const previousTab = previous.tabs.find(tab => tab.id === previous.selectedTabId);
+  const nextTab = next.tabs.find(tab => tab.id === next.selectedTabId);
+  return Boolean(previousTab && nextTab && samePaneTree(previousTab.root, nextTab.root));
+}
+
 export function visiblePaneIds(snapshot) {
   const selected = snapshot.tabs.find(tab => tab.id === snapshot.selectedTabId);
   if (!selected) return [];
   const result = [];
   collectPanes(selected.root, result);
   return result;
+}
+
+function samePaneTree(first, second) {
+  if (!first || !second || first.kind !== second.kind) return false;
+  if (first.kind === 'pane') {
+    return first.paneId === second.paneId && first.terminalId === second.terminalId;
+  }
+  return first.axis === second.axis
+    && samePaneTree(first.first, second.first)
+    && samePaneTree(first.second, second.second);
 }
 
 function validId(value) {
