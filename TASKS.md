@@ -737,6 +737,10 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   permission, and one final insertion per host recording ID. The same completed recording appears in
   the full Voice library, which the new top-bar Voice command opens directly after the mini run is
   terminal. ADR-0079 supersedes the retired `MicRecorder`/WAV/multipart path.
+- D153. Add an iPhone Control-surface dictation sheet from the keyboard control. Reuse the native
+  authenticated voice lane and host-owned recording finalizer, show the saved transcript in an
+  editable field, and send only an explicit final edit through the existing remote-keyboard input
+  path. Do not introduce a local PCM, on-device transcription, or a second text-injection protocol.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -794,4 +798,5 @@ D149  2026-07-27  landed     retired split native reference TTS authority
 D150  2026-07-27  landed     host Kokoro direct-IPA artifacts and cross-device playback
 R151  implemented remaining  authorized Mac/iPhone reference playback acceptance
 D152  2026-07-27  landed     web-owned macOS dictation mini and retired Swift audio pipeline
+D153  2026-07-27  landed     reviewed iPhone dictation sheet via remote keyboard input
 ```

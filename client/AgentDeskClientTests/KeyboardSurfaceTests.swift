@@ -239,6 +239,28 @@ struct KeyboardSurfaceTests {
 
         #expect(recorder.events.isEmpty)
     }
+
+    @Test func reviewedDictationTextUsesTheSameRemoteKeyEvents() throws {
+        let events = try KeyboardTextInput.events(for: "Hi, you!\n")
+
+        #expect(events == [
+            .key(code: "ansi-H", modifiers: [.shift]),
+            .key(code: "ansi-I", modifiers: []),
+            .key(code: "ansi-comma", modifiers: []),
+            .key(code: "space", modifiers: []),
+            .key(code: "ansi-Y", modifiers: []),
+            .key(code: "ansi-O", modifiers: []),
+            .key(code: "ansi-U", modifiers: []),
+            .key(code: "ansi-1", modifiers: [.shift]),
+            .key(code: "return", modifiers: [])
+        ])
+    }
+
+    @Test func reviewedDictationRejectsInsteadOfPartiallySendingUnsupportedText() {
+        #expect(throws: KeyboardTextInput.EncodingError.self) {
+            _ = try KeyboardTextInput.events(for: "hello \u{1F600}")
+        }
+    }
 }
 
 @MainActor

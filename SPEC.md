@@ -405,6 +405,14 @@ nonempty transcript is inserted. There is no Swift PCM/WAV/transcription fallbac
 command opens the existing full panel on Voice and refreshes the same recording library, but is
 disabled while the mini owns the global sidecar recording.
 
+The iPhone Control surface splits the keyboard control with a Dictate button. It presents the same
+`dictation.html` entry as a sheet, but injects the native voice transport and client-review mode. The
+sheet records through role-7, shows final host transcript in an editable field, and waits for an
+explicit Send. Send converts the reviewed text to the same bounded `NormalizedInput.key` sequence as
+the soft keyboard, preserving the focused Mac target and `InputDispatcher` path. It refuses an
+unsupported keyboard character before any input frame is sent. This is a UI adapter over the shared
+host recorder, never an iOS PCM/transcription fallback.
+
 The lane carries typed socket open/message/close envelopes and correlated allowlisted recording REST
 requests. JSON is limited to 192 KiB and complete lane frames to 256 KiB. Recording audio playback
 responses are split into 96 KiB chunks with per-request sequence and final markers. REST work may run

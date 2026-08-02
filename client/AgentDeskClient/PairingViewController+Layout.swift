@@ -187,9 +187,28 @@ extension PairingViewController {
         remoteInputModeControl.addTarget(self, action: #selector(remoteInputModeControlChanged(_:)), for: .valueChanged)
         buttonRow.addArrangedSubview(remoteInputModeControl)
 
+        keyboardDictationGroup.axis = .horizontal
+        keyboardDictationGroup.spacing = 8
+        keyboardDictationGroup.distribution = .fill
+        keyboardDictationGroup.alignment = .fill
+
         styleActionButton(showKeyboardButton, title: "Show keyboard")
         showKeyboardButton.addTarget(self, action: #selector(toggleKeyboard), for: .touchUpInside)
-        buttonRow.addArrangedSubview(showKeyboardButton)
+        keyboardDictationGroup.addArrangedSubview(showKeyboardButton)
+
+        styleActionButton(dictationButton, title: "")
+        dictationButton.setImage(UIImage(systemName: "mic.fill"), for: .normal)
+        dictationButton.tintColor = .label
+        dictationButton.accessibilityLabel = "Dictate to Mac"
+        dictationButton.accessibilityHint = "Records, transcribes, and lets you edit text before sending it to the Mac."
+        dictationButton.accessibilityIdentifier = "open-client-dictation"
+        dictationButton.addTarget(self, action: #selector(openDictation), for: .touchUpInside)
+        keyboardDictationGroup.addArrangedSubview(dictationButton)
+        NSLayoutConstraint.activate([
+            showKeyboardButton.widthAnchor.constraint(equalTo: dictationButton.widthAnchor, multiplier: 1.5),
+            dictationButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 44)
+        ])
+        buttonRow.addArrangedSubview(keyboardDictationGroup)
 
         // R25: the merged Spaces band is just the thumbnail strip.
         displayRailView.translatesAutoresizingMaskIntoConstraints = false
@@ -429,7 +448,9 @@ extension PairingViewController {
         buttonRow.removeFromSuperview()
         rightClickButton.removeFromSuperview()
         remoteInputModeControl.removeFromSuperview()
+        keyboardDictationGroup.removeFromSuperview()
         showKeyboardButton.removeFromSuperview()
+        dictationButton.removeFromSuperview()
         displayRailView.removeFromSuperview()
         displayRailView.renderEmpty()
         thumbnailStripView.removeFromSuperview()

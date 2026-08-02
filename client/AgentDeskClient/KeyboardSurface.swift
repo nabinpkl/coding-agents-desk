@@ -227,21 +227,13 @@ final class KeyboardSurface: UITextField, UITextFieldDelegate {
 
     // MARK: Internals
     private func emitForCharacter(_ char: Character) {
-        if char == "\n" {
-            emit(code: "return")
-            return
-        }
-        if char == " " {
-            emit(code: "space")
-            return
-        }
-        guard let mapping = CharacterToKey.lookup(char) else {
+        guard case let .key(code, modifiers)? = KeyboardTextInput.event(for: char) else {
             // Out-of-table character: drop. The host's KeyCodeMap is the
             // matching closed set; emitting an unknown code wastes a
             // round trip and produces a host-side warning.
             return
         }
-        emit(code: mapping.code, extraShift: mapping.shifted)
+        emit(code: code, extraShift: modifiers.contains(.shift))
     }
 
     private func emit(code: String, extraShift: Bool = false) {
@@ -411,6 +403,45 @@ final class KeyboardAccessoryView: UIInputView {
                 button.layer.borderColor = UIColor.label.cgColor
                 button.layer.borderWidth = 1
             }
+        }
+    }
+}
+
+/// Converts reviewed local text into the exact remote-key events produced by
+/// the soft keyboard. The dictation sheet uses this instead of creating a
+/// second text-injection wire path.
+enum KeyboardTextInput {
+    enum EncodingError: Error, Equatable, LocalizedError {
+        case unsupportedCharacter(Character)
+
+        var errorDescription: String? {
+            switch self {
+            case .unsupportedCharacter(let character):
+                "The remote keyboard cannot send “\(character)”. Edit the transcript and try again."
+            }
+        }
+    }
+
+    static func event(for character: Character) -> NormalizedInput? {
+        if character == "\n" || character == "\r" {
+            return .key(code: "return", modifiers: [])
+        }
+        if character == " " {
+            return .key(code: "space", modifiers: [])
+        }
+        guard let mapping = CharacterToKey.lookup(character) else { return nil }
+        return .key(
+            code: mapping.code,
+            modifiers: mapping.shifted ? [.shift] : []
+        )
+    }
+
+    static func events(for text: String) throws -> [NormalizedInput] {
+        try text.map { character in
+            guard let event = event(for: character) else {
+                throw EncodingError.unsupportedCharacter(character)
+            }
+            return event
         }
     }
 }

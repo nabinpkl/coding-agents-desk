@@ -17,6 +17,12 @@
 /** Config the native host injects before the bundle boots. */
 export interface HostConfig {
   voiceTransport?: "websocket" | "native";
+  /**
+   * The compact entry has two native owners. macOS inserts a completed
+   * transcript immediately; the iPhone presents it for review before the
+   * remote-keyboard path receives it.
+   */
+  dictationMode?: "macos" | "client";
   /** Loopback WebSocket URL of the host-owned voice sidecar, when present. */
   voiceWsUrl?: string;
   /**

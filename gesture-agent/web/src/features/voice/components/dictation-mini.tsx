@@ -6,7 +6,7 @@
 
 "use client";
 
-import { AlertCircle, Loader2, Square } from "lucide-react";
+import { AlertCircle, Loader2, Send, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { VuMeter } from "@/features/voice/components/vu-meter";
@@ -18,7 +18,7 @@ import {
   shouldCommitDictation,
 } from "@/features/voice/dictation-mini-state";
 import { useVoiceSession } from "@/features/voice/use-voice-session";
-import { postToHost } from "@/lib/host-bridge";
+import { getHostConfig, postToHost } from "@/lib/host-bridge";
 import { subscribeInteractionDelivery } from "@/lib/interaction-delivery";
 import { useVoiceStore, type VoiceRunStatus } from "@/stores/voice-store";
 
@@ -51,7 +51,10 @@ function stageLabel(status: VoiceRunStatus): string {
 }
 
 export function DictationMini() {
+  const clientDictation = getHostConfig()?.dictationMode === "client";
   const [completedTranscript, setCompletedTranscript] = useState("");
+  const [completedRecordingID, setCompletedRecordingID] = useState<string | null>(null);
+  const [editableTranscript, setEditableTranscript] = useState("");
   const [nativeStart, setNativeStart] = useState(false);
   const committedRecordingIDs = useRef(new Set<string>());
   const dismissTimer = useRef<number | null>(null);
@@ -71,6 +74,11 @@ export function DictationMini() {
     onComplete: (recording) => {
       const transcript = recording.transcript?.trim() ?? "";
       setCompletedTranscript(transcript);
+      if (clientDictation) {
+        setCompletedRecordingID(recording.id);
+        setEditableTranscript(transcript);
+        return;
+      }
       if (
         shouldCommitDictation(
           committedRecordingIDs.current,
@@ -92,6 +100,8 @@ export function DictationMini() {
     (fromNative: boolean) => {
       clearDismissTimer();
       setCompletedTranscript("");
+      setCompletedRecordingID(null);
+      setEditableTranscript("");
       setNativeStart(fromNative);
       void startRecording();
     },
@@ -139,6 +149,7 @@ export function DictationMini() {
   }, [status]);
 
   useEffect(() => {
+    if (clientDictation) return;
     if (status !== "complete" && status !== "error") return;
     clearDismissTimer();
     dismissTimer.current = window.setTimeout(() => {
@@ -148,7 +159,7 @@ export function DictationMini() {
       dismissTimer.current = null;
     }, DICTATION_TERMINAL_DISMISS_MS);
     return clearDismissTimer;
-  }, [clearDismissTimer, reset, status]);
+  }, [clearDismissTimer, clientDictation, reset, status]);
 
   useEffect(
     () => () => clearDismissTimer(),
@@ -160,6 +171,109 @@ export function DictationMini() {
   const transcript = completedTranscript || final || partial;
   const blocksNewPress =
     status === "saving" || status === "transcribing" || status === "analyzing";
+
+  const submit = useCallback(() => {
+    const value = editableTranscript.trim();
+    if (!completedRecordingID || !value) return;
+    // The iPhone native sheet owns commit deduplication because it may reject
+    // this exact recording for an unavailable host or an unsupported remote
+    // keyboard character. Keeping the web button retryable lets an edited
+    // transcript recover from that explicit error.
+    postToHost("interaction", {
+      t: "dictationCommit",
+      recordingID: completedRecordingID,
+      transcript: value,
+    });
+  }, [completedRecordingID, editableTranscript]);
+
+  if (clientDictation) {
+    const canEdit = status === "complete" && completedRecordingID !== null;
+    const micLabel = status === "capturing" ? "Stop recording" : "Start recording";
+    const helper = errorMessage
+      ? errorMessage
+      : status === "complete"
+        ? "Review the transcript, then send it to the focused Mac field."
+        : status === "capturing"
+          ? "Listening. Tap Stop when you are done."
+          : stageLabel(status) || "Tap the microphone to dictate.";
+
+    return (
+      <main className="h-full w-full overflow-y-auto bg-background p-4 text-foreground">
+        <section className="mx-auto flex min-h-full w-full max-w-lg flex-col gap-4 rounded-3xl border border-border bg-card p-4 shadow-sm">
+          <header>
+            <h1 className="text-lg font-semibold">Dictate to Mac</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Audio is saved and transcribed by your paired Mac.
+            </p>
+          </header>
+
+          <label className="flex min-h-40 flex-1 flex-col gap-2" htmlFor="dictation-transcript">
+            <span className="text-sm font-medium">Transcript</span>
+            <textarea
+              id="dictation-transcript"
+              aria-describedby="dictation-status"
+              className="min-h-32 w-full flex-1 resize-y rounded-2xl border border-input bg-background p-3 text-base leading-6 outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={!canEdit}
+              onChange={(event) => setEditableTranscript(event.target.value)}
+              placeholder={
+                canEdit
+                  ? "Review or edit the transcription"
+                  : "Your transcript will appear here after recording."
+              }
+              value={canEdit ? editableTranscript : transcript}
+            />
+          </label>
+
+          <p
+            id="dictation-status"
+            className={errorMessage ? "text-sm text-destructive" : "text-sm text-muted-foreground"}
+            role={errorMessage ? "alert" : "status"}
+          >
+            {helper}
+          </p>
+
+          {status === "capturing" ? (
+            <div className="rounded-2xl border border-border bg-muted/40 p-3">
+              <VuMeter rms={meter.rms} peak={meter.peak} />
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              aria-label={micLabel}
+              className="flex min-h-14 items-center justify-center gap-2 rounded-2xl border border-border bg-secondary px-4 text-base font-medium transition hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
+              disabled={blocksNewPress}
+              onClick={() => {
+                if (status === "capturing") end();
+                else begin(false);
+              }}
+            >
+              {status === "capturing" ? (
+                <Square className="size-5 fill-current text-destructive" />
+              ) : status === "requestingMic" || blocksNewPress ? (
+                <Loader2 className="size-5 animate-spin text-primary" />
+              ) : status === "error" ? (
+                <AlertCircle className="size-5 text-destructive" />
+              ) : (
+                <DictationMicArtwork />
+              )}
+              <span>{status === "capturing" ? "Stop" : "Record"}</span>
+            </button>
+            <button
+              type="button"
+              className="flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-primary px-4 text-base font-medium text-primary-foreground transition hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={!canEdit || !editableTranscript.trim()}
+              onClick={submit}
+            >
+              <Send className="size-5" aria-hidden="true" />
+              <span>Send to Mac</span>
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="flex h-full w-full items-center justify-center overflow-hidden rounded-[22px] border border-black/15 bg-[#e3e8ee] p-2 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.7)] dark:border-white/15 dark:bg-[#24282d] dark:shadow-[inset_0_1px_0_rgb(255_255_255_/_0.08)]">

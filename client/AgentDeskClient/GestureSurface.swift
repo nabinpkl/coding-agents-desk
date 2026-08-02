@@ -5,6 +5,37 @@ import WebKit
 import InteractionPanel
 import AgentDeskWire
 
+/// The full InteractionPanel owns gesture and Voice screens; the dictation
+/// presentation mounts only the compact recorder entry inside a UIKit sheet.
+/// Both use the same browser microphone and authenticated voice lane.
+enum GestureSurfacePresentation: Sendable {
+    case interaction
+    case dictation
+
+    var injectedConfiguration: String {
+        switch self {
+        case .interaction:
+            #"window.__interactionConfig = {"voiceTransport":"native"};"#
+        case .dictation:
+            #"window.__interactionConfig = {"voiceTransport":"native","dictationMode":"client"};"#
+        }
+    }
+
+    var allowsCamera: Bool {
+        switch self {
+        case .interaction: true
+        case .dictation: false
+        }
+    }
+
+    var usesDictationEntry: Bool {
+        switch self {
+        case .interaction: false
+        case .dictation: true
+        }
+    }
+}
+
 /// The iOS gesture surface hosts the shared InteractionPanel webview full-bleed.
 /// Space steps use the input lane; voice requests use a lazy, authenticated
 /// voice lane that the Mac proxies to its loopback Python sidecar.
@@ -12,11 +43,16 @@ import AgentDeskWire
 final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
     /// Injected by PairingViewController to forward the Space step to the input lane.
     var onSpaceStep: ((Int) -> Void)?
+    /// The client dictation sheet sends only an explicit, user-reviewed final
+    /// transcript through this callback. The all-Spaces Mac mini owns its own
+    /// insertion callback and never reaches this iOS surface.
+    var onDictationCommit: ((String, String) -> Void)?
     var voiceTransportProvider: (() -> QuicSessionClientTransport?)?
     /// Test seam: when set, receives requests instead of the injected handler.
     var onRequestForTesting: ((InteractionPanelRequest) -> Void)?
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "gesture-surface")
+    private let presentation: GestureSurfacePresentation
     private var panelController: InteractionPanelWebViewController?
     private var voiceLane: VoiceLaneClient?
     private var voiceLaneOpeningTask: Task<VoiceLaneClient, Error>?
@@ -28,13 +64,18 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
         self?.deliverReferenceAudio(event)
     }
 
-    override init(frame: CGRect) {
+    init(
+        presentation: GestureSurfacePresentation = .interaction,
+        frame: CGRect = .zero
+    ) {
+        self.presentation = presentation
         super.init(frame: frame)
         setUpPanel()
         configureContainer()
     }
 
     required init?(coder: NSCoder) {
+        presentation = .interaction
         super.init(coder: coder)
         setUpPanel()
         configureContainer()
@@ -43,16 +84,18 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
     private func setUpPanel() {
         do {
             let config = WKUserScript(
-                source: #"window.__interactionConfig = {"voiceTransport":"native"};"#,
+                source: presentation.injectedConfiguration,
                 injectionTime: .atDocumentStart,
                 forMainFrameOnly: true
             )
             let controller = try InteractionPanelWebViewController(
                 transport: self,
+                contract: presentation.usesDictationEntry ? .dictation : .interaction,
                 additionalUserScripts: [config]
             )
-            // The gesture UI needs the camera; grant capture from the bundled
-            // origin (the app must also declare NSCameraUsageDescription).
+            // Both presentations need the microphone. The full interaction
+            // page also uses its bundled camera tracker. Never grant capture
+            // to an arbitrary navigated origin.
             controller.webView.uiDelegate = self
             panelController = controller
             panelContentView = controller.webView
@@ -141,12 +184,20 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
                 path: request.path,
                 body: request.body
             )))
-        case .dictationReady, .dictationLayout, .dictationRunState, .dictationCommit:
-            // The all-Spaces mini dictation window exists only on macOS. Keep
-            // the shared contract additive without making the iPhone surface
-            // invent a second recorder ownership path.
+        case .dictationCommit(let recordingID, let transcript):
+            onDictationCommit?(recordingID, transcript)
+        case .dictationReady, .dictationLayout, .dictationRunState:
             break
         }
+    }
+
+    /// Ask the embedded recorder to stop before a sheet is dismissed. If the
+    /// page is already gone the voice-lane close still makes the host finalize
+    /// nonempty audio as an interrupted recording.
+    func stopDictation() {
+        panelController?.deliver(
+            rawJSON: #"{"type":"dictationCapture","payload":{"command":"stop"}}"#
+        )
     }
 
     private func startReferenceAudio(
@@ -314,14 +365,16 @@ final class GestureSurface: UIView, InteractionPanelTransport, WKUIDelegate {
 
     // MARK: - WKUIDelegate
 
-    nonisolated func webView(
+    func webView(
         _ webView: WKWebView,
         requestMediaCapturePermissionFor origin: WKSecurityOrigin,
         initiatedByFrame frame: WKFrameInfo,
         type: WKMediaCaptureType,
-        decisionHandler: @escaping (WKPermissionDecision) -> Void
+        decisionHandler: @escaping @MainActor @Sendable (WKPermissionDecision) -> Void
     ) {
-        decisionHandler(.grant)
+        let isBundledOrigin = origin.protocol == "interactionfeed" && origin.host == "app"
+        let permittedType = type == .microphone || (presentation.allowsCamera && type == .camera)
+        decisionHandler(isBundledOrigin && permittedType ? .grant : .deny)
     }
 }
 

@@ -168,7 +168,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     //                      merged Spaces band (R25, ThumbnailStripView).
     let buttonRow = UIStackView()
     let rightClickButton = UIButton(type: .system)
+    let keyboardDictationGroup = UIStackView()
     let showKeyboardButton = UIButton(type: .system)
+    let dictationButton = UIButton(type: .system)
     // Touch mode control (bottom row) and the recognizers installed
     // on the video surface while video touch input is active. See
     // PairingViewController+VideoTouch.swift.

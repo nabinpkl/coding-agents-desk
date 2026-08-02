@@ -72,6 +72,40 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
         applyKeyboardPresentationIntent(.toggle)
     }
 
+    @objc func openDictation() {
+        let dictation = ClientDictationViewController()
+        dictation.voiceTransportProvider = { [weak self] in
+            self?.pairingClient.activeSessionTransport
+        }
+        dictation.submitText = { [weak self] transcript in
+            guard let self else {
+                throw ClientDictationSubmissionError.hostDisconnected
+            }
+            try self.sendDictationTextThroughKeyboard(transcript)
+        }
+        let navigation = UINavigationController(rootViewController: dictation)
+        navigation.modalPresentationStyle = .pageSheet
+        if let sheet = navigation.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+        }
+        present(navigation, animated: true)
+    }
+
+    /// The reviewed dictation transcript intentionally becomes ordinary
+    /// `NormalizedInput.key` frames. That preserves the same host dispatcher,
+    /// ordering, focus target, and character mapping as a soft-keyboard tap.
+    func sendDictationTextThroughKeyboard(_ transcript: String) throws {
+        guard pairingClient.activeInputChannel != nil else {
+            throw ClientDictationSubmissionError.hostDisconnected
+        }
+        let inputs = try KeyboardTextInput.events(for: transcript)
+        guard !inputs.isEmpty else {
+            throw ClientDictationSubmissionError.emptyTranscript
+        }
+        inputs.forEach(sendInput)
+    }
+
     @discardableResult
     func applyKeyboardPresentationIntentForRemoteInput(_ input: NormalizedInput) -> KeyboardPresentationTransition? {
         guard let intent = HostTextInputKeyboardPolicy.intentForRemoteInput(
@@ -190,5 +224,19 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
 
     func keyboardSurface(_ surface: KeyboardSurface, didProduce input: NormalizedInput) {
         sendInput(input)
+    }
+}
+
+private enum ClientDictationSubmissionError: LocalizedError {
+    case hostDisconnected
+    case emptyTranscript
+
+    var errorDescription: String? {
+        switch self {
+        case .hostDisconnected:
+            "The Mac input connection is not available. Keep this sheet open, reconnect, then send again."
+        case .emptyTranscript:
+            "Enter some text before sending."
+        }
     }
 }
