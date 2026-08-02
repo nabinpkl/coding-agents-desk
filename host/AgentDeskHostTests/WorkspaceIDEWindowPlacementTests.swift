@@ -130,6 +130,29 @@ struct WorkspaceIDEWindowPlacementTests {
         }
     }
 
+    @Test func membershipCanBeReverifiedAfterAppKitOrdersTheWindow() throws {
+        let placement = WorkspaceIDEWindowPlacement(
+            desktop: WorkspaceDesktopAssignment(spaceID: 20, displayID: "D1", ordinal: 1)
+        )
+        let mover = RecordingWorkspaceWindowSpaceMover(spaceIDs: [42: [10]])
+        let coordinator = WorkspaceIDEWindowPlacementCoordinator(
+            store: MemoryWorkspaceIDEWindowPlacementStore(placement: placement),
+            desktopAudit: StaticWorkspaceDesktopAudit(Self.snapshot()),
+            mover: mover
+        )
+
+        _ = try coordinator.restore(windowID: 42)
+        mover.setSpaceIDs([10], for: 42)
+
+        #expect(throws: WorkspaceIDEWindowPlacementError.verificationMismatch(
+            windowID: 42,
+            targetSpaceID: 20,
+            observedSpaceIDs: [10]
+        )) {
+            try coordinator.verify(windowID: 42, targetSpaceID: 20)
+        }
+    }
+
     @Test func fileStoreRoundTripsPlacementAtomically() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -192,5 +215,9 @@ private final class RecordingWorkspaceWindowSpaceMover: WorkspaceWindowSpaceMovi
 
     func spaceIDs(for windowID: UInt32) throws -> [UInt64] {
         membership[windowID] ?? []
+    }
+
+    func setSpaceIDs(_ spaceIDs: [UInt64], for windowID: UInt32) {
+        membership[windowID] = spaceIDs
     }
 }

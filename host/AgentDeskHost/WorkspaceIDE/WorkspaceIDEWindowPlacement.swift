@@ -134,19 +134,23 @@ final class WorkspaceIDEWindowPlacementCoordinator {
                 reason: String(describing: error)
             )
         }
-        let observed = try mover.spaceIDs(for: windowID)
-        guard observed == [target.id] else {
-            throw WorkspaceIDEWindowPlacementError.verificationMismatch(
-                windowID: windowID,
-                targetSpaceID: target.id,
-                observedSpaceIDs: observed
-            )
-        }
+        try verify(windowID: windowID, targetSpaceID: target.id)
         let resolved = WorkspaceDesktopAssignment(target)
         if resolved != saved.desktop {
             try store.save(WorkspaceIDEWindowPlacement(desktop: resolved))
         }
         return .restored(resolved)
+    }
+
+    func verify(windowID: UInt32, targetSpaceID: UInt64) throws {
+        let observed = try mover.spaceIDs(for: windowID)
+        guard observed == [targetSpaceID] else {
+            throw WorkspaceIDEWindowPlacementError.verificationMismatch(
+                windowID: windowID,
+                targetSpaceID: targetSpaceID,
+                observedSpaceIDs: observed
+            )
+        }
     }
 
     private func resolve(

@@ -219,12 +219,20 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
         didAttemptPlacementRestore = true
         isPreparingWindowPlacement = true
         let priorAlpha = window.alphaValue
+        let priorCollectionBehavior = window.collectionBehavior
+        // `.moveToActiveSpace` is correct for an explicit IDE click, but would pull the window
+        // back off its restored Space when AppKit orders it during launch recovery.
+        window.collectionBehavior = priorCollectionBehavior.subtracting(.moveToActiveSpace)
         window.alphaValue = 0
-        window.orderFront(nil)
+        window.orderBack(nil)
+        window.displayIfNeeded()
 
+        var restoredDesktop: WorkspaceDesktopAssignment?
         if let windowID = windowID(for: window) {
             do {
-                _ = try windowPlacement.restore(windowID: windowID)
+                if case .restored(let desktop) = try windowPlacement.restore(windowID: windowID) {
+                    restoredDesktop = desktop
+                }
                 preserveUnresolvedPlacement = false
             } catch {
                 // Keep the saved destination intact. The window remains usable on the current
@@ -237,8 +245,19 @@ final class WorkspaceIDEWindowController: NSWindowController, NSWindowDelegate, 
             logger.error("Workspace IDE placement restore skipped: AppKit returned no window number")
         }
 
+        window.orderFrontRegardless()
+        if let restoredDesktop, let windowID = windowID(for: window) {
+            do {
+                try windowPlacement.verify(windowID: windowID, targetSpaceID: restoredDesktop.spaceID)
+            } catch {
+                preserveUnresolvedPlacement = true
+                logger.error(
+                    "Workspace IDE placement changed during reveal: \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
         window.alphaValue = priorAlpha
-        window.orderFront(nil)
+        window.collectionBehavior = priorCollectionBehavior
         isPreparingWindowPlacement = false
     }
 
