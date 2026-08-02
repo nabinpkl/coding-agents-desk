@@ -6,24 +6,28 @@ import PtyClientSwift
 import PtyTerminalSession
 import PtyTerminalWebView
 
-enum AgentFeedTerminalAbandonmentReason: String, CaseIterable {
+/// The only two reasons this phone ends an agent terminal. Both are the user saying they are done
+/// with the terminal itself; nothing about this phone's surface qualifies, because the session runs
+/// on the Mac and outlives whatever is or is not showing it here.
+enum AgentFeedTerminalEndReason: String, CaseIterable {
     case userClose = "user-close"
     case contextEnded = "context-ended"
-    case surfaceSwitched = "surface-switched"
-    case surfaceTeardown = "surface-teardown"
-    case pairingDisconnected = "pairing-disconnected"
-    case pairingRevoked = "pairing-revoked"
 }
 
+/// This phone letting go of a terminal it is still not finished with. The session stays up on the
+/// Mac; the descriptor is kept so a rebind re-attaches to the same terminal.
 enum AgentFeedTerminalInterruption {
     case background
     case transportLoss
+    case surfaceSwitched
+    case pairingDisconnected
+    case pairingRevoked
 }
 
 @MainActor
 protocol AgentFeedTerminalLifecycleHandling: AnyObject {
     @discardableResult
-    func abandonTerminal(_ reason: AgentFeedTerminalAbandonmentReason) -> Task<Void, Never>?
+    func endTerminal(_ reason: AgentFeedTerminalEndReason) -> Task<Void, Never>?
     func interruptTerminal(_ interruption: AgentFeedTerminalInterruption)
     @discardableResult
     func teardown() -> Task<Void, Never>?
@@ -147,29 +151,24 @@ final class AgentFeedTerminalLifecycleRouter {
         _ event: AgentFeedTerminalLifecycleEvent,
         to target: (any AgentFeedTerminalLifecycleHandling)?
     ) -> Task<Void, Never>? {
+        // Nothing here ends a terminal. Every one of these events is this phone's surface, transport,
+        // or pairing going away, and the terminal they were showing is a process on the Mac that
+        // keeps running - the same way detaching from tmux over SSH leaves the session up.
         switch event {
         case .switchAway:
-            return target?.abandonTerminal(.surfaceSwitched)
+            target?.interruptTerminal(.surfaceSwitched)
         case .surfaceTeardown:
             return target?.teardown()
-        case .rejection(let reason):
-            switch reason {
-            case .revoked, .unknownDevice, .badSignature, .unauthorized:
-                return target?.abandonTerminal(.pairingRevoked)
-            case .replay, .malformed, .expiredResume, .signingKeyUnavailable, .incompatibleProtocol:
-                return target?.abandonTerminal(.surfaceTeardown)
-            }
-        case .forget:
-            return target?.abandonTerminal(.pairingRevoked)
+        case .rejection, .forget:
+            target?.interruptTerminal(.pairingRevoked)
         case .disconnect:
-            return target?.abandonTerminal(.pairingDisconnected)
+            target?.interruptTerminal(.pairingDisconnected)
         case .background:
             target?.interruptTerminal(.background)
-            return nil
         case .transportFailure:
             target?.interruptTerminal(.transportLoss)
-            return nil
         }
+        return nil
     }
 
     @discardableResult
@@ -262,19 +261,20 @@ final class AgentFeedTerminalSession: PtyTerminalWebViewDelegate {
     }
 
     @discardableResult
-    func abandon(_ reason: AgentFeedTerminalAbandonmentReason) -> Task<Void, Never>? {
-        abandon(reason, matching: nil)
+    func end(_ reason: AgentFeedTerminalEndReason) -> Task<Void, Never>? {
+        end(reason, matching: nil)
     }
 
+    /// The surface itself is going away. Everything local is released, but no close is sent: the
+    /// terminal is a process on the Mac and removing this view is not a decision about it.
     @discardableResult
     func teardown() -> Task<Void, Never>? {
-        let closeTask = abandon(.surfaceTeardown)
         invalidateOperations(preservingDescriptor: false)
         coordinator = nil
         sessionOpener = nil
         closeDelivery.bind(nil)
         terminalContent?.delegate = nil
-        return closeTask
+        return nil
     }
 
     func handle(_ intent: AgentPanelTerminalIntent) {
@@ -282,12 +282,12 @@ final class AgentFeedTerminalSession: PtyTerminalWebViewDelegate {
         case .open(let requestID, let context):
             open(requestID: requestID, context: context)
         case .close(let requestID, let context):
-            _ = abandon(.userClose, matching: AgentTerminalOpen(
+            _ = end(.userClose, matching: AgentTerminalOpen(
                 requestID: requestID,
                 context: wireContext(context)
             ))
         case .contextEnded(let requestID, let context):
-            _ = abandon(.contextEnded, matching: AgentTerminalOpen(
+            _ = end(.contextEnded, matching: AgentTerminalOpen(
                 requestID: requestID,
                 context: wireContext(context)
             ))
@@ -391,8 +391,8 @@ final class AgentFeedTerminalSession: PtyTerminalWebViewDelegate {
         }
     }
 
-    private func abandon(
-        _ reason: AgentFeedTerminalAbandonmentReason,
+    private func end(
+        _ reason: AgentFeedTerminalEndReason,
         matching expectedOpen: AgentTerminalOpen?
     ) -> Task<Void, Never>? {
         guard let descriptor,

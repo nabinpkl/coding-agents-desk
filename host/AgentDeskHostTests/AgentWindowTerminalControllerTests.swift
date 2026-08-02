@@ -746,6 +746,111 @@ struct AgentWindowTerminalControllerTests {
         #expect(attachments.values.last == .some(nil))
     }
 
+    /// Failing to reach a session is a fact about this attempt, not about the session. Closing here
+    /// would tell the coordinator to kill the deterministic PTY, so a momentary attach failure would
+    /// destroy the agent's running terminal.
+    @Test func attachFailureLeavesTheSessionAliveAndStillResumable() async throws {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let status = AgentWindowTerminalStatusRecorder()
+        let layout = AgentWindowTerminalLayoutRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { layout.values.append($0) },
+            deliverStatus: { status.messages.append($0) }
+        )
+        let attachments = AgentWindowTerminalAttachmentRecorder()
+        controller.observeAttachment { attachments.values.append($0) }
+        attacher.unavailableSessionNames = [ptyName(for: firstContext)]
+        endpoint.completeOpen(
+            requestID: "request-attach-fails",
+            with: .ready(ready(requestID: "request-attach-fails", context: firstContext))
+        )
+
+        controller.resume(AgentWindowTerminalAttachment(
+            requestID: "request-attach-fails",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext)
+        ))
+        try await waitUntil { status.messages.count == 1 }
+
+        #expect(endpoint.closeMessages.isEmpty)
+        #expect(layout.values.isEmpty)
+        // Nothing is reported, so the registry keeps the attachment and the next launch retries it.
+        #expect(attachments.values.isEmpty)
+
+        // The retry succeeds against the same context without a close in between.
+        attacher.unavailableSessionNames = []
+        endpoint.completeOpen(
+            requestID: "request-attach-fails",
+            with: .ready(ready(requestID: "request-attach-fails", context: firstContext))
+        )
+        controller.resume(AgentWindowTerminalAttachment(
+            requestID: "request-attach-fails",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext)
+        ))
+        try await waitUntil { status.messages.count == 2 }
+
+        #expect(endpoint.closeMessages.isEmpty)
+        #expect(attachments.values == [AgentWindowTerminalAttachment(
+            requestID: "request-attach-fails",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext)
+        )])
+    }
+
+    /// A declined open leaves the remembered attachment standing for the same reason: the request
+    /// failed, the session did not end.
+    @Test func openErrorDoesNotForgetTheAttachmentButAnEndDoes() async throws {
+        let endpoint = FakeAgentWindowTerminalEndpoint()
+        let attacher = FakeAgentWindowTerminalAttacher()
+        let status = AgentWindowTerminalStatusRecorder()
+        let controller = AgentWindowTerminalController(
+            endpoint: endpoint,
+            attacher: attacher,
+            setTerminalOpen: { _ in },
+            deliverStatus: { status.messages.append($0) }
+        )
+        let attachments = AgentWindowTerminalAttachmentRecorder()
+        controller.observeAttachment { attachments.values.append($0) }
+        endpoint.completeOpen(
+            requestID: "request-declined",
+            with: .error(AgentTerminalError(
+                requestID: "request-declined",
+                context: wireContext(firstContext),
+                code: .activeElsewhere
+            ))
+        )
+
+        controller.resume(AgentWindowTerminalAttachment(
+            requestID: "request-declined",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext)
+        ))
+        try await waitUntil { status.messages.count == 1 }
+
+        #expect(attachments.values.isEmpty)
+
+        // A session that reports it ended is the case that does clear it.
+        endpoint.completeOpen(
+            requestID: "request-declined-2",
+            with: .ready(ready(requestID: "request-declined-2", context: firstContext))
+        )
+        controller.handle(.open(requestID: "request-declined-2", context: firstContext))
+        try await waitUntil { status.messages.count == 2 }
+        await endpoint.sendPush(.ended(AgentTerminalEnded(
+            requestID: "request-declined-2",
+            context: wireContext(firstContext),
+            ptySessionName: ptyName(for: firstContext),
+            exitStatus: 0
+        )))
+        try await waitUntil { attachments.values.count == 2 }
+
+        #expect(attachments.values.last == .some(nil))
+    }
+
     @Test func observingAFreshControllerReportsNothingUntilATerminalOpens() async throws {
         let endpoint = FakeAgentWindowTerminalEndpoint()
         let attacher = FakeAgentWindowTerminalAttacher()
@@ -1357,6 +1462,7 @@ private final class FakeAgentWindowTerminalAttacher: AgentWindowTerminalAttachin
     var requests: [Request] = []
     var connections: [String: FakeAgentWindowTerminalConnection] = [:]
     var suspendedSessionNames: Set<String> = []
+    var unavailableSessionNames: Set<String> = []
     private var continuations: [
         String: CheckedContinuation<any PtyTerminalConnection, Never>
     ] = [:]
@@ -1367,6 +1473,9 @@ private final class FakeAgentWindowTerminalAttacher: AgentWindowTerminalAttachin
         rows: UInt32
     ) async throws -> any PtyTerminalConnection {
         requests.append(Request(sessionName: sessionName, columns: columns, rows: rows))
+        if unavailableSessionNames.contains(sessionName) {
+            throw AgentWindowTerminalAttachError.sessionUnavailable
+        }
         let connection = FakeAgentWindowTerminalConnection()
         connections[sessionName] = connection
         if suspendedSessionNames.contains(sessionName) {

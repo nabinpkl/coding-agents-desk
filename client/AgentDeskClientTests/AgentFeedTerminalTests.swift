@@ -470,16 +470,8 @@ struct AgentFeedTerminalTests {
         #expect(harness.coordinator.sent.count == 1)
     }
 
-    @Test func everyExplicitAbandonmentSendsOneExactCloseAndPreventsResurrection() async throws {
-        let cases: [(AgentFeedTerminalAbandonmentReason, String)] = [
-            (.contextEnded, "context-ended"),
-            (.surfaceSwitched, "surface-switched"),
-            (.surfaceTeardown, "surface-teardown"),
-            (.pairingDisconnected, "pairing-disconnected"),
-            (.pairingRevoked, "pairing-revoked"),
-        ]
-
-        for (reason, wireReason) in cases {
+    @Test func everyEndReasonSendsOneExactCloseAndPreventsResurrection() async throws {
+        for reason in AgentFeedTerminalEndReason.allCases where reason != .userClose {
             let harness = makeHarness()
             var delivered: [NSDictionary] = []
             harness.surface.deliverForTesting = { rawJSON in
@@ -488,8 +480,8 @@ struct AgentFeedTerminalTests {
             try await openAndAttach(harness)
             delivered.removeAll()
 
-            harness.surface.abandonTerminal(reason)
-            harness.surface.abandonTerminal(reason)
+            harness.surface.endTerminal(reason)
+            harness.surface.endTerminal(reason)
             try await waitUntil { harness.coordinator.sent.count == 3 }
 
             let ready = readyPayload()
@@ -497,7 +489,7 @@ struct AgentFeedTerminalTests {
                 requestID: ready.requestID,
                 context: ready.context,
                 ptySessionName: ready.ptySessionName,
-                reason: wireReason
+                reason: reason.rawValue
             )))
             harness.coordinator.yield(.ready(ready))
             try await waitUntil {
@@ -515,6 +507,48 @@ struct AgentFeedTerminalTests {
                 ptySessionName: ready.ptySessionName
             )])
         }
+    }
+
+    /// The phone's surface going away is not the user finishing with the terminal. Every one of
+    /// these used to send a close, which the host answers by killing the PTY, so putting the app in
+    /// the background or tapping Disconnect destroyed a terminal still running on the Mac.
+    @Test func noSurfaceInterruptionEndsTheSessionOnTheMac() async throws {
+        for interruption in [
+            AgentFeedTerminalInterruption.surfaceSwitched,
+            .pairingDisconnected,
+            .pairingRevoked,
+        ] {
+            let harness = makeHarness()
+            try await openAndAttach(harness)
+
+            harness.surface.interruptTerminal(interruption)
+            try await waitUntil { harness.connection.detachCount == 1 }
+
+            #expect(harness.coordinator.sent.count == 2)
+            #expect(!harness.coordinator.sent.contains { message in
+                if case .close = message { return true }
+                return false
+            })
+            #expect(!harness.surface.terminalContent.isBound)
+            #expect(!harness.surface.isTerminalPresented)
+        }
+    }
+
+    /// Removing the view is a fact about this phone, not about the session, so teardown releases
+    /// everything local and sends nothing.
+    @Test func surfaceTeardownReleasesLocallyWithoutEndingTheSession() async throws {
+        let harness = makeHarness()
+        try await openAndAttach(harness)
+
+        #expect(harness.surface.teardown() == nil)
+        try await waitUntil { harness.connection.detachCount == 1 }
+
+        #expect(harness.coordinator.sent.count == 2)
+        #expect(!harness.coordinator.sent.contains { message in
+            if case .close = message { return true }
+            return false
+        })
+        #expect(!harness.surface.terminalContent.isBound)
     }
 
     @Test func contextEndedAndUserCloseUseExplicitLifecycleWithoutDuplicateKill() async throws {
@@ -547,7 +581,8 @@ struct AgentFeedTerminalTests {
             requestID: "request-1",
             context: panelContext
         )))
-        closeHarness.surface.abandonTerminal(.surfaceTeardown)
+        // A second end request for an already-closed terminal must not produce a second close.
+        closeHarness.surface.endTerminal(.contextEnded)
         try await waitUntil { closeHarness.coordinator.sent.count == 3 && delivered.count == 1 }
         #expect(closeHarness.coordinator.sent[2] == .close(AgentTerminalClose(
             requestID: "request-1",
@@ -622,7 +657,7 @@ struct AgentFeedTerminalTests {
         try await openAndAttach(harness)
         harness.surface.interruptTerminal(.transportLoss)
 
-        harness.surface.abandonTerminal(.contextEnded)
+        harness.surface.endTerminal(.contextEnded)
         let replacementCoordinator = FakeAgentTerminalCoordinator()
         let replacementOpener = FakeAgentTerminalSessionOpener(connection: FakeTerminalConnection())
         harness.surface.bindTerminalDependencies(
@@ -661,7 +696,7 @@ struct AgentFeedTerminalTests {
         try await waitUntil { coordinator.sent.count == 2 && surface?.isTerminalPresented == true }
 
         surface?.interruptTerminal(.transportLoss)
-        surface?.abandonTerminal(.pairingDisconnected)
+        surface?.endTerminal(.contextEnded)
         weak let releasedSurface = surface
         surface = nil
         #expect(releasedSurface == nil)
@@ -674,7 +709,7 @@ struct AgentFeedTerminalTests {
             requestID: "request-1",
             context: readyPayload().context,
             ptySessionName: readyPayload().ptySessionName,
-            reason: "pairing-disconnected"
+            reason: "context-ended"
         ))])
     }
 
@@ -683,7 +718,7 @@ struct AgentFeedTerminalTests {
         try await openAndAttach(harness)
         harness.coordinator.closeSendError = TestTerminalError.sendFailed
 
-        harness.surface.abandonTerminal(.surfaceSwitched)
+        harness.surface.endTerminal(.contextEnded)
         try await waitUntil { harness.coordinator.failedSendCount == 1 }
 
         let replacementCoordinator = FakeAgentTerminalCoordinator()
@@ -698,7 +733,7 @@ struct AgentFeedTerminalTests {
             requestID: "request-1",
             context: readyPayload().context,
             ptySessionName: readyPayload().ptySessionName,
-            reason: "surface-switched"
+            reason: "context-ended"
         ))])
         #expect(replacementOpener.requests.isEmpty)
     }
@@ -717,7 +752,7 @@ struct AgentFeedTerminalTests {
             return false
         }
 
-        harness.surface.abandonTerminal(.surfaceSwitched)
+        harness.surface.interruptTerminal(.surfaceSwitched)
 
         try await waitUntil {
             !harness.surface.terminalContent.isBound
@@ -756,7 +791,7 @@ struct AgentFeedTerminalTests {
         try await openAndAttach(harness)
         harness.coordinator.shouldDelayClose = true
 
-        let closeTask = try #require(harness.surface.abandonTerminal(.pairingDisconnected))
+        let closeTask = try #require(harness.surface.endTerminal(.contextEnded))
         try await waitUntil { harness.coordinator.sent.count == 3 }
 
         #expect(harness.coordinator.closeSendCompletionCount == 0)
@@ -942,7 +977,7 @@ struct AgentFeedTerminalTests {
         staleCoordinator.yield(.ready(readyPayload()))
         try await waitUntil { staleOpener.requests.count == 1 }
 
-        let closeTask = try #require(harness.surface.abandonTerminal(.contextEnded))
+        let closeTask = try #require(harness.surface.endTerminal(.contextEnded))
         await closeTask.value
         #expect(delivered == [expectedTerminalJSON(
             tag: "agent-terminal-ended",
@@ -1037,15 +1072,17 @@ struct AgentFeedTerminalTests {
         #expect(delivered.first?["t"] as? String == "agent-terminal-ready")
     }
 
+    /// Every routed event is this phone's surface, transport, or pairing changing, and none of them
+    /// is a decision about a terminal running on the Mac. So none of them may reach `endTerminal`.
     @Test func lifecycleRouterClassifiesPairingTransitionsAndOrdersTeardownBeforeRelease() async {
         let router = AgentFeedTerminalLifecycleRouter()
 
         let classifications: [(AgentFeedTerminalLifecycleEvent, String)] = [
-            (.switchAway, "abandon:surface-switched"),
-            (.rejection(.revoked), "abandon:pairing-revoked"),
-            (.rejection(.expiredResume), "abandon:surface-teardown"),
-            (.forget, "abandon:pairing-revoked"),
-            (.disconnect, "abandon:pairing-disconnected"),
+            (.switchAway, "interrupt:surface-switched"),
+            (.rejection(.revoked), "interrupt:pairing-revoked"),
+            (.rejection(.expiredResume), "interrupt:pairing-revoked"),
+            (.forget, "interrupt:pairing-revoked"),
+            (.disconnect, "interrupt:pairing-disconnected"),
             (.background, "interrupt:background"),
             (.transportFailure, "interrupt:transport-loss"),
         ]
@@ -1337,8 +1374,8 @@ private final class FakeAgentTerminalSessionOpener: AgentFeedTerminalSessionOpen
 private final class FakeTerminalLifecycleTarget: AgentFeedTerminalLifecycleHandling {
     var events: [String] = []
 
-    func abandonTerminal(_ reason: AgentFeedTerminalAbandonmentReason) -> Task<Void, Never>? {
-        events.append("abandon:\(reason.rawValue)")
+    func endTerminal(_ reason: AgentFeedTerminalEndReason) -> Task<Void, Never>? {
+        events.append("end:\(reason.rawValue)")
         return nil
     }
 
@@ -1348,6 +1385,12 @@ private final class FakeTerminalLifecycleTarget: AgentFeedTerminalLifecycleHandl
             events.append("interrupt:background")
         case .transportLoss:
             events.append("interrupt:transport-loss")
+        case .surfaceSwitched:
+            events.append("interrupt:surface-switched")
+        case .pairingDisconnected:
+            events.append("interrupt:pairing-disconnected")
+        case .pairingRevoked:
+            events.append("interrupt:pairing-revoked")
         }
     }
 

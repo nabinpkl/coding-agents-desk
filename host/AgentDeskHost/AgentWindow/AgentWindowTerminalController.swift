@@ -441,9 +441,10 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
         return false
     }
 
-    /// Only a terminal that is genuinely finished reports `nil`. A preserving detach deliberately
-    /// leaves the last attachment standing, because that is the thing a restarted host resumes; an
-    /// unexpected loss keeps it too, since the session outlives a dropped connection.
+    /// Only a terminal that is genuinely finished reports `nil` - the user ending it, or the session
+    /// reporting that it ended. Everything else leaves the last attachment standing, because that is
+    /// the thing a restarted host resumes: a preserving detach, an unexpected socket loss, and a
+    /// failed open or attach all describe the surface, not the session.
     private func reportAttachment(_ attachment: AgentWindowTerminalAttachment?) {
         guard attachment != reportedAttachment else { return }
         reportedAttachment = attachment
@@ -681,20 +682,21 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
         } catch {
             guard isOpening(operation) else { return }
             operation.binding.ptySessionName = ready.ptySessionName
-            let terminalError = AgentTerminalError(
+            // Failing to reach the session is not the user finishing with it. Closing here would
+            // send `.close`, and the coordinator answers that by killing the deterministic PTY, so a
+            // momentary attach failure used to destroy a running agent terminal. Park in `.detached`
+            // instead: `beginOpen` already knows how to re-enter that phase for the same context.
+            operation.task?.cancel()
+            phase = .detached(operation.binding)
+            contentView.detach()
+            updatePresentation(open: false)
+            stateForTesting = .idle
+            deliverStatus(.error(AgentTerminalError(
                 requestID: ready.requestID,
                 context: ready.context,
                 ptySessionName: ready.ptySessionName,
                 code: .launchFailed
-            )
-            beginClose(
-                binding: operation.binding,
-                acknowledgement: nil,
-                reason: "attach-failed",
-                pendingOpen: nil,
-                completion: .error(terminalError),
-                cancel: operation.task
-            )
+            )))
         }
     }
 
@@ -852,7 +854,9 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
             contentView.stop()
             updatePresentation(open: false)
             stateForTesting = .idle
-            reportAttachment(nil)
+            // `.ended` is the session reporting that it is gone; `.error` is this attempt failing.
+            // Only the first stops being something a restarted host should put back.
+            if case .ended = message { reportAttachment(nil) }
             deliverStatus(message)
         }
     }
@@ -866,7 +870,8 @@ final class AgentWindowTerminalController: NSObject, AgentWindowTerminalControll
         contentView.detach()
         updatePresentation(open: false)
         stateForTesting = .idle
-        reportAttachment(nil)
+        // An open that failed is not a terminal that ended, so the remembered attachment stands and
+        // the next launch tries the resume again.
         deliverStatus(.error(error))
     }
 

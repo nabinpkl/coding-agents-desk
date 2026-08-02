@@ -195,8 +195,8 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
     }
 
     @discardableResult
-    func abandonTerminal(_ reason: AgentFeedTerminalAbandonmentReason) -> Task<Void, Never>? {
-        terminalSession.abandon(reason)
+    func endTerminal(_ reason: AgentFeedTerminalEndReason) -> Task<Void, Never>? {
+        terminalSession.end(reason)
     }
 
     func interruptTerminal(_ interruption: AgentFeedTerminalInterruption) {
