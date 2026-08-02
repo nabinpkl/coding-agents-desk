@@ -161,6 +161,14 @@ voice_src_out := justfile_directory() + "/host/AgentDeskHost/voice-src"
 # pronunciation view from these exact bytes, so they live in one place and are
 # staged into each consumer rather than copied around the tree.
 voice_assets_src := justfile_directory() + "/voice-assets"
+# The Mac's copy of the voice models, which the host serves to the phone over the
+# assets lane. Deliberately outside the repo and outside both app bundles: these
+# are ~220 MB of read-only, hash-verified inputs, byte-identical across host
+# variants, so bundling them charged every build for a resource copy and a code
+# signature that bought nothing. Shared by the stable and dev hosts for the same
+# reason. Config.voiceAssetRootURL resolves this exact path and honours the same
+# override, so the two stay in step.
+voice_assets_root := env_var_or_default("AGENTDESK_VOICE_ASSET_ROOT", env_var_or_default("HOME", "") + "/Library/Application Support/AgentDeskVoiceAssets")
 # Content-hash stamps that gate the bundled-artifact builds so host-run skips a
 # rebuild when inputs are unchanged (see tools/source-hash.sh). Gitignored (.build).
 stamps_dir := justfile_directory() + "/.build/stamps"
@@ -888,6 +896,35 @@ voice-assets-stage-client:
             cp -f "$SRC/$NAME" "$OUT/$NAME"
         fi
     done
+
+# Publish the voice models to this Mac so the host can serve them to a paired
+# phone. One-time machine setup, not a build step: nothing in `just check` or any
+# app build depends on it, and re-running it is idempotent.
+voice-assets-install: voice-phone-model-check voice-zipa-model-check
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ROOT='{{voice_assets_root}}'
+    SRC='{{justfile_directory()}}/client/AgentDeskClient'
+    SHARED='{{voice_assets_src}}'
+    mkdir -p "$ROOT"
+    # The phone gets the COMPILED model. Compiling a 152 MB Core ML package on
+    # device is the one step that would make first use of the Voice surface feel
+    # broken; the Mac does it in under a second, so it does it once here.
+    echo "voice-assets-install: compiling VoicePhoneModel.mlmodelc"
+    rm -rf "$ROOT/VoicePhoneModel.mlmodelc"
+    "$(xcrun --find coremlcompiler)" compile "$SRC/VoicePhoneModel.mlpackage" "$ROOT"
+    # Everything the phone reads at runtime, and nothing else. The .mlpackage is
+    # a build intermediate and publishing it would double the transfer; the
+    # phone map is compiled into Swift, not read.
+    for NAME in VoicePhoneModelManifest.json VoicePhoneVocabulary.json \
+                VoiceZIPAModel.onnx VoiceZIPAModelManifest.json \
+                VoiceZIPATokens.txt VoiceZIPALicense.txt; do
+        cp -f "$SRC/$NAME" "$ROOT/$NAME"
+    done
+    for NAME in VoiceCMUDictionary.txt VoiceCMUDictionaryLicense.txt; do
+        cp -f "$SHARED/$NAME" "$ROOT/$NAME"
+    done
+    echo "voice-assets-install: $(find "$ROOT" -type f | wc -l | tr -d ' ') files, $(du -sh "$ROOT" | cut -f1) at $ROOT"
 
 # One authoritative CMUdict-to-model-phone mapping feeds the iPhone and the
 # offline calibration harness.
