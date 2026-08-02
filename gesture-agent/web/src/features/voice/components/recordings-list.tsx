@@ -36,13 +36,7 @@ import {
 import { ReferenceSpeechControls } from "@/features/voice/components/reference-speech-controls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { loadRecordingAudioURL, recordingAudioUrl } from "@/lib/api";
 import { getHostConfig } from "@/lib/host-bridge";
 import type {
@@ -509,15 +503,23 @@ export function RecordingsList() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Saved recordings</CardTitle>
-          <CardDescription>
+      <section
+        aria-labelledby="saved-recordings-heading"
+        className="min-w-0 border-t border-border pt-6"
+      >
+        <div className="flex flex-col gap-1">
+          <h2
+            className="text-2xl font-semibold leading-none tracking-tight"
+            id="saved-recordings-heading"
+          >
+            Saved recordings
+          </h2>
+          <p className="text-sm text-muted-foreground">
             Transcript, heard phonemes, and pronunciation references by word.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="min-w-0">{content}</CardContent>
-      </Card>
+          </p>
+        </div>
+        <div className="mt-5 min-w-0">{content}</div>
+      </section>
     </div>
   );
 }
