@@ -144,12 +144,25 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
             rowsStack.removeArrangedSubview($0)
             $0.removeFromSuperview()
         }
+        var alphabetCharacterWidthReference: KeyboardKeyButton?
         for (rowIndex, keys) in state.rows.enumerated() {
-            rowsStack.addArrangedSubview(makeRow(
+            let row = makeRow(
                 keys,
                 rowIndex: rowIndex,
                 state: state
-            ))
+            )
+            rowsStack.addArrangedSubview(row.view)
+            if rowIndex == 0, state.page == .alphabet {
+                alphabetCharacterWidthReference = row.widthReference
+            } else if rowIndex == 1,
+                      state.page == .alphabet,
+                      let widthReference = row.widthReference,
+                      let alphabetCharacterWidthReference
+            {
+                widthReference.widthAnchor.constraint(
+                    equalTo: alphabetCharacterWidthReference.widthAnchor
+                ).isActive = true
+            }
         }
     }
 
@@ -157,7 +170,7 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
         _ keys: [KeyboardKey],
         rowIndex: Int,
         state: KeyboardLayoutState
-    ) -> UIView {
+    ) -> (view: UIView, widthReference: KeyboardKeyButton?) {
         let container = UIView()
         let stack = UIStackView()
         stack.axis = .horizontal
@@ -167,24 +180,38 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
         stack.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(stack)
 
-        let innerInset = rowIndex == 1 && state.page == .alphabet
-            ? metrics.secondRowInnerInset
-            : 0
-        NSLayoutConstraint.activate([
+        let centersAlphabetHomeRow =
+            rowIndex == 1 && state.page == .alphabet
+        var constraints = [
             container.heightAnchor.constraint(
                 equalToConstant: metrics.keycapHeight
             ),
             stack.topAnchor.constraint(equalTo: container.topAnchor),
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            stack.leadingAnchor.constraint(
-                equalTo: container.leadingAnchor,
-                constant: innerInset
-            ),
-            stack.trailingAnchor.constraint(
-                equalTo: container.trailingAnchor,
-                constant: -innerInset
-            ),
-        ])
+        ]
+        if centersAlphabetHomeRow {
+            constraints += [
+                stack.centerXAnchor.constraint(
+                    equalTo: container.centerXAnchor
+                ),
+                stack.leadingAnchor.constraint(
+                    greaterThanOrEqualTo: container.leadingAnchor
+                ),
+                stack.trailingAnchor.constraint(
+                    lessThanOrEqualTo: container.trailingAnchor
+                ),
+            ]
+        } else {
+            constraints += [
+                stack.leadingAnchor.constraint(
+                    equalTo: container.leadingAnchor
+                ),
+                stack.trailingAnchor.constraint(
+                    equalTo: container.trailingAnchor
+                ),
+            ]
+        }
+        NSLayoutConstraint.activate(constraints)
 
         var buttons: [(KeyboardKeyButton, CGFloat)] = []
         for key in keys {
@@ -244,7 +271,20 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
                 ).isActive = true
             }
         }
-        return container
+        if rowIndex == 2,
+           state.page == .alphabet,
+           buttons.count >= 3
+        {
+            stack.setCustomSpacing(
+                metrics.alphabetOuterKeyGap,
+                after: buttons[0].0
+            )
+            stack.setCustomSpacing(
+                metrics.alphabetOuterKeyGap,
+                after: buttons[buttons.count - 2].0
+            )
+        }
+        return (container, buttons.first?.0)
     }
 
     func handleCursorDelta(_ delta: Int) {
@@ -329,7 +369,7 @@ final class AgentDeskQWERTYView: UIView, UIInputViewAudioFeedback {
         case .page(.numbers): "123"
         case .page(.symbols): "#+="
         case .globe: ""
-        case .space: "space"
+        case .space: ""
         case .return: returnKeyTitle
         }
     }

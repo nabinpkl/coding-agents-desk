@@ -773,6 +773,9 @@ the raw evidence, state what it measures, and reject itself when its acceptance 
   rapid multi-touch, cancellation, shift, number, and symbol layouts.
 - D162. Replace the generic lowercase Return label with the compact `↵` glyph while preserving
   field-specific action labels and the readable VoiceOver name.
+- D163. Match the native alphabet geometry by centering A–L at the Q–P key width, widening the
+  Shift/Z and M/Delete gutters, and leaving Space visually blank while preserving its accessible
+  name.
 
 ### D150 implementation checkpoint (2026-07-27)
 
@@ -840,4 +843,5 @@ R159  implemented remaining  physical keyboard appearance and interaction accept
 D160  2026-07-28  landed     bounded UIKit Character Preview for ordinary keys
 R161  implemented remaining  physical Character Preview acceptance
 D162  2026-07-28  landed     return glyph with semantic action labels and accessibility
+D163  2026-07-28  landed     native home-row alignment, outer-key gutters, and blank Space
 ```

@@ -7,7 +7,7 @@ struct KeyboardDeckMetrics: Equatable {
     let horizontalDeckInset: CGFloat
     let topDeckPadding: CGFloat
     let bottomDeckPadding: CGFloat
-    let secondRowSideInset: CGFloat
+    let alphabetOuterKeyGap: CGFloat
     let deckHeight: CGFloat
     let toolbarMinimumHeight: CGFloat
     let sectionSpacing: CGFloat
@@ -21,7 +21,7 @@ struct KeyboardDeckMetrics: Equatable {
         horizontalDeckInset: 7,
         topDeckPadding: 14,
         bottomDeckPadding: 8,
-        secondRowSideInset: 18,
+        alphabetOuterKeyGap: 10,
         deckHeight: 236,
         toolbarMinimumHeight: 72,
         sectionSpacing: 8,
@@ -36,17 +36,13 @@ struct KeyboardDeckMetrics: Equatable {
         horizontalDeckInset: 7,
         topDeckPadding: 6,
         bottomDeckPadding: 4,
-        secondRowSideInset: 18,
+        alphabetOuterKeyGap: 8,
         deckHeight: 201,
         toolbarMinimumHeight: 60,
         sectionSpacing: 5,
         inputTopInset: 5,
         inputBottomInset: 5
     )
-
-    var secondRowInnerInset: CGFloat {
-        max(0, secondRowSideInset - horizontalDeckInset)
-    }
 
     func inputHeight(
         toolbarHeight: CGFloat,

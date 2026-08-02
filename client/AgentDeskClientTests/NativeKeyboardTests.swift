@@ -64,12 +64,34 @@ struct NativeKeyboardTests {
         let q = try #require(button("agentdesk-key-71", in: keyboard))
         let w = try #require(button("agentdesk-key-77", in: keyboard))
         let a = try #require(button("agentdesk-key-61", in: keyboard))
+        let l = try #require(button("agentdesk-key-6c", in: keyboard))
+        let shift = try #require(button(
+            "agentdesk-key-shift",
+            in: keyboard
+        ))
+        let z = try #require(button("agentdesk-key-7a", in: keyboard))
+        let m = try #require(button("agentdesk-key-6d", in: keyboard))
+        let delete = try #require(button(
+            "agentdesk-key-delete",
+            in: keyboard
+        ))
 
         #expect(abs(q.frameIn(keyboard).height - 46) < 0.01)
         #expect(abs(q.frameIn(keyboard).minX - 7) < 0.01)
         #expect(abs(w.frameIn(keyboard).minX - q.frameIn(keyboard).maxX - 6) < 0.01)
-        #expect(abs(a.frameIn(keyboard).minX - 18) < 0.01)
+        #expect(abs(a.frameIn(keyboard).width - q.frameIn(keyboard).width) < 0.01)
+        #expect(abs(l.frameIn(keyboard).width - q.frameIn(keyboard).width) < 0.01)
+        #expect(abs(
+            a.frameIn(keyboard).minX
+                - (keyboard.bounds.width - l.frameIn(keyboard).maxX)
+        ) < 0.01)
         #expect(abs(a.frameIn(keyboard).minY - q.frameIn(keyboard).maxY - 10) < 0.01)
+        #expect(abs(
+            z.frameIn(keyboard).minX - shift.frameIn(keyboard).maxX - 10
+        ) < 0.01)
+        #expect(abs(
+            delete.frameIn(keyboard).minX - m.frameIn(keyboard).maxX - 10
+        ) < 0.01)
     }
 
     @Test @MainActor
@@ -81,10 +103,33 @@ struct NativeKeyboardTests {
         let q = try #require(button("agentdesk-key-71", in: keyboard))
         let w = try #require(button("agentdesk-key-77", in: keyboard))
         let a = try #require(button("agentdesk-key-61", in: keyboard))
+        let l = try #require(button("agentdesk-key-6c", in: keyboard))
+        let shift = try #require(button(
+            "agentdesk-key-shift",
+            in: keyboard
+        ))
+        let z = try #require(button("agentdesk-key-7a", in: keyboard))
+        let m = try #require(button("agentdesk-key-6d", in: keyboard))
+        let delete = try #require(button(
+            "agentdesk-key-delete",
+            in: keyboard
+        ))
 
         #expect(abs(q.frameIn(keyboard).height - 44) < 0.01)
         #expect(abs(w.frameIn(keyboard).minX - q.frameIn(keyboard).maxX - 4) < 0.01)
         #expect(abs(a.frameIn(keyboard).minY - q.frameIn(keyboard).maxY - 5) < 0.01)
+        #expect(abs(a.frameIn(keyboard).width - q.frameIn(keyboard).width) < 0.01)
+        #expect(abs(l.frameIn(keyboard).width - q.frameIn(keyboard).width) < 0.01)
+        #expect(abs(
+            a.frameIn(keyboard).minX
+                - (keyboard.bounds.width - l.frameIn(keyboard).maxX)
+        ) < 0.01)
+        #expect(abs(
+            z.frameIn(keyboard).minX - shift.frameIn(keyboard).maxX - 8
+        ) < 0.01)
+        #expect(abs(
+            delete.frameIn(keyboard).minX - m.frameIn(keyboard).maxX - 8
+        ) < 0.01)
     }
 
     @Test func fixedDeckCannotBeCompressedByToolbarState() {
@@ -255,6 +300,18 @@ struct NativeKeyboardTests {
         #expect(sendKey.currentTitle == "Send")
         #expect(sendKey.titleLabel?.font.pointSize == 18)
         #expect(sendKey.accessibilityLabel == "Send")
+    }
+
+    @Test @MainActor
+    func spaceKeyIsVisuallyBlankButRemainsAccessible() throws {
+        let keyboard = makeKeyboard(metrics: .portrait, width: 390)
+        let space = try #require(button(
+            "agentdesk-key-space",
+            in: keyboard
+        ))
+
+        #expect(space.currentTitle == "")
+        #expect(space.accessibilityLabel == "Space")
     }
 
     @Test
