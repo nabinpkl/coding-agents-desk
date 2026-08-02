@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import "@/app/globals.css";
+import "./dictation.css";
 import { DictationMini } from "@/features/voice/components/dictation-mini";
 
 // DictationMini shares useVoiceSession with the full panel. That hook

@@ -6,7 +6,7 @@
 
 "use client";
 
-import { AlertCircle, Loader2, Mic, Square } from "lucide-react";
+import { AlertCircle, Loader2, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { VuMeter } from "@/features/voice/components/vu-meter";
@@ -23,6 +23,15 @@ import { subscribeInteractionDelivery } from "@/lib/interaction-delivery";
 import { useVoiceStore, type VoiceRunStatus } from "@/stores/voice-store";
 
 type DictationCapture = { readonly command: "start" | "stop" };
+
+function DictationMicArtwork() {
+  return (
+    <picture aria-hidden="true">
+      <source media="(prefers-color-scheme: dark)" srcSet="./dictation-mic-dark.png" />
+      <img className="size-8 object-contain" src="./dictation-mic.png" alt="" />
+    </picture>
+  );
+}
 
 function stageLabel(status: VoiceRunStatus): string {
   switch (status) {
@@ -153,11 +162,11 @@ export function DictationMini() {
     status === "saving" || status === "transcribing" || status === "analyzing";
 
   return (
-    <main className="flex h-full items-center justify-center p-0">
+    <main className="flex h-full w-full items-center justify-center overflow-hidden rounded-[22px] border border-black/15 bg-[#e3e8ee] p-2 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.7)] dark:border-white/15 dark:bg-[#24282d] dark:shadow-[inset_0_1px_0_rgb(255_255_255_/_0.08)]">
       <button
         type="button"
         aria-label={status === "capturing" ? "Stop dictation" : "Start dictation"}
-        className="flex h-12 min-w-12 items-center gap-3 rounded-2xl border border-border/70 bg-background px-3 text-foreground shadow-sm transition hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70"
+        className={`flex h-12 shrink-0 items-center rounded-2xl border border-black/10 bg-white text-foreground shadow-[0_2px_5px_rgb(0_0_0_/_0.14)] transition hover:bg-white/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-70 dark:border-white/10 dark:bg-[#17191c] dark:hover:bg-[#202328] ${expanded ? "min-w-12 gap-3 px-3" : "w-12 justify-center p-0"}`}
         // Requesting permission stays enabled so the pointer that started a
         // press-and-hold can still deliver its release and cancel the pending
         // capture. Only server finalization blocks a new press.
@@ -185,7 +194,7 @@ export function DictationMini() {
         ) : status === "error" ? (
           <AlertCircle className="size-5 text-destructive" />
         ) : (
-          <Mic className="size-5 text-primary" />
+          <DictationMicArtwork />
         )}
         {expanded ? (
           <span className="min-w-0 text-left text-sm font-medium">

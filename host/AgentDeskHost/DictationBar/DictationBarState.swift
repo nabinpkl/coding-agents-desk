@@ -10,7 +10,7 @@ struct DictationBarState {
         case stop
     }
 
-    static let compactSize = CGSize(width: 60, height: 52)
+    static let compactSize = CGSize(width: 68, height: 68)
     static let expandedSize = CGSize(width: 520, height: 76)
 
     private(set) var isWebReady = false

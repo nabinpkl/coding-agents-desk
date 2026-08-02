@@ -85,8 +85,16 @@ final class DictationBarController: NSObject {
                 additionalUserScripts: [InteractionPanelHostConfiguration.voiceConfigScript()]
             )
             panelController = controller
-            controller.webView.uiDelegate = self
-            panel.contentView = controller.webView
+            let webView = controller.webView
+            // The web mini paints its own rounded gray surface. WebKit's
+            // default white page canvas would otherwise leak into the corners
+            // of this transparent borderless panel and make it look clipped.
+            webView.setValue(false, forKey: "drawsBackground")
+            webView.wantsLayer = true
+            webView.layer?.cornerRadius = 22
+            webView.layer?.masksToBounds = true
+            webView.uiDelegate = self
+            panel.contentView = webView
         } catch {
             logger.error("dictation mini init failed: \(String(describing: error), privacy: .public)")
             panel.contentView = makeUnavailableView()
