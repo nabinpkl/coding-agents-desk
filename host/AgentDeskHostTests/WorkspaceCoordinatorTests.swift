@@ -16,6 +16,14 @@ struct WorkspaceCoordinatorTests {
         return (WorkspaceCoordinator(repository: repository), root, directory)
     }
 
+    @Test func textZoomUsesFourteenPointMarkdownBaseline() {
+        let baseline = WorkspaceTextZoom()
+
+        #expect(baseline.markdownPointSize == 14)
+        #expect(baseline.zoomedIn().markdownPointSize == 15)
+        #expect(baseline.zoomedOut().markdownPointSize == 13)
+    }
+
     @Test func ownsRegistrationSelectionAndPresentationMutations() async throws {
         let (coordinator, root, directory) = try fixture()
         defer { try? FileManager.default.removeItem(at: directory) }

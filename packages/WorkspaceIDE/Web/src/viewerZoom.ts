@@ -1,16 +1,16 @@
 export const DEFAULT_TEXT_ZOOM = Object.freeze({
   editorCodePointSize: 12.5,
-  markdownPointSize: 13,
+  markdownPointSize: 14,
 })
 
 const MINIMUM_TEXT_ZOOM = Object.freeze({
   editorCodePointSize: 9.5,
-  markdownPointSize: 10,
+  markdownPointSize: 11,
 })
 
 const MAXIMUM_TEXT_ZOOM = Object.freeze({
   editorCodePointSize: 20.5,
-  markdownPointSize: 21,
+  markdownPointSize: 22,
 })
 
 const TEXT_ZOOM_STEP = 1

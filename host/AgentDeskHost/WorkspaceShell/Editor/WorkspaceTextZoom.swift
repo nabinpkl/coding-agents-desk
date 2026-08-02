@@ -30,7 +30,7 @@ public struct WorkspaceTextZoom: Codable, Equatable, Sendable {
     public var fileTreeLabelPointSize: CGFloat { min(54, max(10, CGFloat(12 + (step * 2)))) }
     public var sidebarRowHeight: CGFloat { max(20, max(fileTreeLabelPointSize + 12, sidebarIconPointSize + 8)) }
     public var editorCodePointSize: CGFloat { 12.5 + CGFloat(step) }
-    public var markdownPointSize: CGFloat { 13 + CGFloat(step) }
+    public var markdownPointSize: CGFloat { 14 + CGFloat(step) }
     public var terminalPointSize: CGFloat { 14 + CGFloat(step) }
 
     public func zoomedIn() -> WorkspaceTextZoom {
