@@ -28,7 +28,14 @@ struct ClientDiagnosticsBrokerTests {
         )
         async let firstResult = broker.collect(first)
         async let secondResult = broker.collect(second)
-        await Task.yield()
+        guard await waitForRequests(
+            [first.requestId, second.requestId],
+            from: server
+        ) else {
+            Issue.record("collectors did not register before replies were sent")
+            broker.cancel()
+            return
+        }
 
         server.yield(.summary(summary(requestId: "announce-current", runId: "current")))
         server.yield(.summary(summary(requestId: second.requestId, runId: "run-two")))
@@ -120,6 +127,19 @@ struct ClientDiagnosticsBrokerTests {
             uncompressedBytes: bytes.count,
             payloadBase64: bytes.base64EncodedString()
         )
+    }
+
+    private func waitForRequests(
+        _ expectedRequestIds: Set<String>,
+        from server: BrokerInputChannelServer
+    ) async -> Bool {
+        for _ in 0..<100 {
+            if Set(server.requests.map(\.requestId)) == expectedRequestIds {
+                return true
+            }
+            await Task.yield()
+        }
+        return false
     }
 }
 
