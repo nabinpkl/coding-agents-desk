@@ -22,43 +22,36 @@ public enum VoiceAssetCodec {
     public static let maximumFrameBytes = 1 * 1024 * 1024
 }
 
-/// One downloadable voice asset.
+/// One downloadable voice asset file.
 ///
-/// `sha256` is the contract, not a nicety: the phone caches this across launches
-/// and app updates, so it has to be able to tell a complete, current asset from
-/// a truncated or stale one without asking the Mac to send it again.
+/// The unit is a single file, and `path` is both its identity and where it
+/// lands relative to the cache root. Core ML compiles to a `.mlmodelc`
+/// *directory*, but that directory holds five files, so sending them
+/// individually costs one extra round trip each and avoids archiving: no
+/// archive framework on either side, no derived artifact for the Mac to cache
+/// and invalidate, and an interrupted transfer resumes per file rather than
+/// restarting the whole model.
+///
+/// `sha256` is the contract, not a nicety: the phone keeps this cache across
+/// launches and app updates, so it has to be able to tell a complete, current
+/// file from a truncated or stale one without asking the Mac to send it again.
 public struct VoiceAssetDescriptor: Codable, Equatable, Sendable {
-    /// Stable identity, independent of the filename on either side.
-    public let id: String
-    /// What the asset is called once unpacked, e.g. `VoicePhoneModel.mlmodelc`.
-    public let name: String
+    /// Relative path from the asset root, e.g.
+    /// `VoicePhoneModel.mlmodelc/weights/weight.bin`.
+    public let path: String
     public let byteCount: UInt64
     public let sha256: String
-    /// Core ML compiles to a `.mlmodelc` *directory*, so some assets arrive as
-    /// an AppleArchive of a directory rather than a plain file. The receiver
-    /// needs to know which before it writes anything.
-    public let isArchivedDirectory: Bool
 
     public enum CodingKeys: String, CodingKey, Sendable {
-        case id = "i"
-        case name = "n"
+        case path = "p"
         case byteCount = "b"
         case sha256 = "h"
-        case isArchivedDirectory = "d"
     }
 
-    public init(
-        id: String,
-        name: String,
-        byteCount: UInt64,
-        sha256: String,
-        isArchivedDirectory: Bool
-    ) {
-        self.id = id
-        self.name = name
+    public init(path: String, byteCount: UInt64, sha256: String) {
+        self.path = path
         self.byteCount = byteCount
         self.sha256 = sha256
-        self.isArchivedDirectory = isArchivedDirectory
     }
 }
 
@@ -81,11 +74,11 @@ public enum VoiceAssetLaneRequest: Codable, Equatable, Sendable {
     /// Fetch one asset from `offset`, so an interrupted transfer resumes instead
     /// of restarting. At this size, restarting a 152MB asset because a session
     /// blipped is the difference between a pause and a failure.
-    case fetch(id: String, offset: UInt64)
+    case fetch(path: String, offset: UInt64)
 
     private enum CodingKeys: String, CodingKey {
         case type = "t"
-        case id = "i"
+        case path = "p"
         case offset = "o"
     }
 
@@ -109,7 +102,7 @@ public enum VoiceAssetLaneRequest: Codable, Equatable, Sendable {
             self = .manifest
         case .fetch:
             self = .fetch(
-                id: try container.decode(String.self, forKey: .id),
+                path: try container.decode(String.self, forKey: .path),
                 offset: try container.decodeIfPresent(UInt64.self, forKey: .offset) ?? 0
             )
         }
@@ -120,9 +113,9 @@ public enum VoiceAssetLaneRequest: Codable, Equatable, Sendable {
         switch self {
         case .manifest:
             try container.encode(MessageType.manifest.rawValue, forKey: .type)
-        case .fetch(let id, let offset):
+        case .fetch(let path, let offset):
             try container.encode(MessageType.fetch.rawValue, forKey: .type)
-            try container.encode(id, forKey: .id)
+            try container.encode(path, forKey: .path)
             try container.encode(offset, forKey: .offset)
         }
     }
@@ -133,13 +126,13 @@ public enum VoiceAssetLaneResponse: Codable, Equatable, Sendable {
     /// One chunk of `id` starting at `offset`. `isLast` ends the transfer; the
     /// receiver verifies the whole asset against its descriptor hash before
     /// promoting it into the cache.
-    case chunk(id: String, offset: UInt64, bytes: Data, isLast: Bool)
-    case failure(id: String?, message: String)
+    case chunk(path: String, offset: UInt64, bytes: Data, isLast: Bool)
+    case failure(path: String?, message: String)
 
     private enum CodingKeys: String, CodingKey {
         case type = "t"
         case manifest = "m"
-        case id = "i"
+        case path = "p"
         case offset = "o"
         case bytes = "b"
         case isLast = "l"
@@ -167,14 +160,14 @@ public enum VoiceAssetLaneResponse: Codable, Equatable, Sendable {
             self = .manifest(try container.decode(VoiceAssetManifest.self, forKey: .manifest))
         case .chunk:
             self = .chunk(
-                id: try container.decode(String.self, forKey: .id),
+                path: try container.decode(String.self, forKey: .path),
                 offset: try container.decode(UInt64.self, forKey: .offset),
                 bytes: try container.decode(Data.self, forKey: .bytes),
                 isLast: try container.decodeIfPresent(Bool.self, forKey: .isLast) ?? false
             )
         case .failure:
             self = .failure(
-                id: try container.decodeIfPresent(String.self, forKey: .id),
+                path: try container.decodeIfPresent(String.self, forKey: .path),
                 message: try container.decode(String.self, forKey: .message)
             )
         }
@@ -186,15 +179,15 @@ public enum VoiceAssetLaneResponse: Codable, Equatable, Sendable {
         case .manifest(let manifest):
             try container.encode(MessageType.manifest.rawValue, forKey: .type)
             try container.encode(manifest, forKey: .manifest)
-        case .chunk(let id, let offset, let bytes, let isLast):
+        case .chunk(let path, let offset, let bytes, let isLast):
             try container.encode(MessageType.chunk.rawValue, forKey: .type)
-            try container.encode(id, forKey: .id)
+            try container.encode(path, forKey: .path)
             try container.encode(offset, forKey: .offset)
             try container.encode(bytes, forKey: .bytes)
             try container.encode(isLast, forKey: .isLast)
-        case .failure(let id, let message):
+        case .failure(let path, let message):
             try container.encode(MessageType.failure.rawValue, forKey: .type)
-            try container.encodeIfPresent(id, forKey: .id)
+            try container.encodeIfPresent(path, forKey: .path)
             try container.encode(message, forKey: .message)
         }
     }
