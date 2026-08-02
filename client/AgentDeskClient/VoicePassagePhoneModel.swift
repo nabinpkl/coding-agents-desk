@@ -79,7 +79,7 @@ enum VoiceZIPAModelError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingAsset(let name):
-            return "ZIPA asset \(name) is missing. Run just voice-zipa-model and rebuild."
+            return "Voice model file \(name) has not been downloaded from your Mac yet."
         case .invalidManifest(let detail):
             return "The ZIPA model manifest is invalid: \(detail)"
         case .invalidTokens(let detail):
@@ -97,11 +97,11 @@ struct VoiceZIPAModelAssets {
     let modelURL: URL
     let tokensByID: [String]
 
-    static func load(bundle: Bundle = .main) throws -> Self {
+    static func load(assets: VoiceAssetCache = .shared) throws -> Self {
         let manifestURL = try resourceURL(
             named: "VoiceZIPAModelManifest",
             extension: "json",
-            bundle: bundle
+            assets: assets
         )
         let manifest = try JSONDecoder().decode(
             VoiceZIPAModelManifest.self,
@@ -124,7 +124,7 @@ struct VoiceZIPAModelAssets {
         let tokenURL = try resourceURL(
             named: "VoiceZIPATokens",
             extension: "txt",
-            bundle: bundle
+            assets: assets
         )
         let tokenData = try Data(contentsOf: tokenURL)
         guard SHA256.hash(data: tokenData).hexString == manifest.tokensSHA256 else {
@@ -145,12 +145,12 @@ struct VoiceZIPAModelAssets {
         let modelURL = try resourceURL(
             named: "VoiceZIPAModel",
             extension: "onnx",
-            bundle: bundle
+            assets: assets
         )
         let values = try modelURL.resourceValues(forKeys: [.fileSizeKey])
         guard values.fileSize == manifest.modelBytes else {
             throw VoiceZIPAModelError.invalidManifest(
-                "the bundled graph byte count does not match the manifest"
+                "the fetched graph byte count does not match the manifest"
             )
         }
         let modelData = try Data(
@@ -159,7 +159,7 @@ struct VoiceZIPAModelAssets {
         )
         guard SHA256.hash(data: modelData).hexString == manifest.modelSHA256 else {
             throw VoiceZIPAModelError.invalidManifest(
-                "the bundled graph SHA-256 does not match the manifest"
+                "the fetched graph SHA-256 does not match the manifest"
             )
         }
         return Self(
@@ -199,11 +199,11 @@ struct VoiceZIPAModelAssets {
     private static func resourceURL(
         named name: String,
         extension fileExtension: String,
-        bundle: Bundle
+        assets: VoiceAssetCache
     ) throws -> URL {
-        guard let url = bundle.url(
-            forResource: name,
-            withExtension: fileExtension
+        guard let url = assets.assetURL(
+            named: name,
+            extension: fileExtension
         ) else {
             throw VoiceZIPAModelError.missingAsset(
                 "\(name).\(fileExtension)"

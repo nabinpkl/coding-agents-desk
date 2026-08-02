@@ -9,7 +9,7 @@ enum VoicePhoneAnalysisStage: String, Codable, Equatable {
     case audioPrepared
     case assetsLoadStarted
     case assetsCacheHit
-    case bundledManifestLoaded
+    case manifestLoaded
     case vocabularyLoaded
     case modelLoadStarted
     case modelLoaded

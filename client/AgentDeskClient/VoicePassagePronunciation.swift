@@ -26,11 +26,11 @@ enum VoicePassagePronunciationError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .missingDictionary:
-            return "The bundled CMU pronunciation dictionary is missing."
+            return "The CMU pronunciation dictionary has not been downloaded from your Mac yet."
         case .dictionaryHashMismatch:
-            return "The bundled CMU pronunciation dictionary does not match its pinned revision."
+            return "The CMU pronunciation dictionary does not match its pinned revision."
         case .unreadableDictionary:
-            return "The bundled CMU pronunciation dictionary could not be read."
+            return "The CMU pronunciation dictionary could not be read."
         case .missingARPABETMapping(let symbol):
             return "The phone mapping does not cover CMUdict symbol \(symbol)."
         }
@@ -44,10 +44,10 @@ actor VoicePassagePronouncer {
     private let dictionaryURL: URL?
     private var entries: [String: [String]]?
 
-    init(bundle: Bundle = .main) {
-        dictionaryURL = bundle.url(
-            forResource: "VoiceCMUDictionary",
-            withExtension: "txt"
+    init(assets: VoiceAssetCache = .shared) {
+        dictionaryURL = assets.assetURL(
+            named: "VoiceCMUDictionary",
+            extension: "txt"
         )
     }
 

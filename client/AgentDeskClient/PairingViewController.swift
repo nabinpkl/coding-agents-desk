@@ -497,6 +497,14 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         }
         ClientRuntimeTelemetry.shared.updateMediaState(.started)
         ClientDiagnostics.shared.record(type: "mediaTransportStarted", fields: [:], level: .default)
+
+        // The voice models live on the Mac and reach the phone over this
+        // session. Kicked off here rather than from the Voice surface because
+        // Voice is otherwise session-free, and making it dial a host just to
+        // download would break the one surface that works with no Mac at all.
+        if #available(iOS 26.0, *) {
+            Task { await VoiceAssetProvisioner.shared.provision(using: transport) }
+        }
     }
 
     /// Let the connected control shell finish its first layout pass before

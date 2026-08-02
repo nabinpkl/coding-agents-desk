@@ -25,16 +25,34 @@ struct VoiceAssetCache {
     }
 
     let root: URL
-    private let fileManager: FileManager
 
-    init(root: URL, fileManager: FileManager = .default) {
+    /// Every file operation here goes through the process-wide manager. There is
+    /// no injection seam because there is nothing to inject: the cache is
+    /// tested by pointing it at a temporary root, which is the real thing.
+    private var fileManager: FileManager { .default }
+
+    init(root: URL) {
         self.root = root
-        self.fileManager = fileManager
     }
 
-    static func defaultRoot(fileManager: FileManager = .default) -> URL {
-        let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    static func defaultRoot() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent("VoiceAssets", isDirectory: true)
+    }
+
+    /// The cache the app reads from. This is the answer to the question the
+    /// analyzers used to ask `Bundle.main`.
+    static let shared = VoiceAssetCache(root: defaultRoot())
+
+    /// Resolves a fetched asset by name, or nil if it is not on the phone yet.
+    ///
+    /// Nil is the ordinary state before the first fetch, not a failure. Each
+    /// caller turns it into whatever missing-asset error its surface reports.
+    func assetURL(named name: String, extension fileExtension: String) -> URL? {
+        guard let url = url(for: "\(name).\(fileExtension)"),
+              fileManager.fileExists(atPath: url.path)
+        else { return nil }
+        return url
     }
 
     /// The on-disk location for a published path, or nil if the path tries to

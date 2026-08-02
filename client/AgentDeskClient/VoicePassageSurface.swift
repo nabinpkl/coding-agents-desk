@@ -63,17 +63,21 @@ final class VoicePassageSurface: UIView {
         }
     }
 
+    /// `resourceBundle` still resolves the sample recording, which is small
+    /// enough to keep shipping in the app. `assets` resolves the models, which
+    /// are not in any bundle any more, so the two are separate arguments.
     init(
         frame: CGRect,
         recordingStore: VoicePassageRecordingStore,
         resourceBundle: Bundle,
+        assets: VoiceAssetCache = .shared,
         userDefaults: UserDefaults = .standard
     ) {
         self.recordingStore = recordingStore
         self.resourceBundle = resourceBundle
         self.userDefaults = userDefaults
         phoneAnalyzer = VoicePassagePhoneAnalyzer(
-            bundle: resourceBundle
+            assets: assets
         )
         super.init(frame: frame)
         configure()

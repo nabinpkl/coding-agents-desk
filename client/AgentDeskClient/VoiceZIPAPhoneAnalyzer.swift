@@ -5,14 +5,14 @@ import Foundation
 import OnnxRuntimeBindings
 
 actor VoicePassagePhoneAnalyzer {
-    private let bundle: Bundle
+    private let assets: VoiceAssetCache
     private let wav2vec2: VoicePhoneAnalyzer
     private let zipa: VoiceZIPAPhoneAnalyzer
 
-    init(bundle: Bundle = .main) {
-        self.bundle = bundle
-        wav2vec2 = VoicePhoneAnalyzer(bundle: bundle)
-        zipa = VoiceZIPAPhoneAnalyzer(bundle: bundle)
+    init(assets: VoiceAssetCache = .shared) {
+        self.assets = assets
+        wav2vec2 = VoicePhoneAnalyzer(assets: assets)
+        zipa = VoiceZIPAPhoneAnalyzer(assets: assets)
     }
 
     func analyze(
@@ -29,7 +29,7 @@ actor VoicePassagePhoneAnalyzer {
             )
         case .wav2vec2:
             let manifest = try VoicePhoneModelAssets.loadManifest(
-                bundle: bundle
+                assets: assets
             )
             return try await wav2vec2.analyzePassage(
                 VoicePhoneAnalyzer.PassageRequest(
@@ -53,10 +53,10 @@ actor VoiceZIPAPhoneAnalyzer {
     private static let chunkSeconds = 12
     private static let overlapSeconds = 0.4
 
-    private let bundle: Bundle
+    private let assets: VoiceAssetCache
 
-    init(bundle: Bundle = .main) {
-        self.bundle = bundle
+    init(assets: VoiceAssetCache = .shared) {
+        self.assets = assets
     }
 
     func analyze(
@@ -168,7 +168,7 @@ actor VoiceZIPAPhoneAnalyzer {
     }
 
     private func loadRuntime() throws -> LoadedRuntime {
-        let assets = try VoiceZIPAModelAssets.load(bundle: bundle)
+        let assets = try VoiceZIPAModelAssets.load(assets: assets)
         let environment = try ORTEnv(loggingLevel: .warning)
         let options = try ORTSessionOptions()
         try options.setGraphOptimizationLevel(.all)

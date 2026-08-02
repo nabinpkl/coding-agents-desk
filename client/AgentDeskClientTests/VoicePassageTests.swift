@@ -64,7 +64,7 @@ struct VoicePassagePronunciationTests {
     func bundledPinnedDictionaryGeneratesReferencePhones() async throws {
         let bundle = Bundle(for: VoicePassageSurface.self)
         let result = try await VoicePassagePronouncer(
-            bundle: bundle
+            assets: VoiceAssetCache(root: bundle.bundleURL)
         ).pronunciation(
             for: "I thought about walking through the quiet garden."
         )
@@ -505,7 +505,7 @@ struct VoicePassagePhoneModelTests {
             )
         )
         let observation = try await VoiceZIPAPhoneAnalyzer(
-            bundle: bundle
+            assets: VoiceAssetCache(root: bundle.bundleURL)
         ).analyze(
             analysisID: VoicePassageBundledSample.id,
             audioURL: audioURL
@@ -536,7 +536,7 @@ struct VoicePassagePhoneModelTests {
             )
         )
         let observation = try await VoicePassagePhoneAnalyzer(
-            bundle: bundle
+            assets: VoiceAssetCache(root: bundle.bundleURL)
         ).analyze(
             model: .wav2vec2,
             analysisID: VoicePassageBundledSample.id,

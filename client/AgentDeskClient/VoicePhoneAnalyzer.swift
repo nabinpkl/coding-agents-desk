@@ -18,7 +18,7 @@ enum VoicePhoneAnalyzerError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingAsset(let name):
-            return "Phone analysis asset \(name) is missing. Run just voice-phone-model and rebuild."
+            return "Voice model file \(name) has not been downloaded from your Mac yet."
         case .invalidManifest(let detail):
             return "The phone model manifest is invalid: \(detail)"
         case .invalidVocabulary(let detail):
@@ -81,11 +81,11 @@ struct VoicePhoneVocabulary {
 }
 
 enum VoicePhoneModelAssets {
-    static func loadManifest(bundle: Bundle = .main) throws -> VoicePhoneModelManifest {
+    static func loadManifest(assets: VoiceAssetCache = .shared) throws -> VoicePhoneModelManifest {
         let url = try resourceURL(
             named: "VoicePhoneModelManifest",
             extension: "json",
-            bundle: bundle
+            assets: assets
         )
         let manifest = try JSONDecoder().decode(
             VoicePhoneModelManifest.self,
@@ -121,12 +121,12 @@ enum VoicePhoneModelAssets {
 
     static func loadVocabulary(
         manifest: VoicePhoneModelManifest,
-        bundle: Bundle = .main
+        assets: VoiceAssetCache = .shared
     ) throws -> VoicePhoneVocabulary {
         let url = try resourceURL(
             named: "VoicePhoneVocabulary",
             extension: "json",
-            bundle: bundle
+            assets: assets
         )
         let data = try Data(contentsOf: url)
         let hash = SHA256.hash(data: data).hexString
@@ -164,33 +164,26 @@ enum VoicePhoneModelAssets {
         return vocabulary
     }
 
-    static func loadModelURL(bundle: Bundle = .main) throws -> URL {
+    static func loadModelURL(assets: VoiceAssetCache = .shared) throws -> URL {
         try resourceURL(
             named: "VoicePhoneModel",
             extension: "mlmodelc",
-            bundle: bundle
+            assets: assets
         )
     }
 
     private static func resourceURL(
         named name: String,
         extension fileExtension: String,
-        bundle: Bundle
+        assets: VoiceAssetCache
     ) throws -> URL {
-        if let nested = bundle.url(
-            forResource: name,
-            withExtension: fileExtension,
-            subdirectory: "VoicePhoneModelAssets"
-        ) {
-            return nested
+        guard let url = assets.assetURL(
+            named: name,
+            extension: fileExtension
+        ) else {
+            throw VoicePhoneAnalyzerError.missingAsset("\(name).\(fileExtension)")
         }
-        if let flattened = bundle.url(
-            forResource: name,
-            withExtension: fileExtension
-        ) {
-            return flattened
-        }
-        throw VoicePhoneAnalyzerError.missingAsset("\(name).\(fileExtension)")
+        return url
     }
 }
 
@@ -230,11 +223,11 @@ actor VoicePhoneAnalyzer {
         let effectiveNonBlankFrameCount: Int
     }
 
-    private let bundle: Bundle
+    private let assets: VoiceAssetCache
     private var loadedAssets: LoadedAssets?
 
-    init(bundle: Bundle = .main) {
-        self.bundle = bundle
+    init(assets: VoiceAssetCache = .shared) {
+        self.assets = assets
     }
 
     func analyze(_ request: Request) throws -> VoicePhoneEvidence {
@@ -880,26 +873,26 @@ actor VoicePhoneAnalyzer {
             return (loadedAssets, false)
         }
 
-        let bundledManifest = try VoicePhoneModelAssets.loadManifest(bundle: bundle)
+        let cachedManifest = try VoicePhoneModelAssets.loadManifest(assets: assets)
         try analysisLog.record(
-            .bundledManifestLoaded,
+            .manifestLoaded,
             residentMemoryBytes: Self.residentMemoryBytes()
         )
-        guard bundledManifest == manifest else {
+        guard cachedManifest == manifest else {
             throw VoicePhoneAnalyzerError.invalidManifest(
-                "the request differs from the bundled model"
+                "the request differs from the model on this phone"
             )
         }
         let vocabulary = try VoicePhoneModelAssets.loadVocabulary(
             manifest: manifest,
-            bundle: bundle
+            assets: assets
         )
         try analysisLog.record(
             .vocabularyLoaded,
             residentMemoryBytes: Self.residentMemoryBytes(),
             details: ["vocabularyEntryCount": String(vocabulary.tokensByID.count)]
         )
-        let modelURL = try VoicePhoneModelAssets.loadModelURL(bundle: bundle)
+        let modelURL = try VoicePhoneModelAssets.loadModelURL(assets: assets)
         let configuration = MLModelConfiguration()
         // Voice can run while the video stack still owns GPU-backed decode and
         // presentation resources. Keep inference on CPU/Neural Engine so Core ML
