@@ -7,10 +7,12 @@ import UIKit
 @MainActor
 final class ClientDictationViewController: UIViewController {
     var voiceTransportProvider: (() -> QuicSessionClientTransport?)?
-    var submitText: ((String) throws -> Void)?
+    var submitText: ((String) async throws -> Void)?
 
     private let dictationSurface = GestureSurface(presentation: .dictation)
     private var committedRecordingIDs = Set<String>()
+    private var submissionTask: Task<Void, Never>?
+    private var isClosing = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -43,6 +45,9 @@ final class ClientDictationViewController: UIViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if isBeingDismissed || navigationController?.isBeingDismissed == true {
+            isClosing = true
+            submissionTask?.cancel()
+            submissionTask = nil
             dictationSurface.stopDictation()
         }
     }
@@ -59,6 +64,7 @@ final class ClientDictationViewController: UIViewController {
     }
 
     private func commit(recordingID: String, transcript: String) {
+        guard submissionTask == nil else { return }
         guard committedRecordingIDs.insert(recordingID).inserted else { return }
         guard let submitText else {
             committedRecordingIDs.remove(recordingID)
@@ -67,12 +73,49 @@ final class ClientDictationViewController: UIViewController {
             )
             return
         }
-        do {
-            try submitText(transcript)
-            dismiss(animated: true)
-        } catch {
-            committedRecordingIDs.remove(recordingID)
-            presentSubmissionError(error.localizedDescription)
+        ClientDiagnostics.shared.record(
+            type: "dictationSubmissionStarted",
+            fields: [
+                "recordingID": recordingID,
+                "characterCount": String(transcript.count)
+            ],
+            level: .default
+        )
+        submissionTask = Task { @MainActor [weak self, submitText] in
+            do {
+                try await submitText(transcript)
+                guard !Task.isCancelled else { return }
+                ClientDiagnostics.shared.record(
+                    type: "dictationSubmissionCompleted",
+                    fields: ["recordingID": recordingID],
+                    level: .default
+                )
+                self?.dismiss(animated: true)
+            } catch is CancellationError {
+                guard let self, !self.isClosing else { return }
+                self.committedRecordingIDs.remove(recordingID)
+                ClientDiagnostics.shared.record(
+                    type: "dictationSubmissionCancelled",
+                    fields: ["recordingID": recordingID],
+                    level: .error
+                )
+                self.presentSubmissionError(
+                    "The Mac input connection changed before dictation was delivered. Reconnect, then send again."
+                )
+            } catch {
+                guard let self, !Task.isCancelled else { return }
+                self.committedRecordingIDs.remove(recordingID)
+                ClientDiagnostics.shared.record(
+                    type: "dictationSubmissionFailed",
+                    fields: [
+                        "recordingID": recordingID,
+                        "error": String(describing: error)
+                    ],
+                    level: .error
+                )
+                self.presentSubmissionError(error.localizedDescription)
+            }
+            self?.submissionTask = nil
         }
     }
 

@@ -114,6 +114,8 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         cursorConfirmationTask = nil
         inputSendTailTask?.cancel()
         inputSendTailTask = nil
+        dictationInputSendTask?.cancel()
+        dictationInputSendTask = nil
         cursorReconciliation.reset()
         applyCursorConfidencePresentation()
         guard let channel = pairingClient.activeInputChannel else { return }
@@ -552,6 +554,66 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             }
         }
         inputSendTailTask = sendTask
+    }
+
+    /// Serializes a reviewed dictation transcript after every already-queued
+    /// input event, then waits for each remote key frame to write. Unlike
+    /// `sendInput`, this deliberately exposes a transport failure to the
+    /// caller so the dictation sheet never dismisses on an unsent transcript.
+    func sendDictationInputs(_ inputs: [NormalizedInput]) async throws {
+        guard let channel = pairingClient.activeInputChannel else {
+            throw InputChannelError.notOpen
+        }
+
+        let frames = inputs.map { InputChannelEvent(event: $0) }
+        let priorSend = inputSendTailTask
+        let sendTask: Task<Void, Error> = Task { @MainActor [self, channel, inputs, frames, priorSend] in
+            await priorSend?.value
+            try Task.checkCancellation()
+
+            for (input, frame) in zip(inputs, frames) {
+                applyKeyboardPresentationIntentForRemoteInput(input)
+                try await channel.send(frame)
+                try Task.checkCancellation()
+            }
+        }
+        dictationInputSendTask = sendTask
+        // Normal input follows the completed-or-failed batch without being
+        // blocked by a failed dictation attempt. The sheet itself receives the
+        // throwing result below.
+        inputSendTailTask = Task { @MainActor [sendTask] in
+            _ = await sendTask.result
+        }
+        defer { dictationInputSendTask = nil }
+
+        do {
+            try await withTaskCancellationHandler(
+                operation: { try await sendTask.value },
+                onCancel: { sendTask.cancel() }
+            )
+            ClientDiagnostics.shared.record(
+                type: "dictationInputSent",
+                fields: ["eventCount": String(frames.count)],
+                level: .default
+            )
+        } catch is CancellationError {
+            ClientDiagnostics.shared.record(
+                type: "dictationInputCancelled",
+                fields: ["eventCount": String(frames.count)],
+                level: .default
+            )
+            throw CancellationError()
+        } catch {
+            ClientDiagnostics.shared.record(
+                type: "dictationInputSendFailed",
+                fields: [
+                    "eventCount": String(frames.count),
+                    "error": String(describing: error)
+                ],
+                level: .error
+            )
+            throw error
+        }
     }
 
     private func cursorOperation(

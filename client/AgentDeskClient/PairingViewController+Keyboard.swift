@@ -81,7 +81,7 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
             guard let self else {
                 throw ClientDictationSubmissionError.hostDisconnected
             }
-            try self.sendDictationTextThroughKeyboard(transcript)
+            try await self.sendDictationTextThroughKeyboard(transcript)
         }
         let navigation = UINavigationController(rootViewController: dictation)
         navigation.modalPresentationStyle = .pageSheet
@@ -95,15 +95,20 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
     /// The reviewed dictation transcript intentionally becomes ordinary
     /// `NormalizedInput.key` frames. That preserves the same host dispatcher,
     /// ordering, focus target, and character mapping as a soft-keyboard tap.
-    func sendDictationTextThroughKeyboard(_ transcript: String) throws {
-        guard pairingClient.activeInputChannel != nil else {
-            throw ClientDictationSubmissionError.hostDisconnected
-        }
+    func sendDictationTextThroughKeyboard(_ transcript: String) async throws {
         let inputs = try KeyboardTextInput.events(for: transcript)
         guard !inputs.isEmpty else {
             throw ClientDictationSubmissionError.emptyTranscript
         }
-        inputs.forEach(sendInput)
+        do {
+            try await sendDictationInputs(inputs)
+        } catch InputChannelError.notOpen {
+            throw ClientDictationSubmissionError.hostDisconnected
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw ClientDictationSubmissionError.deliveryFailed
+        }
     }
 
     @discardableResult
@@ -230,6 +235,7 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
 private enum ClientDictationSubmissionError: LocalizedError {
     case hostDisconnected
     case emptyTranscript
+    case deliveryFailed
 
     var errorDescription: String? {
         switch self {
@@ -237,6 +243,8 @@ private enum ClientDictationSubmissionError: LocalizedError {
             "The Mac input connection is not available. Keep this sheet open, reconnect, then send again."
         case .emptyTranscript:
             "Enter some text before sending."
+        case .deliveryFailed:
+            "The Mac input connection did not accept the dictation. Keep this sheet open, reconnect, then send again."
         }
     }
 }

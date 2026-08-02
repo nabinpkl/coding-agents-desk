@@ -82,6 +82,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // Main-actor-created task chain. Each event waits for the prior send, so
     // cursor revision order is also the order presented to the QUIC stream.
     var inputSendTailTask: Task<Void, Never>?
+    // Unlike ordinary pointer and keyboard input, reviewed dictation must not
+    // report success until its whole key batch has written to the input lane.
+    // Keep the throwing task so teardown and an abandoned sheet can cancel it.
+    var dictationInputSendTask: Task<Void, Error>?
     var cursorReconciliation = CursorReconciliationStateMachine(
         confirmationTimeout: Double(Config.cursorConfirmationTimeoutMs) / 1_000
     )
@@ -316,6 +320,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         cursorConfirmationTask = nil
         inputSendTailTask?.cancel()
         inputSendTailTask = nil
+        dictationInputSendTask?.cancel()
+        dictationInputSendTask = nil
         hostAvailabilityTask?.cancel()
         hostAvailabilityTask = nil
         textInputFocusTask?.cancel()
@@ -425,6 +431,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         cursorReconciliationTask?.cancel()
         cursorConfirmationTask?.cancel()
         inputSendTailTask?.cancel()
+        dictationInputSendTask?.cancel()
+        dictationInputSendTask = nil
         hostAvailabilityTask?.cancel()
         diagnosticsTask?.cancel()
         screenshotTask?.cancel()
