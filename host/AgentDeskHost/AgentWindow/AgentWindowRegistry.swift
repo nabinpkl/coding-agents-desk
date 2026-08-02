@@ -2,11 +2,7 @@ import AgentDeskWire
 import AppKit
 import CoreGraphics
 import PtyClientSwift
-
-struct AgentWindowPlacement: Equatable {
-    let desktopSpaceID: UInt64?
-    let frame: CGRect
-}
+import OSLog
 
 @MainActor
 protocol AgentWindowControlling: AnyObject {
@@ -20,7 +16,7 @@ protocol AgentWindowControlling: AnyObject {
     /// registry keeps the remembered presentation current without polling and without depending on
     /// a clean exit to write it.
     func observePresentation(
-        frameChanged: @escaping (CGRect) -> Void,
+        placementChanged: @escaping (WorkspaceWindowPlacement) -> Void,
         terminalChanged: @escaping (AgentWindowTerminalAttachment?) -> Void,
         zoomChanged: @escaping (Int) -> Void
     )
@@ -40,18 +36,17 @@ final class AgentWindowRegistry {
     typealias EndpointFactory = @MainActor (UUID) -> AgentSessionTerminalEndpoint
     typealias ControllerFactory = @MainActor (
         _ id: UUID,
-        _ frame: CGRect,
+        _ placement: WorkspaceWindowPlacement,
         _ zoomStep: Int,
         _ endpoint: AgentSessionTerminalEndpoint,
         _ onClosed: @escaping @MainActor () -> Void
     ) -> any AgentWindowControlling
 
     private struct Entry {
-        let desktopSpaceID: UInt64?
         let cascadeOrdinal: Int
         let endpoint: AgentSessionTerminalEndpoint
         let controller: any AgentWindowControlling
-        var frame: CGRect
+        var placement: WorkspaceWindowPlacement
         var terminal: AgentWindowTerminalAttachment?
         var zoomStep: Int
     }
@@ -61,11 +56,13 @@ final class AgentWindowRegistry {
     private let controllerFactory: ControllerFactory
     private let cascadeStep: CGFloat
     private let presentationPersistDelay: Duration
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-window")
     private var entries: [UUID: Entry] = [:]
     private var endpointShutdownTasks: [UUID: Task<Void, Never>] = [:]
     private var persistTasks: [UUID: Task<Void, Never>] = [:]
     private var stopTask: Task<Void, Never>?
     private var hasRestored = false
+    private var hasResumedStoredTerminals = false
     private var shuttingDown = false
 
     init(
@@ -87,7 +84,8 @@ final class AgentWindowRegistry {
         sidecarClient: any SidecarClient,
         terminalCoordinator: any AgentSessionTerminalCoordinating,
         terminalTombstoneLimit: Int,
-        makeTerminalPtyClient: @escaping @MainActor () -> PtyClient
+        makeTerminalPtyClient: @escaping @MainActor () -> PtyClient,
+        placementCoordinator: DesktopWindowPlacementCoordinator
     ) {
         self.init(
             store: store,
@@ -99,12 +97,13 @@ final class AgentWindowRegistry {
                     tombstoneLimit: terminalTombstoneLimit
                 )
             },
-            controllerFactory: { _, frame, zoomStep, endpoint, onClosed in
+            controllerFactory: { _, placement, zoomStep, endpoint, onClosed in
                 AgentWindowController(
                     sidecarClient: sidecarClient,
                     localTerminalEndpoint: endpoint,
                     terminalPtyClient: makeTerminalPtyClient(),
-                    initialFrame: frame,
+                    initialPlacement: placement,
+                    placementCoordinator: placementCoordinator,
                     initialZoomStep: zoomStep,
                     onClosed: onClosed
                 )
@@ -117,10 +116,10 @@ final class AgentWindowRegistry {
     }
     var openWindowCountForTesting: Int { entries.count }
 
-    func open(_ placement: AgentWindowPlacement) {
+    func open(_ placement: WorkspaceWindowPlacement) {
         guard !shuttingDown else { return }
         let usedCascadeOrdinals = Set(entries.values.compactMap { entry in
-            entry.desktopSpaceID == placement.desktopSpaceID ? entry.cascadeOrdinal : nil
+            entry.placement.desktop.spaceID == placement.desktop.spaceID ? entry.cascadeOrdinal : nil
         })
         var cascadeOrdinal = 0
         while usedCascadeOrdinals.contains(cascadeOrdinal) {
@@ -128,11 +127,13 @@ final class AgentWindowRegistry {
         }
         openWindow(
             id: UUID(),
-            desktopSpaceID: placement.desktopSpaceID,
             cascadeOrdinal: cascadeOrdinal,
-            frame: placement.frame.offsetBy(
-                dx: CGFloat(cascadeOrdinal) * cascadeStep,
-                dy: CGFloat(-cascadeOrdinal) * cascadeStep
+            placement: WorkspaceWindowPlacement(
+                desktop: placement.desktop,
+                frame: placement.frame.offsetBy(
+                    dx: CGFloat(cascadeOrdinal) * cascadeStep,
+                    dy: CGFloat(-cascadeOrdinal) * cascadeStep
+                )
             ),
             activating: true
         )
@@ -141,53 +142,72 @@ final class AgentWindowRegistry {
     /// Puts back every Agents window that was on screen when the host last quit, at the frame it
     /// was left at and without taking focus. Called once at launch; windows the user closed
     /// themselves are already gone from the store and stay gone.
-    func startRestoration(visibleFrames: [CGRect] = NSScreen.screens.map(\.visibleFrame)) {
+    func startRestoration(
+        visibleFrames: [CGRect] = NSScreen.screens.map(\.visibleFrame),
+        resumeTerminals: Bool = true
+    ) {
         guard !shuttingDown, !hasRestored else { return }
         hasRestored = true
+        hasResumedStoredTerminals = resumeTerminals
         for descriptor in store.descriptors where entries[descriptor.id] == nil {
             openWindow(
                 id: descriptor.id,
-                desktopSpaceID: descriptor.desktopSpaceID,
                 cascadeOrdinal: descriptor.cascadeOrdinal,
                 // The display setup can change between runs, so a remembered frame is only a
                 // proposal until it is checked against the screens that actually exist now.
-                frame: AgentWindowScreenPlacement.constrained(
-                    descriptor.frame.cgRect,
-                    within: visibleFrames
+                placement: WorkspaceWindowPlacement(
+                    desktop: descriptor.placement.desktop,
+                    frame: DesktopWindowScreenPlacement.constrained(
+                        descriptor.placement.frame,
+                        within: visibleFrames
+                    )
                 ),
                 terminal: descriptor.terminal,
                 zoomStep: descriptor.zoomStep,
-                activating: false
+                activating: false,
+                resumeTerminal: resumeTerminals
             )
+        }
+    }
+
+    /// Window reconstruction does not depend on the PTY runtime. AppDelegate calls this once the
+    /// runtime answers so remembered terminal panes can reattach without withholding their Agents
+    /// windows during startup.
+    func resumeStoredTerminals() {
+        guard !shuttingDown, !hasResumedStoredTerminals else { return }
+        hasResumedStoredTerminals = true
+        for entry in entries.values {
+            if let terminal = entry.terminal {
+                entry.controller.resumeTerminal(terminal)
+            }
         }
     }
 
     private func openWindow(
         id: UUID,
-        desktopSpaceID: UInt64?,
         cascadeOrdinal: Int,
-        frame: CGRect,
+        placement: WorkspaceWindowPlacement,
         terminal: AgentWindowTerminalAttachment? = nil,
         zoomStep: Int = 0,
-        activating: Bool
+        activating: Bool,
+        resumeTerminal: Bool = true
     ) {
         let endpoint = endpointFactory(id)
-        let controller = controllerFactory(id, frame, zoomStep, endpoint) { [weak self] in
+        let controller = controllerFactory(id, placement, zoomStep, endpoint) { [weak self] in
             self?.removeWindow(id)
         }
         entries[id] = Entry(
-            desktopSpaceID: desktopSpaceID,
             cascadeOrdinal: cascadeOrdinal,
             endpoint: endpoint,
             controller: controller,
-            frame: frame,
+            placement: placement,
             terminal: terminal,
             zoomStep: zoomStep
         )
         persist(id: id)
         controller.observePresentation(
-            frameChanged: { [weak self] frame in
-                self?.scheduleFrame(frame, id: id)
+            placementChanged: { [weak self] placement in
+                self?.schedulePlacement(placement, id: id)
             },
             terminalChanged: { [weak self] attachment in
                 self?.recordTerminal(attachment, id: id)
@@ -197,14 +217,14 @@ final class AgentWindowRegistry {
             }
         )
         controller.show(activating: activating)
-        if let terminal {
+        if let terminal, resumeTerminal {
             controller.resumeTerminal(terminal)
         }
     }
 
-    private func scheduleFrame(_ frame: CGRect, id: UUID) {
+    private func schedulePlacement(_ placement: WorkspaceWindowPlacement, id: UUID) {
         guard !shuttingDown, entries[id] != nil else { return }
-        entries[id]?.frame = frame
+        entries[id]?.placement = placement
         schedulePersist(id: id)
     }
 
@@ -242,14 +262,17 @@ final class AgentWindowRegistry {
 
     private func persist(id: UUID) {
         guard let entry = entries[id] else { return }
-        try? store.upsert(AgentWindowPresentationDescriptor(
-            id: id,
-            frame: AgentWindowFrame(entry.frame),
-            desktopSpaceID: entry.desktopSpaceID,
-            cascadeOrdinal: entry.cascadeOrdinal,
-            terminal: entry.terminal,
-            zoomStep: entry.zoomStep
-        ))
+        do {
+            try store.upsert(AgentWindowPresentationDescriptor(
+                id: id,
+                placement: entry.placement,
+                cascadeOrdinal: entry.cascadeOrdinal,
+                terminal: entry.terminal,
+                zoomStep: entry.zoomStep
+            ))
+        } catch {
+            logger.error("Agents window presentation persist failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     func handleCoordinatorEvent(_ event: AgentSessionTerminalCoordinatorEvent) async {
@@ -298,7 +321,11 @@ final class AgentWindowRegistry {
         // Only a window the user closed forfeits its place, and with it the agent terminal it was
         // running; on the way out every window closes without meaning to.
         guard !shuttingDown else { return }
-        try? store.remove(id: id)
+        do {
+            try store.remove(id: id)
+        } catch {
+            logger.error("Agents window presentation removal failed: \(String(describing: error), privacy: .public)")
+        }
         let task = Task {
             await entry.endpoint.shutdown()
         }

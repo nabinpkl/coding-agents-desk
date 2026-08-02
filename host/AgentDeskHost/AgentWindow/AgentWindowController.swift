@@ -30,10 +30,10 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     private let terminalPtyClient: PtyClient?
     private let terminalControllerForTesting: (any AgentWindowTerminalControlling)?
     private let initialFrame: CGRect?
+    private let placementSession: DesktopWindowPlacementSession?
     private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-window")
 
     private var onClosed: (@MainActor () -> Void)?
-    private var onFrameChanged: ((CGRect) -> Void)?
     private var onTerminalChanged: ((AgentWindowTerminalAttachment?) -> Void)?
     private var onZoomChanged: ((Int) -> Void)?
     private var window: NSWindow?
@@ -55,6 +55,8 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         terminalPtyClient: PtyClient? = nil,
         terminalControllerForTesting: (any AgentWindowTerminalControlling)? = nil,
         initialFrame: CGRect? = nil,
+        initialPlacement: WorkspaceWindowPlacement? = nil,
+        placementCoordinator: DesktopWindowPlacementCoordinator? = nil,
         initialZoomStep: Int = 0,
         onClosed: (@MainActor () -> Void)? = nil
     ) {
@@ -62,7 +64,17 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         self.localTerminalEndpoint = localTerminalEndpoint
         self.terminalPtyClient = terminalPtyClient
         self.terminalControllerForTesting = terminalControllerForTesting
-        self.initialFrame = initialFrame
+        self.initialFrame = initialPlacement?.frame ?? initialFrame
+        if let initialPlacement, let placementCoordinator {
+            placementSession = DesktopWindowPlacementSession(
+                placement: initialPlacement,
+                coordinator: placementCoordinator,
+                logger: Logger(subsystem: Config.logSubsystem, category: "agent-window-placement")
+            )
+        } else {
+            precondition(initialPlacement == nil, "Desktop placement requires the host placement coordinator")
+            placementSession = nil
+        }
         self.zoom = AgentWindowZoom(step: initialZoomStep)
         self.onClosed = onClosed
         super.init()
@@ -72,11 +84,11 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     var windowForTesting: NSWindow? { window }
 
     func observePresentation(
-        frameChanged: @escaping (CGRect) -> Void,
+        placementChanged: @escaping (WorkspaceWindowPlacement) -> Void,
         terminalChanged: @escaping (AgentWindowTerminalAttachment?) -> Void,
         zoomChanged: @escaping (Int) -> Void
     ) {
-        onFrameChanged = frameChanged
+        placementSession?.onPlacementChanged = placementChanged
         onTerminalChanged = terminalChanged
         onZoomChanged = zoomChanged
     }
@@ -86,7 +98,9 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         if window == nil {
             build()
         }
-        if activating, Config.axAutomationEnabled {
+        if let placementSession, let window {
+            placementSession.present(window, focus: activating)
+        } else if activating, Config.axAutomationEnabled {
             NSApp.activate(ignoringOtherApps: true)
             window?.makeKeyAndOrderFront(nil)
         } else {
@@ -137,6 +151,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     func beginStop() -> Task<Void, Never> {
         if let stopTask { return stopTask }
         terminalController?.beginPreservingDetach()
+        placementSession?.stop()
         let task = Task { @MainActor [self] in
             finishStop()
         }
@@ -164,7 +179,6 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         titlebarLayout = nil
         terminalController = nil
         stopTask = nil
-        onFrameChanged = nil
         onTerminalChanged = nil
         onZoomChanged = nil
         let onClosed = onClosed
@@ -378,16 +392,20 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     }
 
     func windowDidMove(_ notification: Notification) {
-        reportFrame()
+        reportPlacement()
     }
 
     func windowDidResize(_ notification: Notification) {
-        reportFrame()
+        reportPlacement()
     }
 
-    private func reportFrame() {
+    func windowDidChangeScreen(_ notification: Notification) {
+        reportPlacement()
+    }
+
+    private func reportPlacement() {
         guard let window, stopTask == nil else { return }
-        onFrameChanged?(window.frame)
+        placementSession?.windowDidChange(window)
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

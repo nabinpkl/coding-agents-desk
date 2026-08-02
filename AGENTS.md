@@ -52,7 +52,7 @@ When workers mode is active, every R-task that changes behavior uses this loop, 
 
 Parallel lanes are created and scheduled only by the Co-ordinator. Contract-producing lanes land before dependent lanes consume them; the Co-ordinator relays contract changes and blocks stale consumers until they refresh. Do not run Implementor and Reviewer edits concurrently on the same lane. Replace a standing thread only when it is unavailable, near its context limit, or demonstrably stale, and give the replacement the full lane contract, landed task history, current diff, review disposition, and next task.
 
-## Final self-review before handoff
+ # Final self-review before handoff
 
 Every agent reviews its own completed diff before handing work back to the human or another Codex thread. This is separate from testing and separate from an external Reviewer pass.
 
@@ -77,6 +77,7 @@ When in doubt about which direction a code path should produce, the test is: fin
 
 - Cross-platform divider callbacks expose semantic pane growth, never raw platform coordinates: positive grows the leading sidebar or lower terminal. Normalize AppKit's upward-positive and UIKit's downward-positive vertical deltas inside each divider, keep sign flips out of consumers, and test the same physical drag on both platforms.
 - No hardcoded configs. URLs, credentials, tokens, and `~/`-rooted paths go through a central config module, never inline in random files.
+- Standalone `＋ IDE`, `＋ Agents`, and `＋ Terminal` windows are independent UUID-backed instances. Persist each open instance's frame and Desktop assignment, remove only a user-closed instance, preserve all open descriptors during host termination, and restore them without activation or any move-to-active-Space fallback. Exact Space movement, display-local ordinal repair, capture, and verification belong to the shared Desktop window-placement authority (ADR-0092), not per-feature copies.
 - `.env` is gitignored by reflex. If you create one, gitignore it before the first commit.
 - Iteration over compatibility. Until v0 ships, breaking changes are free. After v0, breaking changes require an ADR.
 - Tests exxists for **Pairing, InputDispatcher, GestureTranslator, SpacesProvider, SpacesDotsView** .`SpacesProvider`'s smoke test runs against the live SkyLight binding and is the canary for private-API surface drift across macOS versions.

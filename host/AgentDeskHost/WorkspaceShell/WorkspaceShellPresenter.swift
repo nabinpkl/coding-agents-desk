@@ -6,7 +6,7 @@ import os
 /// Presents the macOS workspace shell as the agent-workspace-ide reveal-on-hover chrome (ADR-0054): a
 /// left-edge sidebar (the donor workspace switcher, a divider, the active-workspace title header with
 /// text-zoom −/+ and a pin, the donor FilePane file tree, and a drag-resize handle) and a top bar
-/// (IDE/browser tools on the left; PTY Manager, ＋ Agents, ＋ Terminal, and a pin on the right). Both are floating all-Spaces
+/// (browser tools on the left; PTY Manager, ＋ IDE, ＋ Agents, ＋ Terminal, and a pin on the right). Both are floating all-Spaces
 /// overlays that auto-hide like the Dock and slide in on an edge hover. A file opens into the donor
 /// FileViewer window centered in the slot (not inline), and switching the workspace switches the macOS
 /// Desktop — both driven by WorkspaceShellSession.
@@ -73,10 +73,10 @@ final class WorkspaceShellPresenter: NSObject {
 
     /// Invoked when the top-bar "＋ Agents" command is tapped. The placement identifies the Desktop
     /// and current shell slot where AppDelegate should create an independent Agents window.
-    var onOpenAgents: ((AgentWindowPlacement) -> Void)?
+    var onOpenAgents: ((WorkspaceWindowPlacement) -> Void)?
 
-    /// Opens the separate retained shared Workspace IDE window.
-    var onIDECommand: (() -> Void)?
+    /// Creates an independent Workspace IDE on the Desktop that issued the command.
+    var onOpenIDE: ((WorkspaceWindowPlacement) -> Void)?
 
     /// Opens the host-local Chrome projection window used to develop the Browser surface.
     var onBrowserCommand: (() -> Void)?
@@ -557,11 +557,9 @@ final class WorkspaceShellPresenter: NSObject {
     }
 
     /// Top bar: workspace tools stay on the left; the window-spawning chips + top-bar pin ride the
-    /// right edge as [PTY Manager] [＋ Agents] [＋ Terminal] [pin]. A low-hugging spacer pushes the
+    /// right edge as [PTY Manager] [＋ IDE] [＋ Agents] [＋ Terminal] [pin]. A low-hugging spacer pushes the
     /// chips to the right so they stay together beside the pin.
     private func buildTopBar() {
-        let ideButton = NSButton(title: "IDE", target: self, action: #selector(ideTapped))
-        ideButton.setAccessibilityIdentifier("workspace-shell-ide")
         let browserButton = NSButton(title: "Browser", target: self, action: #selector(browserTapped))
         browserButton.setAccessibilityIdentifier("workspace-shell-browser")
         let gestureButton = NSButton(title: "Gesture", target: self, action: #selector(gestureTapped))
@@ -572,6 +570,9 @@ final class WorkspaceShellPresenter: NSObject {
         self.voiceButton = voiceButton
         let ptyManagerButton = NSButton(title: "PTY Manager", target: self, action: #selector(openPtyManagerTapped))
         ptyManagerButton.setAccessibilityIdentifier("open-pty-manager")
+        let ideButton = NSButton(title: "＋ IDE", target: self, action: #selector(openIDETapped))
+        ideButton.setAccessibilityIdentifier("open-ide")
+        ideButton.setAccessibilityLabel("Open new Workspace IDE")
         let agentsButton = NSButton(title: "＋ Agents", target: self, action: #selector(openAgentsTapped))
         agentsButton.setAccessibilityIdentifier("open-agents")
         let terminalButton = NSButton(title: "＋ Terminal", target: self, action: #selector(openTerminalTapped))
@@ -584,7 +585,7 @@ final class WorkspaceShellPresenter: NSObject {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let topBarStack = NSStackView(views: [ideButton, browserButton, gestureButton, voiceButton, spacer, ptyManagerButton, agentsButton, terminalButton, topBarPinButton])
+        let topBarStack = NSStackView(views: [browserButton, gestureButton, voiceButton, spacer, ptyManagerButton, ideButton, agentsButton, terminalButton, topBarPinButton])
         topBarStack.orientation = .horizontal
         topBarStack.alignment = .centerY
         topBarStack.spacing = 8
@@ -642,14 +643,27 @@ final class WorkspaceShellPresenter: NSObject {
     // MARK: - Actions
 
     @objc private func openAgentsTapped() {
+        guard let desktop = desktopSwitcher.currentAssignment() else {
+            logger.error("workspace-shell: cannot open Agents because the current Desktop is unavailable")
+            return
+        }
         let slot = currentSlotFrame()
-        onOpenAgents?(AgentWindowPlacement(
-            desktopSpaceID: desktopSwitcher.currentAssignment()?.spaceID,
+        onOpenAgents?(WorkspaceWindowPlacement(
+            desktop: desktop,
             frame: centeredRect(in: slot, size: CGSize(width: 480, height: 720))
         ))
     }
 
-    @objc private func ideTapped() { onIDECommand?() }
+    @objc private func openIDETapped() {
+        guard let desktop = desktopSwitcher.currentAssignment() else {
+            logger.error("workspace-shell: cannot open IDE because the current Desktop is unavailable")
+            return
+        }
+        onOpenIDE?(WorkspaceWindowPlacement(
+            desktop: desktop,
+            frame: centeredRect(in: currentSlotFrame(), size: CGSize(width: 1_180, height: 760))
+        ))
+    }
 
     @objc private func browserTapped() { onBrowserCommand?() }
 
@@ -663,7 +677,10 @@ final class WorkspaceShellPresenter: NSObject {
 
     private func showPtyManager() {
         let controller = ptyManagerWindow ?? PtyManagerWindowController(
-            terminalWindowRegistry: terminalWindowRegistry
+            terminalWindowRegistry: terminalWindowRegistry,
+            currentDesktopAssignment: { [weak self] in
+                self?.desktopSwitcher.currentAssignment()
+            }
         )
         ptyManagerWindow = controller
         controller.show()
@@ -757,7 +774,7 @@ final class WorkspaceShellPresenter: NSObject {
             .union(axIdentifiers(in: overlay.topBarContentView))
             .union(axIdentifiers(in: overlay.dockContentView))
         let expected = [
-            "workspace-shell-ide", "open-agents", "open-terminal", "open-pty-manager",
+            "open-ide", "open-agents", "open-terminal", "open-pty-manager",
             "workspace-switcher", "add-workspace", "workspace-shell-title",
             "activity-bar", "activity-explorer", "activity-source-control",
             "sidebar-zoom-out", "sidebar-zoom-in", "workspace-shell-file-tree",

@@ -161,6 +161,10 @@ final class WorkspaceShellSession {
     /// explicit park/unpark. This is the top-bar "＋ Terminal" action (R55).
     func openTerminal() {
         guard let id = store.activeID, let workspace = store.workspace(id: id) else { return }
+        guard let desktop = desktopSwitcher.currentAssignment() else {
+            logger.error("workspace-shell: cannot open terminal because the current Desktop is unavailable")
+            return
+        }
         // Drop windows the user has already closed so the cascade counts only currently-open
         // terminals (otherwise successive spawns drift ever further off the slot) and closed window
         // objects aren't retained for the process lifetime.
@@ -186,9 +190,10 @@ final class WorkspaceShellSession {
                         sessionName: sessionName,
                         workspaceID: id,
                         workspaceLabel: workspaceName,
-                        cascadeOrdinal: index
+                        cascadeOrdinal: index,
+                        placement: WorkspaceWindowPlacement(desktop: desktop, frame: frame),
+                        focus: true
                     )
-                    window.raise()
                 case .failure(let error):
                     self.logger.error("workspace-shell: terminal spawn failed for workspace \(id, privacy: .public): \(String(describing: error), privacy: .public)")
                 }

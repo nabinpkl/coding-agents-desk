@@ -14,7 +14,7 @@ final class TerminalWindowPresentationStoreTests: XCTestCase {
             id: UUID(),
             sessionName: "workspace-123",
             workspaceID: UUID(),
-            frame: TerminalWindowFrame(CGRect(x: 20, y: 30, width: 700, height: 460)),
+            placement: placement(frame: CGRect(x: 20, y: 30, width: 700, height: 460)),
             cascadeOrdinal: 2,
             workspaceLabel: "Project"
         )
@@ -55,36 +55,21 @@ final class TerminalWindowPresentationStoreTests: XCTestCase {
         XCTAssertEqual(fixture.store.descriptors.first?.sessionName, "session-1")
     }
 
-    func testLegacySingleSessionDocumentMigratesToWorkspaceEncoding() throws {
-        let fixture = try Fixture()
-        defer { fixture.remove() }
-        try FileManager.default.createDirectory(at: fixture.directory, withIntermediateDirectories: true)
-        let id = UUID()
-        let legacy = """
-        {"presentations":[{"id":"\(id.uuidString)","sessionName":"legacy","frame":{"x":1,"y":2,"width":700,"height":460},"cascadeOrdinal":0,"workspaceLabel":"Legacy"}]}
-        """
-        try Data(legacy.utf8).write(to: fixture.url)
-
-        let migrated = TerminalWindowPresentationStore(url: fixture.url)
-        XCTAssertEqual(migrated.descriptors.first?.sessionNames, ["legacy"])
-        try migrated.upsert(try XCTUnwrap(migrated.descriptors.first))
-        let persisted = try String(contentsOf: fixture.url, encoding: .utf8)
-        XCTAssertTrue(persisted.contains("\"workspace\""))
-        let object = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(persisted.utf8)) as? [String: Any]
-        )
-        let presentations = try XCTUnwrap(object["presentations"] as? [[String: Any]])
-        XCTAssertNil(presentations.first?["sessionName"])
-    }
-
     private func descriptor(session: String) -> TerminalWindowPresentationDescriptor {
         TerminalWindowPresentationDescriptor(
             id: UUID(),
             sessionName: session,
             workspaceID: nil,
-            frame: TerminalWindowFrame(CGRect(x: 0, y: 0, width: 700, height: 460)),
+            placement: placement(frame: CGRect(x: 0, y: 0, width: 700, height: 460)),
             cascadeOrdinal: 0,
             workspaceLabel: session
+        )
+    }
+
+    private func placement(frame: CGRect) -> WorkspaceWindowPlacement {
+        WorkspaceWindowPlacement(
+            desktop: WorkspaceDesktopAssignment(spaceID: 20, displayID: "D1", ordinal: 1),
+            frame: frame
         )
     }
 }

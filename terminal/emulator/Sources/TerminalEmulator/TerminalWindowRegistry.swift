@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import PtyClientSwift
 import PtyTerminalWebView
+import WindowPlacement
 import os
 
 public protocol TerminalSessionListing: Sendable {
@@ -22,6 +23,46 @@ public protocol TerminalExistingSessionSpawning: AnyObject {
 
 extension WebPtyManagerTerminalSpawn: TerminalExistingSessionSpawning {}
 
+@MainActor
+public protocol TerminalWindowDesktopPlacing: AnyObject {
+    func present(
+        _ window: any TerminalWindowPresentationTrackable,
+        at placement: DesktopWindowPlacement,
+        focus: Bool
+    ) throws -> DesktopWindowPlacement
+
+    func capture(
+        _ window: any TerminalWindowPresentationTrackable,
+        preserving placement: DesktopWindowPlacement
+    ) throws -> DesktopWindowPlacement?
+}
+
+/// Explicit frame-only placement for the standalone replay harness. AgentDesk injects its verified
+/// WindowServer implementation instead, so production never silently falls back to the active Space.
+@MainActor
+public final class FrameOnlyTerminalWindowDesktopPlacer: TerminalWindowDesktopPlacing {
+    public init() {}
+
+    public func present(
+        _ window: any TerminalWindowPresentationTrackable,
+        at placement: DesktopWindowPlacement,
+        focus: Bool
+    ) throws -> DesktopWindowPlacement {
+        window.place(into: placement.frame)
+        if focus { window.raise() } else { window.orderWithoutFocus() }
+        return placement
+    }
+
+    public func capture(
+        _ window: any TerminalWindowPresentationTrackable,
+        preserving placement: DesktopWindowPlacement
+    ) throws -> DesktopWindowPlacement? {
+        var next = placement
+        next.frame = window.currentFrame
+        return next
+    }
+}
+
 /// Owns only standalone-window presentation and attachment metadata. The Rust
 /// manager remains the sole owner of terminal cells and replay history.
 @MainActor
@@ -29,10 +70,12 @@ public final class TerminalWindowRegistry {
     private let store: TerminalWindowPresentationStore
     private let client: any TerminalSessionListing
     private let spawn: any TerminalExistingSessionSpawning
+    private let desktopPlacer: any TerminalWindowDesktopPlacing
     private let logger: Logger
     private var windows: [UUID: any TerminalWindowPresentationTrackable] = [:]
     private var restoring: Set<UUID> = []
-    private var frameTasks: [UUID: Task<Void, Never>] = [:]
+    private var unresolvedPlacements: Set<UUID> = []
+    private var placementTasks: [UUID: Task<Void, Never>] = [:]
     private var workspaceTasks: [UUID: Task<Void, Never>] = [:]
     private var restorationTask: Task<Void, Never>?
     private var shuttingDown = false
@@ -41,11 +84,13 @@ public final class TerminalWindowRegistry {
         store: TerminalWindowPresentationStore,
         client: any TerminalSessionListing,
         spawn: any TerminalExistingSessionSpawning,
+        desktopPlacer: any TerminalWindowDesktopPlacing,
         loggerSubsystem: String = "com.example.agentdesk.AgentDeskTerminalReplay"
     ) {
         self.store = store
         self.client = client
         self.spawn = spawn
+        self.desktopPlacer = desktopPlacer
         logger = Logger(subsystem: loggerSubsystem, category: "terminal-restoration")
     }
 
@@ -62,6 +107,8 @@ public final class TerminalWindowRegistry {
         workspaceID: UUID?,
         workspaceLabel: String,
         cascadeOrdinal: Int,
+        placement: DesktopWindowPlacement,
+        focus: Bool,
         presentationID: UUID = UUID()
     ) {
         guard let tracked = window as? any TerminalWindowPresentationTrackable else { return }
@@ -73,7 +120,7 @@ public final class TerminalWindowRegistry {
             id: presentationID,
             workspace: tracked.terminalWorkspaceState,
             workspaceID: workspaceID,
-            frame: TerminalWindowFrame(tracked.currentFrame),
+            placement: placement,
             cascadeOrdinal: cascadeOrdinal,
             workspaceLabel: workspaceLabel
         )
@@ -81,12 +128,13 @@ public final class TerminalWindowRegistry {
             try store.upsert(descriptor)
             windows[presentationID] = tracked
         } catch {
-            logger.error("terminal presentation registration failed")
+            tracked.closePreservingPresentation()
+            logger.error("terminal presentation registration failed: \(String(describing: error), privacy: .public)")
             return
         }
         tracked.observePresentation(
             frameChanged: { [weak self] frame in
-                self?.scheduleFrame(frame, id: presentationID)
+                self?.schedulePlacement(frame: frame, id: presentationID)
             },
             workspaceChanged: { [weak self] workspace in
                 self?.scheduleWorkspace(workspace, id: presentationID)
@@ -95,6 +143,20 @@ public final class TerminalWindowRegistry {
                 self?.removePresentation(id: presentationID)
             }
         )
+        do {
+            let resolved = try desktopPlacer.present(tracked, at: placement, focus: focus)
+            unresolvedPlacements.remove(presentationID)
+            if resolved != placement {
+                var repaired = descriptor
+                repaired.placement = resolved
+                try store.upsert(repaired)
+            }
+        } catch {
+            unresolvedPlacements.insert(presentationID)
+            windows.removeValue(forKey: presentationID)
+            tracked.closePreservingPresentation()
+            logger.error("terminal Desktop placement failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     public func startRestoration() {
@@ -118,13 +180,14 @@ public final class TerminalWindowRegistry {
         shuttingDown = true
         restorationTask?.cancel()
         restorationTask = nil
-        for task in frameTasks.values { task.cancel() }
-        frameTasks.removeAll()
+        for task in placementTasks.values { task.cancel() }
+        placementTasks.removeAll()
         for task in workspaceTasks.values { task.cancel() }
         workspaceTasks.removeAll()
         let openWindows = windows.values
         windows.removeAll()
         restoring.removeAll()
+        unresolvedPlacements.removeAll()
         for window in openWindows { window.closePreservingPresentation() }
     }
 
@@ -136,15 +199,20 @@ public final class TerminalWindowRegistry {
             guard windows[descriptor.id] == nil, !restoring.contains(descriptor.id) else { continue }
             let sessions = descriptor.sessionNames.compactMap { running[$0] }
             guard sessions.count == descriptor.sessionNames.count else {
-                try? store.remove(id: descriptor.id)
+                do {
+                    try store.remove(id: descriptor.id)
+                } catch {
+                    logger.error("terminal stale presentation removal failed: \(String(describing: error), privacy: .public)")
+                }
                 continue
             }
-            let frame = constrainedFrame(descriptor.frame.cgRect)
+            var placement = descriptor.placement
+            placement.frame = constrainedFrame(placement.frame)
             restoring.insert(descriptor.id)
             spawn.spawnExistingWorkspace(
                 sessions: sessions,
                 state: descriptor.workspace,
-                into: frame
+                into: placement.frame
             ) { [weak self] result in
                 MainActor.assumeIsolated {
                     guard let self else { return }
@@ -162,9 +230,10 @@ public final class TerminalWindowRegistry {
                             workspaceID: descriptor.workspaceID,
                             workspaceLabel: descriptor.workspaceLabel,
                             cascadeOrdinal: descriptor.cascadeOrdinal,
+                            placement: placement,
+                            focus: false,
                             presentationID: descriptor.id
                         )
-                        (window as? any TerminalWindowPresentationTrackable)?.orderWithoutFocus()
                     case .failure:
                         // A reachable manager can disappear during attachment.
                         // Keep metadata and retry on the next readiness cycle.
@@ -176,16 +245,26 @@ public final class TerminalWindowRegistry {
         }
     }
 
-    private func scheduleFrame(_ frame: CGRect, id: UUID) {
+    private func schedulePlacement(frame _: CGRect, id: UUID) {
         guard !shuttingDown else { return }
-        frameTasks[id]?.cancel()
-        frameTasks[id] = Task { [weak self] in
+        placementTasks[id]?.cancel()
+        placementTasks[id] = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled, let self,
+                  !self.unresolvedPlacements.contains(id),
+                  let window = self.windows[id],
                   var descriptor = self.store.descriptors.first(where: { $0.id == id }) else { return }
-            descriptor.frame = TerminalWindowFrame(frame)
-            try? self.store.upsert(descriptor)
-            self.frameTasks[id] = nil
+            do {
+                guard let placement = try self.desktopPlacer.capture(
+                    window,
+                    preserving: descriptor.placement
+                ) else { return }
+                descriptor.placement = placement
+                try self.store.upsert(descriptor)
+            } catch {
+                self.logger.error("terminal Desktop capture failed: \(String(describing: error), privacy: .public)")
+            }
+            self.placementTasks[id] = nil
         }
     }
 
@@ -200,21 +279,30 @@ public final class TerminalWindowRegistry {
                 id: descriptor.id,
                 workspace: workspace,
                 workspaceID: descriptor.workspaceID,
-                frame: descriptor.frame,
+                placement: descriptor.placement,
                 cascadeOrdinal: descriptor.cascadeOrdinal,
                 workspaceLabel: descriptor.workspaceLabel
             )
-            try? self.store.upsert(descriptor)
+            do {
+                try self.store.upsert(descriptor)
+            } catch {
+                self.logger.error("terminal workspace presentation persist failed: \(String(describing: error), privacy: .public)")
+            }
             self.workspaceTasks[id] = nil
         }
     }
 
     private func removePresentation(id: UUID) {
         guard !shuttingDown else { return }
-        frameTasks.removeValue(forKey: id)?.cancel()
+        placementTasks.removeValue(forKey: id)?.cancel()
         workspaceTasks.removeValue(forKey: id)?.cancel()
+        unresolvedPlacements.remove(id)
         windows.removeValue(forKey: id)
-        try? store.remove(id: id)
+        do {
+            try store.remove(id: id)
+        } catch {
+            logger.error("terminal presentation removal failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     private func constrainedFrame(_ frame: CGRect) -> CGRect {

@@ -1,30 +1,14 @@
 import CoreGraphics
 import Foundation
+import OSLog
 import PtyTerminalWebView
-
-public struct TerminalWindowFrame: Codable, Equatable, Sendable {
-    public let x: Double
-    public let y: Double
-    public let width: Double
-    public let height: Double
-
-    public init(_ frame: CGRect) {
-        x = frame.origin.x
-        y = frame.origin.y
-        width = frame.width
-        height = frame.height
-    }
-
-    public var cgRect: CGRect {
-        CGRect(x: x, y: y, width: width, height: height)
-    }
-}
+import WindowPlacement
 
 public struct TerminalWindowPresentationDescriptor: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
     public let workspace: PtyTerminalWorkspaceState
     public let workspaceID: UUID?
-    public var frame: TerminalWindowFrame
+    public var placement: DesktopWindowPlacement
     public let cascadeOrdinal: Int
     public let workspaceLabel: String
 
@@ -32,14 +16,14 @@ public struct TerminalWindowPresentationDescriptor: Codable, Equatable, Identifi
         id: UUID,
         workspace: PtyTerminalWorkspaceState,
         workspaceID: UUID?,
-        frame: TerminalWindowFrame,
+        placement: DesktopWindowPlacement,
         cascadeOrdinal: Int,
         workspaceLabel: String
     ) {
         self.id = id
         self.workspace = workspace
         self.workspaceID = workspaceID
-        self.frame = frame
+        self.placement = placement
         self.cascadeOrdinal = cascadeOrdinal
         self.workspaceLabel = workspaceLabel
     }
@@ -48,7 +32,7 @@ public struct TerminalWindowPresentationDescriptor: Codable, Equatable, Identifi
         id: UUID,
         sessionName: String,
         workspaceID: UUID?,
-        frame: TerminalWindowFrame,
+        placement: DesktopWindowPlacement,
         cascadeOrdinal: Int,
         workspaceLabel: String
     ) {
@@ -56,7 +40,7 @@ public struct TerminalWindowPresentationDescriptor: Codable, Equatable, Identifi
             id: id,
             workspace: PtyTerminalWorkspaceState(restoringSessionName: sessionName),
             workspaceID: workspaceID,
-            frame: frame,
+            placement: placement,
             cascadeOrdinal: cascadeOrdinal,
             workspaceLabel: workspaceLabel
         )
@@ -66,7 +50,7 @@ public struct TerminalWindowPresentationDescriptor: Codable, Equatable, Identifi
     public var sessionNames: [String] { workspace.panes.map(\.sessionName) }
 
     private enum CodingKeys: String, CodingKey {
-        case id, workspace, sessionName, workspaceID, frame, cascadeOrdinal, workspaceLabel
+        case id, workspace, sessionName, workspaceID, placement, cascadeOrdinal, workspaceLabel
     }
 
     public init(from decoder: Decoder) throws {
@@ -80,7 +64,7 @@ public struct TerminalWindowPresentationDescriptor: Codable, Equatable, Identifi
             )
         }
         workspaceID = try values.decodeIfPresent(UUID.self, forKey: .workspaceID)
-        frame = try values.decode(TerminalWindowFrame.self, forKey: .frame)
+        placement = try values.decode(DesktopWindowPlacement.self, forKey: .placement)
         cascadeOrdinal = try values.decode(Int.self, forKey: .cascadeOrdinal)
         workspaceLabel = try values.decode(String.self, forKey: .workspaceLabel)
     }
@@ -90,7 +74,7 @@ public struct TerminalWindowPresentationDescriptor: Codable, Equatable, Identifi
         try values.encode(id, forKey: .id)
         try values.encode(workspace, forKey: .workspace)
         try values.encodeIfPresent(workspaceID, forKey: .workspaceID)
-        try values.encode(frame, forKey: .frame)
+        try values.encode(placement, forKey: .placement)
         try values.encode(cascadeOrdinal, forKey: .cascadeOrdinal)
         try values.encode(workspaceLabel, forKey: .workspaceLabel)
     }
@@ -109,9 +93,12 @@ public final class TerminalWindowPresentationStore {
     private let url: URL
     public private(set) var descriptors: [TerminalWindowPresentationDescriptor]
 
-    public init(url: URL) {
+    public init(
+        url: URL,
+        loggerSubsystem: String = "com.example.agentdesk.AgentDeskTerminalReplay"
+    ) {
         self.url = url
-        descriptors = Self.read(url: url)
+        descriptors = Self.read(url: url, loggerSubsystem: loggerSubsystem)
     }
 
     public func upsert(_ descriptor: TerminalWindowPresentationDescriptor) throws {
@@ -120,8 +107,7 @@ public final class TerminalWindowPresentationStore {
               descriptor.sessionNames.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 256 }),
               descriptor.workspaceLabel.utf8.count <= 256,
               descriptor.cascadeOrdinal >= 0,
-              descriptor.frame.width >= 1,
-              descriptor.frame.height >= 1 else {
+              descriptor.placement.isValid else {
             throw CocoaError(.validationMissingMandatoryProperty)
         }
         var next = descriptors.filter { $0.id != descriptor.id }
@@ -149,12 +135,26 @@ public final class TerminalWindowPresentationStore {
         try data.write(to: url, options: .atomic)
     }
 
-    private static func read(url: URL) -> [TerminalWindowPresentationDescriptor] {
-        guard let data = try? Data(contentsOf: url),
-              data.count <= 1_048_576,
-              let document = try? JSONDecoder().decode(Document.self, from: data) else {
+    private static func read(url: URL, loggerSubsystem: String) -> [TerminalWindowPresentationDescriptor] {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        let logger = Logger(subsystem: loggerSubsystem, category: "terminal-restoration")
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            logger.error("terminal presentations could not be read: \(String(describing: error), privacy: .public)")
             return []
         }
-        return Array(document.presentations.prefix(maximumPresentations))
+        guard data.count <= 1_048_576 else {
+            logger.error("terminal presentations exceed the 1 MiB limit; nothing will be restored")
+            return []
+        }
+        do {
+            let document = try JSONDecoder().decode(Document.self, from: data)
+            return Array(document.presentations.prefix(maximumPresentations))
+        } catch {
+            logger.error("terminal presentations did not decode; nothing will be restored: \(String(describing: error), privacy: .public)")
+            return []
+        }
     }
 }

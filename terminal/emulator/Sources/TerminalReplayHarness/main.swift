@@ -3,6 +3,7 @@ import ApplicationServices
 import Foundation
 import PtyClientSwift
 import TerminalEmulator
+import WindowPlacement
 
 private enum HarnessPhase: String { case initial, restore }
 
@@ -192,6 +193,7 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             store: store,
             client: client,
             spawn: spawner,
+            desktopPlacer: FrameOnlyTerminalWindowDesktopPlacer(),
             loggerSubsystem: "com.example.agentdesk.AgentDeskTerminalReplayE2E"
         )
         registry = windowRegistry
@@ -203,7 +205,12 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             sessionName: sessionName,
             workspaceID: nil,
             workspaceLabel: "Harness Wide",
-            cascadeOrdinal: 0
+            cascadeOrdinal: 0,
+            placement: DesktopWindowPlacement(
+                desktop: DesktopWindowAssignment(spaceID: 0, displayID: "harness", ordinal: 0),
+                frame: (wide as? any TerminalWindowPresentationTrackable)?.currentFrame ?? .zero
+            ),
+            focus: false
         )
         try await send(
             "printf '\\033[2J\\033[H\\033[38;2;80;180;255mHEADLESS-PRIMARY\\033[0m\\n'; " +
@@ -241,7 +248,12 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             sessionName: sessionName,
             workspaceID: nil,
             workspaceLabel: "Harness Narrow",
-            cascadeOrdinal: 1
+            cascadeOrdinal: 1,
+            placement: DesktopWindowPlacement(
+                desktop: DesktopWindowAssignment(spaceID: 0, displayID: "harness", ordinal: 0),
+                frame: (narrow as? any TerminalWindowPresentationTrackable)?.currentFrame ?? .zero
+            ),
+            focus: false
         )
         (narrow as? any TerminalWindowPresentationTrackable)?.orderWithoutFocus()
         try await waitForWindows([wide, narrow], session: sessionName)
@@ -403,6 +415,7 @@ private final class HarnessDelegate: NSObject, NSApplicationDelegate {
             store: store,
             client: client,
             spawn: spawner,
+            desktopPlacer: FrameOnlyTerminalWindowDesktopPlacer(),
             loggerSubsystem: "com.example.agentdesk.AgentDeskTerminalReplayE2E"
         )
         registry = windowRegistry

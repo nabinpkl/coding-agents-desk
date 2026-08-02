@@ -15,24 +15,6 @@ struct AgentWindowTerminalAttachment: Codable, Equatable, Sendable {
     let ptySessionName: String
 }
 
-struct AgentWindowFrame: Codable, Equatable, Sendable {
-    let x: Double
-    let y: Double
-    let width: Double
-    let height: Double
-
-    init(_ frame: CGRect) {
-        x = frame.origin.x
-        y = frame.origin.y
-        width = frame.width
-        height = frame.height
-    }
-
-    var cgRect: CGRect {
-        CGRect(x: x, y: y, width: width, height: height)
-    }
-}
-
 /// Where one Agents window was when the host last ran, so a restart can put it back.
 ///
 /// Metadata only, mirroring `TerminalWindowPresentationStore`: no feed content, no transcript, no
@@ -40,10 +22,7 @@ struct AgentWindowFrame: Codable, Equatable, Sendable {
 /// so the only thing a restart actually loses is the window itself.
 struct AgentWindowPresentationDescriptor: Codable, Equatable, Identifiable, Sendable {
     let id: UUID
-    var frame: AgentWindowFrame
-    /// The Desktop the window was opened from. Kept so a restored window still participates in
-    /// per-Desktop cascade placement when the user opens another one there.
-    let desktopSpaceID: UInt64?
+    var placement: WorkspaceWindowPlacement
     let cascadeOrdinal: Int
     /// Absent when the window had no terminal pane open, which is also what a window restores to.
     var terminal: AgentWindowTerminalAttachment?
@@ -54,44 +33,18 @@ struct AgentWindowPresentationDescriptor: Codable, Equatable, Identifiable, Send
 
     init(
         id: UUID,
-        frame: AgentWindowFrame,
-        desktopSpaceID: UInt64?,
+        placement: WorkspaceWindowPlacement,
         cascadeOrdinal: Int,
         terminal: AgentWindowTerminalAttachment? = nil,
         zoomStep: Int = 0
     ) {
         self.id = id
-        self.frame = frame
-        self.desktopSpaceID = desktopSpaceID
+        self.placement = placement
         self.cascadeOrdinal = cascadeOrdinal
         self.terminal = terminal
         self.zoomStep = zoomStep
     }
 
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case frame
-        case desktopSpaceID
-        case cascadeOrdinal
-        case terminal
-        case zoomStep
-    }
-
-    /// Hand-written for one reason: `zoomStep` defaults instead of being required.
-    ///
-    /// A synthesized decode treats a missing key as a hard failure, and the whole document is one
-    /// value -- so the first launch after this field was added threw on the descriptors written by
-    /// the launch before it, and every remembered Agents window silently failed to come back. The
-    /// same shape, for the same field, is why `WorkspaceIDELocalState` writes its own decoder.
-    init(from decoder: any Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        id = try values.decode(UUID.self, forKey: .id)
-        frame = try values.decode(AgentWindowFrame.self, forKey: .frame)
-        desktopSpaceID = try values.decodeIfPresent(UInt64.self, forKey: .desktopSpaceID)
-        cascadeOrdinal = try values.decode(Int.self, forKey: .cascadeOrdinal)
-        terminal = try values.decodeIfPresent(AgentWindowTerminalAttachment.self, forKey: .terminal)
-        zoomStep = try values.decodeIfPresent(Int.self, forKey: .zoomStep) ?? 0
-    }
 }
 
 enum AgentWindowPresentationStoreError: Error, Equatable {
@@ -118,10 +71,7 @@ final class AgentWindowPresentationStore {
 
     func upsert(_ descriptor: AgentWindowPresentationDescriptor) throws {
         guard descriptor.cascadeOrdinal >= 0,
-              descriptor.frame.width >= 1,
-              descriptor.frame.height >= 1,
-              descriptor.frame.x.isFinite,
-              descriptor.frame.y.isFinite else {
+              descriptor.placement.isValid else {
             throw AgentWindowPresentationStoreError.invalidDescriptor
         }
         var next = descriptors.filter { $0.id != descriptor.id }
@@ -156,7 +106,16 @@ final class AgentWindowPresentationStore {
     /// host logged not one line about it, and the only way to see the cause was to read the JSON by
     /// hand. An absent file is still silent -- that genuinely is "nothing stored".
     private static func read(url: URL) -> [AgentWindowPresentationDescriptor] {
-        guard let data = try? Data(contentsOf: url) else { return [] }
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            Logger(subsystem: Config.logSubsystem, category: "agent-window").error(
+                "agent-window presentations could not be read: \(String(describing: error), privacy: .public)"
+            )
+            return []
+        }
         guard data.count <= 1_048_576 else {
             Logger(subsystem: Config.logSubsystem, category: "agent-window").error(
                 "agent-window presentations: refusing \(data.count, privacy: .public) bytes at \(url.lastPathComponent, privacy: .public); nothing will be restored"
@@ -172,31 +131,5 @@ final class AgentWindowPresentationStore {
             )
             return []
         }
-    }
-}
-
-/// Keeps a remembered frame reachable when the display setup changed between host runs. Takes the
-/// visible frames rather than reading `NSScreen` so the placement rule is testable without a
-/// display, the same shape `SpaceAgentController` uses for its own screen geometry.
-enum AgentWindowScreenPlacement {
-    static func constrained(_ frame: CGRect, within visibleFrames: [CGRect]) -> CGRect {
-        guard !visibleFrames.isEmpty else { return frame }
-        let target = visibleFrames.max { lhs, rhs in
-            intersectionArea(lhs, frame) < intersectionArea(rhs, frame)
-        } ?? visibleFrames[0]
-        let width = min(frame.width, target.width)
-        let height = min(frame.height, target.height)
-        return CGRect(
-            x: min(max(frame.minX, target.minX), target.maxX - width),
-            y: min(max(frame.minY, target.minY), target.maxY - height),
-            width: width,
-            height: height
-        )
-    }
-
-    private static func intersectionArea(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
-        let intersection = lhs.intersection(rhs)
-        guard !intersection.isNull else { return 0 }
-        return intersection.width * intersection.height
     }
 }

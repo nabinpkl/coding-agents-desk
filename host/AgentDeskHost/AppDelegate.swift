@@ -143,7 +143,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var spaceAgentController: SpaceAgentController?
     private var dictationBarController: DictationBarController?
     private var ptyRuntimeProcess: HostPtyRuntimeProcess?
-    private lazy var terminalWindowRegistry = TerminalWindowRegistry()
+    private lazy var desktopWindowPlacementCoordinator = DesktopWindowPlacementCoordinator(
+        desktopAudit: HostWorkspaceDesktopAudit(),
+        mover: HostWorkspaceWindowSpaceMover()
+    )
+    private lazy var terminalWindowRegistry = TerminalWindowRegistry(
+        placementCoordinator: desktopWindowPlacementCoordinator
+    )
     private var terminalClientBridges: [ObjectIdentifier: TerminalClientBridge] = [:]
     // Protocol-v11 workspace lane. One responder serializes file writes against the workspace
     // store. Each attached `.files` stream owns a subscription session, while the repository
@@ -165,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         maxDocumentBytes: Config.workspaceDocumentMaxBytes
     )
     private var workspaceShellPresenter: WorkspaceShellPresenter?
-    private var workspaceIDEWindowController: WorkspaceIDEWindowController?
+    private var workspaceIDEWindowRegistry: WorkspaceIDEWindowRegistry?
     private var browserProjectionWindowController: BrowserProjectionWindowController?
     private var browserProjectionSession: BrowserProjectionSession?
     private var browserProjectionLane: BrowserProjectionLocalLane?
@@ -173,7 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // Independent macOS Agents windows, created from the shell's top-bar "＋ Agents" command. Each
     // window owns its feed visibility subscription and local terminal endpoint.
     private var agentWindowRegistry: AgentWindowRegistry?
-    private var agentWindowTerminationTask: Task<Void, Never>?
+    private var hostWindowTerminationTask: Task<Void, Never>?
     // The macOS gesture window: the shared InteractionPanel webview runs camera +
     // the TS swipe tracker and applies each Space step in-process. Opt-in via
     // AGENTDESK_GESTURE_WINDOW_ENABLED until a top-bar toggle is added.
@@ -288,7 +294,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             push: nil
         )
     }
-    private var localWorkspaceTerminalEndpoint: WorkspaceTerminalEndpoint?
     // ADR-0038 DOM mirror: the Chrome-fed native-messaging bridge server and the relay that buffers
     // checkouts and fans rrweb batches to the attached client .dom lane. Constructed and started
     // only when Config.domMirrorEnabled; otherwise the whole subsystem stays dark.
@@ -411,16 +416,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let registry = agentWindowRegistry, registry.requiresTerminationWait else {
+        let agentsNeedWait = agentWindowRegistry?.requiresTerminationWait == true
+        let ideNeedsWait = workspaceIDEWindowRegistry?.requiresTerminationWait == true
+        guard agentsNeedWait || ideNeedsWait else {
             return .terminateNow
         }
-        guard agentWindowTerminationTask == nil else { return .terminateLater }
-        let stopTask = registry.beginStopAll()
-        agentWindowTerminationTask = Task { @MainActor [weak self, weak sender] in
-            await stopTask.value
-            if self?.agentWindowRegistry === registry {
-                self?.agentWindowRegistry = nil
-            }
+        guard hostWindowTerminationTask == nil else { return .terminateLater }
+        let agentStop = agentWindowRegistry?.beginStopAll()
+        let ideStop = workspaceIDEWindowRegistry?.beginStopAll()
+        hostWindowTerminationTask = Task { @MainActor [weak self, weak sender] in
+            await agentStop?.value
+            await ideStop?.value
+            self?.agentWindowRegistry = nil
+            self?.workspaceIDEWindowRegistry = nil
             sender?.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -444,8 +452,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         workspaceLanes.removeAll()
         workspaceLaneSessions.removeAll()
-        workspaceIDEWindowController?.stop()
-        workspaceIDEWindowController = nil
+        workspaceIDEWindowRegistry?.beginStopAll()
+        workspaceIDEWindowRegistry = nil
         browserProjectionWindowController?.stop()
         browserProjectionWindowController = nil
         browserProjectionLane?.close()
@@ -613,13 +621,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }),
             terminalCoordinator: agentSessionTerminalCoordinator,
             terminalTombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
-            makeTerminalPtyClient: { PtyManagerSocketClient.makeClient() }
+            makeTerminalPtyClient: { PtyManagerSocketClient.makeClient() },
+            placementCoordinator: desktopWindowPlacementCoordinator
         )
         agentWindowRegistry = agentWindows
         presenter.onOpenAgents = { [weak agentWindows] placement in
             agentWindows?.open(placement)
         }
-        presenter.onIDECommand = { [weak self] in self?.toggleWorkspaceIDE() }
+
+        let ideWindows = WorkspaceIDEWindowRegistry(
+            store: WorkspaceIDEWindowPresentationStore(url: Config.workspaceIDEWindowPresentationsURL),
+            endpointFactory: { [unowned self] id in
+                WorkspaceTerminalEndpoint(
+                    coordinator: workspaceTerminalCoordinator,
+                    requestNamespace: "workspace-macos-ide-\(id.uuidString)",
+                    clientTitle: "Workspace IDE macOS",
+                    tombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
+                    push: nil
+                )
+            },
+            controllerFactory: { [unowned self] id, placement, stateStore, terminalStore, endpoint, onClosed in
+                WorkspaceIDEWindowController(
+                    windowID: id,
+                    files: workspaceFilesResponder,
+                    workspaces: workspaceCoordinator,
+                    ideState: workspaceIDEStateCoordinator,
+                    observation: workspaceObservationCoordinator,
+                    terminalEndpoint: endpoint,
+                    terminalStore: terminalStore,
+                    localStateStore: stateStore,
+                    initialPlacement: placement,
+                    placementCoordinator: desktopWindowPlacementCoordinator,
+                    spacesProvider: spacesProvider,
+                    onClosed: onClosed
+                )
+            }
+        )
+        workspaceIDEWindowRegistry = ideWindows
+        presenter.onOpenIDE = { [weak ideWindows] placement in
+            ideWindows?.open(placement)
+        }
         presenter.onBrowserCommand = { [weak self] in self?.toggleBrowserProjection() }
 
         // Gesture window: the InteractionPanel webview detects swipes and steps
@@ -633,40 +674,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presenter.onVoiceCommand = { [weak gestureWindow] in gestureWindow?.showVoice() }
 
         presenter.show()
-    }
-
-    private func toggleWorkspaceIDE() {
-        workspaceIDEWindow().toggle()
-    }
-
-    /// Puts the IDE back on screen if that is where the user left it. Called at launch so a host
-    /// restart does not cost them the window they were working in; when it was closed we build
-    /// nothing, and the controller stays lazy until they ask for it.
-    private func restoreWorkspaceIDEWindowIfPreviouslyOpen() {
-        guard WorkspaceIDEWindowController.wasVisibleAtLastQuit else { return }
-        workspaceIDEWindow().show()
-    }
-
-    private func workspaceIDEWindow() -> WorkspaceIDEWindowController {
-        if let workspaceIDEWindowController { return workspaceIDEWindowController }
-        let terminalEndpoint = localWorkspaceTerminalEndpoint ?? WorkspaceTerminalEndpoint(
-            coordinator: workspaceTerminalCoordinator,
-            requestNamespace: "workspace-macos-ide",
-            clientTitle: "workspace-terminal-bootstrap-macos-ide",
-            tombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
-            push: nil
-        )
-        localWorkspaceTerminalEndpoint = terminalEndpoint
-        let controller = WorkspaceIDEWindowController(
-            files: workspaceFilesResponder,
-            workspaces: workspaceCoordinator,
-            ideState: workspaceIDEStateCoordinator,
-            observation: workspaceObservationCoordinator,
-            terminalEndpoint: terminalEndpoint,
-            spacesProvider: spacesProvider
-        )
-        workspaceIDEWindowController = controller
-        return controller
     }
 
     private func toggleBrowserProjection() {
@@ -944,7 +951,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startPtyManager() {
         guard let managerURL = Config.ptyManagerURL, let vaultURL = Config.ptyVaultURL else {
             signalingLogger.error("PTY runtime binaries not found in bundle")
-            restoreWorkspaceIDEWindowIfPreviouslyOpen()
+            agentWindowRegistry?.startRestoration(resumeTerminals: false)
+            workspaceIDEWindowRegistry?.startRestoration()
             return
         }
         let process = HostPtyRuntimeProcess(
@@ -956,23 +964,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startRestoresOnceRuntimeIsReady(process)
     }
 
-    /// Everything that puts a terminal back on screen needs the PTY runtime to be answering, and
-    /// `process.start()` only queues the launch. Restoring ahead of it silently fails: the standalone
-    /// terminal windows retry, but an Agents window's resume failure used to clear the very
-    /// attachment it was restoring, so a cold launch lost the terminal for good.
-    ///
-    /// The IDE window is restored either way. Its terminal pane wants the runtime, but the window
-    /// itself is an editor the user left open, and a runtime that never came up is no reason to
-    /// withhold it.
+    /// Window reconstruction is independent of terminal readiness: IDE and Agents windows return
+    /// immediately and without focus. The standalone terminals and remembered Agents terminal panes
+    /// wait for the PTY runtime, so a cold launch cannot turn an attachment race into lost state.
     private func startRestoresOnceRuntimeIsReady(_ runtime: HostPtyRuntimeProcess) {
+        agentWindowRegistry?.startRestoration(resumeTerminals: false)
+        workspaceIDEWindowRegistry?.startRestoration()
         Task { @MainActor [weak self] in
             let isReady = await runtime.waitUntilReady()
             guard let self else { return }
             if isReady {
                 self.terminalWindowRegistry.startRestoration()
-                self.agentWindowRegistry?.startRestoration()
+                self.agentWindowRegistry?.resumeStoredTerminals()
             }
-            self.restoreWorkspaceIDEWindowIfPreviouslyOpen()
         }
     }
 
@@ -1571,7 +1575,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func routeWorkspaceTerminalEvent(
         _ event: WorkspaceTerminalCoordinatorEvent
     ) async {
-        await localWorkspaceTerminalEndpoint?.handleCoordinatorEvent(event)
+        await workspaceIDEWindowRegistry?.handleCoordinatorEvent(event)
         for endpoint in workspaceTerminalEndpoints.activeEndpoints {
             await endpoint.handleCoordinatorEvent(event)
         }

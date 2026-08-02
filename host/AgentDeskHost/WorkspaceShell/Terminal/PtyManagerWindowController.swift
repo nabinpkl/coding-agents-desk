@@ -60,12 +60,17 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
     private let socketPath: String
     private let logger = Logger(subsystem: Config.logSubsystem, category: "terminal")
     private let terminalWindowRegistry: TerminalWindowRegistry
+    private let currentDesktopAssignment: () -> WorkspaceDesktopAssignment?
     private var nodes: [Node] = []
     private var subscription: Task<Void, Never>?
     private var bulkCloseInFlight = false
 
-    init(terminalWindowRegistry: TerminalWindowRegistry) {
+    init(
+        terminalWindowRegistry: TerminalWindowRegistry,
+        currentDesktopAssignment: @escaping () -> WorkspaceDesktopAssignment?
+    ) {
         self.terminalWindowRegistry = terminalWindowRegistry
+        self.currentDesktopAssignment = currentDesktopAssignment
         socketPath = PtyManagerSocketClient.socketPath
         client = PtyManagerSocketClient.makeClient()
         terminalSpawn = WebPtyManagerTerminalSpawn(client: PtyManagerSocketClient.makeClient())
@@ -355,8 +360,13 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
 
     @objc private func openClientTapped(_ sender: NSButton) {
         guard let node = node(forSender: sender), node.isSession else { return }
+        guard let desktop = currentDesktopAssignment() else {
+            statusLabel.stringValue = "Open client failed: current Desktop is unavailable"
+            return
+        }
         let session = node.session
-        terminalSpawn.spawnExistingSession(session, into: Self.attachFrame()) { [weak self] result in
+        let frame = Self.attachFrame()
+        terminalSpawn.spawnExistingSession(session, into: frame) { [weak self] result in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 switch result {
@@ -366,9 +376,10 @@ final class PtyManagerWindowController: NSObject, NSOutlineViewDataSource, NSOut
                         sessionName: session.name,
                         workspaceID: nil,
                         workspaceLabel: session.name,
-                        cascadeOrdinal: 0
+                        cascadeOrdinal: 0,
+                        placement: WorkspaceWindowPlacement(desktop: desktop, frame: frame),
+                        focus: true
                     )
-                    window.raise()
                     self.statusLabel.stringValue = "Opened a client for \(session.name)"
                 case .failure(let error):
                     self.statusLabel.stringValue = "Open client failed: \(error)"

@@ -29,6 +29,8 @@
 		A0000000000000000000F50D /* PtyTerminalWebView in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F50B /* PtyTerminalWebView */; };
 		A0000000000000000000F513 /* TerminalEmulator in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F512 /* TerminalEmulator */; };
 		A0000000000000000000F515 /* TerminalEmulator in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000F514 /* TerminalEmulator */; };
+		A0000000000000000000E503 /* WindowPlacement in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000E502 /* WindowPlacement */; };
+		A0000000000000000000E505 /* WindowPlacement in Frameworks */ = {isa = PBXBuildFile; productRef = A0000000000000000000E504 /* WindowPlacement */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -100,6 +102,7 @@
 				A0000000000000000000F508 /* PtyTerminalSession in Frameworks */,
 				A0000000000000000000F50C /* PtyTerminalWebView in Frameworks */,
 				A0000000000000000000F513 /* TerminalEmulator in Frameworks */,
+				A0000000000000000000E503 /* WindowPlacement in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +121,7 @@
 				A0000000000000000000F509 /* PtyTerminalSession in Frameworks */,
 				A0000000000000000000F50D /* PtyTerminalWebView in Frameworks */,
 				A0000000000000000000F515 /* TerminalEmulator in Frameworks */,
+				A0000000000000000000E505 /* WindowPlacement in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -173,6 +177,7 @@
 				A0000000000000000000F506 /* PtyTerminalSession */,
 				A0000000000000000000F50A /* PtyTerminalWebView */,
 				A0000000000000000000F512 /* TerminalEmulator */,
+				A0000000000000000000E502 /* WindowPlacement */,
 			);
 			productName = AgentDeskHost;
 			productReference = A00000000000000000000141 /* AgentDeskHost.app */;
@@ -208,6 +213,7 @@
 				A0000000000000000000F507 /* PtyTerminalSession */,
 				A0000000000000000000F50B /* PtyTerminalWebView */,
 				A0000000000000000000F514 /* TerminalEmulator */,
+				A0000000000000000000E504 /* WindowPlacement */,
 			);
 			productName = AgentDeskHostTests;
 			productReference = A00000000000000000000142 /* AgentDeskHostTests.xctest */;
@@ -250,6 +256,7 @@
 				A0000000000000000000B601 /* XCLocalSwiftPackageReference "../packages/BrowserProjection" */,
 				A0000000000000000000F501 /* XCLocalSwiftPackageReference "../terminal/pty-client-swift" */,
 				A0000000000000000000F511 /* XCLocalSwiftPackageReference "../terminal/emulator" */,
+				A0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WindowPlacement" */,
 			);
 			productRefGroup = A00000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -560,6 +567,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../terminal/emulator;
 		};
+		A0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WindowPlacement" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../packages/WindowPlacement;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -642,6 +653,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = A0000000000000000000F511 /* XCLocalSwiftPackageReference "../terminal/emulator" */;
 			productName = TerminalEmulator;
+		};
+		A0000000000000000000E502 /* WindowPlacement */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WindowPlacement" */;
+			productName = WindowPlacement;
+		};
+		A0000000000000000000E504 /* WindowPlacement */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A0000000000000000000E501 /* XCLocalSwiftPackageReference "../packages/WindowPlacement" */;
+			productName = WindowPlacement;
 		};
 		A0000000000000000000F504 /* PtyClientSwift */ = {
 			isa = XCSwiftPackageProductDependency;

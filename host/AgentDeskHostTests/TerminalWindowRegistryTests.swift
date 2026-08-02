@@ -38,12 +38,50 @@ final class TerminalWindowRegistryTests: XCTestCase {
         try await waitUntil { fixture.spawner.window?.orderedWithoutFocus == true }
 
         XCTAssertEqual(fixture.spawner.window?.workspaceLabel, "Workspace")
-        XCTAssertEqual(fixture.spawner.window?.currentFrame, descriptor.frame.cgRect)
+        XCTAssertEqual(fixture.spawner.window?.currentFrame, descriptor.placement.frame)
         XCTAssertFalse(fixture.spawner.window?.raised ?? true)
+        XCTAssertEqual(fixture.desktopPlacer.presentedPlacements, [descriptor.placement])
+        XCTAssertEqual(fixture.desktopPlacer.focusRequests, [false])
 
         fixture.registry.prepareForHostTermination()
         XCTAssertTrue(fixture.spawner.window?.closedPreservingPresentation ?? false)
         XCTAssertEqual(fixture.store.descriptors.map(\.id), [descriptor.id])
+    }
+
+    func testPlacementFailureKeepsDescriptorButNeverRevealsOnActiveDesktop() async throws {
+        let fixture = try RegistryFixture(sessions: [fixtureSession()])
+        defer { fixture.remove() }
+        let descriptor = try fixture.seed()
+        fixture.desktopPlacer.shouldFail = true
+
+        fixture.registry.startRestoration()
+        try await waitUntil { fixture.spawner.window?.closedPreservingPresentation == true }
+
+        XCTAssertFalse(fixture.spawner.window?.orderedWithoutFocus ?? true)
+        XCTAssertFalse(fixture.spawner.window?.raised ?? true)
+        XCTAssertEqual(fixture.store.descriptors.map(\.id), [descriptor.id])
+    }
+
+    func testRegistrationFailureClosesUnownedWindow() throws {
+        let fixture = try RegistryFixture(sessions: [])
+        defer { fixture.remove() }
+        let window = FakeTrackedTerminalWindow(frame: .zero)
+
+        fixture.registry.register(
+            window,
+            sessionName: "persistent",
+            workspaceID: UUID(),
+            workspaceLabel: "Workspace",
+            cascadeOrdinal: 0,
+            placement: WorkspaceWindowPlacement(
+                desktop: WorkspaceDesktopAssignment(spaceID: 20, displayID: "D1", ordinal: 1),
+                frame: .zero
+            ),
+            focus: true
+        )
+
+        XCTAssertTrue(window.closedPreservingPresentation)
+        XCTAssertTrue(fixture.store.descriptors.isEmpty)
     }
 
     private func waitUntil(
@@ -81,6 +119,7 @@ private final class RegistryFixture {
     let directory: URL
     let store: TerminalWindowPresentationStore
     let spawner = FakeExistingSessionSpawner()
+    let desktopPlacer = FakeTerminalWindowDesktopPlacer()
     let registry: TerminalWindowRegistry
 
     init(sessions: [PtySessionSummary]? = nil, error: Error? = nil) throws {
@@ -92,7 +131,8 @@ private final class RegistryFixture {
         registry = TerminalWindowRegistry(
             store: store,
             client: FakeSessionLister(sessions: sessions, error: error),
-            spawn: spawner
+            spawn: spawner,
+            desktopPlacer: desktopPlacer
         )
     }
 
@@ -102,7 +142,10 @@ private final class RegistryFixture {
             id: UUID(),
             sessionName: "persistent",
             workspaceID: UUID(),
-            frame: TerminalWindowFrame(CGRect(x: 40, y: 50, width: 700, height: 460)),
+            placement: WorkspaceWindowPlacement(
+                desktop: WorkspaceDesktopAssignment(spaceID: 20, displayID: "D1", ordinal: 1),
+                frame: CGRect(x: 40, y: 50, width: 700, height: 460)
+            ),
             cascadeOrdinal: 1,
             workspaceLabel: "Workspace"
         )
@@ -113,6 +156,35 @@ private final class RegistryFixture {
     func remove() {
         registry.prepareForHostTermination()
         try? FileManager.default.removeItem(at: directory)
+    }
+}
+
+@MainActor
+private final class FakeTerminalWindowDesktopPlacer: TerminalWindowDesktopPlacing {
+    private(set) var presentedPlacements: [WorkspaceWindowPlacement] = []
+    private(set) var focusRequests: [Bool] = []
+    var shouldFail = false
+
+    func present(
+        _ window: any TerminalWindowPresentationTrackable,
+        at placement: WorkspaceWindowPlacement,
+        focus: Bool
+    ) throws -> WorkspaceWindowPlacement {
+        presentedPlacements.append(placement)
+        focusRequests.append(focus)
+        if shouldFail { throw FixtureError.unavailable }
+        window.place(into: placement.frame)
+        if focus { window.raise() } else { window.orderWithoutFocus() }
+        return placement
+    }
+
+    func capture(
+        _ window: any TerminalWindowPresentationTrackable,
+        preserving placement: WorkspaceWindowPlacement
+    ) throws -> WorkspaceWindowPlacement? {
+        var captured = placement
+        captured.frame = window.currentFrame
+        return captured
     }
 }
 

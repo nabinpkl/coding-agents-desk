@@ -14,6 +14,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../pty-client-swift"),
+        .package(path: "../../packages/WindowPlacement"),
     ],
     targets: [
         .target(
@@ -22,6 +23,7 @@ let package = Package(
                 .product(name: "PtyClientSwift", package: "pty-client-swift"),
                 .product(name: "PtyTerminalSession", package: "pty-client-swift"),
                 .product(name: "PtyTerminalWebView", package: "pty-client-swift"),
+                .product(name: "WindowPlacement", package: "WindowPlacement"),
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),
@@ -34,6 +36,7 @@ let package = Package(
             dependencies: [
                 "TerminalEmulator",
                 .product(name: "PtyClientSwift", package: "pty-client-swift"),
+                .product(name: "WindowPlacement", package: "WindowPlacement"),
             ],
             linkerSettings: [
                 .linkedFramework("AppKit"),

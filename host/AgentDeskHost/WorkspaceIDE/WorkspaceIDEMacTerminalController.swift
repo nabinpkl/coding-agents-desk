@@ -26,7 +26,7 @@ final class WorkspaceIDEMacTerminalController: NSObject, PtyTerminalWebViewDeleg
     init(
         endpoint: WorkspaceTerminalEndpoint,
         ptyClient: PtyClient = PtyManagerSocketClient.makeClient(),
-        store: WorkspaceIDETerminalWorkspaceStore = WorkspaceIDETerminalWorkspaceStore()
+        store: WorkspaceIDETerminalWorkspaceStore
     ) {
         self.endpoint = endpoint
         self.ptyClient = ptyClient

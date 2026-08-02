@@ -1134,14 +1134,10 @@ enum Config {
         .appendingPathComponent("workspace-ide-state.json", isDirectory: false)
     static let workspaceIDEDraftsDirectory = applicationSupportDirectory
         .appendingPathComponent("WorkspaceIDE/Drafts", isDirectory: true)
-    /// The IDE window's last verified WindowServer Desktop membership and frame. This is written
-    /// while the host is alive because the development relaunch path intentionally terminates it
-    /// with SIGKILL.
-    static let workspaceIDEWindowPlacementURL = applicationSupportDirectory
-        .appendingPathComponent("workspace-ide-window-placement.json", isDirectory: false)
-    /// Whether the IDE window was on screen when the host last quit. Read once at launch to put it
-    /// back, so a restart is invisible to someone who was working in it.
-    static let workspaceIDEWindowVisibleKey = "agentDesk.workspaceIDE.windowVisible"
+    /// The open IDE window set. Each descriptor owns one window's verified Desktop, frame, and local
+    /// presentation state, so restart restoration has one authoritative record per instance.
+    static let workspaceIDEWindowPresentationsURL = applicationSupportDirectory
+        .appendingPathComponent("workspace-ide-window-presentations.json", isDirectory: false)
     static let terminalWindowPresentationsURL = applicationSupportDirectory
         .appendingPathComponent("terminal-window-presentations.json", isDirectory: false)
     /// Where each open Agents window was, so a host restart puts them all back. A file rather than

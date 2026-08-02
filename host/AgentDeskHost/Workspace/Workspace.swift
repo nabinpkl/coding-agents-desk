@@ -1,22 +1,16 @@
 import CoreGraphics
 import Foundation
+import WindowPlacement
 
-public struct WorkspaceDesktopAssignment: Codable, Equatable, Sendable {
-    public let spaceID: UInt64
-    public let displayID: String
-    public let ordinal: Int
+public typealias WorkspaceDesktopAssignment = DesktopWindowAssignment
+public typealias WorkspaceWindowPlacement = DesktopWindowPlacement
 
-    public init(spaceID: UInt64, displayID: String, ordinal: Int) {
-        self.spaceID = spaceID
-        self.displayID = displayID
-        self.ordinal = ordinal
-    }
-
-    public init(_ desktop: WorkspaceDesktop) {
+extension DesktopWindowAssignment {
+    init(_ desktop: WorkspaceDesktop) {
         self.init(spaceID: desktop.id, displayID: desktop.displayID, ordinal: desktop.ordinal)
     }
 
-    public func matches(_ other: WorkspaceDesktopAssignment) -> Bool {
+    func matches(_ other: DesktopWindowAssignment) -> Bool {
         spaceID == other.spaceID
     }
 }

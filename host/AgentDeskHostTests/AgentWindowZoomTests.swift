@@ -198,7 +198,7 @@ struct AgentWindowZoomTests {
             initialZoomStep: 4
         )
         controller.observePresentation(
-            frameChanged: { _ in },
+            placementChanged: { _ in },
             terminalChanged: { _ in },
             zoomChanged: { reported.append($0) }
         )
