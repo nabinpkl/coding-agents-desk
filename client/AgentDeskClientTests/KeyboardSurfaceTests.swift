@@ -307,8 +307,21 @@ struct KeyboardSurfaceTests {
                     && arrows.allSatisfy { $0.isDescendant(of: stack) }
             }
         )
+        let shift = try #require(
+            button(withAccessibilityIdentifier: "keyboard-modifier-shift", in: accessory)
+        )
+        let accessoryRow = try #require(
+            stackViews(in: accessory).first { stack in
+                stack.axis == .horizontal
+                    && stack.arrangedSubviews.contains { $0 === shift }
+                    && stack.arrangedSubviews.contains { $0 === cluster }
+            }
+        )
         let arrowRows = stackViews(in: cluster).filter { $0.axis == .horizontal }
+        let shiftIndex = try #require(accessoryRow.arrangedSubviews.firstIndex { $0 === shift })
+        let clusterIndex = try #require(accessoryRow.arrangedSubviews.firstIndex { $0 === cluster })
 
+        #expect(clusterIndex == shiftIndex + 1)
         #expect(cluster.bounds.width >= escape.bounds.width * 1.9)
         #expect(arrows.allSatisfy {
             ($0.titleLabel?.font.pointSize ?? 0) > (escape.titleLabel?.font.pointSize ?? 0)

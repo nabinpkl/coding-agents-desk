@@ -326,7 +326,7 @@ final class KeyboardAccessoryView: UIInputView {
         let option = makeModifierButton(title: "Opt", mod: .option)
         let shift = makeModifierButton(title: "⇧", mod: .shift)
 
-        var controls: [UIView] = [escape, tab, arrowCluster, shift, cmd, ctrl, option]
+        var controls: [UIView] = [escape, tab, shift, arrowCluster, cmd, ctrl, option]
         if surface?.showsDismissKey == true {
             controls.append(makeDismissButton())
         }
