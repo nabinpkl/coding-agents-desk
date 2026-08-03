@@ -188,17 +188,15 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
             buttonRowBottomConstraint != nil
         else { return }
         // Convert from screen coords to view coords so multi-window /
-        // split-view setups don't double-count safe area. The keyboard
-        // notification reports the system keyboard frame but not our
-        // custom inputAccessoryView, so reserve both before positioning
-        // the bottom controls.
+        // split-view setups don't double-count safe area. UIKit's end
+        // frame already starts at the top of the composed keyboard,
+        // including our inputAccessoryView, so adding the accessory
+        // height separately would leave a duplicate gap.
         let endInView = view.convert(endFrame, from: nil)
-        let accessoryHeight = keyboardSurface.inputAccessoryView?.bounds.height ?? 0
         let constant = KeyboardAvoidanceGeometry.bottomConstant(
             viewHeight: view.bounds.maxY,
             keyboardMinY: endInView.minY,
-            safeBottom: view.safeAreaInsets.bottom,
-            accessoryHeight: accessoryHeight
+            safeBottom: view.safeAreaInsets.bottom
         )
         animateButtonRow(to: constant, with: note)
     }

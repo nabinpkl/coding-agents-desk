@@ -4,23 +4,21 @@ import AgentDeskWire
 @testable import AgentDeskClient
 
 struct HostTextInputKeyboardPolicyTests {
-    @Test func bottomControlRowClearsPresentedKeyboardAccessory() {
+    @Test func bottomControlRowSitsDirectlyAboveComposedKeyboardFrame() {
         let constant = KeyboardAvoidanceGeometry.bottomConstant(
             viewHeight: 956,
             keyboardMinY: 626,
-            safeBottom: 34,
-            accessoryHeight: 44
+            safeBottom: 34
         )
 
-        #expect(constant == -352)
+        #expect(constant == -308)
     }
 
-    @Test func hiddenKeyboardDoesNotReserveAccessoryHeight() {
+    @Test func hiddenKeyboardRestoresBottomPadding() {
         let constant = KeyboardAvoidanceGeometry.bottomConstant(
             viewHeight: 956,
             keyboardMinY: 956,
-            safeBottom: 34,
-            accessoryHeight: 44
+            safeBottom: 34
         )
 
         #expect(constant == -12)

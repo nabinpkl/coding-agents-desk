@@ -35,13 +35,12 @@ enum KeyboardAvoidanceGeometry {
     static func bottomConstant(
         viewHeight: CGFloat,
         keyboardMinY: CGFloat,
-        safeBottom: CGFloat,
-        accessoryHeight: CGFloat
+        safeBottom: CGFloat
     ) -> CGFloat {
         let overlap = max(0, viewHeight - keyboardMinY)
         let keyboardExtra = max(0, overlap - safeBottom)
         guard keyboardExtra > 0 else { return -bottomPadding }
-        return -(keyboardExtra + max(0, accessoryHeight) + bottomPadding)
+        return -(keyboardExtra + bottomPadding)
     }
 }
 
