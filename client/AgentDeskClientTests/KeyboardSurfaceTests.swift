@@ -284,6 +284,40 @@ struct KeyboardSurfaceTests {
         #expect(shift.accessibilityValue == "Off")
     }
 
+    @Test func arrowClusterUsesTwoKeyWidthsWithLargerGlyphsAndGaps() throws {
+        let surface = KeyboardSurface()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let controller = UIViewController()
+        controller.view.addSubview(surface)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true }
+        #expect(surface.becomeFirstResponder())
+        let accessory = try #require(surface.inputAccessoryView as? KeyboardAccessoryView)
+        accessory.frame.size.width = 390
+        accessory.layoutIfNeeded()
+
+        let escape = try #require(button(withTitle: "Esc", in: accessory))
+        let arrows = try ["\u{2191}", "\u{2190}", "\u{2193}", "\u{2192}"].map {
+            try #require(button(withTitle: $0, in: accessory))
+        }
+        let cluster = try #require(
+            stackViews(in: accessory).first { stack in
+                stack.axis == .vertical
+                    && arrows.allSatisfy { $0.isDescendant(of: stack) }
+            }
+        )
+        let arrowRows = stackViews(in: cluster).filter { $0.axis == .horizontal }
+
+        #expect(cluster.bounds.width >= escape.bounds.width * 1.9)
+        #expect(arrows.allSatisfy {
+            ($0.titleLabel?.font.pointSize ?? 0) > (escape.titleLabel?.font.pointSize ?? 0)
+        })
+        #expect(cluster.spacing >= 4)
+        #expect(arrowRows.count == 2)
+        #expect(arrowRows.allSatisfy { $0.spacing >= 4 })
+    }
+
     @Test func multiCharacterInsertEmitsOneEventPerCharacter() {
         let surface = KeyboardSurface()
         let recorder = Recorder()
@@ -343,6 +377,21 @@ struct KeyboardSurfaceTests {
         return view.subviews.lazy.compactMap {
             button(withAccessibilityIdentifier: identifier, in: $0)
         }.first
+    }
+
+    private func button(withTitle title: String, in view: UIView) -> UIButton? {
+        if let button = view as? UIButton,
+           button.currentTitle == title {
+            return button
+        }
+        return view.subviews.lazy.compactMap {
+            button(withTitle: title, in: $0)
+        }.first
+    }
+
+    private func stackViews(in view: UIView) -> [UIStackView] {
+        let current = (view as? UIStackView).map { [$0] } ?? []
+        return current + view.subviews.flatMap(stackViews(in:))
     }
 }
 

@@ -333,10 +333,15 @@ final class KeyboardAccessoryView: UIInputView {
         let stack = UIStackView(arrangedSubviews: controls)
         stack.axis = .horizontal
         stack.spacing = keySpacing
-        stack.distribution = .fillEqually
+        stack.distribution = .fill
         stack.alignment = .center
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
+
+        let ordinaryControls = controls.filter { $0 !== arrowCluster }
+        let ordinaryWidthConstraints = ordinaryControls.dropFirst().map {
+            $0.widthAnchor.constraint(equalTo: ordinaryControls[0].widthAnchor)
+        }
 
         // Vertical padding derived from (container - key) / 2 so the row
         // of keys sits centered with even space above and below; never
@@ -347,8 +352,13 @@ final class KeyboardAccessoryView: UIInputView {
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -keySpacing),
             stack.topAnchor.constraint(equalTo: topAnchor, constant: verticalInset),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -verticalInset),
-            stack.heightAnchor.constraint(equalToConstant: keyHeight)
-        ])
+            stack.heightAnchor.constraint(equalToConstant: keyHeight),
+            arrowCluster.widthAnchor.constraint(
+                equalTo: ordinaryControls[0].widthAnchor,
+                multiplier: 2
+            ),
+            arrowCluster.heightAnchor.constraint(equalTo: stack.heightAnchor)
+        ] + ordinaryWidthConstraints)
     }
 
     private func makeKeyButton(title: String, code: String) -> UIButton {
@@ -377,29 +387,36 @@ final class KeyboardAccessoryView: UIInputView {
         return button
     }
 
-    // 2x2 cluster of arrow buttons in a single accessory slot to save the
-    // horizontal real estate three side-by-side arrows would consume.
+    // 2x2 cluster of arrow buttons spanning two ordinary key widths. This
+    // keeps the familiar arrow arrangement while avoiding tiny split keys.
     private func makeArrowCluster() -> UIView {
         let row1 = UIStackView(arrangedSubviews: [
             spacerButton(),
-            makeKeyButton(title: "↑", code: "up"),
+            makeArrowButton(title: "↑", code: "up"),
             spacerButton()
         ])
         let row2 = UIStackView(arrangedSubviews: [
-            makeKeyButton(title: "←", code: "left"),
-            makeKeyButton(title: "↓", code: "down"),
-            makeKeyButton(title: "→", code: "right")
+            makeArrowButton(title: "←", code: "left"),
+            makeArrowButton(title: "↓", code: "down"),
+            makeArrowButton(title: "→", code: "right")
         ])
         [row1, row2].forEach {
             $0.axis = .horizontal
             $0.distribution = .fillEqually
-            $0.spacing = 2
+            $0.spacing = 4
         }
         let column = UIStackView(arrangedSubviews: [row1, row2])
         column.axis = .vertical
         column.distribution = .fillEqually
-        column.spacing = 2
+        column.spacing = 4
         return column
+    }
+
+    private func makeArrowButton(title: String, code: String) -> UIButton {
+        let button = makeKeyButton(title: title, code: code)
+        button.titleLabel?.font = .preferredFont(forTextStyle: .title3)
+        button.titleLabel?.adjustsFontForContentSizeCategory = true
+        return button
     }
 
     private func spacerButton() -> UIView {
