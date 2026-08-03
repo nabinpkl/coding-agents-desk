@@ -1,3 +1,4 @@
+import CoreGraphics
 import AgentDeskWire
 
 enum KeyboardPresentationState: Equatable {
@@ -26,6 +27,22 @@ struct KeyboardPresentationTransition: Equatable {
 
 enum KeyboardPresentationTiming {
     static let pendingTextFocusTimeoutNs: UInt64 = 700_000_000
+}
+
+enum KeyboardAvoidanceGeometry {
+    static let bottomPadding: CGFloat = 12
+
+    static func bottomConstant(
+        viewHeight: CGFloat,
+        keyboardMinY: CGFloat,
+        safeBottom: CGFloat,
+        accessoryHeight: CGFloat
+    ) -> CGFloat {
+        let overlap = max(0, viewHeight - keyboardMinY)
+        let keyboardExtra = max(0, overlap - safeBottom)
+        guard keyboardExtra > 0 else { return -bottomPadding }
+        return -(keyboardExtra + max(0, accessoryHeight) + bottomPadding)
+    }
 }
 
 enum KeyboardPresentationStateMachine {

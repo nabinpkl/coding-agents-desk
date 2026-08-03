@@ -188,21 +188,24 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
             buttonRowBottomConstraint != nil
         else { return }
         // Convert from screen coords to view coords so multi-window /
-        // split-view setups don't double-count safe area. overlap is
-        // the y-distance the keyboard hides from the bottom of our
-        // view.
+        // split-view setups don't double-count safe area. The keyboard
+        // notification reports the system keyboard frame but not our
+        // custom inputAccessoryView, so reserve both before positioning
+        // the bottom controls.
         let endInView = view.convert(endFrame, from: nil)
-        let overlap = max(0, view.bounds.maxY - endInView.minY)
-        let safeBottom = view.safeAreaInsets.bottom
-        // The safe-area anchor already accounts for safeBottom, so add
-        // only the extra that the keyboard hides on top of it.
-        let extra = max(0, overlap - safeBottom)
-        animateButtonRow(to: -(extra + 12), with: note)
+        let accessoryHeight = keyboardSurface.inputAccessoryView?.bounds.height ?? 0
+        let constant = KeyboardAvoidanceGeometry.bottomConstant(
+            viewHeight: view.bounds.maxY,
+            keyboardMinY: endInView.minY,
+            safeBottom: view.safeAreaInsets.bottom,
+            accessoryHeight: accessoryHeight
+        )
+        animateButtonRow(to: constant, with: note)
     }
 
     @objc func keyboardWillHide(_ note: Notification) {
         applyKeyboardPresentationIntent(.hide)
-        animateButtonRow(to: -12, with: note)
+        animateButtonRow(to: -KeyboardAvoidanceGeometry.bottomPadding, with: note)
     }
 
     private func animateButtonRow(to constant: CGFloat, with note: Notification) {
