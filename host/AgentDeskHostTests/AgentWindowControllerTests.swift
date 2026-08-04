@@ -65,21 +65,12 @@ struct AgentWindowControllerTests {
         #expect(window.titlebarSeparatorStyle == .none)
 
         let contentView = try #require(window.contentView as? AgentWindowContentView)
-        #expect(contentView.titlebarDragRegionForTesting is AgentWindowTitlebarDragView)
         contentView.layoutSubtreeIfNeeded()
+        // The web header starts clear of the traffic lights. It is the only native title-bar
+        // geometry left: dragging is hit-tested in the DOM and performed over the chrome channel,
+        // so there is no native overlay whose size has to track the header's controls.
         let titlebarLayout = AgentWindowTitlebarLayout.measure(in: window)
-        #expect(
-            titlebarLayout.dragRegionLeading(zoomScale: 1)
-                == titlebarLayout.webLeadingInset
-                    + AgentWindowTitlebarLayout.leadingControlWidth
-                    + AgentWindowTitlebarLayout.leadingControlGap
-        )
-        #expect(
-            contentView.titlebarDragRegionForTesting.frame.minX
-                == titlebarLayout.dragRegionLeading(zoomScale: 1)
-        )
-        #expect(contentView.titlebarDragRegionForTesting.frame.width == AgentWindowTitlebarLayout.dragRegionWidth)
-        #expect(contentView.titlebarDragRegionForTesting.frame.height == AgentWindowTitlebarLayout.dragRegionHeight)
+        #expect(titlebarLayout.webLeadingInset > AgentWindowTitlebarLayout.trafficLightGap)
 
         // The content surface is AX-reachable as either the live webview or the fallback label.
         let ids = axIdentifiers(in: window.contentView)

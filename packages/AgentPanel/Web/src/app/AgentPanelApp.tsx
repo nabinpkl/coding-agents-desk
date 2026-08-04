@@ -462,6 +462,7 @@ export function App({ bridge }: Props) {
 
         <div className="flex min-w-0 flex-1 flex-col pb-[env(safe-area-inset-bottom)]">
           <header
+            data-window-drag
             className={`flex min-h-11 shrink-0 items-center gap-1 border-b border-border bg-card px-1.5${
               sidebarPinned ? "" : " agent-window-titlebar-main-leading"
             }`}

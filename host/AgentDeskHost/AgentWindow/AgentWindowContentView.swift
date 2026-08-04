@@ -10,45 +10,17 @@ import AppKit
 @MainActor
 final class AgentWindowContentView: NSView {
     var onZoomCommand: ((AgentWindowZoomCommand) -> Void)?
-    let titlebarDragRegionForTesting: NSView
-    private let titlebarLayout: AgentWindowTitlebarLayout
-    private var titlebarDragRegionLeadingConstraint: NSLayoutConstraint!
 
-    init(
-        content: NSView,
-        titlebarLayout: AgentWindowTitlebarLayout,
-        zoomScale: Double
-    ) {
-        let titlebarDragRegion = AgentWindowTitlebarDragView()
-        self.titlebarDragRegionForTesting = titlebarDragRegion
-        self.titlebarLayout = titlebarLayout
+    init(content: NSView) {
         super.init(frame: .zero)
         content.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
-        titlebarDragRegion.translatesAutoresizingMaskIntoConstraints = false
-        titlebarDragRegion.toolTip = "Drag Agents window"
-        titlebarDragRegion.setAccessibilityElement(false)
-        addSubview(titlebarDragRegion)
-        titlebarDragRegionLeadingConstraint = titlebarDragRegion.leadingAnchor.constraint(
-            equalTo: leadingAnchor,
-            constant: titlebarLayout.dragRegionLeading(zoomScale: zoomScale)
-        )
         NSLayoutConstraint.activate([
             content.leadingAnchor.constraint(equalTo: leadingAnchor),
             content.trailingAnchor.constraint(equalTo: trailingAnchor),
             content.topAnchor.constraint(equalTo: topAnchor),
             content.bottomAnchor.constraint(equalTo: bottomAnchor),
-            titlebarDragRegionLeadingConstraint,
-            titlebarDragRegion.topAnchor.constraint(equalTo: topAnchor),
-            titlebarDragRegion.widthAnchor.constraint(equalToConstant: titlebarLayout.dragRegionWidth),
-            titlebarDragRegion.heightAnchor.constraint(equalToConstant: titlebarLayout.dragRegionHeight),
         ])
-    }
-
-    func updateTitlebarDragRegion(zoomScale: Double) {
-        titlebarDragRegionLeadingConstraint.constant = titlebarLayout.dragRegionLeading(
-            zoomScale: zoomScale
-        )
     }
 
     @available(*, unavailable)

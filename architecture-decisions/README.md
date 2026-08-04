@@ -127,3 +127,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0086 | Give the agent feed two views, with the raw one as the fidelity guarantee | accepted | 2026-07-30 |
 | ADR-0091 | Own live agent sessions behind provider-neutral backends | accepted | 2026-08-01 |
 | ADR-0092 | Restore every standalone tool window through one Desktop placement authority | accepted | 2026-08-02 |
+| ADR-0093 | Let the DOM declare the window drag region | accepted | 2026-08-04 |

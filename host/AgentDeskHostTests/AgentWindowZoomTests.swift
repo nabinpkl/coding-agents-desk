@@ -85,13 +85,27 @@ struct AgentWindowZoomTests {
         #expect(AgentWindowPanelChrome.cssLeadingInset(points: 117, zoomScale: 2) == 58.5)
         #expect(AgentWindowPanelChrome.cssLeadingInset(points: 117, zoomScale: 0.6) == 195)
 
-        let initialScript = AgentWindowPanelChrome.userScript(leadingInset: 117, zoomScale: 2)
+        let initialScript = AgentWindowPanelChrome.leadingInsetUserScript(leadingInset: 117, zoomScale: 2)
         #expect(initialScript.source.contains("window.__agentDeskSetTitlebarLeadingInset = apply;"))
         #expect(initialScript.source.contains("apply(58.5000);"))
         #expect(
-            AgentWindowPanelChrome.updateScript(leadingInset: 117, zoomScale: 2)
+            AgentWindowPanelChrome.leadingInsetUpdateScript(leadingInset: 117, zoomScale: 2)
                 == "window.__agentDeskSetTitlebarLeadingInset?.(58.5000);"
         )
+    }
+
+    @Test func theWebTitleBarReachesTheNativeWindowOverTheChromeChannel() {
+        // The entry point is native-installed, which is what keeps the shared bundle free of a
+        // Mac-only branch: iOS simply never defines the global the web bundle looks for.
+        let source = AgentWindowPanelChrome.windowDragUserScript.source
+        #expect(source.contains("window.__agentDeskBeginWindowDrag = () =>"))
+        #expect(source.contains("messageHandlers?.\(AgentWindowPanelChrome.messageHandlerName)"))
+        #expect(AgentWindowPanelChrome.windowDragUserScript.injectionTime == .atDocumentStart)
+
+        #expect(AgentWindowPanelChrome.command(from: ["t": "drag"]) == .beginWindowDrag)
+        #expect(AgentWindowPanelChrome.command(from: ["t": "zoom"]) == nil)
+        #expect(AgentWindowPanelChrome.command(from: ["drag": true]) == nil)
+        #expect(AgentWindowPanelChrome.command(from: "drag") == nil)
     }
 
     @Test func theWindowAnswersTheChordAndScalesTheFeed() async throws {
@@ -107,19 +121,10 @@ struct AgentWindowZoomTests {
         // two classes depending on `Config.axAutomationEnabled`.
         let contentView = try #require(window.contentView as? AgentWindowContentView)
         contentView.layoutSubtreeIfNeeded()
-        let initialDragLeading = contentView.titlebarDragRegionForTesting.frame.minX
 
         #expect(contentView.performKeyEquivalent(with: keyEvent("=")))
         contentView.layoutSubtreeIfNeeded()
         #expect(controller.zoomScaleForTesting == 1.1)
-        #expect(
-            abs(
-                contentView.titlebarDragRegionForTesting.frame.minX
-                    - initialDragLeading
-                    - (AgentWindowTitlebarLayout.leadingControlWidth
-                        + AgentWindowTitlebarLayout.leadingControlGap) * 0.1
-            ) < 0.25
-        )
         #expect(contentView.performKeyEquivalent(with: keyEvent("-")))
         #expect(contentView.performKeyEquivalent(with: keyEvent("-")))
         #expect(controller.zoomScaleForTesting == 0.9)

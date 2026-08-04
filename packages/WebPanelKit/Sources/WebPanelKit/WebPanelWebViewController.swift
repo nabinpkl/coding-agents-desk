@@ -2,6 +2,12 @@ import Foundation
 import WebKit
 import os
 
+/// A native handler for one extra script-message channel, keyed by its handler name.
+///
+/// The container's own chrome talks over these rather than the contract channel: window commands
+/// are not panel requests, and a container that owns none of them registers none.
+public typealias WebPanelScriptMessageHandler = @MainActor (Any) -> Void
+
 /// Hosts a panel's bundled webview: serves assets over the contract's scheme,
 /// buffers + serializes native-to-JS delivery, bridges JS errors to os_log, and
 /// forwards JS-to-native messages as raw `(tag, body)` to a sink.
@@ -20,6 +26,7 @@ public final class WebPanelWebViewController: NSObject {
     public weak var messageSink: (any WebPanelMessageSink)?
 
     private let contract: WebPanelContract
+    private let additionalMessageHandlers: [String: WebPanelScriptMessageHandler]
     private let logger: Logger
     private var deliveryQueue: WebPanelDeliveryQueue?
     private var serialDelivery: WebPanelSerialDelivery?
@@ -35,6 +42,7 @@ public final class WebPanelWebViewController: NSObject {
         resourceRootDirectory: URL?,
         messageSink: (any WebPanelMessageSink)?,
         additionalUserScripts: [WKUserScript] = [],
+        additionalMessageHandlers: [String: WebPanelScriptMessageHandler] = [:],
         logSubsystem: String = "com.example.agentdesk.WebPanelKit"
     ) throws {
         guard let rootDirectory = resourceRootDirectory else {
@@ -42,6 +50,14 @@ public final class WebPanelWebViewController: NSObject {
         }
         guard let requestURL = contract.indexRequestURL else {
             throw InitializationError.invalidRequestURL
+        }
+        for name in additionalMessageHandlers.keys {
+            // A collision would shadow the shadowed channel's messages silently, and a panel whose
+            // requests or diagnostics stop arriving looks exactly like a panel that never sent any.
+            precondition(
+                name != contract.messageHandlerName && name != Self.diagnosticsHandlerName,
+                "Web panel message handler \(name) collides with a reserved channel"
+            )
         }
 
         let contentController = WKUserContentController()
@@ -60,6 +76,7 @@ public final class WebPanelWebViewController: NSObject {
         self.webView = createdWebView
         self.messageSink = messageSink
         self.contract = contract
+        self.additionalMessageHandlers = additionalMessageHandlers
         self.logger = Logger(subsystem: logSubsystem, category: "web-panel-js")
         super.init()
 
@@ -84,6 +101,9 @@ public final class WebPanelWebViewController: NSObject {
         let proxy = WebPanelWeakScriptMessageProxy(target: self)
         contentController.add(proxy, name: contract.messageHandlerName)
         contentController.add(proxy, name: Self.diagnosticsHandlerName)
+        for name in additionalMessageHandlers.keys {
+            contentController.add(proxy, name: name)
+        }
         contentController.addUserScript(WKUserScript(
             source: Self.diagnosticsShimSource,
             injectionTime: .atDocumentStart,
@@ -126,6 +146,9 @@ public final class WebPanelWebViewController: NSObject {
         webView.navigationDelegate = nil
         webView.configuration.userContentController.removeScriptMessageHandler(forName: contract.messageHandlerName)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.diagnosticsHandlerName)
+        for name in additionalMessageHandlers.keys {
+            webView.configuration.userContentController.removeScriptMessageHandler(forName: name)
+        }
         webView.evaluateJavaScript("window.\(contract.bridgeGlobalName)?.destroy?.()") { _, _ in }
     }
 
@@ -183,6 +206,10 @@ extension WebPanelWebViewController: WKScriptMessageHandler {
     ) {
         if message.name == Self.diagnosticsHandlerName {
             handleDiagnostics(message.body)
+            return
+        }
+        if let handler = additionalMessageHandlers[message.name] {
+            handler(message.body)
             return
         }
         guard message.name == contract.messageHandlerName,

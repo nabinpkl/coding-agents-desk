@@ -6,6 +6,7 @@ import { BridgeDataSource } from "../features/activity-feed/data-source/BridgeDa
 import { WebkitHostBridge } from "../features/activity-feed/data-source/HostBridge";
 import { installFixture } from "./fixture";
 import { installPagehideLifecycle } from "./pageLifecycle";
+import { installWindowDrag } from "./windowDrag";
 
 declare global {
   interface Window {
@@ -46,3 +47,7 @@ createRoot(root).render(
 // pagehide fires reliably in WKWebView (unload is often skipped under the
 // back-forward cache and on iOS); use it to tear down the bridge.
 installPagehideLifecycle(bridge);
+
+// Inert title-bar presses drag the native window. No-ops unless the Mac host installed its
+// window-chrome entry point, so the iOS client and a plain browser take no branch.
+installWindowDrag();

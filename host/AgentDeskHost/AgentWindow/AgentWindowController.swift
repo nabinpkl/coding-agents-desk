@@ -197,10 +197,16 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
                 transport: nil,
                 additionalUserScripts: [
                     AgentWindowPanelAccessibility.userScript,
-                    AgentWindowPanelChrome.userScript(
+                    AgentWindowPanelChrome.leadingInsetUserScript(
                         leadingInset: titlebarLayout.webLeadingInset,
                         zoomScale: zoom.scale
                     ),
+                    AgentWindowPanelChrome.windowDragUserScript,
+                ],
+                additionalMessageHandlers: [
+                    AgentWindowPanelChrome.messageHandlerName: { [weak self] body in
+                        self?.handleChromeCommand(body)
+                    },
                 ]
             )
             // The bridge pushes already-encoded agent-feed JSON; deliver it into the webview on the
@@ -277,18 +283,48 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     }
 
     private func makeContentView(_ content: NSView) -> AgentWindowContentView {
-        guard let layout = titlebarLayout else {
-            preconditionFailure("Agents title-bar layout must exist before content is installed")
-        }
-        let view = AgentWindowContentView(
-            content: content,
-            titlebarLayout: layout,
-            zoomScale: zoom.scale
-        )
+        let view = AgentWindowContentView(content: content)
         view.onZoomCommand = { [weak self] command in
             self?.applyZoom(command)
         }
         return view
+    }
+
+    /// The web title bar decides which of its own pixels are inert and asks for the drag; this side
+    /// only performs it. Keeping the hit test in the DOM is what lets the header gain or lose
+    /// controls, change title length, pin the sidebar, or zoom without any native geometry to
+    /// re-mirror.
+    private func handleChromeCommand(_ body: Any) {
+        guard let command = AgentWindowPanelChrome.command(from: body) else {
+            logger.error(
+                "agents-window chrome: unrecognized command body=\(String(describing: body), privacy: .public)"
+            )
+            return
+        }
+        switch command {
+        case .beginWindowDrag:
+            beginWindowDrag()
+        }
+    }
+
+    /// AppKit drags from the event that started the gesture. The mouse-down reaches this side only
+    /// after a round trip through the web process, so the live event is read here rather than
+    /// carried across: by now it is the same press still held, or its first drag.
+    private func beginWindowDrag() {
+        guard let window else { return }
+        guard let event = NSApp.currentEvent else {
+            logger.error("agents-window chrome: window drag requested with no current event")
+            return
+        }
+        guard event.type == .leftMouseDown || event.type == .leftMouseDragged else {
+            // A press released inside the round trip lands here. Harmless, but worth seeing: a
+            // drag that never starts looks the same from the outside as one that was never asked for.
+            logger.notice(
+                "agents-window chrome: window drag skipped for event type \(event.type.rawValue, privacy: .public)"
+            )
+            return
+        }
+        window.performDrag(with: event)
     }
 
     /// Scales both halves of the window by one level, through the mechanism each one wants: page
@@ -300,16 +336,13 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         panelController?.webView.pageZoom = zoom.scale
         if let titlebarLayout, let webView = panelController?.webView {
             webView.evaluateJavaScript(
-                AgentWindowPanelChrome.updateScript(
+                AgentWindowPanelChrome.leadingInsetUpdateScript(
                     leadingInset: titlebarLayout.webLeadingInset,
                     zoomScale: zoom.scale
                 ),
                 completionHandler: nil
             )
         }
-        (window?.contentView as? AgentWindowContentView)?.updateTitlebarDragRegion(
-            zoomScale: zoom.scale
-        )
         terminalController?.setZoomScale(zoom.scale)
         onZoomChanged?(zoom.step)
     }
@@ -353,6 +386,9 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
+        // AppKit's background drag would need the mouse events WebKit consumes, so it never fires
+        // over the panel and would only add a second, inconsistent way to move the window. The web
+        // title bar drives dragging explicitly through `AgentWindowPanelChrome` instead.
         window.isMovableByWindowBackground = false
         // A normal utility window, not an always-on-top HUD, matching the shell panel's level so it
         // can be covered when another app is frontmost.

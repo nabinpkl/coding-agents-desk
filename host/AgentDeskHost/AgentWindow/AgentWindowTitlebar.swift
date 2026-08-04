@@ -4,26 +4,13 @@ import WebKit
 
 /// Native geometry that the web-owned title bar must leave clear.
 ///
-/// The traffic lights remain standard AppKit controls. The React header begins immediately after
-/// them, and a native drag target overlays the inert title area after its leading control. Measuring
-/// the buttons keeps the layout correct for AppKit changes instead of baking one macOS release's
-/// traffic-light positions into CSS.
+/// The traffic lights remain standard AppKit controls, and the React header begins immediately
+/// after them. Measuring the buttons keeps the layout correct for AppKit changes instead of baking
+/// one macOS release's traffic-light positions into CSS.
 struct AgentWindowTitlebarLayout: Equatable {
     static let trafficLightGap: CGFloat = 8
-    static let leadingControlWidth: CGFloat = 44
-    static let leadingControlGap: CGFloat = 4
-    static let dragRegionWidth: CGFloat = 32
-    static let dragRegionHeight: CGFloat = 24
 
-    let dragRegionWidth: CGFloat
-    let dragRegionHeight: CGFloat
     let webLeadingInset: CGFloat
-
-    func dragRegionLeading(zoomScale: Double) -> CGFloat {
-        precondition(zoomScale.isFinite && zoomScale > 0, "Agents title-bar zoom must be positive")
-        return webLeadingInset
-            + (Self.leadingControlWidth + Self.leadingControlGap) * CGFloat(zoomScale)
-    }
 
     @MainActor
     static func measure(in window: NSWindow) -> Self {
@@ -32,34 +19,48 @@ struct AgentWindowTitlebarLayout: Equatable {
             NSWindow.ButtonType.closeButton,
             .miniaturizeButton,
             .zoomButton,
-        ].compactMap { type -> CGFloat? in
+        ].compactMap({ type -> CGFloat? in
             guard
                 let button = window.standardWindowButton(type),
                 let superview = button.superview,
                 let contentView
             else { return nil }
             return contentView.convert(button.frame, from: superview).maxX
-        }.max() else {
+        }).max() else {
             preconditionFailure("Agents window must expose standard traffic-light controls")
         }
 
-        let webLeadingInset = ceil(trafficLightTrailing) + trafficLightGap
-        return Self(
-            dragRegionWidth: dragRegionWidth,
-            dragRegionHeight: dragRegionHeight,
-            webLeadingInset: webLeadingInset
-        )
+        return Self(webLeadingInset: ceil(trafficLightTrailing) + trafficLightGap)
     }
 }
 
-/// Document-start configuration for the Mac-only title-bar inset.
+/// A command the web title bar asks the native window to carry out.
+enum AgentWindowChromeCommand: String, Equatable {
+    /// Begin an AppKit window drag for the mouse-down the web header just declined to handle.
+    case beginWindowDrag = "drag"
+}
+
+/// The Mac-only bridge between the web-owned title bar and its native window.
 ///
-/// `pageZoom` changes how many native points one CSS pixel occupies. Dividing the measured inset by
-/// the current zoom keeps the first web control aligned to the same physical point at every level.
+/// Two narrow directions. Native pushes the measured traffic-light inset in as a CSS variable so
+/// the web header never draws under the buttons. The web calls back to start a window drag, because
+/// WebKit consumes the background mouse events `isMovableByWindowBackground` would otherwise act
+/// on, and only the DOM knows which parts of its own header are inert.
+///
+/// The drag entry point is installed here rather than exported by the web bundle so the shared iOS
+/// build carries no Mac-only branch: the bundle calls the global when it exists and does nothing
+/// when it does not.
 @MainActor
 enum AgentWindowPanelChrome {
-    private static let setterName = "__agentDeskSetTitlebarLeadingInset"
+    /// Script-message channel for web-initiated window chrome commands.
+    static let messageHandlerName = "agentWindowChrome"
 
+    private static let insetSetterName = "__agentDeskSetTitlebarLeadingInset"
+    private static let dragFunctionName = "__agentDeskBeginWindowDrag"
+
+    /// `pageZoom` changes how many native points one CSS pixel occupies. Dividing the measured
+    /// inset by the current zoom keeps the first web control aligned to the same physical point at
+    /// every level.
     nonisolated static func cssLeadingInset(
         points: CGFloat,
         zoomScale: Double
@@ -68,7 +69,7 @@ enum AgentWindowPanelChrome {
         return Double(points) / zoomScale
     }
 
-    static func userScript(
+    static func leadingInsetUserScript(
         leadingInset: CGFloat,
         zoomScale: Double
     ) -> WKUserScript {
@@ -84,7 +85,7 @@ enum AgentWindowPanelChrome {
                 if (document.documentElement) update();
                 else document.addEventListener("DOMContentLoaded", update, { once: true });
               };
-              window.\(setterName) = apply;
+              window.\(insetSetterName) = apply;
               apply(\(value));
             })();
             """,
@@ -93,28 +94,39 @@ enum AgentWindowPanelChrome {
         )
     }
 
-    static func updateScript(
+    static func leadingInsetUpdateScript(
         leadingInset: CGFloat,
         zoomScale: Double
     ) -> String {
         let value = javascriptNumber(cssLeadingInset(points: leadingInset, zoomScale: zoomScale))
-        return "window.\(setterName)?.(\(value));"
+        return "window.\(insetSetterName)?.(\(value));"
+    }
+
+    /// Installs the drag entry point the web title bar calls once it decides a mouse-down landed on
+    /// inert chrome. Injected at document start so the bundle never has to wait for it.
+    static let windowDragUserScript = WKUserScript(
+        source: """
+        (() => {
+          window.\(dragFunctionName) = () => {
+            window.webkit?.messageHandlers?.\(messageHandlerName)?.postMessage({
+              t: "\(AgentWindowChromeCommand.beginWindowDrag.rawValue)"
+            });
+          };
+        })();
+        """,
+        injectionTime: .atDocumentStart,
+        forMainFrameOnly: true
+    )
+
+    static func command(from body: Any) -> AgentWindowChromeCommand? {
+        guard
+            let payload = body as? [String: Any],
+            let tag = payload["t"] as? String
+        else { return nil }
+        return AgentWindowChromeCommand(rawValue: tag)
     }
 
     private static func javascriptNumber(_ value: Double) -> String {
         String(format: "%.4f", locale: Locale(identifier: "en_US_POSIX"), value)
-    }
-}
-
-/// A transparent native hit target over the blank section declared by the web header.
-///
-/// WebKit consumes background mouse events, so `isMovableByWindowBackground` cannot start a drag.
-/// Keeping this target native preserves AppKit's Window Server drag behavior without covering any
-/// web control or creating a second webview just for chrome.
-final class AgentWindowTitlebarDragView: NSView {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.performDrag(with: event)
     }
 }

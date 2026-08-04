@@ -204,3 +204,12 @@
 .agent-window-titlebar-sidebar-leading {
   padding-inline-start: max(0.75rem, var(--agent-window-titlebar-leading));
 }
+
+/* A header that drags the Mac window behaves like the platform title bar it stands in for: its
+   background and title are a drag handle, not text to select. The controls inside keep their own
+   cursors and selection, so only the inert area changes. */
+[data-window-drag] {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}

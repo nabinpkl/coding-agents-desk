@@ -3,6 +3,12 @@ import os
 import WebKit
 import WebPanelKit
 
+/// A native handler for one of the container's own script-message channels.
+///
+/// Re-exported under AgentPanel's name so a container can register window chrome without also
+/// linking WebPanelKit for one type it would otherwise never mention.
+public typealias AgentPanelScriptMessageHandler = WebPanelScriptMessageHandler
+
 /// AgentPanel's typed webview controller. A thin adapter over the shared
 /// `WebPanelWebViewController`: it owns the same public surface AgentDesk's host
 /// and client already use, and decodes the generic `(tag, body)` messages into
@@ -29,7 +35,8 @@ public final class AgentPanelWebViewController: NSObject, WebPanelMessageSink {
         transport: (any AgentPanelTransport)?,
         resources: AgentPanelResourceLocator = AgentPanelResourceLocator(),
         contract: AgentPanelJavaScriptContract = .agentFeed,
-        additionalUserScripts: [WKUserScript] = []
+        additionalUserScripts: [WKUserScript] = [],
+        additionalMessageHandlers: [String: AgentPanelScriptMessageHandler] = [:]
     ) throws {
         let rootDirectory = try Self.servableRoot(resources.resolve(indexPath: contract.indexPath))
         do {
@@ -38,6 +45,7 @@ public final class AgentPanelWebViewController: NSObject, WebPanelMessageSink {
                 resourceRootDirectory: rootDirectory,
                 messageSink: nil,
                 additionalUserScripts: additionalUserScripts,
+                additionalMessageHandlers: additionalMessageHandlers,
                 logSubsystem: Self.logSubsystem
             )
         } catch {
