@@ -40,6 +40,32 @@ enum AgentWindowChromeCommand: String, Equatable {
     case beginWindowDrag = "drag"
 }
 
+/// The left-button press a web-declared drag region can still ask to drag, held from AppKit's
+/// dispatch of the press until the button comes back up.
+///
+/// `NSApp.currentEvent` cannot serve this. The title bar's hit test runs in the web process, so its
+/// answer arrives at least one round trip after the press, and a trackpad emits `.pressure` events
+/// into that gap. By the time the drag is requested the current event is one of those rather than
+/// the press, so press-and-hold never dragged while a quick flick did. The flick only worked
+/// because it left a `.leftMouseDragged` as the latest event when the answer landed.
+struct AgentWindowPressTracker {
+    /// The press currently held down, if any.
+    private(set) var activePress: NSEvent?
+
+    /// Records an event on its way through AppKit. Only the press and its release move this;
+    /// everything a trackpad emits in between leaves the held press intact.
+    mutating func record(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown:
+            activePress = event
+        case .leftMouseUp:
+            activePress = nil
+        default:
+            break
+        }
+    }
+}
+
 /// The Mac-only bridge between the web-owned title bar and its native window.
 ///
 /// Two narrow directions. Native pushes the measured traffic-light inset in as a CSS variable so

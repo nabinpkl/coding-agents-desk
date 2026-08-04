@@ -52,6 +52,7 @@ private enum Selector {
 private struct CommonOptions {
     var bundleID = ProcessInfo.processInfo.environment["AGENTDESK_AX_BUNDLE_ID"]
         ?? "com.example.agentdesk.AgentDeskHost.dev"
+    var pid: pid_t?
     var windowIdentifier: String?
     var timeout: TimeInterval = 10
 }
@@ -84,17 +85,22 @@ private func usage() -> String {
 
     commands:
       preflight
-      dump [--bundle-id id] [--window-identifier id] [--depth n]
-      wait --identifier id | --dom-identifier id [--bundle-id id] [--window-identifier id] [--timeout seconds]
-      read --identifier id | --dom-identifier id [--bundle-id id] [--window-identifier id]
-      press --identifier id | --dom-identifier id [--bundle-id id] [--window-identifier id]
-      set-value --identifier id | --dom-identifier id --value value [--bundle-id id] [--window-identifier id]
-      increment --identifier id [--count n] [--bundle-id id] [--window-identifier id]
-      decrement --identifier id [--count n] [--bundle-id id] [--window-identifier id]
-      resize --width points --height points [--bundle-id id] --window-identifier id
-      type --text text [--bundle-id id]
-      key --name keyname [--repeat n] [--bundle-id id]
-      screenshot --output path [--bundle-id id] [--window-identifier id]
+      force-accessibility [--bundle-id id | --pid pid]
+      list-instances [--bundle-id id]
+      dump [--bundle-id id | --pid pid] [--window-identifier id] [--depth n]
+      wait --identifier id | --dom-identifier id [--bundle-id id | --pid pid] [--window-identifier id] [--timeout seconds]
+      read --identifier id | --dom-identifier id [--bundle-id id | --pid pid] [--window-identifier id]
+      press --identifier id | --dom-identifier id [--bundle-id id | --pid pid] [--window-identifier id]
+      set-value --identifier id | --dom-identifier id --value value [--bundle-id id | --pid pid] [--window-identifier id]
+      increment --identifier id [--count n] [--bundle-id id | --pid pid] [--window-identifier id]
+      decrement --identifier id [--count n] [--bundle-id id | --pid pid] [--window-identifier id]
+      resize --width points --height points [--bundle-id id | --pid pid] --window-identifier id
+      type --text text [--bundle-id id | --pid pid]
+      key --name keyname [--repeat n] [--bundle-id id | --pid pid]
+      screenshot --output path [--bundle-id id | --pid pid] [--window-identifier id]
+
+    --pid overrides --bundle-id to target one specific process when a bundle id
+    resolves to multiple running instances (e.g. one per macOS Space).
 
     supported keys: backspace, return, escape, tab, left, right, up, down
     """
@@ -157,11 +163,58 @@ private func axFrame(_ element: AXUIElement) -> CGRect? {
     return CGRect(origin: point, size: size)
 }
 
+private func yabaiWindows() -> [[String: Any]] {
+    // yabai is optional dev tooling (requires its own scripting-addition, not always
+    // installed); AX has no notion of macOS Spaces at all, so this is the only way to
+    // learn which Space/display a given window actually lives on. Best-effort: any
+    // failure (not installed, not running, SIP not partially disabled) just yields no
+    // annotation rather than failing the whole command.
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["yabai", "-m", "query", "--windows"]
+    let stdout = Pipe()
+    process.standardOutput = stdout
+    process.standardError = Pipe()
+    guard (try? process.run()) != nil else { return [] }
+    let data = stdout.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0,
+          let parsed = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+        return []
+    }
+    return parsed
+}
+
+private func yabaiWindow(pid: pid_t, frame: CGRect?, in windows: [[String: Any]]) -> [String: Any]? {
+    let candidates = windows.filter { ($0["pid"] as? Int) == Int(pid) }
+    guard candidates.count > 1, let frame else { return candidates.first }
+    return candidates.first { entry in
+        guard let f = entry["frame"] as? [String: Double] else { return false }
+        return abs((f["x"] ?? 0) - frame.origin.x) < 2
+            && abs((f["y"] ?? 0) - frame.origin.y) < 2
+            && abs((f["w"] ?? 0) - frame.size.width) < 2
+            && abs((f["h"] ?? 0) - frame.size.height) < 2
+    } ?? candidates.first
+}
+
 private func runningApp(bundleID: String) throws -> NSRunningApplication {
     guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
         throw DriverError.appNotRunning(bundleID)
     }
     return app
+}
+
+private func runningApp(common: CommonOptions) throws -> NSRunningApplication {
+    // A bundle id can resolve to multiple live processes (e.g. one instance per
+    // macOS Space); --pid pins a specific instance instead of grabbing whichever
+    // one happens to be first in launch-services ordering.
+    if let pid = common.pid {
+        guard let app = NSRunningApplication(processIdentifier: pid) else {
+            throw DriverError.appNotRunning("pid \(pid)")
+        }
+        return app
+    }
+    return try runningApp(bundleID: common.bundleID)
 }
 
 private func appElement(for app: NSRunningApplication) -> AXUIElement {
@@ -298,6 +351,13 @@ private func parseCommon(flag: String, cursor: inout Cursor, common: inout Commo
     switch flag {
     case "--bundle-id":
         common.bundleID = try cursor.requiredValue(after: flag)
+        return true
+    case "--pid":
+        let value = try cursor.requiredValue(after: flag)
+        guard let pid = pid_t(value) else {
+            throw DriverError.usage("Invalid --pid value \(value)")
+        }
+        common.pid = pid
         return true
     case "--window-identifier":
         common.windowIdentifier = try cursor.requiredValue(after: flag)
@@ -556,6 +616,84 @@ do {
         print("accessibility=trusted")
         print("screenRecording=trusted")
 
+    case "force-accessibility":
+        // Chromium (and Electron apps built on it) only materializes its full AX tree
+        // once it detects a real assistive-technology client (normally VoiceOver); absent
+        // that, web content collapses to bare AXGroup shells with no titles or roles.
+        // AXManualAccessibility is Chromium's private override to force the full tree
+        // regardless of AT detection. Not a public ApplicationServices constant, and
+        // write-only: it only latches full-tree mode on, there is no way back off short
+        // of relaunching the app (verified: setting false has no observable effect, and
+        // reading the attribute back always returns false regardless of what was set).
+        var common = CommonOptions()
+        while let flag = cursor.next() {
+            if try parseCommon(flag: flag, cursor: &cursor, common: &common) { continue }
+            throw DriverError.usage("Unknown flag \(flag)")
+        }
+        let app = try runningApp(common: common)
+        let axApp = appElement(for: app)
+        // Deliberately does not activate/raise the app: this is a read-side accessibility
+        // toggle, not an interaction, and activating would steal focus or jump the user
+        // across Spaces to whichever Space the target instance's window lives on.
+        let error = AXUIElementSetAttributeValue(
+            axApp,
+            "AXManualAccessibility" as CFString,
+            kCFBooleanTrue
+        )
+        guard error == .success else {
+            throw DriverError.actionFailed("AXManualAccessibility", error)
+        }
+        // Give Chromium's renderer time to rebuild the tree before a caller dumps it.
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        print("AXManualAccessibility=true")
+
+    case "list-instances":
+        // A single bundle id can resolve to several concurrently running processes
+        // (e.g. one per macOS Space); NSRunningApplication.runningApplications(...).first
+        // silently picks one of them. This enumerates all of them with enough detail
+        // (pid, frontmost, window titles/frames) to pick the right --pid for other commands.
+        var common = CommonOptions()
+        while let flag = cursor.next() {
+            if try parseCommon(flag: flag, cursor: &cursor, common: &common) { continue }
+            throw DriverError.usage("Unknown flag \(flag)")
+        }
+        let apps = NSRunningApplication.runningApplications(withBundleIdentifier: common.bundleID)
+        guard !apps.isEmpty else {
+            throw DriverError.appNotRunning(common.bundleID)
+        }
+        let yabai = yabaiWindows()
+        for app in apps {
+            let axApp = appElement(for: app)
+            // kAXWindowsAttribute alone can come back empty for a backgrounded instance
+            // (e.g. on an inactive Space); relatedElements also tries focused/main window.
+            let windows = relatedElements(for: axApp)
+                .filter { axString($0, kAXRoleAttribute as String) == kAXWindowRole }
+            print(
+                "pid=\(app.processIdentifier) active=\(app.isActive) "
+                    + "launchDate=\(app.launchDate.map(String.init(describing:)) ?? "nil")"
+            )
+            for window in windows {
+                let title = axString(window, kAXTitleAttribute as String)
+                let frame = axFrame(window)
+                let minimized: Bool = axAttribute(window, kAXMinimizedAttribute as String) ?? false
+                var line = "  window title=\(title) "
+                    + "frame=\(frame.map(String.init(describing:)) ?? "nil") minimized=\(minimized)"
+                if let match = yabaiWindow(pid: app.processIdentifier, frame: frame, in: yabai) {
+                    let space = match["space"] as? Int
+                    let display = match["display"] as? Int
+                    let visible = match["is-visible"] as? Bool
+                    let focused = match["has-focus"] as? Bool
+                    line += " space=\(space.map(String.init) ?? "?")"
+                        + " display=\(display.map(String.init) ?? "?")"
+                        + " visible=\(visible.map(String.init) ?? "?")"
+                        + " focused=\(focused.map(String.init) ?? "?")"
+                } else {
+                    line += " space=n/a (yabai unavailable or no match)"
+                }
+                print(line)
+            }
+        }
+
     case "dump":
         var common = CommonOptions()
         var maxDepth = 6
@@ -568,7 +706,7 @@ do {
                 throw DriverError.usage("Unknown flag \(flag)")
             }
         }
-        let app = try runningApp(bundleID: common.bundleID)
+        let app = try runningApp(common: common)
         let axApp = appElement(for: app)
         let root = try windowElement(appElement: axApp, identifier: common.windowIdentifier) ?? axApp
         var visited: Set<UInt> = []
@@ -603,7 +741,7 @@ do {
             throw DriverError.usage("Expected --identifier or --dom-identifier")
         }
 
-        let app = try runningApp(bundleID: common.bundleID)
+        let app = try runningApp(common: common)
         let axApp = appElement(for: app)
         let window = try windowElement(appElement: axApp, identifier: common.windowIdentifier)
         let element = try waitForElement(appElement: axApp, selector: selector, common: common)
@@ -648,7 +786,7 @@ do {
         guard let width, let height, width >= 1, height >= 1 else {
             throw DriverError.usage("Resize requires positive --width and --height")
         }
-        let app = try runningApp(bundleID: common.bundleID)
+        let app = try runningApp(common: common)
         let axApp = appElement(for: app)
         guard let window = try windowElement(appElement: axApp, identifier: common.windowIdentifier) else {
             throw DriverError.usage("Resize requires --window-identifier")
@@ -669,7 +807,7 @@ do {
             }
         }
         guard let text else { throw DriverError.usage("Missing --text") }
-        let app = try runningApp(bundleID: common.bundleID)
+        let app = try runningApp(common: common)
         activateApp(app, window: nil)
         sendText(text)
 
@@ -692,7 +830,7 @@ do {
         guard let keyCode = keyCode(for: keyName) else {
             throw DriverError.unsupportedKey(keyName)
         }
-        let app = try runningApp(bundleID: common.bundleID)
+        let app = try runningApp(common: common)
         activateApp(app, window: nil)
         sendKey(keyCode, repeatCount: repeatCount)
 
@@ -709,7 +847,7 @@ do {
             }
         }
         guard let outputPath else { throw DriverError.usage("Missing --output") }
-        let app = try runningApp(bundleID: common.bundleID)
+        let app = try runningApp(common: common)
         let axApp = appElement(for: app)
         activateApp(app, window: try windowElement(appElement: axApp, identifier: common.windowIdentifier))
         try screenshotWindow(

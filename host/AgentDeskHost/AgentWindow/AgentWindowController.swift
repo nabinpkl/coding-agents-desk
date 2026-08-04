@@ -37,6 +37,8 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     private var onTerminalChanged: ((AgentWindowTerminalAttachment?) -> Void)?
     private var onZoomChanged: ((Int) -> Void)?
     private var window: NSWindow?
+    private var pressTracker = AgentWindowPressTracker()
+    private var pressMonitor: Any?
     private var panelController: AgentPanelWebViewController?
     private var transport: AgentPanelBridgeTransport?
     private var bridge: AgentFeedBridge?
@@ -170,6 +172,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     private func finishStop() {
         bridge?.reset()
         panelController?.teardown()
+        uninstallPressMonitor()
         window?.orderOut(nil)
         window = nil
         panelController = nil
@@ -189,6 +192,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     private func build() {
         let window = makeWindow()
         self.window = window
+        installPressMonitor()
         let titlebarLayout = AgentWindowTitlebarLayout.measure(in: window)
         self.titlebarLayout = titlebarLayout
 
@@ -307,24 +311,40 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         }
     }
 
-    /// AppKit drags from the event that started the gesture. The mouse-down reaches this side only
-    /// after a round trip through the web process, so the live event is read here rather than
-    /// carried across: by now it is the same press still held, or its first drag.
+    /// AppKit drags from the event that started the gesture, and that event is gone by the time the
+    /// web process answers, so `pressTracker` holds it from dispatch instead.
     private func beginWindowDrag() {
         guard let window else { return }
-        guard let event = NSApp.currentEvent else {
-            logger.error("agents-window chrome: window drag requested with no current event")
+        guard let press = pressTracker.activePress, press.window === window else {
+            // The press was released inside the round trip, or belongs to another window. Harmless,
+            // but worth seeing: a drag that never starts looks the same from the outside as one that
+            // was never asked for.
+            logger.notice("agents-window chrome: window drag skipped, no press held on this window")
             return
         }
-        guard event.type == .leftMouseDown || event.type == .leftMouseDragged else {
-            // A press released inside the round trip lands here. Harmless, but worth seeing: a
-            // drag that never starts looks the same from the outside as one that was never asked for.
-            logger.notice(
-                "agents-window chrome: window drag skipped for event type \(event.type.rawValue, privacy: .public)"
-            )
-            return
+        window.performDrag(with: press)
+    }
+
+    /// Holds each left-button press so a drag requested a round trip later still has the event that
+    /// started it. A local monitor sees the press before the webview consumes it and covers both
+    /// window classes `makeWindow` can return, which a `sendEvent` override would have to do twice.
+    private func installPressMonitor() {
+        guard pressMonitor == nil else { return }
+        pressMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) {
+            [weak self] event in
+            // Local monitors run on the main run loop, so the main actor is already current.
+            guard let self else { return event }
+            MainActor.assumeIsolated { self.pressTracker.record(event) }
+            return event
         }
-        window.performDrag(with: event)
+    }
+
+    private func uninstallPressMonitor() {
+        if let pressMonitor {
+            NSEvent.removeMonitor(pressMonitor)
+        }
+        pressMonitor = nil
+        pressTracker = AgentWindowPressTracker()
     }
 
     /// Scales both halves of the window by one level, through the mechanism each one wants: page

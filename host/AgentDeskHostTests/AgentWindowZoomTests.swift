@@ -108,6 +108,50 @@ struct AgentWindowZoomTests {
         #expect(AgentWindowPanelChrome.command(from: "drag") == nil)
     }
 
+    @Test func theHeldPressSurvivesWhateverTheTrackpadEmitsAfterIt() throws {
+        var tracker = AgentWindowPressTracker()
+        #expect(tracker.activePress == nil)
+
+        let press = try #require(mouseEvent(.leftMouseDown))
+        tracker.record(press)
+        #expect(tracker.activePress === press)
+
+        // The regression this exists for. A trackpad press emits `.pressure` events immediately
+        // after the mouse-down, so reading `NSApp.currentEvent` once the web round trip answered
+        // found one of those and refused to drag. Press-and-hold failed while a quick flick worked,
+        // purely because the flick left a `.leftMouseDragged` as the latest event instead.
+        //
+        // `.pressure` cannot appear below: `NSEvent.mouseEvent` raises on any type outside its mouse
+        // mask, and AppKit exposes no other way to build one. These stand in for it as the same
+        // thing structurally, an event arriving between the press and its release.
+        for interleaved in [NSEvent.EventType.mouseMoved, .leftMouseDragged, .rightMouseDown, .rightMouseUp] {
+            tracker.record(try #require(mouseEvent(interleaved)))
+            #expect(tracker.activePress === press)
+        }
+
+        tracker.record(try #require(mouseEvent(.leftMouseUp)))
+        #expect(tracker.activePress == nil)
+
+        // A later press replaces the released one rather than being refused.
+        let next = try #require(mouseEvent(.leftMouseDown))
+        tracker.record(next)
+        #expect(tracker.activePress === next)
+    }
+
+    private func mouseEvent(_ type: NSEvent.EventType) -> NSEvent? {
+        NSEvent.mouseEvent(
+            with: type,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1
+        )
+    }
+
     @Test func theWindowAnswersTheChordAndScalesTheFeed() async throws {
         let controller = AgentWindowController(
             sidecarClient: FakeSidecarClient(),
