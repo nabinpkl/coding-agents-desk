@@ -43,9 +43,19 @@ CONVERSION_ID = "coremltools-9.0-lut4-kmeans-per-grouped-channel-16-ios26"
 EXPECTED_OUTPUT_WEIGHT_SHA256 = (
     "8c093d09a94c89898670734440b18432f3229e7a9e5174f1fe3c159898fa172c"
 )
-EXPECTED_OUTPUT_SPECIFICATION_SHA256 = (
-    "44629ea3d97747f6d80b8ebb906b5ddfabc301bdc6f565e5ed1bb625d46f34f4"
-)
+# There is deliberately no expected hash for the model specification.
+#
+# The weights and the vocabulary reproduce bit-for-bit and are pinned above, which is what actually
+# pins the model's behaviour. `model.mlmodel` does not: four consecutive conversions of the identical
+# source on one machine produced four different specification digests while the weight blob came out
+# byte-identical every time. The specification is protobuf, whose map fields have explicitly
+# unspecified serialization order, so its bytes are not a function of its content and no constant here
+# could ever match. Pinning it made `just voice-phone-model` unable to succeed on any fresh checkout.
+#
+# The generated manifest still records the observed digest, and `--check-only` verifies the manifest
+# against the file on disk. That comparison is sound because both sides come from the same local
+# artifact; it catches a truncated or swapped model without asserting reproducibility that does not
+# exist.
 MAX_MODEL_BYTES = 220 * 1024 * 1024
 REQUIRED_PHASE_ONE_PHONES = {
     "aɪ",
@@ -217,7 +227,6 @@ def check_generated(repo_root: Path, output: str) -> None:
             "Data/com.apple.CoreML/weights/weight.bin"
         ][1],
         "modelWeightSHA256": EXPECTED_OUTPUT_WEIGHT_SHA256,
-        "modelSpecificationSHA256": EXPECTED_OUTPUT_SPECIFICATION_SHA256,
         "vocabularySHA256": EXPECTED_OUTPUT_VOCABULARY_SHA256,
         "modelBytes": actual_size,
         "minimumIOSVersion": 26,
@@ -239,10 +248,11 @@ def check_generated(repo_root: Path, output: str) -> None:
             "Generated model SHA-256 mismatch: expected "
             f"{EXPECTED_OUTPUT_WEIGHT_SHA256}, got {actual_weight_hash}"
         )
-    if actual_specification_hash != EXPECTED_OUTPUT_SPECIFICATION_SHA256:
+    # Self-consistency, not reproducibility: the manifest must describe the model sitting next to it.
+    if actual_specification_hash != manifest.get("modelSpecificationSHA256"):
         raise RuntimeError(
-            "Generated model specification SHA-256 mismatch: expected "
-            f"{EXPECTED_OUTPUT_SPECIFICATION_SHA256}, got "
+            "Installed model specification does not match its manifest: manifest records "
+            f"{manifest.get('modelSpecificationSHA256')}, file hashes to "
             f"{actual_specification_hash}"
         )
     if actual_vocabulary_hash != EXPECTED_OUTPUT_VOCABULARY_SHA256:
@@ -331,12 +341,6 @@ def prepare(args: argparse.Namespace) -> None:
             raise RuntimeError(
                 "Compressed model SHA-256 mismatch: expected "
                 f"{EXPECTED_OUTPUT_WEIGHT_SHA256}, got {output_hash}"
-            )
-        if output_specification_hash != EXPECTED_OUTPUT_SPECIFICATION_SHA256:
-            raise RuntimeError(
-                "Compressed model specification SHA-256 mismatch: expected "
-                f"{EXPECTED_OUTPUT_SPECIFICATION_SHA256}, got "
-                f"{output_specification_hash}"
             )
         size = package_size(output_path)
         if size > MAX_MODEL_BYTES:

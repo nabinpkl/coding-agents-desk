@@ -73,11 +73,12 @@ def main() -> int:
         fail("SpeechOcean source revision is not pinned")
     if manifest.get("sourceLicense") != SOURCE_LICENSE:
         fail("SpeechOcean source license is not pinned")
-    for key in (
-        "modelWeightSHA256",
-        "modelSpecificationSHA256",
-        "vocabularySHA256",
-    ):
+    # `modelSpecificationSHA256` is deliberately not compared. The calibration manifest is committed
+    # while the model manifest is regenerated per machine, and the specification digest differs on
+    # every conversion of the identical source (see prepare-voice-phone-model.py). Comparing it made
+    # this gate unpassable on any checkout that had not been handed the exact bytes of one past build.
+    # The weight and vocabulary digests do reproduce, and they are what tie the calibration to a model.
+    for key in ("modelWeightSHA256", "vocabularySHA256"):
         if manifest.get(key) != model.get(key):
             fail(f"Calibration {key} differs from the selected model")
     mapped_phones = set(mapping.get("mapping", {}).values())
