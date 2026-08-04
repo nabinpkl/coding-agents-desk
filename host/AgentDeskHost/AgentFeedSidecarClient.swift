@@ -285,6 +285,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
     private let endpointProvider: @Sendable () async -> AgentFeedSidecarEndpoint?
     private let session: URLSession
     private let streamSession: URLSession
+    private let streamCensus: AgentFeedStreamCensus
     private let logger: Logger
 
     /// Streams and requests get SEPARATE connection pools, and neither is `URLSession.shared`.
@@ -315,6 +316,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         self.streamSession = streamSession ?? session ?? URLSession(
             configuration: Self.configuration(connectionLimit: Config.agentFeedSidecarStreamConnectionLimit)
         )
+        self.streamCensus = AgentFeedStreamCensus(limit: Config.agentFeedSidecarStreamConnectionLimit)
         self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-sidecar-client")
     }
 
@@ -328,6 +330,31 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
 
     var requestSessionForTesting: URLSession { session }
     var streamSessionForTesting: URLSession { streamSession }
+
+    /// Says so out loud when live streams approach the pool they draw from. Split pools mean a
+    /// leaked stream can no longer block a thread from rendering, so it now fails quietly instead --
+    /// this is what keeps it from being invisible until streams stop arriving altogether.
+    private static func report(_ transition: AgentFeedStreamCensus.Transition, to logger: Logger) {
+        switch transition {
+        case .quiet:
+            break
+        case .reachedWatermark(let live, let watermark, let limit):
+            logger.error(
+                """
+                sidecar streams at watermark live=\(live, privacy: .public) \
+                watermark=\(watermark, privacy: .public) limit=\(limit, privacy: .public) \
+                (a stream that is never closed will exhaust this pool)
+                """
+            )
+        case .recovered(let live, let watermark):
+            logger.notice(
+                """
+                sidecar streams back below watermark live=\(live, privacy: .public) \
+                watermark=\(watermark, privacy: .public)
+                """
+            )
+        }
+    }
 
     private func currentEndpoint() async throws -> AgentFeedSidecarEndpoint {
         guard let endpoint = await endpointProvider() else { throw SidecarClientError.notReady }
@@ -560,7 +587,12 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
         let session = streamSession
+        let census = streamCensus
+        let logger = logger
         let task = Task<Void, Never> {
+            Self.report(census.opened(), to: logger)
+            // Runs on cancellation too: `cancel()` unblocks the byte loop, which leaves this scope.
+            defer { Self.report(census.closed(), to: logger) }
             do {
                 let resolved = try await request()
                 guard !Task.isCancelled else { return }
