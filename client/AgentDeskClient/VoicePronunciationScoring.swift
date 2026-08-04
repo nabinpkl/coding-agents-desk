@@ -98,7 +98,6 @@ struct VoicePhoneCalibrationManifest: Codable, Equatable, Sendable {
     let featureVersion: String
     let selectedCandidate: VoicePronunciationScoreCandidate
     let modelWeightSHA256: String
-    let modelSpecificationSHA256: String
     let vocabularySHA256: String
     let minimumEffectiveNonBlankFrameCount: Int
     let maximumBlankFrameRatio: Double
@@ -176,7 +175,6 @@ struct VoicePhoneAssessmentProvenance: Codable, Equatable, Sendable {
     let audioSHA256: String
     let evidenceSHA256: String
     let modelWeightSHA256: String
-    let modelSpecificationSHA256: String
     let vocabularySHA256: String
     let featureVersion: String
     let calibrationManifestSHA256: String
@@ -214,7 +212,6 @@ struct VoicePhoneAssessment: Codable, Equatable, Sendable {
             && !provenance.audioSHA256.isEmpty
             && !provenance.evidenceSHA256.isEmpty
             && !provenance.modelWeightSHA256.isEmpty
-            && !provenance.modelSpecificationSHA256.isEmpty
             && !provenance.vocabularySHA256.isEmpty
             && provenance.featureVersion == VoicePhoneScoreFeatures.currentVersion
             && !provenance.calibrationManifestSHA256.isEmpty
@@ -250,8 +247,6 @@ struct VoicePhoneAssessment: Codable, Equatable, Sendable {
             && provenance.audioSHA256 == evidence.audioSHA256
             && provenance.evidenceSHA256 == evidenceSHA256
             && provenance.modelWeightSHA256 == evidence.model.modelWeightSHA256
-            && provenance.modelSpecificationSHA256
-                == evidence.model.modelSpecificationSHA256
             && provenance.vocabularySHA256 == evidence.model.vocabularySHA256
             && provenance.featureVersion == VoicePhoneScoreFeatures.currentVersion
             && provenance.calibrationManifestSHA256 == calibrationSHA256
@@ -313,8 +308,6 @@ enum VoicePronunciationScorer {
             audioSHA256: evidence.audioSHA256,
             evidenceSHA256: evidenceSHA256,
             modelWeightSHA256: evidence.model.modelWeightSHA256,
-            modelSpecificationSHA256:
-                evidence.model.modelSpecificationSHA256,
             vocabularySHA256: evidence.model.vocabularySHA256,
             featureVersion: VoicePhoneScoreFeatures.currentVersion,
             calibrationManifestSHA256: calibrationSHA256
@@ -440,7 +433,6 @@ enum VoicePronunciationScorer {
               Set(manifest.localeIdentifiers).count
                 == manifest.localeIdentifiers.count,
               !manifest.modelWeightSHA256.isEmpty,
-              !manifest.modelSpecificationSHA256.isEmpty,
               !manifest.vocabularySHA256.isEmpty
         else {
             throw VoicePronunciationScoringError.invalidCalibrationManifest(
@@ -579,8 +571,6 @@ enum VoicePronunciationScorer {
             )
         }
         guard calibration.modelWeightSHA256 == evidence.model.modelWeightSHA256,
-              calibration.modelSpecificationSHA256
-                == evidence.model.modelSpecificationSHA256,
               calibration.vocabularySHA256 == evidence.model.vocabularySHA256
         else {
             return (

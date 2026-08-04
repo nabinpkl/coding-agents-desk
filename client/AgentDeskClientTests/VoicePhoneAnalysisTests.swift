@@ -77,8 +77,6 @@ struct VoicePhoneVocabularyTests {
             conversionID: "conversion-id",
             sourceWeightSHA256: "source",
             modelWeightSHA256: VoicePhoneModelManifest.selectedWeightSHA256,
-            modelSpecificationSHA256:
-                VoicePhoneModelManifest.selectedSpecificationSHA256,
             vocabularySHA256: "vocabulary",
             modelBytes: 100,
             minimumIOSVersion: 26,
@@ -286,8 +284,6 @@ struct VoicePhoneEvidenceEncodingTests {
             conversionID: "conversion-id",
             sourceWeightSHA256: "source",
             modelWeightSHA256: VoicePhoneModelManifest.selectedWeightSHA256,
-            modelSpecificationSHA256:
-                VoicePhoneModelManifest.selectedSpecificationSHA256,
             vocabularySHA256: "vocab",
             modelBytes: 100,
             minimumIOSVersion: 26,

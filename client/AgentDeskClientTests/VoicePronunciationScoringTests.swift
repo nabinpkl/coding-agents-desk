@@ -73,8 +73,6 @@ enum VoicePronunciationScoringFixtures {
             conversionID: "conversion-id",
             sourceWeightSHA256: "source",
             modelWeightSHA256: VoicePhoneModelManifest.selectedWeightSHA256,
-            modelSpecificationSHA256:
-                VoicePhoneModelManifest.selectedSpecificationSHA256,
             vocabularySHA256: "vocab",
             modelBytes: 100,
             minimumIOSVersion: 26,
@@ -139,8 +137,6 @@ enum VoicePronunciationScoringFixtures {
             featureVersion: VoicePhoneScoreFeatures.currentVersion,
             selectedCandidate: selectedCandidate,
             modelWeightSHA256: VoicePhoneModelManifest.selectedWeightSHA256,
-            modelSpecificationSHA256:
-                VoicePhoneModelManifest.selectedSpecificationSHA256,
             vocabularySHA256: "vocab",
             minimumEffectiveNonBlankFrameCount: 2,
             maximumBlankFrameRatio: 0.95,
@@ -561,7 +557,6 @@ struct VoicePronunciationScorerTests {
             featureVersion: valid.featureVersion,
             selectedCandidate: valid.selectedCandidate,
             modelWeightSHA256: valid.modelWeightSHA256,
-            modelSpecificationSHA256: valid.modelSpecificationSHA256,
             vocabularySHA256: valid.vocabularySHA256,
             minimumEffectiveNonBlankFrameCount:
                 valid.minimumEffectiveNonBlankFrameCount,

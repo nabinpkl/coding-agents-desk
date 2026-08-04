@@ -21,6 +21,10 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
     var onAgentRequest: ((AgentFeedRequest) -> Void)?
     /// Native container seam for Agent Panel terminal intent. L6 supplies terminal ownership.
     var onTerminalIntent: ((AgentPanelTerminalIntent) -> Void)?
+    /// Native container seam for Claude Desktop composer sync. Unset until the phone lane routes it,
+    /// in which case nothing answers and the panel keeps its field disabled rather than believing a
+    /// write landed.
+    var onWindowInput: ((AgentPanelRequest) -> Void)?
     /// Test seam: when set, receives the delivered payload instead of the real panel.
     var deliverForTesting: ((String) -> Void)?
     var resumeAfterReconnectForTesting: (() -> Void)?
@@ -300,10 +304,18 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
     // MARK: - AgentPanelTransport
 
     func sendAgentPanelRequest(_ request: AgentPanelRequest) {
-        if case .terminal(let intent) = request {
+        switch request {
+        case .terminal(let intent):
             onTerminalIntent?(intent)
             terminalSession.handle(intent)
             return
+        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead:
+            // A host-local Accessibility action against another application's window, not a sidecar
+            // request, so it never enters the agent-feed envelope.
+            onWindowInput?(request)
+            return
+        default:
+            break
         }
         onAgentRequest?(AgentFeedRequest(request))
     }
@@ -411,6 +423,8 @@ enum AgentFeedRequest: Equatable {
             ))
         case .terminal:
             preconditionFailure("Terminal intents must route through AgentFeedSurface.onTerminalIntent")
+        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead:
+            preconditionFailure("Composer sync must route through AgentFeedSurface.onWindowInput")
         }
     }
 }

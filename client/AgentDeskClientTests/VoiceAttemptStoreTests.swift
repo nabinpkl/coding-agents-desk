@@ -243,8 +243,6 @@ struct VoiceAttemptStoreTests {
             conversionID: "test",
             sourceWeightSHA256: "source",
             modelWeightSHA256: VoicePhoneModelManifest.selectedWeightSHA256,
-            modelSpecificationSHA256:
-                VoicePhoneModelManifest.selectedSpecificationSHA256,
             vocabularySHA256: "vocab",
             modelBytes: 1,
             minimumIOSVersion: 26,

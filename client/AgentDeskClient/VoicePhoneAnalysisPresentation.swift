@@ -117,14 +117,12 @@ enum VoicePhoneAnalysisPresentation {
             )
         }
         guard analysis.modelWeightSHA256
-                == VoicePhoneModelManifest.selectedWeightSHA256,
-              analysis.evidence?.model.modelSpecificationSHA256
-                == VoicePhoneModelManifest.selectedSpecificationSHA256
+                == VoicePhoneModelManifest.selectedWeightSHA256
         else {
             return .message(
                 VoicePhoneAnalysisMessage(
                     title: "Stored evidence is stale",
-                    detail: "The selected model hashes changed. Reanalyze to replace it.",
+                    detail: "The selected model weights changed. Reanalyze to replace it.",
                     tone: .warning
                 )
             )

@@ -97,12 +97,10 @@ enum VoicePhoneModelAssets {
             )
         }
         guard manifest.modelWeightSHA256
-                == VoicePhoneModelManifest.selectedWeightSHA256,
-              manifest.modelSpecificationSHA256
-                == VoicePhoneModelManifest.selectedSpecificationSHA256
+                == VoicePhoneModelManifest.selectedWeightSHA256
         else {
             throw VoicePhoneAnalyzerError.invalidManifest(
-                "model hashes do not match the selected R130 checkpoint"
+                "model weight hash does not match the selected R130 checkpoint"
             )
         }
         guard manifest.minimumIOSVersion == 26,

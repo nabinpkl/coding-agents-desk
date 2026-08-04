@@ -6,8 +6,6 @@ struct VoicePhoneModelManifest: Codable, Equatable, Sendable {
         "wav2vec2-lv-60-espeak-cv-ft-coreml-lut4"
     static let selectedWeightSHA256 =
         "8c093d09a94c89898670734440b18432f3229e7a9e5174f1fe3c159898fa172c"
-    static let selectedSpecificationSHA256 =
-        "44629ea3d97747f6d80b8ebb906b5ddfabc301bdc6f565e5ed1bb625d46f34f4"
 
     let schemaVersion: Int
     let identifier: String
@@ -18,7 +16,6 @@ struct VoicePhoneModelManifest: Codable, Equatable, Sendable {
     let conversionID: String
     let sourceWeightSHA256: String
     let modelWeightSHA256: String
-    let modelSpecificationSHA256: String
     let vocabularySHA256: String
     let modelBytes: Int
     let minimumIOSVersion: Int

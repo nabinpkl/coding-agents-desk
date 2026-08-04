@@ -13,7 +13,6 @@
   "maximumClippedSampleRatio": 0.01,
   "maximumSourceDurationSeconds": 4.0,
   "minimumEffectiveNonBlankFrameCount": 2,
-  "modelSpecificationSHA256": "44629ea3d97747f6d80b8ebb906b5ddfabc301bdc6f565e5ed1bb625d46f34f4",
   "modelWeightSHA256": "8c093d09a94c89898670734440b18432f3229e7a9e5174f1fe3c159898fa172c",
   "needsAttentionUpperBound": 1.0,
   "schemaVersion": 1,

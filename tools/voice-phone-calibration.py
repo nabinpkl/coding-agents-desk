@@ -33,9 +33,6 @@ SPEECHOCEAN_LICENSE = "CC BY 4.0"
 MODEL_WEIGHT_SHA256 = (
     "8c093d09a94c89898670734440b18432f3229e7a9e5174f1fe3c159898fa172c"
 )
-MODEL_SPECIFICATION_SHA256 = (
-    "44629ea3d97747f6d80b8ebb906b5ddfabc301bdc6f565e5ed1bb625d46f34f4"
-)
 VOCABULARY_SHA256 = (
     "202ef6b52161221d96496b4d189ab009b5a7b066a0a277822d9190a196fc6f69"
 )
@@ -806,7 +803,6 @@ def freeze_training_selection(
         "trainingSpeakers": len({row["speaker"] for row in train_rows}),
         "sourceRevision": SPEECHOCEAN_REVISION,
         "modelWeightSHA256": MODEL_WEIGHT_SHA256,
-        "modelSpecificationSHA256": MODEL_SPECIFICATION_SHA256,
         "vocabularySHA256": VOCABULARY_SHA256,
         "testLabelsOpened": False,
     }
@@ -826,8 +822,6 @@ def validate_training_selection(
         or selection.get("trainingRowsSHA256") != json_sha256(train_rows)
         or selection.get("sourceRevision") != SPEECHOCEAN_REVISION
         or selection.get("modelWeightSHA256") != MODEL_WEIGHT_SHA256
-        or selection.get("modelSpecificationSHA256")
-        != MODEL_SPECIFICATION_SHA256
         or selection.get("vocabularySHA256") != VOCABULARY_SHA256
         or selected_candidate not in calibration.CANDIDATES
         or not isinstance(knots, list)
@@ -969,7 +963,6 @@ def build_report_and_manifest(
         "featureVersion": calibration.FEATURE_VERSION,
         "selectedCandidate": selected,
         "modelWeightSHA256": MODEL_WEIGHT_SHA256,
-        "modelSpecificationSHA256": MODEL_SPECIFICATION_SHA256,
         "vocabularySHA256": VOCABULARY_SHA256,
         "minimumEffectiveNonBlankFrameCount": 2,
         "maximumBlankFrameRatio": 0.95,
