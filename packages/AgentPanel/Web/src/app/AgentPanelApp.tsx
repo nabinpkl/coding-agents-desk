@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { LoaderCircle, PanelLeft, Send, Square, Terminal as TerminalIcon } from "lucide-react";
+import { AppWindow, Download, LoaderCircle, PanelLeft, Send, Square, Terminal as TerminalIcon } from "lucide-react";
 import type {
   AgentExtensionUIRequest,
   AgentTerminalContext,
@@ -8,7 +8,9 @@ import type {
   BridgeDataSource,
   BridgeProject,
   BridgeSessionSummary,
+  WindowComposerStatus,
 } from "../features/activity-feed/data-source/BridgeDataSource";
+import { WindowComposerError } from "../features/activity-feed/data-source/BridgeDataSource";
 import type { AgentSessionControlState, EventMode } from "../features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "../features/activity-feed/data-source/AgentDataSourceContext";
 import { ActivityFeed } from "../features/activity-feed/ActivityFeed";
@@ -552,6 +554,15 @@ export function App({ bridge }: Props) {
               onAbort={() => void abortRun()}
             />
           ) : null}
+          {selectedThread?.session.source === "claude" ? (
+            // Keyed by session so switching threads remounts rather than carrying a draft written
+            // for one window into another.
+            <ComposerSyncField
+              key={selectedThread.session.sessionId}
+              bridge={bridge}
+              sessionId={selectedThread.session.sessionId}
+            />
+          ) : null}
           {selectedThread && isTerminalSource(selectedThread.session.source) ? (
             <TerminalNotice source={selectedThread.session.source} state={terminal} />
           ) : null}
@@ -794,6 +805,190 @@ function TerminalControl({
  * The only terminal states that get a visible row: the ones the viewer has to
  * act on. Everything else is announced by `TerminalControl` and costs no space.
  */
+/**
+ * Why the composer field is unavailable, in the panel's own words.
+ *
+ * The host sends fixed codes and this side owns the sentence, which is why the codes survive
+ * translation and grep cleanly in host logs. An unrecognized code still says something true rather
+ * than rendering an empty reason: a host newer than this panel may know states this build does not.
+ */
+function composerReasonText(reason: string | null): string {
+  switch (reason) {
+    case "not-running":
+      return "No process is running this session, so no window owns it.";
+    case "terminal-only":
+      return "This session is running in a terminal, which has no window composer.";
+    case "no-window":
+      return "Claude is running this session but has no window for it.";
+    case "ax-denied":
+      return "Claude's composer needs Accessibility permission for the host.";
+    case "composer-missing":
+      return "Claude's window exposed no prompt field to write into.";
+    case "move-failed":
+      return "The window could not be brought to this Desktop.";
+    case "write-failed":
+      return "The composer refused the write.";
+    case "verify-mismatch":
+      return "The composer did not read back what was written.";
+    case "placement-unavailable":
+      return "The host cannot tell which Desktop the window is on.";
+    case "focus-stolen":
+      return "Another app took focus during the write, so it was abandoned.";
+    case null:
+      return "Unavailable.";
+    default:
+      return `Unavailable (${reason}).`;
+  }
+}
+
+/**
+ * Writes a session's prompt into the Claude Desktop window that owns it, without activating it.
+ *
+ * Fill only, never send. There is deliberately no Enter-to-submit handler and no submit request on
+ * the wire: the text lands in the real composer and the human presses Return there, having seen it.
+ * That is the whole safety property of this surface, so Enter here inserts a newline like any
+ * ordinary textarea.
+ *
+ * Rendered only for `claude` sessions. The mapping walks from a process carrying `--resume=<id>` to
+ * the Claude.app window that owns it, so every other harness would resolve to a permanent
+ * `not-running` -- a field that can never work is worse than no field.
+ */
+function ComposerSyncField({
+  bridge,
+  sessionId,
+}: {
+  bridge: BridgeDataSource;
+  sessionId: string;
+}) {
+  const [status, setStatus] = useState<WindowComposerStatus | null>(null);
+  const [draft, setDraft] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Whether the field holds an edit the viewer has not committed. A prefill must never overwrite one:
+  // the host re-resolves on a timer, so a status carrying the window's older text can land at any
+  // moment, including mid-sentence.
+  const edited = useRef(false);
+
+  useEffect(
+    () =>
+      bridge.subscribeWindowComposer(sessionId, (next) => {
+        setStatus(next);
+        if (next.composerText !== null && !edited.current) setDraft(next.composerText);
+      }),
+    [bridge, sessionId],
+  );
+
+  const adopt = useCallback((text: string) => {
+    edited.current = false;
+    setDraft(text);
+  }, []);
+
+  const commit = useCallback(async () => {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      adopt(await bridge.syncWindowComposer(sessionId, draft));
+    } catch (failure) {
+      setError(
+        failure instanceof WindowComposerError
+          ? composerReasonText(failure.reason)
+          : String((failure as Error).message ?? failure),
+      );
+    } finally {
+      setPending(false);
+    }
+  }, [adopt, bridge, draft, pending, sessionId]);
+
+  const load = useCallback(async () => {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      adopt(await bridge.readWindowComposer(sessionId));
+    } catch (failure) {
+      setError(
+        failure instanceof WindowComposerError
+          ? composerReasonText(failure.reason)
+          : String((failure as Error).message ?? failure),
+      );
+    } finally {
+      setPending(false);
+    }
+  }, [adopt, bridge, pending, sessionId]);
+
+  const enabled = status?.enabled === true;
+  // Before the first status arrives nothing is known, so the field stays disabled and says so rather
+  // than offering a write that would be dropped.
+  const notice = status === null
+    ? "Looking for this session's Claude window…"
+    : enabled
+      ? null
+      : composerReasonText(status.reason);
+
+  return (
+    <section
+      aria-label="Claude window composer"
+      className="shrink-0 border-t border-border bg-card px-2 py-2"
+    >
+      <div className="flex items-end gap-1.5">
+        <textarea
+          value={draft}
+          onChange={(event) => {
+            edited.current = true;
+            setDraft(event.target.value);
+          }}
+          disabled={!enabled || pending}
+          maxLength={100_000}
+          rows={1}
+          placeholder={enabled ? "Type into Claude's composer…" : "Composer unavailable"}
+          aria-label="Claude composer text"
+          className="max-h-28 min-h-9 flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-(length:--agent-panel-fs-sidebar-body,15px) leading-5 outline-none focus:border-primary disabled:opacity-40"
+        />
+        {enabled && !status.onActiveDesktop ? (
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={pending}
+            aria-label="Load from Claude window"
+            title="Bring the window here, read its composer, and put it back"
+            className="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-40"
+          >
+            <Download className="size-4" aria-hidden />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => void commit()}
+          disabled={!enabled || pending}
+          aria-label="Fill Claude's composer"
+          title="Fill the composer. Nothing is sent -- press Return in Claude yourself."
+          className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+        >
+          {pending ? (
+            <LoaderCircle className="size-4 animate-spin" aria-hidden />
+          ) : (
+            <AppWindow className="size-4" aria-hidden />
+          )}
+          Fill
+        </button>
+      </div>
+      {notice || error ? (
+        <p
+          // `aria-live` rather than `role="status"`: the terminal band below already owns that role,
+          // and a view holding two of them announces the wrong one as often as the right one.
+          aria-live="polite"
+          className={`px-1 pt-1 text-(length:--agent-panel-fs-sidebar-meta,13px) ${
+            error ? "text-destructive" : "text-muted-foreground"
+          }`}
+        >
+          {error ?? notice}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 function TerminalNotice({
   source,
   state,

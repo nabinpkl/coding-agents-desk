@@ -64,6 +64,12 @@ protocol InputChannel: AnyObject, Sendable {
     func sendAgentExtensionUIResponse(_ response: AgentExtensionUIResponse) async throws
     func sendAgentTerminal(_ message: AgentTerminalClientMessage) async throws
     func sendWorkspaceTerminal(_ message: WorkspaceTerminalClientMessage) async throws
+    // Claude Desktop composer sync. Carried on this lane like the agent requests above, but answered by
+    // the host's own Accessibility path rather than the transcript sidecar.
+    func sendAgentWindowInputWatch(_ request: AgentWindowInputWatch) async throws
+    func sendAgentWindowInputUnwatch(_ request: AgentWindowInputUnwatch) async throws
+    func sendAgentWindowInputSync(_ request: AgentWindowInputSync) async throws
+    func sendAgentWindowInputRead(_ request: AgentWindowInputRead) async throws
 
     var closed: AsyncStream<Void> { get }
 }

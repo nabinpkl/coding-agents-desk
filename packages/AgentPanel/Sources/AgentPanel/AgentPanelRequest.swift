@@ -165,11 +165,14 @@ public enum AgentPanelRequest: Equatable, Sendable {
                   let value = uiValue(body["v"]) else { return nil }
             return .extensionUIResponse(source: source, sessionId: sessionId, requestId: requestId, value: value)
         case "agent-window-input-watch":
-            guard let subscriptionId = nonemptyString(body["sub"]),
+            // Bounded, unlike the sidecar watches above: this subscription id keys an entry in the
+            // host's re-resolve loop, which scans the live process table on a timer until it is
+            // unwatched. The other watches key a sidecar stream the sidecar bounds itself.
+            guard let subscriptionId = requestIdentifier(body["sub"]),
                   let sessionId = sessionIdentifier(body["sid"]) else { return nil }
             return .windowInputWatch(subscriptionId: subscriptionId, sessionId: sessionId)
         case "agent-window-input-unwatch":
-            guard let subscriptionId = nonemptyString(body["sub"]) else { return nil }
+            guard let subscriptionId = requestIdentifier(body["sub"]) else { return nil }
             return .windowInputUnwatch(subscriptionId: subscriptionId)
         case "agent-window-input-sync":
             // Empty text is ALLOWED here, unlike `agent-session-send`: clearing the composer is a real
@@ -177,8 +180,8 @@ public enum AgentPanelRequest: Equatable, Sendable {
             // verbatim into another application's text field.
             guard let requestId = requestIdentifier(body["rid"]),
                   let sessionId = sessionIdentifier(body["sid"]),
-                  let text = body["tx"] as? String,
-                  text.count <= composerTextLimit else { return nil }
+                  let raw = body["tx"] as? String,
+                  let text = AgentPanelWindowInputBounds.text(raw) else { return nil }
             return .windowInputSync(requestId: requestId, sessionId: sessionId, text: text)
         case "agent-window-input-read":
             guard let requestId = requestIdentifier(body["rid"]),
@@ -214,19 +217,9 @@ public enum AgentPanelRequest: Equatable, Sendable {
     }
 
     private static func requestIdentifier(_ value: Any?) -> String? {
-        guard let value = nonemptyString(value), value.count <= 128,
-              value.range(of: #"^[A-Za-z0-9._:-]+$"#, options: .regularExpression) != nil else {
-            return nil
-        }
-        return value
+        guard let value = nonemptyString(value) else { return nil }
+        return AgentPanelWindowInputBounds.identifier(value)
     }
-
-    /// Longest composer text the panel may push into a Claude Desktop window.
-    ///
-    /// Not a protocol limit but a blast-radius one: unlike every other request here, this string is set
-    /// verbatim as another application's text-field value, so an unbounded one is a way to wedge that app
-    /// rather than merely to send a large prompt.
-    static let composerTextLimit = 100_000
 
     /// A session id used to ADDRESS A WINDOW, rather than to name a sidecar transcript.
     ///
@@ -276,6 +269,39 @@ public enum AgentPanelRequest: Equatable, Sendable {
                 sessionID: sessionID
             )
         ))
+    }
+}
+
+/// The bounds every composer-sync field must satisfy, wherever it enters the host.
+///
+/// Public because `AgentPanelRequest.decode` is not the only door. The Mac Agents window posts these
+/// requests as webview messages and they are bounded there; the phone posts the same four over the
+/// authenticated QUIC lane, where they arrive as already-decoded wire structs that never touch the
+/// decoder above. Both entry points call these, so a bound cannot hold on one surface and be skipped
+/// on the other -- and the remote surface is the one that most needs it.
+public enum AgentPanelWindowInputBounds {
+    /// Longest composer text the panel may push into a Claude Desktop window.
+    ///
+    /// Not a protocol limit but a blast-radius one: unlike every other panel request, this string is set
+    /// verbatim as another application's text-field value, so an unbounded one is a way to wedge that app
+    /// rather than merely to send a large prompt.
+    public static let textLimit = 100_000
+
+    /// A bounded, charset-restricted identifier. Applied to request ids everywhere, and to the session
+    /// ids that address a window: those are compared against the live process table, so an unbounded
+    /// value would be scanned against every process's argv on every re-resolve.
+    public static func identifier(_ value: String) -> String? {
+        guard !value.isEmpty, value.count <= 128,
+              value.range(of: #"^[A-Za-z0-9._:-]+$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return value
+    }
+
+    /// Empty text is ALLOWED, unlike a session send: clearing the composer is a real intent, where
+    /// sending an empty prompt is not.
+    public static func text(_ value: String) -> String? {
+        value.count <= textLimit ? value : nil
     }
 }
 

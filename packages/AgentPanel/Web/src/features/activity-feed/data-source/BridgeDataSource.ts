@@ -205,6 +205,25 @@ interface WireExtensionUIDismissed {
   rid: string;
 }
 
+interface WireWindowInputStatus {
+  t: "agent-window-input-status";
+  sub: string;
+  sid: string;
+  en: boolean;
+  r?: string | null;
+  cur?: boolean;
+  tx?: string | null;
+}
+
+interface WireWindowInputResult {
+  t: "agent-window-input-result";
+  rid: string;
+  sid: string;
+  ok: boolean;
+  r?: string | null;
+  tx?: string | null;
+}
+
 type InboundMessage =
   | WireProjectsPush
   | WireProjectsError
@@ -218,6 +237,8 @@ type InboundMessage =
   | WireCommandError
   | WireExtensionUIRequest
   | WireExtensionUIDismissed
+  | WireWindowInputStatus
+  | WireWindowInputResult
   | { t: string };
 
 export type SessionActivity = "live" | "ready" | "paused" | "cold";
@@ -286,9 +307,50 @@ export type AgentTerminalStatus =
       exitStatus?: number;
     });
 
+/**
+ * Live state of one session's Claude Desktop composer, as the host last resolved it.
+ *
+ * `reason` stays a plain string rather than a union: the host owns the code list, and a code this
+ * build does not recognize has to degrade to "unavailable, reason unknown" rather than break the
+ * field. The panel owns the WORDING for the codes it knows.
+ */
+export interface WindowComposerStatus {
+  sessionId: string;
+  enabled: boolean;
+  reason: string | null;
+  /** True when the owning window is already on the active Desktop, so reading costs no Space move. */
+  onActiveDesktop: boolean;
+  /** The composer's current text, present only when it was read without moving anything. */
+  composerText: string | null;
+}
+
+/** A composer read or write that the host refused or could not complete. */
+export class WindowComposerError extends Error {
+  readonly reason: string;
+
+  constructor(reason: string) {
+    super(`window composer request failed: ${reason}`);
+    this.name = "WindowComposerError";
+    this.reason = reason;
+  }
+}
+
+interface WindowComposerWatch {
+  sessionId: string;
+  listener: (status: WindowComposerStatus) => void;
+}
+
+interface WindowComposerWaiter {
+  resolve: (text: string) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 interface BridgeDataSourceOptions {
   olderPageTimeoutMs?: number;
   rawEventTimeoutMs?: number;
+  /** Generous because a write may move a window between Desktops and back before it answers. */
+  windowComposerTimeoutMs?: number;
   requestIDFactory?: (prefix: string) => string;
 }
 
@@ -481,6 +543,7 @@ export class BridgeDataSource implements AgentDataSource {
   private readonly bridge: HostBridge;
   private readonly olderPageTimeoutMs: number;
   private readonly rawEventTimeoutMs: number;
+  private readonly windowComposerTimeoutMs: number;
   private readonly requestIDFactory: (prefix: string) => string;
   private readonly buffers = new Map<string, SessionBuffer>();
   private readonly liveListeners = new Map<
@@ -503,6 +566,8 @@ export class BridgeDataSource implements AgentDataSource {
   private readonly extensionUIListeners = new Set<
     (event: AgentExtensionUIEvent) => void
   >();
+  private readonly windowComposerWatches = new Map<string, WindowComposerWatch>();
+  private readonly windowComposerWaiters = new Map<string, WindowComposerWaiter>();
   private activeTerminalRequest: AgentTerminalRequest | null = null;
   private unsubscribeHostMessages: (() => void) | null;
   private destroyed = false;
@@ -511,6 +576,7 @@ export class BridgeDataSource implements AgentDataSource {
     this.bridge = bridge;
     this.olderPageTimeoutMs = options.olderPageTimeoutMs ?? 10_000;
     this.rawEventTimeoutMs = options.rawEventTimeoutMs ?? 35_000;
+    this.windowComposerTimeoutMs = options.windowComposerTimeoutMs ?? 20_000;
     this.requestIDFactory = options.requestIDFactory ?? createRequestID;
     this.unsubscribeHostMessages = bridge.onHostMessage((message) => {
       this.handleInbound(message as InboundMessage);
@@ -709,6 +775,84 @@ export class BridgeDataSource implements AgentDataSource {
     return () => this.extensionUIListeners.delete(listener);
   }
 
+  /**
+   * Watches whether one session's Claude Desktop composer can be written, and what it currently holds.
+   *
+   * Keyed by session id ALONE, with no source: the mapping is resume-based, resolved by finding the
+   * process whose argv carries this id and walking to the window that owns it. A source would suggest
+   * the panel picks the harness, and it does not.
+   */
+  subscribeWindowComposer(
+    sessionId: string,
+    listener: (status: WindowComposerStatus) => void,
+  ): () => void {
+    if (this.destroyed) return () => {};
+    const subscriptionId = this.requestIDFactory("window-input");
+    this.windowComposerWatches.set(subscriptionId, { sessionId, listener });
+    this.bridge.postToHost({
+      t: "agent-window-input-watch",
+      sub: subscriptionId,
+      sid: sessionId,
+    });
+    return () => {
+      if (!this.windowComposerWatches.delete(subscriptionId)) return;
+      this.bridge.postToHost({
+        t: "agent-window-input-unwatch",
+        sub: subscriptionId,
+      });
+    };
+  }
+
+  /**
+   * Fills the session's composer with `text` and resolves with what the host read back.
+   *
+   * Fill only. Nothing on this path presses Return: the human still sends from the real window, and
+   * can edit first. Resolving with the read-back rather than void is what makes that verifiable --
+   * the host compares it to what it wrote and fails the request when they differ.
+   */
+  syncWindowComposer(sessionId: string, text: string): Promise<string> {
+    const requestId = this.requestIDFactory("window-sync");
+    return this.postWindowComposer(requestId, {
+      t: "agent-window-input-sync",
+      rid: requestId,
+      sid: sessionId,
+      tx: text,
+    });
+  }
+
+  /**
+   * Reads the session's composer, moving its window to the active Desktop if it is not already there.
+   *
+   * Explicit because that move is visible on the Mac. The free case -- a window already here -- is
+   * already answered by `composerText` on the watch status, so the panel only calls this when the
+   * user asks for the round trip.
+   */
+  readWindowComposer(sessionId: string): Promise<string> {
+    const requestId = this.requestIDFactory("window-read");
+    return this.postWindowComposer(requestId, {
+      t: "agent-window-input-read",
+      rid: requestId,
+      sid: sessionId,
+    });
+  }
+
+  private postWindowComposer(
+    requestId: string,
+    message: Record<string, unknown>,
+  ): Promise<string> {
+    if (this.destroyed) {
+      return Promise.reject(new Error("BridgeDataSource destroyed"));
+    }
+    return new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.windowComposerWaiters.delete(requestId);
+        reject(new Error(`window composer request timed out: ${requestId}`));
+      }, this.windowComposerTimeoutMs);
+      this.windowComposerWaiters.set(requestId, { resolve, reject, timer });
+      this.bridge.postToHost(message);
+    });
+  }
+
   private postCommand(
     requestId: string,
     message: Record<string, unknown>,
@@ -793,6 +937,16 @@ export class BridgeDataSource implements AgentDataSource {
         src: session.source,
         sid: session.sessionId,
         md: session.mode,
+      });
+    }
+    // Load-bearing on the phone, where a reconnect is a new input lane and the host dropped this
+    // device's composer sink with the old one. Without this the field would keep whatever status it
+    // last had and never update again -- reading as writable when it may no longer be.
+    for (const [subscriptionId, watch] of this.windowComposerWatches) {
+      this.bridge.postToHost({
+        t: "agent-window-input-watch",
+        sub: subscriptionId,
+        sid: watch.sessionId,
       });
     }
   }
@@ -886,7 +1040,49 @@ export class BridgeDataSource implements AgentDataSource {
       case "agent-terminal-ended":
         this.handleTerminalStatus(message);
         break;
+      case "agent-window-input-status":
+        this.handleWindowComposerStatus(message as WireWindowInputStatus);
+        break;
+      case "agent-window-input-result":
+        this.handleWindowComposerResult(message as WireWindowInputResult);
+        break;
     }
+  }
+
+  private handleWindowComposerStatus(message: WireWindowInputStatus): void {
+    const watch = this.windowComposerWatches.get(message.sub);
+    // A status for a session this subscription is no longer watching would prefill the field from
+    // the wrong window. The host re-resolves on a timer, so a stale one can land after a switch.
+    if (!watch || watch.sessionId !== message.sid) return;
+    watch.listener({
+      sessionId: message.sid,
+      enabled: message.en === true,
+      reason: typeof message.r === "string" ? message.r : null,
+      onActiveDesktop: message.cur === true,
+      composerText: typeof message.tx === "string" ? message.tx : null,
+    });
+  }
+
+  private handleWindowComposerResult(message: WireWindowInputResult): void {
+    const waiter = this.windowComposerWaiters.get(message.rid);
+    if (!waiter) return;
+    this.windowComposerWaiters.delete(message.rid);
+    clearTimeout(waiter.timer);
+    if (message.ok !== true) {
+      waiter.reject(
+        new WindowComposerError(
+          typeof message.r === "string" && message.r ? message.r : "unknown",
+        ),
+      );
+      return;
+    }
+    // A successful result always carries the observed text, including the empty string after a
+    // clear. Only a missing field is a malformed reply.
+    if (typeof message.tx !== "string") {
+      waiter.reject(new Error("window composer result carried no text"));
+      return;
+    }
+    waiter.resolve(message.tx);
   }
 
   private handleProjects(message: WireProjectsPush): void {
@@ -1282,6 +1478,12 @@ export class BridgeDataSource implements AgentDataSource {
         sid: session.sessionId,
       });
     }
+    for (const subscriptionId of this.windowComposerWatches.keys()) {
+      this.bridge.postToHost({
+        t: "agent-window-input-unwatch",
+        sub: subscriptionId,
+      });
+    }
     this.endActiveTerminalContext();
     this.destroyed = true;
     this.unsubscribeHostMessages?.();
@@ -1301,6 +1503,12 @@ export class BridgeDataSource implements AgentDataSource {
       waiter.reject(error);
     }
     this.commandWaiters.clear();
+    for (const waiter of this.windowComposerWaiters.values()) {
+      clearTimeout(waiter.timer);
+      waiter.reject(error);
+    }
+    this.windowComposerWaiters.clear();
+    this.windowComposerWatches.clear();
     this.projectWatches.clear();
     this.projectSessionsWatches.clear();
     this.activeThreads.clear();

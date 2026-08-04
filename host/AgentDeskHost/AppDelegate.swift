@@ -5,6 +5,7 @@ import Foundation
 import Network
 import os
 import AgentDeskWire
+import AgentPanel
 import BrowserProjection
 import TerminalEmulator
 
@@ -94,6 +95,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let signalingLogger = Logger(subsystem: Config.logSubsystem, category: "signaling")
     private let diagnosticsLogger = Logger(subsystem: Config.logSubsystem, category: "client-diagnostics")
     private let thumbnailsLogger = Logger(subsystem: Config.logSubsystem, category: "thumbnails")
+    private let agentComposerLogger = Logger(
+        subsystem: Config.logSubsystem,
+        category: "agent-window-composer"
+    )
     private var signalingServer: PairingSignalingServer?
     private let sessions = SessionRegistry()
     // ADR-0090: video encoders outlive the media transports that use them, keyed by session id.
@@ -149,6 +154,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     private lazy var terminalWindowRegistry = TerminalWindowRegistry(
         placementCoordinator: desktopWindowPlacementCoordinator
+    )
+    /// One writer for Claude Desktop's composers, shared by every Agents window and every paired phone.
+    /// Host-owned rather than window-owned because a write may move a Claude window between Desktops:
+    /// two coordinators could move the same window at once, and each would restore it to a home Desktop
+    /// the other had already changed.
+    private lazy var agentWindowComposerCoordinator = AgentWindowComposerCoordinator(
+        writer: AgentWindowComposerWriter(
+            access: AgentWindowComposerAccess(),
+            placement: desktopWindowPlacementCoordinator
+        ),
+        audit: HostWorkspaceDesktopAudit()
     )
     private var terminalClientBridges: [ObjectIdentifier: TerminalClientBridge] = [:]
     // Protocol-v11 workspace lane. One responder serializes file writes against the workspace
@@ -622,7 +638,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             terminalCoordinator: agentSessionTerminalCoordinator,
             terminalTombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
             makeTerminalPtyClient: { PtyManagerSocketClient.makeClient() },
-            placementCoordinator: desktopWindowPlacementCoordinator
+            placementCoordinator: desktopWindowPlacementCoordinator,
+            composerCoordinator: agentWindowComposerCoordinator
         )
         agentWindowRegistry = agentWindows
         presenter.onOpenAgents = { [weak agentWindows] placement in
@@ -1228,6 +1245,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let sessionId = sessions.sessionId(for: fingerprint)
         signalingLogger.notice("input lane ready fp=\(fingerprint.rawValue, privacy: .public)")
         sessions.attachInputChannelServer(server, for: fingerprint)
+        // Composer sync answers on this lane but never enters the agent-feed bridge: it is a host-local
+        // Accessibility action against Claude Desktop, and the bridge is a sidecar proxy. The sink is
+        // keyed by device so a phone is told the outcome of its OWN writes only -- a status addressed to
+        // another surface would be adopted as this panel's field contents. Declared here, above the lane
+        // teardown handler that has to drop it.
+        //
+        // Keyed per LANE INSTANCE, not per device: a reconnect stands up the new lane and closes the old
+        // one in either order, so a fingerprint-keyed id would let the dead lane's teardown detach the
+        // live lane's sink. The panel re-posts its watches after a resume anyway.
+        let laneInstance = String(UInt(bitPattern: ObjectIdentifier(server).hashValue), radix: 16)
+        let composerSink = "input-lane-\(fingerprint.rawValue)-\(laneInstance)"
+        agentWindowComposerCoordinator.attachSink(composerSink) { [weak server] json in
+            server?.pushAgentData(Data(json.utf8))
+        }
         clientTelemetryStore.record(
             .inputLaneReady,
             fingerprint: fingerprint,
@@ -1300,6 +1331,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let endpoint = await workspaceTerminalEndpointTask.value {
                     await endpoint.unbindPush(id: workspaceTerminalPushBindingID)
                 }
+                // Drops this device's composer watches with the lane. A phone that walked away would
+                // otherwise keep its sessions in the re-resolve loop, scanning the process table on a
+                // timer for a panel that is no longer listening.
+                self.agentWindowComposerCoordinator.detachSink(composerSink)
                 self.handleInputLaneClosed(fingerprint)
             }
         }
@@ -1343,6 +1378,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             server?.pushAgentData(data)
         })
         agentFeedBridge = bridge
+        let composer = agentWindowComposerCoordinator
+        let composerLogger = agentComposerLogger
+        let route: (AgentPanelRequest?) -> Void = { request in
+            guard let request else {
+                composerLogger.error("composer-sync frame rejected by bounds")
+                return
+            }
+            composer.handle(request, from: composerSink)
+        }
         server.agentRequestHandler = { [weak bridge] request in
             switch request {
             case .projectsWatch(let request):
@@ -1375,6 +1419,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     guard let terminalEndpoint = await terminalEndpointTask.value else { return }
                     await terminalEndpoint.handle(message)
                 }
+            case .windowInputWatch(let msg):
+                route(AgentWindowInputLaneRequest.watch(msg))
+            case .windowInputUnwatch(let msg):
+                route(AgentWindowInputLaneRequest.unwatch(msg))
+            case .windowInputSync(let msg):
+                route(AgentWindowInputLaneRequest.sync(msg))
+            case .windowInputRead(let msg):
+                route(AgentWindowInputLaneRequest.read(msg))
             }
         }
         server.workspaceTerminalRequestHandler = { message in

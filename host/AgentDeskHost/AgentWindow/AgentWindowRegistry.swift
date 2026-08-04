@@ -85,7 +85,8 @@ final class AgentWindowRegistry {
         terminalCoordinator: any AgentSessionTerminalCoordinating,
         terminalTombstoneLimit: Int,
         makeTerminalPtyClient: @escaping @MainActor () -> PtyClient,
-        placementCoordinator: DesktopWindowPlacementCoordinator
+        placementCoordinator: DesktopWindowPlacementCoordinator,
+        composerCoordinator: AgentWindowComposerCoordinator
     ) {
         self.init(
             store: store,
@@ -97,13 +98,17 @@ final class AgentWindowRegistry {
                     tombstoneLimit: terminalTombstoneLimit
                 )
             },
-            controllerFactory: { _, placement, zoomStep, endpoint, onClosed in
+            controllerFactory: { id, placement, zoomStep, endpoint, onClosed in
                 AgentWindowController(
                     sidecarClient: sidecarClient,
                     localTerminalEndpoint: endpoint,
                     terminalPtyClient: makeTerminalPtyClient(),
                     initialPlacement: placement,
                     placementCoordinator: placementCoordinator,
+                    composerCoordinator: composerCoordinator,
+                    // Per window, not per registry: two Agents windows are two panels, each with its
+                    // own watches, and a shared id would send one's status to the other.
+                    composerSinkID: "agents-window-\(id.uuidString)",
                     initialZoomStep: zoomStep,
                     onClosed: onClosed
                 )

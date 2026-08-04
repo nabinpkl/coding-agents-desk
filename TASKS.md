@@ -1769,13 +1769,26 @@ movement and verification, and a second mover would be the per-feature copy ADR-
   `Prompt`, set its value, read it back to confirm, and restore the window to its home Space. Assert the
   frontmost application is unchanged across the whole sequence. Match the composer on role and description
   together; never fall back to the first text element found. Never send Return.
-- R253. Route the new requests on both surfaces: `AgentPanelBridgeTransport` for the Mac Agents window and
+- D253. Route the new requests on both surfaces: `AgentPanelBridgeTransport` for the Mac Agents window and
   `InputChannelServer` for the authenticated phone lane, into one `AgentWindowComposerCoordinator` that
   owns watch subscriptions, periodic re-resolve, and status fan-out. Route past `AgentFeedBridge`, which is
-  a sidecar proxy and has no part in a host-local AX action.
-- R254. Add the panel input: a per-session composer-sync field in the thread view with an explicit commit
+  a sidecar proxy and has no part in a host-local AX action. The coordinator is HOST-owned, not window-
+  owned, and surfaces are addressed sinks on it: two coordinators could move the same Claude window to two
+  Desktops at once, each restoring it to a home the other had changed. A status goes only to the sink that
+  subscribed, because a panel adopts a status as its own field contents; a write additionally refreshes
+  every other watcher of that session, which is how the Mac learns what the phone just typed. Bound the
+  phone's frames on arrival in `AgentWindowInputLaneRequest` against the same `AgentPanelWindowInputBounds`
+  the webview decoder uses -- those frames never pass through `AgentPanelRequest.decode`, and the remote
+  surface is the one that most needs the check. Drop a sink when its window closes or its lane detaches, or
+  a departed panel keeps its sessions in the re-resolve loop forever.
+- D254. Add the panel input: a per-session composer-sync field in the thread view with an explicit commit
   action, disabled with the mapped reason when no window owns the session, and prefilled from the window
-  when that costs no Space move.
+  when that costs no Space move. Rendered for `claude` sessions only: the mapping walks to a Claude.app
+  window, so any other harness would show a field that can never work. No Enter-to-submit and no submit
+  request on the wire -- fill only, the human presses Return in the real window. An unsent local edit is
+  never overwritten by an arriving status, because the host re-resolves on a timer and one can land
+  mid-sentence. The panel re-posts its watches after a reconnect, which is load-bearing on the phone where
+  a resume is a new lane and the host dropped the old sink with it.
 - R255. At the explicit runtime checkpoint, accept on the real Mac: a session open in a Claude Desktop
   window on another Desktop, a session open only in a terminal, a session not running, frontmost unchanged
   across a write, the window returned to its home Desktop, and the composer holding the exact text with

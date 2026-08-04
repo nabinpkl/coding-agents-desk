@@ -935,3 +935,154 @@ describe("visibility subscriptions recover from failure", () => {
     unmount();
   });
 });
+
+describe("Claude window composer field", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    restoreViewport();
+  });
+
+  function windowInputSubscription(fake: FakeHostBridge): string {
+    return latestSubscription(fake, "agent-window-input-watch");
+  }
+
+  it("stays disabled with the host's reason until a window owns the session", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+
+    const field = screen.getByLabelText("Claude composer text");
+    // Disabled before the first status: nothing is known yet, and offering a write that would be
+    // dropped is worse than saying so.
+    expect(field).toBeDisabled();
+
+    act(() => {
+      fake.deliver({
+        t: "agent-window-input-status",
+        sub: windowInputSubscription(fake),
+        sid: "sid-claude-01",
+        en: false,
+        r: "terminal-only",
+      });
+    });
+
+    expect(field).toBeDisabled();
+    expect(screen.getByLabelText("Claude window composer")).toHaveTextContent(
+      "running in a terminal",
+    );
+    expect(screen.getByRole("button", { name: "Fill Claude's composer" })).toBeDisabled();
+    unmount();
+  });
+
+  it("prefills for free, and fills on the explicit action without ever sending", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    const sub = windowInputSubscription(fake);
+
+    act(() => {
+      fake.deliver({
+        t: "agent-window-input-status",
+        sub,
+        sid: "sid-claude-01",
+        en: true,
+        cur: true,
+        tx: "half-written prompt",
+      });
+    });
+
+    const field = screen.getByLabelText("Claude composer text");
+    expect(field).toBeEnabled();
+    expect(field).toHaveValue("half-written prompt");
+    // The window is already here, so no explicit load is offered.
+    expect(screen.queryByRole("button", { name: "Load from Claude window" })).toBeNull();
+
+    fireEvent.change(field, { target: { value: "review the diff" } });
+    // Return must NOT send. There is no submit request on this wire at all: the text lands in the
+    // real composer and the human presses Return there, having seen it.
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(
+      fake.posted.filter((m) => (m as { t?: string }).t === "agent-window-input-sync"),
+    ).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Fill Claude's composer" }));
+    expect(fake.posted.at(-1)).toMatchObject({
+      t: "agent-window-input-sync",
+      sid: "sid-claude-01",
+      tx: "review the diff",
+    });
+    unmount();
+  });
+
+  it("does not overwrite an unsent edit with a status that arrives while typing", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    const sub = windowInputSubscription(fake);
+
+    const field = screen.getByLabelText("Claude composer text");
+    act(() => {
+      fake.deliver({
+        t: "agent-window-input-status", sub, sid: "sid-claude-01", en: true, cur: true, tx: "",
+      });
+    });
+    fireEvent.change(field, { target: { value: "mid-sentence" } });
+
+    // The host re-resolves on a timer, so a status carrying the window's own text can land at any
+    // moment. Adopting it here would delete what the viewer just typed.
+    act(() => {
+      fake.deliver({
+        t: "agent-window-input-status",
+        sub,
+        sid: "sid-claude-01",
+        en: true,
+        cur: true,
+        tx: "whatever the window holds",
+      });
+    });
+
+    expect(field).toHaveValue("mid-sentence");
+    unmount();
+  });
+
+  it("offers an explicit load only when reading would move a window", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    const sub = windowInputSubscription(fake);
+
+    act(() => {
+      fake.deliver({
+        t: "agent-window-input-status",
+        sub,
+        sid: "sid-claude-01",
+        en: true,
+        cur: false,
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Load from Claude window" }));
+    expect(fake.posted.at(-1)).toMatchObject({
+      t: "agent-window-input-read",
+      sid: "sid-claude-01",
+    });
+    unmount();
+  });
+
+  it("is absent for a harness the resume mapping cannot reach", () => {
+    const { fake, unmount } = setup();
+    deliverProjects(fake);
+    deliverSessions(fake);
+    fireEvent.click(screen.getByText("Session Codex 01"));
+
+    // Codex sessions would resolve to a permanent "not-running": the mapping walks to a Claude.app
+    // window. A field that can never work is worse than no field.
+    expect(screen.queryByLabelText("Claude composer text")).toBeNull();
+    expect(
+      fake.posted.filter((m) => (m as { t?: string }).t === "agent-window-input-watch"),
+    ).toHaveLength(0);
+    unmount();
+  });
+});

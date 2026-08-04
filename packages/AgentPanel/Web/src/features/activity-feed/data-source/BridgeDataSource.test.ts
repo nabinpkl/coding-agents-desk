@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { BridgeDataSource } from "./BridgeDataSource";
+import { BridgeDataSource, WindowComposerError } from "./BridgeDataSource";
 import { FakeHostBridge } from "./HostBridge";
 
 function makeSource() {
@@ -402,5 +402,140 @@ describe("BridgeDataSource live agent control", () => {
     expect(listener.mock.calls[1]?.[0]).toEqual({
       type: "dismiss", source: "pi", sessionId: "thread", requestId: "ui-1",
     });
+  });
+});
+
+describe("BridgeDataSource Claude window composer", () => {
+  it("watches by session id alone and reports the mapped reason when nothing owns it", () => {
+    const { host, source } = makeSource();
+    const listener = vi.fn();
+    const unwatch = source.subscribeWindowComposer("session-a", listener);
+
+    // No source on the wire: the mapping is resume-based, resolved from the process tree, so the
+    // panel never names a harness.
+    expect(host.posted.at(-1)).toEqual({
+      t: "agent-window-input-watch",
+      sub: "window-input-1",
+      sid: "session-a",
+    });
+
+    host.deliver({
+      t: "agent-window-input-status",
+      sub: "window-input-1",
+      sid: "session-a",
+      en: false,
+      r: "terminal-only",
+    });
+    expect(listener).toHaveBeenCalledWith({
+      sessionId: "session-a",
+      enabled: false,
+      reason: "terminal-only",
+      onActiveDesktop: false,
+      composerText: null,
+    });
+
+    unwatch();
+    expect(host.posted.at(-1)).toEqual({
+      t: "agent-window-input-unwatch",
+      sub: "window-input-1",
+    });
+  });
+
+  it("ignores a status addressed to a session this subscription is no longer watching", () => {
+    const { host, source } = makeSource();
+    const listener = vi.fn();
+    source.subscribeWindowComposer("session-a", listener);
+
+    // The host re-resolves on a timer, so a status for the previous session can land after a switch.
+    // Adopting it would prefill the field from the wrong window.
+    host.deliver({
+      t: "agent-window-input-status",
+      sub: "window-input-1",
+      sid: "session-b",
+      en: true,
+      cur: true,
+      tx: "text from another window",
+    });
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("resolves a fill with the host's read-back and rejects with the reason code", async () => {
+    const { host, source } = makeSource();
+
+    const filled = source.syncWindowComposer("session-a", "review the diff");
+    expect(host.posted.at(-1)).toEqual({
+      t: "agent-window-input-sync",
+      rid: "window-sync-1",
+      sid: "session-a",
+      tx: "review the diff",
+    });
+    host.deliver({
+      t: "agent-window-input-result",
+      rid: "window-sync-1",
+      sid: "session-a",
+      ok: true,
+      tx: "review the diff",
+    });
+    // The read-back, not void: it is what proves the text landed in the real composer.
+    await expect(filled).resolves.toBe("review the diff");
+
+    const failed = source.syncWindowComposer("session-a", "nope");
+    host.deliver({
+      t: "agent-window-input-result",
+      rid: "window-sync-2",
+      sid: "session-a",
+      ok: false,
+      r: "focus-stolen",
+    });
+    await expect(failed).rejects.toBeInstanceOf(WindowComposerError);
+    await expect(failed).rejects.toMatchObject({ reason: "focus-stolen" });
+  });
+
+  it("treats a cleared composer as a real answer rather than a missing one", async () => {
+    const { host, source } = makeSource();
+    const cleared = source.syncWindowComposer("session-a", "");
+    host.deliver({
+      t: "agent-window-input-result",
+      rid: "window-sync-1",
+      sid: "session-a",
+      ok: true,
+      tx: "",
+    });
+    await expect(cleared).resolves.toBe("");
+
+    const malformed = source.readWindowComposer("session-a");
+    host.deliver({
+      t: "agent-window-input-result",
+      rid: "window-read-2",
+      sid: "session-a",
+      ok: true,
+    });
+    await expect(malformed).rejects.toThrow("carried no text");
+  });
+
+  it("re-posts composer watches after a reconnect, because the host dropped the old lane's sink", () => {
+    const { host, source } = makeSource();
+    source.subscribeWindowComposer("session-a", vi.fn());
+    const before = host.posted.length;
+
+    source.resumeAfterSessionReconnect();
+
+    expect(host.posted.slice(before)).toEqual([
+      { t: "agent-window-input-watch", sub: "window-input-1", sid: "session-a" },
+    ]);
+  });
+
+  it("unwatches composers on destroy and fails every request in flight", async () => {
+    const { host, source } = makeSource();
+    source.subscribeWindowComposer("session-a", vi.fn());
+    const pending = source.syncWindowComposer("session-a", "in flight");
+
+    source.destroy();
+
+    expect(host.posted).toContainEqual({
+      t: "agent-window-input-unwatch",
+      sub: "window-input-1",
+    });
+    await expect(pending).rejects.toThrow("BridgeDataSource destroyed");
   });
 });

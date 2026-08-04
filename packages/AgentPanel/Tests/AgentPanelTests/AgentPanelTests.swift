@@ -149,7 +149,7 @@ struct AgentPanelTests {
             ) == .windowInputSync(requestId: "sync-1", sessionId: session, text: "")
         )
 
-        let atLimit = String(repeating: "x", count: AgentPanelRequest.composerTextLimit)
+        let atLimit = String(repeating: "x", count: AgentPanelWindowInputBounds.textLimit)
         #expect(AgentPanelRequest.decode(
             tag: "agent-window-input-sync",
             body: ["rid": "sync-1", "sid": session, "tx": atLimit]

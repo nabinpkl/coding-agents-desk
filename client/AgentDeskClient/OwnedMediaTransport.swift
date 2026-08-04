@@ -379,6 +379,22 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         try await inputStream.send(try Self.workspaceTerminalFrame(message))
     }
 
+    func sendAgentWindowInputWatch(_ request: AgentWindowInputWatch) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
+    func sendAgentWindowInputUnwatch(_ request: AgentWindowInputUnwatch) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
+    func sendAgentWindowInputSync(_ request: AgentWindowInputSync) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
+    func sendAgentWindowInputRead(_ request: AgentWindowInputRead) async throws {
+        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+    }
+
     static func agentTerminalFrame(_ message: AgentTerminalClientMessage) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

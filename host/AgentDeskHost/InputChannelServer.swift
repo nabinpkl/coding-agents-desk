@@ -30,6 +30,13 @@ enum AgentFeedRequest: Sendable {
     case sessionAbort(AgentSessionAbort)
     case extensionUIResponse(AgentExtensionUIResponse)
     case terminal(AgentTerminalClientMessage)
+    // Claude Desktop composer sync. Carried on this lane like any other panel request, but answered by
+    // the host's own Accessibility path rather than the sidecar, so the caller routes these past the
+    // agent-feed bridge entirely.
+    case windowInputWatch(AgentWindowInputWatch)
+    case windowInputUnwatch(AgentWindowInputUnwatch)
+    case windowInputSync(AgentWindowInputSync)
+    case windowInputRead(AgentWindowInputRead)
 }
 
 protocol AgentDataPushing: AnyObject, Sendable {
@@ -443,6 +450,22 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         case "agent-extension-ui-response":
             if let msg = try? JSONDecoder().decode(AgentExtensionUIResponse.self, from: data) {
                 agentRequestHandler?(.extensionUIResponse(msg))
+            }
+        case "agent-window-input-watch":
+            if let msg = try? JSONDecoder().decode(AgentWindowInputWatch.self, from: data) {
+                agentRequestHandler?(.windowInputWatch(msg))
+            }
+        case "agent-window-input-unwatch":
+            if let msg = try? JSONDecoder().decode(AgentWindowInputUnwatch.self, from: data) {
+                agentRequestHandler?(.windowInputUnwatch(msg))
+            }
+        case "agent-window-input-sync":
+            if let msg = try? JSONDecoder().decode(AgentWindowInputSync.self, from: data) {
+                agentRequestHandler?(.windowInputSync(msg))
+            }
+        case "agent-window-input-read":
+            if let msg = try? JSONDecoder().decode(AgentWindowInputRead.self, from: data) {
+                agentRequestHandler?(.windowInputRead(msg))
             }
         default:
             logger.notice("input lane unknown frame type=\(header.type, privacy: .public)")
