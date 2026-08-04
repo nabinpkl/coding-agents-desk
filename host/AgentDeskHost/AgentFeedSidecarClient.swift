@@ -284,13 +284,50 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
     // early cost latency instead of the whole session.
     private let endpointProvider: @Sendable () async -> AgentFeedSidecarEndpoint?
     private let session: URLSession
+    private let streamSession: URLSession
     private let logger: Logger
 
-    init(endpointProvider: @escaping @Sendable () async -> AgentFeedSidecarEndpoint?, session: URLSession = .shared) {
+    /// Streams and requests get SEPARATE connection pools, and neither is `URLSession.shared`.
+    ///
+    /// The feed holds long-lived SSE streams -- a projects stream, a stream per watched project, one
+    /// per open thread, one per session with extension UI -- and every Agents window and paired phone
+    /// opens its own set. Those connections never return to the pool. On one shared pool, the system's
+    /// six-per-host default is reached by the third window, and from then on every request that
+    /// actually renders a thread (`fetchEventsPage`, `fetchRawEvent`, `sendMessage`) queues behind
+    /// streams that will not end, until the panel's ten-second timeout fires and the session shows an
+    /// error instead of its transcript. The cap is a browser-era politeness limit toward a stranger's
+    /// server; this is loopback to a sidecar the host itself spawned.
+    ///
+    /// Two pools rather than one large one: a single pool means any future stream that fails to be
+    /// torn down eventually starves requests again, just more slowly. With the pools split, an RPC
+    /// never waits on a stream at all.
+    init(
+        endpointProvider: @escaping @Sendable () async -> AgentFeedSidecarEndpoint?,
+        session: URLSession? = nil,
+        streamSession: URLSession? = nil
+    ) {
         self.endpointProvider = endpointProvider
-        self.session = session
+        self.session = session ?? URLSession(
+            configuration: Self.configuration(connectionLimit: Config.agentFeedSidecarRequestConnectionLimit)
+        )
+        // A test that injects one session is stubbing the protocol, not the pool: reuse it for both
+        // roles so streams stay observable through the same seam.
+        self.streamSession = streamSession ?? session ?? URLSession(
+            configuration: Self.configuration(connectionLimit: Config.agentFeedSidecarStreamConnectionLimit)
+        )
         self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-sidecar-client")
     }
+
+    /// Ephemeral, so transcript bodies are never written to a URL cache on disk on their way to a
+    /// panel that already has them.
+    private static func configuration(connectionLimit: Int) -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpMaximumConnectionsPerHost = connectionLimit
+        return configuration
+    }
+
+    var requestSessionForTesting: URLSession { session }
+    var streamSessionForTesting: URLSession { streamSession }
 
     private func currentEndpoint() async throws -> AgentFeedSidecarEndpoint {
         guard let endpoint = await endpointProvider() else { throw SidecarClientError.notReady }
@@ -522,7 +559,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         onValue: @escaping @Sendable (Value) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
-        let session = session
+        let session = streamSession
         let task = Task<Void, Never> {
             do {
                 let resolved = try await request()

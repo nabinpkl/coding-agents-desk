@@ -902,6 +902,42 @@ private final class AgentFeedURLProtocol: URLProtocol, @unchecked Sendable {
         #expect((error as? SidecarClientError) == .notReady)
     }
 
+    @Test func streamsAndRequestsUseSeparatePoolsAwayFromTheSharedSession() {
+        // The regression this pins: on `URLSession.shared` the two roles share ONE six-connection
+        // pool, so three Agents windows' worth of never-ending SSE streams fill it and every request
+        // that renders a thread queues behind them until the panel times out. Separate pools mean an
+        // RPC never waits on a stream, and staying off `.shared` means neither competes with the rest
+        // of the host's HTTP.
+        let client = HttpSidecarClient(endpointProvider: { nil })
+
+        #expect(client.requestSessionForTesting !== client.streamSessionForTesting)
+        #expect(client.requestSessionForTesting !== URLSession.shared)
+        #expect(client.streamSessionForTesting !== URLSession.shared)
+        #expect(
+            client.streamSessionForTesting.configuration.httpMaximumConnectionsPerHost
+                == Config.agentFeedSidecarStreamConnectionLimit
+        )
+        #expect(
+            client.requestSessionForTesting.configuration.httpMaximumConnectionsPerHost
+                == Config.agentFeedSidecarRequestConnectionLimit
+        )
+        // Well clear of the system default that caused this, since the limit has to cover every
+        // window's and every phone's streams at once.
+        #expect(client.streamSessionForTesting.configuration.httpMaximumConnectionsPerHost > 6)
+    }
+
+    @Test func anInjectedSessionStillServesBothRolesForProtocolStubbing() {
+        // Existing tests stub `URLProtocol` through one injected session and drive streams over it.
+        // If that session stopped covering the stream path, those tests would silently start hitting
+        // the real network seam instead of the stub.
+        let configuration = URLSessionConfiguration.ephemeral
+        let injected = URLSession(configuration: configuration)
+        let client = HttpSidecarClient(endpointProvider: { nil }, session: injected)
+
+        #expect(client.requestSessionForTesting === injected)
+        #expect(client.streamSessionForTesting === injected)
+    }
+
     @Test func oneShotAPIsThrowNotReadyWhenSidecarDown() async {
         let client = HttpSidecarClient(endpointProvider: { nil })
         do {

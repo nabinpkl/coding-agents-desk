@@ -1104,6 +1104,22 @@ enum Config {
         environmentKey: "AGENTDESK_AGENT_TERMINAL_TOMBSTONE_LIMIT",
         defaultValue: 256
     )
+    // Sized for surfaces, not for politeness: every Agents window and every paired phone opens its
+    // own long-lived SSE streams (projects, one per watched project, one per open thread, one per
+    // session with extension UI) and those connections never come back to the pool. The system
+    // default of six per host is exhausted by the third window. Loopback to a sidecar the host
+    // spawned itself has no reason to be that frugal.
+    static let agentFeedSidecarStreamConnectionLimit = positiveInt(
+        environmentKey: "AGENTDESK_AGENT_FEED_SIDECAR_STREAM_CONNECTIONS",
+        defaultValue: 64
+    )
+    // Separate pool, so a request that renders a thread never queues behind a stream that will not
+    // end. Small on purpose: these are short round trips, and a backlog here means the sidecar is
+    // slow, which more sockets would hide rather than fix.
+    static let agentFeedSidecarRequestConnectionLimit = positiveInt(
+        environmentKey: "AGENTDESK_AGENT_FEED_SIDECAR_REQUEST_CONNECTIONS",
+        defaultValue: 16
+    )
     static let workspaceTerminalHandoffTimeoutSeconds = positiveInt(
         environmentKey: "AGENTDESK_WORKSPACE_TERMINAL_HANDOFF_TIMEOUT_SECONDS",
         defaultValue: 10
