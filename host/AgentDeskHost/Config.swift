@@ -860,6 +860,33 @@ enum Config {
         environmentKey: "AGENTDESK_AGENT_FEED_PORT",
         defaultValue: tieredPort(stable: 7682, dev: 7782)
     )
+    // Claude Desktop composer sync. Claude Desktop runs each coding session as a child
+    // Claude Code CLI whose argv carries `--resume=<sessionId>`, the same id that names
+    // the session's transcript file. Walking that child's parent chain to the Claude.app
+    // main binary identifies the window that owns the session; a chain that stops at a
+    // shell or tmux is a terminal session with no window to write into. Both values are
+    // env-overridable so a non-default install location or a future CLI marker does not
+    // need a rebuild.
+    static let claudeDesktopMainPath = ProcessInfo.processInfo.environment["AGENTDESK_CLAUDE_MAIN_PATH"]
+        ?? "/Applications/Claude.app/Contents/MacOS/Claude"
+    // Matched in BOTH argv spellings, because both are live on a normal machine and they mean
+    // different things here. Claude Desktop's embedded CLI passes `--resume=<id>`, while a terminal
+    // session -- including the ones this host launches itself in `AgentResumeLaunch` -- passes
+    // `--resume <id>`. Scanning only the first form would report an open terminal session as "not
+    // running" rather than "terminal only", which is the wrong answer on screen and hides the fact
+    // that the session is open at all.
+    static let claudeResumeFlag = ProcessInfo.processInfo.environment["AGENTDESK_CLAUDE_RESUME_MARK"]
+        ?? "--resume"
+    // How often a watched session is re-resolved against the process table. A `ps` scan plus
+    // a chain walk is cheap, but the thing it observes changes only when a human opens or
+    // closes a Claude window, so a slower cadence than the panel's other streams is right.
+    static let claudeWindowResolveInterval: TimeInterval = 3
+    // The `AXDescription` Claude Desktop gives its prompt composer. Matched together with the
+    // `AXTextArea` role, never on role alone: a Claude window holds other editable regions, and typing
+    // a prompt into one of them is worse than reporting the composer missing. Env-overridable because
+    // this is another application's private UI string and can change without notice.
+    static let claudeComposerDescription = ProcessInfo.processInfo.environment["AGENTDESK_CLAUDE_COMPOSER_DESC"]
+        ?? "Prompt"
     static let agentFeedSidecarResourceName = "agent-feed-sidecar"
     static var agentFeedSidecarURL: URL? {
         Bundle.main.url(forResource: agentFeedSidecarResourceName, withExtension: nil)

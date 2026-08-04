@@ -92,6 +92,78 @@ struct AgentPanelTests {
         #expect(AgentPanelRequest.decode(tag: "future-message", body: [:]) == nil)
     }
 
+    @Test func windowInputRequestsDecodeWithBoundedIdentifiers() {
+        let session = "9f2c1d54-0b3a-4e77-8c21-6a5be0d41f3e"
+
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-window-input-watch",
+                body: ["sub": "window-1", "sid": session]
+            ) == .windowInputWatch(subscriptionId: "window-1", sessionId: session)
+        )
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-window-input-unwatch",
+                body: ["sub": "window-1"]
+            ) == .windowInputUnwatch(subscriptionId: "window-1")
+        )
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-window-input-read",
+                body: ["rid": "read-1", "sid": session]
+            ) == .windowInputRead(requestId: "read-1", sessionId: session)
+        )
+
+        // The session id addresses a WINDOW here, by comparison against live process argv, so it is
+        // charset-bounded where the sidecar-facing requests accept any nonempty string.
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-input-watch",
+            body: ["sub": "window-1", "sid": "session one"]
+        ) == nil)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-input-watch",
+            body: ["sub": "window-1", "sid": String(repeating: "a", count: 129)]
+        ) == nil)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-input-watch",
+            body: ["sid": session]
+        ) == nil)
+    }
+
+    @Test func windowInputSyncAcceptsClearingButNotAnUnboundedComposerWrite() {
+        let session = "9f2c1d54-0b3a-4e77-8c21-6a5be0d41f3e"
+
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-window-input-sync",
+                body: ["rid": "sync-1", "sid": session, "tx": "review the diff"]
+            ) == .windowInputSync(requestId: "sync-1", sessionId: session, text: "review the diff")
+        )
+
+        // Empty is a real intent here -- it clears the composer -- where `agent-session-send` rejects it
+        // because an empty prompt means nothing.
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-window-input-sync",
+                body: ["rid": "sync-1", "sid": session, "tx": ""]
+            ) == .windowInputSync(requestId: "sync-1", sessionId: session, text: "")
+        )
+
+        let atLimit = String(repeating: "x", count: AgentPanelRequest.composerTextLimit)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-input-sync",
+            body: ["rid": "sync-1", "sid": session, "tx": atLimit]
+        ) != nil)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-input-sync",
+            body: ["rid": "sync-1", "sid": session, "tx": atLimit + "x"]
+        ) == nil)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-input-sync",
+            body: ["rid": "sync-1", "sid": session]
+        ) == nil)
+    }
+
     @Test func requestDecoderAcceptsProviderNeutralSourcesAndRejectsInvalidIdentifiers() {
         for tag in ["agent-thread-sub", "agent-thread-unsub"] {
             #expect(AgentPanelRequest.decode(

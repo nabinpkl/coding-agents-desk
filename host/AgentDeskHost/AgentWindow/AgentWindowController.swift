@@ -26,6 +26,8 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     static let unavailableAccessibilityIdentifier = "agents-unavailable"
 
     private let sidecarClient: any SidecarClient
+    private let placementCoordinator: DesktopWindowPlacementCoordinator?
+    private var composerCoordinator: AgentWindowComposerCoordinator?
     private let localTerminalEndpoint: AgentSessionTerminalEndpoint?
     private let terminalPtyClient: PtyClient?
     private let terminalControllerForTesting: (any AgentWindowTerminalControlling)?
@@ -77,6 +79,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
             precondition(initialPlacement == nil, "Desktop placement requires the host placement coordinator")
             placementSession = nil
         }
+        self.placementCoordinator = placementCoordinator
         self.zoom = AgentWindowZoom(step: initialZoomStep)
         self.onClosed = onClosed
         super.init()
@@ -272,10 +275,28 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
                 window.contentView = makeContentView(webView)
             }
 
+            // Composer sync only exists when this host has its Space authority: every write may have to
+            // move a Claude window between Desktops and put it back. Without the coordinator the panel
+            // gets no status at all and keeps its field disabled, which is the honest state.
+            if let placementCoordinator {
+                composerCoordinator = AgentWindowComposerCoordinator(
+                    writer: AgentWindowComposerWriter(
+                        access: AgentWindowComposerAccess(),
+                        placement: placementCoordinator
+                    ),
+                    audit: HostWorkspaceDesktopAudit(),
+                    emit: { [weak self] json in
+                        Task { @MainActor in self?.panelController?.deliver(rawJSON: json) }
+                    }
+                )
+            }
             let transport = AgentPanelBridgeTransport(
                 bridge: bridge,
                 onTerminalIntent: { [weak self] intent in
                     self?.terminalController?.handle(intent)
+                },
+                onWindowInput: { [weak self] request in
+                    self?.composerCoordinator?.handle(request)
                 }
             )
             controller.transport = transport

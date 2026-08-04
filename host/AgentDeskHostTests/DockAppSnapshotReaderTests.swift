@@ -44,7 +44,7 @@ struct DockAppSnapshotReaderTests {
                 isActive: false
             ),
         ]
-        let auditWindow = WorkspaceDesktopWindow(windowID: 42, ownerName: "Editor", title: "main.swift", spaceIDs: [1], layer: 0, bounds: bounds, expectation: .otherApp)
+        let auditWindow = WorkspaceDesktopWindow(windowID: 42, ownerPID: 501, ownerName: "Editor", title: "main.swift", spaceIDs: [1], layer: 0, bounds: bounds, expectation: .otherApp)
         let audit = StaticWorkspaceDesktopAudit(WorkspaceDesktopSnapshot(activeSpaceID: 1, desktops: desktops, windows: [auditWindow], diagnostic: nil))
         let monitors = StaticDockDisplayMonitorReader(monitors: [
             DockDisplayMonitorFacts(displayID: "display-1", name: "Built-in", frame: CGRect(x: 0, y: 0, width: 1440, height: 900), visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 860), isMain: true),
@@ -141,6 +141,7 @@ struct DockAppSnapshotReaderTests {
             windows: [
                 WorkspaceDesktopWindow(
                     windowID: 42,
+                    ownerPID: 601,
                     ownerName: "ChatGPT",
                     title: "ChatGPT",
                     spaceIDs: [1],
@@ -150,6 +151,7 @@ struct DockAppSnapshotReaderTests {
                 ),
                 WorkspaceDesktopWindow(
                     windowID: 43,
+                    ownerPID: 601,
                     ownerName: "ChatGPT",
                     title: "Codex",
                     spaceIDs: [1, 2],

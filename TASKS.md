@@ -1725,3 +1725,58 @@ seconds, and damping the axis would only hide that.
   native traffic lights and drag behavior while removing the duplicate native title band.
 - D249. Move the panel toggle directly beside the traffic lights, put the native drag target over
   the inert title area, and use a left-panel glyph instead of a generic hamburger.
+
+## v16 Claude Desktop composer sync
+
+Panel sessions already name a Claude session id. This arc makes that id addressable: resolve it to the
+Claude Desktop window that owns it, and let the panel write a draft into that window's composer without
+activating it. Resume-based mapping only. The panel never submits; the human presses Return in the real
+window.
+
+The mapping is deterministic and was validated read-only before this arc opened. Claude Desktop runs each
+coding session as a child Claude Code CLI whose args carry `--resume=<sessionId>`, the exact id naming
+`~/.claude/projects/<slug>/<sid>.jsonl`. Walking that child's parent chain to the Claude.app main binary
+yields the owning window pid. A chain terminating at a shell or tmux is a terminal session and must not be
+offered a window. No `--resume` process means the session is not open. The AX tree exposes no session id,
+URL, or document identity, so title and content matching are excluded by evidence, not preference.
+
+Non-activating AX writing was validated the same way: the composer is an `AXTextArea` with
+`AXDescription == "Prompt"`, reachable only after latching Chromium's `AXManualAccessibility` on the Claude
+pid, and present in the tree only while its window is on the current Space. Setting `kAXValueAttribute`
+does not activate the app or move focus.
+
+Space movement uses the ADR-0092 `DesktopWindowPlacementCoordinator`, not yabai. The prototype in
+`tools/` shells out to yabai because it is a standalone script; the host already owns SkyLight Space
+movement and verification, and a second mover would be the per-feature copy ADR-0092 exists to prevent.
+
+- D250. Add the composer-sync contract: `agent-window-input-watch`/`-unwatch`/`-status`/`-sync`/`-read`/
+  `-result` in `AgentDeskWire`, matching `AgentPanelRequest` cases with strict decoding, and fixed reason
+  codes rather than prose. Status carries whether the window is already on the current Desktop so the panel
+  can prefill for free and otherwise offer an explicit load.
+- D251. Add `AgentWindowSessionResolver`: parse `ps -axww -o pid=,ppid=,args=`, index resuming processes,
+  walk each parent chain to the Claude main binary, and resolve the owning pid's window id and Space
+  through the shared desktop audit and the placement coordinator. Read both live argv spellings:
+  `--resume=<sid>` is Claude Desktop's embedded CLI, `--resume <sid>` is a terminal session including the
+  ones this host launches itself in `AgentResumeLaunch`. Scanning only the first form would report an open
+  terminal session as `not-running` rather than `terminal-only`, which is the wrong reason on screen.
+  Match ids as whole tokens, never by containment, or a session id that is a strict prefix of another
+  resolves to the wrong window. `-ww` is load-bearing: the marker sits at the end of a long command line
+  and a truncated row reads as "not running". Classify per chain and prefer the Desktop match when the
+  same session is also resumed in a terminal. Keep parsing and classification pure so fixture `ps` output
+  tests every case without a live process tree.
+- D252. Add `AgentWindowComposerWriter`: latch `AXManualAccessibility`, move the target window to the
+  current Space through the placement coordinator, locate the `AXTextArea` whose `AXDescription` is
+  `Prompt`, set its value, read it back to confirm, and restore the window to its home Space. Assert the
+  frontmost application is unchanged across the whole sequence. Match the composer on role and description
+  together; never fall back to the first text element found. Never send Return.
+- R253. Route the new requests on both surfaces: `AgentPanelBridgeTransport` for the Mac Agents window and
+  `InputChannelServer` for the authenticated phone lane, into one `AgentWindowComposerCoordinator` that
+  owns watch subscriptions, periodic re-resolve, and status fan-out. Route past `AgentFeedBridge`, which is
+  a sidecar proxy and has no part in a host-local AX action.
+- R254. Add the panel input: a per-session composer-sync field in the thread view with an explicit commit
+  action, disabled with the mapped reason when no window owns the session, and prefilled from the window
+  when that costs no Space move.
+- R255. At the explicit runtime checkpoint, accept on the real Mac: a session open in a Claude Desktop
+  window on another Desktop, a session open only in a terminal, a session not running, frontmost unchanged
+  across a write, the window returned to its home Desktop, and the composer holding the exact text with
+  nothing submitted.

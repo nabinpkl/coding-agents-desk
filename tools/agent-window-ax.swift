@@ -8,6 +8,19 @@ import Foundation
 private let preserveFocusedApplication =
     ProcessInfo.processInfo.environment["AGENTDESK_AX_AUTOMATION_PRESERVE_FOCUS"] == "1"
 
+// Claude Desktop embeds Claude Code as a child process whose args carry
+// `--resume=<sessionId>` — the exact id that names its transcript file. Walking
+// that child's parent chain up to the Claude.app main binary gives the owning
+// window pid; yabai then gives the Space. Env-overridable so a non-default
+// install path or future CLI marker stays configurable.
+private let claudeMainPath =
+    ProcessInfo.processInfo.environment["AGENTDESK_CLAUDE_MAIN_PATH"]
+    ?? "/Applications/Claude.app/Contents/MacOS/Claude"
+
+private let claudeResumeMark =
+    ProcessInfo.processInfo.environment["AGENTDESK_CLAUDE_RESUME_MARK"]
+    ?? "--resume="
+
 private enum DriverError: LocalizedError {
     case usage(String)
     case appNotRunning(String)
@@ -87,6 +100,8 @@ private func usage() -> String {
       preflight
       force-accessibility [--bundle-id id | --pid pid]
       list-instances [--bundle-id id]
+      probe-session <sessionId>
+      list-resume
       dump [--bundle-id id | --pid pid] [--window-identifier id] [--depth n]
       wait --identifier id | --dom-identifier id [--bundle-id id | --pid pid] [--window-identifier id] [--timeout seconds]
       read --identifier id | --dom-identifier id [--bundle-id id | --pid pid] [--window-identifier id]
@@ -103,6 +118,19 @@ private func usage() -> String {
     resolves to multiple running instances (e.g. one per macOS Space).
 
     supported keys: backspace, return, escape, tab, left, right, up, down
+
+    probe-session: resolve a Claude session id to its owning Claude Desktop
+    window + Space. Signal: Claude Desktop runs its coding sessions as child
+    Claude Code CLI processes with `--resume=<sessionId>`; the parent chain up
+    to the Claude.app main binary names the window pid, yabai names the Space.
+    A chain that stops at a shell/tmux is a terminal CLI session, not a window.
+
+    list-resume: enumerate every running `--resume=<sessionId>` process and
+    map each session to its window/Space (or classify it as terminal/other).
+
+    Claude constants are env-overridable: AGENTDESK_CLAUDE_MAIN_PATH
+    (default /Applications/Claude.app/Contents/MacOS/Claude) and
+    AGENTDESK_CLAUDE_RESUME_MARK (default --resume=).
     """
 }
 
@@ -195,6 +223,68 @@ private func yabaiWindow(pid: pid_t, frame: CGRect?, in windows: [[String: Any]]
             && abs((f["w"] ?? 0) - frame.size.width) < 2
             && abs((f["h"] ?? 0) - frame.size.height) < 2
     } ?? candidates.first
+}
+
+private func processRows() -> [pid_t: (ppid: pid_t, args: String)] {
+    // ps is the only way to inspect the live process tree from a helper without
+    // entitlement games; used to find Claude Desktop's embedded Claude Code CLI
+    // children (`--resume=<sessionId>`) and walk up to the owning window pid.
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/bin/ps")
+    process.arguments = ["-axo", "pid,ppid,args"]
+    let stdout = Pipe()
+    process.standardOutput = stdout
+    process.standardError = Pipe()
+    guard (try? process.run()) != nil else { return [:] }
+    let data = stdout.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0,
+          let text = String(data: data, encoding: .utf8) else { return [:] }
+    guard let regex = try? NSRegularExpression(pattern: "^\\s*(\\d+)\\s+(\\d+)\\s+(.*)$") else {
+        return [:]
+    }
+    var rows: [pid_t: (ppid: pid_t, args: String)] = [:]
+    for line in text.split(separator: "\n") {
+        let line = String(line)
+        let ns = line as NSString
+        guard let match = regex.firstMatch(
+            in: line,
+            options: [],
+            range: NSRange(location: 0, length: ns.length)
+        ),
+        let pid = pid_t(ns.substring(with: match.range(at: 1))),
+        let ppid = pid_t(ns.substring(with: match.range(at: 2))) else { continue }
+        rows[pid] = (ppid, ns.substring(with: match.range(at: 3)))
+    }
+    return rows
+}
+
+private func ancestorChain(
+    resumePid: pid_t,
+    rows: [pid_t: (ppid: pid_t, args: String)]
+) -> (names: [String], claudeMainPid: pid_t?) {
+    var names: [String] = []
+    var current = resumePid
+    for _ in 0..<16 {
+        guard let row = rows[current] else { break }
+        names.append(row.args.split(separator: " ").first.map(String.init) ?? "?")
+        if row.args.hasPrefix(claudeMainPath) {
+            return (names, current)
+        }
+        if row.ppid == 1 { break }
+        current = row.ppid
+    }
+    return (names, nil)
+}
+
+private func describeWindows(for mainPid: pid_t, in windows: [[String: Any]]) -> String {
+    windows.filter { ($0["pid"] as? Int) == Int(mainPid) }
+        .map { entry in
+            "win=\(entry["id"] ?? "?") space=\(entry["space"] ?? "?") "
+                + "display=\(entry["display"] ?? "?") visible=\(entry["is-visible"] ?? "?") "
+                + "focused=\(entry["has-focus"] ?? "?")"
+        }
+        .joined(separator: " | ")
 }
 
 private func runningApp(bundleID: String) throws -> NSRunningApplication {
@@ -691,6 +781,71 @@ do {
                     line += " space=n/a (yabai unavailable or no match)"
                 }
                 print(line)
+            }
+        }
+
+    case "probe-session":
+        guard let sessionID = cursor.next() else {
+            throw DriverError.usage("probe-session requires <sessionId>")
+        }
+        let rows = processRows()
+        let resumePids = rows
+            .filter { $0.value.args.contains(claudeResumeMark + sessionID) }
+            .map { $0.key }
+            .sorted()
+        print("session=\(sessionID)")
+        guard !resumePids.isEmpty else {
+            print("not-running: no process with \(claudeResumeMark)\(sessionID)")
+            break
+        }
+        let windows = yabaiWindows()
+        var reportedMains: Set<pid_t> = []
+        var foundDesktop = false
+        for resumePid in resumePids {
+            let (names, mainPid) = ancestorChain(resumePid: resumePid, rows: rows)
+            guard let mainPid else {
+                print("resume-pid=\(resumePid) chain: \(names.joined(separator: " -> ")) (terminal/other; not a Claude Desktop window)")
+                continue
+            }
+            guard reportedMains.insert(mainPid).inserted else { continue }
+            foundDesktop = true
+            print("resume-pid=\(resumePid) claude-main-pid=\(mainPid)")
+            print("  chain: \(names.joined(separator: " -> "))")
+            let description = describeWindows(for: mainPid, in: windows)
+            print("  \(description.isEmpty ? "no yabai window for main pid" : description)")
+        }
+        print("result: \(foundDesktop ? "open in Claude Desktop" : "not open in any Claude Desktop window")")
+
+    case "list-resume":
+        let rows = processRows()
+        var sessions: [String: [pid_t]] = [:]
+        for (pid, row) in rows {
+            guard let range = row.args.range(of: claudeResumeMark) else { continue }
+            let sessionID = row.args[range.upperBound...].prefix(while: { !$0.isWhitespace })
+            guard !sessionID.isEmpty else { continue }
+            sessions[String(sessionID), default: []].append(pid)
+        }
+        guard !sessions.isEmpty else {
+            print("no running \(claudeResumeMark) processes")
+            break
+        }
+        let windows = yabaiWindows()
+        var reported: Set<String> = []
+        for sessionID in sessions.keys.sorted() {
+            var mapped = false
+            for pid in sessions[sessionID, default: []].sorted() {
+                let (_, mainPid) = ancestorChain(resumePid: pid, rows: rows)
+                guard let mainPid else { continue }
+                mapped = true
+                guard reported.insert("\(sessionID)|\(mainPid)").inserted else { continue }
+                print("session=\(sessionID) claude-main-pid=\(mainPid) \(describeWindows(for: mainPid, in: windows))")
+            }
+            if !mapped {
+                let detail = sessions[sessionID, default: []].sorted().map { pid in
+                    let (names, _) = ancestorChain(resumePid: pid, rows: rows)
+                    return "pid=\(pid) chain=\(names.joined(separator: " -> "))"
+                }.joined(separator: "; ")
+                print("session=\(sessionID) no-desktop-window \(detail)")
             }
         }
 

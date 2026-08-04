@@ -185,10 +185,12 @@ private func skyLightAuditWindows(sl: SkyLight, cid: Int32) -> [WorkspaceDesktop
         else { return nil }
         let owner = info[kCGWindowOwnerName as String] as? String ?? ""
         guard !owner.isEmpty else { return nil }
+        let ownerPID = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value ?? 0
         let title = info[kCGWindowName as String] as? String ?? ""
         let layer = (info[kCGWindowLayer as String] as? NSNumber)?.intValue ?? Int.max
         return WorkspaceDesktopWindow(
             windowID: id,
+            ownerPID: ownerPID,
             ownerName: owner,
             title: title,
             spaceIDs: skyLightAuditSpaceIDs(sl: sl, cid: cid, windowID: id),

@@ -12,13 +12,16 @@ import AgentPanel
 final class AgentPanelBridgeTransport: AgentPanelTransport {
     private let bridge: AgentFeedBridge
     private let onTerminalIntent: ((AgentPanelTerminalIntent) -> Void)?
+    private let onWindowInput: ((AgentPanelRequest) -> Void)?
 
     init(
         bridge: AgentFeedBridge,
-        onTerminalIntent: ((AgentPanelTerminalIntent) -> Void)? = nil
+        onTerminalIntent: ((AgentPanelTerminalIntent) -> Void)? = nil,
+        onWindowInput: ((AgentPanelRequest) -> Void)? = nil
     ) {
         self.bridge = bridge
         self.onTerminalIntent = onTerminalIntent
+        self.onWindowInput = onWindowInput
     }
 
     func sendAgentPanelRequest(_ request: AgentPanelRequest) {
@@ -90,6 +93,13 @@ final class AgentPanelBridgeTransport: AgentPanelTransport {
             ))
         case .terminal(let intent):
             onTerminalIntent?(intent)
+        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead:
+            // Composer sync is a host-local Accessibility action against another application's window.
+            // It routes past the bridge deliberately: `AgentFeedBridge` is a sidecar proxy, and there is
+            // no sidecar in this path. With no handler attached -- a host without its Space authority --
+            // nothing answers, so the panel keeps its field disabled rather than believing a write
+            // landed.
+            onWindowInput?(request)
         }
     }
 

@@ -51,6 +51,10 @@ public enum WorkspaceShellControlWindow {
 
 public struct WorkspaceDesktopWindow: Equatable, Sendable {
     public let windowID: UInt32
+    /// The process that owns the window. Carried so a caller holding only a pid -- Claude Desktop
+    /// composer sync resolves a session id to one through the process tree -- can reach its windows
+    /// through this one audit rather than opening a second CGWindowList of its own.
+    public let ownerPID: pid_t
     public let ownerName: String
     public let title: String
     public var spaceID: UInt64? { spaceIDs.first }
@@ -61,6 +65,7 @@ public struct WorkspaceDesktopWindow: Equatable, Sendable {
 
     public init(
         windowID: UInt32,
+        ownerPID: pid_t,
         ownerName: String,
         title: String,
         spaceIDs: [UInt64],
@@ -69,6 +74,7 @@ public struct WorkspaceDesktopWindow: Equatable, Sendable {
         expectation: WorkspaceDesktopWindowExpectation
     ) {
         self.windowID = windowID
+        self.ownerPID = ownerPID
         self.ownerName = ownerName
         self.title = title
         self.spaceIDs = spaceIDs

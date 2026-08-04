@@ -69,6 +69,10 @@ public enum AgentPanelRequest: Equatable, Sendable {
     case abort(requestId: String, source: String, sessionId: String)
     case extensionUIResponse(source: String, sessionId: String, requestId: String, value: AgentPanelUIValue)
     case terminal(AgentPanelTerminalIntent)
+    case windowInputWatch(subscriptionId: String, sessionId: String)
+    case windowInputUnwatch(subscriptionId: String)
+    case windowInputSync(requestId: String, sessionId: String, text: String)
+    case windowInputRead(requestId: String, sessionId: String)
 
     public static func decode(tag: String, body: [String: Any]) -> AgentPanelRequest? {
         switch tag {
@@ -160,6 +164,26 @@ public enum AgentPanelRequest: Equatable, Sendable {
                   let sessionId = nonemptyString(body["sid"]),
                   let value = uiValue(body["v"]) else { return nil }
             return .extensionUIResponse(source: source, sessionId: sessionId, requestId: requestId, value: value)
+        case "agent-window-input-watch":
+            guard let subscriptionId = nonemptyString(body["sub"]),
+                  let sessionId = sessionIdentifier(body["sid"]) else { return nil }
+            return .windowInputWatch(subscriptionId: subscriptionId, sessionId: sessionId)
+        case "agent-window-input-unwatch":
+            guard let subscriptionId = nonemptyString(body["sub"]) else { return nil }
+            return .windowInputUnwatch(subscriptionId: subscriptionId)
+        case "agent-window-input-sync":
+            // Empty text is ALLOWED here, unlike `agent-session-send`: clearing the composer is a real
+            // intent, where sending an empty prompt is not. The cap exists because this string is written
+            // verbatim into another application's text field.
+            guard let requestId = requestIdentifier(body["rid"]),
+                  let sessionId = sessionIdentifier(body["sid"]),
+                  let text = body["tx"] as? String,
+                  text.count <= composerTextLimit else { return nil }
+            return .windowInputSync(requestId: requestId, sessionId: sessionId, text: text)
+        case "agent-window-input-read":
+            guard let requestId = requestIdentifier(body["rid"]),
+                  let sessionId = sessionIdentifier(body["sid"]) else { return nil }
+            return .windowInputRead(requestId: requestId, sessionId: sessionId)
         case "agent-terminal-open":
             return decodeTerminalIntent(body: body, make: AgentPanelTerminalIntent.open)
         case "agent-terminal-close":
@@ -195,6 +219,23 @@ public enum AgentPanelRequest: Equatable, Sendable {
             return nil
         }
         return value
+    }
+
+    /// Longest composer text the panel may push into a Claude Desktop window.
+    ///
+    /// Not a protocol limit but a blast-radius one: unlike every other request here, this string is set
+    /// verbatim as another application's text-field value, so an unbounded one is a way to wedge that app
+    /// rather than merely to send a large prompt.
+    static let composerTextLimit = 100_000
+
+    /// A session id used to ADDRESS A WINDOW, rather than to name a sidecar transcript.
+    ///
+    /// The sidecar paths above accept any nonempty string because the sidecar validates its own ids. This
+    /// one is compared against the live process table to find the window that owns the session, so it is
+    /// bounded and charset-restricted here: an unbounded value would be scanned against every process's
+    /// argv on every re-resolve.
+    private static func sessionIdentifier(_ value: Any?) -> String? {
+        requestIdentifier(value)
     }
 
     private static func uiValue(_ value: Any?) -> AgentPanelUIValue? {

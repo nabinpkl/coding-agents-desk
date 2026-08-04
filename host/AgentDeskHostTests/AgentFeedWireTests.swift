@@ -165,6 +165,83 @@ struct AgentFeedWireTests {
         }
     }
 
+    @Test func windowInputMessagesRoundTripWithAbbreviatedKeys() throws {
+        try roundTrip(
+            AgentWindowInputWatch(subscriptionId: "window-1", sessionId: "session-1"),
+            tag: "agent-window-input-watch"
+        )
+        try roundTrip(
+            AgentWindowInputUnwatch(subscriptionId: "window-1"),
+            tag: "agent-window-input-unwatch"
+        )
+        try roundTrip(
+            AgentWindowInputSync(requestId: "sync-1", sessionId: "session-1", text: "review the diff"),
+            tag: "agent-window-input-sync"
+        )
+        try roundTrip(
+            AgentWindowInputRead(requestId: "read-1", sessionId: "session-1"),
+            tag: "agent-window-input-read"
+        )
+
+        let enabled = try roundTrip(
+            AgentWindowInputStatus(
+                subscriptionId: "window-1",
+                sessionId: "session-1",
+                enabled: true,
+                onActiveDesktop: true,
+                composerText: "already typed"
+            ),
+            tag: "agent-window-input-status"
+        )
+        #expect(enabled.reason == nil)
+        #expect(enabled.composerText == "already typed")
+
+        let disabled = try roundTrip(
+            AgentWindowInputStatus(
+                subscriptionId: "window-1",
+                sessionId: "session-1",
+                enabled: false,
+                reason: AgentWindowInputReason.terminalOnly.rawValue
+            ),
+            tag: "agent-window-input-status"
+        )
+        #expect(disabled.reason == "terminal-only")
+        #expect(!disabled.onActiveDesktop)
+        #expect(disabled.composerText == nil)
+
+        let failure = try roundTrip(
+            AgentWindowInputResult(
+                requestId: "sync-1",
+                sessionId: "session-1",
+                ok: false,
+                reason: AgentWindowInputReason.composerMissing.rawValue
+            ),
+            tag: "agent-window-input-result"
+        )
+        #expect(failure.text == nil)
+
+        // The panel keys off these abbreviations by hand, so pin them here rather than trusting that a
+        // round trip through one Codable implementation agrees with the other two mirrors of this wire.
+        let statusJSON = try encodedString(AgentWindowInputStatus(
+            subscriptionId: "window-1",
+            sessionId: "session-1",
+            enabled: false,
+            reason: AgentWindowInputReason.notRunning.rawValue
+        ))
+        for key in ["\"sub\"", "\"sid\"", "\"en\"", "\"r\"", "\"cur\""] {
+            #expect(statusJSON.contains(key))
+        }
+        let resultJSON = try encodedString(AgentWindowInputResult(
+            requestId: "sync-1",
+            sessionId: "session-1",
+            ok: true,
+            text: "review the diff"
+        ))
+        for key in ["\"rid\"", "\"sid\"", "\"ok\"", "\"tx\""] {
+            #expect(resultJSON.contains(key))
+        }
+    }
+
     private var transcriptCapabilities: AgentSessionCapabilities {
         AgentSessionCapabilities(modes: ["raw", "nice"], canSend: false, canSteer: false, canAbort: false, canFetchRaw: true, canOpenTerminal: true, supportsExtensionUI: false)
     }

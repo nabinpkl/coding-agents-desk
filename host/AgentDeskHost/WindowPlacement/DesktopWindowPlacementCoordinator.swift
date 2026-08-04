@@ -16,7 +16,11 @@ enum WorkspaceWindowSpaceMoveError: Error, Equatable, CustomStringConvertible {
     }
 }
 
-protocol WorkspaceWindowSpaceMoving {
+/// `Sendable` because the move is a stateless SkyLight call: the sole implementation
+/// (`HostWorkspaceWindowSpaceMover`) holds no state, and the same SkyLight binding already backs the
+/// off-main desktop audit. Composer sync runs this whole path off the main thread so a blocking
+/// Accessibility round trip cannot stall the UI.
+protocol WorkspaceWindowSpaceMoving: Sendable {
     func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws
     func spaceIDs(for windowID: UInt32) throws -> [UInt64]
 }
@@ -46,7 +50,7 @@ enum DesktopWindowPlacementError: Error, Equatable, CustomStringConvertible {
 
 /// The one host-side authority for observing, resolving, moving, and verifying app-owned windows.
 /// Presentation stores own durability; this coordinator owns only WindowServer truth.
-final class DesktopWindowPlacementCoordinator {
+final class DesktopWindowPlacementCoordinator: Sendable {
     private let desktopAudit: WorkspaceDesktopAuditing
     private let mover: WorkspaceWindowSpaceMoving
 
@@ -104,6 +108,24 @@ final class DesktopWindowPlacementCoordinator {
             desktop: WorkspaceDesktopAssignment(target),
             frame: saved.frame
         )
+    }
+
+    /// Moves a window to a Desktop and confirms it landed, without touching its frame.
+    ///
+    /// `restore(_:windowID:applyFrame:)` is the path for windows this host owns, where the saved frame
+    /// is ours to reapply. Another application's window is not ours to resize, so this carries the
+    /// Space move alone.
+    func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {
+        do {
+            try mover.move(windowID: windowID, toSpaceID: targetSpaceID)
+        } catch {
+            throw DesktopWindowPlacementError.moveFailed(
+                windowID: windowID,
+                targetSpaceID: targetSpaceID,
+                reason: String(describing: error)
+            )
+        }
+        try verify(windowID: windowID, targetSpaceID: targetSpaceID)
     }
 
     func verify(windowID: UInt32, targetSpaceID: UInt64) throws {

@@ -345,6 +345,7 @@ struct DockWindowFocusExecutorTests {
                 windows: [
                     WorkspaceDesktopWindow(
                         windowID: 42,
+                        ownerPID: 501,
                         ownerName: "Editor",
                         title: "Target",
                         spaceIDs: spaceIDs,

@@ -146,7 +146,9 @@ struct DesktopWindowPlacementCoordinatorTests {
     }
 }
 
-private final class RecordingWorkspaceWindowSpaceMover: WorkspaceWindowSpaceMoving {
+/// `@unchecked` because this double records what it was asked to do, which the real stateless mover has
+/// no need to. Each test drives it from one thread.
+private final class RecordingWorkspaceWindowSpaceMover: WorkspaceWindowSpaceMoving, @unchecked Sendable {
     struct Move: Equatable {
         let windowID: UInt32
         let spaceID: UInt64
