@@ -44,6 +44,24 @@ enum KeyboardAvoidanceGeometry {
     }
 }
 
+struct KeyboardControlRowPresentation: Equatable {
+    static let visibleHeight: CGFloat = 52
+
+    let isHidden: Bool
+    let height: CGFloat
+
+    static func resolve(
+        keyboardIsShown: Bool,
+        controlSurfaceIsActive: Bool
+    ) -> KeyboardControlRowPresentation {
+        let isHidden = keyboardIsShown || !controlSurfaceIsActive
+        return KeyboardControlRowPresentation(
+            isHidden: isHidden,
+            height: isHidden ? 0 : visibleHeight
+        )
+    }
+}
+
 enum KeyboardPresentationStateMachine {
     static func transition(
         from state: KeyboardPresentationState,

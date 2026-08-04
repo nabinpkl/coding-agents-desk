@@ -256,7 +256,9 @@ extension PairingViewController {
     // Applies the current Touch mode state: gate the recognizers and route the
     // scroll view's own pan so it does not fight ours when video touch input
     // is enabled. Full layout and shown keyboard state independently hide the
-    // relative controls.
+    // relative controls. Typing also collapses the bottom control row so
+    // the text echo sits next to the keyboard instead of above an empty
+    // fixed-height slot.
     // Idempotent; called on attach, on entering the session, and on every
     // settings or keyboard-presentation change.
     func applyVideoTouchState() {
@@ -283,7 +285,8 @@ extension PairingViewController {
         remoteInputModeControl.layoutMode = layoutMode
         remoteInputModeControl.videoTouchEnabled = enabled
         remoteInputModeControl.autoKeyboardEnabled = SettingsStore.shared.autoKeyboardEnabled
-        let relativeControlsHidden = !isControlSurfaceActive() || config.relativeControlsHidden
+        let controlSurfaceIsActive = isControlSurfaceActive()
+        let relativeControlsHidden = !controlSurfaceIsActive || config.relativeControlsHidden
         for control in [trackpadView, scrollStripView] {
             control.alpha = CGFloat(config.relativeControlsAlpha)
             control.isUserInteractionEnabled = config.relativeControlsInteractionEnabled
@@ -291,6 +294,12 @@ extension PairingViewController {
         }
         trackpadHint.isHidden = relativeControlsHidden
         scrollStripHint.isHidden = relativeControlsHidden
+        let controlRowPresentation = KeyboardControlRowPresentation.resolve(
+            keyboardIsShown: keyboardPresentationState == .shown,
+            controlSurfaceIsActive: controlSurfaceIsActive
+        )
+        buttonRow.isHidden = controlRowPresentation.isHidden
+        buttonRowHeightConstraint?.constant = controlRowPresentation.height
         applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
         refreshThumbnailStripVisibility()
     }

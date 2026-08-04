@@ -4,7 +4,7 @@ import AgentDeskWire
 @testable import AgentDeskClient
 
 struct HostTextInputKeyboardPolicyTests {
-    @Test func bottomControlRowSitsDirectlyAboveComposedKeyboardFrame() {
+    @Test func keyboardChromeAnchorSitsDirectlyAboveComposedKeyboardFrame() {
         let constant = KeyboardAvoidanceGeometry.bottomConstant(
             viewHeight: 956,
             keyboardMinY: 626,
@@ -22,6 +22,36 @@ struct HostTextInputKeyboardPolicyTests {
         )
 
         #expect(constant == -12)
+    }
+
+    @Test func typingHidesAndCollapsesControlRow() {
+        let presentation = KeyboardControlRowPresentation.resolve(
+            keyboardIsShown: true,
+            controlSurfaceIsActive: true
+        )
+
+        #expect(presentation.isHidden)
+        #expect(presentation.height == 0)
+    }
+
+    @Test func hiddenKeyboardRestoresControlRow() {
+        let presentation = KeyboardControlRowPresentation.resolve(
+            keyboardIsShown: false,
+            controlSurfaceIsActive: true
+        )
+
+        #expect(!presentation.isHidden)
+        #expect(presentation.height == KeyboardControlRowPresentation.visibleHeight)
+    }
+
+    @Test func inactiveControlSurfaceKeepsControlRowCollapsed() {
+        let presentation = KeyboardControlRowPresentation.resolve(
+            keyboardIsShown: false,
+            controlSurfaceIsActive: false
+        )
+
+        #expect(presentation.isHidden)
+        #expect(presentation.height == 0)
     }
 
     @Test func stateMachineShowHideAndToggleTransitions() {

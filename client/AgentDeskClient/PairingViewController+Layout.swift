@@ -210,6 +210,10 @@ extension PairingViewController {
 
         let bottomConstraint = buttonRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
         buttonRowBottomConstraint = bottomConstraint
+        let heightConstraint = buttonRow.heightAnchor.constraint(
+            equalToConstant: KeyboardControlRowPresentation.visibleHeight
+        )
+        buttonRowHeightConstraint = heightConstraint
 
         // Shared constraints, active for the entire session in both
         // orientations. Heights, fixed widths, intra-card hint
@@ -217,7 +221,7 @@ extension PairingViewController {
         // either orientation.
         NSLayoutConstraint.activate([
             bottomConstraint,
-            buttonRow.heightAnchor.constraint(equalToConstant: 52),
+            heightConstraint,
 
             // Strip must fit the full cell: tile thumbnail (tileHeight) +
             // two-row caption (tileCaptionHeight). The old 56pt value was
@@ -498,6 +502,10 @@ extension PairingViewController {
     }
 
     func hideTrackpad() {
+        // A dimension constraint is owned by the row itself and therefore
+        // survives removeFromSuperview. Deactivate it before remounting can
+        // create a replacement that needs to collapse independently.
+        buttonRowHeightConstraint?.isActive = false
         trackpadView.removeFromSuperview()
         scrollStripView.removeFromSuperview()
         buttonRow.removeFromSuperview()
@@ -546,6 +554,7 @@ extension PairingViewController {
         selectedDisplayIdForClientConfig = nil
         applyKeyboardPresentationIntent(.hide)
         buttonRowBottomConstraint = nil
+        buttonRowHeightConstraint = nil
         // R23: the shell's views are out of the hierarchy, so the set that positions things
         // against them is meaningless. Going through the reconciler rather than clearing
         // directly is what makes the difference between the two ways to get here: a teardown

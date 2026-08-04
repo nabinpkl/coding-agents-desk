@@ -445,8 +445,7 @@ extension PairingViewController {
         }
 
         // The combined selected-surface, layout-mode, and keyboard policy
-        // below owns relative-control visibility and interaction.
-        buttonRow.isHidden = v.controlChromeHidden
+        // below owns relative-control and bottom-row presentation.
         displayRailView.isHidden = v.controlChromeHidden
         // The keyboard surface is a first-responder helper; just disable it.
         keyboardSurface.isUserInteractionEnabled = v.keyboardInteractive

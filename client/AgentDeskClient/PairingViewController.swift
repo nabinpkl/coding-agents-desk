@@ -216,6 +216,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     let keyboardSurface = KeyboardSurface()
     var keyboardPresentationState: KeyboardPresentationState = .hidden
     var buttonRowBottomConstraint: NSLayoutConstraint?
+    var buttonRowHeightConstraint: NSLayoutConstraint?
     var dismissKeyboardTap: UITapGestureRecognizer?
     // R23: orientation-variant constraints, one set active at a time.
     // viewWillTransition swaps them inside the rotation coordinator's animator

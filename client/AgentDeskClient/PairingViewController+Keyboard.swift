@@ -3,9 +3,9 @@ import AgentDeskWire
 
 // R12.3 keyboard surface wiring. The KeyboardSurface view is a hidden
 // first-responder that backs the iOS soft keyboard; this extension owns
-// the tap-to-dismiss recognizer, the button-row constraint animation
-// that lifts the row above the keyboard, and the show/hide toggle that
-// switches the trackpad in and out of view while typing.
+// the tap-to-dismiss recognizer, the keyboard-avoidance animation, and
+// the show/hide toggle that collapses the relative controls and bottom
+// control row while typing.
 
 extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDelegate {
     func configureKeyboardSurface() {
