@@ -14,6 +14,7 @@ use pty_manager::protocol::{
 use pty_manager::transport::{receive, send, TerminalFramed};
 use tempfile::{tempdir, TempDir};
 use tokio::net::UnixStream;
+use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
 mod support;
@@ -114,6 +115,7 @@ async fn explicit_kill_ends_a_detached_session_immediately() {
     let original = create_shell(&mut client, "killed", manager.root(), true).await;
     detach(&mut client, "killed").await;
     drop(client);
+    let exit_event = observe_exit(original.pid);
 
     assert_eq!(
         pty_manager::client::kill_session(&manager.socket_path, "killed")
@@ -122,7 +124,7 @@ async fn explicit_kill_ends_a_detached_session_immediately() {
         129
     );
     assert!(list_sessions(&manager.socket_path).await.is_empty());
-    wait_for_process_exit(original.pid).await;
+    wait_for_exit_event(original.pid, exit_event).await;
     manager.shutdown(&[]).await;
 }
 
@@ -156,7 +158,7 @@ async fn natural_exit_clears_session_state() {
     let attached = read_first_attached(&mut client, 1, "natural-exit").await;
     assert_eq!(read_session_exit(&mut client).await, 7);
     wait_for_no_sessions(&manager.socket_path).await;
-    wait_for_process_exit(attached.pid).await;
+    assert!(!process_exists(attached.pid));
     manager.shutdown(&[]).await;
 }
 
@@ -232,9 +234,14 @@ async fn manager_shutdown_preserves_the_child_in_vault() {
         );
         preserved_pids.push(racing_pid);
     }
+    let exit_events = preserved_pids
+        .iter()
+        .copied()
+        .map(|pid| (pid, observe_exit(pid)))
+        .collect::<Vec<_>>();
     support::close_all_vault_sessions(&socket_path);
-    for pid in preserved_pids {
-        wait_for_process_exit(pid).await;
+    for (pid, exit_event) in exit_events {
+        wait_for_exit_event(pid, exit_event).await;
     }
 }
 
@@ -281,6 +288,11 @@ impl RunningManager {
     }
 
     async fn shutdown(mut self, surviving_pids: &[u32]) {
+        let exit_events = surviving_pids
+            .iter()
+            .copied()
+            .map(|pid| (pid, observe_exit(pid)))
+            .collect::<Vec<_>>();
         if let Some(shutdown_tx) = self.shutdown_tx.take() {
             shutdown_tx.send(()).expect("signal manager shutdown");
         }
@@ -297,8 +309,8 @@ impl RunningManager {
             );
         }
         support::close_all_vault_sessions(&self.socket_path);
-        for pid in surviving_pids {
-            wait_for_process_exit(*pid).await;
+        for (pid, exit_event) in exit_events {
+            wait_for_exit_event(pid, exit_event).await;
         }
     }
 }
@@ -414,16 +426,24 @@ fn process_exists(pid: u32) -> bool {
         .success()
 }
 
-async fn wait_for_process_exit(pid: u32) {
-    // `just check` runs this beside a full xcodebuild and the rest of the Rust suite, and a 1s
-    // budget was being missed under that load alone: these tests pass in isolation and report a
-    // bogus "did not exit" when run whole. The wait governs how long a correct implementation is
-    // allowed to take, so it should be generous; a real failure to exit still fails, just later.
-    for _ in 0..1_000 {
-        if !process_exists(pid) {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("child {pid} did not exit");
+fn observe_exit(pid: u32) -> oneshot::Receiver<Result<i32, String>> {
+    // Arm this before SIGHUP: PID probing can remain successful for an
+    // exited-but-unreaped child, while NOTE_EXIT is the lifecycle event the
+    // vault itself relies on.
+    let (sender, receiver) = oneshot::channel();
+    std::thread::spawn(move || {
+        let result = pty_manager::process_observer::observe_exit_status(pid)
+            .map_err(|error| error.to_string());
+        let _ = sender.send(result);
+    });
+    receiver
+}
+
+async fn wait_for_exit_event(pid: u32, exit_event: oneshot::Receiver<Result<i32, String>>) {
+    let status = tokio::time::timeout(Duration::from_secs(10), exit_event)
+        .await
+        .unwrap_or_else(|_| panic!("child {pid} emitted no exit event"))
+        .unwrap_or_else(|_| panic!("child {pid} exit observer stopped"))
+        .unwrap_or_else(|error| panic!("child {pid} exit observer failed: {error}"));
+    assert_eq!(status, 129, "child {pid} exited with an unexpected status");
 }
