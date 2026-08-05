@@ -1,5 +1,6 @@
 import AgentDeskWire
 import Foundation
+import os
 
 /// The Accessibility side of a composer write, behind a seam.
 ///
@@ -35,6 +36,7 @@ extension DesktopWindowPlacementCoordinator: AgentWindowDesktopMoving {}
 struct AgentWindowComposerWriter {
     private let access: AgentWindowComposerAccessing
     private let placement: AgentWindowDesktopMoving
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-window-composer")
 
     init(access: AgentWindowComposerAccessing, placement: AgentWindowDesktopMoving) {
         self.access = access
@@ -99,6 +101,9 @@ struct AgentWindowComposerWriter {
                 try placement.move(windowID: target.windowID, toSpaceID: target.activeSpaceID)
                 moved = true
             } catch {
+                logger.error(
+                    "composer move-in failed window=\(target.windowID, privacy: .public) targetSpace=\(target.activeSpaceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
                 return .failure(.moveFailed)
             }
         }
@@ -119,6 +124,9 @@ struct AgentWindowComposerWriter {
             do {
                 try placement.move(windowID: target.windowID, toSpaceID: target.homeSpaceID)
             } catch {
+                logger.error(
+                    "composer move-back failed window=\(target.windowID, privacy: .public) homeSpace=\(target.homeSpaceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
                 return .failure(.moveFailed)
             }
         }
