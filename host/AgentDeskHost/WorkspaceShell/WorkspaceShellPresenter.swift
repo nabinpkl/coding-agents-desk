@@ -68,7 +68,16 @@ final class WorkspaceShellPresenter: NSObject {
     private let zoomInButton = HoverButton(frame: .zero)
     private let sidebarPinButton = HoverButton(frame: .zero)
     private let topBarPinButton = HoverButton(frame: .zero)
-    private let agentsChooserButton = HoverButton(frame: .zero)
+    /// "＋ Agents" and its chooser as one split control: a single bezel divided by the system's own
+    /// hairline, with the wide half opening a window and the chevron half listing the open ones. Two
+    /// separate controls read as two chips that happened to land next to each other, which is what
+    /// this replaced.
+    private let agentsControl = AgentsSplitControl()
+    /// The chevron half's width, fixed here because the menu is popped up under it by hand and there
+    /// is no public way to ask a segmented control where one of its segments ended up.
+    private static let agentsChooserSegmentWidth: CGFloat = 24
+    private static let agentsOpenSegment = 0
+    private static let agentsChooserSegment = 1
     private let resizeHandle = SidebarResizeHandle()
     private weak var voiceButton: NSButton?
 
@@ -588,17 +597,7 @@ final class WorkspaceShellPresenter: NSObject {
         let ideButton = NSButton(title: "＋ IDE", target: self, action: #selector(openIDETapped))
         ideButton.setAccessibilityIdentifier("open-ide")
         ideButton.setAccessibilityLabel("Open new Workspace IDE")
-        let agentsButton = NSButton(title: "＋ Agents", target: self, action: #selector(openAgentsTapped))
-        agentsButton.setAccessibilityIdentifier("open-agents")
-        // Its own control rather than a click-and-hold on "＋ Agents": opening a window is the common
-        // action and must stay a single click that cannot be mistaken for reaching for the list.
-        configureIconButton(
-            agentsChooserButton,
-            symbol: "chevron.down",
-            id: "open-agents-chooser",
-            label: "List open Agents windows",
-            action: #selector(agentsChooserTapped)
-        )
+        configureAgentsControl()
         let terminalButton = NSButton(title: "＋ Terminal", target: self, action: #selector(openTerminalTapped))
         terminalButton.setAccessibilityIdentifier("open-terminal")
         configureIconButton(topBarPinButton, symbol: "pin", id: "toggle-topbar-pin", label: "Pin top bar", action: #selector(topBarPinTapped))
@@ -609,14 +608,7 @@ final class WorkspaceShellPresenter: NSObject {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        // The chevron rides tight against "＋ Agents" so the pair reads as one control; the stack's
-        // own 8pt spacing would otherwise make it look like a chip of its own.
-        let agentsGroup = NSStackView(views: [agentsButton, agentsChooserButton])
-        agentsGroup.orientation = .horizontal
-        agentsGroup.alignment = .centerY
-        agentsGroup.spacing = 0
-
-        let topBarStack = NSStackView(views: [browserButton, gestureButton, voiceButton, spacer, ptyManagerButton, ideButton, agentsGroup, terminalButton, topBarPinButton])
+        let topBarStack = NSStackView(views: [browserButton, gestureButton, voiceButton, spacer, ptyManagerButton, ideButton, agentsControl, terminalButton, topBarPinButton])
         topBarStack.orientation = .horizontal
         topBarStack.alignment = .centerY
         topBarStack.spacing = 8
@@ -628,6 +620,37 @@ final class WorkspaceShellPresenter: NSObject {
             topBarStack.trailingAnchor.constraint(equalTo: overlay.topBarContentView.trailingAnchor),
             topBarStack.centerYAnchor.constraint(equalTo: overlay.topBarContentView.centerYAnchor),
         ])
+    }
+
+    /// The split "＋ Agents" control. The chooser deliberately does NOT ride on AppKit's attached
+    /// segment menu: that opens on a press-and-hold, and reaching a list of windows should cost the
+    /// same single click as everything else in this bar. The control owns the click and pops the menu
+    /// itself, so the chevron half behaves like the button it looks like.
+    private func configureAgentsControl() {
+        agentsControl.segmentCount = 2
+        // Momentary, because neither half is a mode: both do something and leave nothing selected.
+        agentsControl.trackingMode = .momentary
+        agentsControl.segmentStyle = .automatic
+        agentsControl.target = self
+        agentsControl.action = #selector(agentsControlTapped(_:))
+
+        agentsControl.setLabel("＋ Agents", forSegment: Self.agentsOpenSegment)
+        // Zero means "fit the label", not "collapse".
+        agentsControl.setWidth(0, forSegment: Self.agentsOpenSegment)
+        agentsControl.setToolTip("Open a new Agents window", forSegment: Self.agentsOpenSegment)
+
+        agentsControl.setImage(
+            NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "List open Agents windows")?
+                .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold)),
+            forSegment: Self.agentsChooserSegment
+        )
+        agentsControl.setWidth(Self.agentsChooserSegmentWidth, forSegment: Self.agentsChooserSegment)
+        agentsControl.setToolTip("List open Agents windows", forSegment: Self.agentsChooserSegment)
+
+        agentsControl.setAccessibilityIdentifier("open-agents")
+        agentsControl.setAccessibilityLabel("Agents windows")
+        agentsControl.translatesAutoresizingMaskIntoConstraints = false
+        agentsControl.setContentHuggingPriority(.required, for: .horizontal)
     }
 
     /// A 1pt appearance-adaptive separator line (NSBox draws + flips with light/dark).
@@ -673,7 +696,7 @@ final class WorkspaceShellPresenter: NSObject {
 
     // MARK: - Actions
 
-    @objc private func openAgentsTapped() {
+    private func openAgentsTapped() {
         guard let desktop = desktopSwitcher.currentAssignment() else {
             logger.error("workspace-shell: cannot open Agents because the current Desktop is unavailable")
             return
@@ -698,14 +721,28 @@ final class WorkspaceShellPresenter: NSObject {
         )
     }
 
-    @objc private func agentsChooserTapped() {
+    @objc private func agentsControlTapped(_ sender: AgentsSplitControl) {
+        switch sender.selectedSegment {
+        case Self.agentsOpenSegment:
+            openAgentsTapped()
+        case Self.agentsChooserSegment:
+            agentsChooserTapped()
+        default:
+            break
+        }
+    }
+
+    private func agentsChooserTapped() {
         let menu = makeAgentWindowChooserMenu()
-        // Popped up under the chevron rather than at the mouse, so the list stays anchored to the
-        // control it belongs to however the button was reached.
+        // Popped up under the chevron half rather than at the mouse, so the list stays anchored to
+        // the half it belongs to however the control was reached.
         menu.popUp(
             positioning: nil,
-            at: NSPoint(x: 0, y: agentsChooserButton.bounds.maxY + 4),
-            in: agentsChooserButton
+            at: NSPoint(
+                x: agentsControl.bounds.maxX - Self.agentsChooserSegmentWidth,
+                y: agentsControl.bounds.maxY + 4
+            ),
+            in: agentsControl
         )
     }
 
@@ -850,4 +887,11 @@ final class WorkspaceShellPresenter: NSObject {
         for subview in view.subviews { result.formUnion(axIdentifiers(in: subview)) }
         return result
     }
+}
+
+/// The split "＋ Agents" control. Exists only to take the first mouse: the shell's top bar lives in a
+/// non-activating panel, so a plain control swallows the click that reaches it while the panel is not
+/// key, and the user has to click twice. `HoverButton` solves this the same way for the flat chips.
+final class AgentsSplitControl: NSSegmentedControl {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
