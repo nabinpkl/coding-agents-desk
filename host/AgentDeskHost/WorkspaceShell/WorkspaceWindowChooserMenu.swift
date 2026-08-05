@@ -1,7 +1,7 @@
 import AppKit
 
 /// The dropdown beside a "＋" chip: every open window of that family, each of which can be gone to or
-/// closed. One menu serves both Agents and IDE, because a list of windows is the same list either way.
+/// closed. One menu serves every family, because a list of windows is the same list whichever it is.
 ///
 /// Built fresh each time it is opened, from a list asked for at that moment. A menu that cached its
 /// rows would offer to close a window that had since closed itself, and would omit one opened since.

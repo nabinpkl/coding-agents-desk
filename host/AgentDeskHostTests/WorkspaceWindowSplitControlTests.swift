@@ -5,7 +5,7 @@ import Testing
 
 /// At file scope, not inside the suite: a parameterized test's arguments are read before the suite's
 /// main-actor isolation applies.
-private let splitControlKinds: [WorkspaceWindowKind] = [.agents, .ide]
+private let splitControlKinds: [WorkspaceWindowKind] = [.agents, .ide, .terminal]
 
 /// The chip that opens a window and the chevron that lists the open ones are one control with two
 /// halves. What matters is that the halves stay distinguishable -- to the user, to a UI test, and to

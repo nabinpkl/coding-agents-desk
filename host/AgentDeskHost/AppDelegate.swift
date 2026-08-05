@@ -678,29 +678,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         workspaceIDEWindowRegistry = ideWindows
 
-        // Both "＋" chips speak the same four commands; the kind picks the registry that answers.
+        // Every "＋" chip speaks the same four commands; the kind picks the registry that answers.
+        let terminalWindows = terminalWindowRegistry
         presenter.onOpenWindow = { [weak agentWindows, weak ideWindows] kind, placement in
             switch kind {
             case .agents: agentWindows?.open(placement)
             case .ide: ideWindows?.open(placement)
+            // Never arrives: the shell sends a Terminal to the workspace session, which roots it at
+            // the workspace's folder instead of at this placement.
+            case .terminal: break
             }
         }
-        presenter.onListWindows = { [weak agentWindows, weak ideWindows] kind in
+        presenter.onListWindows = { [weak agentWindows, weak ideWindows, weak terminalWindows] kind in
             switch kind {
             case .agents: return agentWindows?.openWindows ?? []
             case .ide: return ideWindows?.openWindows ?? []
+            case .terminal: return terminalWindows?.openWorkspaceWindows ?? []
             }
         }
-        presenter.onFocusWindow = { [weak agentWindows, weak ideWindows] kind, id in
+        presenter.onFocusWindow = { [weak agentWindows, weak ideWindows, weak terminalWindows] kind, id in
             switch kind {
             case .agents: agentWindows?.focusWindow(id: id)
             case .ide: ideWindows?.focusWindow(id: id)
+            case .terminal:
+                terminalWindows?.focusWorkspaceWindow(
+                    id: id,
+                    activateDesktop: { await desktopSwitcher.activate($0) }
+                )
             }
         }
-        presenter.onCloseWindow = { [weak agentWindows, weak ideWindows] kind, id in
+        presenter.onCloseWindow = { [weak agentWindows, weak ideWindows, weak terminalWindows] kind, id in
             switch kind {
             case .agents: agentWindows?.closeWindow(id: id)
             case .ide: ideWindows?.closeWindow(id: id)
+            case .terminal: terminalWindows?.closeWindow(id: id)
             }
         }
 

@@ -5,8 +5,8 @@ import Foundation
 /// Stands in for the Desktop switch, held open so a test can look at the world between "asked to
 /// switch" and "arrived" -- the window in that gap is the whole point of ordering the two.
 ///
-/// Shared by both window registries: they run the same two-step, so a divergence between two copies
-/// of the fake would hide a divergence between the two implementations.
+/// Shared by every window family: they run the same two-step through one reveal, so a divergence
+/// between copies of the fake would hide a divergence between the callers.
 @MainActor
 final class DesktopActivationGate {
     private(set) var requested: [WorkspaceDesktopAssignment] = []

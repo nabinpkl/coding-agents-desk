@@ -94,6 +94,34 @@ public final class TerminalWindowRegistry {
         logger = Logger(subsystem: loggerSubsystem, category: "terminal-restoration")
     }
 
+    /// The windows that are open right now, as the descriptors that describe them. The store also
+    /// holds descriptors for windows a previous host run left behind and this one has not put back
+    /// yet, which a chooser must not offer to go to; those are the ones filtered out here.
+    ///
+    /// Unordered on purpose: the store's order is last-written-first-forgotten and a live drag
+    /// rewrites a descriptor, so the caller sorts by whatever it names windows with.
+    public var openWindowPresentations: [TerminalWindowPresentationDescriptor] {
+        store.descriptors.filter { windows[$0.id] != nil }
+    }
+
+    /// Brings one open window to the front of the Desktop it is already on. Which Desktop that is, and
+    /// getting there first, belong to the host: this registry has no Spaces authority.
+    public func raiseWindow(id: UUID) {
+        guard !shuttingDown else { return }
+        windows[id]?.raise()
+    }
+
+    /// Closes one window along the same path as its own close button, so it forfeits its stored
+    /// presentation and does not come back on the next launch. Distinct from `prepareForHostTermination`,
+    /// which closes everything and preserves it all.
+    ///
+    /// Unknown ids are ignored rather than trapped: a chooser can only hold the list as it was when it
+    /// was opened, and the window may have closed itself since.
+    public func closeWindow(id: UUID) {
+        guard !shuttingDown else { return }
+        windows[id]?.close()
+    }
+
     public var openWindowDiagnostics: [UUID: TerminalWindowReplayDiagnostics] {
         windows.reduce(into: [:]) { result, entry in
             guard let window = entry.value as? any TerminalWindowReplayInspectable else { return }

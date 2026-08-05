@@ -6,14 +6,14 @@ import Testing
 
 /// At file scope, not inside the suite: a parameterized test's arguments are read before the suite's
 /// main-actor isolation applies.
-private let chooserKinds: [WorkspaceWindowKind] = [.agents, .ide]
+private let chooserKinds: [WorkspaceWindowKind] = [.agents, .ide, .terminal]
 
 /// The chooser hands a window id back to something that owns the window. What matters here is that
 /// it hands back the RIGHT one, for the RIGHT action: rows are built from a list, and an off-by-one
 /// between the row shown and the id carried would close or raise a window other than the one under
 /// the pointer -- and the two actions share a row, a few pixels apart.
 ///
-/// Every case runs against both families, because one menu serves both and a kind that leaked from
+/// Every case runs against every family, because one menu serves them all and a kind that leaked from
 /// the wrong place would name IDE windows "Agents" or hand a UI test identifiers it cannot tell apart.
 @MainActor
 struct WorkspaceWindowChooserMenuTests {

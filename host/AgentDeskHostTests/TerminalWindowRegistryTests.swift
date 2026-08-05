@@ -84,6 +84,137 @@ final class TerminalWindowRegistryTests: XCTestCase {
         XCTAssertTrue(fixture.store.descriptors.isEmpty)
     }
 
+    // MARK: - The top bar's chooser
+
+    func testOpenWindowsAreListedInAStableOrderAndNamedByWhereTheyAre() throws {
+        let fixture = try RegistryFixture(sessions: [])
+        defer { fixture.remove() }
+        // Registered out of order, so an implementation that returned them in registration order or in
+        // the store's own last-written order would be caught.
+        _ = fixture.register(desktopOrdinal: 1, cascadeOrdinal: 0)
+        _ = fixture.register(desktopOrdinal: 0, cascadeOrdinal: 1)
+        _ = fixture.register(desktopOrdinal: 0, cascadeOrdinal: 0)
+
+        XCTAssertEqual(
+            fixture.registry.openWorkspaceWindows.map(\.title),
+            ["Terminal 1 · Desktop 1", "Terminal 2 · Desktop 1", "Terminal 1 · Desktop 2"]
+        )
+        XCTAssertTrue(fixture.registry.openWorkspaceWindows.allSatisfy { $0.kind == .terminal })
+    }
+
+    func testAWindowThatHasNotBeenPutBackYetIsNotOfferedToGoTo() throws {
+        let fixture = try RegistryFixture(sessions: [])
+        defer { fixture.remove() }
+        // A descriptor the previous host run left behind. It names a window that does not exist in this
+        // one until restoration reaches it, and a chooser row for it would go nowhere.
+        try fixture.seed()
+
+        XCTAssertTrue(fixture.registry.openWorkspaceWindows.isEmpty)
+    }
+
+    func testClosingFromTheListEndsThatWindowTheWayItsOwnCloseButtonWould() throws {
+        let fixture = try RegistryFixture(sessions: [])
+        defer { fixture.remove() }
+        let first = fixture.register(desktopOrdinal: 0, cascadeOrdinal: 0)
+        let second = fixture.register(desktopOrdinal: 0, cascadeOrdinal: 1)
+
+        fixture.registry.closeWindow(id: first.id)
+
+        XCTAssertFalse(first.window.isOpen)
+        XCTAssertFalse(first.window.closedPreservingPresentation)
+        XCTAssertTrue(second.window.isOpen)
+        // Forfeited, not preserved: a window the user closed must not come back on the next launch.
+        XCTAssertEqual(fixture.store.descriptors.map(\.id), [second.id])
+    }
+
+    func testClosingAWindowThatIsAlreadyGoneIsIgnored() throws {
+        let fixture = try RegistryFixture(sessions: [])
+        defer { fixture.remove() }
+        let window = fixture.register(desktopOrdinal: 0, cascadeOrdinal: 0)
+        window.window.close()
+
+        fixture.registry.closeWindow(id: window.id)
+
+        XCTAssertTrue(fixture.store.descriptors.isEmpty)
+    }
+
+    func testGoingToAWindowMakesItsDesktopActiveBeforeRaisingIt() async throws {
+        let fixture = try RegistryFixture(sessions: [])
+        defer { fixture.remove() }
+        let gate = DesktopActivationGate()
+        let window = fixture.register(desktopOrdinal: 1, cascadeOrdinal: 0)
+
+        fixture.registry.focusWorkspaceWindow(id: window.id, activateDesktop: { await gate.activate($0) })
+        try await settle()
+
+        XCTAssertEqual(gate.requested.map(\.ordinal), [1])
+        // The order is the whole point: a window raised while the Desktop is still arriving lands
+        // behind whatever that Desktop settles on.
+        XCTAssertFalse(window.window.raised)
+
+        gate.complete(reached: true)
+        try await waitUntil { window.window.raised }
+    }
+
+    func testAWindowClosedWhileItsDesktopWasStillArrivingIsNotRaised() async throws {
+        let fixture = try RegistryFixture(sessions: [])
+        defer { fixture.remove() }
+        let gate = DesktopActivationGate()
+        let window = fixture.register(desktopOrdinal: 1, cascadeOrdinal: 0)
+
+        fixture.registry.focusWorkspaceWindow(id: window.id, activateDesktop: { await gate.activate($0) })
+        try await settle()
+        window.window.close()
+        gate.complete(reached: true)
+        try await settle()
+
+        XCTAssertFalse(window.window.raised)
+    }
+
+    func testADesktopThatRefusesToBecomeActiveStillRaisesTheWindow() async throws {
+        let fixture = try RegistryFixture(sessions: [])
+        defer { fixture.remove() }
+        let gate = DesktopActivationGate()
+        let window = fixture.register(desktopOrdinal: 1, cascadeOrdinal: 0)
+
+        fixture.registry.focusWorkspaceWindow(id: window.id, activateDesktop: { await gate.activate($0) })
+        try await settle()
+        gate.complete(reached: false)
+
+        // The window may already be reachable, and a silent no-op is worse than a window the user has
+        // to look for.
+        try await waitUntil { window.window.raised }
+    }
+
+    func testWithoutASpacesAuthorityTheWindowIsRaisedWhereItStands() throws {
+        let fixture = try RegistryFixture(sessions: [])
+        defer { fixture.remove() }
+        let window = fixture.register(desktopOrdinal: 1, cascadeOrdinal: 0)
+
+        fixture.registry.focusWorkspaceWindow(id: window.id, activateDesktop: nil)
+
+        XCTAssertTrue(window.window.raised)
+    }
+
+    func testGoingToAWindowThatIsAlreadyGoneIsIgnored() async throws {
+        let fixture = try RegistryFixture(sessions: [])
+        defer { fixture.remove() }
+        let gate = DesktopActivationGate()
+        let window = fixture.register(desktopOrdinal: 1, cascadeOrdinal: 0)
+        window.window.close()
+
+        fixture.registry.focusWorkspaceWindow(id: window.id, activateDesktop: { await gate.activate($0) })
+        try await settle()
+
+        XCTAssertTrue(gate.requested.isEmpty)
+    }
+
+    /// Lets the reveal's task run without waiting for anything in particular, so a test can look at
+    /// the state between the switch being asked for and it completing.
+    private func settle() async throws {
+        try await Task.sleep(nanoseconds: 20_000_000)
+    }
+
     private func waitUntil(
         timeout: UInt64 = 1_000_000_000,
         _ predicate: @escaping @MainActor () -> Bool
@@ -134,6 +265,31 @@ private final class RegistryFixture {
             spawn: spawner,
             desktopPlacer: desktopPlacer
         )
+    }
+
+    /// An open window at a known place, which is what the chooser lists windows by. Registered without
+    /// focus so a later raise is the only thing that could have raised it.
+    func register(desktopOrdinal: Int, cascadeOrdinal: Int) -> (id: UUID, window: FakeTrackedTerminalWindow) {
+        let id = UUID()
+        let window = FakeTrackedTerminalWindow(frame: CGRect(x: 0, y: 0, width: 700, height: 460))
+        registry.register(
+            window,
+            sessionName: "persistent",
+            workspaceID: UUID(),
+            workspaceLabel: "Workspace",
+            cascadeOrdinal: cascadeOrdinal,
+            placement: WorkspaceWindowPlacement(
+                desktop: WorkspaceDesktopAssignment(
+                    spaceID: UInt64(20 + desktopOrdinal),
+                    displayID: "D1",
+                    ordinal: desktopOrdinal
+                ),
+                frame: CGRect(x: 0, y: 0, width: 700, height: 460)
+            ),
+            focus: false,
+            presentationID: id
+        )
+        return (id, window)
     }
 
     @discardableResult

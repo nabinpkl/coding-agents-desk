@@ -98,30 +98,19 @@ final class WorkspaceIDEWindowRegistry {
             }
     }
 
-    /// Brings one listed window to the user: switches to the Desktop it lives on, then raises it
-    /// there. The two halves are in that order because a window cannot be raised onto a Desktop it is
-    /// not on, and this is the one place that knows which Desktop that is.
+    /// Brings one listed window to the user, through the reveal every family shares. The window is
+    /// looked up again inside `raise`, after the Desktop switch has finished, because it can be closed
+    /// from its own titlebar while that switch is still in flight.
     func focusWindow(id: UUID) {
         guard !isStopping, let entry = entries[id] else { return }
-        guard let activateDesktop else {
-            entry.controller.focus()
-            return
-        }
-        let desktop = entry.placement.desktop
-        Task { @MainActor [weak self] in
-            let reached = await activateDesktop(desktop)
-            // Re-read: the switch is a real wait, and the window can be closed from its own titlebar
-            // while the Desktop is still animating.
-            guard let self, !self.isStopping, let entry = self.entries[id] else { return }
-            if !reached {
-                // Raised anyway. The window may already be reachable (the switch is also refused
-                // when Spaces cannot be read at all), and refusing to act on the click would leave
-                // the user with a silent no-op instead of a window they can look for.
-                self.logger.error(
-                    "workspace-ide-window focus: Desktop \(desktop.ordinal + 1, privacy: .public) on display \(desktop.displayID, privacy: .public) did not become active"
-                )
-            }
-            entry.controller.focus()
+        WorkspaceWindowReveal.reveal(
+            desktop: entry.placement.desktop,
+            activateDesktop: activateDesktop,
+            logger: logger,
+            family: "workspace-ide-window"
+        ) { [weak self] in
+            guard let self, !self.isStopping else { return }
+            self.entries[id]?.controller.focus()
         }
     }
 

@@ -31,10 +31,6 @@ final class WorkspaceShellSession {
     private var gitStatus = GitStatus.empty
     /// Open file tabs per workspace (in-memory; the viewer mirrors the active workspace's set).
     private var tabs: [UUID: OpenTabs] = [:]
-    /// Live terminal windows per workspace. They are normal titled windows on the workspace's Desktop,
-    /// so macOS Spaces shows/hides them as the user switches workspaces (= Desktops); we track them only
-    /// to cascade successive spawns and to label them. Successive terminals cascade down-right.
-    private var terminals: [UUID: [TerminalEmulatorWindow]] = [:]
     private let terminalCascadeStep: CGFloat = 28
     /// Debounces editor-frame persistence: a live drag-resize fires onFrameChanged per frame.
     private var editorFramePersistTask: Task<Void, Never>?
@@ -165,12 +161,16 @@ final class WorkspaceShellSession {
             logger.error("workspace-shell: cannot open terminal because the current Desktop is unavailable")
             return
         }
-        // Drop windows the user has already closed so the cascade counts only currently-open
-        // terminals (otherwise successive spawns drift ever further off the slot) and closed window
-        // objects aren't retained for the process lifetime.
-        let open = (terminals[id] ?? []).filter(\.isOpen)
-        terminals[id] = open
-        let index = open.count
+        // The registry is the one record of which terminals are open, so the new window's place in the
+        // cascade is read from it rather than from a second list here that would have to be pruned to
+        // stay true. Lowest unused rather than a running count: reusing the place a closed terminal
+        // left keeps successive spawns on the slot instead of drifting ever further off it, and keeps
+        // two open terminals from carrying the same name in the top bar's chooser.
+        let used = Set(terminalWindowRegistry.openWindowPresentations
+            .filter { $0.workspaceID == id }
+            .map(\.cascadeOrdinal))
+        var index = 0
+        while used.contains(index) { index += 1 }
         let frame = terminalFrame().offsetBy(
             dx: CGFloat(index) * terminalCascadeStep,
             dy: CGFloat(-index) * terminalCascadeStep
@@ -184,7 +184,6 @@ final class WorkspaceShellSession {
                 switch result {
                 case .success(let window):
                     window.setWorkspaceLabel(workspaceName)
-                    self.terminals[id, default: []].append(window)
                     self.terminalWindowRegistry.register(
                         window,
                         sessionName: sessionName,

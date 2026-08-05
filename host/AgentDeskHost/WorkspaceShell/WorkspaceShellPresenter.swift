@@ -68,16 +68,20 @@ final class WorkspaceShellPresenter: NSObject {
     private let zoomInButton = HoverButton(frame: .zero)
     private let sidebarPinButton = HoverButton(frame: .zero)
     private let topBarPinButton = HoverButton(frame: .zero)
-    /// The "＋ IDE" and "＋ Agents" chips, each a split control whose wide half opens a window and
-    /// whose chevron half lists the ones already open. Built on first use of the top bar, because a
-    /// split control needs its kind to exist at all.
+    /// The "＋" chips, each a split control whose wide half opens a window and whose chevron half
+    /// lists the ones already open. Built on first use of the top bar, because a split control needs
+    /// its kind to exist at all.
     private lazy var ideControl = makeWindowControl(kind: .ide)
     private lazy var agentsControl = makeWindowControl(kind: .agents)
+    private lazy var terminalControl = makeWindowControl(kind: .terminal)
     private let resizeHandle = SidebarResizeHandle()
     private weak var voiceButton: NSButton?
 
     /// Invoked when a "＋" chip is tapped. The placement identifies the Desktop and current shell slot
     /// where AppDelegate should create an independent window of that kind.
+    ///
+    /// Never carries `.terminal`: a Terminal is rooted at the active workspace's folder and cascades
+    /// within that workspace, so the session places it and `onOpenTerminal` is what its chip calls.
     var onOpenWindow: ((WorkspaceWindowKind, WorkspaceWindowPlacement) -> Void)?
 
     /// Lists the windows of one kind open right now, for that kind's chooser. Asked at the moment the
@@ -585,8 +589,6 @@ final class WorkspaceShellPresenter: NSObject {
         self.voiceButton = voiceButton
         let ptyManagerButton = NSButton(title: "PTY Manager", target: self, action: #selector(openPtyManagerTapped))
         ptyManagerButton.setAccessibilityIdentifier("open-pty-manager")
-        let terminalButton = NSButton(title: "＋ Terminal", target: self, action: #selector(openTerminalTapped))
-        terminalButton.setAccessibilityIdentifier("open-terminal")
         configureIconButton(topBarPinButton, symbol: "pin", id: "toggle-topbar-pin", label: "Pin top bar", action: #selector(topBarPinTapped))
         applyPinGlyph(topBarPinButton, pinned: false)
 
@@ -595,7 +597,7 @@ final class WorkspaceShellPresenter: NSObject {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let topBarStack = NSStackView(views: [browserButton, gestureButton, voiceButton, spacer, ptyManagerButton, ideControl, agentsControl, terminalButton, topBarPinButton])
+        let topBarStack = NSStackView(views: [browserButton, gestureButton, voiceButton, spacer, ptyManagerButton, ideControl, agentsControl, terminalControl, topBarPinButton])
         topBarStack.orientation = .horizontal
         topBarStack.alignment = .centerY
         topBarStack.spacing = 8
@@ -660,16 +662,19 @@ final class WorkspaceShellPresenter: NSObject {
 
     // MARK: - Actions
 
-    /// A new window's size before the user has moved it: an IDE opens wide enough to hold a sidebar,
-    /// an editor, and a terminal; an Agents window is a tall column of one feed.
-    private func defaultWindowSize(_ kind: WorkspaceWindowKind) -> CGSize {
+    /// The wide half of a "＋" chip. The size is the window's before the user has moved it: an IDE
+    /// opens wide enough to hold a sidebar, an editor, and a terminal; an Agents window is a tall
+    /// column of one feed. A Terminal takes neither a size nor a Desktop from here -- it is rooted at
+    /// the active workspace's folder and cascades within that workspace, which only the session knows.
+    private func openWindowTapped(_ kind: WorkspaceWindowKind) {
         switch kind {
-        case .ide: return CGSize(width: 1_180, height: 760)
-        case .agents: return CGSize(width: 480, height: 720)
+        case .ide: openWindowInSlot(.ide, size: CGSize(width: 1_180, height: 760))
+        case .agents: openWindowInSlot(.agents, size: CGSize(width: 480, height: 720))
+        case .terminal: onOpenTerminal?()
         }
     }
 
-    private func openWindowTapped(_ kind: WorkspaceWindowKind) {
+    private func openWindowInSlot(_ kind: WorkspaceWindowKind, size: CGSize) {
         guard let desktop = desktopSwitcher.currentAssignment() else {
             logger.error(
                 "workspace-shell: cannot open \(kind.label, privacy: .public) because the current Desktop is unavailable"
@@ -678,7 +683,7 @@ final class WorkspaceShellPresenter: NSObject {
         }
         onOpenWindow?(kind, WorkspaceWindowPlacement(
             desktop: desktop,
-            frame: centeredRect(in: currentSlotFrame(), size: defaultWindowSize(kind))
+            frame: centeredRect(in: currentSlotFrame(), size: size)
         ))
     }
 
@@ -696,8 +701,6 @@ final class WorkspaceShellPresenter: NSObject {
     @objc private func gestureTapped() { onGestureCommand?() }
 
     @objc private func voiceTapped() { onVoiceCommand?() }
-
-    @objc private func openTerminalTapped() { onOpenTerminal?() }
 
     @objc private func openPtyManagerTapped() { onOpenPtyManager?() }
 

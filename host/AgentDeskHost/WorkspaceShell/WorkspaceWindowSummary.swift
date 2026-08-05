@@ -1,18 +1,23 @@
 import Foundation
 
-/// Which family of independent window a chooser is listing. The two behave identically once open --
+/// Which family of independent window a chooser is listing. They behave identically once open --
 /// each is a UUID-backed instance on a Desktop, listed, gone to, and closed the same way -- so they
 /// share one summary, one menu, and one set of registry operations, and differ only in what they are
 /// called and what their controls are identified as.
+///
+/// Opening is the one thing they do not share: an Agents or IDE window is placed by the top bar,
+/// where a Terminal is placed by the workspace session that knows which folder it is rooted at.
 enum WorkspaceWindowKind: String {
     case agents
     case ide
+    case terminal
 
     /// How the window is named to the user. "IDE" stays upper-case; it is an initialism, not a word.
     var label: String {
         switch self {
         case .agents: return "Agents"
         case .ide: return "IDE"
+        case .terminal: return "Terminal"
         }
     }
 
