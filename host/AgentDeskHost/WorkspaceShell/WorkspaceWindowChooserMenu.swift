@@ -1,6 +1,7 @@
 import AppKit
 
-/// The dropdown beside "＋ Agents": every open Agents window, each of which can be gone to or closed.
+/// The dropdown beside a "＋" chip: every open window of that family, each of which can be gone to or
+/// closed. One menu serves both Agents and IDE, because a list of windows is the same list either way.
 ///
 /// Built fresh each time it is opened, from a list asked for at that moment. A menu that cached its
 /// rows would offer to close a window that had since closed itself, and would omit one opened since.
@@ -8,25 +9,35 @@ import AppKit
 /// Rows are custom views rather than ordinary items, so they carry their own trailing close button.
 /// That costs them AppKit's highlighting and its click-to-act, both of which the row does itself.
 @MainActor
-enum AgentWindowChooserMenu {
-    static let accessibilityIdentifier = "agents-window-chooser"
-    static let emptyItemIdentifier = "agents-window-chooser-empty"
+enum WorkspaceWindowChooserMenu {
+    static func accessibilityIdentifier(for kind: WorkspaceWindowKind) -> String {
+        "\(kind.identifierPrefix)-window-chooser"
+    }
+
+    static func emptyItemIdentifier(for kind: WorkspaceWindowKind) -> String {
+        "\(accessibilityIdentifier(for: kind))-empty"
+    }
+
+    static func closeIdentifier(for kind: WorkspaceWindowKind, id: UUID) -> String {
+        "\(accessibilityIdentifier(for: kind))-close-\(id.uuidString)"
+    }
 
     static func make(
-        windows: [AgentWindowSummary],
+        kind: WorkspaceWindowKind,
+        windows: [WorkspaceWindowSummary],
         focus: @escaping (UUID) -> Void,
         close: @escaping (UUID) -> Void
     ) -> NSMenu {
         let menu = NSMenu()
-        menu.setAccessibilityIdentifier(accessibilityIdentifier)
+        menu.setAccessibilityIdentifier(accessibilityIdentifier(for: kind))
         // Rows are custom views, and AppKit would otherwise reserve the leading gutter every view
         // has to indent past for a state column none of them use.
         menu.autoenablesItems = false
 
         guard !windows.isEmpty else {
-            let empty = NSMenuItem(title: "No Agents windows open", action: nil, keyEquivalent: "")
+            let empty = NSMenuItem(title: "No \(kind.label) windows open", action: nil, keyEquivalent: "")
             empty.isEnabled = false
-            empty.setAccessibilityIdentifier(emptyItemIdentifier)
+            empty.setAccessibilityIdentifier(emptyItemIdentifier(for: kind))
             menu.addItem(empty)
             return menu
         }
@@ -34,8 +45,8 @@ enum AgentWindowChooserMenu {
         for window in windows {
             let item = NSMenuItem(title: window.title, action: nil, keyEquivalent: "")
             item.representedObject = window.id
-            item.setAccessibilityIdentifier("agents-window-chooser-row-\(window.id.uuidString)")
-            item.view = AgentWindowChooserRow(window: window, focus: focus, close: close)
+            item.setAccessibilityIdentifier("\(accessibilityIdentifier(for: kind))-row-\(window.id.uuidString)")
+            item.view = WorkspaceWindowChooserRow(window: window, focus: focus, close: close)
             menu.addItem(item)
         }
         return menu
@@ -44,7 +55,7 @@ enum AgentWindowChooserMenu {
 
 /// One row: the window's name, which goes to it, and the button that closes it.
 @MainActor
-final class AgentWindowChooserRow: NSView {
+final class WorkspaceWindowChooserRow: NSView {
     private let windowID: UUID
     private let focus: (UUID) -> Void
     private let close: (UUID) -> Void
@@ -53,7 +64,7 @@ final class AgentWindowChooserRow: NSView {
     private let highlight = NSVisualEffectView()
     private var trackingArea: NSTrackingArea?
 
-    init(window: AgentWindowSummary, focus: @escaping (UUID) -> Void, close: @escaping (UUID) -> Void) {
+    init(window: WorkspaceWindowSummary, focus: @escaping (UUID) -> Void, close: @escaping (UUID) -> Void) {
         self.windowID = window.id
         self.focus = focus
         self.close = close
@@ -89,7 +100,9 @@ final class AgentWindowChooserRow: NSView {
         closeButton.target = self
         closeButton.action = #selector(closeTapped)
         closeButton.toolTip = "Close \(window.title)"
-        closeButton.setAccessibilityIdentifier("agents-window-chooser-close-\(window.id.uuidString)")
+        closeButton.setAccessibilityIdentifier(
+            WorkspaceWindowChooserMenu.closeIdentifier(for: window.kind, id: window.id)
+        )
         closeButton.setAccessibilityLabel("Close \(window.title)")
         closeButton.translatesAutoresizingMaskIntoConstraints = false
 
@@ -106,7 +119,7 @@ final class AgentWindowChooserRow: NSView {
             highlight.topAnchor.constraint(equalTo: topAnchor),
             highlight.bottomAnchor.constraint(equalTo: bottomAnchor),
             // The leading inset matches a standard menu item's text, so the chooser's rows line up
-            // with the "No Agents windows open" item and with the menus around it.
+            // with the "No ... windows open" item and with the menus around it.
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
             closeButton.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: 12),

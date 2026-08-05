@@ -7,6 +7,16 @@ import WorkspaceIDE
 protocol WorkspaceIDEWindowControlling: AnyObject {
     func show(activating: Bool)
     func observePlacement(_ changed: @escaping (WorkspaceWindowPlacement) -> Void)
+
+    /// Brings an already-open window forward and gives it key status. Whether the window's Desktop is
+    /// the active one is settled before this runs; a window can only be raised within its own Space.
+    func focus()
+
+    /// Closes on the user's behalf, along the same path as clicking the window's own close button:
+    /// the window forfeits its stored placement and its local IDE state. Distinct from `stop`, which
+    /// is host termination and preserves both for the next launch.
+    func beginUserClose()
+
     func stop()
     func discardLocalPersistence()
 }
@@ -34,6 +44,7 @@ final class WorkspaceIDEWindowRegistry {
     private let store: WorkspaceIDEWindowPresentationStore
     private let endpointFactory: EndpointFactory
     private let controllerFactory: ControllerFactory
+    private let activateDesktop: DesktopActivating?
     private let cascadeStep: CGFloat
     private let persistDelay: Duration
     private let logger = Logger(subsystem: Config.logSubsystem, category: "workspace-ide-window")
@@ -48,12 +59,14 @@ final class WorkspaceIDEWindowRegistry {
         store: WorkspaceIDEWindowPresentationStore,
         cascadeStep: CGFloat = 28,
         persistDelay: Duration = .milliseconds(200),
+        activateDesktop: DesktopActivating? = nil,
         endpointFactory: @escaping EndpointFactory,
         controllerFactory: @escaping ControllerFactory
     ) {
         self.store = store
         self.cascadeStep = cascadeStep
         self.persistDelay = persistDelay
+        self.activateDesktop = activateDesktop
         self.endpointFactory = endpointFactory
         self.controllerFactory = controllerFactory
     }
@@ -63,6 +76,62 @@ final class WorkspaceIDEWindowRegistry {
     }
 
     var openWindowCountForTesting: Int { entries.count }
+
+    /// The open windows, for a chooser that lists them.
+    ///
+    /// Ordered by Desktop and then by the window's place in its Desktop's cascade, because the
+    /// backing storage is a dictionary and an order that reshuffled between openings would move the
+    /// row under the pointer between the moment it is read and the moment it is clicked.
+    var openWindows: [WorkspaceWindowSummary] {
+        entries
+            .map { id, entry in
+                WorkspaceWindowSummary(
+                    id: id,
+                    kind: .ide,
+                    desktopOrdinal: entry.placement.desktop.ordinal,
+                    cascadeOrdinal: entry.cascadeOrdinal
+                )
+            }
+            .sorted { left, right in
+                (left.desktopOrdinal, left.cascadeOrdinal, left.id.uuidString)
+                    < (right.desktopOrdinal, right.cascadeOrdinal, right.id.uuidString)
+            }
+    }
+
+    /// Brings one listed window to the user: switches to the Desktop it lives on, then raises it
+    /// there. The two halves are in that order because a window cannot be raised onto a Desktop it is
+    /// not on, and this is the one place that knows which Desktop that is.
+    func focusWindow(id: UUID) {
+        guard !isStopping, let entry = entries[id] else { return }
+        guard let activateDesktop else {
+            entry.controller.focus()
+            return
+        }
+        let desktop = entry.placement.desktop
+        Task { @MainActor [weak self] in
+            let reached = await activateDesktop(desktop)
+            // Re-read: the switch is a real wait, and the window can be closed from its own titlebar
+            // while the Desktop is still animating.
+            guard let self, !self.isStopping, let entry = self.entries[id] else { return }
+            if !reached {
+                // Raised anyway. The window may already be reachable (the switch is also refused
+                // when Spaces cannot be read at all), and refusing to act on the click would leave
+                // the user with a silent no-op instead of a window they can look for.
+                self.logger.error(
+                    "workspace-ide-window focus: Desktop \(desktop.ordinal + 1, privacy: .public) on display \(desktop.displayID, privacy: .public) did not become active"
+                )
+            }
+            entry.controller.focus()
+        }
+    }
+
+    /// Closes one window as if the user had clicked its own close button. Unknown ids are ignored
+    /// rather than trapped: a chooser can only ever hold the list as it was when it was opened, and
+    /// the window may have been closed from its own titlebar since.
+    func closeWindow(id: UUID) {
+        guard !isStopping, let entry = entries[id] else { return }
+        entry.controller.beginUserClose()
+    }
 
     func open(_ placement: WorkspaceWindowPlacement) {
         guard !isStopping else { return }

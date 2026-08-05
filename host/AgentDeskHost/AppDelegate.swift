@@ -630,6 +630,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // window resolves the sidecar base URL lazily and owns a distinct terminal endpoint, so feed
         // visibility and terminal pushes cannot overwrite another window's subscription.
         let sidecar = agentFeedSidecar
+        // One Spaces authority for both window families: going to a listed window switches Desktops
+        // the same way whichever chooser asked for it.
+        let desktopSwitcher = WorkspaceDesktopSwitcher(spaces: spacesProvider)
         let agentWindows = AgentWindowRegistry(
             store: AgentWindowPresentationStore(url: Config.agentWindowPresentationsURL),
             sidecarClient: HttpSidecarClient(endpointProvider: { [weak sidecar] in
@@ -640,24 +643,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             makeTerminalPtyClient: { PtyManagerSocketClient.makeClient() },
             placementCoordinator: desktopWindowPlacementCoordinator,
             composerCoordinator: agentWindowComposerCoordinator,
-            desktopSwitcher: WorkspaceDesktopSwitcher(spaces: spacesProvider)
+            desktopSwitcher: desktopSwitcher
         )
         agentWindowRegistry = agentWindows
-        presenter.onOpenAgents = { [weak agentWindows] placement in
-            agentWindows?.open(placement)
-        }
-        presenter.onListAgentWindows = { [weak agentWindows] in
-            agentWindows?.openWindows ?? []
-        }
-        presenter.onFocusAgentWindow = { [weak agentWindows] id in
-            agentWindows?.focusWindow(id: id)
-        }
-        presenter.onCloseAgentWindow = { [weak agentWindows] id in
-            agentWindows?.closeWindow(id: id)
-        }
 
         let ideWindows = WorkspaceIDEWindowRegistry(
             store: WorkspaceIDEWindowPresentationStore(url: Config.workspaceIDEWindowPresentationsURL),
+            activateDesktop: { await desktopSwitcher.activate($0) },
             endpointFactory: { [unowned self] id in
                 WorkspaceTerminalEndpoint(
                     coordinator: workspaceTerminalCoordinator,
@@ -685,9 +677,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         )
         workspaceIDEWindowRegistry = ideWindows
-        presenter.onOpenIDE = { [weak ideWindows] placement in
-            ideWindows?.open(placement)
+
+        // Both "＋" chips speak the same four commands; the kind picks the registry that answers.
+        presenter.onOpenWindow = { [weak agentWindows, weak ideWindows] kind, placement in
+            switch kind {
+            case .agents: agentWindows?.open(placement)
+            case .ide: ideWindows?.open(placement)
+            }
         }
+        presenter.onListWindows = { [weak agentWindows, weak ideWindows] kind in
+            switch kind {
+            case .agents: return agentWindows?.openWindows ?? []
+            case .ide: return ideWindows?.openWindows ?? []
+            }
+        }
+        presenter.onFocusWindow = { [weak agentWindows, weak ideWindows] kind, id in
+            switch kind {
+            case .agents: agentWindows?.focusWindow(id: id)
+            case .ide: ideWindows?.focusWindow(id: id)
+            }
+        }
+        presenter.onCloseWindow = { [weak agentWindows, weak ideWindows] kind, id in
+            switch kind {
+            case .agents: agentWindows?.closeWindow(id: id)
+            case .ide: ideWindows?.closeWindow(id: id)
+            }
+        }
+
         presenter.onBrowserCommand = { [weak self] in self?.toggleBrowserProjection() }
 
         // Gesture window: the InteractionPanel webview detects swipes and steps

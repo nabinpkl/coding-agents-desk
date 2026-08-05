@@ -97,6 +97,16 @@ final class WorkspaceIDEWindowController: NSWindowController,
         terminalController.setWindowPresented(presented)
     }
 
+    /// Raises this window and gives it key status, without re-running the placement restore `show`
+    /// performs. A window that is already on screen has already been placed, and repeating the
+    /// restore would hide it again on any Desktop-audit hiccup -- an unacceptable answer to a click
+    /// that asked to SEE it.
+    func focus() {
+        guard let window, !isStopping else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
     func stop() {
         guard !isStopping else { return }
         isStopping = true
@@ -112,11 +122,18 @@ final class WorkspaceIDEWindowController: NSWindowController,
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard !isStopping else { return false }
+        beginUserClose()
+        return false
+    }
+
+    /// The one user-initiated close, whether it came from the window's own close button or from the
+    /// top bar's list of open windows. Reporting the close is what makes the registry forfeit the
+    /// stored placement and local state, which is what closing a window means and quitting does not.
+    func beginUserClose() {
+        guard !isStopping else { return }
         let closed = onClosed
         stop()
         closed?()
-        return false
     }
 
     func workspaceIDEController(_ controller: WorkspaceIDEController, didSelectWorkspace id: String?) {

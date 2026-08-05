@@ -68,39 +68,30 @@ final class WorkspaceShellPresenter: NSObject {
     private let zoomInButton = HoverButton(frame: .zero)
     private let sidebarPinButton = HoverButton(frame: .zero)
     private let topBarPinButton = HoverButton(frame: .zero)
-    /// "＋ Agents" and its chooser as one split control: a single bezel divided by the system's own
-    /// hairline, with the wide half opening a window and the chevron half listing the open ones. Two
-    /// separate controls read as two chips that happened to land next to each other, which is what
-    /// this replaced.
-    private let agentsControl = AgentsSplitControl()
-    /// The chevron half's width, fixed here because the menu is popped up under it by hand and there
-    /// is no public way to ask a segmented control where one of its segments ended up.
-    private static let agentsChooserSegmentWidth: CGFloat = 24
-    private static let agentsOpenSegment = 0
-    private static let agentsChooserSegment = 1
+    /// The "＋ IDE" and "＋ Agents" chips, each a split control whose wide half opens a window and
+    /// whose chevron half lists the ones already open. Built on first use of the top bar, because a
+    /// split control needs its kind to exist at all.
+    private lazy var ideControl = makeWindowControl(kind: .ide)
+    private lazy var agentsControl = makeWindowControl(kind: .agents)
     private let resizeHandle = SidebarResizeHandle()
     private weak var voiceButton: NSButton?
 
-    /// Invoked when the top-bar "＋ Agents" command is tapped. The placement identifies the Desktop
-    /// and current shell slot where AppDelegate should create an independent Agents window.
-    var onOpenAgents: ((WorkspaceWindowPlacement) -> Void)?
+    /// Invoked when a "＋" chip is tapped. The placement identifies the Desktop and current shell slot
+    /// where AppDelegate should create an independent window of that kind.
+    var onOpenWindow: ((WorkspaceWindowKind, WorkspaceWindowPlacement) -> Void)?
 
-    /// Lists the Agents windows open right now, for the chooser beside "＋ Agents". Asked at the
-    /// moment the chooser opens rather than mirrored into the shell, so there is no second copy of
-    /// the registry's list to drift from it.
-    var onListAgentWindows: (() -> [AgentWindowSummary])?
+    /// Lists the windows of one kind open right now, for that kind's chooser. Asked at the moment the
+    /// chooser opens rather than mirrored into the shell, so there is no second copy of the registry's
+    /// list to drift from it.
+    var onListWindows: ((WorkspaceWindowKind) -> [WorkspaceWindowSummary])?
 
-    /// Goes to one listed Agents window: its Desktop becomes the active one and the window comes
-    /// forward there. The shell only names the window; the Desktop it lives on is the registry's to
-    /// know.
-    var onFocusAgentWindow: ((UUID) -> Void)?
+    /// Goes to one listed window: its Desktop becomes the active one and the window comes forward
+    /// there. The shell only names the window; the Desktop it lives on is the registry's to know.
+    var onFocusWindow: ((WorkspaceWindowKind, UUID) -> Void)?
 
-    /// Closes one listed Agents window. The shell does not own these windows and never holds one; it
-    /// passes back the id it was given.
-    var onCloseAgentWindow: ((UUID) -> Void)?
-
-    /// Creates an independent Workspace IDE on the Desktop that issued the command.
-    var onOpenIDE: ((WorkspaceWindowPlacement) -> Void)?
+    /// Closes one listed window. The shell does not own these windows and never holds one; it passes
+    /// back the id it was given.
+    var onCloseWindow: ((WorkspaceWindowKind, UUID) -> Void)?
 
     /// Opens the host-local Chrome projection window used to develop the Browser surface.
     var onBrowserCommand: (() -> Void)?
@@ -594,10 +585,6 @@ final class WorkspaceShellPresenter: NSObject {
         self.voiceButton = voiceButton
         let ptyManagerButton = NSButton(title: "PTY Manager", target: self, action: #selector(openPtyManagerTapped))
         ptyManagerButton.setAccessibilityIdentifier("open-pty-manager")
-        let ideButton = NSButton(title: "＋ IDE", target: self, action: #selector(openIDETapped))
-        ideButton.setAccessibilityIdentifier("open-ide")
-        ideButton.setAccessibilityLabel("Open new Workspace IDE")
-        configureAgentsControl()
         let terminalButton = NSButton(title: "＋ Terminal", target: self, action: #selector(openTerminalTapped))
         terminalButton.setAccessibilityIdentifier("open-terminal")
         configureIconButton(topBarPinButton, symbol: "pin", id: "toggle-topbar-pin", label: "Pin top bar", action: #selector(topBarPinTapped))
@@ -608,7 +595,7 @@ final class WorkspaceShellPresenter: NSObject {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let topBarStack = NSStackView(views: [browserButton, gestureButton, voiceButton, spacer, ptyManagerButton, ideButton, agentsControl, terminalButton, topBarPinButton])
+        let topBarStack = NSStackView(views: [browserButton, gestureButton, voiceButton, spacer, ptyManagerButton, ideControl, agentsControl, terminalButton, topBarPinButton])
         topBarStack.orientation = .horizontal
         topBarStack.alignment = .centerY
         topBarStack.spacing = 8
@@ -622,35 +609,12 @@ final class WorkspaceShellPresenter: NSObject {
         ])
     }
 
-    /// The split "＋ Agents" control. The chooser deliberately does NOT ride on AppKit's attached
-    /// segment menu: that opens on a press-and-hold, and reaching a list of windows should cost the
-    /// same single click as everything else in this bar. The control owns the click and pops the menu
-    /// itself, so the chevron half behaves like the button it looks like.
-    private func configureAgentsControl() {
-        agentsControl.segmentCount = 2
-        // Momentary, because neither half is a mode: both do something and leave nothing selected.
-        agentsControl.trackingMode = .momentary
-        agentsControl.segmentStyle = .automatic
-        agentsControl.target = self
-        agentsControl.action = #selector(agentsControlTapped(_:))
-
-        agentsControl.setLabel("＋ Agents", forSegment: Self.agentsOpenSegment)
-        // Zero means "fit the label", not "collapse".
-        agentsControl.setWidth(0, forSegment: Self.agentsOpenSegment)
-        agentsControl.setToolTip("Open a new Agents window", forSegment: Self.agentsOpenSegment)
-
-        agentsControl.setImage(
-            NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "List open Agents windows")?
-                .withSymbolConfiguration(.init(pointSize: 10, weight: .semibold)),
-            forSegment: Self.agentsChooserSegment
+    private func makeWindowControl(kind: WorkspaceWindowKind) -> WorkspaceWindowSplitControl {
+        WorkspaceWindowSplitControl(
+            kind: kind,
+            open: { [weak self] in self?.openWindowTapped(kind) },
+            chooser: { [weak self] in self?.makeWindowChooserMenu(kind) ?? NSMenu() }
         )
-        agentsControl.setWidth(Self.agentsChooserSegmentWidth, forSegment: Self.agentsChooserSegment)
-        agentsControl.setToolTip("List open Agents windows", forSegment: Self.agentsChooserSegment)
-
-        agentsControl.setAccessibilityIdentifier("open-agents")
-        agentsControl.setAccessibilityLabel("Agents windows")
-        agentsControl.translatesAutoresizingMaskIntoConstraints = false
-        agentsControl.setContentHuggingPriority(.required, for: .horizontal)
     }
 
     /// A 1pt appearance-adaptive separator line (NSBox draws + flips with light/dark).
@@ -696,65 +660,35 @@ final class WorkspaceShellPresenter: NSObject {
 
     // MARK: - Actions
 
-    private func openAgentsTapped() {
+    /// A new window's size before the user has moved it: an IDE opens wide enough to hold a sidebar,
+    /// an editor, and a terminal; an Agents window is a tall column of one feed.
+    private func defaultWindowSize(_ kind: WorkspaceWindowKind) -> CGSize {
+        switch kind {
+        case .ide: return CGSize(width: 1_180, height: 760)
+        case .agents: return CGSize(width: 480, height: 720)
+        }
+    }
+
+    private func openWindowTapped(_ kind: WorkspaceWindowKind) {
         guard let desktop = desktopSwitcher.currentAssignment() else {
-            logger.error("workspace-shell: cannot open Agents because the current Desktop is unavailable")
+            logger.error(
+                "workspace-shell: cannot open \(kind.label, privacy: .public) because the current Desktop is unavailable"
+            )
             return
         }
-        let slot = currentSlotFrame()
-        onOpenAgents?(WorkspaceWindowPlacement(
+        onOpenWindow?(kind, WorkspaceWindowPlacement(
             desktop: desktop,
-            frame: centeredRect(in: slot, size: CGSize(width: 480, height: 720))
+            frame: centeredRect(in: currentSlotFrame(), size: defaultWindowSize(kind))
         ))
     }
 
-    /// Test seam: the menu the chooser would show right now, without a tracking session.
-    func makeAgentWindowChooserMenuForTesting() -> NSMenu {
-        makeAgentWindowChooserMenu()
-    }
-
-    private func makeAgentWindowChooserMenu() -> NSMenu {
-        AgentWindowChooserMenu.make(
-            windows: onListAgentWindows?() ?? [],
-            focus: { [weak self] id in self?.onFocusAgentWindow?(id) },
-            close: { [weak self] id in self?.onCloseAgentWindow?(id) }
+    private func makeWindowChooserMenu(_ kind: WorkspaceWindowKind) -> NSMenu {
+        WorkspaceWindowChooserMenu.make(
+            kind: kind,
+            windows: onListWindows?(kind) ?? [],
+            focus: { [weak self] id in self?.onFocusWindow?(kind, id) },
+            close: { [weak self] id in self?.onCloseWindow?(kind, id) }
         )
-    }
-
-    @objc private func agentsControlTapped(_ sender: AgentsSplitControl) {
-        switch sender.selectedSegment {
-        case Self.agentsOpenSegment:
-            openAgentsTapped()
-        case Self.agentsChooserSegment:
-            agentsChooserTapped()
-        default:
-            break
-        }
-    }
-
-    private func agentsChooserTapped() {
-        let menu = makeAgentWindowChooserMenu()
-        // Popped up under the chevron half rather than at the mouse, so the list stays anchored to
-        // the half it belongs to however the control was reached.
-        menu.popUp(
-            positioning: nil,
-            at: NSPoint(
-                x: agentsControl.bounds.maxX - Self.agentsChooserSegmentWidth,
-                y: agentsControl.bounds.maxY + 4
-            ),
-            in: agentsControl
-        )
-    }
-
-    @objc private func openIDETapped() {
-        guard let desktop = desktopSwitcher.currentAssignment() else {
-            logger.error("workspace-shell: cannot open IDE because the current Desktop is unavailable")
-            return
-        }
-        onOpenIDE?(WorkspaceWindowPlacement(
-            desktop: desktop,
-            frame: centeredRect(in: currentSlotFrame(), size: CGSize(width: 1_180, height: 760))
-        ))
     }
 
     @objc private func browserTapped() { onBrowserCommand?() }
@@ -887,11 +821,4 @@ final class WorkspaceShellPresenter: NSObject {
         for subview in view.subviews { result.formUnion(axIdentifiers(in: subview)) }
         return result
     }
-}
-
-/// The split "＋ Agents" control. Exists only to take the first mouse: the shell's top bar lives in a
-/// non-activating panel, so a plain control swallows the click that reaches it while the panel is not
-/// key, and the user has to click twice. `HoverButton` solves this the same way for the flat chips.
-final class AgentsSplitControl: NSSegmentedControl {
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

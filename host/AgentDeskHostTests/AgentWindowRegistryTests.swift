@@ -519,7 +519,7 @@ private final class AgentWindowRegistryFixture {
         suspendStop: Bool = false,
         storeURL: URL = AgentWindowRegistryFixture.makeStoreURL(),
         presentationPersistDelay: Duration = .milliseconds(1),
-        activateDesktop: AgentWindowRegistry.DesktopActivating? = nil
+        activateDesktop: DesktopActivating? = nil
     ) {
         let coordinator = AgentWindowRegistryTerminalCoordinator()
         let recorder = AgentWindowRegistryRecorder()
@@ -554,26 +554,6 @@ private final class AgentWindowRegistryFixture {
 
     func remove() {
         try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent())
-    }
-}
-
-/// Stands in for the Desktop switch, held open so a test can look at the world between "asked to
-/// switch" and "arrived" -- the window in that gap is the whole point of ordering the two.
-@MainActor
-private final class DesktopActivationGate {
-    private(set) var requested: [WorkspaceDesktopAssignment] = []
-    private var continuation: CheckedContinuation<Bool, Never>?
-
-    func activate(_ desktop: WorkspaceDesktopAssignment) async -> Bool {
-        requested.append(desktop)
-        return await withCheckedContinuation { continuation in
-            self.continuation = continuation
-        }
-    }
-
-    func complete(reached: Bool) {
-        continuation?.resume(returning: reached)
-        continuation = nil
     }
 }
 

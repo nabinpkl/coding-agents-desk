@@ -50,10 +50,6 @@ final class AgentWindowRegistry {
         _ endpoint: AgentSessionTerminalEndpoint,
         _ onClosed: @escaping @MainActor () -> Void
     ) -> any AgentWindowControlling
-    /// Makes one Desktop the active one and answers whether it got there. Injected rather than
-    /// reached for so the registry can be tested without a live WindowServer, and left nil when the
-    /// host has no Spaces authority at all, in which case a listed window is raised where it stands.
-    typealias DesktopActivating = @MainActor (WorkspaceDesktopAssignment) async -> Bool
 
     private struct Entry {
         let cascadeOrdinal: Int
@@ -107,16 +103,7 @@ final class AgentWindowRegistry {
     ) {
         self.init(
             store: store,
-            // Waits for the Space to actually be the active one rather than for the gesture to be
-            // accepted: raising a window while the transition is still in flight lands it behind
-            // whatever the Desktop settles on.
-            activateDesktop: { desktop in
-                let confirmation = try? await desktopSwitcher.switchToDesktopAndWait(
-                    spaceID: desktop.spaceID,
-                    displayID: desktop.displayID
-                )
-                return confirmation == .reached
-            },
+            activateDesktop: { await desktopSwitcher.activate($0) },
             endpointFactory: { id in
                 AgentSessionTerminalEndpoint(
                     coordinator: terminalCoordinator,
@@ -153,11 +140,12 @@ final class AgentWindowRegistry {
     /// Ordered by Desktop and then by the window's place in its Desktop's cascade, because the
     /// backing storage is a dictionary and an order that reshuffled between openings would move the
     /// row under the pointer between the moment it is read and the moment it is clicked.
-    var openWindows: [AgentWindowSummary] {
+    var openWindows: [WorkspaceWindowSummary] {
         entries
             .map { id, entry in
-                AgentWindowSummary(
+                WorkspaceWindowSummary(
                     id: id,
+                    kind: .agents,
                     desktopOrdinal: entry.placement.desktop.ordinal,
                     cascadeOrdinal: entry.cascadeOrdinal
                 )
