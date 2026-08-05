@@ -32,6 +32,9 @@ final class WorkspaceShellSession {
     /// Open file tabs per workspace (in-memory; the viewer mirrors the active workspace's set).
     private var tabs: [UUID: OpenTabs] = [:]
     private let terminalCascadeStep: CGFloat = 28
+    /// Positions claimed by terminals asked for but not yet registered, which the registry cannot
+    /// know about.
+    private var terminalCascade = WorkspaceTerminalCascade()
     /// Debounces editor-frame persistence: a live drag-resize fires onFrameChanged per frame.
     private var editorFramePersistTask: Task<Void, Never>?
     private var mutationTail: Task<Void, Never>?
@@ -161,16 +164,13 @@ final class WorkspaceShellSession {
             logger.error("workspace-shell: cannot open terminal because the current Desktop is unavailable")
             return
         }
-        // The registry is the one record of which terminals are open, so the new window's place in the
-        // cascade is read from it rather than from a second list here that would have to be pruned to
-        // stay true. Lowest unused rather than a running count: reusing the place a closed terminal
-        // left keeps successive spawns on the slot instead of drifting ever further off it, and keeps
-        // two open terminals from carrying the same name in the top bar's chooser.
-        let used = Set(terminalWindowRegistry.openWindowPresentations
+        // The registry is the one record of which terminals are open, so the positions already taken
+        // are read from it rather than from a second list here that would have to be pruned to stay
+        // true. Spawning is asynchronous, so the claim covers the gap until this one registers.
+        let open = Set(terminalWindowRegistry.openWindowPresentations
             .filter { $0.workspaceID == id }
             .map(\.cascadeOrdinal))
-        var index = 0
-        while used.contains(index) { index += 1 }
+        let index = terminalCascade.claim(workspace: id, open: open)
         let frame = terminalFrame().offsetBy(
             dx: CGFloat(index) * terminalCascadeStep,
             dy: CGFloat(-index) * terminalCascadeStep
@@ -196,6 +196,9 @@ final class WorkspaceShellSession {
                 case .failure(let error):
                     self.logger.error("workspace-shell: terminal spawn failed for workspace \(id, privacy: .public): \(String(describing: error), privacy: .public)")
                 }
+                // Released after registering, not before: from here the registry answers for this
+                // position, and on failure nobody does.
+                self.terminalCascade.release(workspace: id, ordinal: index)
             }
         }
     }
