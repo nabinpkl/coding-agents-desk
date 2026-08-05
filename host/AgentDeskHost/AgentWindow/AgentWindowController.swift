@@ -123,6 +123,28 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         logAXSelfReport()
     }
 
+    /// Raises this window and gives it key status, without re-running the placement restore `show`
+    /// performs. A window that is already on screen has already been placed, and repeating the
+    /// restore would hide it again on any Desktop-audit hiccup -- an unacceptable answer to a click
+    /// that asked to SEE it. A window whose panel was never built still has to be built.
+    func focus() {
+        guard stopTask == nil else { return }
+        guard let window else {
+            show(activating: true)
+            return
+        }
+        if Config.axAutomationEnabled {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            // A nonactivating panel takes key for typing without the LSUIElement app activating and
+            // swapping the menu bar, which is the reason this window is a panel at all.
+            window.orderFrontRegardless()
+            window.makeKey()
+        }
+        logAXSelfReport()
+    }
+
     /// Logs the window's accessibility-tree state after a show, so the AX wiring is observable from
     /// the host's own os_log (category agent-window) without an out-of-process AX client or screen
     /// capture. Reports the window identifier, visibility, and whether the live webview or the

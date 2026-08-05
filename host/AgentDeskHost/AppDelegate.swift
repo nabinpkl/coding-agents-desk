@@ -639,7 +639,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             terminalTombstoneLimit: Config.agentTerminalRequestTombstoneLimit,
             makeTerminalPtyClient: { PtyManagerSocketClient.makeClient() },
             placementCoordinator: desktopWindowPlacementCoordinator,
-            composerCoordinator: agentWindowComposerCoordinator
+            composerCoordinator: agentWindowComposerCoordinator,
+            desktopSwitcher: WorkspaceDesktopSwitcher(spaces: spacesProvider)
         )
         agentWindowRegistry = agentWindows
         presenter.onOpenAgents = { [weak agentWindows] placement in
@@ -647,6 +648,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         presenter.onListAgentWindows = { [weak agentWindows] in
             agentWindows?.openWindows ?? []
+        }
+        presenter.onFocusAgentWindow = { [weak agentWindows] id in
+            agentWindows?.focusWindow(id: id)
         }
         presenter.onCloseAgentWindow = { [weak agentWindows] id in
             agentWindows?.closeWindow(id: id)

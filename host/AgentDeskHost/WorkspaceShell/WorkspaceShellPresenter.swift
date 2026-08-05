@@ -81,6 +81,11 @@ final class WorkspaceShellPresenter: NSObject {
     /// the registry's list to drift from it.
     var onListAgentWindows: (() -> [AgentWindowSummary])?
 
+    /// Goes to one listed Agents window: its Desktop becomes the active one and the window comes
+    /// forward there. The shell only names the window; the Desktop it lives on is the registry's to
+    /// know.
+    var onFocusAgentWindow: ((UUID) -> Void)?
+
     /// Closes one listed Agents window. The shell does not own these windows and never holds one; it
     /// passes back the id it was given.
     var onCloseAgentWindow: ((UUID) -> Void)?
@@ -688,6 +693,7 @@ final class WorkspaceShellPresenter: NSObject {
     private func makeAgentWindowChooserMenu() -> NSMenu {
         AgentWindowChooserMenu.make(
             windows: onListAgentWindows?() ?? [],
+            focus: { [weak self] id in self?.onFocusAgentWindow?(id) },
             close: { [weak self] id in self?.onCloseAgentWindow?(id) }
         )
     }

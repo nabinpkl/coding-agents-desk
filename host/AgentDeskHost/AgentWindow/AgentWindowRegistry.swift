@@ -24,6 +24,10 @@ protocol AgentWindowControlling: AnyObject {
     /// Reopens the terminal pane against an attachment a previous host run left behind.
     func resumeTerminal(_ attachment: AgentWindowTerminalAttachment)
 
+    /// Brings an already-open window forward and gives it key status. Whether the window's Desktop is
+    /// the active one is settled before this runs; a window can only be raised within its own Space.
+    func focus()
+
     /// Closes on the user's behalf, along the same path as clicking the window's own close button:
     /// the agent terminal ENDS rather than detaching, and the window forfeits its stored placement.
     /// Distinct from `beginStop`, which is host termination and preserves both.
@@ -46,6 +50,10 @@ final class AgentWindowRegistry {
         _ endpoint: AgentSessionTerminalEndpoint,
         _ onClosed: @escaping @MainActor () -> Void
     ) -> any AgentWindowControlling
+    /// Makes one Desktop the active one and answers whether it got there. Injected rather than
+    /// reached for so the registry can be tested without a live WindowServer, and left nil when the
+    /// host has no Spaces authority at all, in which case a listed window is raised where it stands.
+    typealias DesktopActivating = @MainActor (WorkspaceDesktopAssignment) async -> Bool
 
     private struct Entry {
         let cascadeOrdinal: Int
@@ -59,6 +67,7 @@ final class AgentWindowRegistry {
     private let store: AgentWindowPresentationStore
     private let endpointFactory: EndpointFactory
     private let controllerFactory: ControllerFactory
+    private let activateDesktop: DesktopActivating?
     private let cascadeStep: CGFloat
     private let presentationPersistDelay: Duration
     private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-window")
@@ -74,12 +83,14 @@ final class AgentWindowRegistry {
         store: AgentWindowPresentationStore,
         cascadeStep: CGFloat = 24,
         presentationPersistDelay: Duration = .milliseconds(200),
+        activateDesktop: DesktopActivating? = nil,
         endpointFactory: @escaping EndpointFactory,
         controllerFactory: @escaping ControllerFactory
     ) {
         self.store = store
         self.cascadeStep = cascadeStep
         self.presentationPersistDelay = presentationPersistDelay
+        self.activateDesktop = activateDesktop
         self.endpointFactory = endpointFactory
         self.controllerFactory = controllerFactory
     }
@@ -91,10 +102,21 @@ final class AgentWindowRegistry {
         terminalTombstoneLimit: Int,
         makeTerminalPtyClient: @escaping @MainActor () -> PtyClient,
         placementCoordinator: DesktopWindowPlacementCoordinator,
-        composerCoordinator: AgentWindowComposerCoordinator
+        composerCoordinator: AgentWindowComposerCoordinator,
+        desktopSwitcher: WorkspaceDesktopSwitcher
     ) {
         self.init(
             store: store,
+            // Waits for the Space to actually be the active one rather than for the gesture to be
+            // accepted: raising a window while the transition is still in flight lands it behind
+            // whatever the Desktop settles on.
+            activateDesktop: { desktop in
+                let confirmation = try? await desktopSwitcher.switchToDesktopAndWait(
+                    spaceID: desktop.spaceID,
+                    displayID: desktop.displayID
+                )
+                return confirmation == .reached
+            },
             endpointFactory: { id in
                 AgentSessionTerminalEndpoint(
                     coordinator: terminalCoordinator,
@@ -144,6 +166,33 @@ final class AgentWindowRegistry {
                 (left.desktopOrdinal, left.cascadeOrdinal, left.id.uuidString)
                     < (right.desktopOrdinal, right.cascadeOrdinal, right.id.uuidString)
             }
+    }
+
+    /// Brings one listed window to the user: switches to the Desktop it lives on, then raises it
+    /// there. The two halves are in that order because a window cannot be raised onto a Desktop it is
+    /// not on, and this is the one place that knows which Desktop that is.
+    func focusWindow(id: UUID) {
+        guard !shuttingDown, let entry = entries[id] else { return }
+        guard let activateDesktop else {
+            entry.controller.focus()
+            return
+        }
+        let desktop = entry.placement.desktop
+        Task { @MainActor [weak self] in
+            let reached = await activateDesktop(desktop)
+            // Re-read: the switch is a real wait, and the window can be closed from its own titlebar
+            // while the Desktop is still animating.
+            guard let self, !self.shuttingDown, let entry = self.entries[id] else { return }
+            if !reached {
+                // Raised anyway. The window may already be reachable (the switch is also refused
+                // when Spaces cannot be read at all), and refusing to act on the click would leave
+                // the user with a silent no-op instead of a window they can look for.
+                self.logger.error(
+                    "agents-window focus: Desktop \(desktop.ordinal + 1, privacy: .public) on display \(desktop.displayID, privacy: .public) did not become active"
+                )
+            }
+            entry.controller.focus()
+        }
     }
 
     /// Closes one window as if the user had clicked its own close button. Unknown ids are ignored

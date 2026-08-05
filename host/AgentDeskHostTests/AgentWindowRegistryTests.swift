@@ -380,6 +380,103 @@ struct AgentWindowRegistryTests {
         #expect(fixture.registry.openWindowCountForTesting == 0)
     }
 
+    @Test func goingToAWindowMakesItsDesktopActiveBeforeRaisingIt() async throws {
+        let gate = DesktopActivationGate()
+        let fixture = AgentWindowRegistryFixture(activateDesktop: { await gate.activate($0) })
+        defer { fixture.remove() }
+        let frame = CGRect(x: 100, y: 200, width: 480, height: 720)
+        fixture.registry.open(placement(spaceID: 41, frame: frame, ordinal: 0))
+        fixture.registry.open(placement(spaceID: 99, frame: frame, ordinal: 1))
+        let target = try #require(fixture.registry.openWindows.last)
+
+        fixture.registry.focusWindow(id: target.id)
+        await wait { gate.requested.count == 1 }
+
+        #expect(gate.requested.map(\.spaceID) == [99])
+        // Still down: a window raised while the Desktop is mid-transition lands behind whatever that
+        // transition settles on, which is the failure the wait exists to prevent.
+        #expect(fixture.controllers.map(\.focusCount) == [0, 0])
+
+        gate.complete(reached: true)
+        await wait { fixture.controllers[1].focusCount == 1 }
+
+        #expect(fixture.controllers.map(\.focusCount) == [0, 1])
+        #expect(fixture.controllers.map(\.showCount) == [1, 1])
+    }
+
+    @Test func aWindowClosedWhileItsDesktopWasStillArrivingIsNotRaised() async throws {
+        let gate = DesktopActivationGate()
+        let fixture = AgentWindowRegistryFixture(activateDesktop: { await gate.activate($0) })
+        defer { fixture.remove() }
+        let frame = CGRect(x: 100, y: 200, width: 480, height: 720)
+        fixture.registry.open(placement(spaceID: 41, frame: frame))
+        let target = try #require(fixture.registry.openWindows.first)
+
+        fixture.registry.focusWindow(id: target.id)
+        await wait { gate.requested.count == 1 }
+        fixture.controllers[0].close()
+        gate.complete(reached: true)
+        await settle()
+
+        // The Desktop switch is a real wait, so the window can be gone by the time it lands.
+        #expect(fixture.controllers[0].focusCount == 0)
+    }
+
+    @Test func aDesktopThatRefusesToBecomeActiveStillRaisesTheWindow() async throws {
+        let gate = DesktopActivationGate()
+        let fixture = AgentWindowRegistryFixture(activateDesktop: { await gate.activate($0) })
+        defer { fixture.remove() }
+        let frame = CGRect(x: 100, y: 200, width: 480, height: 720)
+        fixture.registry.open(placement(spaceID: 41, frame: frame))
+        let target = try #require(fixture.registry.openWindows.first)
+
+        fixture.registry.focusWindow(id: target.id)
+        await wait { gate.requested.count == 1 }
+        gate.complete(reached: false)
+        await wait { fixture.controllers[0].focusCount == 1 }
+
+        // The switch is also refused when Spaces cannot be read at all, and the window may already
+        // be reachable. Doing nothing would answer the click with silence.
+        #expect(fixture.controllers[0].focusCount == 1)
+    }
+
+    @Test func withoutASpacesAuthorityTheWindowIsRaisedWhereItStands() throws {
+        let fixture = AgentWindowRegistryFixture()
+        defer { fixture.remove() }
+        let frame = CGRect(x: 100, y: 200, width: 480, height: 720)
+        fixture.registry.open(placement(spaceID: 41, frame: frame))
+        let target = try #require(fixture.registry.openWindows.first)
+
+        fixture.registry.focusWindow(id: target.id)
+
+        #expect(fixture.controllers[0].focusCount == 1)
+    }
+
+    @Test func goingToAWindowThatIsAlreadyGoneIsIgnored() throws {
+        let fixture = AgentWindowRegistryFixture()
+        defer { fixture.remove() }
+        let frame = CGRect(x: 100, y: 200, width: 480, height: 720)
+        fixture.registry.open(placement(spaceID: 41, frame: frame))
+        let target = try #require(fixture.registry.openWindows.first)
+        fixture.controllers[0].close()
+
+        fixture.registry.focusWindow(id: target.id)
+
+        #expect(fixture.controllers[0].focusCount == 0)
+    }
+
+    private func wait(until condition: @MainActor () -> Bool) async {
+        for _ in 0..<200 where !condition() {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+    }
+
+    /// For asserting an absence: there is no state change to poll for, so the raise gets a real
+    /// chance to happen before the test says it did not.
+    private func settle() async {
+        try? await Task.sleep(for: .milliseconds(50))
+    }
+
     private func placement(
         spaceID: UInt64,
         frame: CGRect,
@@ -421,7 +518,8 @@ private final class AgentWindowRegistryFixture {
     init(
         suspendStop: Bool = false,
         storeURL: URL = AgentWindowRegistryFixture.makeStoreURL(),
-        presentationPersistDelay: Duration = .milliseconds(1)
+        presentationPersistDelay: Duration = .milliseconds(1),
+        activateDesktop: AgentWindowRegistry.DesktopActivating? = nil
     ) {
         let coordinator = AgentWindowRegistryTerminalCoordinator()
         let recorder = AgentWindowRegistryRecorder()
@@ -431,6 +529,7 @@ private final class AgentWindowRegistryFixture {
         registry = AgentWindowRegistry(
             store: AgentWindowPresentationStore(url: storeURL),
             presentationPersistDelay: presentationPersistDelay,
+            activateDesktop: activateDesktop,
             endpointFactory: { id in
                 AgentSessionTerminalEndpoint(
                     coordinator: coordinator,
@@ -458,6 +557,26 @@ private final class AgentWindowRegistryFixture {
     }
 }
 
+/// Stands in for the Desktop switch, held open so a test can look at the world between "asked to
+/// switch" and "arrived" -- the window in that gap is the whole point of ordering the two.
+@MainActor
+private final class DesktopActivationGate {
+    private(set) var requested: [WorkspaceDesktopAssignment] = []
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    func activate(_ desktop: WorkspaceDesktopAssignment) async -> Bool {
+        requested.append(desktop)
+        return await withCheckedContinuation { continuation in
+            self.continuation = continuation
+        }
+    }
+
+    func complete(reached: Bool) {
+        continuation?.resume(returning: reached)
+        continuation = nil
+    }
+}
+
 @MainActor
 private final class AgentWindowRegistryRecorder {
     var ids: [UUID] = []
@@ -478,6 +597,7 @@ private final class FakeManagedAgentWindow: AgentWindowControlling {
     private var stopTask: Task<Void, Never>?
     private var stopContinuation: CheckedContinuation<Void, Never>?
     private(set) var showCount = 0
+    private(set) var focusCount = 0
     private(set) var stopCount = 0
     private(set) var userCloseCount = 0
     private(set) var activations: [Bool] = []
@@ -512,6 +632,10 @@ private final class FakeManagedAgentWindow: AgentWindowControlling {
 
     func resumeTerminal(_ attachment: AgentWindowTerminalAttachment) {
         resumedTerminals.append(attachment)
+    }
+
+    func focus() {
+        focusCount += 1
     }
 
     /// Stands in for the user dragging the window.
