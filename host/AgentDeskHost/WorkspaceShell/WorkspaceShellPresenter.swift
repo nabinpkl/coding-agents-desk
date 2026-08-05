@@ -68,12 +68,22 @@ final class WorkspaceShellPresenter: NSObject {
     private let zoomInButton = HoverButton(frame: .zero)
     private let sidebarPinButton = HoverButton(frame: .zero)
     private let topBarPinButton = HoverButton(frame: .zero)
+    private let agentsChooserButton = HoverButton(frame: .zero)
     private let resizeHandle = SidebarResizeHandle()
     private weak var voiceButton: NSButton?
 
     /// Invoked when the top-bar "＋ Agents" command is tapped. The placement identifies the Desktop
     /// and current shell slot where AppDelegate should create an independent Agents window.
     var onOpenAgents: ((WorkspaceWindowPlacement) -> Void)?
+
+    /// Lists the Agents windows open right now, for the chooser beside "＋ Agents". Asked at the
+    /// moment the chooser opens rather than mirrored into the shell, so there is no second copy of
+    /// the registry's list to drift from it.
+    var onListAgentWindows: (() -> [AgentWindowSummary])?
+
+    /// Closes one listed Agents window. The shell does not own these windows and never holds one; it
+    /// passes back the id it was given.
+    var onCloseAgentWindow: ((UUID) -> Void)?
 
     /// Creates an independent Workspace IDE on the Desktop that issued the command.
     var onOpenIDE: ((WorkspaceWindowPlacement) -> Void)?
@@ -575,6 +585,15 @@ final class WorkspaceShellPresenter: NSObject {
         ideButton.setAccessibilityLabel("Open new Workspace IDE")
         let agentsButton = NSButton(title: "＋ Agents", target: self, action: #selector(openAgentsTapped))
         agentsButton.setAccessibilityIdentifier("open-agents")
+        // Its own control rather than a click-and-hold on "＋ Agents": opening a window is the common
+        // action and must stay a single click that cannot be mistaken for reaching for the list.
+        configureIconButton(
+            agentsChooserButton,
+            symbol: "chevron.down",
+            id: "open-agents-chooser",
+            label: "List open Agents windows",
+            action: #selector(agentsChooserTapped)
+        )
         let terminalButton = NSButton(title: "＋ Terminal", target: self, action: #selector(openTerminalTapped))
         terminalButton.setAccessibilityIdentifier("open-terminal")
         configureIconButton(topBarPinButton, symbol: "pin", id: "toggle-topbar-pin", label: "Pin top bar", action: #selector(topBarPinTapped))
@@ -585,7 +604,14 @@ final class WorkspaceShellPresenter: NSObject {
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         spacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let topBarStack = NSStackView(views: [browserButton, gestureButton, voiceButton, spacer, ptyManagerButton, ideButton, agentsButton, terminalButton, topBarPinButton])
+        // The chevron rides tight against "＋ Agents" so the pair reads as one control; the stack's
+        // own 8pt spacing would otherwise make it look like a chip of its own.
+        let agentsGroup = NSStackView(views: [agentsButton, agentsChooserButton])
+        agentsGroup.orientation = .horizontal
+        agentsGroup.alignment = .centerY
+        agentsGroup.spacing = 0
+
+        let topBarStack = NSStackView(views: [browserButton, gestureButton, voiceButton, spacer, ptyManagerButton, ideButton, agentsGroup, terminalButton, topBarPinButton])
         topBarStack.orientation = .horizontal
         topBarStack.alignment = .centerY
         topBarStack.spacing = 8
@@ -652,6 +678,29 @@ final class WorkspaceShellPresenter: NSObject {
             desktop: desktop,
             frame: centeredRect(in: slot, size: CGSize(width: 480, height: 720))
         ))
+    }
+
+    /// Test seam: the menu the chooser would show right now, without a tracking session.
+    func makeAgentWindowChooserMenuForTesting() -> NSMenu {
+        makeAgentWindowChooserMenu()
+    }
+
+    private func makeAgentWindowChooserMenu() -> NSMenu {
+        AgentWindowChooserMenu.make(
+            windows: onListAgentWindows?() ?? [],
+            close: { [weak self] id in self?.onCloseAgentWindow?(id) }
+        )
+    }
+
+    @objc private func agentsChooserTapped() {
+        let menu = makeAgentWindowChooserMenu()
+        // Popped up under the chevron rather than at the mouse, so the list stays anchored to the
+        // control it belongs to however the button was reached.
+        menu.popUp(
+            positioning: nil,
+            at: NSPoint(x: 0, y: agentsChooserButton.bounds.maxY + 4),
+            in: agentsChooserButton
+        )
     }
 
     @objc private func openIDETapped() {

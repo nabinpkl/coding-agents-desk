@@ -24,6 +24,11 @@ protocol AgentWindowControlling: AnyObject {
     /// Reopens the terminal pane against an attachment a previous host run left behind.
     func resumeTerminal(_ attachment: AgentWindowTerminalAttachment)
 
+    /// Closes on the user's behalf, along the same path as clicking the window's own close button:
+    /// the agent terminal ENDS rather than detaching, and the window forfeits its stored placement.
+    /// Distinct from `beginStop`, which is host termination and preserves both.
+    func beginUserClose()
+
     @discardableResult
     func beginStop() -> Task<Void, Never>
 }
@@ -120,6 +125,34 @@ final class AgentWindowRegistry {
         !entries.isEmpty || !endpointShutdownTasks.isEmpty || stopTask != nil
     }
     var openWindowCountForTesting: Int { entries.count }
+
+    /// The open windows, for a chooser that lists them.
+    ///
+    /// Ordered by Desktop and then by the window's place in its Desktop's cascade, because the
+    /// backing storage is a dictionary and an order that reshuffled between openings would move the
+    /// row under the pointer between the moment it is read and the moment it is clicked.
+    var openWindows: [AgentWindowSummary] {
+        entries
+            .map { id, entry in
+                AgentWindowSummary(
+                    id: id,
+                    desktopOrdinal: entry.placement.desktop.ordinal,
+                    cascadeOrdinal: entry.cascadeOrdinal
+                )
+            }
+            .sorted { left, right in
+                (left.desktopOrdinal, left.cascadeOrdinal, left.id.uuidString)
+                    < (right.desktopOrdinal, right.cascadeOrdinal, right.id.uuidString)
+            }
+    }
+
+    /// Closes one window as if the user had clicked its own close button. Unknown ids are ignored
+    /// rather than trapped: a chooser can only ever hold the list as it was when it was opened, and
+    /// the window may have been closed from its own titlebar since.
+    func closeWindow(id: UUID) {
+        guard !shuttingDown, let entry = entries[id] else { return }
+        entry.controller.beginUserClose()
+    }
 
     func open(_ placement: WorkspaceWindowPlacement) {
         guard !shuttingDown else { return }

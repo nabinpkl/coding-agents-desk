@@ -645,6 +645,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presenter.onOpenAgents = { [weak agentWindows] placement in
             agentWindows?.open(placement)
         }
+        presenter.onListAgentWindows = { [weak agentWindows] in
+            agentWindows?.openWindows ?? []
+        }
+        presenter.onCloseAgentWindow = { [weak agentWindows] id in
+            agentWindows?.closeWindow(id: id)
+        }
 
         let ideWindows = WorkspaceIDEWindowRegistry(
             store: WorkspaceIDEWindowPresentationStore(url: Config.workspaceIDEWindowPresentationsURL),

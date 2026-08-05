@@ -489,13 +489,22 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard stopTask == nil else { return false }
+        beginUserClose()
+        // Always false: the teardown above is asynchronous, and letting AppKit close the window now
+        // would tear the panel out from under a terminal that has not finished ending its session.
+        return false
+    }
+
+    /// The one user-initiated close, whether it came from the window's own close button or from the
+    /// top bar's list of open windows. `.windowShouldClose` stays the reason either way: the terminal
+    /// distinguishes ending a session from detaching it for a restart, and both of these end it.
+    func beginUserClose() {
+        guard stopTask == nil else { return }
         let terminalClose = terminalController?.beginExplicitClose(reason: .windowShouldClose)
         let task = Task { @MainActor [self] in
             await terminalClose?.value
             finishStop()
         }
         stopTask = task
-        return false
     }
 }

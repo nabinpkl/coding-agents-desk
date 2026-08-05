@@ -324,12 +324,72 @@ struct AgentWindowRegistryTests {
         }
     }
 
-    private func placement(spaceID: UInt64, frame: CGRect) -> WorkspaceWindowPlacement {
+    @Test func openWindowsAreListedInAStableDesktopThenCascadeOrder() {
+        let fixture = AgentWindowRegistryFixture()
+        defer { fixture.remove() }
+        let frame = CGRect(x: 100, y: 200, width: 480, height: 720)
+        fixture.registry.open(placement(spaceID: 41, frame: frame, ordinal: 1))
+        fixture.registry.open(placement(spaceID: 41, frame: frame, ordinal: 1))
+        fixture.registry.open(placement(spaceID: 99, frame: frame, ordinal: 0))
+
+        // Ordered, because the backing store is a dictionary: a list that reshuffled between
+        // openings would move a row out from under the pointer on its way to the close button.
+        // Both numbers are shown from one while stored from zero, matching Mission Control.
+        #expect(fixture.registry.openWindows.map(\.title) == [
+            "Agents 1 · Desktop 1",
+            "Agents 1 · Desktop 2",
+            "Agents 2 · Desktop 2",
+        ])
+        #expect(Set(fixture.registry.openWindows.map(\.id)).count == 3)
+        #expect(fixture.registry.openWindows == fixture.registry.openWindows)
+    }
+
+    @Test func closingFromTheListEndsThatWindowTheWayItsOwnCloseButtonWould() throws {
+        let storeURL = AgentWindowRegistryFixture.makeStoreURL()
+        let fixture = AgentWindowRegistryFixture(storeURL: storeURL)
+        defer { fixture.remove() }
+        let frame = CGRect(x: 100, y: 200, width: 480, height: 720)
+        fixture.registry.open(placement(spaceID: 41, frame: frame))
+        fixture.registry.open(placement(spaceID: 41, frame: frame))
+        let target = try #require(fixture.registry.openWindows.last)
+
+        fixture.registry.closeWindow(id: target.id)
+
+        // The user close path, not the termination one: the window forfeits its stored placement and
+        // its agent terminal ends, where quitting would preserve both for the next launch.
+        #expect(fixture.controllers.map(\.userCloseCount) == [0, 1])
+        #expect(fixture.controllers.map(\.stopCount) == [0, 0])
+        #expect(fixture.registry.openWindowCountForTesting == 1)
+        #expect(fixture.storedFrames.count == 1)
+        #expect(fixture.registry.openWindows.count == 1)
+    }
+
+    @Test func closingAWindowThatIsAlreadyGoneIsIgnored() throws {
+        let fixture = AgentWindowRegistryFixture()
+        defer { fixture.remove() }
+        let frame = CGRect(x: 100, y: 200, width: 480, height: 720)
+        fixture.registry.open(placement(spaceID: 41, frame: frame))
+        let target = try #require(fixture.registry.openWindows.first)
+        fixture.controllers[0].close()
+
+        // A chooser can only hold the list as it was when it opened, and the window may have closed
+        // from its own titlebar in between. That is an ordinary race, not a programming error.
+        fixture.registry.closeWindow(id: target.id)
+
+        #expect(fixture.controllers[0].userCloseCount == 0)
+        #expect(fixture.registry.openWindowCountForTesting == 0)
+    }
+
+    private func placement(
+        spaceID: UInt64,
+        frame: CGRect,
+        ordinal: Int = 0
+    ) -> WorkspaceWindowPlacement {
         WorkspaceWindowPlacement(
             desktop: WorkspaceDesktopAssignment(
                 spaceID: spaceID,
                 displayID: "display-\(spaceID)",
-                ordinal: 0
+                ordinal: ordinal
             ),
             frame: frame
         )
@@ -419,6 +479,7 @@ private final class FakeManagedAgentWindow: AgentWindowControlling {
     private var stopContinuation: CheckedContinuation<Void, Never>?
     private(set) var showCount = 0
     private(set) var stopCount = 0
+    private(set) var userCloseCount = 0
     private(set) var activations: [Bool] = []
     private(set) var resumedTerminals: [AgentWindowTerminalAttachment] = []
 
@@ -470,6 +531,14 @@ private final class FakeManagedAgentWindow: AgentWindowControlling {
     }
 
     func close() {
+        finishClose()
+    }
+
+    /// Stands in for the real controller's user-initiated close, which ends the terminal and then
+    /// reports the window closed. Counted separately from `beginStop` because the registry treats
+    /// the two differently: only this one forfeits the stored placement.
+    func beginUserClose() {
+        userCloseCount += 1
         finishClose()
     }
 
