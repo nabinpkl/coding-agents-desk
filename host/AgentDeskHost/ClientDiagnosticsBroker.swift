@@ -44,6 +44,9 @@ final class ClientDiagnosticsBroker: ClientDiagnosticsCollecting {
         var payloads: [String: Data] = [:]
         var nextSequence = 0
         let continuation: CheckedContinuation<CollectedClientDiagnostics, Error>
+        /// The deadline this request is still racing. Cancelled the moment the request resolves, so a
+        /// collector that already answered leaves nothing sleeping behind it.
+        let timeout: Task<Void, Never>
     }
 
     private let server: any InputChannelServing
@@ -83,10 +86,7 @@ final class ClientDiagnosticsBroker: ClientDiagnosticsCollecting {
                     continuation.resume(throwing: ClientDiagnosticsRequesterError.malformedResponse)
                     return
                 }
-                pending[request.requestId] = Pending(continuation: continuation)
-                server.pushDiagnosticsRequest(request)
-                Task { [weak self] in
-                    guard let timeoutSeconds = self?.timeoutSeconds else { return }
+                let timeout = Task { [weak self, timeoutSeconds] in
                     try? await Task.sleep(for: .seconds(timeoutSeconds))
                     guard !Task.isCancelled else { return }
                     self?.fail(
@@ -94,6 +94,8 @@ final class ClientDiagnosticsBroker: ClientDiagnosticsCollecting {
                         error: ClientDiagnosticsRequesterError.timedOut
                     )
                 }
+                pending[request.requestId] = Pending(continuation: continuation, timeout: timeout)
+                server.pushDiagnosticsRequest(request)
             }
         } onCancel: {
             Task { @MainActor [weak self] in
@@ -169,17 +171,24 @@ final class ClientDiagnosticsBroker: ClientDiagnosticsCollecting {
     }
 
     private func finish(requestId: String, result: CollectedClientDiagnostics) {
-        pending.removeValue(forKey: requestId)?.continuation.resume(returning: result)
+        guard let request = pending.removeValue(forKey: requestId) else { return }
+        request.timeout.cancel()
+        request.continuation.resume(returning: result)
     }
 
     private func fail(requestId: String, error: Error) {
-        pending.removeValue(forKey: requestId)?.continuation.resume(throwing: error)
+        guard let request = pending.removeValue(forKey: requestId) else { return }
+        // Cancelled even when the timeout is what is failing the request: cancelling a task that is
+        // already past its sleep does nothing, and the alternative is a special case per caller.
+        request.timeout.cancel()
+        request.continuation.resume(throwing: error)
     }
 
     private func failAll(_ error: Error) {
         let active = pending.values
         pending.removeAll()
         for request in active {
+            request.timeout.cancel()
             request.continuation.resume(throwing: error)
         }
     }

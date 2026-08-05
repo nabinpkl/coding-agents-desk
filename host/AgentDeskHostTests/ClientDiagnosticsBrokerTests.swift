@@ -4,12 +4,19 @@ import AgentDeskWire
 
 @testable import AgentDeskHost
 
+/// A deadline no case here is testing, set far enough out that it cannot be what ends a request.
+///
+/// These cases are about routing and about the lane closing, and every one of them shares a main
+/// actor with the whole parallel suite: a short deadline is a wall-clock race against however long
+/// this test waits its turn, and it is that race, not the behavior under test, that fails.
+private let unreachableTimeoutSeconds: TimeInterval = 3_600
+
 @MainActor
 struct ClientDiagnosticsBrokerTests {
     @Test func routesOverlappingRequestsAndKeepsAnnouncementsSeparate() async throws {
         let server = BrokerInputChannelServer()
         var announcements: [DiagnosticsSummary] = []
-        let broker = ClientDiagnosticsBroker(server: server, timeoutSeconds: 2) {
+        let broker = ClientDiagnosticsBroker(server: server, timeoutSeconds: unreachableTimeoutSeconds) {
             announcements.append($0)
         }
         broker.start()
@@ -65,7 +72,10 @@ struct ClientDiagnosticsBrokerTests {
 
     @Test func laneCloseFailsPendingCollector() async {
         let server = BrokerInputChannelServer()
-        let broker = ClientDiagnosticsBroker(server: server, timeoutSeconds: 2) { _ in }
+        let broker = ClientDiagnosticsBroker(
+            server: server,
+            timeoutSeconds: unreachableTimeoutSeconds
+        ) { _ in }
         broker.start()
 
         let request = DiagnosticsRequest(
@@ -79,9 +89,7 @@ struct ClientDiagnosticsBrokerTests {
         }
         // The close has to land on a collector that is already registered, which a single
         // `Task.yield()` does not guarantee. `collect` registers its pending entry before it pushes
-        // the request, so an observed request proves registration. Closing too early means the
-        // collector never sees the lane end and instead reports `.timedOut` when the 2s timeout
-        // fires, which is what this test then read as an unexpected error.
+        // the request, so an observed request proves registration.
         guard await waitForRequests([request.requestId], from: server) else {
             Issue.record("collector did not register before the lane closed")
             broker.cancel()
