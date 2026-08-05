@@ -979,6 +979,30 @@ describe("Claude window composer field", () => {
     unmount();
   });
 
+  it("names the two-instance case instead of leaving it as a bare unavailable", () => {
+    // The host used to resolve this by picking the lowest-pid instance, which wrote into whichever
+    // Claude launched first. Now it refuses and says so, and the viewer's fix -- close the session in
+    // one of them -- has to be readable from the notice alone.
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+
+    act(() => {
+      fake.deliver({
+        t: "agent-window-input-status",
+        sub: windowInputSubscription(fake),
+        sid: "sid-claude-01",
+        en: false,
+        r: "multiple-instances",
+      });
+    });
+
+    expect(screen.getByLabelText("Claude composer text")).toBeDisabled();
+    expect(screen.getByLabelText("Claude window composer")).toHaveTextContent(
+      "more than one Claude instance",
+    );
+    unmount();
+  });
+
   it("prefills for free, and fills on the explicit action without ever sending", () => {
     const { fake, unmount } = setup();
     openClaudeThread(fake);

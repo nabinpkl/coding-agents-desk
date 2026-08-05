@@ -583,6 +583,12 @@ public enum AgentWindowInputReason: String, Error, Equatable, Sendable {
     /// A resuming process exists, but every parent chain terminates at a shell or tmux rather than the
     /// Claude.app main binary. A terminal session has no window composer to write into.
     case terminalOnly = "terminal-only"
+    /// Two or more Claude.app instances each hold this session. macOS reaches this state on its own:
+    /// a second instance restores a session the first one already had, and each instance has its own
+    /// window on its own Desktop. Reported rather than resolved, because picking one silently
+    /// addresses the wrong window and the write looks successful right up until the text appears in
+    /// the other Desktop's session.
+    case multipleInstances = "multiple-instances"
     /// The chain reaches Claude.app, but WindowServer lists no window for that pid.
     case noWindow = "no-window"
     case accessibilityDenied = "ax-denied"

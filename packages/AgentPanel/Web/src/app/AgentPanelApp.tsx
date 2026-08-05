@@ -818,6 +818,8 @@ function composerReasonText(reason: string | null): string {
       return "No process is running this session, so no window owns it.";
     case "terminal-only":
       return "This session is running in a terminal, which has no window composer.";
+    case "multiple-instances":
+      return "This session is open in more than one Claude instance, so the host cannot tell which window to write into.";
     case "no-window":
       return "Claude is running this session but has no window for it.";
     case "ax-denied":

@@ -12,7 +12,8 @@ struct AgentWindowProcessRow: Equatable, Sendable {
 ///
 /// The same session id can legitimately appear more than once: a human can resume the same transcript
 /// in a terminal while its Desktop window is also open. Each resuming process is classified on its own
-/// chain, and the Desktop match wins, because only a window has a composer to write into.
+/// chain, and a Desktop match beats a terminal one, because only a window has a composer to write into.
+/// Two Desktop matches in DIFFERENT instances beat nothing -- see `claudeMainPids`.
 enum AgentWindowSessionChain: Equatable, Sendable {
     /// The parent chain reached the Claude.app main binary. That pid owns the session's window.
     case desktop(resumePid: pid_t, claudeMainPid: pid_t, executables: [String])
@@ -31,17 +32,36 @@ struct AgentWindowSessionResolution: Equatable, Sendable {
     let sessionId: String
     let chains: [AgentWindowSessionChain]
 
-    /// The Claude Desktop process owning this session, or nil when no chain reached one. Lowest pid
-    /// wins among several so repeated resolutions of an unchanged tree agree with each other.
-    var claudeMainPid: pid_t? {
-        chains.compactMap(\.claudeMainPid).min()
+    /// Every DISTINCT Claude Desktop process holding this session, ascending.
+    ///
+    /// Distinct, because one instance legitimately produces several chains for one session -- a
+    /// terminal resume alongside the Desktop one, or a respawned child -- and those all address the
+    /// same window. More than one pid is the different case: separate app instances, separate
+    /// windows, separate Desktops.
+    var claudeMainPids: [pid_t] {
+        Array(Set(chains.compactMap(\.claudeMainPid))).sorted()
     }
 
-    /// Why no window can be addressed, or nil when one can. The two cases are worth distinguishing in
-    /// the panel: "not running" is fixed by opening the session, "terminal only" never will be.
+    /// The Claude Desktop process owning this session, or nil unless exactly one owns it.
+    ///
+    /// Deliberately nil rather than a pick when several instances hold the session. The previous
+    /// lowest-pid tiebreak was stable but silent: it resolved to whichever instance launched first,
+    /// which is unrelated to the window the user is looking at, and a write to the wrong instance is
+    /// indistinguishable from a correct one until the text lands in another Desktop's session.
+    var claudeMainPid: pid_t? {
+        let pids = claudeMainPids
+        return pids.count == 1 ? pids[0] : nil
+    }
+
+    /// Why no window can be addressed, or nil when exactly one can. The cases are worth
+    /// distinguishing in the panel: "not running" is fixed by opening the session, "terminal only"
+    /// never will be, and "multiple instances" is fixed by closing the session in one of them.
     var unavailableReason: AgentWindowInputReason? {
-        if claudeMainPid != nil { return nil }
-        return chains.isEmpty ? .notRunning : .terminalOnly
+        switch claudeMainPids.count {
+        case 1: return nil
+        case 0: return chains.isEmpty ? .notRunning : .terminalOnly
+        default: return .multipleInstances
+        }
     }
 }
 

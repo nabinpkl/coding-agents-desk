@@ -153,6 +153,58 @@ struct AgentWindowSessionResolverTests {
         #expect(resolution.unavailableReason == nil)
     }
 
+    @Test func twoClaudeInstancesHoldingOneSessionIsReportedRatherThanTiebroken() {
+        // Observed live: restarting Claude Desktop left two instances running, and both restored the
+        // same session, each into its own window on its own Desktop. The old lowest-pid tiebreak
+        // resolved to the instance that launched first and wrote into the wrong Desktop's composer.
+        var rows = fixture
+        rows.append(AgentWindowProcessRow(
+            pid: 620,
+            parentPid: 600,
+            arguments: "/Applications/Claude.app/Contents/Helpers/disclaimer /Users/dev/claude"
+        ))
+        rows.append(AgentWindowProcessRow(
+            pid: 630,
+            parentPid: 620,
+            arguments: "/Users/dev/claude --output-format stream-json --resume=\(desktopSession)"
+        ))
+
+        let resolution = AgentWindowSessionResolver.resolve(
+            sessionId: desktopSession,
+            in: rows,
+            claudeMainPath: claudeMain,
+            flag: flag
+        )
+
+        #expect(resolution.claudeMainPids == [400, 600])
+        #expect(resolution.claudeMainPid == nil)
+        #expect(resolution.unavailableReason == .multipleInstances)
+    }
+
+    @Test func severalChainsIntoOneInstanceStillResolveToThatInstance() {
+        // Distinct pids, not chain count, is what makes a session ambiguous. One instance can produce
+        // several chains -- a respawned child, or the terminal resume above -- and they all address
+        // the same window, so this must stay writable.
+        var rows = fixture
+        rows.append(AgentWindowProcessRow(
+            pid: 430,
+            parentPid: 410,
+            arguments: "/Users/dev/claude --output-format stream-json --resume=\(desktopSession)"
+        ))
+
+        let resolution = AgentWindowSessionResolver.resolve(
+            sessionId: desktopSession,
+            in: rows,
+            claudeMainPath: claudeMain,
+            flag: flag
+        )
+
+        #expect(resolution.chains.count == 2)
+        #expect(resolution.claudeMainPids == [400])
+        #expect(resolution.claudeMainPid == 400)
+        #expect(resolution.unavailableReason == nil)
+    }
+
     @Test func aCyclicParentChainTerminatesInsteadOfSpinning() {
         let rows = [
             AgentWindowProcessRow(pid: 700, parentPid: 701, arguments: "/bin/claude --resume=cyclic"),
