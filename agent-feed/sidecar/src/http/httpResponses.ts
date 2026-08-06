@@ -32,6 +32,7 @@ export function startServerSentEventStream(
   request: Request,
   server: Server<undefined>,
   onStart: (write: (bytes: Uint8Array) => void) => (() => void) | void,
+  options: { lagLimit?: number } = {},
 ): Response {
   server.timeout(request, 0);
 
@@ -39,6 +40,26 @@ export function startServerSentEventStream(
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       const write = (bytes: Uint8Array): void => {
+        // Bounded fan-out for live sources: a reader that falls more than
+        // `lagLimit` events behind is closed with a typed notice instead of
+        // buffering without bound in the controller queue.
+        if (
+          options.lagLimit !== undefined &&
+          controller.desiredSize !== null &&
+          controller.desiredSize < -options.lagLimit
+        ) {
+          try {
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ error: { code: "stream-lag", message: "reader fell behind the live stream", retryable: true } })}\n\n`,
+              ),
+            );
+          } catch {
+            // controller is already closing; teardown below handles it.
+          }
+          teardown();
+          return;
+        }
         try {
           controller.enqueue(bytes);
         } catch {

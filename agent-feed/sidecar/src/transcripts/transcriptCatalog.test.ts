@@ -140,6 +140,31 @@ describe("transcript catalog identity", () => {
     expect(state.indexed.size).toBe(0);
   });
 
+  test("prefers a custom title set beyond the bounded probe window", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-feed-custom-title-"));
+    temporaryDirectories.push(root);
+    const project = join(root, "project");
+    const transcript = join(root, "11111111-1111-1111-1111-111111111111.jsonl");
+    await mkdir(project);
+    // The ai-title and custom-title lines sit in the MIDDLE of a file large
+    // enough that the bounded head/tail probe never sees them (matching the
+    // plutus-agent-eval transcript where they appear tens of KB in). The full
+    // title scan must find them and prefer the user-set custom title.
+    const headPad = JSON.stringify({ type: "assistant", message: { role: "assistant", content: "x".repeat(40000) } });
+    const aiTitle = JSON.stringify({ type: "ai-title", aiTitle: "Auto derived title", cwd: project });
+    const customTitle = JSON.stringify({ type: "custom-title", customTitle: "Plutus Agent Eval", cwd: project });
+    const tailPad = JSON.stringify({ type: "assistant", message: { role: "assistant", content: "y".repeat(40000) } });
+    await writeFile(transcript, `${headPad}\n${aiTitle}\n${customTitle}\n${tailPad}\n`);
+    const observed = session("claude", "11111111-1111-1111-1111-111111111111", project, Date.now());
+    observed.transcriptPath = transcript;
+    state.sessions.set(sessionKey(observed.source, observed.sessionId), observed);
+
+    const summaries = await sessionSummaries(project);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.title).toBe("Plutus Agent Eval");
+  });
+
   test("uses the live Pi backend as the authority for activity and capabilities", async () => {
     const root = await mkdtemp(join(tmpdir(), "agent-feed-pi-summary-"));
     temporaryDirectories.push(root);

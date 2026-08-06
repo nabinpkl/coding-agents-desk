@@ -88,6 +88,7 @@ export function normalizeActivityEvent(value: unknown): ActivityEvent {
     // toggle with nothing to map the viewer's position through.
     otherModeIndex:
       typeof source?.otherModeIndex === "number" ? source.otherModeIndex : null,
+    messageId: typeof source?.messageId === "string" ? source.messageId : undefined,
   };
 }
 

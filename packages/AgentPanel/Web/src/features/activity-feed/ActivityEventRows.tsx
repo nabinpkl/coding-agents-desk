@@ -17,6 +17,7 @@ import {
 } from "./activityDisplayItems";
 import type { ActivityBlock, ActivityEvent } from "./useSessionEventsStream";
 import type { SessionReference } from "./data-source/AgentDataSource";
+import { useProgressiveText } from "./streamingText";
 
 /** What every row and block needs from the feed, bundled to stop prop drift. */
 export interface EventRowContext {
@@ -148,6 +149,7 @@ function EventBody({ ev, ctx }: { ev: ActivityEvent; ctx: EventRowContext }) {
             eventIndex={ev.index}
             blockIndex={index}
             eventType={ev.type}
+            phase={ev.phase}
           />
         </div>
       ))}
@@ -386,14 +388,22 @@ function ToolResultContent({
 }
 
 function Block({
-  b, ctx, eventIndex, blockIndex, eventType,
+  b, ctx, eventIndex, blockIndex, eventType, phase,
 }: {
   b: ActivityBlock;
   ctx: EventRowContext;
   eventIndex: number;
   blockIndex: number;
   eventType: ActivityEvent["type"];
+  phase?: ActivityEvent["phase"];
 }) {
+  // Call the hook unconditionally so a stream of revisions keeps one reveal
+  // position: assistant prose reveals progressively while streaming, and
+  // anything else snaps to full text.
+  const revealedText = useProgressiveText(
+    b.kind === "text" ? (b.text ?? "") : "",
+    b.kind === "text" && eventType === "assistant" && phase === "streaming",
+  );
   if (b.kind === "text") {
     // Assistant text is the model's prose response; it conventionally
     // contains markdown (headings, code fences, lists, tables) that should
@@ -401,11 +411,11 @@ function Block({
     // payloads stay plain so escaping characters survive.
     if (eventType === "assistant" && b.text) {
       return (
-        <div
+<div
           className="leading-(--agent-panel-prose-leading) text-foreground"
           style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
         >
-          <Markdown content={b.text} />
+          <Markdown content={revealedText} />
         </div>
       );
     }

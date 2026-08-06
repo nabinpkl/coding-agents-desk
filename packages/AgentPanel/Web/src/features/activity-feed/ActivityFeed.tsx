@@ -6,9 +6,11 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ChevronRight, FoldVertical, UnfoldVertical } from "lucide-react";
 import {
   useSessionEventsStream,
+  type ActivityBlock,
   type ActivityEvent,
 } from "./useSessionEventsStream";
 import { useStickToBottom } from "./useStickToBottom";
+import { useProgressiveText } from "./streamingText";
 import {
   buildFeedLayout,
   displayRole,
@@ -68,7 +70,7 @@ export function ActivityFeed({
   controlsHost: HTMLElement | null;
   onSessionState?: (state: AgentSessionControlState) => void;
 }) {
-  const { events, loadOlder, windowStart, usage, loading, error, runState, queue } =
+  const { events, loadOlder, windowStart, usage, loading, error, runState, queue, liveTail } =
     useSessionEventsStream(source, sessionId, mode);
   useEffect(() => {
     onSessionState?.({ runState, queue });
@@ -91,7 +93,10 @@ export function ActivityFeed({
   const { following, onScroll, scrollToBottom, pause } = useStickToBottom(
     parentRef,
     sizedRef,
-    events.length > 0,
+    // Follow the bottom when there is durable content OR a streaming live tail
+    // to pin to. A fresh session that only has the live mirror would otherwise
+    // never arm the follower, so its growing tail wouldn't auto-scroll.
+    events.length > 0 || liveTail != null,
   );
 
   // Scroll offset the sticky bars are computed from.
@@ -179,6 +184,17 @@ export function ActivityFeed({
     [events, mode, expandedClusters],
   );
 
+  // The live in-flight message is one extra row appended after the durable
+  // layout (the "live tail"). It streams until the durable transcript contains
+  // the same `messageId`, at which point the hook clears it and the durable row
+  // owns it. Kept separate from `items` so sticky/jump logic never treats it as
+  // a real conversation row.
+  const rowItems = useMemo(() => {
+    const rows: Array<DisplayItem | { kind: "tail"; ev: ActivityEvent }> = [...items];
+    if (liveTail) rows.push({ kind: "tail", ev: liveTail });
+    return rows;
+  }, [items, liveTail]);
+
   const allCollapsed =
     allEventIds.length > 0 &&
     allEventIds.every((id) => collapsed.has(id)) &&
@@ -215,13 +231,14 @@ export function ActivityFeed({
   );
 
   const rowVirtualizer = useVirtualizer({
-    count: items.length,
+    count: rowItems.length,
     getScrollElement: () => parentRef.current,
     // Rough, and only used before a row has been measured: a collapsed row is
     // now one line beside its chip, an expanded one a short block.
     estimateSize: (i) => {
-      const it = items[i];
+      const it = rowItems[i];
       if (!it) return 88;
+      if (it.kind === "tail") return 88;
       // A folded cluster is always one line, whatever it holds.
       if (it.kind === "cluster") return 32;
       if (collapsed.has(it.ev.index)) return 32;
@@ -234,8 +251,9 @@ export function ActivityFeed({
     // prepend causes a wave of re-measurements that flickers visible text.
     // virtual-core's default scroll-anchoring on size-change does the rest.
     getItemKey: (i) => {
-      const it = items[i];
+      const it = rowItems[i];
       if (!it) return i;
+      if (it.kind === "tail") return `live-tail:${it.ev.messageId ?? i}`;
       return itemKey(it);
     },
   });
@@ -371,21 +389,21 @@ export function ActivityFeed({
       )
     : null;
 
-  if (loading && events.length === 0) {
+  if (loading && events.length === 0 && !liveTail) {
     return (
       <div className="flex h-full items-center justify-center text-(length:--agent-panel-fs-canvas-menu,13px) text-muted-foreground">
         loading session events…
       </div>
     );
   }
-  if (error && events.length === 0) {
+  if (error && events.length === 0 && !liveTail) {
     return (
       <div className="flex h-full items-center justify-center text-(length:--agent-panel-fs-canvas-menu,13px) text-destructive">
         {error}
       </div>
     );
   }
-  if (events.length === 0) {
+  if (events.length === 0 && !liveTail) {
     return (
       <div className="flex h-full items-center justify-center text-(length:--agent-panel-fs-canvas-menu,13px) text-muted-foreground">
         no events
@@ -396,7 +414,12 @@ export function ActivityFeed({
   return (
     <div className="relative h-full overflow-hidden">
       {threadControls}
-      <div ref={parentRef} onScroll={handleScroll} className="h-full overflow-y-auto">
+      <div
+        ref={parentRef}
+        onScroll={handleScroll}
+        className="h-full overflow-y-auto"
+        style={{ overflowAnchor: "none" }}
+      >
         <div
           ref={sizedRef}
           style={{
@@ -406,11 +429,11 @@ export function ActivityFeed({
           }}
         >
           {virtualItems.map((virtualRow) => {
-            const it = items[virtualRow.index];
+            const it = rowItems[virtualRow.index];
             if (!it) return null;
             return (
               <div
-                key={itemKey(it)}
+                key={it.kind === "tail" ? `live-tail:${it.ev.messageId ?? virtualRow.index}` : itemKey(it)}
                 ref={rowVirtualizer.measureElement}
                 data-index={virtualRow.index}
                 style={{
@@ -421,7 +444,9 @@ export function ActivityFeed({
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                {it.kind === "cluster" ? (
+                {it.kind === "tail" ? (
+                  <LiveTailRow ev={it.ev} />
+                ) : it.kind === "cluster" ? (
                   <ClusterRow
                     events={it.events}
                     // A folded run is a self-contained band, so it takes both
@@ -498,6 +523,66 @@ export function ActivityFeed({
       ) : null}
     </div>
   );
+}
+
+// The live in-flight assistant message, shown as one appended row until the
+// durable transcript contains its `messageId` (then the hook clears it and the
+// durable rows take over). Rendered standalone so it can never inherit the
+// durable row machinery; the text reveals progressively while streaming.
+export function LiveTailRow({ ev }: { ev: ActivityEvent }) {
+  return (
+    <div className="px-[0.55em] py-[0.4em]">
+      <div className="rounded-md border border-primary/40 bg-primary/5 px-[0.6em] py-[0.5em]">
+        <div className="mb-1.5 flex items-center gap-1.5 text-muted-foreground">
+          <span className="inline-block size-1.5 animate-pulse rounded-full bg-primary" aria-hidden />
+          <span className="text-(length:--agent-panel-fs-tile-chip,12px) font-mono uppercase tracking-wider">
+            streaming
+          </span>
+        </div>
+        {ev.blocks.map((block, index) => (
+          <LiveTailBlock key={index} block={block} streaming={ev.phase === "streaming"} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LiveTailBlock({ block, streaming }: { block: ActivityBlock; streaming: boolean }) {
+  // Called unconditionally (rules of hooks): reveal only applies to streaming
+  // prose, but the hook count must not vary by block kind across renders.
+  const revealed = useProgressiveText(
+    block.kind === "text" ? (block.text ?? "") : "",
+    streaming,
+  );
+  if (block.kind === "text" && block.text) {
+    // While streaming, render plain pre-wrapped text (not Markdown) so the
+    // transcript's paragraph and line breaks stay visible the moment their
+    // newline characters stream in — Markdown collapses blank lines until an
+    // entire `\n\n` boundary is complete, which would read as one paragraph.
+    return (
+      <div
+        className="whitespace-pre-wrap break-words leading-(--agent-panel-prose-leading) text-foreground"
+        style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
+      >
+        {revealed}
+      </div>
+    );
+  }
+  if (block.kind === "reasoning" && block.text) {
+    // Pre-wrap too: reasoning streams with the same paragraph/line breaks, and
+    // collapsing them would read as one run-on paragraph while streaming.
+    return (
+      <div className="whitespace-pre-wrap break-words text-muted-foreground/70 italic">
+        {block.text}
+      </div>
+    );
+  }
+  if (block.kind === "tool_use" && block.tool) {
+    return (
+      <div className="text-muted-foreground">→ {block.tool}</div>
+    );
+  }
+  return null;
 }
 
 // Compact pinned header for the most recent USER event the viewer scrolled

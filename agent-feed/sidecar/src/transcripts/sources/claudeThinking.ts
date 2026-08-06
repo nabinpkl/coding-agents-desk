@@ -10,7 +10,8 @@
  * The empty case is common and load-bearing: 587 of the 4,297 rows in this
  * project's largest Claude transcript (14%) are assistant lines whose only content
  * is a `thinking` block with `thinking: ""` and a long opaque `signature`. Those
- * render today as a Plain card holding the signature blob, which is Claude's exact
+ * are still `reasoning` blocks (classified by type, not by text), so the panel
+ * renders them collapsed instead of dumping the signature blob -- Claude's exact
  * counterpart to Codex's encrypted reasoning items.
  */
 export function thinkingText(block: Record<string, unknown>): string {

@@ -58,6 +58,7 @@ const TRANSCRIPT_CAPABILITIES: AgentSessionCapabilities = {
   canFetchRaw: true,
   canOpenTerminal: true,
   supportsExtensionUi: false,
+  canStreamLive: false,
 };
 
 export type AgentSessionDescriptorResolver = (
@@ -505,6 +506,12 @@ export async function probeSession(
     };
   }
   const adapter = session.source === "claude" ? claudeAdapter : codexAdapter;
+  const live = session.source === "claude"
+    ? resolveAgentSession?.(session.source, session.sessionId)
+    : undefined;
+  const capabilities = live?.capabilities.canStreamLive
+    ? { ...TRANSCRIPT_CAPABILITIES, canStreamLive: true }
+    : TRANSCRIPT_CAPABILITIES;
   let metadata: Awaited<ReturnType<typeof stat>>;
   try {
     metadata = await stat(session.transcriptPath);
@@ -514,8 +521,8 @@ export async function probeSession(
       source: session.source,
       title: compactTitle(session.title) ?? session.sessionId,
       lastEventAt: session.lastEventAt,
-      activity: computeActivity(session.lastEventAt, true),
-      capabilities: TRANSCRIPT_CAPABILITIES,
+      activity: live?.activity === "live" ? "live" : computeActivity(session.lastEventAt, true),
+      capabilities,
     };
   }
   const file = Bun.file(session.transcriptPath);
@@ -547,15 +554,34 @@ export async function probeSession(
         }
       }
     }
-  }
+}
   const lastEventAt = Math.max(session.lastEventAt, metadata.mtimeMs);
+  // A session title can be (re)set anywhere in the transcript; the bounded probe
+  // windows above cover only the head and tail, so a title recorded in the
+  // middle would be missed and the session would fall back to its first prompt.
+  // Claude Code shows the user-set *custom* title over the auto *ai* title, so
+  // scan the whole file for those lines and prefer the last custom title.
+  const full = await file.text();
+  let customTitle: string | undefined;
+  let aiTitle: string | undefined;
+  for (const line of full.split("\n")) {
+    if (!line) continue;
+    if (line.includes('"type":"custom-title"')) {
+      const parsedTitle = adapter.processLine(line)?.title;
+      if (parsedTitle?.trim()) customTitle = compactTitle(parsedTitle);
+    } else if (line.includes('"type":"ai-title"')) {
+      const parsedTitle = adapter.processLine(line)?.title;
+      if (parsedTitle?.trim()) aiTitle = compactTitle(parsedTitle);
+    }
+  }
+  title = customTitle ?? aiTitle ?? title;
   return {
     sessionId: session.sessionId,
     source: session.source,
     title: title ?? firstPrompt ?? lastUserPrompt ?? session.sessionId,
     lastEventAt,
-    activity: computeActivity(lastEventAt, lastTurnClosed),
-    capabilities: TRANSCRIPT_CAPABILITIES,
+    activity: live?.activity === "live" ? "live" : computeActivity(lastEventAt, lastTurnClosed),
+    capabilities,
   };
 }
 

@@ -46,6 +46,11 @@ export interface SessionEventsHandlers {
    *  occupancy is session state and arrives on the chunk, and because it has to
    *  land before the seed resolves as well as after. */
   onUsage?: (usage: TokenUsage | null) => void;
+  /** The live in-flight message, mirrored from the network layer. `event` is the
+   *  message as it streams; `null` means the live tail is over. The viewer shows
+   *  it below the durable rows and hands it off when the durable transcript
+   *  contains the same `messageId`. */
+  onLiveTail?: (event: ActivityEvent | null) => void;
   onOpen?: () => void;
   onError?: () => void;
 }

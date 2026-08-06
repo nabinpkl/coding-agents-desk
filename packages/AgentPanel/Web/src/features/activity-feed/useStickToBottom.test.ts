@@ -70,7 +70,24 @@ describe("useStickToBottom", () => {
     expect(scrollEl.scrollTop).toBe(2500);
   });
 
-  it("detaches when the user scrolls up (scrollTop decreases)", () => {
+  it("does not detach when the content shrinks and clamps scrollTop while pinned", () => {
+    const { view, scrollEl } = setup();
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    // At the bottom, content momentarily drops in height (the live tail hands
+    // off to durable rows before the next tail grows). The browser clamps
+    // scrollTop down to the new bottom -- a decrease, but NOT a user gesture;
+    // following must survive it, or streaming would detach on every handoff.
+    scrollEl.scrollHeight = 600;
+    scrollEl.scrollTop = 300; // clamped to the new bottom (600 - 300)
+    act(() => view.result.current.onScroll());
+    expect(view.result.current.following).toBe(true);
+    expect(scrollEl.scrollTop).toBe(300);
+  });
+
+it("detaches when the user scrolls up (scrollTop decreases)", () => {
     const { view, scrollEl } = setup();
     act(() => {
       roCallback!();

@@ -83,10 +83,18 @@ interface OwnedRuntime {
   disposed: boolean;
 }
 
-export class AgentCommandConflictError extends Error {}
-export class AgentSessionNotFoundError extends Error {}
-export class AgentModeUnsupportedError extends Error {}
-export class AgentBackendDisposedError extends Error {}
+import {
+  AgentBackendDisposedError,
+  AgentCommandConflictError,
+  AgentModeUnsupportedError,
+  AgentSessionNotFoundError,
+} from "./agentBackend.ts";
+export {
+  AgentBackendDisposedError,
+  AgentCommandConflictError,
+  AgentModeUnsupportedError,
+  AgentSessionNotFoundError,
+};
 
 export const PI_AGENT_CAPABILITIES: AgentSessionCapabilities = {
   modes: ["nice"],
@@ -96,6 +104,7 @@ export const PI_AGENT_CAPABILITIES: AgentSessionCapabilities = {
   canFetchRaw: false,
   canOpenTerminal: false,
   supportsExtensionUi: true,
+  canStreamLive: false,
 };
 
 export class PiAgentBackend implements AgentBackend {

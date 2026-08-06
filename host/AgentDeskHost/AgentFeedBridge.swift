@@ -17,9 +17,16 @@ final class AgentFeedBridge: @unchecked Sendable {
     private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).agent-feed-bridge")
     private var visibilityStreams: [String: SidecarStreamHandle] = [:]
     private var threadStreams: [String: SidecarStreamHandle] = [:]
+    /// Per-thread live-tail streams (the claude live mirror), opened alongside the
+    /// durable `threadStreams` stream for `canStreamLive` sessions and torn down
+    /// with it.
+    private var threadTailStreams: [String: SidecarStreamHandle] = [:]
     private var extensionUIStreams: [String: SidecarStreamHandle] = [:]
     private var threadBootstraps: [String: Task<Void, Never>] = [:]
     private var threadGenerations: [String: UUID] = [:]
+    /// Latest per-session capabilities, keyed by `source:sessionId`, so thread
+    /// routes can choose the claude live mirror when one exists.
+    private var sessionCapabilities: [String: AgentFeedSessionCapabilities] = [:]
 
     init(
         client: any SidecarClient,
@@ -40,9 +47,11 @@ final class AgentFeedBridge: @unchecked Sendable {
             for task in threadBootstraps.values { task.cancel() }
             visibilityStreams.removeAll()
             threadStreams.removeAll()
+            threadTailStreams.removeAll()
             extensionUIStreams.removeAll()
             threadBootstraps.removeAll()
             threadGenerations.removeAll()
+            sessionCapabilities.removeAll()
         }
     }
 
@@ -76,7 +85,13 @@ final class AgentFeedBridge: @unchecked Sendable {
         let handle = client.openSessionsStream(
             projectPath: projectPath,
             onSnapshot: { [weak self] snapshot in
-                self?.sendCodable(AgentProjectSessionsPush(
+                guard let self else { return }
+                self.queue.sync {
+                    for item in snapshot.sessions {
+                        self.sessionCapabilities[self.threadKey(source: item.source, sessionId: item.sessionId)] = item.capabilities
+                    }
+                }
+                self.sendCodable(AgentProjectSessionsPush(
                     subscriptionId: subscriptionId,
                     projectPath: snapshot.projectPath,
                     sessions: snapshot.sessions.map(Self.wireSession)
@@ -210,6 +225,7 @@ final class AgentFeedBridge: @unchecked Sendable {
             threadGenerations.removeValue(forKey: key)
             threadBootstraps.removeValue(forKey: key)?.cancel()
             threadStreams.removeValue(forKey: key)?.cancel()
+            threadTailStreams.removeValue(forKey: key)?.cancel()
             extensionUIStreams.removeValue(forKey: key)?.cancel()
         }
     }
@@ -386,47 +402,114 @@ final class AgentFeedBridge: @unchecked Sendable {
         generation: UUID
     ) {
         let key = threadKey(source: source, sessionId: sessionId)
-        let handle = client.openEventStream(
+        // The durable transcript stream is ALWAYS the base conversation list: it
+        // backfills full history and streams realtime rows as the transcript is
+        // written. A `canStreamLive` claude session additionally gets a live
+        // mirror stream whose in-flight message the panel renders as a tail.
+        let durable = client.openEventStream(
             source: source,
             sessionId: sessionId,
             afterSequence: afterSequence,
             mode: mode,
             onEnvelope: { [weak self] envelope in
-                guard let self, self.isCurrentThread(key: key, generation: generation) else { return }
-                self.sendCodable(AgentThreadChunk(
+                self?.deliverEnvelope(
                     source: source,
                     sessionId: sessionId,
-                    events: envelope.events.map(Self.wireEvent),
-                    windowStart: envelope.windowStart,
-                    total: envelope.total,
-                    isLive: true,
-                    usage: Self.wireUsage(envelope.usage),
-                    mode: mode.rawValue,
-                    kind: envelope.kind,
-                    sequence: envelope.sequence,
-                    runState: envelope.runState,
-                    queueSteer: envelope.queue.steer,
-                    queueFollowUp: envelope.queue.followUp
-                ))
+                    envelope: envelope,
+                    mode: mode,
+                    key: key,
+                    generation: generation
+                )
             },
             onError: { [weak self] error in
-                guard let self, self.isCurrentThread(key: key, generation: generation) else { return }
-                self.sendCodable(AgentThreadError(
-                    source: source,
-                    sessionId: sessionId,
-                    reason: error.localizedDescription
-                ))
-                self.removeThreadStream(key)
+                self?.threadStreamError(source: source, sessionId: sessionId, error: error, key: key, generation: generation)
             }
         )
         queue.sync {
             guard threadGenerations[key] == generation else {
-                handle.cancel()
+                durable.cancel()
                 return
             }
             threadStreams.removeValue(forKey: key)?.cancel()
-            threadStreams[key] = handle
+            threadStreams[key] = durable
         }
+        guard isClaudeLive(source, sessionId) else { return }
+        let tail = client.openClaudeLiveStream(
+            sessionId: sessionId,
+            afterSequence: 0,
+            mode: mode,
+            onEnvelope: { [weak self] envelope in
+                guard let self else { return }
+                guard let event = envelope.events.first else { return }
+                guard self.isCurrentThread(key: key, generation: generation) else { return }
+                self.sendCodable(AgentLiveTail(
+                    source: source,
+                    sessionId: sessionId,
+                    event: Self.wireEvent(event)
+                ))
+            },
+            onError: { [weak self] error in
+                self?.threadTailError(source: source, sessionId: sessionId, key: key, generation: generation)
+            }
+        )
+        queue.sync {
+            guard threadGenerations[key] == generation else {
+                tail.cancel()
+                return
+            }
+            threadTailStreams.removeValue(forKey: key)?.cancel()
+            threadTailStreams[key] = tail
+        }
+    }
+
+    private func threadTailError(source: String, sessionId: String, key: String, generation: UUID) {
+        guard isCurrentThread(key: key, generation: generation) else { return }
+        // The mirror went away; clear the tail rather than leaving a stale block.
+        sendCodable(AgentLiveTail(source: source, sessionId: sessionId, event: nil))
+        queue.sync {
+            threadTailStreams.removeValue(forKey: key)?.cancel()
+        }
+    }
+
+    private func deliverEnvelope(
+        source: String,
+        sessionId: String,
+        envelope: AgentFeedTimelineEnvelope,
+        mode: AgentFeedEventMode,
+        key: String,
+        generation: UUID
+    ) {
+        guard isCurrentThread(key: key, generation: generation) else { return }
+        sendCodable(AgentThreadChunk(
+            source: source,
+            sessionId: sessionId,
+            events: envelope.events.map(Self.wireEvent),
+            windowStart: envelope.windowStart,
+            total: envelope.total,
+            isLive: true,
+            usage: Self.wireUsage(envelope.usage),
+            mode: mode.rawValue,
+            kind: envelope.kind,
+            sequence: envelope.sequence,
+            runState: envelope.runState,
+            queueSteer: envelope.queue.steer,
+            queueFollowUp: envelope.queue.followUp
+        ))
+    }
+
+    private func threadStreamError(source: String, sessionId: String, error: Error, key: String, generation: UUID) {
+        guard isCurrentThread(key: key, generation: generation) else { return }
+        sendCodable(AgentThreadError(
+            source: source,
+            sessionId: sessionId,
+            reason: error.localizedDescription
+        ))
+        removeThreadStream(key)
+    }
+
+    private func isClaudeLive(_ source: String, _ sessionId: String) -> Bool {
+        guard source == "claude" else { return false }
+        return queue.sync { sessionCapabilities[threadKey(source: source, sessionId: sessionId)]?.canStreamLive ?? false } == true
     }
 
     private func openExtensionUIStream(source: String, sessionId: String, generation: UUID) {
@@ -489,15 +572,17 @@ final class AgentFeedBridge: @unchecked Sendable {
             )
             guard isCurrentThread(key: key, generation: generation) else { return }
             let offset = max(0, probe.total - Self.pageSize)
-            let page = offset < probe.total
-                ? try await client.fetchEventsPage(
+            let page: AgentFeedEventsPage
+            if offset < probe.total {
+                page = try await client.fetchEventsPage(
                     source: source,
                     sessionId: sessionId,
                     offset: offset,
                     limit: probe.total - offset,
                     mode: mode
                 )
-                : AgentFeedEventsPage(
+            } else {
+                page = AgentFeedEventsPage(
                     events: [],
                     total: probe.total,
                     usage: probe.usage,
@@ -506,6 +591,7 @@ final class AgentFeedBridge: @unchecked Sendable {
                     queueSteer: probe.queueSteer,
                     queueFollowUp: probe.queueFollowUp
                 )
+            }
             guard isCurrentThread(key: key, generation: generation) else { return }
             sendCodable(AgentThreadChunk(
                 source: source,
@@ -673,7 +759,8 @@ final class AgentFeedBridge: @unchecked Sendable {
                 canAbort: session.capabilities.canAbort,
                 canFetchRaw: session.capabilities.canFetchRaw,
                 canOpenTerminal: session.capabilities.canOpenTerminal,
-                supportsExtensionUI: session.capabilities.supportsExtensionUi
+                supportsExtensionUI: session.capabilities.supportsExtensionUi,
+                canStreamLive: session.capabilities.canStreamLive
             )
         )
     }
@@ -718,7 +805,8 @@ final class AgentFeedBridge: @unchecked Sendable {
                     hiddenLines: $0.hiddenLines
                 )
             },
-            otherModeIndex: event.otherModeIndex
+            otherModeIndex: event.otherModeIndex,
+            messageId: event.messageId
         )
     }
 

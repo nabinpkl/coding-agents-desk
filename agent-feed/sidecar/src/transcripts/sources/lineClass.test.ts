@@ -194,8 +194,9 @@ test('claude thinking with no readable trace is machinery, with one is content',
   });
   const signature = 'EpYFCmMIDxgCKkC66AoVqQV6TP9u7NFrfmlAXgXLlsTAHxuAyApaAvp73N';
 
-  // 587 rows in this project's largest Claude transcript. They render as a Plain
-  // card holding the signature blob, which says nothing.
+  // 587 rows in this project's largest Claude transcript. They render as a
+  // reasoning block with no readable text (collapsed in the panel) instead of a
+  // Plain card holding the opaque signature blob.
   expect(claude(line([{ type: 'thinking', thinking: '', signature }])))
     .toBe('machinery');
   expect(claude(line([{ type: 'thinking', thinking: 'Check the parser.', signature }])))
@@ -212,7 +213,9 @@ test('claude thinking with no readable trace is machinery, with one is content',
   const blocks = (content: unknown) =>
     claudeAdapter.processLine(JSON.stringify(line(content)))?.event?.blocks[0]?.kind;
   expect(blocks([{ type: 'thinking', thinking: 'Check the parser.', signature }])).toBe('reasoning');
-  expect(blocks([{ type: 'thinking', thinking: '', signature }])).toBe('plain');
+  // An empty thinking trace is still a `reasoning` block (classified by type),
+  // so it renders collapsed rather than dumping the signature as a Plain card.
+  expect(blocks([{ type: 'thinking', thinking: '', signature }])).toBe('reasoning');
 });
 
 test('an unrecognized record stays visible rather than vanishing', () => {

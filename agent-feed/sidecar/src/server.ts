@@ -21,6 +21,7 @@ import {
 } from "./transcripts/transcriptCatalog.ts";
 import { AgentBackendRegistry } from "./agents/agentBackend.ts";
 import { PiAgentBackend } from "./agents/piAgentBackend.ts";
+import { ClaudeLiveBackend } from "./live/claudeLiveBackend.ts";
 
 // Pi normally lazy-loads OAuth providers from sibling files. A standalone Bun
 // executable has no such files beside it, so use Pi's static loader registry to
@@ -33,6 +34,12 @@ backends.register(new PiAgentBackend({
   onSessionCreated: registerPiSession,
   onSessionChanged: notifyPiSessionChanged,
 }));
+// Read-only live mirror of Claude Code traffic observed through proxy-agent.
+// Registered unconditionally so its routes answer with a precise "unknown
+// source" when the observer endpoint is unreachable; `start()` degrades to a
+// quiet no-op when disabled.
+const claudeLive = new ClaudeLiveBackend();
+backends.register(claudeLive);
 const routes: RouteHandler[] = [
   handleProjectRoutes,
   createAgentRoutes((id) => backends.get(id)),
@@ -71,11 +78,13 @@ const server = Bun.serve<undefined>({
 });
 
 console.log(`agent feed sidecar listening on http://${config.host}:${server.port}`);
-void startCatalog().catch((error) => {
-  console.error("agent feed catalog startup failed", error);
-  server.stop(true);
-  process.exit(1);
-});
+void startCatalog()
+  .then(() => claudeLive.start())
+  .catch((error) => {
+    console.error("agent feed catalog startup failed", error);
+    server.stop(true);
+    process.exit(1);
+  });
 
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {

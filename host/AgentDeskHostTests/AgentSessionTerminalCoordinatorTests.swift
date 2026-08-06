@@ -1014,6 +1014,20 @@ private struct SessionsSidecarClient: SidecarClient, @unchecked Sendable {
         SidecarStreamHandle(task: Task {})
     }
 
+    func openClaudeLiveStream(
+        sessionId: String,
+        afterSequence: Int,
+        mode: AgentFeedEventMode,
+        onEnvelope: @escaping @Sendable (AgentFeedTimelineEnvelope) -> Void,
+        onError: @escaping @Sendable (Error) -> Void
+    ) -> SidecarStreamHandle {
+        SidecarStreamHandle(task: Task {})
+    }
+
+    func fetchClaudeLiveEventsPage(sessionId: String, offset: Int, limit: Int, mode: AgentFeedEventMode) async throws -> AgentFeedEventsPage {
+        AgentFeedEventsPage(events: [], total: 0)
+    }
+
     func createSession(requestId: String, source: String, projectPath: String) async throws -> AgentFeedSessionSummary { throw SidecarClientError.server("unsupported") }
     func sendMessage(requestId: String, source: String, sessionId: String, text: String, delivery: String) async throws -> AgentFeedCommandReceipt { throw SidecarClientError.server("unsupported") }
     func abortSession(requestId: String, source: String, sessionId: String) async throws -> AgentFeedCommandReceipt { throw SidecarClientError.server("unsupported") }

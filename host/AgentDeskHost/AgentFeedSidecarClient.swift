@@ -55,6 +55,8 @@ struct AgentFeedActivityEvent: Codable {
     /// Position of the same line in the other mode, or nil when it has none. See the wire
     /// `ActivityEvent.otherModeIndex`.
     let otherModeIndex: Int?
+    /// Stable Anthropic message id, shared with the live mirror for handoff.
+    let messageId: String?
     /// Occupancy as of this event. Session state, not event state: it rides the per-event stream
     /// message because that stream already fires once per event, so the meter goes live without a
     /// message type of its own.
@@ -69,6 +71,7 @@ struct AgentFeedActivityEvent: Codable {
         type: String,
         blocks: [AgentFeedActivityBlock],
         otherModeIndex: Int? = nil,
+        messageId: String? = nil,
         usage: AgentFeedTokenUsage? = nil
     ) {
         self.id = id
@@ -79,6 +82,7 @@ struct AgentFeedActivityEvent: Codable {
         self.type = type
         self.blocks = blocks
         self.otherModeIndex = otherModeIndex
+        self.messageId = messageId
         self.usage = usage
     }
 }
@@ -145,6 +149,9 @@ struct AgentFeedSessionCapabilities: Codable {
     let canFetchRaw: Bool
     let canOpenTerminal: Bool
     let supportsExtensionUi: Bool
+    /// True when the session has a live, network-observed delta stream (claude live source).
+    /// Defaulted so the synthesized memberwise init accepts omitting it (older fixtures).
+    var canStreamLive: Bool? = nil
 }
 
 struct AgentFeedQueueState: Codable {
@@ -260,6 +267,19 @@ protocol SidecarClient: Sendable {
         onEnvelope: @escaping @Sendable (AgentFeedTimelineEnvelope) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle
+    func openClaudeLiveStream(
+        sessionId: String,
+        afterSequence: Int,
+        mode: AgentFeedEventMode,
+        onEnvelope: @escaping @Sendable (AgentFeedTimelineEnvelope) -> Void,
+        onError: @escaping @Sendable (Error) -> Void
+    ) -> SidecarStreamHandle
+    func fetchClaudeLiveEventsPage(
+        sessionId: String,
+        offset: Int,
+        limit: Int,
+        mode: AgentFeedEventMode
+    ) async throws -> AgentFeedEventsPage
     func createSession(requestId: String, source: String, projectPath: String) async throws -> AgentFeedSessionSummary
     func sendMessage(requestId: String, source: String, sessionId: String, text: String, delivery: String) async throws -> AgentFeedCommandReceipt
     func abortSession(requestId: String, source: String, sessionId: String) async throws -> AgentFeedCommandReceipt
@@ -509,6 +529,65 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
             type: AgentFeedTimelineEnvelope.self,
             onValue: onEnvelope,
             onError: onError
+        )
+    }
+
+    func openClaudeLiveStream(
+        sessionId: String,
+        afterSequence: Int,
+        mode: AgentFeedEventMode,
+        onEnvelope: @escaping @Sendable (AgentFeedTimelineEnvelope) -> Void,
+        onError: @escaping @Sendable (Error) -> Void
+    ) -> SidecarStreamHandle {
+        openJSONStream(
+            request: {
+                try await self.request(
+                    path: "/api/agent-sessions/claude/\(sessionId)/stream",
+                    query: [
+                        URLQueryItem(name: "since", value: String(afterSequence)),
+                        URLQueryItem(name: "mode", value: mode.rawValue),
+                    ]
+                )
+            },
+            type: AgentFeedTimelineEnvelope.self,
+            onValue: onEnvelope,
+            onError: onError
+        )
+    }
+
+    func fetchClaudeLiveEventsPage(
+        sessionId: String,
+        offset: Int,
+        limit: Int,
+        mode: AgentFeedEventMode
+    ) async throws -> AgentFeedEventsPage {
+        struct Envelope: Decodable {
+            let events: [AgentFeedActivityEvent]
+            let total: Int
+            let usage: AgentFeedTokenUsage?
+            let sequence: Int
+            let runState: String
+            let queue: AgentFeedQueueState
+        }
+        let envelope = try await fetchJSON(
+            Envelope.self,
+            request: try await request(
+                path: "/api/agent-sessions/claude/\(sessionId)/events",
+                query: [
+                    URLQueryItem(name: "offset", value: String(offset)),
+                    URLQueryItem(name: "limit", value: String(limit)),
+                    URLQueryItem(name: "mode", value: mode.rawValue),
+                ]
+            )
+        )
+        return AgentFeedEventsPage(
+            events: envelope.events,
+            total: envelope.total,
+            usage: envelope.usage,
+            sequence: envelope.sequence,
+            runState: envelope.runState,
+            queueSteer: envelope.queue.steer,
+            queueFollowUp: envelope.queue.followUp
         )
     }
 

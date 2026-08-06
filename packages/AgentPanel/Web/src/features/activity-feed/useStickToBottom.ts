@@ -87,18 +87,23 @@ export function useStickToBottom(
   }, [active, sizedRef, snapToBottom]);
 
   // Intent: attribute a scroll by its direction, sampled only on real scroll
-  // events (not during the measurement storm).
+  // events (not during the measurement storm). A `wentUp` is a real user pull
+  // away from the tail ONLY when it also leaves the bottom reached; a clamped
+  // scrollTop from the content shrinking (the live tail handing off to durable
+  // rows makes the list momentarily shorter) is not a gesture, so it must not
+  // detach us -- otherwise streaming would leave the user stuck mid-conversation
+  // once the next tail starts growing below.
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     const top = el.scrollTop;
     const wentUp = top < lastTopRef.current - 1;
+    const fromEnd = el.scrollHeight - top - el.clientHeight;
     lastTopRef.current = top;
     if (enforcingRef.current) return; // our own snap, not the user
     if (followingRef.current) {
-      if (wentUp) setFollowing(false); // user pulled away from the tail
+      if (wentUp && fromEnd > END_EPSILON_PX) setFollowing(false);
     } else {
-      const fromEnd = el.scrollHeight - top - el.clientHeight;
       if (fromEnd <= END_EPSILON_PX) setFollowing(true); // user returned to the end
     }
   }, [scrollRef, setFollowing]);

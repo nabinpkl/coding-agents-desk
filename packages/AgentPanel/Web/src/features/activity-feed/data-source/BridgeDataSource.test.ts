@@ -102,6 +102,31 @@ describe("BridgeDataSource visibility lifecycle", () => {
     ).toHaveLength(2);
   });
 
+  it("dispatches agent-live-tail to onLiveTail with the mapped event", () => {
+    const { host, source } = makeSource();
+    const onLiveTail = vi.fn();
+    const session = { source: "claude" as const, sessionId: "thread", mode: "nice" as const };
+    source.subscribeSessionEvents(session, 0, {
+      onEvent: vi.fn(),
+      onSnapshot: vi.fn(),
+      onLiveTail,
+    });
+
+    host.deliver({
+      t: "agent-live-tail",
+      src: "claude",
+      sid: "thread",
+      ev: { id: "claude-live:msg_1", i: 0, rev: 1, ph: "streaming", ts: 1, tp: "assistant", b: [{ k: "text", t: "hello" }], mid: "msg_1" },
+    });
+    expect(onLiveTail).toHaveBeenCalledTimes(1);
+    const event = onLiveTail.mock.calls[0]![0];
+    expect(event.messageId).toBe("msg_1");
+    expect(event.phase).toBe("streaming");
+
+    host.deliver({ t: "agent-live-tail", src: "claude", sid: "thread", ev: null });
+    expect(onLiveTail).toHaveBeenLastCalledWith(null);
+  });
+
   it("rebases sequence and paging onto a lower-sequence reconnect snapshot", async () => {
     const { host, source } = makeSource();
     const onEvent = vi.fn();

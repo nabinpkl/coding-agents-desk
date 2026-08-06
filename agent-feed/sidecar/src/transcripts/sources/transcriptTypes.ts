@@ -48,6 +48,14 @@ export interface ParsedLine {
   ts: number;
   type: 'user' | 'assistant' | 'reasoning' | 'system';
   blocks: ActivityBlock[];
+  /**
+   * Stable Anthropic message id (`msg_...`) when the harness/source records one.
+   * The live stream names it on `message_start` and the durable transcript on
+   * the assistant record's `message.id`, which is how the viewer can tell "the
+   * live tail is now present in the durable transcript" and drop the tail
+   * instead of duplicating it.
+   */
+  messageId?: string;
 }
 
 export interface ActivityEvent extends ParsedLine {

@@ -25,7 +25,6 @@ import {
   stringifyForDisplay,
 } from './plainActivity.ts';
 import { classifyClaudeLine } from './lineClass.ts';
-import { thinkingText } from './claudeThinking.ts';
 
 const PROJECTS_ROOT = config.claudeProjectsDirectory;
 const HEADER_EDGE_BYTES = 32 * 1024;
@@ -126,8 +125,13 @@ function normalizeBlocks(content: unknown): NormalizedClaudeBlock[] {
     const t = b?.type;
     if (t === 'text' && typeof b.text === 'string' && (b.text as string).trim()) {
       out.push({ block: { kind: 'text', text: b.text as string }, raw: b.text as string });
-    } else if (thinkingText(b)) {
-      out.push({ block: { kind: 'reasoning', text: b.thinking as string }, raw: b.thinking as string });
+    } else if (t === 'thinking') {
+      // Any `thinking` block is reasoning, even when its `thinking` text is
+      // empty (an opaque encrypted `signature` trace). Classify by TYPE, not by
+      // non-empty text: reading text here would dump the signature as a Plain
+      // JSON card instead of an emittable collapsed reasoning block.
+      const thinking = typeof b.thinking === 'string' ? (b.thinking as string) : '';
+      out.push({ block: { kind: 'reasoning', text: thinking }, raw: thinking });
     } else if (t === 'tool_use' && typeof b.name === 'string') {
       const input = (b.input as Record<string, unknown> | undefined) ?? {};
       const id = typeof b.id === 'string' ? (b.id as string) : undefined;
@@ -443,7 +447,19 @@ function normalizedRecord(
   // resume: a finished session becomes open again when the user resumes).
   // An assistant message closes the turn only on stop_reason end_turn.
   const turnClosed = t === 'assistant' && message.stop_reason === 'end_turn';
-  const result: LineResult = { turnClosed, event: { ts, type: semanticType, blocks: rawBlocks.map(({ block }) => block) } };
+  // The Anthropic message id the live `/v1/messages` stream also names on
+  // `message_start`, so the viewer can hand a streaming live tail off to the
+  // durable transcript once it contains this same id.
+  const rawMessageId = typeof message.id === 'string' ? (message.id as string).trim() : '';
+  const result: LineResult = {
+    turnClosed,
+    event: {
+      ts,
+      type: semanticType,
+      blocks: rawBlocks.map(({ block }) => block),
+      ...(rawMessageId ? { messageId: rawMessageId } : {}),
+    },
+  };
   if (usage) result.usage = usage;
   if (cwd) result.cwd = cwd;
   return { result, rawBlocks };

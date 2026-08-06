@@ -41,6 +41,9 @@ export interface ActivityEvent {
   /** Position of the same line in the other mode, or null when it has none: a
    *  machinery line read in raw mode is absent from the nice view. */
   otherModeIndex?: number | null;
+  /** Stable Anthropic message id (`msg_...`), shared between the durable
+   *  transcript and the live mirror so a streaming tail can hand off. */
+  messageId?: string;
 }
 
 /**
@@ -68,6 +71,9 @@ interface State {
   sequence: number;
   runState: "idle" | "running" | "ended" | "error";
   queue: { steer: number; followUp: number };
+  /** The live in-flight assistant message (the live mirror), shown below the
+   *  durable rows until the durable transcript contains its `messageId`. */
+  liveTail: ActivityEvent | null;
 }
 
 /** Whichever occupancy report is more recent, by the timestamp on the line that
@@ -103,6 +109,7 @@ export function useSessionEventsStream(
     sequence: 0,
     runState: "idle",
     queue: { steer: 0, followUp: 0 },
+    liveTail: null,
   });
   const [connected, setConnected] = useState(false);
   const loadingOlderRef = useRef(false);
@@ -118,21 +125,39 @@ export function useSessionEventsStream(
     let seeded = false;
     let replacedBySnapshot = false;
     const unsubscribe = ds.subscribeSessionEvents(session, 0, {
-      onEvent: (event) => {
+onEvent: (event) => {
         if (!seeded) {
           pendingLive.set(event.index, event);
           return;
         }
         setState((current) => {
           const existing = current.events.get(event.index);
-          if (existing && (existing.revision ?? 0) >= (event.revision ?? 0)) return current;
-          const events = new Map(current.events);
-          events.set(event.index, event);
-          return {
+          const eventChanged = !existing || (existing.revision ?? 0) < (event.revision ?? 0);
+          const events = eventChanged ? new Map(current.events) : current.events;
+          if (eventChanged) events.set(event.index, event);
+          const next = {
             ...current,
             events,
-            total: Math.max(current.total, event.index + 1),
+            total: eventChanged
+              ? Math.max(current.total, event.index + 1)
+              : current.total,
           };
+          // Hand the live tail off once it is complete AND the durable transcript
+          // carries that same message (same id, complete). The transcript can
+          // append rows for the same message while the live stream is still
+          // delivering it (per tool step), so the tail is cleared only once the
+          // live message has itself finished; otherwise a mid-stream durable row
+          // would kill the tail before it appears. Runs even for a duplicate
+          // revision so the handoff is not skipped by buffer dedup.
+          if (
+            event.phase === "complete" &&
+            next.liveTail?.phase === "complete" &&
+            next.liveTail?.messageId &&
+            event.messageId === next.liveTail.messageId
+          ) {
+            next.liveTail = null;
+          }
+          return next;
         });
       },
       onSnapshot: (snapshot) => {
@@ -140,17 +165,27 @@ export function useSessionEventsStream(
         replacedBySnapshot = true;
         seeded = true;
         pendingLive.clear();
-        setState((current) => ({
-          events: new Map(snapshot.events.map((event) => [event.index, event])),
-          total: snapshot.total,
-          windowStart: snapshot.windowStart,
-          usage: newerUsage(current.usage, snapshot.usage),
-          loading: false,
-          error: null,
-          sequence: snapshot.state.sequence,
-          runState: snapshot.state.runState,
-          queue: snapshot.state.queue,
-        }));
+        setState((current) => {
+          // A reconnect snapshot is authoritative: if it already contains the
+          // live tail's message, the durable rows own it now.
+          const liveTail = current.liveTail
+            ? current.liveTail.phase === "complete" && snapshot.events.some((event) => event.messageId === current.liveTail?.messageId && event.phase === "complete")
+              ? null
+              : current.liveTail
+            : null;
+          return {
+            events: new Map(snapshot.events.map((event) => [event.index, event])),
+            total: snapshot.total,
+            windowStart: snapshot.windowStart,
+            usage: newerUsage(current.usage, snapshot.usage),
+            loading: false,
+            error: null,
+            sequence: snapshot.state.sequence,
+            runState: snapshot.state.runState,
+            queue: snapshot.state.queue,
+            liveTail,
+          };
+        });
       },
       onState: (sessionState) =>
         setState((current) =>
@@ -167,6 +202,8 @@ export function useSessionEventsStream(
           ...current,
           usage: newerUsage(current.usage, usage),
         })),
+      onLiveTail: (event) =>
+        setState((current) => ({ ...current, liveTail: event })),
       onOpen: () => setConnected(true),
       onError: () => setConnected(false),
     });
@@ -205,6 +242,7 @@ export function useSessionEventsStream(
           sequence: current.sequence,
           runState: current.runState,
           queue: current.queue,
+          liveTail: current.liveTail,
         }));
       } catch (e) {
         if (!cancelled && !replacedBySnapshot) {
@@ -261,5 +299,6 @@ export function useSessionEventsStream(
     sequence: state.sequence,
     runState: state.runState,
     queue: state.queue,
+    liveTail: state.liveTail,
   };
 }

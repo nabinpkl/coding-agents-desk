@@ -84,6 +84,9 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
     /// viewer's place: the index is mode-relative, and this is the only translation the panel has
     /// without another round trip.
     public let otherModeIndex: Int?
+    /// Stable Anthropic message id (`msg_...`), shared between the durable
+    /// transcript and the live mirror, used to hand a streaming tail off.
+    public let messageId: String?
 
     public enum CodingKeys: String, CodingKey {
         case id = "id"
@@ -94,6 +97,7 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         case type = "tp"
         case blocks = "b"
         case otherModeIndex = "xi"
+        case messageId = "mid"
     }
 
     public init(
@@ -104,7 +108,8 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         ts: Double,
         type: String,
         blocks: [ActivityBlock],
-        otherModeIndex: Int? = nil
+        otherModeIndex: Int? = nil,
+        messageId: String? = nil
     ) {
         self.id = id
         self.index = index
@@ -114,6 +119,7 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         self.type = type
         self.blocks = blocks
         self.otherModeIndex = otherModeIndex
+        self.messageId = messageId
     }
 }
 
@@ -176,6 +182,7 @@ public struct AgentSessionCapabilities: Codable, Equatable, Sendable {
     public let canFetchRaw: Bool
     public let canOpenTerminal: Bool
     public let supportsExtensionUI: Bool
+    public let canStreamLive: Bool?
 
     public enum CodingKeys: String, CodingKey {
         case modes = "md"
@@ -185,9 +192,10 @@ public struct AgentSessionCapabilities: Codable, Equatable, Sendable {
         case canFetchRaw = "raw"
         case canOpenTerminal = "pty"
         case supportsExtensionUI = "xui"
+        case canStreamLive = "csl"
     }
 
-    public init(modes: [String], canSend: Bool, canSteer: Bool, canAbort: Bool, canFetchRaw: Bool, canOpenTerminal: Bool, supportsExtensionUI: Bool) {
+    public init(modes: [String], canSend: Bool, canSteer: Bool, canAbort: Bool, canFetchRaw: Bool, canOpenTerminal: Bool, supportsExtensionUI: Bool, canStreamLive: Bool? = nil) {
         self.modes = modes
         self.canSend = canSend
         self.canSteer = canSteer
@@ -195,6 +203,7 @@ public struct AgentSessionCapabilities: Codable, Equatable, Sendable {
         self.canFetchRaw = canFetchRaw
         self.canOpenTerminal = canOpenTerminal
         self.supportsExtensionUI = supportsExtensionUI
+        self.canStreamLive = canStreamLive
     }
 }
 
@@ -368,6 +377,30 @@ public struct AgentThreadUnsubscribe: Codable, Equatable, Sendable {
     public init(source: String, sessionId: String) {
         self.source = source
         self.sessionId = sessionId
+    }
+}
+
+/// The in-flight assistant message streamed from the claude live mirror, shown
+/// below the durable transcript rows until the transcript contains that message
+/// (the panel hands the tail off by `messageId`). `event == nil` means the live
+/// tail is over.
+public struct AgentLiveTail: Codable, Equatable, Sendable {
+    public let type = "agent-live-tail"
+    public let source: String
+    public let sessionId: String
+    public let event: ActivityEvent?
+
+    public enum CodingKeys: String, CodingKey {
+        case type = "t"
+        case source = "src"
+        case sessionId = "sid"
+        case event = "ev"
+    }
+
+    public init(source: String, sessionId: String, event: ActivityEvent?) {
+        self.source = source
+        self.sessionId = sessionId
+        self.event = event
     }
 }
 

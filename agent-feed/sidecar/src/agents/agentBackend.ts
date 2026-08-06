@@ -9,6 +9,8 @@ export interface AgentSessionCapabilities {
   canFetchRaw: boolean;
   canOpenTerminal: boolean;
   supportsExtensionUi: boolean;
+  /** True when the session has a live, network-observed delta stream (claude live source). */
+  canStreamLive: boolean;
 }
 
 export interface AgentSessionDescriptor {
@@ -58,6 +60,15 @@ export type AgentUiEvent =
   | { type: "dismiss"; requestId: string };
 
 export type AgentUiResponseResult = "accepted" | "already-resolved" | "not-found" | "invalid";
+
+/** A session-id referenced a session this backend does not own (or that has been dropped). */
+export class AgentSessionNotFoundError extends Error {}
+/** A mode the backend does not serve was requested (e.g. `raw` on a nice-only live source). */
+export class AgentModeUnsupportedError extends Error {}
+/** A command's request-id/signature conflicts with an in-flight command. */
+export class AgentCommandConflictError extends Error {}
+/** The backend has been disposed; no further commands are accepted. */
+export class AgentBackendDisposedError extends Error {}
 
 export interface AgentBackend {
   readonly id: string;

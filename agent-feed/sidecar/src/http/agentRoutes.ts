@@ -1,6 +1,7 @@
 import type { AgentBackend, AgentMessageDelivery } from "../agents/agentBackend.ts";
 import { AgentCommandConflictError, AgentModeUnsupportedError, AgentSessionNotFoundError } from "../agents/piAgentBackend.ts";
 import { canonicalProjectPath, getSnapshot } from "../transcripts/transcriptCatalog.ts";
+import type { EventMode, TokenUsage } from "../transcripts/sources/transcriptTypes.ts";
 import { encodeServerSentEvent, jsonResponse, startServerSentEventStream } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 
@@ -11,7 +12,12 @@ const UI_STREAM_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-
 const UI_RESPONSE_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/ui\/([A-Za-z0-9._:-]{1,128})$/;
 const EVENT_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/events$/;
 const STREAM_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/stream$/;
+const CLAUDE_LIVE_EVENT_ROUTE = /^\/api\/agent-sessions\/(claude)\/([A-Za-z0-9._:-]{1,128})\/events$/;
+const CLAUDE_LIVE_STREAM_ROUTE = /^\/api\/agent-sessions\/(claude)\/([A-Za-z0-9._:-]{1,128})\/stream$/;
 const MAXIMUM_BODY_BYTES = 256 * 1024;
+const CLAUDE_LIVE_STREAM_LAG_LIMIT = 32;
+
+type LiveBackend = AgentBackend & { sessionUsage(sessionId: string): TokenUsage | null };
 
 export function createAgentRoutes(resolveBackend: (id: string) => AgentBackend | undefined): RouteHandler {
   return (request, url, server) => {
@@ -41,6 +47,14 @@ export function createAgentRoutes(resolveBackend: (id: string) => AgentBackend |
     const stream = STREAM_ROUTE.exec(url.pathname);
     if (request.method === "GET" && stream && stream[1] === "pi") {
       return streamEvents(request, url, server, resolveBackend, stream[1], stream[2]!);
+    }
+    const claudeEvents = CLAUDE_LIVE_EVENT_ROUTE.exec(url.pathname);
+    if (request.method === "GET" && claudeEvents) {
+      return pageClaudeLiveEvents(url, resolveBackend, claudeEvents[1]!, claudeEvents[2]!);
+    }
+    const claudeStream = CLAUDE_LIVE_STREAM_ROUTE.exec(url.pathname);
+    if (request.method === "GET" && claudeStream) {
+      return streamClaudeLiveEvents(request, url, server, resolveBackend, claudeStream[1]!, claudeStream[2]!);
     }
     return undefined;
   };
@@ -160,6 +174,89 @@ async function abortSession(
   } catch (error) {
     return routeError(error);
   }
+}
+
+async function pageClaudeLiveEvents(
+  url: URL,
+  resolveBackend: (id: string) => AgentBackend | undefined,
+  source: string,
+  sessionId: string,
+): Promise<Response> {
+  const backend = resolveBackend(source);
+  if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404);
+  const mode = liveModeQuery(url);
+  if (mode === null) return errorResponse("unsupported-mode", "claude live supports raw and nice only", 400);
+  const offset = integerQuery(url, "offset", 0, Number.MAX_SAFE_INTEGER);
+  const limit = integerQuery(url, "limit", 100, 500);
+  if (offset === null || limit === null || limit < 1) {
+    return errorResponse("invalid-pagination", "invalid pagination", 400);
+  }
+  try {
+    const page = await backend.page(sessionId, offset, limit, mode);
+    const live = backend as LiveBackend;
+    return jsonResponse({
+      events: page.events,
+      total: page.total,
+      mode: page.mode,
+      sequence: page.sequence,
+      runState: page.runState,
+      queue: page.queue,
+      usage: typeof live.sessionUsage === "function" ? live.sessionUsage(sessionId) : null,
+    });
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+function liveModeQuery(url: URL): EventMode | null {
+  const raw = url.searchParams.get("mode") ?? "nice";
+  return raw === "nice" || raw === "raw" ? raw : null;
+}
+
+function streamClaudeLiveEvents(
+  request: Request,
+  url: URL,
+  server: Parameters<RouteHandler>[2],
+  resolveBackend: (id: string) => AgentBackend | undefined,
+  source: string,
+  sessionId: string,
+): Response {
+  const backend = resolveBackend(source);
+  if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404);
+  const mode = liveModeQuery(url);
+  if (mode === null) return errorResponse("unsupported-mode", "claude live supports raw and nice only", 400);
+  const after = integerQuery(url, "since", 0, Number.MAX_SAFE_INTEGER);
+  if (after === null) return errorResponse("invalid-sequence", "since must be a nonnegative integer", 400);
+  const live = backend as LiveBackend;
+  const usageFor = typeof live.sessionUsage === "function"
+    ? (sid: string) => live.sessionUsage(sid)
+    : () => null;
+  return startServerSentEventStream(
+    request,
+    server,
+    (write) => {
+      let closed = false;
+      let unsubscribe: (() => void) | undefined;
+      void backend.subscribe(sessionId, after, (envelope) => {
+        write(encodeServerSentEvent({
+          ...envelope,
+          mode,
+          events: envelope.events.map((event) => ({ ...event, otherModeIndex: event.index })),
+          usage: usageFor(sessionId),
+        }));
+      })
+        .then((value) => {
+          if (closed) value();
+          else unsubscribe = value;
+        })
+        .catch((error) => write(encodeServerSentEvent({ error: errorPayload(error) })));
+      return () => {
+        closed = true;
+        unsubscribe?.();
+      };
+    },
+    { lagLimit: CLAUDE_LIVE_STREAM_LAG_LIMIT },
+  );
 }
 
 async function pageEvents(

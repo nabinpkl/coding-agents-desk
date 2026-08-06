@@ -132,6 +132,29 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
         return cancellableHandle()
     }
 
+    func openClaudeLiveStream(
+        sessionId: String,
+        afterSequence: Int,
+        mode: AgentFeedEventMode,
+        onEnvelope: @escaping @Sendable (AgentFeedTimelineEnvelope) -> Void,
+        onError: @escaping @Sendable (Error) -> Void
+    ) -> SidecarStreamHandle {
+        lock.withLock {
+            _openedEventStreams += 1
+            _streamModes.append(mode)
+            eventCallbacks["claude:\(sessionId)"] = onEnvelope
+            eventErrorHistory.append(onError)
+        }
+        return cancellableHandle()
+    }
+
+    func fetchClaudeLiveEventsPage(sessionId: String, offset: Int, limit: Int, mode: AgentFeedEventMode) async throws -> AgentFeedEventsPage {
+        lock.withLock {
+            _eventRequests.append(EventRequest(source: "claude", sessionId: sessionId, offset: offset, limit: limit, mode: mode))
+        }
+        return eventsPage
+    }
+
     func pushProjects() {
         let callback = lock.withLock { projectSnapshot }
         callback?(projects)
@@ -148,6 +171,23 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
             kind: "upsert",
             sequence: event.index + 1,
             mode: "nice",
+            events: [event],
+            windowStart: event.index,
+            total: event.index + 1,
+            runState: "running",
+            queue: AgentFeedQueueState(steer: 0, followUp: 0),
+            usage: event.usage
+        ))
+    }
+
+    /// Pushes a live envelope carrying a caller-chosen mode, so tests can prove a
+    /// raw-mode claude live stream is delivered with `md: raw` (not dropped).
+    func pushClaudeLiveEvent(source: String, sessionId: String, event: AgentFeedActivityEvent, mode: AgentFeedEventMode) {
+        let callback = lock.withLock { eventCallbacks["\(source):\(sessionId)"] }
+        callback?(AgentFeedTimelineEnvelope(
+            kind: "upsert",
+            sequence: event.index + 1,
+            mode: mode.rawValue,
             events: [event],
             windowStart: event.index,
             total: event.index + 1,
@@ -255,6 +295,10 @@ private func transcriptCapabilities() -> AgentFeedSessionCapabilities {
     AgentFeedSessionCapabilities(modes: ["raw", "nice"], canSend: false, canSteer: false, canAbort: false, canFetchRaw: true, canOpenTerminal: true, supportsExtensionUi: false)
 }
 
+private func claudeLiveCapabilities() -> AgentFeedSessionCapabilities {
+    AgentFeedSessionCapabilities(modes: ["raw", "nice"], canSend: false, canSteer: false, canAbort: false, canFetchRaw: true, canOpenTerminal: true, supportsExtensionUi: false, canStreamLive: true)
+}
+
 struct AgentFeedBridgeTests {
     @Test func projectAndSessionWatchesEchoSubscriptionIdentity() async throws {
         let fake = FakeSidecarClient()
@@ -349,6 +393,37 @@ struct AgentFeedBridgeTests {
         #expect(live.source == "codex")
         #expect(live.sessionId == "shared")
         #expect(live.isLive)
+    }
+
+    @Test func claudeLiveSessionOpensDurableBaseAndDeliversLiveTail() async throws {
+        let fake = FakeSidecarClient()
+        fake.sessions = AgentFeedSessionsSnapshot(projectPath: "/project", sessions: [
+            AgentFeedSessionSummary(sessionId: "thread", source: "claude", title: "Claude", lastEventAt: 1, activity: "ready", capabilities: claudeLiveCapabilities())
+        ])
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: sink.accept)
+
+        // The sessions snapshot populates the live-capability cache.
+        bridge.handleProjectSessionsWatch(AgentProjectSessionsWatch(subscriptionId: "s", projectPath: "/project"))
+        fake.pushSessions()
+        await waitFor { sink.count == 1 }
+
+        // A subscribe to a claude live session opens the durable transcript
+        // base AND the live tail, in the requested mode.
+        bridge.handleThreadSubscribe(AgentThreadSubscribe(source: "claude", sessionId: "thread", mode: "raw"))
+        await waitFor { fake.openedEventStreams >= 2 }
+        #expect(fake.streamModes.contains(.raw))
+        #expect(fake.eventRequests.map(\.source).contains("claude"))
+
+        // A live mirror message arrives as a live tail (not a thread chunk).
+        fake.pushClaudeLiveEvent(source: "claude", sessionId: "thread", event: event(index: 0), mode: .raw)
+        await waitFor { sink.count >= 3 }
+        let snapshot = try sink.decode(AgentThreadChunk.self, at: 1)
+        #expect(snapshot.mode == "raw")
+        let tail = try sink.decode(AgentLiveTail.self, at: 2)
+        #expect(tail.source == "claude")
+        #expect(tail.sessionId == "thread")
+        #expect(tail.event?.index == 0)
     }
 
     @Test func unsubscribeDuringBootstrapNeverOpensOrPushesTheThread() async {

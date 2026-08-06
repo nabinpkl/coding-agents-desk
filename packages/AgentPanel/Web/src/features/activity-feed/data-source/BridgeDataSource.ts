@@ -36,6 +36,7 @@ interface WireActivityEvent {
   tp: string;
   b: WireActivityBlock[];
   xi?: number | null;
+  mid?: string;
 }
 
 interface WireProjectSummary {
@@ -63,6 +64,7 @@ interface WireSessionCapabilities {
   raw: boolean;
   pty: boolean;
   xui: boolean;
+  csl?: boolean;
 }
 
 interface WireProjectsPush {
@@ -96,6 +98,13 @@ interface WireTokenUsage {
   lim?: number | null;
   ua: number;
   mdl?: string;
+}
+
+interface WireTailChunk {
+  t: "agent-live-tail";
+  src: AgentSource;
+  sid: string;
+  ev: WireActivityEvent | null;
 }
 
 interface WireThreadChunk {
@@ -230,6 +239,7 @@ type InboundMessage =
   | WireProjectSessionsPush
   | WireProjectSessionsError
   | WireThreadChunk
+  | WireTailChunk
   | WireThreadError
   | WireRawEvent
   | WireRawEventError
@@ -268,6 +278,8 @@ export interface AgentSessionCapabilities {
   canFetchRaw: boolean;
   canOpenTerminal: boolean;
   supportsExtensionUI: boolean;
+  /** True when the session has a live, network-observed delta stream (claude live source). */
+  canStreamLive: boolean;
 }
 
 export interface AgentCommandReceipt {
@@ -448,6 +460,7 @@ function mapEvent(wire: WireActivityEvent): ActivityEvent {
     type: wire.tp,
     blocks: wire.b.map(mapBlock),
     otherModeIndex: typeof wire.xi === "number" ? wire.xi : null,
+    messageId: typeof wire.mid === "string" ? wire.mid : undefined,
   });
 }
 
@@ -466,6 +479,7 @@ function mapSession(wire: WireSessionSummary): BridgeSessionSummary {
       canFetchRaw: wire.cap.raw,
       canOpenTerminal: wire.cap.pty,
       supportsExtensionUI: wire.cap.xui,
+      canStreamLive: wire.cap.csl ?? false,
     },
   };
 }
@@ -1018,6 +1032,9 @@ export class BridgeDataSource implements AgentDataSource {
       case "agent-thread-chunk":
         this.handleThreadChunk(message as WireThreadChunk);
         break;
+      case "agent-live-tail":
+        this.handleThreadLive(message as WireTailChunk);
+        break;
       case "agent-thread-error":
         this.handleThreadError(message as WireThreadError);
         break;
@@ -1119,6 +1136,13 @@ export class BridgeDataSource implements AgentDataSource {
     const watch = this.projectSessionsWatches.get(message.sub);
     if (!watch || watch.projectPath !== message.pp) return;
     watch.onError?.(message.r);
+  }
+
+  private handleThreadLive(tail: WireTailChunk): void {
+    const key = `${tail.src}:${tail.sid}`;
+    for (const listener of this.liveListeners.get(key) ?? []) {
+      listener.onLiveTail?.(tail.ev ? mapEvent(tail.ev) : null);
+    }
   }
 
   private handleThreadChunk(chunk: WireThreadChunk): void {
