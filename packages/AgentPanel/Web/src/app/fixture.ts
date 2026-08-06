@@ -33,6 +33,15 @@ export const FIXTURE_SESSIONS = [
     ttl: "Implement webview Vite bundle",
     lea: Date.now() - 60_000,
     ac: "live" as const,
+    cap: {
+      md: ["raw", "nice"] as const,
+      snd: true,
+      str: true,
+      abt: true,
+      raw: true,
+      pty: true,
+      xui: true,
+    },
   },
   {
     sid: "session-codex-001",
@@ -40,6 +49,15 @@ export const FIXTURE_SESSIONS = [
     ttl: "Fix TypeScript errors in BridgeDataSource",
     lea: Date.now() - 300_000,
     ac: "ready" as const,
+    cap: {
+      md: ["raw", "nice"] as const,
+      snd: true,
+      str: true,
+      abt: true,
+      raw: true,
+      pty: true,
+      xui: false,
+    },
   },
 ];
 
