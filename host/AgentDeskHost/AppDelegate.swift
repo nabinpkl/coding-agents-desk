@@ -162,7 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var agentWindowComposerCoordinator = AgentWindowComposerCoordinator(
         writer: AgentWindowComposerWriter(
             access: AgentWindowComposerAccess(),
-            placement: desktopWindowPlacementCoordinator
+            placement: YabaiWindowSpaceMover()
         ),
         audit: HostWorkspaceDesktopAudit()
     )

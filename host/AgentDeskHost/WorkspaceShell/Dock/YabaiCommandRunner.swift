@@ -5,6 +5,16 @@ protocol YabaiCommandRunning: Sendable {
     func run(arguments: [String]) async throws -> Data
 }
 
+/// The same command, for callers that are already on a background thread and are synchronous by design.
+///
+/// Composer sync runs its whole latch/move/write/restore sequence on one serial queue so two writers
+/// cannot fight over the same Claude window; bridging back into async there would mean blocking that
+/// queue on a semaphore for no gain. Both protocols are served by `YabaiProcessCommandRunner`, so
+/// there is one process implementation, not two.
+protocol YabaiSyncCommandRunning: Sendable {
+    func runNow(arguments: [String]) throws -> Data
+}
+
 enum YabaiCommandError: Error, LocalizedError, Sendable {
     case executableUnavailable(String)
     case launchFailed(String)
@@ -29,7 +39,7 @@ enum YabaiCommandError: Error, LocalizedError, Sendable {
     }
 }
 
-struct YabaiProcessCommandRunner: YabaiCommandRunning {
+struct YabaiProcessCommandRunner: YabaiCommandRunning, YabaiSyncCommandRunning {
     private static let maximumOutputBytes = 16 * 1_024 * 1_024
 
     let executableURL: URL
@@ -38,15 +48,17 @@ struct YabaiProcessCommandRunner: YabaiCommandRunning {
     func run(arguments: [String]) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(with: Result {
-                    try Self.runSynchronously(
-                        executableURL: executableURL,
-                        arguments: arguments,
-                        timeout: timeout
-                    )
-                })
+                continuation.resume(with: Result { try runNow(arguments: arguments) })
             }
         }
+    }
+
+    func runNow(arguments: [String]) throws -> Data {
+        try Self.runSynchronously(
+            executableURL: executableURL,
+            arguments: arguments,
+            timeout: timeout
+        )
     }
 
     private static func runSynchronously(

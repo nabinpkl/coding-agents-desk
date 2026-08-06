@@ -887,6 +887,16 @@ enum Config {
     // this is another application's private UI string and can change without notice.
     static let claudeComposerDescription = ProcessInfo.processInfo.environment["AGENTDESK_CLAUDE_COMPOSER_DESC"]
         ?? "Prompt"
+    // How long a window brought to this Desktop is given to build its accessibility tree, and how
+    // often it is checked. Chromium builds a window's tree only while it is on the current Space, so
+    // the composer genuinely does not exist for the first moments after a move-in. The ceiling bounds
+    // a renderer that never answers; the normal cost is one poll.
+    static let claudeComposerMaterializeTimeout: TimeInterval = 10
+    static let claudeComposerMaterializePollInterval: TimeInterval = 0.2
+    // Confirmation that a Desktop move actually took. yabai's move is already visible to SkyLight by
+    // the time the command returns, so this is a guard against a stale read, not a settle window.
+    static let claudeWindowMoveVerifyAttempts = 4
+    static let claudeWindowMoveVerifyInterval: TimeInterval = 0.05
     static let agentFeedSidecarResourceName = "agent-feed-sidecar"
     static var agentFeedSidecarURL: URL? {
         Bundle.main.url(forResource: agentFeedSidecarResourceName, withExtension: nil)

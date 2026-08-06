@@ -123,34 +123,6 @@ struct DesktopWindowPlacementCoordinatorTests {
         }
     }
 
-    @Test func moveRetriesSettleWindowUntilMembershipLands() throws {
-        // Simulate the fired-and-forgotten Space move: WindowServer re-registers async, so the first
-        // two membership reads return the stale pre-move Space before the target appears.
-        let mover = RecordingWorkspaceWindowSpaceMover(spaceIDs: [42: [10]])
-        mover.staleReadsAfterMove = 2
-        let coordinator = makeCoordinator(mover: mover)
-
-        try coordinator.move(windowID: 42, toSpaceID: 20, verifyMaxAttempts: 6, verifySettleDelay: 0)
-
-        #expect(mover.moves == [.init(windowID: 42, spaceID: 20)])
-    }
-
-    @Test func moveFailsOnceSettleWindowElapsesWithoutLanding() throws {
-        let mover = RecordingWorkspaceWindowSpaceMover(spaceIDs: [42: [10]])
-        let coordinator = makeCoordinator(mover: mover)
-        // Never lands on the target; the retry must exhaust its budget and report the still-stale
-        // membership rather than spinning forever.
-        mover.membershipAfterMove = [10]
-
-        #expect(throws: DesktopWindowPlacementError.verificationMismatch(
-            windowID: 42,
-            targetSpaceID: 20,
-            observedSpaceIDs: [10]
-        )) {
-            try coordinator.move(windowID: 42, toSpaceID: 20, verifyMaxAttempts: 2, verifySettleDelay: 0)
-        }
-    }
-
     private func makeCoordinator(
         mover: RecordingWorkspaceWindowSpaceMover
     ) -> DesktopWindowPlacementCoordinator {
@@ -186,32 +158,19 @@ private final class RecordingWorkspaceWindowSpaceMover: WorkspaceWindowSpaceMovi
     var membershipAfterMove: [UInt64]?
     var onMove: (() -> Void)?
     private(set) var moves: [Move] = []
-    /// How many `spaceIDs(for:)` reads after a move keep returning the pre-move membership before the
-    /// post-move membership shows up. Simulates WindowServer's async re-registration for the settle test.
-    var staleReadsAfterMove = 0
-    private var readsDoneAfterMove = 0
-    private var staleMembership: [UInt64]?
 
     init(spaceIDs: [UInt32: [UInt64]]) {
         membership = spaceIDs
     }
 
     func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {
-        staleMembership = membership[windowID]
         onMove?()
         moves.append(Move(windowID: windowID, spaceID: targetSpaceID))
         membership[windowID] = membershipAfterMove ?? [targetSpaceID]
-        readsDoneAfterMove = 0
     }
 
     func spaceIDs(for windowID: UInt32) throws -> [UInt64] {
-        if staleReadsAfterMove > 0, readsDoneAfterMove < staleReadsAfterMove {
-            readsDoneAfterMove += 1
-            return staleMembership ?? membership[windowID] ?? []
-        }
-        staleReadsAfterMove = 0
-        readsDoneAfterMove = 0
-        return membership[windowID] ?? []
+        membership[windowID] ?? []
     }
 
     func setSpaceIDs(_ spaceIDs: [UInt64], for windowID: UInt32) {

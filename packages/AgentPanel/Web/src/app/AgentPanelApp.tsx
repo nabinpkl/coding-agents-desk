@@ -828,6 +828,8 @@ function composerReasonText(reason: string | null): string {
       return "Claude's window exposed no prompt field to write into.";
     case "move-failed":
       return "The window could not be brought to this Desktop.";
+    case "window-mover-unavailable":
+      return "Filling a window on another Desktop needs yabai, which is not available to the host.";
     case "write-failed":
       return "The composer refused the write.";
     case "verify-mismatch":

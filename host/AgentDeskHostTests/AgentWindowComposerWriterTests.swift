@@ -10,6 +10,7 @@ struct AgentWindowComposerWriterTests {
     private final class Recorder: AgentWindowComposerAccessing, AgentWindowDesktopMoving {
         enum Step: Equatable {
             case latch(pid_t)
+            case awaitComposer
             case read
             case write(String)
             case move(windowID: UInt32, spaceID: UInt64)
@@ -18,9 +19,11 @@ struct AgentWindowComposerWriterTests {
         var steps: [Step] = []
         var frontmost: [pid_t?] = [100, 100]
         var latchError: AgentWindowInputReason?
+        var awaitError: AgentWindowInputReason?
         var writeError: AgentWindowInputReason?
         var readBack: String?
         var moveFailures: Set<UInt64> = []
+        var moveFailureReason: AgentWindowInputReason?
 
         func frontmostApplicationPID() -> pid_t? {
             frontmost.isEmpty ? nil : frontmost.removeFirst()
@@ -29,6 +32,11 @@ struct AgentWindowComposerWriterTests {
         func latchManualAccessibility(pid: pid_t) throws {
             steps.append(.latch(pid))
             if let latchError { throw latchError }
+        }
+
+        func awaitComposer(for target: AgentWindowSessionTarget) throws {
+            steps.append(.awaitComposer)
+            if let awaitError { throw awaitError }
         }
 
         func readComposer(for target: AgentWindowSessionTarget) throws -> String {
@@ -45,11 +53,7 @@ struct AgentWindowComposerWriterTests {
         func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {
             steps.append(.move(windowID: windowID, spaceID: targetSpaceID))
             if moveFailures.contains(targetSpaceID) {
-                throw DesktopWindowPlacementError.moveFailed(
-                    windowID: windowID,
-                    targetSpaceID: targetSpaceID,
-                    reason: "test"
-                )
+                throw moveFailureReason ?? AgentWindowInputReason.moveFailed
             }
         }
     }
@@ -72,21 +76,53 @@ struct AgentWindowComposerWriterTests {
         let result = writer.write("draft prompt", to: target(homeSpaceID: 4))
 
         #expect(result == .success("draft prompt"))
+        // The wait sits between the move-in and the write, because Chromium builds the window's tree
+        // only once it is on this Desktop: writing straight after the move finds no composer.
         #expect(recorder.steps == [
             .latch(400),
             .move(windowID: 42, spaceID: 1),
+            .awaitComposer,
             .write("draft prompt"),
             .move(windowID: 42, spaceID: 4),
         ])
     }
 
-    @Test func aWindowAlreadyHereIsNotMovedAtAll() {
+    @Test func aWindowAlreadyHereIsNotMovedOrWaitedFor() {
+        // Its tree is already built, so the materialize wait would be pure latency on the common path.
         let recorder = Recorder()
         let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
 
         _ = writer.write("draft prompt", to: target(homeSpaceID: 1))
 
         #expect(recorder.steps == [.latch(400), .write("draft prompt")])
+    }
+
+    @Test func aComposerThatNeverAppearsStillReturnsTheWindow() {
+        // The window is on the user's Desktop at this point. Whatever the tree did, it goes back.
+        let recorder = Recorder()
+        recorder.awaitError = .composerMissing
+        let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
+
+        let result = writer.write("draft prompt", to: target(homeSpaceID: 4))
+
+        #expect(result == .failure(.composerMissing))
+        #expect(recorder.steps == [
+            .latch(400),
+            .move(windowID: 42, spaceID: 1),
+            .awaitComposer,
+            .move(windowID: 42, spaceID: 4),
+        ])
+    }
+
+    @Test func aMoverWithItsOwnDiagnosisKeepsIt() {
+        // "yabai is not installed" must not arrive as "the move failed": one is fixed by installing
+        // something, the other invites a retry that cannot work.
+        let recorder = Recorder()
+        recorder.moveFailures = [1]
+        recorder.moveFailureReason = .windowMoverUnavailable
+        let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
+
+        #expect(writer.write("draft prompt", to: target(homeSpaceID: 4)) == .failure(.windowMoverUnavailable))
     }
 
     @Test func aFailedWriteStillReturnsTheWindowToItsDesktop() {

@@ -17,14 +17,6 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
     /// Depth bound for the composer search. The prompt sits shallow inside the web contents; the bound
     /// is a guard against a cyclic tree, not a real limit.
     static let maxSearchDepth = 48
-    /// How long Chromium is given to rebuild its tree after the manual-accessibility latch. Only paid on
-    /// the first write to a given process.
-    static let treeRebuildGrace: TimeInterval = 1.5
-
-    /// Processes already latched in this host's lifetime. The attribute cannot be read back, so an
-    /// in-process record is the only way to know whether the grace period has already been paid.
-    private let lock = NSLock()
-    private var latchedPIDs: Set<pid_t> = []
 
     func frontmostApplicationPID() -> pid_t? {
         NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -42,26 +34,28 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
         // conditional on current state, and re-latching on every write is the only available shape.
         let result = AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
         guard result == .success else { throw AgentWindowInputReason.accessibilityDenied }
-
-        // Chromium rebuilds the tree asynchronously, so the composer does not exist for a moment after
-        // the first latch. Waiting is only correct once per process; paying it on every write would make
-        // the panel feel broken. Blocking is acceptable because this runs off the main thread.
-        lock.lock()
-        let alreadyLatched = latchedPIDs.contains(pid)
-        latchedPIDs.insert(pid)
-        lock.unlock()
-        if !alreadyLatched { Thread.sleep(forTimeInterval: Self.treeRebuildGrace) }
     }
 
-    /// Forgets a process, so the next latch pays the rebuild grace again.
+    /// Waits for the composer to exist, after a window has been brought to this Desktop.
     ///
-    /// Called when the composer could not be found: either Claude relaunched into a recycled pid and its
-    /// new process was never really latched, or the tree was still building. Both are fixed by retrying
-    /// as if this process were new, and neither is distinguishable from here.
-    func invalidateLatch(pid: pid_t) {
-        lock.lock()
-        latchedPIDs.remove(pid)
-        lock.unlock()
+    /// Chromium builds a window's tree lazily and only for the current Space, so the composer is absent
+    /// for a moment after the move-in and the first search reliably misses it. Polling until it appears
+    /// is what the validated prototype did, and it is strictly better than a fixed sleep: it costs
+    /// nothing once the tree is up, and it does not guess how long a busy renderer will take. Blocking
+    /// is acceptable because the whole composer path runs off the main thread.
+    func awaitComposer(for target: AgentWindowSessionTarget) throws {
+        let deadline = Date().addingTimeInterval(Config.claudeComposerMaterializeTimeout)
+        var lastError: AgentWindowInputReason = .composerMissing
+        while Date() < deadline {
+            do {
+                _ = try composerElement(for: target)
+                return
+            } catch let reason as AgentWindowInputReason {
+                lastError = reason
+            }
+            Thread.sleep(forTimeInterval: Config.claudeComposerMaterializePollInterval)
+        }
+        throw lastError
     }
 
     func readComposer(for target: AgentWindowSessionTarget) throws -> String {
@@ -91,20 +85,43 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
         let app = AXUIElementCreateApplication(target.claudeMainPid)
         AXUIElementSetMessagingTimeout(app, Self.messagingTimeout)
 
-        var rawWindows: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &rawWindows) == .success,
-              let windows = rawWindows as? [AXUIElement], !windows.isEmpty
-        else { throw AgentWindowInputReason.noWindow }
-
+        let windows = windowElements(of: app)
+        guard !windows.isEmpty else { throw AgentWindowInputReason.noWindow }
         guard let window = matchingWindow(target: target, among: windows) else {
             throw AgentWindowInputReason.noWindow
         }
         var visited: Set<UInt> = []
         guard let composer = findComposer(in: window, depth: 0, visited: &visited) else {
-            invalidateLatch(pid: target.claudeMainPid)
             throw AgentWindowInputReason.composerMissing
         }
         return composer
+    }
+
+    /// Every window an application element will admit to, deduplicated.
+    ///
+    /// `AXWindows` alone is not enough: it comes back EMPTY for a process whose windows are all on
+    /// another Space, which is precisely the case this feature exists for, and it reads as "Claude has
+    /// no window" when the window is plainly there. `AXFocusedWindow` and `AXMainWindow` still answer
+    /// in that state, so the union is what actually describes the application.
+    private func windowElements(of app: AXUIElement) -> [AXUIElement] {
+        var found: [AXUIElement] = []
+        var seen: Set<UInt> = []
+        func add(_ element: AXUIElement) {
+            if seen.insert(CFHash(element)).inserted { found.append(element) }
+        }
+        var raw: CFTypeRef?
+        if AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw) == .success,
+           let windows = raw as? [AXUIElement] {
+            windows.forEach(add)
+        }
+        for attribute in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
+            var value: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(app, attribute as CFString, &value) == .success,
+                  let window = value, CFGetTypeID(window) == AXUIElementGetTypeID()
+            else { continue }
+            add(window as! AXUIElement)
+        }
+        return found
     }
 
     /// Correlates the audited `CGWindowID` to an `AXUIElement`.

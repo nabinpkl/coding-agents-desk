@@ -71,6 +71,7 @@ struct AgentWindowComposerCoordinatorTests {
 
         func frontmostApplicationPID() -> pid_t? { 100 }
         func latchManualAccessibility(pid: pid_t) throws {}
+        func awaitComposer(for target: AgentWindowSessionTarget) throws {}
         func readComposer(for target: AgentWindowSessionTarget) throws -> String { composerText }
 
         func writeComposer(_ text: String, for target: AgentWindowSessionTarget) throws -> String {

@@ -13,17 +13,20 @@ protocol AgentWindowComposerAccessing {
     func frontmostApplicationPID() -> pid_t?
     /// Latches Chromium's full accessibility tree on. Write-only and one-way; see the implementation.
     func latchManualAccessibility(pid: pid_t) throws
+    /// Blocks until the composer exists in the accessibility tree, or fails saying it never did.
+    func awaitComposer(for target: AgentWindowSessionTarget) throws
     func readComposer(for target: AgentWindowSessionTarget) throws -> String
     /// Writes the composer and returns what it reads back. Never sends Return.
     func writeComposer(_ text: String, for target: AgentWindowSessionTarget) throws -> String
 }
 
-/// The Space move a composer write needs. `DesktopWindowPlacementCoordinator` is the real one.
+/// The Space move a composer write needs. `YabaiWindowSpaceMover` is the real one.
+///
+/// Deliberately NOT `DesktopWindowPlacementCoordinator`: its SkyLight mover only moves windows this
+/// host owns, and Claude's window is another application's.
 protocol AgentWindowDesktopMoving {
     func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws
 }
-
-extension DesktopWindowPlacementCoordinator: AgentWindowDesktopMoving {}
 
 /// Fills a Claude Desktop window's composer for one session, without activating it and without sending.
 ///
@@ -79,8 +82,13 @@ struct AgentWindowComposerWriter {
     /// Runs `body` with the target window on the active Desktop, then puts the window back.
     ///
     /// Both the write and the explicit read share this because the ordering is the delicate part, not
-    /// what happens in the middle: latch before anything moves, restore before judging the result, and
-    /// prove nothing was activated.
+    /// what happens in the middle: latch, move in, wait for the tree, act, restore before judging the
+    /// result, and prove nothing was activated.
+    ///
+    /// The materialize wait is not optional politeness. Chromium builds a window's accessibility tree
+    /// only once that window is on the current Space, so immediately after the move-in the composer
+    /// does not exist yet and a write would report the composer missing on a window that is right
+    /// there. It is skipped for a window already here, whose tree is already built.
     private func withWindowHere(
         _ target: AgentWindowSessionTarget,
         _ body: () throws -> String
@@ -104,12 +112,13 @@ struct AgentWindowComposerWriter {
                 logger.error(
                     "composer move-in failed window=\(target.windowID, privacy: .public) targetSpace=\(target.activeSpaceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
                 )
-                return .failure(.moveFailed)
+                return .failure(reason(from: error, default: .moveFailed))
             }
         }
 
         let outcome: Result<String, AgentWindowInputReason>
         do {
+            if moved { try access.awaitComposer(for: target) }
             outcome = .success(try body())
         } catch let reason as AgentWindowInputReason {
             outcome = .failure(reason)
@@ -127,7 +136,7 @@ struct AgentWindowComposerWriter {
                 logger.error(
                     "composer move-back failed window=\(target.windowID, privacy: .public) homeSpace=\(target.homeSpaceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
                 )
-                return .failure(.moveFailed)
+                return .failure(reason(from: error, default: .moveFailed))
             }
         }
 
@@ -137,5 +146,12 @@ struct AgentWindowComposerWriter {
             return .failure(.focusStolen)
         }
         return outcome
+    }
+
+    /// Keeps a mover's own diagnosis when it has one. "yabai is not installed" and "the move did not
+    /// take" are different problems with different fixes, and collapsing both to `moveFailed` would
+    /// tell the user to retry something that cannot work.
+    private func reason(from error: Error, default fallback: AgentWindowInputReason) -> AgentWindowInputReason {
+        (error as? AgentWindowInputReason) ?? fallback
     }
 }

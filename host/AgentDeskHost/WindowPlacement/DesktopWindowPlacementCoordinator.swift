@@ -16,13 +16,25 @@ enum WorkspaceWindowSpaceMoveError: Error, Equatable, CustomStringConvertible {
     }
 }
 
+/// Which Desktops a window currently belongs to, straight from SkyLight.
+///
+/// Split from moving because reading membership is universal while moving is not: SkyLight can report
+/// any window's Desktop, but it can only MOVE windows this host's connection owns. A third-party
+/// window is moved by `YabaiWindowSpaceMover`, which verifies through this same reader so the answer
+/// agrees with the desktop audit.
+protocol WindowSpaceMembershipReading: Sendable {
+    func spaceIDs(for windowID: UInt32) throws -> [UInt64]
+}
+
 /// `Sendable` because the move is a stateless SkyLight call: the sole implementation
 /// (`HostWorkspaceWindowSpaceMover`) holds no state, and the same SkyLight binding already backs the
-/// off-main desktop audit. Composer sync runs this whole path off the main thread so a blocking
-/// Accessibility round trip cannot stall the UI.
-protocol WorkspaceWindowSpaceMoving: Sendable {
+/// off-main desktop audit.
+///
+/// HOST-OWNED WINDOWS ONLY. `SLSMoveWindowsToManagedSpace` is honoured for the calling connection's
+/// own windows and silently ignored for anything else, so a third-party window "moves" successfully
+/// and stays exactly where it was (ADR-0059).
+protocol WorkspaceWindowSpaceMoving: WindowSpaceMembershipReading {
     func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws
-    func spaceIDs(for windowID: UInt32) throws -> [UInt64]
 }
 
 enum DesktopWindowPlacementError: Error, Equatable, CustomStringConvertible {
@@ -110,43 +122,6 @@ final class DesktopWindowPlacementCoordinator: Sendable {
         )
     }
 
-    /// Moves a window to a Desktop and confirms it landed, without touching its frame.
-    ///
-    /// `restore(_:windowID:applyFrame:)` is the path for windows this host owns, where the saved frame
-    /// is ours to reapply. Another application's window is not ours to resize, so this carries the
-    /// Space move alone.
-    func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {
-        try move(
-            windowID: windowID,
-            toSpaceID: targetSpaceID,
-            verifyMaxAttempts: 6,
-            verifySettleDelay: 0.05
-        )
-    }
-
-    func move(
-        windowID: UInt32,
-        toSpaceID targetSpaceID: UInt64,
-        verifyMaxAttempts: Int,
-        verifySettleDelay: TimeInterval
-    ) throws {
-        do {
-            try mover.move(windowID: windowID, toSpaceID: targetSpaceID)
-        } catch {
-            throw DesktopWindowPlacementError.moveFailed(
-                windowID: windowID,
-                targetSpaceID: targetSpaceID,
-                reason: String(describing: error)
-            )
-        }
-        try verifySettling(
-            windowID: windowID,
-            targetSpaceID: targetSpaceID,
-            maxAttempts: verifyMaxAttempts,
-            settleDelay: verifySettleDelay
-        )
-    }
-
     func verify(windowID: UInt32, targetSpaceID: UInt64) throws {
         let observed = try mover.spaceIDs(for: windowID)
         guard observed == [targetSpaceID] else {
@@ -156,31 +131,6 @@ final class DesktopWindowPlacementCoordinator: Sendable {
                 observedSpaceIDs: observed
             )
         }
-    }
-
-    /// `CGSMoveWindowsToManagedSpace` is fire-and-forget: WindowServer re-registers a moved window's
-    /// Space membership asynchronously, so querying too soon reads the old Space (or a transient
-    /// mid-transition constellation) and falsely reports failure. This is the cross-app path (composer
-    /// sync) that pays for that settle window; it retries a bounded number of times and only fails once
-    /// membership has had a fair chance to catch up. Exact-match semantics are preserved -- it still
-    /// requires the window to land solely on `[targetSpaceID]`.
-    private func verifySettling(
-        windowID: UInt32,
-        targetSpaceID: UInt64,
-        maxAttempts: Int = 6,
-        settleDelay: TimeInterval = 0.05
-    ) throws {
-        var observed: [UInt64] = []
-        for _ in 0..<maxAttempts {
-            observed = try mover.spaceIDs(for: windowID)
-            if observed == [targetSpaceID] { return }
-            if settleDelay > 0 { Thread.sleep(forTimeInterval: settleDelay) }
-        }
-        throw DesktopWindowPlacementError.verificationMismatch(
-            windowID: windowID,
-            targetSpaceID: targetSpaceID,
-            observedSpaceIDs: observed
-        )
     }
 
     private func resolve(
