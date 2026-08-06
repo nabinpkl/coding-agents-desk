@@ -864,13 +864,69 @@ describe("App shell", () => {
       });
     });
 
-    const field = screen.getByRole("textbox", { name: "Message Pi" });
+    const field = screen.getByRole("textbox", { name: "Message Pi" }) as HTMLTextAreaElement;
     expect(field.className).toContain("min-h-12");
     expect(field.className).toContain("px-4");
     expect(field.className).toContain("py-3");
     expect(field.className).toContain("max-h-48");
     expect(field.className).toContain("focus:ring-2");
+    // No inline height: jsdom measures every box at zero, and writing that would collapse the field
+    // to nothing. A degenerate measurement has to leave the utilities in charge.
+    expect(field.style.height).toBe("");
     unmount();
+  });
+
+  it("sizes a growing field to its content plus its border, not just its content", async () => {
+    // `scrollHeight` is the padding box and the field is `border-box`, so a height taken straight
+    // from it leaves the field exactly its own border short of the text it holds: an empty one
+    // scrolls its placeholder and a draft's last line is clipped. Measured in the running panel
+    // before this fix: an empty composer already had 2px of hidden content and could be scrolled.
+    const metrics: Record<string, number> = { scrollHeight: 72, offsetHeight: 50, clientHeight: 48 };
+    const originals = Object.keys(metrics).map((key) => [
+      key,
+      Object.getOwnPropertyDescriptor(HTMLElement.prototype, key),
+    ] as const);
+    for (const [key, value] of Object.entries(metrics)) {
+      Object.defineProperty(HTMLElement.prototype, key, { configurable: true, get: () => value });
+    }
+
+    try {
+      const { fake, unmount } = setup();
+      deliverProjects(fake);
+      deliverSessions(fake);
+
+      fireEvent.click(screen.getByRole("button", { name: "New Pi session in Alpha Project" }));
+      const create = fake.posted.at(-1) as { rid: string };
+      await act(async () => {
+        fake.deliver({
+          t: "agent-command-receipt",
+          rid: create.rid,
+          src: "pi",
+          sid: "pi-1",
+          del: "created",
+          s: {
+            sid: "pi-1",
+            src: "pi",
+            ttl: "SDK-authored Pi session",
+            lea: 123,
+            ac: "ready",
+            cap: { md: ["nice"], snd: true, str: true, abt: true, raw: false, pty: false, xui: true },
+          },
+        });
+      });
+
+      const field = screen.getByRole("textbox", { name: "Message Pi" }) as HTMLTextAreaElement;
+      fireEvent.change(field, { target: { value: "a draft long enough to wrap onto a second line" } });
+
+      // 72 of content plus the 2 the border takes (offsetHeight - clientHeight).
+      expect(field.style.height).toBe("74px");
+      unmount();
+    } finally {
+      for (const [key, descriptor] of originals) {
+        if (descriptor) Object.defineProperty(HTMLElement.prototype, key, descriptor);
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[key];
+      }
+    }
   });
 });
 
