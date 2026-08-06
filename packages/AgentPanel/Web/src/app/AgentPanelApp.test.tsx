@@ -838,6 +838,40 @@ describe("App shell", () => {
     expect(screen.queryByRole("dialog", { name: "Proceed?" })).not.toBeInTheDocument();
     unmount();
   });
+
+  it("renders the message composer as a roomy, padded field rather than a single cramped row", async () => {
+    const { fake, unmount } = setup();
+    deliverProjects(fake);
+    deliverSessions(fake);
+
+    fireEvent.click(screen.getByRole("button", { name: "New Pi session in Alpha Project" }));
+    const create = fake.posted.at(-1) as { rid: string };
+    await act(async () => {
+      fake.deliver({
+        t: "agent-command-receipt",
+        rid: create.rid,
+        src: "pi",
+        sid: "pi-1",
+        del: "created",
+        s: {
+          sid: "pi-1",
+          src: "pi",
+          ttl: "SDK-authored Pi session",
+          lea: 123,
+          ac: "ready",
+          cap: { md: ["nice"], snd: true, str: true, abt: true, raw: false, pty: false, xui: true },
+        },
+      });
+    });
+
+    const field = screen.getByRole("textbox", { name: "Message Pi" });
+    expect(field.className).toContain("min-h-12");
+    expect(field.className).toContain("px-4");
+    expect(field.className).toContain("py-3");
+    expect(field.className).toContain("max-h-48");
+    expect(field.className).toContain("focus:ring-2");
+    unmount();
+  });
 });
 
 describe("visibility subscriptions recover from failure", () => {
@@ -1107,6 +1141,35 @@ describe("Claude window composer field", () => {
     expect(
       fake.posted.filter((m) => (m as { t?: string }).t === "agent-window-input-watch"),
     ).toHaveLength(0);
+    unmount();
+  });
+
+  it("renders the composer as a roomy, padded field rather than a single cramped row", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    const sub = windowInputSubscription(fake);
+
+    act(() => {
+      fake.deliver({
+        t: "agent-window-input-status",
+        sub,
+        sid: "sid-claude-01",
+        en: true,
+        cur: true,
+        tx: "",
+      });
+    });
+
+    const field = screen.getByLabelText("Claude composer text");
+    // The resting height and padding are the load-bearing part of the redesign: a multi-line draft
+    // must have room to breathe before it even begins to grow. `min-h-12` (a two-line resting field)
+    // and the `px-4 py-3` gutter are the contract; the auto-grow cap stops the field from chasing a
+    // wall of text forever.
+    expect(field.className).toContain("min-h-12");
+    expect(field.className).toContain("px-4");
+    expect(field.className).toContain("py-3");
+    expect(field.className).toContain("max-h-48");
+    expect(field.className).toContain("focus:ring-2");
     unmount();
   });
 });

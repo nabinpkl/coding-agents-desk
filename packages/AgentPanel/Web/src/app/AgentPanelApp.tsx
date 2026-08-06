@@ -31,6 +31,41 @@ import {
 } from "../features/sidebar/sidebarPreferences";
 
 /**
+ * A textarea that grows with its content instead of scrolling inside a fixed single row.
+ *
+ * The height is driven by `scrollHeight`, which a real layout engine reports for the full
+ * wrapped content; the element's own `min-h`/`max-h` utilities still bound the result, so a
+ * short draft renders at the resting size and a long one caps out and scrolls instead of
+ * pushing the layout forever. The ref is settled through `scrollHeight` on every render, and
+ * the body is re-measured after the platform lays out (fonts vary the wrap), so a field that
+ * receives a draft prefill still sizes itself to all of it rather than jumping as rows land.
+ */
+function useAutoGrowingTextArea(): [(element: HTMLTextAreaElement | null) => void] {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    element.style.height = "auto";
+    // jsdom reports 0 for scrollHeight; a zero height would collapse the field in tests and in
+    // any environment with no real layout, so a degenerate measurement is left to the utilities.
+    if (element.scrollHeight > 0) {
+      element.style.height = `${element.scrollHeight}px`;
+    }
+  });
+  return [
+    useCallback((element) => {
+      ref.current = element;
+      if (element) {
+        element.style.height = "auto";
+        if (element.scrollHeight > 0) {
+          element.style.height = `${element.scrollHeight}px`;
+        }
+      }
+    }, []),
+  ] as const;
+}
+
+/**
  * How long to wait before re-subscribing after a failure.
  *
  * Doubling from a second, capped, because the two failures worth surviving have
@@ -605,10 +640,12 @@ function AgentComposer({
 }) {
   const running = state.runState === "running";
   const queued = state.queue.followUp + state.queue.steer;
+  const [autoGrow] = useAutoGrowingTextArea();
   return (
-    <section aria-label="Agent prompt" className="shrink-0 border-t border-border bg-card px-2 py-2">
+    <section aria-label="Agent prompt" className="shrink-0 border-t border-border bg-card px-3 py-3">
       <div className="flex items-end gap-1.5">
         <textarea
+          ref={autoGrow}
           value={draft}
           onChange={(event) => onDraftChange(event.target.value)}
           onKeyDown={(event) => {
@@ -621,7 +658,7 @@ function AgentComposer({
           rows={1}
           placeholder={running ? "Queue the next instruction…" : "Message Pi…"}
           aria-label="Message Pi"
-          className="max-h-28 min-h-9 flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-(length:--agent-panel-fs-sidebar-body,15px) leading-5 outline-none focus:border-primary"
+          className="max-h-48 min-h-12 flex-1 resize-none rounded-xl border border-border bg-background px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 shadow-xs outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25"
         />
         {running && canSteer ? (
           <button
@@ -868,6 +905,7 @@ function ComposerSyncField({
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoGrow] = useAutoGrowingTextArea();
   // Whether the field holds an edit the viewer has not committed. A prefill must never overwrite one:
   // the host re-resolves on a timer, so a status carrying the window's older text can land at any
   // moment, including mid-sentence.
@@ -933,10 +971,11 @@ function ComposerSyncField({
   return (
     <section
       aria-label="Claude window composer"
-      className="shrink-0 border-t border-border bg-card px-2 py-2"
+      className="shrink-0 border-t border-border bg-card px-3 py-3"
     >
       <div className="flex items-end gap-1.5">
         <textarea
+          ref={autoGrow}
           value={draft}
           onChange={(event) => {
             edited.current = true;
@@ -947,7 +986,7 @@ function ComposerSyncField({
           rows={1}
           placeholder={enabled ? "Type into Claude's composer…" : "Composer unavailable"}
           aria-label="Claude composer text"
-          className="max-h-28 min-h-9 flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-(length:--agent-panel-fs-sidebar-body,15px) leading-5 outline-none focus:border-primary disabled:opacity-40"
+          className="max-h-48 min-h-12 flex-1 resize-none rounded-xl border border-border bg-background px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 shadow-xs outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:opacity-40"
         />
         {enabled && !status.onActiveDesktop ? (
           <button
