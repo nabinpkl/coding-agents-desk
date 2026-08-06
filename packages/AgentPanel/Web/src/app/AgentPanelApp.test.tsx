@@ -1076,6 +1076,44 @@ describe("Claude window composer field", () => {
     unmount();
   });
 
+  it("says a missing window mover is not something to retry", async () => {
+    // macOS has no public API for moving another application's window between Desktops, so without
+    // yabai an off-Desktop composer is unreachable, full stop. Showing the generic move failure here
+    // would invite the viewer to press Fill again forever.
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+
+    act(() => {
+      fake.deliver({
+        t: "agent-window-input-status",
+        sub: windowInputSubscription(fake),
+        sid: "sid-claude-01",
+        en: true,
+        cur: false,
+        tx: "",
+      });
+    });
+
+    fireEvent.change(screen.getByLabelText("Claude composer text"), {
+      target: { value: "review the diff" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Fill Claude's composer" }));
+    const sync = fake.posted.at(-1) as { rid: string };
+
+    await act(async () => {
+      fake.deliver({
+        t: "agent-window-input-result",
+        rid: sync.rid,
+        sid: "sid-claude-01",
+        ok: false,
+        r: "window-mover-unavailable",
+      });
+    });
+
+    expect(screen.getByLabelText("Claude window composer")).toHaveTextContent("needs yabai");
+    unmount();
+  });
+
   it("does not overwrite an unsent edit with a status that arrives while typing", () => {
     const { fake, unmount } = setup();
     openClaudeThread(fake);
