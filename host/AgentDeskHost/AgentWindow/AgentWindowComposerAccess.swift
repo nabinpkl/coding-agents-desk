@@ -61,10 +61,7 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
 
     func readComposer(for target: AgentWindowSessionTarget) throws -> String {
         let composer = try composerElement(for: target)
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(composer, kAXValueAttribute as CFString, &value) == .success
-        else { throw AgentWindowInputReason.writeFailed }
-        return value as? String ?? ""
+        return try composerValue(for: composer)
     }
 
     func writeComposer(_ text: String, for target: AgentWindowSessionTarget) throws -> String {
@@ -73,10 +70,7 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
         // produced: the human commits the prompt in the real window.
         let result = AXUIElementSetAttributeValue(composer, kAXValueAttribute as CFString, text as CFString)
         guard result == .success else { throw AgentWindowInputReason.writeFailed }
-        var readBack: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(composer, kAXValueAttribute as CFString, &readBack) == .success
-        else { throw AgentWindowInputReason.writeFailed }
-        return readBack as? String ?? ""
+        return try composerValue(for: composer)
     }
 
     /// Focuses the composer and presses Return, committing whatever it holds.
@@ -113,14 +107,78 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
         keyUp.postToPid(target.claudeMainPid)
 
         let deadline = Date().addingTimeInterval(Config.claudeComposerSubmitSettleTimeout)
-        var observed: CFTypeRef?
         while Date() < deadline {
-            guard AXUIElementCopyAttributeValue(composer, kAXValueAttribute as CFString, &observed) == .success
-            else { throw AgentWindowInputReason.writeFailed }
-            if (observed as? String ?? "").isEmpty { return "" }
+            let current = try composerValue(for: composer)
+            if current.isEmpty { return "" }
             Thread.sleep(forTimeInterval: Config.claudeComposerSubmitSettlePollInterval)
         }
-        return observed as? String ?? ""
+        return try composerValue(for: composer)
+    }
+
+    // MARK: - Placeholder normalization
+
+    /// Decides whether a read composer value is really just Claude's placeholder, not text.
+    ///
+    /// AX does NOT report the placeholder as such. A ground-truth probe of Claude Desktop 1.26832.0
+    /// shows the composer is a ProseMirror contenteditable (`AXDOMClassList = tiptap, ProseMirror`);
+    /// the placeholder is real DOM text, so Chromium exposes it as the field's `AXValue` and does not
+    /// set `AXPlaceholderValue`. The two states serialize differently:
+    ///   - empty (placeholder): `AXValue` = `"Type / for commands\n"` and
+    ///     `TextArea > Group > Group > StaticText("Type / for commands")`
+    ///   - filled (any text):   `AXValue` = the text and `TextArea > Group > StaticText(...)`
+    /// So a value is placeholder-only when it equals a descendant static-text plus exactly one trailing
+    /// newline. That serialization exists only while the field holds no real text: ProseMirror
+    /// collapses a trailing empty paragraph, so real text never ends in a bare `\n` (a blank second
+    /// paragraph stays `\n\n`). Pure so the rule is unit-testable; the accessibility reachability lives
+    /// in `composerValue(for:)`.
+    static func isPlaceholderOnly(
+        value: String,
+        descendantTexts: [String],
+        placeholderAttribute: String?
+    ) -> Bool {
+        if value.isEmpty { return true }
+        // A future Claude that uses a real HTML placeholder attribute would set this and fold it into
+        // the value; matching it treats the field as empty without guessing the string.
+        if let placeholderAttribute, !placeholderAttribute.isEmpty, value == placeholderAttribute {
+            return true
+        }
+        return descendantTexts.contains { !$0.isEmpty && value == $0 + "\n" }
+    }
+
+    /// Reads the composer's value, normalizing Claude's placeholder serialization back to empty.
+    ///
+    /// The subtree walk needed to recognize the placeholder is skipped entirely for real text: only a
+    /// value that ends in `\n` can be the placeholder, so the common read costs nothing extra.
+    private func composerValue(for composer: AXUIElement) throws -> String {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(composer, kAXValueAttribute as CFString, &value) == .success
+        else { throw AgentWindowInputReason.writeFailed }
+        let text = value as? String ?? ""
+        guard !text.isEmpty, text.hasSuffix("\n") else { return text }
+        let placeholder = string(composer, "AXPlaceholderValue")
+        let descendantTexts = descendantStaticTexts(of: composer, depth: 0)
+        return Self.isPlaceholderOnly(
+            value: text,
+            descendantTexts: descendantTexts,
+            placeholderAttribute: placeholder.isEmpty ? nil : placeholder
+        ) ? "" : text
+    }
+
+    /// Every `AXStaticText` value in the subtree, bounded by the same cycle guard as the composer search.
+    private func descendantStaticTexts(of element: AXUIElement, depth: Int) -> [String] {
+        guard depth < Self.maxSearchDepth else { return [] }
+        var texts: [String] = []
+        if string(element, kAXRoleAttribute) == kAXStaticTextRole {
+            texts.append(string(element, kAXValueAttribute))
+        }
+        var rawChildren: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &rawChildren) == .success,
+              let children = rawChildren as? [AXUIElement]
+        else { return texts }
+        for child in children {
+            texts.append(contentsOf: descendantStaticTexts(of: child, depth: depth + 1))
+        }
+        return texts
     }
 
     // MARK: - Element lookup
