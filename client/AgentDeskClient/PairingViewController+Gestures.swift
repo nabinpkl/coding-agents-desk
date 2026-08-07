@@ -502,31 +502,21 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         }
     }
 
-    // Retargets this phone's video only. Nothing moves on the Mac, which is the visible
-    // difference between this strip and the Spaces strip directly above it.
+    // Picking a window switches the Mac to that window's Space and raises it, unlike the
+    // Spaces strip above, which only switches Desktop. Both move the Mac; the difference is
+    // that this one also narrows what the phone is streaming.
     func windowPicker(_ view: WindowPickerStripView, didSelectWindowId windowId: UInt32?) {
         guard let channel = pairingClient.activeInputChannel else { return }
         selectedWindowIdForClientConfig = windowId
-        applyWindowViewOnlyPresentation()
+        // The trackpad, scroll strip, and keyboard all stay live: the host raises the window
+        // onto the active Space, so global CGEvents land in it. The only chrome that changes
+        // is the client-drawn cursor dot, which the host replaces by baking the real pointer
+        // into the window capture.
+        updateCursorDot()
         let config = currentClientConfig()
         Task { [channel, config] in
             try? await channel.sendConfig(config)
         }
-    }
-
-    // View-only is ENFORCED on the host, which drops input while a window is the capture
-    // target. This only makes the phone honest about it: leaving a live-looking trackpad on
-    // screen that silently does nothing is worse than removing it.
-    func applyWindowViewOnlyPresentation() {
-        let viewOnly = selectedWindowIdForClientConfig != nil
-        trackpadView.isHidden = viewOnly
-        trackpadView.isUserInteractionEnabled = !viewOnly
-        scrollStripView.isHidden = viewOnly
-        scrollStripView.isUserInteractionEnabled = !viewOnly
-        if viewOnly, keyboardPresentationState == .shown {
-            applyKeyboardPresentationIntent(.hide)
-        }
-        updateCursorDot()
     }
 
     func displayRail(_ view: DisplayRailView, didSelectDisplayId displayId: String) {

@@ -3,7 +3,7 @@ status: accepted
 date: 2026-08-07
 ---
 
-# Stream one window, view-only, instead of the whole Desktop
+# Stream and drive one window instead of the whole Desktop
 
 ## Context and Problem Statement
 
@@ -43,8 +43,14 @@ when the link is worst, drop from about 1.4s of a 2500 kbps link to about 0.25s.
   than adaptively, so the win has to come from sending less, not from a ladder.
 - Off-Desktop reach: the windows most worth watching from a phone are the ones not on the
   active Space. A solution that only works for visible windows misses the point.
-- No blind input: `InputDispatcher` posts global `CGEvent`s in display coordinates and has no
-  per-window routing.
+- Live pixels, not a still: a window on an inactive Space captures at full frame rate but its
+  app has stopped drawing, so the stream is a frozen image delivered 57 times a second. This
+  was measured after the first cut shipped and it is what forced the switch-and-show design
+  below. "Reachable" is not the same as "watchable".
+- Drivable: a phone that can only look at a build log is worth much less than one that can
+  scroll it and type into it. `InputDispatcher` posts global `CGEvent`s in display
+  coordinates and has no per-window routing, so whatever makes the pixels live has to also be
+  what makes the events land.
 - No surprise cost: a fallback that silently reverts to display capture is a 4-6x bandwidth
   jump nobody asked for.
 - Do not regress the display path, which is the daily driver.
@@ -71,11 +77,23 @@ Four further choices ride with it:
    `selectedDisplayId`, which keeps owning the input coordinate space, `DesktopState`, and
    thumbnail refresh. The two are exclusive only at the capture filter, where
    `AppDelegate.applyCaptureTarget()` is the single writer.
-2. **View-only is enforced on the host**, in the input loop, not by hiding client chrome.
-   Client-side hiding is presentation honesty; a host that trusts it would post blind clicks
-   on a display the viewer cannot see the moment any peer disagrees. Space navigation stays
-   allowed, because the Spaces strip sits directly above the picker and its tiles promise to
-   switch Desktops.
+2. **Selecting a window switches the Mac to it and raises it** (switch-and-show), and the
+   window is fully drivable. The first cut of this ADR made window mode view-only, enforced
+   in the host's input loop, on the reasoning that global `CGEvent`s aimed at a window the
+   Mac is not showing are blind clicks. That reasoning was right and the conclusion was
+   wrong: the same fact that makes input blind -- the window is not on the active Space --
+   is what makes its pixels frozen, so view-only bought a still picture. Raising the window
+   fixes both at once. The host reuses the Dock strip's `DockWindowFocusExecutor`
+   (ADR-0055), so there is one implementation of "switch Space and raise this window", and
+   the cursor is clamped to the window's rect (`CaptureTargetStore.cursorBounds` feeding
+   `InputDispatcher`'s `displayBoundsProvider`) so the trackpad cannot wander into pixels the
+   viewer is not being shown.
+   Leaving window mode returns the Mac to whichever Desktop was active when window mode was
+   entered. That memory is held across window-to-window hops and consumed exactly once, so a
+   second exit cannot yank the Mac away from wherever the user has since navigated.
+   Because the pointer now matters and the client's cursor overlay is drawn in display
+   points, which window pixels are not, window mode forces `showsCursor` on in the capture:
+   the real pointer is baked into the video and the client dot stays hidden.
 3. **Target loss holds and reports.** An uncapturable window (minimized, app hidden) yields
    zero frames and `SCFrameStatus.suspended` with **no** stream error -- `didStopWithError`
    never fires. That status is the only signal, so it drives the existing
@@ -90,8 +108,12 @@ Four further choices ride with it:
   settings, and keyframes stop costing over a second of link time.
 - Good, because windows on other Desktops become watchable at all, which the display path
   cannot express.
-- Bad, because a window target is view-only. Watching and driving are now different modes,
-  and the user has to leave window mode to touch anything.
+- Bad, because picking a window has a visible side effect on the Mac: it switches Space and
+  raises a window, which someone sitting in front of the Mac will see. The Spaces strip
+  directly above the picker already switches Desktops, so the surface is not new, but the
+  picker no longer has the "changes nothing on the Mac" property the first cut promised.
+- Bad, because window mode cannot show a window and the Desktop behind it at once. The
+  window is raised, so it is on top of whatever it overlaps.
 - Bad, because a window resized mid-stream scales into the dimensions captured at start.
   Visibly imperfect, not broken; live `updateContentFilter` / `updateConfiguration` is
   deliberately deferred.
@@ -103,16 +125,18 @@ Four further choices ride with it:
 
 ### Confirmation
 
-`WindowCaptureTargetTests` pins the view-only gate case by case, deliberately without a
-`default:` arm, so a new `NormalizedInput` case has to make the allow/deny choice explicitly
-rather than defaulting into the permissive half. `WireRoundTripTests` pins that an absent
-`sw` key decodes as "no window" rather than window 0. Host-side the signal is the
-`capture target=` and `input dropped: view-only window capture` log lines.
+`WindowCaptureTargetTests` pins the two behaviours the store owns beyond holding an id: that
+a moved window updates the cursor clamp without reporting a target change (which would
+needlessly restart capture and force a keyframe), and that the Desktop owed back on exit
+survives window-to-window hops and is handed out exactly once. `WireRoundTripTests` pins that
+an absent `sw` key decodes as "no window" rather than window 0. Host-side the signals are the
+`capture target=`, `window selection unresolved`, and `window focus failed` log lines.
 
 ## Links
 
 - SPEC §1 (CaptureEngine), §18 (VideoFrameSource)
 - ADR-0008 encode at native pixel density
+- ADR-0055 Dock window focus executor, reused here for switch-and-show
 - ADR-0021 OS-provided damage regions
 - ADR-0027 windowed byte ceiling (`DataRateLimits`), which still fires in manual quality mode
 - ADR-0050 wire types single source of truth

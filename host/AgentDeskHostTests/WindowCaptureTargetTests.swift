@@ -1,55 +1,81 @@
-import CoreGraphics
 import Testing
+import CoreGraphics
 import AgentDeskWire
-@testable import AgentDeskHost
 
-// The view-only guarantee and the store the input loop reads it from. Both are exercised
-// here rather than through a device run because the failure mode is silent: a leaked click
-// lands on a display the viewer cannot see, and nothing on the phone shows it happened.
+// The store the phone's window selection lands in. Its two jobs beyond holding an id are the
+// cursor's clamp rect and the Desktop owed back to the user on exit.
 struct WindowCaptureTargetTests {
-    @Test func inputGateDropsEverythingThatActsOnTheWatchedMac() {
-        let denied: [NormalizedInput] = [
-            .cursorSet(displayId: "d1", x: 10, y: 10),
-            .cursorMove(dx: 3, dy: -3),
-            .click(button: .left),
-            .click(button: .right),
-            .scroll(dx: 0, dy: -4, phase: .changed),
-            .dragStart,
-            .dragEnd,
-            .systemCommand(.missionControl),
-            .key(code: "a", modifiers: []),
-            .modifierArm(mod: .cmd)
-        ]
-
-        for input in denied {
-            #expect(!WindowCaptureInputGate.allowsWhileWatchingWindow(input))
-        }
+    private func window(
+        id: CGWindowID,
+        spaceId: UInt64? = 7,
+        bounds: CGRect = CGRect(x: 100, y: 200, width: 800, height: 600)
+    ) -> WatchedWindow {
+        WatchedWindow(
+            id: id,
+            pid: 4242,
+            spaceId: spaceId,
+            displayId: "d1",
+            bounds: bounds,
+            title: "Build log",
+            appName: "Terminal"
+        )
     }
 
-    // The Spaces strip stays visible above the window picker and its tiles promise to switch
-    // the Mac's Desktop. Gating those would break a surface the window feature never touched.
-    @Test func inputGateStillAllowsSpaceNavigation() {
-        #expect(WindowCaptureInputGate.allowsWhileWatchingWindow(.switchSpaceStep(delta: 1)))
-        #expect(WindowCaptureInputGate.allowsWhileWatchingWindow(
-            .switchSpaceGesture(phase: .changed, progress: 0.5, velocityX: -2)
-        ))
-    }
-
-    @Test func captureTargetStoreReportsOnlyRealChanges() {
+    @Test func reportsOnlyRealTargetChanges() {
         let store = CaptureTargetStore()
-        #expect(store.selectedWindowId == nil)
-        #expect(!store.isWatchingWindow)
+        #expect(store.select(window(id: 41)))
+        #expect(!store.select(window(id: 41)))
+        #expect(store.select(window(id: 42)))
+        #expect(store.select(nil))
+        #expect(!store.select(nil))
+    }
 
-        #expect(store.select(windowId: CGWindowID(42)))
-        #expect(store.selectedWindowId == 42)
-        #expect(store.isWatchingWindow)
+    // A window that moved is the same target: restarting capture would rebuild the encoder and
+    // force a keyframe for nothing. But the clamp has to follow it, or the trackpad keeps
+    // aiming at where the window used to be.
+    @Test func aMovedWindowUpdatesTheClampWithoutRestartingCapture() {
+        let store = CaptureTargetStore()
+        store.select(window(id: 41, bounds: CGRect(x: 0, y: 0, width: 400, height: 300)))
+        let moved = window(id: 41, bounds: CGRect(x: 900, y: 50, width: 400, height: 300))
+        #expect(!store.select(moved))
+        #expect(store.cursorBounds == moved.bounds)
+    }
 
-        // A repeated config push must not restart capture, which would cost a keyframe.
-        #expect(!store.select(windowId: CGWindowID(42)))
+    @Test func noWatchedWindowMeansNoClampAndTheDisplayBoundsApply() {
+        let store = CaptureTargetStore()
+        #expect(store.cursorBounds == nil)
+        store.select(window(id: 41))
+        #expect(store.cursorBounds != nil)
+        store.select(nil)
+        #expect(store.cursorBounds == nil)
+    }
 
-        #expect(store.select(windowId: CGWindowID(43)))
-        #expect(store.select(windowId: nil))
-        #expect(store.selectedWindowId == nil)
-        #expect(!store.select(windowId: nil))
+    // Hopping between windows stays inside window mode, so the Desktop to return to must be
+    // the one the user came from, not the one the previous window happened to sit on.
+    @Test func windowToWindowHopsKeepTheOriginalDesktop() {
+        let store = CaptureTargetStore()
+        store.rememberDesktopIfEnteringWindowMode(spaceId: 1, displayId: "d1")
+        store.rememberDesktopIfEnteringWindowMode(spaceId: 9, displayId: "d1")
+        let restored = store.takeDesktopToRestore()
+        #expect(restored?.spaceId == 1)
+    }
+
+    // Handed back once. A second exit must not yank the Mac away from wherever the user has
+    // navigated since.
+    @Test func theRememberedDesktopIsConsumedByTheFirstExit() {
+        let store = CaptureTargetStore()
+        store.rememberDesktopIfEnteringWindowMode(spaceId: 3, displayId: "d1")
+        #expect(store.takeDesktopToRestore()?.spaceId == 3)
+        #expect(store.takeDesktopToRestore() == nil)
+    }
+
+    @Test func exitingAndReenteringRemembersTheNewDesktop() {
+        let store = CaptureTargetStore()
+        store.rememberDesktopIfEnteringWindowMode(spaceId: 1, displayId: "d1")
+        _ = store.takeDesktopToRestore()
+        store.rememberDesktopIfEnteringWindowMode(spaceId: 5, displayId: "d2")
+        let restored = store.takeDesktopToRestore()
+        #expect(restored?.spaceId == 5)
+        #expect(restored?.displayId == "d2")
     }
 }

@@ -79,6 +79,45 @@ final class WindowListProvider: @unchecked Sendable {
         return Snapshot(windows: summaries, icons: icons)
     }
 
+    // Everything the host needs to switch to a window and drive it, resolved fresh at selection
+    // time rather than trusted from the client. The phone only ever sends a window id; the pid
+    // and rect behind it are the host's own business, and a stale pid from an app that has
+    // since restarted would aim Accessibility calls at the wrong process.
+    //
+    // `displayIdForSpace` closes the last gap: SkyLight answers which Space a window sits on,
+    // but the focus path needs the display that Space belongs to, and DesktopState is the only
+    // thing that knows.
+    func resolveWatchedWindow(
+        id: CGWindowID,
+        displayIdForSpace: @Sendable (UInt64) -> String?
+    ) async -> WatchedWindow? {
+        let content: SCShareableContent
+        do {
+            content = try await SCShareableContent.excludingDesktopWindows(
+                false,
+                onScreenWindowsOnly: false
+            )
+        } catch {
+            logger.error("window resolve enumeration failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+        guard let window = content.windows.first(where: { CGWindowID($0.windowID) == id }),
+              let app = window.owningApplication else {
+            logger.notice("window resolve found no window wid=\(id, privacy: .public)")
+            return nil
+        }
+        let spaceId = sky?.firstSpaceContaining(windowID: id)
+        return WatchedWindow(
+            id: id,
+            pid: app.processID,
+            spaceId: spaceId,
+            displayId: spaceId.flatMap(displayIdForSpace),
+            bounds: window.frame,
+            title: window.title ?? "",
+            appName: app.applicationName
+        )
+    }
+
     // Renders each app's icon once per process, then answers from cache. Returns nil when the
     // icon cannot be produced, which drops the window from the picker rather than offering a
     // blank tile the user cannot identify.

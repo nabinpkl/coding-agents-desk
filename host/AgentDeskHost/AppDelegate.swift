@@ -131,8 +131,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let captureTarget = CaptureTargetStore()
     private var hostAvailability = HostAvailabilityController()
     private lazy var inputDispatcher = InputDispatcher(
-        displayBoundsProvider: { [displaySelection] in
-            displaySelection.selectedBounds()
+        // While a window is watched, the cursor is confined to that window rather than the
+        // display. Trackpad motion is a relative delta, so without this the pointer walks off
+        // the window into pixels the phone is not being shown and every click after that is
+        // blind. Clamping is what makes driving a single window honest.
+        displayBoundsProvider: { [displaySelection, captureTarget] in
+            captureTarget.cursorBounds ?? displaySelection.selectedBounds()
         },
         selectedDisplayIdProvider: { [displaySelection] in
             displaySelection.selectedDisplayId
@@ -143,6 +147,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             displaySelection.selectedDisplayId
         }
     )
+    // The phone's window picker raises windows through the same executor the Mac's Dock strip
+    // uses (ADR-0055) rather than growing a second way to do it.
+    private lazy var windowFocusExecutor = DockWindowFocusExecutor(
+        desktopSwitcher: WorkspaceDesktopSwitcher(spaces: spacesProvider),
+        axAccess: AXDockWindowAccess()
+    )
+    // The client's last stated cursor preference, remembered because window mode overrides it
+    // and clearing the window has to hand the choice back rather than guess.
+    private var showHostCursorInVideo = false
     private let spaceThumbnailProvider = SpaceThumbnailProvider()
     private let cursorMonitor = CursorMonitor()
     private let textInputFocusProbeCoordinator = HostTextInputFocusProbeCoordinator()
@@ -1256,10 +1269,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowListEnabledClients.remove(fingerprint)
         // Fall back to display capture rather than leaving the host pointed at one window for
         // whoever connects next. The target is host-global, so nothing else would clear it
-        // until a client happens to push a config.
-        if captureTarget.select(windowId: nil) {
-            applyCaptureTarget()
-        }
+        // until a client happens to push a config. This also hands back the Desktop the user
+        // was on before the window was picked.
+        applyWindowSelection(nil)
         spaceThumbnailProvider.setDemand(owner: .client(fingerprint.rawValue), enabled: false)
         domMirrorRelay.detach(for: fingerprint)
         browserProjectionViewportCoordinator?.remove(.remote(fingerprint))
@@ -1446,7 +1458,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let transport = self.sessions.transport(for: clientFingerprint)
                 transport?.setClientCrispEnabled(crispEnabled)
                 transport?.setClientMediaQuality(mediaQuality)
-                (self.frameSource as? TargetSelectableVideoFrameSource)?.setShowsCursorInVideo(showHostCursor)
+                // Remembered rather than applied directly: window mode overrides it, and
+                // applyCaptureTarget is the single writer that knows which mode is live.
+                self.showHostCursorInVideo = showHostCursor
+                self.applyCaptureTarget()
                 if self.textInputFocusProbeGate.apply(autoKeyboardEnabled: autoKeyboardEnabled, for: clientFingerprint) {
                     self.textInputFocusProbeCoordinator.cancel(for: clientFingerprint)
                 }
@@ -1467,9 +1482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 // Ahead of the display block below, which can return early when the
                 // requested display is gone. The window selection is independent of that.
-                if self.captureTarget.select(windowId: selectedWindowId) {
-                    self.applyCaptureTarget()
-                }
+                self.applyWindowSelection(selectedWindowId)
                 if windowListEnabled {
                     self.windowListEnabledClients.insert(clientFingerprint)
                     // Every enabling push refreshes, so opening the picker is the refresh
@@ -1502,22 +1515,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         sessions.attachInputTask(
-            Task { [server, dispatcher, scrollActivityHints, logger, scheduleTextFocusProbe, captureTarget] in
-                var loggedDropForWindow: CGWindowID?
+            Task { [server, dispatcher, scrollActivityHints, logger, scheduleTextFocusProbe] in
                 for await frame in server.events {
                     let input = frame.event
-                    if let windowId = captureTarget.selectedWindowId {
-                        guard WindowCaptureInputGate.allowsWhileWatchingWindow(input) else {
-                            // Once per target change, not per event: this fires at pointer rates.
-                            if loggedDropForWindow != windowId {
-                                loggedDropForWindow = windowId
-                                logger.notice("input dropped: view-only window capture wid=\(windowId, privacy: .public)")
-                            }
-                            continue
-                        }
-                    } else {
-                        loggedDropForWindow = nil
-                    }
                     scrollActivityHints.record(input)
                     dispatcher.dispatch(
                         input,
@@ -1914,10 +1914,94 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // on the wire but exclusive at the filter: a selected window wins, and clearing it falls
     // back to whichever display is selected.
     private func applyCaptureTarget() {
-        let target: CaptureTarget = captureTarget.selectedWindowId.map { .window($0) }
-            ?? .display(displaySelection.selectedDisplayId)
-        (frameSource as? TargetSelectableVideoFrameSource)?.selectCaptureTarget(target)
+        var target: CaptureTarget = .display(displaySelection.selectedDisplayId)
+        if let windowId = captureTarget.selectedWindowId {
+            target = .window(windowId)
+        }
+        let source = frameSource as? TargetSelectableVideoFrameSource
+        source?.selectCaptureTarget(target)
+        // The client's cursor overlay is drawn in display points, which a window's pixels are
+        // not, so it stays hidden in window mode. Baking the real cursor into the capture is
+        // what replaces it: driving a window with no visible pointer is not driving it.
+        source?.setShowsCursorInVideo(target.isWindow || showHostCursorInVideo)
         signalingLogger.notice("capture target=\(String(describing: target), privacy: .public)")
+    }
+
+    // Selecting a window switches the Mac to it and brings it forward, because a window on an
+    // inactive Space is not merely hidden: macOS stops its app drawing, so the capture streams
+    // a frozen image at full frame rate. Switch-and-show is what makes the pixels live, and it
+    // is also what lets input reach the window at all -- InputDispatcher posts global CGEvents,
+    // which land on whatever occupies that screen point on the *active* Space.
+    //
+    // Leaving window mode puts the Mac back on the Desktop the user came from.
+    private func applyWindowSelection(_ selectedWindowId: CGWindowID?) {
+        guard let selectedWindowId else {
+            let restore = captureTarget.takeDesktopToRestore()
+            if captureTarget.select(nil) {
+                applyCaptureTarget()
+            }
+            guard let restore else { return }
+            let request = DockDesktopActivationRequest(
+                spaceID: restore.spaceId,
+                displayID: restore.displayId,
+                desktopLabel: desktopLabel(forSpace: restore.spaceId)
+            )
+            Task { @MainActor [windowFocusExecutor, signalingLogger] in
+                do {
+                    try await windowFocusExecutor.activateDesktop(request)
+                } catch {
+                    signalingLogger.notice("window mode exit could not restore desktop: \(String(describing: error), privacy: .public)")
+                }
+            }
+            return
+        }
+        // Already watching this window: re-resolve anyway so a window the user has since moved
+        // keeps an accurate cursor clamp, but do not switch Spaces again.
+        let alreadyWatching = captureTarget.selectedWindowId == selectedWindowId
+        // Read the Space layout here, on the main actor, and hand the async work a plain value.
+        // SpacesProvider is not Sendable and its SkyLight calls belong on this actor anyway.
+        let state = spacesProvider.current()
+        let displayIdForSpace = Dictionary(
+            (state?.spaces ?? []).map { ($0.id, $0.displayId) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var activeDesktop: (spaceId: UInt64, displayId: String)?
+        if let spaceId = state?.activeSpaceId, let displayId = state?.activeDisplayId {
+            activeDesktop = (spaceId, displayId)
+        }
+        Task { @MainActor [weak self, windowListProvider, captureTarget, windowFocusExecutor, signalingLogger] in
+            let resolved = await windowListProvider.resolveWatchedWindow(id: selectedWindowId) {
+                displayIdForSpace[$0]
+            }
+            guard let resolved else {
+                signalingLogger.notice("window selection unresolved wid=\(selectedWindowId, privacy: .public)")
+                return
+            }
+            if captureTarget.select(resolved) {
+                self?.applyCaptureTarget()
+            }
+            guard !alreadyWatching else { return }
+            if let activeDesktop {
+                captureTarget.rememberDesktopIfEnteringWindowMode(
+                    spaceId: activeDesktop.spaceId,
+                    displayId: activeDesktop.displayId
+                )
+            }
+            do {
+                try await windowFocusExecutor.focus(DockWindowFocusRequest(watching: resolved))
+            } catch {
+                // The window stays the capture target: a failed raise means the pixels may be
+                // frozen and input may miss, which the user can see, and silently reverting to
+                // the whole display would be a 4-6x bandwidth jump nobody asked for.
+                signalingLogger.notice("window focus failed wid=\(selectedWindowId, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    // Only the activation request wants this, and only to name what it is switching to.
+    private func desktopLabel(forSpace spaceId: UInt64) -> String {
+        let ordinal = spacesProvider.current()?.spaces.first { $0.id == spaceId }?.index
+        return ordinal.map { "Desktop \($0 + 1)" } ?? "Desktop"
     }
 
     // A window target can stop producing frames without the stream ever erroring, so this is
