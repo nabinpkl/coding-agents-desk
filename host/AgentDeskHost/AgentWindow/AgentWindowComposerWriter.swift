@@ -78,8 +78,19 @@ struct AgentWindowComposerWriter {
     func write(_ text: String, to target: AgentWindowSessionTarget) -> Result<String, AgentWindowInputReason> {
         let result = withWindowHere(target) { try access.writeComposer(text, for: target) }
         guard case .success(let readBack) = result else { return result }
-        guard readBack == text else { return .failure(.verifyMismatch) }
+        // ProseMirror serializes a trailing empty final line out of the value, so a draft the user ended
+        // with Return does not read back byte for byte. Compare the persisted line ends instead of the
+        // raw strings; the check exists to prove the text landed, not that it survived ProseMirror's
+        // serialization exactly. Everything but those newlines must still match.
+        guard Self.lineEndCanonical(readBack) == Self.lineEndCanonical(text) else {
+            return .failure(.verifyMismatch)
+        }
         return .success(readBack)
+    }
+
+    /// The text with trailing newlines removed, the form ProseMirror read-back collapses them to.
+    static func lineEndCanonical(_ text: String) -> String {
+        String(text.reversed().drop(while: \.isNewline).reversed())
     }
 
     /// Fills the composer and presses Return, committing the prompt in the owning Claude Desktop window.

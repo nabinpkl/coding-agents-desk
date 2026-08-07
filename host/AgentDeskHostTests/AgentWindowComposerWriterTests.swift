@@ -185,6 +185,46 @@ struct AgentWindowComposerWriterTests {
         #expect(writer.write("draft prompt", to: target(homeSpaceID: 1)) == .failure(.verifyMismatch))
     }
 
+    @Test func aDraftEndingInReturnReadsBackCollapsedAndStillPasses() {
+        // The web composer ends drafts with Enter, so the written value carries a trailing newline that
+        // ProseMirror serializes out. The write landed; only the line end collapsed, so it must verify.
+        let recorder = Recorder()
+        recorder.readBack = "draft prompt"
+        let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
+
+        #expect(writer.write("draft prompt\n", to: target(homeSpaceID: 1)) == .success("draft prompt"))
+    }
+
+    @Test func aDraftWithTrailingBlankLinesReadsBackWithOneFewer() {
+        // A draft ending in blank paragraphs persists them minus the one empty final line. The read-back
+        // still holds the content the user asked for; comparing the persisted line ends accepts it.
+        let recorder = Recorder()
+        recorder.readBack = "draft prompt\n\n"
+        let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
+
+        #expect(writer.write("draft prompt\n\n\n", to: target(homeSpaceID: 1)) == .success("draft prompt\n\n"))
+    }
+
+    @Test func aReadBackMissingContentIsStillARealMismatch() {
+        // Only line-end collapse is tolerated. A read-back that lost interior content means the write
+        // did not land as intended and must be reported rather than believed.
+        let recorder = Recorder()
+        recorder.readBack = "draft"
+        let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
+
+        #expect(writer.write("draft prompt\n", to: target(homeSpaceID: 1)) == .failure(.verifyMismatch))
+    }
+
+    @Test func lineEndCanonicalStripsOnlyTrailingNewlines() {
+        #expect(AgentWindowComposerWriter.lineEndCanonical("") == "")
+        #expect(AgentWindowComposerWriter.lineEndCanonical("draft prompt") == "draft prompt")
+        #expect(AgentWindowComposerWriter.lineEndCanonical("draft prompt\n") == "draft prompt")
+        #expect(AgentWindowComposerWriter.lineEndCanonical("draft prompt\n\n\n") == "draft prompt")
+        // Interior and leading newlines are content, not a collapsed empty final line.
+        #expect(AgentWindowComposerWriter.lineEndCanonical("line one\nline two") == "line one\nline two")
+        #expect(AgentWindowComposerWriter.lineEndCanonical("\nlead") == "\nlead")
+    }
+
     @Test func anActivationLeakIsReportedEvenWhenTheWriteItselfLanded() {
         // Nothing in this path activates an application, so a changed frontmost app means the
         // non-activating assumption broke. It cannot be undone, only surfaced.
