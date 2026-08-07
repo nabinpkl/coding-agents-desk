@@ -29,7 +29,7 @@ struct InputChannelTests {
     }
 
     @available(iOS 26.0, *)
-    @Test func sendAgentTerminalBuildsExactAuthenticatedInputFrame() throws {
+    @Test func sendAgentTerminalBuildsExactAuthenticatedAgentFrame() throws {
         let context = AgentResumeTerminalContext(
             projectPath: "/Users/dev/project; $(never)",
             source: "claude",
@@ -45,12 +45,12 @@ struct InputChannelTests {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let expected = try QuicSessionStreamFrame.encode(
-            role: .input,
+            role: .agent,
             payload: encoder.encode(command)
         )
 
         #expect(encoded == expected)
-        #expect(decoded.role == .input)
+        #expect(decoded.role == .agent)
         #expect(try JSONDecoder().decode(
             AgentTerminalClientMessage.self,
             from: decoded.payload
@@ -443,6 +443,8 @@ struct InputChannelTests {
         #expect(QuicSessionStreamRole(rawValue: 6) == .files)
         #expect(QuicSessionStreamRole.voice.rawValue == 7)
         #expect(QuicSessionStreamRole(rawValue: 7) == .voice)
+        #expect(QuicSessionStreamRole.agent.rawValue == 9)
+        #expect(QuicSessionStreamRole(rawValue: 9) == .agent)
     }
 
     @Test func browserViewerStateEncodesToPinnedWireShape() throws {
@@ -1116,9 +1118,9 @@ struct InputChannelTests {
         #expect(decoded.cursorRevision == 8)
     }
 
-    @Test func protocolVersionIsSixteenForLiveAgentSessions() {
-        #expect(Config.protocolVersion == 16)
-        #expect(Config.minCompatibleProtocolVersion == 16)
+    @Test func protocolVersionIsSeventeenForLiveAgentSessions() {
+        #expect(Config.protocolVersion == 17)
+        #expect(Config.minCompatibleProtocolVersion == 17)
     }
 
     @Test func eventFrameRoundTripPreservesKeyWithModifiers() throws {

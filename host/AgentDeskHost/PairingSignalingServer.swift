@@ -49,6 +49,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     typealias TerminalLaneReadyHandler = (DeviceFingerprint, TerminalClientBridge) -> Void
     typealias WorkspaceLaneReadyHandler = (DeviceFingerprint, WorkspaceLaneServer) -> Void
     typealias VoiceLaneReadyHandler = (DeviceFingerprint, VoiceLaneServer) -> Void
+    typealias AgentLaneReadyHandler = (DeviceFingerprint, AgentLaneServer) -> Void
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "session-quic")
     private let pairing: Pairing
@@ -67,6 +68,7 @@ final class PairingSignalingServer: @unchecked Sendable {
     private let terminalLaneReadyHandler: TerminalLaneReadyHandler
     private let workspaceLaneReadyHandler: WorkspaceLaneReadyHandler
     private let voiceLaneReadyHandler: VoiceLaneReadyHandler
+    private let agentLaneReadyHandler: AgentLaneReadyHandler
     private var listener: NetworkListener<QUIC>?
     private var listenerTask: Task<Void, Never>?
     private let contexts = OSAllocatedUnfairLock<[ObjectIdentifier: ConnectionContext]>(initialState: [:])
@@ -87,7 +89,8 @@ final class PairingSignalingServer: @unchecked Sendable {
         domLaneReadyHandler: @escaping DomLaneReadyHandler = { _, _ in },
         terminalLaneReadyHandler: @escaping TerminalLaneReadyHandler = { _, _ in },
         workspaceLaneReadyHandler: @escaping WorkspaceLaneReadyHandler = { _, _ in },
-        voiceLaneReadyHandler: @escaping VoiceLaneReadyHandler = { _, _ in }
+        voiceLaneReadyHandler: @escaping VoiceLaneReadyHandler = { _, _ in },
+        agentLaneReadyHandler: @escaping AgentLaneReadyHandler = { _, _ in }
     ) {
         self.pairing = pairing
         self.approvalHandler = approvalHandler
@@ -105,6 +108,7 @@ final class PairingSignalingServer: @unchecked Sendable {
         self.terminalLaneReadyHandler = terminalLaneReadyHandler
         self.workspaceLaneReadyHandler = workspaceLaneReadyHandler
         self.voiceLaneReadyHandler = voiceLaneReadyHandler
+        self.agentLaneReadyHandler = agentLaneReadyHandler
     }
 
     func start(port: UInt16 = Config.signalingPort) throws {
@@ -124,7 +128,7 @@ final class PairingSignalingServer: @unchecked Sendable {
             using: NWParametersBuilder(auto: {
                 QUIC(alpn: [Config.sessionQuicALPN])
                     .maxDatagramFrameSize(Config.ownedMediaMaxDatagramFrameSize)
-                    .initialMaxBidirectionalStreams(8)
+                    .initialMaxBidirectionalStreams(16)
                     .idleTimeout(30_000)
                     .tls.localIdentity(secIdentity)
             }).localPort(nwPort)
@@ -295,6 +299,17 @@ final class PairingSignalingServer: @unchecked Sendable {
                 )
             )
             lane.start()
+        case .agent:
+            guard let active = context.activeSession else {
+                try await QuicSessionStreamIO.send(
+                    SessionRejected(reason: .unauthorized),
+                    role: .agent,
+                    on: stream
+                )
+                return
+            }
+            let lane = AgentLaneServer(stream: stream, fingerprint: active.deviceFingerprint)
+            agentLaneReadyHandler(active.deviceFingerprint, lane)
         }
     }
 

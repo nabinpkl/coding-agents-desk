@@ -133,6 +133,73 @@ struct AgentWindowSessionResolverTests {
         #expect(resolution.unavailableReason == .notRunning)
     }
 
+    @Test func aNewDesktopAgentModeSessionIsMatchedByItsEmbeddedSessionDirectory() throws {
+        // A brand-new Claude Desktop session spawns the child CLI with NO `--resume`; its identity is
+        // carried as a path component under `local-agent-mode-sessions/<sessionId>/` inside a
+        // `--plugin-dir` argument (observed live). Without the embedded match this session resolves to
+        // `.notRunning` and the composer reports unavailable for a window that is plainly open.
+        let rows = AgentWindowSessionResolver.parseProcessTable("""
+            1     0 /sbin/launchd
+          900     1 \(claudeMain)
+          910   900 /Applications/Claude.app/Contents/Helpers/disclaimer /Users/dev/claude --output-format stream-json
+          920   910 /Users/dev/claude --output-format stream-json --permission-prompt-tool stdio --plugin-dir /Users/dev/Library/Application Support/Claude/local-agent-mode-sessions/\(desktopSession)/c3e00a9b-6cd0-4c4e-a7db-3715a1c7f6ba/rpm/plugin_01XXJmxLXPEhPMmnxmrgntNw --thinking-display summarized
+        """)
+
+        let resolution = AgentWindowSessionResolver.resolve(
+            sessionId: desktopSession,
+            in: rows,
+            claudeMainPath: claudeMain,
+            flag: flag
+        )
+
+        #expect(resolution.claudeMainPid == 900)
+        #expect(resolution.unavailableReason == nil)
+        let chain = try #require(resolution.chains.first)
+        guard case .desktop(_, let claudeMainPid, _) = chain else {
+            Issue.record("expected a Desktop chain, got \(chain)")
+            return
+        }
+        #expect(claudeMainPid == 900)
+    }
+
+    @Test func embeddedSessionIdMatchIsByWholePathComponentOnly() {
+        #expect(AgentWindowSessionResolver.embedsSessionId(
+            desktopSession,
+            in: "claude --plugin-dir /x/local-agent-mode-sessions/\(desktopSession)/chat/rpm/plugin"
+        ))
+        // A session id that is a prefix of another path component must not match: it would steal the
+        // window of the longer session, exactly like the `--resume` prefix case.
+        #expect(!AgentWindowSessionResolver.embedsSessionId(
+            desktopSession,
+            in: "claude --plugin-dir /x/local-agent-mode-sessions/\(desktopSession)-archived/chat/rpm/plugin"
+        ))
+        #expect(!AgentWindowSessionResolver.embedsSessionId(
+            desktopSession,
+            in: "claude --resume=\(desktopSession)"
+        ))
+    }
+
+    @Test func transcriptProjectFolderIsReadFromTheFlushedTranscript() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentdesk-transcript-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("-Users-dev-projects-agent-desk"),
+            withIntermediateDirectories: true
+        )
+        let path = root.appendingPathComponent("-Users-dev-projects-agent-desk/\(desktopSession).jsonl")
+        try "{}".write(to: path, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        #expect(AgentWindowRuntimeResolver.transcriptPath(
+            sessionId: desktopSession,
+            projectsRoot: root.path
+        ) == path.path)
+        #expect(AgentWindowRuntimeResolver.transcriptPath(
+            sessionId: "00000000-0000-0000-0000-000000000000",
+            projectsRoot: root.path
+        ) == nil)
+    }
+
     @Test func theDesktopChainWinsWhenTheSameSessionIsAlsoResumedInATerminal() {
         var rows = fixture
         rows.append(AgentWindowProcessRow(

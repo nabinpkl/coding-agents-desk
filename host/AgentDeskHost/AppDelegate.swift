@@ -549,10 +549,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startAgentSayServer() {
         let server = AgentSayLocalServer { [weak self] push in
             guard let self else { return false }
-            let inputServers = self.sessions.allInputChannelServers()
-            guard !inputServers.isEmpty else { return false }
-            for inputServer in inputServers {
-                inputServer.pushAgentSay(push)
+            let agentLanes = self.sessions.allAgentLaneServers()
+            guard !agentLanes.isEmpty else { return false }
+            for lane in agentLanes {
+                lane.pushAgentSay(push)
             }
             return true
         }
@@ -836,6 +836,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             voiceLaneReadyHandler: { [weak self] fingerprint, lane in
                 Task { @MainActor in
                     self?.handleVoiceLaneReady(fingerprint, lane: lane)
+                }
+            },
+            agentLaneReadyHandler: { [weak self] fingerprint, lane in
+                Task { @MainActor in
+                    self?.handleAgentLaneReady(fingerprint, lane: lane)
                 }
             }
         )
@@ -1282,20 +1287,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let sessionId = sessions.sessionId(for: fingerprint)
         signalingLogger.notice("input lane ready fp=\(fingerprint.rawValue, privacy: .public)")
         sessions.attachInputChannelServer(server, for: fingerprint)
-        // Composer sync answers on this lane but never enters the agent-feed bridge: it is a host-local
-        // Accessibility action against Claude Desktop, and the bridge is a sidecar proxy. The sink is
-        // keyed by device so a phone is told the outcome of its OWN writes only -- a status addressed to
-        // another surface would be adopted as this panel's field contents. Declared here, above the lane
-        // teardown handler that has to drop it.
-        //
-        // Keyed per LANE INSTANCE, not per device: a reconnect stands up the new lane and closes the old
-        // one in either order, so a fingerprint-keyed id would let the dead lane's teardown detach the
-        // live lane's sink. The panel re-posts its watches after a resume anyway.
-        let laneInstance = String(UInt(bitPattern: ObjectIdentifier(server).hashValue), radix: 16)
-        let composerSink = "input-lane-\(fingerprint.rawValue)-\(laneInstance)"
-        agentWindowComposerCoordinator.attachSink(composerSink) { [weak server] json in
-            server?.pushAgentData(Data(json.utf8))
-        }
+        // Agent feed/composer/speech/terminal traffic moved to the dedicated `.agent` role
+        // (AgentLaneServer). This lane now carries native control frames only.
         clientTelemetryStore.record(
             .inputLaneReady,
             fingerprint: fingerprint,
@@ -1319,20 +1312,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             availability: hostAvailability.availability,
             reason: hostAvailability.reason
         ))
-        let terminalEndpointBinding = agentSessionTerminalEndpoints.beginBinding(for: fingerprint)
-        let terminalEndpointTask = Task { @MainActor [agentSessionTerminalEndpoints] in
-            await agentSessionTerminalEndpoints.endpoint(
-                for: fingerprint,
-                binding: terminalEndpointBinding
-            )
-        }
-        let terminalPushBindingID = UUID().uuidString
-        let terminalPushBindingTask = Task {
-            guard let terminalEndpoint = await terminalEndpointTask.value else { return }
-            await terminalEndpoint.bindPush(id: terminalPushBindingID) { [weak server] message in
-                server?.pushAgentTerminal(message)
-            }
-        }
         let workspaceTerminalEndpointBinding = workspaceTerminalEndpoints.beginBinding(for: fingerprint)
         let workspaceTerminalEndpointTask = Task { @MainActor [workspaceTerminalEndpoints] in
             await workspaceTerminalEndpoints.endpoint(
@@ -1360,18 +1339,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     sessionId: sessionId,
                     errorCode: "input-lane-ended"
                 )
-                await terminalPushBindingTask.value
-                if let terminalEndpoint = await terminalEndpointTask.value {
-                    await terminalEndpoint.unbindPush(id: terminalPushBindingID)
-                }
                 await workspaceTerminalPushBindingTask.value
                 if let endpoint = await workspaceTerminalEndpointTask.value {
                     await endpoint.unbindPush(id: workspaceTerminalPushBindingID)
                 }
-                // Drops this device's composer watches with the lane. A phone that walked away would
-                // otherwise keep its sessions in the re-resolve loop, scanning the process table on a
-                // timer for a panel that is no longer listening.
-                self.agentWindowComposerCoordinator.detachSink(composerSink)
                 self.handleInputLaneClosed(fingerprint)
             }
         }
@@ -1392,80 +1363,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.handleClientRevoke(fingerprint)
             }
         }
-        // Wire the agent-feed bridge: construct it from the sidecar base URL and
-        // a send closure that pushes already-encoded data back down the input lane,
-        // mirroring how diagnostics pushes its responses.
-        // Cancel any prior bridge's in-flight SSE streams before replacing it on a
-        // lane re-attach (session resume), so the previous bridge's stream Tasks
-        // do not keep iterating the sidecar byte stream.
-        agentFeedBridge?.reset()
-        // Wire the bridge UNCONDITIONALLY, even if the sidecar is not ready right
-        // now. The sidecar can be mid-restart at the moment a session attaches (a
-        // ~1s window); gating the wiring on readiness here disabled the feed for
-        // the entire session even after the sidecar recovered ms later, which is
-        // how the phone feed got stuck on "waiting" until an app reopen. The
-        // sidecar base URL is resolved lazily per request, so a subscribe that
-        // arrives once the sidecar is back succeeds, and one that arrives while it
-        // is still down fails transiently and the client retries.
-        let sidecar = agentFeedSidecar
-        let httpClient = HttpSidecarClient(endpointProvider: { [weak sidecar] in
-            await sidecar?.endpoint(waitingUpTo: Config.agentFeedSidecarReadyWaitSeconds)
-        })
-        let bridge = AgentFeedBridge(client: httpClient, send: { [weak server] data in
-            server?.pushAgentData(data)
-        })
-        agentFeedBridge = bridge
-        let composer = agentWindowComposerCoordinator
-        let composerLogger = agentComposerLogger
-        let route: (AgentPanelRequest?) -> Void = { request in
-            guard let request else {
-                composerLogger.error("composer-sync frame rejected by bounds")
-                return
-            }
-            composer.handle(request, from: composerSink)
-        }
-        server.agentRequestHandler = { [weak bridge] request in
-            switch request {
-            case .projectsWatch(let request):
-                bridge?.handleProjectsWatch(request)
-            case .projectsUnwatch(let request):
-                bridge?.handleProjectsUnwatch(request)
-            case .projectSessionsWatch(let request):
-                bridge?.handleProjectSessionsWatch(request)
-            case .projectSessionsUnwatch(let request):
-                bridge?.handleProjectSessionsUnwatch(request)
-            case .threadSubscribe(let msg):
-                bridge?.handleThreadSubscribe(msg)
-            case .threadLoadOlder(let msg):
-                bridge?.handleThreadLoadOlder(msg)
-            case .threadUnsubscribe(let msg):
-                bridge?.handleThreadUnsubscribe(msg)
-            case .rawEvent(let msg):
-                bridge?.handleRawEvent(msg)
-            case .sessionCreate(let msg):
-                bridge?.handleSessionCreate(msg)
-            case .sessionSend(let msg):
-                bridge?.handleSessionSend(msg)
-            case .sessionAbort(let msg):
-                bridge?.handleSessionAbort(msg)
-            case .extensionUIResponse(let msg):
-                bridge?.handleExtensionUIResponse(msg)
-            case .terminal(let message):
-                Task {
-                    await terminalPushBindingTask.value
-                    guard let terminalEndpoint = await terminalEndpointTask.value else { return }
-                    await terminalEndpoint.handle(message)
-                }
-            case .windowInputWatch(let msg):
-                route(AgentWindowInputLaneRequest.watch(msg))
-            case .windowInputUnwatch(let msg):
-                route(AgentWindowInputLaneRequest.unwatch(msg))
-            case .windowInputSync(let msg):
-                route(AgentWindowInputLaneRequest.sync(msg))
-            case .windowInputRead(let msg):
-                route(AgentWindowInputLaneRequest.read(msg))
-            }
-        }
+        // Wire the agent-feed bridge and agent request handler on the dedicated
+        // `.agent` lane instead: see handleAgentLaneReady.
         server.workspaceTerminalRequestHandler = { message in
             Task {
                 await workspaceTerminalPushBindingTask.value
@@ -1594,6 +1493,128 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             for: fingerprint
         )
+    }
+
+    // The client opened the Agent panel lane (`.agent` role) inside the session QUIC connection.
+    // This is where the agent feed, composer sync, raw-event fragments, agent-terminal lifecycle,
+    // and agent speech travel. The `.input` lane now carries native control frames only, so the
+    // feed bridge, composer sink, and agent request routing live here rather than in
+    // `handleInputLaneReady`.
+    private func handleAgentLaneReady(_ fingerprint: DeviceFingerprint, lane: AgentLaneServer) {
+        signalingLogger.notice("agent lane ready fp=\(fingerprint.rawValue, privacy: .public)")
+        sessions.attachAgentLane(lane, for: fingerprint)
+        // Composer sync answers on this lane but never enters the agent-feed bridge: it is a
+        // host-local Accessibility action against Claude Desktop, and the bridge is a sidecar proxy.
+        // The sink is keyed by device so a phone is told the outcome of its OWN writes only -- a
+        // status addressed to another surface would be adopted as this panel's field contents.
+        //
+        // Keyed per LANE INSTANCE, not per device: a reconnect stands up the new lane and closes the
+        // old one in either order, so a fingerprint-keyed id would let the dead lane's teardown
+        // detach the live lane's sink. The panel re-posts its watches after a resume anyway.
+        let laneInstance = String(UInt(bitPattern: ObjectIdentifier(lane).hashValue), radix: 16)
+        let composerSink = "agent-lane-\(fingerprint.rawValue)-\(laneInstance)"
+        agentWindowComposerCoordinator.attachSink(composerSink) { [weak lane] json in
+            lane?.pushAgentData(Data(json.utf8))
+        }
+        // Agent Panel terminal ownership follows this lane. The workspace terminal stays on the
+        // input lane.
+        let terminalEndpointBinding = agentSessionTerminalEndpoints.beginBinding(for: fingerprint)
+        let terminalEndpointTask = Task { @MainActor [agentSessionTerminalEndpoints] in
+            await agentSessionTerminalEndpoints.endpoint(
+                for: fingerprint,
+                binding: terminalEndpointBinding
+            )
+        }
+        let terminalPushBindingID = UUID().uuidString
+        let terminalPushBindingTask = Task {
+            guard let terminalEndpoint = await terminalEndpointTask.value else { return }
+            await terminalEndpoint.bindPush(id: terminalPushBindingID) { [weak lane] message in
+                lane?.pushAgentTerminal(message)
+            }
+        }
+        // Wire the agent-feed bridge: construct it from the sidecar base URL and a send closure that
+        // pushes already-encoded data back down the agent lane.
+        // Cancel any prior bridge's in-flight SSE streams before replacing it on a lane re-attach
+        // (session resume), so the previous bridge's stream Tasks do not keep iterating the sidecar
+        // byte stream.
+        agentFeedBridge?.reset()
+        // Wire the bridge UNCONDITIONALLY, even if the sidecar is not ready right now. The sidecar
+        // can be mid-restart at the moment a session attaches (a ~1s window); the sidecar base URL
+        // is resolved lazily per request, so a subscribe that arrives once the sidecar is back
+        // succeeds, and one that arrives while it is still down fails transiently and the client
+        // retries.
+        let sidecar = agentFeedSidecar
+        let httpClient = HttpSidecarClient(endpointProvider: { [weak sidecar] in
+            await sidecar?.endpoint(waitingUpTo: Config.agentFeedSidecarReadyWaitSeconds)
+        })
+        let bridge = AgentFeedBridge(client: httpClient, send: { [weak lane] data in
+            lane?.pushAgentData(data)
+        })
+        agentFeedBridge = bridge
+        let composer = agentWindowComposerCoordinator
+        let composerLogger = agentComposerLogger
+        let route: (AgentPanelRequest?) -> Void = { request in
+            guard let request else {
+                composerLogger.error("composer-sync frame rejected by bounds")
+                return
+            }
+            composer.handle(request, from: composerSink)
+        }
+        lane.agentRequestHandler = { [weak bridge] request in
+            switch request {
+            case .projectsWatch(let request):
+                bridge?.handleProjectsWatch(request)
+            case .projectsUnwatch(let request):
+                bridge?.handleProjectsUnwatch(request)
+            case .projectSessionsWatch(let request):
+                bridge?.handleProjectSessionsWatch(request)
+            case .projectSessionsUnwatch(let request):
+                bridge?.handleProjectSessionsUnwatch(request)
+            case .threadSubscribe(let msg):
+                bridge?.handleThreadSubscribe(msg)
+            case .threadLoadOlder(let msg):
+                bridge?.handleThreadLoadOlder(msg)
+            case .threadUnsubscribe(let msg):
+                bridge?.handleThreadUnsubscribe(msg)
+            case .rawEvent(let msg):
+                bridge?.handleRawEvent(msg)
+            case .sessionCreate(let msg):
+                bridge?.handleSessionCreate(msg)
+            case .sessionSend(let msg):
+                bridge?.handleSessionSend(msg)
+            case .sessionAbort(let msg):
+                bridge?.handleSessionAbort(msg)
+            case .extensionUIResponse(let msg):
+                bridge?.handleExtensionUIResponse(msg)
+            case .terminal(let message):
+                Task {
+                    await terminalPushBindingTask.value
+                    guard let terminalEndpoint = await terminalEndpointTask.value else { return }
+                    await terminalEndpoint.handle(message)
+                }
+            case .windowInputWatch(let msg):
+                route(AgentWindowInputLaneRequest.watch(msg))
+            case .windowInputUnwatch(let msg):
+                route(AgentWindowInputLaneRequest.unwatch(msg))
+            case .windowInputSync(let msg):
+                route(AgentWindowInputLaneRequest.sync(msg))
+            case .windowInputRead(let msg):
+                route(AgentWindowInputLaneRequest.read(msg))
+            }
+        }
+        lane.onClosed = { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                await terminalPushBindingTask.value
+                if let terminalEndpoint = await terminalEndpointTask.value {
+                    await terminalEndpoint.unbindPush(id: terminalPushBindingID)
+                }
+                // Drops this device's composer watches with the lane. A phone that walked away would
+                // otherwise keep its sessions in the re-resolve loop, scanning the process table on a
+                // timer for a panel that is no longer listening.
+                self.agentWindowComposerCoordinator.detachSink(composerSink)
+            }
+        }
     }
 
     private func handleVoiceLaneReady(

@@ -250,9 +250,9 @@ struct QuicSessionStreamFrameTests {
         #expect(decoded.cursorRevision == 11)
     }
 
-    @Test func protocolVersionIsSixteenForLiveAgentSessions() {
-        #expect(Config.protocolVersion == 16)
-        #expect(Config.minCompatibleProtocolVersion == 16)
+    @Test func protocolVersionIsSeventeenForLiveAgentSessions() {
+        #expect(Config.protocolVersion == 17)
+        #expect(Config.minCompatibleProtocolVersion == 17)
     }
 
     @available(macOS 26.0, *)

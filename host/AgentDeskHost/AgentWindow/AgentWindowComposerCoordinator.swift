@@ -111,8 +111,21 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         snapshot: WorkspaceDesktopSnapshot
     ) -> Result<AgentWindowSessionTarget, AgentWindowInputReason> {
         let resolution = AgentWindowSessionResolver.resolve(sessionId: sessionId, in: rows)
-        if let reason = resolution.unavailableReason { return .failure(reason) }
-        guard let pid = resolution.claudeMainPid else { return .failure(.notRunning) }
+        let pid: pid_t
+        if let resolved = resolution.claudeMainPid {
+            pid = resolved
+        } else if resolution.chains.isEmpty,
+                  let runtimeOwner = AgentWindowRuntimeResolver.desktopOwner(
+                    sessionId: sessionId,
+                    rows: rows,
+                    claudeMainPath: Config.claudeDesktopMainPath
+                  ) {
+            // A brand-new (not resumed) Claude Desktop session: no child argv carries its id, but its
+            // transcript project + the owning child CLI's working directory identify the window.
+            pid = runtimeOwner
+        } else {
+            return .failure(resolution.unavailableReason ?? .notRunning)
+        }
         return AgentWindowSessionTargeting.target(sessionId: sessionId, claudeMainPid: pid, in: snapshot)
     }
 

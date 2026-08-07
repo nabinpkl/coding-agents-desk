@@ -107,6 +107,40 @@ enum AgentWindowSessionResolver {
             .sorted()
     }
 
+    /// True when the session id appears as a whole path component of any argv token.
+    ///
+    /// Claude Desktop spawns a NEW (non-`--resume`) coding session as a child CLI whose argv carries
+    /// the session directory under `--plugin-dir .../local-agent-mode-sessions/<sessionId>/...`. There
+    /// is no `--resume` for a brand-new session, so without this marker it could never be matched to
+    /// its owning window and the composer reported unavailable for a session that is plainly open. An
+    /// exact whole-component match keeps a session id that is a prefix of another from resolving to
+    /// the wrong window.
+    static func embedsSessionId(_ sessionId: String, in arguments: String) -> Bool {
+        for token in arguments.split(separator: " ", omittingEmptySubsequences: true) {
+            for component in token.split(separator: "/", omittingEmptySubsequences: true) {
+                if String(component) == sessionId { return true }
+            }
+        }
+        return false
+    }
+
+    /// Every process that holds this session by either a `--resume` flag or an embedded agent-mode
+    /// session-directory component. Lowest pid first. Joins the two id spaces a NEW Claude Desktop
+    /// session and a resumed one land in.
+    static func owningPids(
+        sessionId: String,
+        in rows: [AgentWindowProcessRow],
+        flag: String = Config.claudeResumeFlag
+    ) -> [pid_t] {
+        rows
+            .filter {
+                resumedSessionIds(in: $0.arguments, flag: flag).contains(sessionId)
+                    || embedsSessionId(sessionId, in: $0.arguments)
+            }
+            .map(\.pid)
+            .sorted()
+    }
+
     /// Every session id this process resumes, in both live argv spellings.
     ///
     /// `--resume=<id>` is what Claude Desktop's embedded CLI passes; `--resume <id>` is what a terminal
@@ -165,7 +199,7 @@ enum AgentWindowSessionResolver {
         claudeMainPath: String = Config.claudeDesktopMainPath,
         flag: String = Config.claudeResumeFlag
     ) -> AgentWindowSessionResolution {
-        let chains = resumePids(sessionId: sessionId, in: rows, flag: flag)
+        let chains = owningPids(sessionId: sessionId, in: rows, flag: flag)
             .map { chain(resumePid: $0, in: rows, claudeMainPath: claudeMainPath) }
         return AgentWindowSessionResolution(sessionId: sessionId, chains: chains)
     }
@@ -205,6 +239,84 @@ struct AgentWindowSessionTarget: Equatable, Sendable {
     let frame: CGRect
 
     var isOnActiveDesktop: Bool { homeSpaceID == activeSpaceID }
+}
+
+/// Runtime (filesystem-backed) fallback for sessions the pure argv resolver cannot name.
+///
+/// A brand-new Claude Code session — created inside Claude Desktop, not resumed — never puts its id
+/// in a child argv, so `AgentWindowSessionResolver` returns `.notRunning` for a window that is
+/// plainly open. Such a session does flush its transcript to
+/// `~/.claude/projects/<project>/<sessionId>.jsonl`, and the child CLI that owns the window is the
+/// process holding that EXACT file open, with a parent chain that reaches Claude.app. The join is
+/// per session — this session's transcript, this holder — never per project, so a different session
+/// in the same project (whose transcript has no Claude child holder) stays unavailable.
+enum AgentWindowRuntimeResolver {
+    /// The full transcript path for this session, if its project folder holds `<sessionId>.jsonl`.
+    static func transcriptPath(
+        sessionId: String,
+        projectsRoot: String = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/projects").path
+    ) -> String? {
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: projectsRoot) else {
+            return nil
+        }
+        for folder in entries {
+            var isDirectory: ObjCBool = false
+            let folderPath = projectsRoot + "/" + folder
+            guard FileManager.default.fileExists(atPath: folderPath, isDirectory: &isDirectory),
+                  isDirectory.boolValue else { continue }
+            let transcript = folderPath + "/" + sessionId + ".jsonl"
+            if FileManager.default.fileExists(atPath: transcript) { return transcript }
+        }
+        return nil
+    }
+
+    /// Pids currently holding `path` open, lowest first. Any holder (read or write) is listed; the
+    /// caller filters for the Claude child chain, so the feed sidecar's read handle on a transcript
+    /// never counts as ownership.
+    static func holders(of path: String) -> [pid_t] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        process.arguments = [path]
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = Pipe()
+        guard (try? process.run()) != nil else { return [] }
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard let text = String(data: data, encoding: .utf8) else { return [] }
+        return text.split(separator: "\n").compactMap { line in
+            let fields = line.split(separator: " ", omittingEmptySubsequences: true)
+            guard fields.count >= 2, let pid = pid_t(fields[1]) else { return nil }
+            return pid
+        }
+    }
+
+    /// The Claude Desktop window owning a NEW session, found per session: the holder of THIS session's
+    /// transcript whose parent chain reaches Claude.app. Returns the Claude main pid, or nil when the
+    /// transcript has no such holder or the join is ambiguous.
+    static func desktopOwner(
+        sessionId: String,
+        rows: [AgentWindowProcessRow],
+        claudeMainPath: String,
+        projectsRoot: String = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".claude/projects").path
+    ) -> pid_t? {
+        guard let transcript = transcriptPath(sessionId: sessionId, projectsRoot: projectsRoot) else {
+            return nil
+        }
+        var matched = 0
+        var owner: pid_t?
+        for holder in holders(of: transcript) {
+            guard case .desktop(_, let claudeMainPid, _) =
+                AgentWindowSessionResolver.chain(resumePid: holder, in: rows, claudeMainPath: claudeMainPath)
+            else { continue }
+            matched += 1
+            owner = claudeMainPid
+            if matched > 1 { return nil }
+        }
+        return matched == 1 ? owner : nil
+    }
 }
 
 /// Turns a resolved Claude pid into the window and Desktop the composer writer needs.

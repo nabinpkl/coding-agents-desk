@@ -6,6 +6,24 @@ import Security
 import AgentDeskWire
 import PtyClientSwift
 
+/// Which inbound `.agent`-role frames the native shell must handle itself rather than forward
+/// verbatim to the panel webview. The webview is the authority on the rest of the `agent-*`
+/// protocol — it decodes by `t` and ignores anything it does not yet know — so this is the only
+/// client-side list that has to change when the agent protocol grows.
+enum AgentPanelLaneRouting: Sendable {
+    static let nativeInterceptedTypes: Set<String> = [
+        "agent-say",                       // native TTS speech banner
+        "agent-raw-event-part",           // client-side fragment reassembly
+        "agent-terminal-ready",           // native agent-terminal lifecycle
+        "agent-terminal-ended",
+        "agent-terminal-error",
+    ]
+
+    static func isPanelProtocol(_ type: String) -> Bool {
+        type.hasPrefix("agent-") && !nativeInterceptedTypes.contains(type)
+    }
+}
+
 @available(iOS 26.0, *)
 final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTransport, @unchecked Sendable {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "session-quic")
@@ -24,12 +42,15 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     ///
     /// Holding the resources separately from the object fixes that: whoever still holds the
     /// transport no longer holds the connection, so releasing here is releasing for real.
-    private struct Channels {
+private struct Channels {
         let connection: NetworkConnection<QUIC>
         let inputStream: QUIC.Stream<QUICStream>
         // ADR-0034 crisp-repair: the reliable lane the host pushes crisp tiles on.
         let graphicsStream: QUIC.Stream<QUICStream>
         let datagrams: QUIC.Datagrams<QUICDatagram>
+        // The Agent panel protocol (.agent role), carried on its own stream so the client forwards
+        // it verbatim to the panel webview instead of demuxing it off the shared input lane.
+        let agentStream: QUIC.Stream<QUICStream>
     }
     private let channels: OSAllocatedUnfairLock<Channels?>
 
@@ -47,6 +68,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     private var inputStream: QUIC.Stream<QUICStream> { get throws { try liveChannels().inputStream } }
     private var graphicsStream: QUIC.Stream<QUICStream> { get throws { try liveChannels().graphicsStream } }
     private var datagrams: QUIC.Datagrams<QUICDatagram> { get throws { try liveChannels().datagrams } }
+    private var agentStream: QUIC.Stream<QUICStream> { get throws { try liveChannels().agentStream } }
     private let mediaRepairBuffer = MediaDatagramFrameRepairBuffer(
         trackedFrameLimit: Config.ownedMediaTrackedFrameLimit,
         maxResendPackets: Config.ownedMediaMaxResendPackets
@@ -106,6 +128,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     )
     private var datagramReceiveTask: Task<Void, Never>?
     private var inputReceiveTask: Task<Void, Never>?
+    private var agentReceiveTask: Task<Void, Never>?
     private var graphicsReceiveTask: Task<Void, Never>?
     private var linkHealthTask: Task<Void, Never>?
     private weak var sink: (any OwnedMediaFrameSink)?
@@ -123,13 +146,15 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         graphicsStream: QUIC.Stream<QUICStream>,
         datagrams: QUIC.Datagrams<QUICDatagram>,
         activeSession: ActiveSession,
-        mediaKey: SymmetricKey
+        mediaKey: SymmetricKey,
+        agentStream: QUIC.Stream<QUICStream>
     ) {
         self.channels = OSAllocatedUnfairLock(initialState: Channels(
             connection: connection,
             inputStream: inputStream,
             graphicsStream: graphicsStream,
-            datagrams: datagrams
+            datagrams: datagrams,
+            agentStream: agentStream
         ))
         self.activeSession = activeSession
         self.mediaKey = mediaKey
@@ -204,6 +229,7 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             self?.handleConnectionState(state)
         }
         startInputReceiveLoop()
+        startAgentReceiveLoop()
         startDatagramReceiveLoop()
         // The graphics lane starts in start(), once the sink exists: it announces the lane
         // (prompting the host to push) only after there is a sink to consume the frames, so
@@ -321,58 +347,58 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         try await QuicSessionStreamIO.send(error, role: .input, on: inputStream)
     }
 
-    // MARK: - Agent-feed subscription sends (mirrors sendDiagnostics* pattern)
+    // MARK: - Agent-feed subscription sends (carried on the `.agent` role)
 
     func sendAgentProjectsWatch(_ request: AgentProjectsWatch) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentProjectsUnwatch(_ request: AgentProjectsUnwatch) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentProjectSessionsWatch(_ request: AgentProjectSessionsWatch) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentProjectSessionsUnwatch(_ request: AgentProjectSessionsUnwatch) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentThreadSubscribe(_ request: AgentThreadSubscribe) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentThreadLoadOlder(_ request: AgentThreadLoadOlder) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentThreadUnsubscribe(_ request: AgentThreadUnsubscribe) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentRawEventRequest(_ request: AgentRawEventRequest) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentSessionCreate(_ request: AgentSessionCreate) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentSessionSend(_ request: AgentSessionSend) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentSessionAbort(_ request: AgentSessionAbort) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentExtensionUIResponse(_ response: AgentExtensionUIResponse) async throws {
-        try await QuicSessionStreamIO.send(response, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(response, role: .agent, on: agentStream)
     }
 
     func sendAgentTerminal(_ message: AgentTerminalClientMessage) async throws {
-        try await inputStream.send(try Self.agentTerminalFrame(message))
+        try await agentStream.send(try Self.agentTerminalFrame(message))
     }
 
     func sendWorkspaceTerminal(_ message: WorkspaceTerminalClientMessage) async throws {
@@ -380,26 +406,26 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
     }
 
     func sendAgentWindowInputWatch(_ request: AgentWindowInputWatch) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentWindowInputUnwatch(_ request: AgentWindowInputUnwatch) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentWindowInputSync(_ request: AgentWindowInputSync) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     func sendAgentWindowInputRead(_ request: AgentWindowInputRead) async throws {
-        try await QuicSessionStreamIO.send(request, role: .input, on: inputStream)
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
     static func agentTerminalFrame(_ message: AgentTerminalClientMessage) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         return try QuicSessionStreamFrame.encode(
-            role: .input,
+            role: .agent,
             payload: encoder.encode(message)
         )
     }
@@ -499,6 +525,37 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                 } catch {
                     logger.notice("input lane receive ended: \(String(describing: error), privacy: .public)")
                     close()
+                    return
+                }
+            }
+        }
+    }
+
+    // The Agent panel protocol (.agent role). The client forwards panel-protocol frames verbatim to
+    // the webview and intercepts only the handful the native shell must handle (speech, raw-event
+    // fragment reassembly, terminal lifecycle), so new agent message types reach the panel without a
+    // client-side scatter/allowlist change.
+    private func startAgentReceiveLoop() {
+        agentReceiveTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                // Announce the lane's role with its first frame, exactly like .graphics/.dom: the
+                // host's accept loop reads the first frame on the stream purely to learn the role
+                // and discards its payload. Without this announce the first real agent request
+                // would be consumed as the role probe and the panel would wait forever.
+                try await QuicSessionStreamIO.sendPayload(Data([0]), role: .agent, on: agentStream)
+                logger.notice("agent lane announced")
+            } catch {
+                logger.notice("agent lane announce failed: \(String(describing: error), privacy: .public)")
+                return
+            }
+            while !Task.isCancelled {
+                do {
+                    let frame = try await QuicSessionStreamIO.receiveFrame(on: agentStream, expectedRole: .agent)
+                    guard frame.role == .agent else { continue }
+                    handleAgentLanePayload(frame.payload)
+                } catch {
+                    logger.notice("agent lane receive ended: \(String(describing: error), privacy: .public)")
                     return
                 }
             }
@@ -614,10 +671,6 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
                 thumbnailsContinuation.yield(push.thumbnails)
                 topWindowsContinuation.yield(push.topWindows ?? [:])
             }
-        case "agent-say":
-            if let push = try? JSONDecoder().decode(AgentSayPush.self, from: data) {
-                agentSayContinuation.yield(push)
-            }
         case "cursor":
             if let push = try? JSONDecoder().decode(CursorImagePush.self, from: data) {
                 cursorContinuation.yield(push)
@@ -646,38 +699,6 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
             if let request = try? JSONDecoder().decode(ClientScreenshotRequest.self, from: data) {
                 screenshotContinuation.yield(.request(request))
             }
-        case "agent-projects", "agent-projects-error",
-             "agent-project-sessions", "agent-project-sessions-error":
-            logger.debug("input lane agent-projects received")
-            deliverAgentPush(data)
-        case "agent-thread-chunk":
-            logger.debug("input lane agent-thread-chunk received")
-            deliverAgentPush(data)
-        case "agent-thread-error":
-            logger.debug("input lane agent-thread-error received")
-            deliverAgentPush(data)
-        case "agent-command-receipt", "agent-command-error",
-             "agent-extension-ui-request", "agent-extension-ui-dismissed":
-            deliverAgentPush(data)
-        case "agent-raw-event", "agent-raw-event-error":
-            deliverAgentPush(data)
-        case "agent-raw-event-part":
-            guard let part = try? JSONDecoder().decode(AgentRawEventPart.self, from: data) else {
-                logger.error("input lane raw event part decode failed")
-                return
-            }
-            let (outcome, needsCleanup) = rawEventReassembly.withLock { reassembler in
-                let isNew = !reassembler.containsTransfer(part.transferId)
-                return (reassembler.accept(part), isNew)
-            }
-            handleRawEventReassembly(outcome)
-            if needsCleanup, case .pending = outcome {
-                scheduleRawEventCleanup()
-            }
-        case "agent-terminal-ready", "agent-terminal-ended", "agent-terminal-error":
-            if !Self.dispatchAgentTerminalPayload(data, to: agentTerminalContinuation) {
-                logger.error("input lane agent terminal push decode failed")
-            }
         case "workspace-terminal-ready", "workspace-terminal-error":
             if !Self.dispatchWorkspaceTerminalPayload(data, to: workspaceTerminalContinuation) {
                 logger.error("input lane workspace terminal push decode failed")
@@ -687,6 +708,50 @@ final class QuicSessionClientTransport: InputChannel, MediaTransport, SessionTra
         default:
             logger.debug("input lane ignored frame type=\(header.type, privacy: .public)")
         }
+    }
+
+    // The Agent panel protocol (.agent role). The client intercepts only the handful of frames the
+    // native shell must handle (speech, raw-event fragment reassembly, terminal lifecycle) and
+    // forwards every other `agent-*` frame verbatim to the panel webview, which decodes by `t` and
+    // ignores anything it does not yet know. New agent message types therefore never need a
+    // per-type change here.
+    private func handleAgentLanePayload(_ data: Data) {
+        guard let header = try? JSONDecoder().decode(InputFrameHeader.self, from: data) else {
+            return
+        }
+        if AgentPanelLaneRouting.nativeInterceptedTypes.contains(header.type) {
+            switch header.type {
+            case "agent-say":
+                if let push = try? JSONDecoder().decode(AgentSayPush.self, from: data) {
+                    agentSayContinuation.yield(push)
+                }
+            case "agent-terminal-ready", "agent-terminal-ended", "agent-terminal-error":
+                if !Self.dispatchAgentTerminalPayload(data, to: agentTerminalContinuation) {
+                    logger.error("agent lane agent terminal push decode failed")
+                }
+            case "agent-raw-event-part":
+                guard let part = try? JSONDecoder().decode(AgentRawEventPart.self, from: data) else {
+                    logger.error("agent lane raw event part decode failed")
+                    return
+                }
+                let (outcome, needsCleanup) = rawEventReassembly.withLock { reassembler in
+                    let isNew = !reassembler.containsTransfer(part.transferId)
+                    return (reassembler.accept(part), isNew)
+                }
+                handleRawEventReassembly(outcome)
+                if needsCleanup, case .pending = outcome {
+                    scheduleRawEventCleanup()
+                }
+            default:
+                break
+            }
+            return
+        }
+        guard AgentPanelLaneRouting.isPanelProtocol(header.type) else {
+            logger.debug("agent lane non-panel frame type=\(header.type, privacy: .public)")
+            return
+        }
+        deliverAgentPush(data)
     }
 
     private func deliverAgentPush(_ data: Data) {

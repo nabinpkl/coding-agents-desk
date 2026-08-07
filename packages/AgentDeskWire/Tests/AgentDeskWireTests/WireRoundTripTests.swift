@@ -43,8 +43,20 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
 }
 
 @Test func wireProtocolLiveAgentVersionIsPinned() {
-    #expect(WireProtocol.version == 16)
-    #expect(WireProtocol.minCompatibleVersion == 16)
+    #expect(WireProtocol.version == 17)
+    #expect(WireProtocol.minCompatibleVersion == 17)
+}
+
+@Test func quicSessionAgentRoleIsPinnedAndRoundTrips() throws {
+    #expect(QuicSessionStreamRole.agent.rawValue == 9)
+    #expect(QuicSessionStreamRole(rawValue: 9) == .agent)
+
+    let payload = Data(#"{"t":"agent-live-tail","src":"claude","sid":"s","ev":null}"#.utf8)
+    let encoded = try QuicSessionStreamFrame.encode(role: .agent, payload: payload)
+    let decoded = try QuicSessionStreamFrame.decode(encoded)
+
+    #expect(decoded.role == .agent)
+    #expect(decoded.payload == payload)
 }
 
 @Test func liveAgentCommandsTimelineAndExtensionUIRoundTrip() throws {

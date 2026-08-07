@@ -12,6 +12,11 @@ public enum QuicSessionStreamRole: UInt8, Codable, Equatable, Sendable {
     /// which carries live dictation audio: a 152MB model moving down the same
     /// lane as speech would stall it.
     case assets = 8
+    /// The Agent panel protocol (feed, composer sync, raw-event fragments,
+    /// terminal lifecycle, speech). A dedicated role so the client forwards the
+    /// panel protocol verbatim to its webview instead of multiplexing it onto
+    /// the shared `input` lane and demuxing by a hand-maintained tag allowlist.
+    case agent = 9
 }
 
 public enum QuicSessionFrameError: Error, Equatable {

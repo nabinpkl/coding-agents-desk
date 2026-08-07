@@ -2317,6 +2317,11 @@ client-archive-release variant="stable":
         ${EXTRA[@]+"${EXTRA[@]}"} \
         -allowProvisioningUpdates \
         clean archive
+    # Raise embedded framework MinimumOSVersions to the app's target so App Store
+    # validation (ITMS-90208) does not reject the bundle: the prebuilt onnxruntime
+    # framework ships a 15.1 declared minimum while its binary and the app are 26.0.
+    # The subsequent export re-signs the archive, baking the corrected plist in.
+    tools/patch-embedded-minos.sh "$ARCHIVE"
 
 # Export the signed Release archive to an App Store Connect IPA.
 client-export-ipa variant="stable":

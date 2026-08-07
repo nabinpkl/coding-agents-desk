@@ -155,6 +155,7 @@ final class SessionDialer {
         let graphicsStream = try await connection.openStream()
         let domMirror = try await Self.openDomMirrorIfEnabled(connection)
         let datagrams = try await connection.datagrams
+        let agentStream = try await connection.openStream()
         let mediaKey = MediaDatagramCrypto.sessionKey(
             sessionId: ready.sessionId,
             clientNonce: clientNonce,
@@ -167,7 +168,8 @@ final class SessionDialer {
             graphicsStream: graphicsStream,
             datagrams: datagrams,
             activeSession: active,
-            mediaKey: mediaKey
+            mediaKey: mediaKey,
+            agentStream: agentStream
         )
         success = true
         return SessionHandshakeOutcome(
@@ -291,6 +293,7 @@ final class SessionDialer {
         let graphicsStream = try await connection.openStream()
         let domMirror = try await Self.openDomMirrorIfEnabled(connection)
         let datagrams = try await connection.datagrams
+        let agentStream = try await connection.openStream()
         let mediaKey = MediaDatagramCrypto.sessionKey(
             sessionId: ready.sessionId,
             clientNonce: clientNonce,
@@ -303,7 +306,8 @@ final class SessionDialer {
             graphicsStream: graphicsStream,
             datagrams: datagrams,
             activeSession: active,
-            mediaKey: mediaKey
+            mediaKey: mediaKey,
+            agentStream: agentStream
         )
         success = true
         return SessionHandshakeOutcome(
@@ -342,7 +346,7 @@ final class SessionDialer {
             using: NWParametersBuilder(auto: {
                 QUIC(alpn: [Config.sessionQuicALPN])
                     .maxDatagramFrameSize(Config.ownedMediaMaxDatagramFrameSize)
-                    .initialMaxBidirectionalStreams(8)
+                    .initialMaxBidirectionalStreams(16)
                     .idleTimeout(30_000)
                     .tls.certificateValidator { _, _ in
                         // The signed ADR-0003 application handshake authenticates the

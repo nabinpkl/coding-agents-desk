@@ -49,4 +49,33 @@ printf '%s\n' "$dry_run" | grep -F -- "--api-issuer 00000000-0000-0000-0000-0000
 printf '%s\n' "$dry_run" | grep -F -- "--p8-file-path $key_path" >/dev/null
 printf '%s\n' "$dry_run" | grep -F -- "-f $ipa_path" >/dev/null
 
+# Patch-embedded-minos: replicate the onnxruntime 90208 shape (framework plist
+# below the app target) and assert the archive is corrected, idempotently.
+archive="$tmpdir/AgentDeskClient.xcarchive"
+app="$archive/Products/Applications/AgentDeskClient.app"
+onnx="$app/Frameworks/onnxruntime.framework"
+mkdir -p "$onnx"
+plutil -create xml1 "$app/Info.plist"
+plutil -create xml1 "$onnx/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :MinimumOSVersion string 26.0' "$app/Info.plist"
+/usr/libexec/PlistBuddy -c 'Add :MinimumOSVersion string 15.1' "$onnx/Info.plist"
+
+out="$(tools/patch-embedded-minos.sh "$archive")"
+printf '%s\n' "$out" | grep -F 'onnxruntime.framework: MinimumOSVersion 15.1 -> 26.0' >/dev/null
+assert_eq "$( /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$onnx/Info.plist" )" \
+    "26.0" "onnxruntime MinimumOSVersion after patch"
+
+# Idempotent: a second run must not change anything.
+out2="$(tools/patch-embedded-minos.sh "$archive")"
+printf '%s\n' "$out2" | grep -F 'already support 26.0' >/dev/null
+
+# Must never lower a framework that already targets a higher minimum.
+high_plist="$app/Frameworks/SomeOther.framework/Info.plist"
+mkdir -p "$(dirname "$high_plist")"
+plutil -create xml1 "$high_plist"
+/usr/libexec/PlistBuddy -c 'Add :MinimumOSVersion string 30.0' "$high_plist"
+tools/patch-embedded-minos.sh "$archive" >/dev/null
+assert_eq "$( /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$high_plist")" \
+    "30.0" "higher framework minimum preserved"
+
 printf 'testflight upload tests passed\n'

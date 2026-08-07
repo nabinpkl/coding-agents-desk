@@ -58,6 +58,7 @@ final class SessionRegistry {
     private var resumeTimers: [DeviceFingerprint: Task<Void, Never>] = [:]
     private var inputTasks: [DeviceFingerprint: Task<Void, Never>] = [:]
     private var inputChannelServers: [DeviceFingerprint: any InputChannelServing] = [:]
+    private var agentLaneServers: [DeviceFingerprint: AgentLaneServer] = [:]
     private var diagnosticsBrokers: [DeviceFingerprint: any ClientDiagnosticsCollecting] = [:]
     private var transports: [DeviceFingerprint: MediaTransport] = [:]
 
@@ -151,6 +152,8 @@ final class SessionRegistry {
         inputTasks.removeValue(forKey: fingerprint)
         inputChannelServers[fingerprint]?.close()
         inputChannelServers.removeValue(forKey: fingerprint)
+        agentLaneServers[fingerprint]?.close()
+        agentLaneServers.removeValue(forKey: fingerprint)
         diagnosticsBrokers[fingerprint]?.cancel()
         diagnosticsBrokers.removeValue(forKey: fingerprint)
         transports[fingerprint]?.stop()
@@ -293,6 +296,8 @@ final class SessionRegistry {
         inputTasks.removeValue(forKey: fingerprint)
         inputChannelServers[fingerprint]?.close()
         inputChannelServers.removeValue(forKey: fingerprint)
+        agentLaneServers[fingerprint]?.close()
+        agentLaneServers.removeValue(forKey: fingerprint)
         diagnosticsBrokers[fingerprint]?.cancel()
         diagnosticsBrokers.removeValue(forKey: fingerprint)
         transports[fingerprint]?.stop()
@@ -316,6 +321,11 @@ final class SessionRegistry {
     func attachInputChannelServer(_ server: any InputChannelServing, for fingerprint: DeviceFingerprint) {
         inputChannelServers[fingerprint]?.close()
         inputChannelServers[fingerprint] = server
+    }
+
+    func attachAgentLane(_ lane: AgentLaneServer, for fingerprint: DeviceFingerprint) {
+        agentLaneServers[fingerprint]?.close()
+        agentLaneServers[fingerprint] = lane
     }
 
     func attachDiagnosticsBroker(
@@ -344,6 +354,10 @@ final class SessionRegistry {
 
     func allInputChannelServers() -> [any InputChannelServing] {
         Array(inputChannelServers.values)
+    }
+
+    func allAgentLaneServers() -> [AgentLaneServer] {
+        Array(agentLaneServers.values)
     }
 
     func allInputChannelServersByFingerprint() -> [(DeviceFingerprint, any InputChannelServing)] {
