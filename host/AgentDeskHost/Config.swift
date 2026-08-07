@@ -877,6 +877,14 @@ enum Config {
     // that the session is open at all.
     static let claudeResumeFlag = ProcessInfo.processInfo.environment["AGENTDESK_CLAUDE_RESUME_MARK"]
         ?? "--resume"
+    // Claude Code writes one `~/.claude/sessions/<pid>.json` per running CLI, keyed by the CLI's real
+    // pid. Only a Desktop-spawned coding session carries this `entrypoint` value; a terminal session
+    // reads `cli`. The runtime resolver matches it for brand-new sessions whose id never appears in
+    // argv. Env-overridable because it is another application's private field and can change without
+    // notice.
+    static let claudeDesktopRegistryEntrypoint =
+        ProcessInfo.processInfo.environment["AGENTDESK_CLAUDE_REGISTRY_ENTRYPOINT"]
+        ?? "claude-desktop"
     // How often a watched session is re-resolved against the process table. A `ps` scan plus
     // a chain walk is cheap, but the thing it observes changes only when a human opens or
     // closes a Claude window, so a slower cadence than the panel's other streams is right.

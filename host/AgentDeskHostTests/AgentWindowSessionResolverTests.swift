@@ -133,71 +133,209 @@ struct AgentWindowSessionResolverTests {
         #expect(resolution.unavailableReason == .notRunning)
     }
 
-    @Test func aNewDesktopAgentModeSessionIsMatchedByItsEmbeddedSessionDirectory() throws {
-        // A brand-new Claude Desktop session spawns the child CLI with NO `--resume`; its identity is
-        // carried as a path component under `local-agent-mode-sessions/<sessionId>/` inside a
-        // `--plugin-dir` argument (observed live). Without the embedded match this session resolves to
-        // `.notRunning` and the composer reports unavailable for a window that is plainly open.
-        let rows = AgentWindowSessionResolver.parseProcessTable("""
+    // MARK: - Runtime (registry) resolver
+
+    /// A `~/.claude/sessions/<pid>.json` row in the shape Claude Code writes, so tests pin the live
+    /// schema rather than a hand-chosen subset.
+    private func registryJSON(
+        pid: Int,
+        sessionId: String,
+        entrypoint: String? = "claude-desktop",
+        cwd: String = "/Users/dev/projects/agent-desk"
+    ) -> String {
+        let entrypointJSON = entrypoint.map { "\"entrypoint\":\"\($0)\"" } ?? ""
+        let fields = ["\"pid\":\(pid)",
+                      "\"sessionId\":\"\(sessionId)\"",
+                      "\"cwd\":\"\(cwd)\"",
+                      "\"startedAt\":1786078983531",
+                      "\"kind\":\"interactive\"",
+                      entrypointJSON]
+        return "{\(fields.filter { !$0.isEmpty }.joined(separator: ","))}"
+    }
+
+    /// A live tree with one Desktop-owned session: the Claude main binary, the `disclaimer` helper,
+    /// and the child CLI at `cliPid`. The CLI argv carries no session id on purpose: a brand-new
+    /// session never names itself in argv, which is why the registry exists.
+    private func desktopChainRows(cliPid: Int, claudeMainPid: Int) -> [AgentWindowProcessRow] {
+        AgentWindowSessionResolver.parseProcessTable("""
             1     0 /sbin/launchd
-          900     1 \(claudeMain)
-          910   900 /Applications/Claude.app/Contents/Helpers/disclaimer /Users/dev/claude --output-format stream-json
-          920   910 /Users/dev/claude --output-format stream-json --permission-prompt-tool stdio --plugin-dir /Users/dev/Library/Application Support/Claude/local-agent-mode-sessions/\(desktopSession)/c3e00a9b-6cd0-4c4e-a7db-3715a1c7f6ba/rpm/plugin_01XXJmxLXPEhPMmnxmrgntNw --thinking-display summarized
+           \(claudeMainPid)     1 \(claudeMain)
+           \(cliPid + 1) \(claudeMainPid) /Applications/Claude.app/Contents/Helpers/disclaimer /Users/dev/claude --output-format stream-json
+           \(cliPid) \(cliPid + 1) /Users/dev/claude --output-format stream-json --permission-prompt-tool stdio
         """)
-
-        let resolution = AgentWindowSessionResolver.resolve(
-            sessionId: desktopSession,
-            in: rows,
-            claudeMainPath: claudeMain,
-            flag: flag
-        )
-
-        #expect(resolution.claudeMainPid == 900)
-        #expect(resolution.unavailableReason == nil)
-        let chain = try #require(resolution.chains.first)
-        guard case .desktop(_, let claudeMainPid, _) = chain else {
-            Issue.record("expected a Desktop chain, got \(chain)")
-            return
-        }
-        #expect(claudeMainPid == 900)
     }
 
-    @Test func embeddedSessionIdMatchIsByWholePathComponentOnly() {
-        #expect(AgentWindowSessionResolver.embedsSessionId(
-            desktopSession,
-            in: "claude --plugin-dir /x/local-agent-mode-sessions/\(desktopSession)/chat/rpm/plugin"
-        ))
-        // A session id that is a prefix of another path component must not match: it would steal the
-        // window of the longer session, exactly like the `--resume` prefix case.
-        #expect(!AgentWindowSessionResolver.embedsSessionId(
-            desktopSession,
-            in: "claude --plugin-dir /x/local-agent-mode-sessions/\(desktopSession)-archived/chat/rpm/plugin"
-        ))
-        #expect(!AgentWindowSessionResolver.embedsSessionId(
-            desktopSession,
-            in: "claude --resume=\(desktopSession)"
-        ))
+    @Test func registryParsingToleratesTheFullObservedSchema() throws {
+        // The live file carries pid, sessionId, cwd, startedAt, procStart, version, peerProtocol,
+        // kind, entrypoint, name, and nameSource. Decoding must keep what resolution needs and ignore
+        // the rest.
+        let json = """
+        {"pid":90906,"sessionId":"\(desktopSession)","cwd":"/Users/dev/projects/agent-desk",\
+        "startedAt":1786078983531,"procStart":"Fri Aug  7 05:03:00 2026","version":"2.1.222",\
+        "peerProtocol":1,"kind":"interactive","entrypoint":"claude-desktop","name":"agent-desk-ca",\
+        "nameSource":"derived"}
+        """
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ClaudeSessionRegistryEntry.self, from: data)
+        #expect(entry.pid == 90906)
+        #expect(entry.sessionId == desktopSession)
+        #expect(entry.entrypoint == "claude-desktop")
+        #expect(entry.cwd == "/Users/dev/projects/agent-desk")
     }
 
-    @Test func transcriptProjectFolderIsReadFromTheFlushedTranscript() throws {
+    @Test func aNewDesktopSessionIsResolvedFromItsRegistryRow() throws {
+        // A brand-new Claude Desktop session (no `--resume`) never carries its feed id in argv. Claude
+        // Code's per-pid registry `~/.claude/sessions/<pid>.json` -- written by the child CLI at spawn,
+        // before any message or network call -- records that id and the launching surface. Observed
+        // live: pid 90906 wrote {"sessionId":"...","entrypoint":"claude-desktop",...}.
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("agentdesk-transcript-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(
-            at: root.appendingPathComponent("-Users-dev-projects-agent-desk"),
-            withIntermediateDirectories: true
-        )
-        let path = root.appendingPathComponent("-Users-dev-projects-agent-desk/\(desktopSession).jsonl")
-        try "{}".write(to: path, atomically: true, encoding: .utf8)
+            .appendingPathComponent("agentdesk-registry-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        try registryJSON(pid: 420, sessionId: desktopSession).write(
+            to: root.appendingPathComponent("420.json"),
+            atomically: true,
+            encoding: .utf8
+        )
 
-        #expect(AgentWindowRuntimeResolver.transcriptPath(
+        let owner = AgentWindowRuntimeResolver.desktopOwner(
             sessionId: desktopSession,
-            projectsRoot: root.path
-        ) == path.path)
-        #expect(AgentWindowRuntimeResolver.transcriptPath(
-            sessionId: "00000000-0000-0000-0000-000000000000",
-            projectsRoot: root.path
-        ) == nil)
+            rows: desktopChainRows(cliPid: 420, claudeMainPid: 400),
+            claudeMainPath: claudeMain,
+            sessionsDirectory: root.path
+        )
+
+        #expect(owner == 400)
+    }
+
+    @Test func aStaleRegistryRowWhosePidIsNotInTheLiveTableIsNotLive() throws {
+        // Registry rows persist after a session closes (observed live: rows from days ago). A row is
+        // live only while its pid's parent chain reaches Claude.app, so a row whose pid is absent from
+        // the live table must resolve to nothing, never to a window.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentdesk-registry-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try registryJSON(pid: 420, sessionId: desktopSession).write(
+            to: root.appendingPathComponent("420.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let owner = AgentWindowRuntimeResolver.desktopOwner(
+            sessionId: desktopSession,
+            rows: [AgentWindowProcessRow(pid: 1, parentPid: 0, arguments: "/sbin/launchd")],
+            claudeMainPath: claudeMain,
+            sessionsDirectory: root.path
+        )
+
+        #expect(owner == nil)
+    }
+
+    @Test func aTerminalEntrypointRegistryRowIsNotOfferedAWindow() throws {
+        // A terminal Claude Code session also writes a registry row, with entrypoint "cli". It renders
+        // into a PTY, not an AX composer, so it must never resolve to a window even when its pid's
+        // chain reaches Claude.app.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentdesk-registry-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try registryJSON(pid: 420, sessionId: desktopSession, entrypoint: "cli").write(
+            to: root.appendingPathComponent("420.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let owner = AgentWindowRuntimeResolver.desktopOwner(
+            sessionId: desktopSession,
+            rows: desktopChainRows(cliPid: 420, claudeMainPid: 400),
+            claudeMainPath: claudeMain,
+            sessionsDirectory: root.path
+        )
+
+        #expect(owner == nil)
+    }
+
+    @Test func aRegistryRowForAnotherSessionDoesNotResolveThisOne() throws {
+        // A sibling session in the same project has its own id and its own row; this session's row
+        // must not make THAT sibling available. The join is per session id, never per project.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentdesk-registry-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try registryJSON(pid: 420, sessionId: terminalSession).write(
+            to: root.appendingPathComponent("420.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let owner = AgentWindowRuntimeResolver.desktopOwner(
+            sessionId: desktopSession,
+            rows: desktopChainRows(cliPid: 420, claudeMainPid: 400),
+            claudeMainPath: claudeMain,
+            sessionsDirectory: root.path
+        )
+
+        #expect(owner == nil)
+    }
+
+    @Test func twoRegistryRowsIntoDifferentInstancesAreAmbiguousRatherThanTiebroken() throws {
+        // Two live rows for the SAME session in two Claude instances address two windows; the old
+        // lowest-pid tiebreak wrote into whichever launched first, unrelated to the window the user is
+        // looking at. Mirror the argv resolver's multiple-instances refusal: only an exactly-one owner
+        // resolves.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentdesk-registry-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try registryJSON(pid: 420, sessionId: desktopSession).write(
+            to: root.appendingPathComponent("420.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try registryJSON(pid: 520, sessionId: desktopSession).write(
+            to: root.appendingPathComponent("520.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let rows = desktopChainRows(cliPid: 420, claudeMainPid: 400)
+            + desktopChainRows(cliPid: 520, claudeMainPid: 600)
+
+        let owner = AgentWindowRuntimeResolver.desktopOwner(
+            sessionId: desktopSession,
+            rows: rows,
+            claudeMainPath: claudeMain,
+            sessionsDirectory: root.path
+        )
+
+        #expect(owner == nil)
+    }
+
+    @Test func unreadableRegistryFilesAreSkipped() throws {
+        // Garbage and non-JSON files in the registry directory must be ignored so one malformed row
+        // cannot poison resolution of a healthy one.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentdesk-registry-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try registryJSON(pid: 420, sessionId: desktopSession).write(
+            to: root.appendingPathComponent("420.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "not json".write(to: root.appendingPathComponent("999.json"), atomically: true, encoding: .utf8)
+        try "also not json".write(to: root.appendingPathComponent("README.txt"), atomically: true, encoding: .utf8)
+
+        let entries = AgentWindowRuntimeResolver.registryEntries(in: root.path)
+        #expect(entries.map(\.pid).sorted() == [420])
+
+        let owner = AgentWindowRuntimeResolver.desktopOwner(
+            sessionId: desktopSession,
+            rows: desktopChainRows(cliPid: 420, claudeMainPid: 400),
+            claudeMainPath: claudeMain,
+            sessionsDirectory: root.path
+        )
+        #expect(owner == 400)
     }
 
     @Test func theDesktopChainWinsWhenTheSameSessionIsAlsoResumedInATerminal() {

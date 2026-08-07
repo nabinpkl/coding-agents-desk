@@ -121,7 +121,7 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
                     claudeMainPath: Config.claudeDesktopMainPath
                   ) {
             // A brand-new (not resumed) Claude Desktop session: no child argv carries its id, but its
-            // transcript project + the owning child CLI's working directory identify the window.
+            // `~/.claude/sessions/<pid>.json` registry row names it and its CLI's pid under Claude.app.
             pid = runtimeOwner
         } else {
             return .failure(resolution.unavailableReason ?? .notRunning)
