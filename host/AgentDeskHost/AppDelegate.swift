@@ -1418,7 +1418,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let selectedDisplayId = config.selectedDisplayId
             // nil = watch the selected display (the default). Non-nil retargets capture to
             // that one window, which is additive: the display selection below still runs.
-            let selectedWindowId = config.selectedWindowId.map { CGWindowID($0) }
+            //
+            // Written out rather than `.map { CGWindowID($0) }` on purpose. This closure body
+            // runs on the QUIC receive loop, but it is a closure literal inside a @MainActor
+            // method, so a nested closure literal inherits @MainActor too. Handing that to a
+            // nonisolated generic like Optional.map makes the runtime check the executor
+            // before calling it, and off the main queue that check is a SIGTRAP, not a
+            // fallback. Everything else in this prologue is direct property access, which is
+            // why this was the only line that could kill the host -- and it only fired once a
+            // window was actually picked, since map skips the closure when the value is nil.
+            var selectedWindowId: CGWindowID?
+            if let rawWindowId = config.selectedWindowId {
+                selectedWindowId = CGWindowID(rawWindowId)
+            }
             let windowListEnabled = config.windowListEnabled
             // nil = client expressed no crisp opinion -> host keeps its default (on); the
             // transport composes this with Config.ownedMediaCrispEnabled as the hard gate.
