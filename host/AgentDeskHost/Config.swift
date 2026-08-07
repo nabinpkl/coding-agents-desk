@@ -901,6 +901,11 @@ enum Config {
     // a renderer that never answers; the normal cost is one poll.
     static let claudeComposerMaterializeTimeout: TimeInterval = 10
     static let claudeComposerMaterializePollInterval: TimeInterval = 0.2
+    // How long a submit waits for Chromium to clear the composer after Return is pressed. Chromium runs
+    // that submit on its own main thread, which a busy session can occupy; the ceiling bounds it, and a
+    // composer that has not cleared by then is reported holding whatever text it still has.
+    static let claudeComposerSubmitSettleTimeout: TimeInterval = 2
+    static let claudeComposerSubmitSettlePollInterval: TimeInterval = 0.1
     // Confirmation that a Desktop move actually took. yabai's move is already visible to SkyLight by
     // the time the command returns, so this is a guard against a stale read, not a settle window.
     static let claudeWindowMoveVerifyAttempts = 4

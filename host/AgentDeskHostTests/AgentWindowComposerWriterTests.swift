@@ -13,6 +13,7 @@ struct AgentWindowComposerWriterTests {
             case awaitComposer
             case read
             case write(String)
+            case submit
             case move(windowID: UInt32, spaceID: UInt64)
         }
 
@@ -48,6 +49,12 @@ struct AgentWindowComposerWriterTests {
             steps.append(.write(text))
             if let writeError { throw writeError }
             return readBack ?? text
+        }
+
+        func submitComposer(for target: AgentWindowSessionTarget) throws -> String {
+            steps.append(.submit)
+            if let writeError { throw writeError }
+            return readBack ?? ""
         }
 
         func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {
@@ -212,5 +219,53 @@ struct AgentWindowComposerWriterTests {
         let costlyWriter = AgentWindowComposerWriter(access: costly, placement: costly)
         #expect(costlyWriter.readIfFree(target(homeSpaceID: 4)) == .success(nil))
         #expect(costly.steps.isEmpty)
+    }
+
+    @Test func aSubmitWritesThenPressesReturnAndReportsTheClearedField() {
+        // The Enter action commits: write the prompt, then press Return. The cleared read-back is the
+        // success signal -- no verify-mismatch, because an empty field is what a landed send produces.
+        let recorder = Recorder()
+        recorder.readBack = ""
+        let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
+
+        let result = writer.writeAndSubmit("run the tests", to: target(homeSpaceID: 1))
+
+        #expect(result == .success(""))
+        #expect(recorder.steps == [.latch(400), .write("run the tests"), .submit])
+    }
+
+    @Test func aSubmitThatFailsToClearIsReportedWithTheTextItStillHolds() {
+        // Chromium runs the commit on its own thread; if it has not cleared by the settle deadline, the
+        // field is reported holding whatever it still has, so the panel sees the send did not land.
+        let recorder = Recorder()
+        recorder.readBack = "run the tests"
+        let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
+
+        let result = writer.writeAndSubmit("run the tests", to: target(homeSpaceID: 1))
+
+        #expect(result == .success("run the tests"))
+        #expect(recorder.steps == [.latch(400), .write("run the tests"), .submit])
+    }
+
+    @Test func aSubmitOnAnotherDesktopFrontsTheWindowButStillPutsItBack() {
+        // Unlike a plain write, submitting activates the owning window -- pressing Return is the user
+        // asking for the prompt to run -- so a changed frontmost app is success, not the focus-stolen
+        // failure the non-activating write path reports.
+        let recorder = Recorder()
+        recorder.readBack = ""
+        recorder.frontmost = [100, 400]
+        let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
+
+        let result = writer.writeAndSubmit("run the tests", to: target(homeSpaceID: 4))
+
+        #expect(result == .success(""))
+        #expect(recorder.steps == [
+            .latch(400),
+            .move(windowID: 42, spaceID: 1),
+            .awaitComposer,
+            .write("run the tests"),
+            .submit,
+            .move(windowID: 42, spaceID: 4),
+        ])
     }
 }

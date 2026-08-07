@@ -93,7 +93,7 @@ final class AgentPanelBridgeTransport: AgentPanelTransport {
             ))
         case .terminal(let intent):
             onTerminalIntent?(intent)
-        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead:
+        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead, .windowInputSubmit:
             // Composer sync is a host-local Accessibility action against another application's window.
             // It routes past the bridge deliberately: `AgentFeedBridge` is a sidecar proxy, and there is
             // no sidecar in this path. With no handler attached -- a host without its Space authority --

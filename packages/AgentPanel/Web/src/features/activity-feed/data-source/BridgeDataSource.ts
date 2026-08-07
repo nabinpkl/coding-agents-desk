@@ -835,6 +835,23 @@ export class BridgeDataSource implements AgentDataSource {
   }
 
   /**
+   * Fills the session's composer with `text` and presses Return, committing the prompt in Claude Desktop.
+   *
+   * The explicit Enter action, and the only path that sends: the host writes the text and presses Return
+   * in the owning window, fronting it. Resolves with the composer value read after the send, which a
+   * successful submit clears to the empty string.
+   */
+  submitWindowComposer(sessionId: string, text: string): Promise<string> {
+    const requestId = this.requestIDFactory("window-submit");
+    return this.postWindowComposer(requestId, {
+      t: "agent-window-input-submit",
+      rid: requestId,
+      sid: sessionId,
+      tx: text,
+    });
+  }
+
+  /**
    * Reads the session's composer, moving its window to the active Desktop if it is not already there.
    *
    * Explicit because that move is visible on the Mac. The free case -- a window already here -- is

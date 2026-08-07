@@ -1,6 +1,7 @@
 import AgentDeskWire
 import AppKit
 import ApplicationServices
+import CoreGraphics
 import Foundation
 
 /// The live Accessibility implementation of a composer read/write against Claude Desktop.
@@ -76,6 +77,50 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
         guard AXUIElementCopyAttributeValue(composer, kAXValueAttribute as CFString, &readBack) == .success
         else { throw AgentWindowInputReason.writeFailed }
         return readBack as? String ?? ""
+    }
+
+    /// Focuses the composer and presses Return, committing whatever it holds.
+    ///
+    /// This is the ONE place an AgentDesk write sends a key, and it is only reachable from the explicit
+    /// Enter action, not from the fill path. Setting `kAXFocusedAttribute` on the composer tells
+    /// Chromium where Return is destined -- without that, the post could land on a different focused
+    /// element. The Return itself is posted per-pid, because `AXUIElementPostKeyboardEvent` is marked
+    /// unavailable in Swift; a targeted per-pid CGEvent reaches the now-focused field.
+    ///
+    /// Returns the value read after a bounded settle for Chromium to clear the field, which is how a
+    /// successful send reads. A field that has not cleared by then is reported holding its remaining
+    /// text, so the panel learns the send did not obviously land.
+    func submitComposer(for target: AgentWindowSessionTarget) throws -> String {
+        guard AXIsProcessTrusted() else { throw AgentWindowInputReason.accessibilityDenied }
+
+        // Focus the composer so the Return is destined at the field the prompt was just written into.
+        // This activates the owning app and fronts its window -- the submit path is the user asking for
+        // the prompt to run, so that is the requested outcome, not the focus-stolen failure the
+        // non-activating fill path reports.
+        let composer = try composerElement(for: target)
+        let focusResult = AXUIElementSetAttributeValue(composer, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        guard focusResult == .success else { throw AgentWindowInputReason.writeFailed }
+
+        // Press Return in the owning process. `AXUIElementPostKeyboardEvent` is marked unavailable in
+        // Swift (deprecated macOS 10.9), so the key is posted as a per-pid CGEvents instead, which
+        // reaches the now-focused field without a global HID post.
+        let returnKey: CGKeyCode = 36
+        let source = CGEventSource(stateID: .hidSystemState)
+        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: returnKey, keyDown: true)
+        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: returnKey, keyDown: false)
+        guard let keyDown, let keyUp else { throw AgentWindowInputReason.writeFailed }
+        keyDown.postToPid(target.claudeMainPid)
+        keyUp.postToPid(target.claudeMainPid)
+
+        let deadline = Date().addingTimeInterval(Config.claudeComposerSubmitSettleTimeout)
+        var observed: CFTypeRef?
+        while Date() < deadline {
+            guard AXUIElementCopyAttributeValue(composer, kAXValueAttribute as CFString, &observed) == .success
+            else { throw AgentWindowInputReason.writeFailed }
+            if (observed as? String ?? "").isEmpty { return "" }
+            Thread.sleep(forTimeInterval: Config.claudeComposerSubmitSettlePollInterval)
+        }
+        return observed as? String ?? ""
     }
 
     // MARK: - Element lookup

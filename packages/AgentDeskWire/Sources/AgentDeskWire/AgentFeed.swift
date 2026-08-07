@@ -717,6 +717,26 @@ public struct AgentWindowInputSync: Codable, Equatable, Sendable {
     }
 }
 
+/// Fill the session's composer with `text` and press Return, committing the prompt in Claude Desktop.
+///
+/// Unlike `AgentWindowInputSync`, this actually sends: the writer fills the real composer and presses
+/// Return in the owning window, so the prompt runs. The result reads back the composer value observed
+/// AFTER the send, which is expected to be the cleared field. This deliberately activates the owning
+/// window -- committing a prompt is the user asking for it -- so the non-activating guarantees of the
+/// sync path do not apply here.
+public struct AgentWindowInputSubmit: Codable, Equatable, Sendable {
+    public let type = "agent-window-input-submit"
+    public let requestId: String
+    public let sessionId: String
+    public let text: String
+    public enum CodingKeys: String, CodingKey { case type = "t"; case requestId = "rid"; case sessionId = "sid"; case text = "tx" }
+    public init(requestId: String, sessionId: String, text: String) {
+        self.requestId = requestId
+        self.sessionId = sessionId
+        self.text = text
+    }
+}
+
 /// Read the session composer's current text, moving the window if it is not already on the active
 /// Desktop. Explicit because that move is visible; the free case is answered by `AgentWindowInputStatus`.
 public struct AgentWindowInputRead: Codable, Equatable, Sendable {

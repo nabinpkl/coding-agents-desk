@@ -1132,6 +1132,39 @@ describe("Claude window composer field", () => {
     unmount();
   });
 
+  it("the Enter button actually sends by filling and pressing Return", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    const sub = windowInputSubscription(fake);
+
+    act(() => {
+      fake.deliver({
+        t: "agent-window-input-status",
+        sub,
+        sid: "sid-claude-01",
+        en: true,
+        cur: true,
+        tx: "",
+      });
+    });
+
+    // The field is empty, and an empty prompt cannot be committed, so the Enter action stays disabled.
+    const sendButton = screen.getByRole("button", { name: "Send to Claude's composer" });
+    expect(sendButton).toBeDisabled();
+
+    const field = screen.getByLabelText("Claude composer text");
+    fireEvent.change(field, { target: { value: "run the tests" } });
+    expect(sendButton).toBeEnabled();
+
+    fireEvent.click(sendButton);
+    expect(fake.posted.at(-1)).toMatchObject({
+      t: "agent-window-input-submit",
+      sid: "sid-claude-01",
+      tx: "run the tests",
+    });
+    unmount();
+  });
+
   it("says a missing window mover is not something to retry", async () => {
     // macOS has no public API for moving another application's window between Desktops, so without
     // yabai an off-Desktop composer is unreachable, full stop. Showing the generic move failure here

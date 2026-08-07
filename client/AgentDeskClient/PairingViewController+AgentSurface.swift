@@ -583,6 +583,12 @@ extension PairingViewController {
                         requestId: requestId,
                         sessionId: sessionId
                     ))
+                case .windowInputSubmit(let requestId, let sessionId, let text):
+                    try await channel.sendAgentWindowInputSubmit(AgentWindowInputSubmit(
+                        requestId: requestId,
+                        sessionId: sessionId,
+                        text: text
+                    ))
                 default:
                     preconditionFailure("Only composer-sync requests route through forwardWindowInput")
                 }

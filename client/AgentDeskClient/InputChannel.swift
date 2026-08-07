@@ -71,6 +71,7 @@ protocol InputChannel: AnyObject, Sendable {
     func sendAgentWindowInputUnwatch(_ request: AgentWindowInputUnwatch) async throws
     func sendAgentWindowInputSync(_ request: AgentWindowInputSync) async throws
     func sendAgentWindowInputRead(_ request: AgentWindowInputRead) async throws
+    func sendAgentWindowInputSubmit(_ request: AgentWindowInputSubmit) async throws
 
     var closed: AsyncStream<Void> { get }
 }

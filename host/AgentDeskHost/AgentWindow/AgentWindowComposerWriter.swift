@@ -18,6 +18,9 @@ protocol AgentWindowComposerAccessing {
     func readComposer(for target: AgentWindowSessionTarget) throws -> String
     /// Writes the composer and returns what it reads back. Never sends Return.
     func writeComposer(_ text: String, for target: AgentWindowSessionTarget) throws -> String
+    /// Focuses the composer and presses Return, committing whatever it holds. Returns the composer value
+    /// read after the send (expected to be the cleared field). Deliberately activates the owning window.
+    func submitComposer(for target: AgentWindowSessionTarget) throws -> String
 }
 
 /// The Space move a composer write needs. `YabaiWindowSpaceMover` is the real one.
@@ -79,6 +82,19 @@ struct AgentWindowComposerWriter {
         return .success(readBack)
     }
 
+    /// Fills the composer and presses Return, committing the prompt in the owning Claude Desktop window.
+    ///
+    /// The one deliberate exception to this file's "never sends" rule: the Enter icon is the user asking
+    /// for the prompt to run, so committing activates (and fronts) the window. No verify-mismatch here --
+    /// a committed prompt clears the field, so the read-back being empty is the success signal, and any
+    /// other observed text is reported as what the window holds rather than judged against what we wrote.
+    func writeAndSubmit(_ text: String, to target: AgentWindowSessionTarget) -> Result<String, AgentWindowInputReason> {
+        withWindowHere(target, allowsActivation: true) {
+            _ = try access.writeComposer(text, for: target)
+            return try access.submitComposer(for: target)
+        }
+    }
+
     /// Runs `body` with the target window on the active Desktop, then puts the window back.
     ///
     /// Both the write and the explicit read share this because the ordering is the delicate part, not
@@ -91,6 +107,7 @@ struct AgentWindowComposerWriter {
     /// there. It is skipped for a window already here, whose tree is already built.
     private func withWindowHere(
         _ target: AgentWindowSessionTarget,
+        allowsActivation: Bool = false,
         _ body: () throws -> String
     ) -> Result<String, AgentWindowInputReason> {
         let frontmostBefore = access.frontmostApplicationPID()
@@ -142,7 +159,9 @@ struct AgentWindowComposerWriter {
 
         // Sampled after the restore so the whole sequence is covered. Nothing here activates an
         // application, so a change means an assumption broke; it cannot be undone, only reported.
-        if let frontmostBefore, access.frontmostApplicationPID() != frontmostBefore {
+        // The submit path is the exception: pressing Return deliberately fronts the window, so the
+        // frontmost change is the requested outcome, not a broken assumption.
+        if !allowsActivation, let frontmostBefore, access.frontmostApplicationPID() != frontmostBefore {
             return .failure(.focusStolen)
         }
         return outcome

@@ -426,6 +426,10 @@ private struct Channels {
         try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
+    func sendAgentWindowInputSubmit(_ request: AgentWindowInputSubmit) async throws {
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
+    }
+
     static func agentTerminalFrame(_ message: AgentTerminalClientMessage) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

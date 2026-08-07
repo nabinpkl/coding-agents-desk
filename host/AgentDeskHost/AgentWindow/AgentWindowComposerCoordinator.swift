@@ -94,6 +94,8 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
             queue.async { [self] in sync(requestId: requestId, sessionId: sessionId, text: text, to: sink) }
         case .windowInputRead(let requestId, let sessionId):
             queue.async { [self] in read(requestId: requestId, sessionId: sessionId, to: sink) }
+        case .windowInputSubmit(let requestId, let sessionId, let text):
+            queue.async { [self] in submit(requestId: requestId, sessionId: sessionId, text: text, to: sink) }
         default:
             break
         }
@@ -222,6 +224,25 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         // never saw the request but is showing the same session. Change-only: the write is what changed
         // the window, so any watcher whose status is now stale emits on its own; a forced pass would also
         // rewrite the fields of panels showing text that did not move.
+        refresh()
+    }
+
+    private func submit(requestId: String, sessionId: String, text: String, to sink: SinkID) {
+        // No return path means the surface that asked is gone. Refuse rather than commit a prompt
+        // nobody can be told the outcome of.
+        guard let emit = sinks[sink] else {
+            logger.notice("composer submit dropped, no sink sink=\(sink, privacy: .public)")
+            return
+        }
+        let result: Result<String, AgentWindowInputReason>
+        switch resolveTarget(sessionId: sessionId, rows: processRows(), snapshot: audit.snapshot()) {
+        case .success(let target):
+            // Commits the prompt: fills and presses Return. Unlike sync this fronts the owning window.
+            result = writer.writeAndSubmit(text, to: target)
+        case .failure(let reason):
+            result = .failure(reason)
+        }
+        report(requestId: requestId, sessionId: sessionId, result: result, to: emit)
         refresh()
     }
 

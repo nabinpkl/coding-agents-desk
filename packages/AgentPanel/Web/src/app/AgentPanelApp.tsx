@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { AppWindow, Download, LoaderCircle, PanelLeft, Send, Square, Terminal as TerminalIcon } from "lucide-react";
+import { AppWindow, CornerDownLeft, Download, LoaderCircle, PanelLeft, Send, Square, Terminal as TerminalIcon } from "lucide-react";
 import type {
   AgentExtensionUIRequest,
   AgentTerminalContext,
@@ -910,16 +910,17 @@ function composerReasonText(reason: string | null): string {
 }
 
 /**
- * Writes a session's prompt into the Claude Desktop window that owns it, without activating it.
+ * Writes a session's prompt into the Claude Desktop window that owns it.
  *
- * Fill only, never send. There is deliberately no Enter-to-submit handler and no submit request on
- * the wire: the text lands in the real composer and the human presses Return there, having seen it.
- * That is the whole safety property of this surface, so Enter here inserts a newline like any
- * ordinary textarea.
+ * "Fill" writes without activating and never sends -- the text lands in the real composer and the human
+ * presses Return there, having seen it. The adjacent Enter button is the deliberate exception: it fills
+ * AND presses Return in the owning window, so the prompt actually runs in Claude Desktop, fronting that
+ * window. The textarea's own Enter key still inserts a newline like any ordinary textarea; sending stays
+ * an explicit button press.
  *
- * Rendered only for `claude` sessions. The mapping walks from a process carrying `--resume=<id>` to
- * the Claude.app window that owns it, so every other harness would resolve to a permanent
- * `not-running` -- a field that can never work is worse than no field.
+ * Rendered only for `claude` sessions. The mapping walks from a process carrying `--resume=<id>` (or a
+ * registry row for a brand-new session) to the Claude.app window that owns it, so every other harness
+ * would resolve to a permanent `not-running` -- a field that can never work is worse than no field.
  */
 function ComposerSyncField({
   bridge,
@@ -986,7 +987,27 @@ function ComposerSyncField({
     }
   }, [adopt, bridge, pending, sessionId]);
 
+  const send = useCallback(async () => {
+    if (pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      adopt(await bridge.submitWindowComposer(sessionId, draft));
+    } catch (failure) {
+      setError(
+        failure instanceof WindowComposerError
+          ? composerReasonText(failure.reason)
+          : String((failure as Error).message ?? failure),
+      );
+    } finally {
+      setPending(false);
+    }
+  }, [adopt, bridge, draft, pending, sessionId]);
+
   const enabled = status?.enabled === true;
+  // A submit of only whitespace is meaningless -- Return on an empty composer sends nothing -- so the
+  // Enter action stays disabled until there is actually a prompt to commit.
+  const canSend = enabled && draft.trim().length > 0;
   // Before the first status arrives nothing is known, so the field stays disabled and says so rather
   // than offering a write that would be dropped.
   const notice = status === null
@@ -1027,6 +1048,20 @@ function ComposerSyncField({
             <Download className="size-4" aria-hidden />
           </button>
         ) : null}
+        <button
+          type="button"
+          onClick={() => void send()}
+          disabled={!canSend}
+          aria-label="Send to Claude's composer"
+          title="Fill and press Enter in Claude, sending the prompt now"
+          className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+        >
+          {pending ? (
+            <LoaderCircle className="size-4 animate-spin" aria-hidden />
+          ) : (
+            <CornerDownLeft className="size-4" aria-hidden />
+          )}
+        </button>
         <button
           type="button"
           onClick={() => void commit()}

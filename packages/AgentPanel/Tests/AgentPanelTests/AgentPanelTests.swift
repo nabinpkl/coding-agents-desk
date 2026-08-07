@@ -164,6 +164,33 @@ struct AgentPanelTests {
         ) == nil)
     }
 
+    @Test func windowInputSubmitDecodesWithTheSameBoundsAsASync() {
+        let session = "9f2c1d54-0b3a-4e77-8c21-6a5be0d41f3e"
+
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-window-input-submit",
+                body: ["rid": "submit-1", "sid": session, "tx": "run the tests"]
+            ) == .windowInputSubmit(requestId: "submit-1", sessionId: session, text: "run the tests")
+        )
+
+        // The same text bound as a sync: the submit string is also written verbatim into another
+        // application's field, so an unbounded one is a way to wedge that app.
+        let atLimit = String(repeating: "x", count: AgentPanelWindowInputBounds.textLimit)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-input-submit",
+            body: ["rid": "submit-1", "sid": session, "tx": atLimit]
+        ) != nil)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-input-submit",
+            body: ["rid": "submit-1", "sid": session, "tx": atLimit + "x"]
+        ) == nil)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-input-submit",
+            body: ["rid": "submit-1", "sid": session]
+        ) == nil)
+    }
+
     @Test func requestDecoderAcceptsProviderNeutralSourcesAndRejectsInvalidIdentifiers() {
         for tag in ["agent-thread-sub", "agent-thread-unsub"] {
             #expect(AgentPanelRequest.decode(

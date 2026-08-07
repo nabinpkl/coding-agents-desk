@@ -1639,6 +1639,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 route(AgentWindowInputLaneRequest.sync(msg))
             case .windowInputRead(let msg):
                 route(AgentWindowInputLaneRequest.read(msg))
+            case .windowInputSubmit(let msg):
+                route(AgentWindowInputLaneRequest.submit(msg))
             }
         }
         lane.onClosed = { [weak self] in

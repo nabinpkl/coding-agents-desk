@@ -73,6 +73,9 @@ public enum AgentPanelRequest: Equatable, Sendable {
     case windowInputUnwatch(subscriptionId: String)
     case windowInputSync(requestId: String, sessionId: String, text: String)
     case windowInputRead(requestId: String, sessionId: String)
+    /// Fills the composer and presses Return, committing the prompt in Claude Desktop. Unlike `sync`,
+    /// this actually sends, so it activates (and fronts) the owning window. Bounded like a sync.
+    case windowInputSubmit(requestId: String, sessionId: String, text: String)
 
     public static func decode(tag: String, body: [String: Any]) -> AgentPanelRequest? {
         switch tag {
@@ -187,6 +190,14 @@ public enum AgentPanelRequest: Equatable, Sendable {
             guard let requestId = requestIdentifier(body["rid"]),
                   let sessionId = sessionIdentifier(body["sid"]) else { return nil }
             return .windowInputRead(requestId: requestId, sessionId: sessionId)
+        case "agent-window-input-submit":
+            // Same bounds as a sync: empty clears-then-sends nothing is a real intent, and the cap
+            // exists because this string is written verbatim into another application's field.
+            guard let requestId = requestIdentifier(body["rid"]),
+                  let sessionId = sessionIdentifier(body["sid"]),
+                  let raw = body["tx"] as? String,
+                  let text = AgentPanelWindowInputBounds.text(raw) else { return nil }
+            return .windowInputSubmit(requestId: requestId, sessionId: sessionId, text: text)
         case "agent-terminal-open":
             return decodeTerminalIntent(body: body, make: AgentPanelTerminalIntent.open)
         case "agent-terminal-close":

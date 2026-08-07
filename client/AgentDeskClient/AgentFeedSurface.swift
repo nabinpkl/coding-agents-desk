@@ -309,7 +309,7 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
             onTerminalIntent?(intent)
             terminalSession.handle(intent)
             return
-        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead:
+        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead, .windowInputSubmit:
             // A host-local Accessibility action against another application's window, not a sidecar
             // request, so it never enters the agent-feed envelope.
             onWindowInput?(request)
@@ -423,7 +423,7 @@ enum AgentFeedRequest: Equatable {
             ))
         case .terminal:
             preconditionFailure("Terminal intents must route through AgentFeedSurface.onTerminalIntent")
-        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead:
+        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead, .windowInputSubmit:
             preconditionFailure("Composer sync must route through AgentFeedSurface.onWindowInput")
         }
     }

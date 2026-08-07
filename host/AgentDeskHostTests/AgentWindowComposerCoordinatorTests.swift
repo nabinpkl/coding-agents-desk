@@ -82,6 +82,14 @@ struct AgentWindowComposerCoordinatorTests {
             return text
         }
 
+        func submitComposer(for target: AgentWindowSessionTarget) throws -> String {
+            lock.lock()
+            let submitted = composerText
+            composerText = ""
+            lock.unlock()
+            return submitted
+        }
+
         func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {}
     }
 
@@ -256,6 +264,31 @@ struct AgentWindowComposerCoordinatorTests {
         // another application's window. Refusing beats writing blind.
         #expect(access.writes.isEmpty)
         #expect(phone.current.count == 1)
+    }
+
+    @Test func aSubmitAnswersItsRequesterAndClearsItsComposer() async throws {
+        let access = Access()
+        let coordinator = makeCoordinator(access: access)
+        let phone = Sink()
+        coordinator.attachSink("phone", emit: phone.emit)
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-phone", sessionId: session), from: "phone")
+        _ = await phone.wait(count: 1)
+
+        coordinator.handle(
+            .windowInputSubmit(requestId: "submit-1", sessionId: session, text: "run the tests"),
+            from: "phone"
+        )
+
+        // A successful commit clears the composer, so the result's read-back is the emptied field.
+        let result = try decodeResult(await phone.wait(count: 2)[1])
+        #expect(result.requestId == "submit-1")
+        #expect(result.ok)
+        #expect(result.text == "run the tests")
+        #expect(access.writes == ["run the tests"])
+        #expect(access.composerText == "")
+        // The watcher learns the window cleared too, so the field does not sit on the sent text.
+        let refreshed = try decodeStatus(await phone.wait(count: 3)[2])
+        #expect(refreshed.composerText == "")
     }
 
     @Test func anUnchangedPollStaysSilentButARealChangeIsAnnounced() async throws {

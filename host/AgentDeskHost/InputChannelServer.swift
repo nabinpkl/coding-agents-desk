@@ -37,6 +37,7 @@ enum AgentFeedRequest: Sendable {
     case windowInputUnwatch(AgentWindowInputUnwatch)
     case windowInputSync(AgentWindowInputSync)
     case windowInputRead(AgentWindowInputRead)
+    case windowInputSubmit(AgentWindowInputSubmit)
 }
 
 protocol AgentDataPushing: AnyObject, Sendable {
@@ -485,6 +486,10 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         case "agent-window-input-read":
             if let msg = try? JSONDecoder().decode(AgentWindowInputRead.self, from: data) {
                 agentRequestHandler?(.windowInputRead(msg))
+            }
+        case "agent-window-input-submit":
+            if let msg = try? JSONDecoder().decode(AgentWindowInputSubmit.self, from: data) {
+                agentRequestHandler?(.windowInputSubmit(msg))
             }
         default:
             logger.notice("input lane unknown frame type=\(header.type, privacy: .public)")

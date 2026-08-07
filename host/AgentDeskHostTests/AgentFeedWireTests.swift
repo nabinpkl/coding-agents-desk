@@ -182,6 +182,10 @@ struct AgentFeedWireTests {
             AgentWindowInputRead(requestId: "read-1", sessionId: "session-1"),
             tag: "agent-window-input-read"
         )
+        try roundTrip(
+            AgentWindowInputSubmit(requestId: "submit-1", sessionId: "session-1", text: "run the tests"),
+            tag: "agent-window-input-submit"
+        )
 
         let enabled = try roundTrip(
             AgentWindowInputStatus(

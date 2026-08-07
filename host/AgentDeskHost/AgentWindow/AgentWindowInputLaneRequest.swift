@@ -37,4 +37,11 @@ enum AgentWindowInputLaneRequest {
               let sessionId = AgentPanelWindowInputBounds.identifier(message.sessionId) else { return nil }
         return .windowInputRead(requestId: requestId, sessionId: sessionId)
     }
+
+    static func submit(_ message: AgentWindowInputSubmit) -> AgentPanelRequest? {
+        guard let requestId = AgentPanelWindowInputBounds.identifier(message.requestId),
+              let sessionId = AgentPanelWindowInputBounds.identifier(message.sessionId),
+              let text = AgentPanelWindowInputBounds.text(message.text) else { return nil }
+        return .windowInputSubmit(requestId: requestId, sessionId: sessionId, text: text)
+    }
 }

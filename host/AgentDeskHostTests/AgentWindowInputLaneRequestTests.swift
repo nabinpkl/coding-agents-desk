@@ -33,6 +33,11 @@ struct AgentWindowInputLaneRequestTests {
                 AgentWindowInputSync(requestId: "sync-1", sessionId: session, text: "review the diff")
             ) == .windowInputSync(requestId: "sync-1", sessionId: session, text: "review the diff")
         )
+        #expect(
+            AgentWindowInputLaneRequest.submit(
+                AgentWindowInputSubmit(requestId: "submit-1", sessionId: session, text: "run the tests")
+            ) == .windowInputSubmit(requestId: "submit-1", sessionId: session, text: "run the tests")
+        )
     }
 
     @Test func aSessionIdIsRejectedRatherThanScannedAgainstEveryProcess() {
@@ -82,6 +87,18 @@ struct AgentWindowInputLaneRequestTests {
         #expect(
             AgentWindowInputLaneRequest.sync(
                 AgentWindowInputSync(requestId: "sync-1", sessionId: session, text: atLimit + "x")
+            ) == nil
+        )
+        // A submit string is written verbatim too, so it shares the cap. An empty submit is allowed by
+        // the bounds (the panel disables it), but it must still round-trip rather than be dropped.
+        #expect(
+            AgentWindowInputLaneRequest.submit(
+                AgentWindowInputSubmit(requestId: "submit-1", sessionId: session, text: atLimit)
+            ) != nil
+        )
+        #expect(
+            AgentWindowInputLaneRequest.submit(
+                AgentWindowInputSubmit(requestId: "submit-1", sessionId: session, text: atLimit + "x")
             ) == nil
         )
     }

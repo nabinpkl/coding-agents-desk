@@ -516,6 +516,37 @@ describe("BridgeDataSource Claude window composer", () => {
     await expect(failed).rejects.toMatchObject({ reason: "focus-stolen" });
   });
 
+  it("submits by filling and sending, and rejects with the reason code", async () => {
+    const { host, source } = makeSource();
+
+    const submitted = source.submitWindowComposer("session-a", "run the tests");
+    expect(host.posted.at(-1)).toEqual({
+      t: "agent-window-input-submit",
+      rid: "window-submit-1",
+      sid: "session-a",
+      tx: "run the tests",
+    });
+    host.deliver({
+      t: "agent-window-input-result",
+      rid: "window-submit-1",
+      sid: "session-a",
+      ok: true,
+      // A committed prompt clears the composer, so the empty read-back is the success signal.
+      tx: "",
+    });
+    await expect(submitted).resolves.toBe("");
+
+    const failed = source.submitWindowComposer("session-a", "nope");
+    host.deliver({
+      t: "agent-window-input-result",
+      rid: "window-submit-2",
+      sid: "session-a",
+      ok: false,
+      r: "composer-missing",
+    });
+    await expect(failed).rejects.toMatchObject({ reason: "composer-missing" });
+  });
+
   it("treats a cleared composer as a real answer rather than a missing one", async () => {
     const { host, source } = makeSource();
     const cleared = source.syncWindowComposer("session-a", "");
