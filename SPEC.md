@@ -60,7 +60,7 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 
 ### Host
 
-1. **CaptureEngine.** Owns ScreenCaptureKit. Produces `CMSampleBuffer` frames for the selected display. In the hybrid worktree the same capture stream feeds HEVC full-frame refresh and the planned scroll delta engine. Display switches restart the capture stream and force the first post-switch frame to be a keyframe.
+1. **CaptureEngine.** Owns ScreenCaptureKit. Produces `CMSampleBuffer` frames for the current capture target, which is either the selected display or a single window (ADR-0094). A window target uses `SCContentFilter(desktopIndependentWindow:)`, sizes from the filter's own `contentRect` x `pointPixelScale`, works while the window sits on another Space, and is view-only. In the hybrid worktree the same capture stream feeds HEVC full-frame refresh and the planned scroll delta engine. Target switches restart the capture stream and force the first post-switch frame to be a keyframe.
 2. **Encoder.** Wraps VideoToolbox and produces `OwnedMediaFrameEnvelope` payloads for HEVC full-frame refreshes. It fails the media path if the required hardware encoder cannot start.
 3. **SpacesProvider.** Enumerates Spaces through SkyLight/CoreGraphics bindings and forwards Space-swipe gestures through Dock-handled events. It reports host display labels, bounds, main-display status, active display id, and selected display id in `DesktopState`.
 4. **InputDispatcher.** Consumes `NormalizedInput` and emits `CGEvent`. Space-switch gestures stream through the injected `SpacesProvider` handler. Cursor input is clamped against the selected display bounds and returns its applied position only after posting the event, so the originating input channel can acknowledge that revision.
@@ -77,7 +77,7 @@ The shared wire types (pairing, session, owned-media, retained-graphics, input, 
 15. **SignalingChannel.** Supplies length-prefixed QUIC stream framing and role routing for the session control and input streams. It is not a WebSocket wrapper.
 16. **HostPtyRuntimeProcess.** Reuses matching Rust `pty-vault` and `pty-manager` generations on the host variant's Application Support sockets or launches bundled candidates. A changed candidate performs the ADR-0072 private handover before the old generation exits. The vault spawns commands and retains the primary PTY masters. The manager leases duplicate masters and owns terminal state and policy. The host never terminates a changed runtime peer.
 17. **TerminalClientBridge.** Bridges a dedicated `.terminal` QUIC stream to the `pty-manager` Unix socket as opaque length-prefixed PTY protobuf frames. It does not decode terminal protocol payloads; it only enforces stream role and frame bounds. Persistent full-screen terminal clients remain trusted multiplexer clients with the existing session-management controls. Agent Panel creation and kill authority stays behind `AgentSessionTerminalCoordinator`; its iOS renderer attaches only to the deterministic PTY returned by that coordinator.
-18. **VideoFrameSource.** Concrete implementation `ScreenCaptureKitFrameSource` captures one stream for the selected display and exposes a display-selection hook. `TestPatternFrameSource` exists as a diagnostic source.
+18. **VideoFrameSource.** Concrete implementation `ScreenCaptureKitFrameSource` captures one stream for the current `CaptureTarget` and conforms to `TargetSelectableVideoFrameSource` (`selectCaptureTarget`, `setShowsCursorInVideo`, `setCaptureAvailabilityHandler`). A window target reports capture health through the availability handler, because a window that stops being capturable yields `SCFrameStatus.suspended` and then silence with no stream error at all. `TestPatternFrameSource` exists as a diagnostic source and is display-only.
 19. **SpaceThumbnailProvider.** Host-local thumbnail source for Spaces, enabled by owner-scoped demand.
 20. **SpaceAgent.** Host-local overlay under `host/AgentDeskHost/SpaceAgent/`, showing the draggable spaceship and active-display Spaces strip.
 21. **DictationBar.** Host-local push-to-talk overlay under `host/AgentDeskHost/DictationBar/`, independent of the iPhone media and input channels.
@@ -883,12 +883,16 @@ HostAvailability   { active | locked | captureUnavailable |
 HostTextInputFocus { editability: editable | nonEditable | ambiguous,
                       secure, source, role?, subrole?, cursorKind? }  // t: "text-input-focus"
 ClientConfig        { thumbnailsEnabled, thumbnailRefresh?,
-                      selectedDisplayId?, crispTextOverlayEnabled?,
+                      selectedDisplayId?, selectedWindowId?,
+                      windowListEnabled, crispTextOverlayEnabled?,
                       showHostCursorInVideo?, mediaQuality?,
                       diagnosticScreenshotsEnabled }
 ClientMediaQuality  { adaptiveEnabled, fixedTarget? }
 ClientQualityTarget { bitrateKbps, fps, resolutionScale }
                                                                         // t: "client-config"
+WindowSummary       { id, spaceId?, appName, title, iconHash }
+WindowAppIcon       { hash, png }                       // base64, sent once per client
+WindowList          { windows, icons }                                 // t: "window-list"
 DiagnosticsRequest  { requestId, sinceRunId?, includePreviousRuns,
                       maxBytes? }                                      // t: "diagnostics-request"
 DiagnosticsSummary  { requestId, runs, droppedEvents, droppedBytes,

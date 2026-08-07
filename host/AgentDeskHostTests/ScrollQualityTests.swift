@@ -43,8 +43,8 @@ struct ScrollQualityTests {
 
     @Test func ownedCaptureSizingSupportsConfiguredScaleDown() {
         let size = CaptureSizing.pixelSize(
-            displayWidthPoints: 1800,
-            displayHeightPoints: 1169,
+            widthPoints: 1800,
+            heightPoints: 1169,
             backingScale: 2.0,
             scaleDownBy: 2.0
         )
@@ -57,26 +57,26 @@ struct ScrollQualityTests {
 
     @Test func ownedCaptureSizingSupportsQualityResolutionScales() {
         let native = CaptureSizing.pixelSize(
-            displayWidthPoints: 1800,
-            displayHeightPoints: 1169,
+            widthPoints: 1800,
+            heightPoints: 1169,
             backingScale: 2.0,
             scaleDownBy: CaptureSizing.scaleDownBy(baseScaleDownBy: 1.0, resolutionScale: 1.0)
         )
         let capacity1 = CaptureSizing.pixelSize(
-            displayWidthPoints: 1800,
-            displayHeightPoints: 1169,
+            widthPoints: 1800,
+            heightPoints: 1169,
             backingScale: 2.0,
             scaleDownBy: CaptureSizing.scaleDownBy(baseScaleDownBy: 1.0, resolutionScale: 0.75)
         )
         let capacity2 = CaptureSizing.pixelSize(
-            displayWidthPoints: 1800,
-            displayHeightPoints: 1169,
+            widthPoints: 1800,
+            heightPoints: 1169,
             backingScale: 2.0,
             scaleDownBy: CaptureSizing.scaleDownBy(baseScaleDownBy: 1.0, resolutionScale: 0.5)
         )
         let emergency = CaptureSizing.pixelSize(
-            displayWidthPoints: 1800,
-            displayHeightPoints: 1169,
+            widthPoints: 1800,
+            heightPoints: 1169,
             backingScale: 2.0,
             scaleDownBy: CaptureSizing.scaleDownBy(baseScaleDownBy: 1.0, resolutionScale: 0.33)
         )
@@ -90,6 +90,33 @@ struct ScrollQualityTests {
         #expect(emergency.width == 1188)
         #expect(emergency.height == 770)
         #expect([native, capacity1, capacity2, emergency].allSatisfy { $0.width.isMultiple(of: 2) && $0.height.isMultiple(of: 2) })
+    }
+
+    // A window target sizes from SCContentFilter.contentRect, which is fractional points
+    // rather than a display's whole-point dimensions, and from the filter's own
+    // pointPixelScale. Odd and fractional results still have to land even, because the
+    // encoder rejects odd dimensions.
+    @Test func ownedCaptureSizingHandlesFractionalWindowRects() {
+        let size = CaptureSizing.pixelSize(
+            widthPoints: 990.5,
+            heightPoints: 768.25,
+            backingScale: 2.0,
+            scaleDownBy: 1.0
+        )
+
+        #expect(size.width == 1980)
+        #expect(size.height == 1536)
+
+        // A 1x window on a non-Retina display, landing on an odd pixel count.
+        let onePoint = CaptureSizing.pixelSize(
+            widthPoints: 801,
+            heightPoints: 601,
+            backingScale: 1.0,
+            scaleDownBy: 1.0
+        )
+
+        #expect(onePoint.width == 800)
+        #expect(onePoint.height == 600)
     }
 
     @Test func ownedMediaFrameScalerReturnsOriginalFrameWhenScaleIsOne() throws {

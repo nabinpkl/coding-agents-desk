@@ -658,6 +658,39 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded.diagnosticScreenshotsEnabled == false)
 }
 
+@Test func clientConfigCarriesSelectedWindowAlongsideDisplay() throws {
+    // The window target is additive: the display still owns the input coordinate space
+    // and DesktopState, so both ride the same config rather than one replacing the other.
+    let config = ClientConfig(
+        thumbnailsEnabled: true,
+        selectedDisplayId: "display-1",
+        selectedWindowId: 32_517
+    )
+    try roundTrip(config)
+
+    let object = try JSONSerialization.jsonObject(
+        with: try JSONEncoder().encode(config)
+    ) as? [String: Any]
+    #expect(object?["sd"] as? String == "display-1")
+    #expect(object?["sw"] as? UInt32 == 32_517)
+}
+
+@Test func clientConfigOmitsSelectedWindowWhenWatchingADisplay() throws {
+    // Absent means display capture. A peer that never sends the key must not read as
+    // "window 0", which would be a target the host cannot resolve.
+    let config = ClientConfig(thumbnailsEnabled: false, selectedDisplayId: "display-1")
+    let object = try JSONSerialization.jsonObject(
+        with: try JSONEncoder().encode(config)
+    ) as? [String: Any]
+    #expect(object?["sw"] == nil)
+
+    let decoded = try JSONDecoder().decode(
+        ClientConfig.self,
+        from: Data(#"{"t":"client-config","te":false}"#.utf8)
+    )
+    #expect(decoded.selectedWindowId == nil)
+}
+
 @Test func voiceAssetRequestsRoundTrip() throws {
     try roundTrip(VoiceAssetLaneRequest.manifest)
     try roundTrip(VoiceAssetLaneRequest.fetch(path: "VoicePhoneModel.mlmodelc/model.mil", offset: 0))

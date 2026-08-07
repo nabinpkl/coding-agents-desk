@@ -218,6 +218,14 @@ extension PairingViewController: UIScrollViewDelegate {
     // on zoom transitions so the dot tracks both finger movement and
     // pinch-zoom viewport shifts without waiting for a video round-trip.
     func updateCursorDot() {
+        // A window target streams window pixels, but every coordinate here is in DISPLAY
+        // points (activeDisplayRect, cursorSourcePos). Drawing the overlay against window
+        // pixels would put the cursor somewhere arbitrary inside the window, and the host
+        // drops input while a window is selected anyway, so there is no cursor to show.
+        guard selectedWindowIdForClientConfig == nil else {
+            cursorDotView?.isHidden = true
+            return
+        }
         guard let dot = cursorDotView,
               let scroll = sinkScrollView,
               let pos = cursorSourcePos,

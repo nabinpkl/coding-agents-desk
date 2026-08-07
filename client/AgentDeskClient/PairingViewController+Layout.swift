@@ -208,6 +208,15 @@ extension PairingViewController {
         thumbnailStripView.isHidden = true
         hostContentView.addSubview(thumbnailStripView)
 
+        // Directly under the Spaces strip, because the two are the same kind of thing: pick a
+        // thing to look at. They need visibly distinct affordances though -- a Desktop tile
+        // switches the Mac's Space, a window icon only retargets this phone's view and
+        // changes nothing on the Mac.
+        windowPickerStripView.translatesAutoresizingMaskIntoConstraints = false
+        windowPickerStripView.delegate = self
+        windowPickerStripView.isHidden = true
+        hostContentView.addSubview(windowPickerStripView)
+
         let bottomConstraint = buttonRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
         buttonRowBottomConstraint = bottomConstraint
         let heightConstraint = buttonRow.heightAnchor.constraint(
@@ -233,6 +242,9 @@ extension PairingViewController {
             displayRailView.heightAnchor.constraint(equalToConstant: 32),
             thumbnailStripView.heightAnchor.constraint(
                 equalToConstant: ThumbnailStripView.tileHeight + ThumbnailStripView.tileCaptionHeight
+            ),
+            windowPickerStripView.heightAnchor.constraint(
+                equalToConstant: WindowPickerStripView.stripHeight
             ),
 
             keyboardSurface.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
@@ -390,12 +402,17 @@ extension PairingViewController {
             thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
             thumbnailStripView.topAnchor.constraint(equalTo: displayRailView.bottomAnchor, constant: 4),
 
+            windowPickerStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            windowPickerStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+
             keyboardSurface.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             keyboardSurface.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
 
             trackpadView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
-            trackpadView.topAnchor.constraint(equalTo: thumbnailStripView.bottomAnchor, constant: 4),
+            windowPickerStripView.topAnchor.constraint(equalTo: thumbnailStripView.bottomAnchor, constant: 4),
+
+            trackpadView.topAnchor.constraint(equalTo: windowPickerStripView.bottomAnchor, constant: 4),
             trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
 
             scrollStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12)
@@ -420,12 +437,17 @@ extension PairingViewController {
             thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
             thumbnailStripView.topAnchor.constraint(equalTo: displayRailView.bottomAnchor, constant: 4),
 
+            windowPickerStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            windowPickerStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+
             keyboardSurface.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
             keyboardSurface.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
 
             trackpadView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
             trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
-            trackpadView.topAnchor.constraint(equalTo: thumbnailStripView.bottomAnchor, constant: 4),
+            windowPickerStripView.topAnchor.constraint(equalTo: thumbnailStripView.bottomAnchor, constant: 4),
+
+            trackpadView.topAnchor.constraint(equalTo: windowPickerStripView.bottomAnchor, constant: 4),
             trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
 
             scrollStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12)
@@ -447,7 +469,11 @@ extension PairingViewController {
 
             thumbnailStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
             thumbnailStripView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
-            thumbnailStripView.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
+            thumbnailStripView.bottomAnchor.constraint(equalTo: windowPickerStripView.topAnchor, constant: -4),
+
+            windowPickerStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+            windowPickerStripView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
+            windowPickerStripView.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
 
             trackpadView.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 12),
             trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
@@ -474,7 +500,11 @@ extension PairingViewController {
 
             thumbnailStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
             thumbnailStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
-            thumbnailStripView.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
+            thumbnailStripView.bottomAnchor.constraint(equalTo: windowPickerStripView.topAnchor, constant: -4),
+
+            windowPickerStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
+            windowPickerStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
+            windowPickerStripView.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
 
             trackpadView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
             trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
@@ -494,6 +524,7 @@ extension PairingViewController {
     func restartSessionSurfaceObservations() {
         startDesktopStateObservation()
         startThumbnailsObservation()
+        startWindowListObservation()
         startAgentSayObservation()
         startCursorObservation()
         startTextInputFocusObservation()
@@ -518,6 +549,8 @@ extension PairingViewController {
         displayRailView.renderEmpty()
         thumbnailStripView.removeFromSuperview()
         thumbnailStripView.renderEmpty()
+        windowPickerStripView.removeFromSuperview()
+        windowPickerStripView.renderEmpty()
         desktopStateTask?.cancel()
         desktopStateTask = nil
         thumbnailsTask?.cancel()
@@ -552,6 +585,9 @@ extension PairingViewController {
         stopAgentSayForegroundPresentation()
         lastDesktopState = nil
         selectedDisplayIdForClientConfig = nil
+        // The host resets its own capture target when the session ends, so holding a window
+        // id across a reconnect would leave the two disagreeing about what is on screen.
+        selectedWindowIdForClientConfig = nil
         applyKeyboardPresentationIntent(.hide)
         buttonRowBottomConstraint = nil
         buttonRowHeightConstraint = nil

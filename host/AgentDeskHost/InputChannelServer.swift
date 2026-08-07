@@ -85,6 +85,9 @@ protocol InputChannelServing: AgentDataPushing {
     func close()
     func pushDesktopState(_ state: DesktopState)
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow])
+    // `icons` is the full hash -> base64 PNG map for `windows`; the implementation drops
+    // the ones this client has already been sent.
+    func pushWindowList(_ windows: [WindowSummary], icons: [String: String])
     func pushAgentSay(_ push: AgentSayPush)
     func pushCursor(_ push: CursorImagePush)
     func pushCursorApplied(_ push: CursorAppliedPush)
@@ -120,6 +123,7 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
     // async write then waits for its predecessor so frames cannot interleave
     // or overtake cursor causality feedback (ADR-0030, ADR-0058).
     private let sendChain = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
+    private let sentIconHashes = OSAllocatedUnfairLock(initialState: Set<String>())
 
     let events: AsyncStream<InputChannelEvent>
     let diagnosticsUpdates: AsyncStream<DiagnosticsChannelUpdate>
@@ -246,6 +250,21 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             thumbnails: stringKeyed,
             topWindows: topWindowsKeyed.isEmpty ? nil : topWindowsKeyed
         ))
+    }
+
+    // App icons are per-app and immutable for the life of this lane, so a client pays for
+    // each one once. A picker refresh after that carries metadata only.
+    func pushWindowList(_ windows: [WindowSummary], icons: [String: String]) {
+        let fresh = sentIconHashes.withLock { sent -> [WindowAppIcon] in
+            var out: [WindowAppIcon] = []
+            for (hash, png) in icons where !sent.contains(hash) {
+                sent.insert(hash)
+                out.append(WindowAppIcon(hash: hash, png: png))
+            }
+            return out
+        }
+        logger.notice("window list push fp=\(self.fingerprint.rawValue, privacy: .public) windows=\(windows.count, privacy: .public) newIcons=\(fresh.count, privacy: .public)")
+        sendCodableFrame(WindowListPush(windows: windows, icons: fresh))
     }
 
     private func sendCodableFrame<T: Encodable>(_ frame: T) {

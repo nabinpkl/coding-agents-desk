@@ -8,7 +8,7 @@ import AgentDeskWire
 // settings-changed responder, and the two background Tasks that drain
 // DesktopState / Thumbnails from the input channel into the views.
 
-extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDelegate, DisplayRailViewDelegate {
+extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDelegate, DisplayRailViewDelegate, WindowPickerStripViewDelegate {
     @objc func settingsChanged() {
         applySettingsToTranslator()
         applyVideoTouchState()
@@ -41,6 +41,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         guard let channel = pairingClient.activeInputChannel else { return }
         displayRailView.renderEmpty()
         thumbnailStripView.renderEmpty()
+        windowPickerStripView.renderEmpty()
         desktopStateTask = Task { [weak self, channel] in
             for await state in channel.desktopStateUpdates {
                 await MainActor.run {
@@ -50,6 +51,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
                         ?? state.displays.first?.id
                     self?.displayRailView.apply(state: state)
                     self?.thumbnailStripView.apply(state: state)
+                    self?.windowPickerStripView.apply(state: state)
                     self?.refreshThumbnailStripVisibility()
                     self?.applyDesktopStateForCursorModel(state)
                     self?.sendCurrentClientConfig()
@@ -86,6 +88,22 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             for await topWindows in channel.topWindowsUpdates {
                 await MainActor.run {
                     self?.thumbnailStripView.apply(topWindows: topWindows)
+                }
+            }
+        }
+    }
+
+    // The window picker's own stream. Separate from thumbnails for the same reason it is a
+    // separate push: it is capture-free and must keep working with previews turned off.
+    func startWindowListObservation() {
+        windowListTask?.cancel()
+        guard let channel = pairingClient.activeInputChannel else { return }
+        windowPickerStripView.renderEmpty()
+        windowListTask = Task { [weak self, channel] in
+            for await push in channel.windowListUpdates {
+                await MainActor.run {
+                    self?.windowPickerStripView.apply(push: push)
+                    self?.refreshThumbnailStripVisibility()
                 }
             }
         }
@@ -367,10 +385,21 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         else {
             displayRailView.isHidden = true
             thumbnailStripView.isHidden = true
+            windowPickerStripView.isHidden = true
             return
         }
         displayRailView.isHidden = displayRailView.displayCount <= 1
         thumbnailStripView.isHidden = thumbnailStripView.userSpaceCount <= 1
+        windowPickerStripView.isHidden = windowPickerStripView.isEmptyAndIdle
+    }
+
+    // Whether the host should be producing the window list at all. Same condition as strip
+    // visibility, so a phone that is looking at a full-screen Terminal or Agent surface is
+    // not asking the Mac to enumerate windows for a picker nobody can see.
+    func windowPickerDemandActive() -> Bool {
+        isControlSurfaceActive()
+            && SettingsStore.shared.videoLayoutMode != .full
+            && keyboardPresentationState != .shown
     }
 
     // ADR-0006: send the current client-config on input-channel open
@@ -473,6 +502,33 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         }
     }
 
+    // Retargets this phone's video only. Nothing moves on the Mac, which is the visible
+    // difference between this strip and the Spaces strip directly above it.
+    func windowPicker(_ view: WindowPickerStripView, didSelectWindowId windowId: UInt32?) {
+        guard let channel = pairingClient.activeInputChannel else { return }
+        selectedWindowIdForClientConfig = windowId
+        applyWindowViewOnlyPresentation()
+        let config = currentClientConfig()
+        Task { [channel, config] in
+            try? await channel.sendConfig(config)
+        }
+    }
+
+    // View-only is ENFORCED on the host, which drops input while a window is the capture
+    // target. This only makes the phone honest about it: leaving a live-looking trackpad on
+    // screen that silently does nothing is worse than removing it.
+    func applyWindowViewOnlyPresentation() {
+        let viewOnly = selectedWindowIdForClientConfig != nil
+        trackpadView.isHidden = viewOnly
+        trackpadView.isUserInteractionEnabled = !viewOnly
+        scrollStripView.isHidden = viewOnly
+        scrollStripView.isUserInteractionEnabled = !viewOnly
+        if viewOnly, keyboardPresentationState == .shown {
+            applyKeyboardPresentationIntent(.hide)
+        }
+        updateCursorDot()
+    }
+
     func displayRail(_ view: DisplayRailView, didSelectDisplayId displayId: String) {
         guard let channel = pairingClient.activeInputChannel else { return }
         selectedDisplayIdForClientConfig = displayId
@@ -490,6 +546,12 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             thumbnailsEnabled: SettingsStore.shared.showSpacePreviews,
             thumbnailRefresh: thumbnailRefresh,
             selectedDisplayId: explicitSelectedDisplayId ?? selectedDisplayIdForConfig(),
+            selectedWindowId: selectedWindowIdForClientConfig,
+            // The picker is part of the Control surface's chrome, so demand tracks the same
+            // condition that decides whether the strips are on screen at all. It is NOT gated
+            // on showSpacePreviews: that setting exists to stop thumbnail CAPTURE, and this
+            // list is capture-free.
+            windowListEnabled: windowPickerDemandActive(),
             crispTextOverlayEnabled: SettingsStore.shared.crispTextOverlayEnabled,
             showHostCursorInVideo: SettingsStore.shared.cursorDisplayMode.showsHostCursorInVideo,
             mediaQuality: Config.launchMediaQualityOverride ?? SettingsStore.shared.mediaQualityConfig,

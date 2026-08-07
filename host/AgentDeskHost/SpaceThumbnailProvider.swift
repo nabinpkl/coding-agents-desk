@@ -453,15 +453,7 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
     // Shared window filter: drop wallpaper, dock, menu-bar, control center,
     // and sub-50pt overlays; keep regular app windows (layer 0).
     private func candidateWindows(_ content: SCShareableContent) -> [SCWindow] {
-        content.windows.filter { win in
-            guard let app = win.owningApplication else { return false }
-            if app.bundleIdentifier == "com.apple.dock" { return false }
-            if app.bundleIdentifier == "com.apple.WindowManager" { return false }
-            if app.bundleIdentifier == "com.apple.controlcenter" { return false }
-            if win.windowLayer != 0 { return false }
-            if win.frame.width < 50 || win.frame.height < 50 { return false }
-            return true
-        }
+        CaptureWindowFilter.candidates(content)
     }
 
     // Names-only refresh: enumerate windows and record each Space's dominant

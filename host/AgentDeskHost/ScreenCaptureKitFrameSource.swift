@@ -12,7 +12,7 @@ import AgentDeskWire
 // using the configured capture pixel format. Selection comes from the
 // input-channel client config and falls back to the first display.
 
-final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySelectableVideoFrameSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
+final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, TargetSelectableVideoFrameSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "capture")
     private let sampleQueue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).scstream", qos: .userInteractive)
     private let baseScaleDownBy: Double
@@ -31,7 +31,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         self.pixelFormat = pixelFormat
         super.init()
         controlState.withLock { state in
-            state.selectedDisplayId = selectedDisplayIdProvider()
+            state.target = .display(selectedDisplayIdProvider())
         }
     }
 
@@ -44,10 +44,14 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         try await startCurrentSelection()
     }
 
-    func selectDisplay(id: String?) {
+    func selectCaptureTarget(_ target: CaptureTarget) {
         let shouldRestart = controlState.withLock { state -> Bool in
-            let changed = state.selectedDisplayId != id
-            state.selectedDisplayId = id
+            let changed = state.target != target
+            state.target = target
+            // A target switch invalidates the previous target's availability verdict: the
+            // new one has not reported anything yet, and carrying the old "unavailable"
+            // across would suppress the first genuine transition.
+            if changed { state.lastReportedAvailability = nil }
             return changed && state.isRunning && state.onFrame != nil
         }
         guard shouldRestart else { return }
@@ -55,6 +59,10 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
             guard let self else { return }
             await self.restartCurrentSelection()
         }
+    }
+
+    func setCaptureAvailabilityHandler(_ handler: @escaping @Sendable (CaptureAvailability) -> Void) {
+        controlState.withLock { $0.onAvailability = handler }
     }
 
     func setShowsCursorInVideo(_ enabled: Bool) {
@@ -74,12 +82,23 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
     }
 
     private func startCurrentSelection() async throws {
+        let target = controlState.withLock { $0.target }
+        // onScreenWindowsOnly must be false for a window target: the windows most worth
+        // streaming to a phone are the ones sitting on another Space, and `true` filters
+        // exactly those out. Harmless for the display branch, which reads content.displays.
         let content: SCShareableContent
         do {
-            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            content = try await SCShareableContent.excludingDesktopWindows(
+                false,
+                onScreenWindowsOnly: !target.isWindow
+            )
         } catch {
             logger.error("SCShareableContent failed: \(String(describing: error), privacy: .public)")
             throw ScreenCaptureError.permissionDenied
+        }
+        if case let .window(windowID) = target {
+            try await startWindowCapture(windowID: windowID, content: content)
+            return
         }
         guard let display = selectDisplay(from: content.displays) else {
             throw ScreenCaptureError.noDisplay
@@ -111,8 +130,8 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         // downsamples and the crisp emitter keeps full pixels.
         let scale = Self.backingScale(for: display.displayID)
         let pixelSize = CaptureSizing.pixelSize(
-            displayWidthPoints: display.width,
-            displayHeightPoints: display.height,
+            widthPoints: Double(display.width),
+            heightPoints: Double(display.height),
             backingScale: Double(scale),
             scaleDownBy: baseScaleDownBy
         )
@@ -138,8 +157,55 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         logger.notice("screen capture started \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) backingScale=\(scale, privacy: .public) captureScaleDown=\(self.baseScaleDownBy, privacy: .public) pixelFormat=\(Self.fourCC(self.pixelFormat), privacy: .public)")
     }
 
+    // Stream one window through `SCContentFilter(desktopIndependentWindow:)`.
+    //
+    // Sizing comes from the filter's own `contentRect` and `pointPixelScale` rather than
+    // the display branch's NSScreen lookup: the filter already knows the exact backing
+    // scale for whichever display the window sits on, so there is no 2.0 fallback to be
+    // wrong about. Dimensions are forced even for the encoder.
+    //
+    // A window resized after this point keeps streaming into the dimensions captured here,
+    // scaled to fit. That is imperfect, not broken; live reconfiguration through
+    // `updateContentFilter`/`updateConfiguration` is deliberately a follow-up.
+    private func startWindowCapture(windowID: CGWindowID, content: SCShareableContent) async throws {
+        guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
+            logger.error("capture target window \(windowID, privacy: .public) not found")
+            throw ScreenCaptureError.noWindow
+        }
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let scale = Double(filter.pointPixelScale)
+        let rect = filter.contentRect
+        let config = SCStreamConfiguration()
+        config.pixelFormat = pixelFormat
+        if pixelFormat != kCVPixelFormatType_32BGRA {
+            config.colorMatrix = CGDisplayStream.yCbCrMatrix_ITU_R_709_2
+        }
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+        let pixelSize = CaptureSizing.pixelSize(
+            widthPoints: Double(rect.width),
+            heightPoints: Double(rect.height),
+            backingScale: scale,
+            scaleDownBy: baseScaleDownBy
+        )
+        config.width = pixelSize.width
+        config.height = pixelSize.height
+        config.queueDepth = 3
+        config.showsCursor = controlState.withLock { $0.showsCursorInVideo }
+        config.colorSpaceName = CGColorSpace.sRGB
+
+        let stream = SCStream(filter: filter, configuration: config, delegate: self)
+        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
+        try await stream.startCapture()
+        self.stream = stream
+        let appName = window.owningApplication?.applicationName ?? "?"
+        logger.notice("window capture started wid=\(windowID, privacy: .public) app=\(appName, privacy: .public) \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) pointPixelScale=\(scale, privacy: .public) onScreen=\(window.isOnScreen, privacy: .public)")
+    }
+
     private func selectDisplay(from displays: [SCDisplay]) -> SCDisplay? {
-        let selectedDisplayId = controlState.withLock { $0.selectedDisplayId }
+        var selectedDisplayId: String?
+        if case let .display(id) = controlState.withLock({ $0.target }) {
+            selectedDisplayId = id
+        }
         if let cgDisplayId = HostDisplayResolver.displayID(forSkyLightId: selectedDisplayId),
            let selected = displays.first(where: { $0.displayID == cgDisplayId }) {
             return selected
@@ -147,9 +213,9 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         return displays.first
     }
 
-    // Restart capture for a display switch. Resolution changes no longer restart
-    // capture (the ladder downscales in the encode pump), so this path is now
-    // display-selection only.
+    // Restart capture for a capture-target switch (display to display, display to
+    // window, window to window) or a showsCursor toggle. Resolution changes no longer
+    // restart capture, since the ladder downscales in the encode pump.
     private func restartCurrentSelection() async {
         let oldStream = stream
         stream = nil
@@ -164,7 +230,11 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         do {
             try await start(onFrame: callback)
         } catch {
-            logger.error("screen capture display switch failed: \(String(describing: error), privacy: .public)")
+            logger.error("screen capture target switch failed: \(String(describing: error), privacy: .public)")
+            // The target is gone and no stream exists to report a frame status, so this is
+            // the only place the failure can become a signal. Without it the client holds
+            // its last frame with a healthy decoder, which reads as a freeze.
+            report(.unavailable(reason: "capture-start-failed"))
         }
     }
 
@@ -196,6 +266,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         controlState.withLock { state in
             state.isRunning = false
             state.onFrame = nil
+            state.lastReportedAvailability = nil
         }
         let captured = stream
         stream = nil
@@ -212,9 +283,14 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
     // MARK: - SCStreamOutput
 
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
-        guard type == .screen,
-              sampleBuffer.isValid,
-              let imageBuffer = sampleBuffer.imageBuffer else { return }
+        guard type == .screen, sampleBuffer.isValid else { return }
+        // Status is read once here and handed down, rather than re-read inside the damage
+        // helper. It is also the only signal a window target has when it stops being
+        // capturable: minimizing it or hiding its app yields `suspended` frames and then
+        // silence, with no stream error at all.
+        let status = Self.frameStatus(from: sampleBuffer)
+        report(availability(for: status))
+        guard let imageBuffer = sampleBuffer.imageBuffer else { return }
         // Belt-and-suspenders: stamp the per-frame color attachments so
         // they propagate into the encoded stream. SCStream tags the buffer
         // when colorSpaceName is set, but re-stamping here covers the case
@@ -230,7 +306,9 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         // copyRect/tile from what actually changed instead of pixel-diffing the
         // whole frame. Read but do not log per frame: a prior os_log on this
         // 60fps sample queue re-froze the session.
-        let damage = Self.damageRects(from: sampleBuffer, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+        let damage = status == .complete
+            ? Self.damageRects(from: sampleBuffer, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
+            : []
         let output = controlState.withLock { state -> (Bool, (@Sendable (CapturedVideoFrame) -> Void)?) in
             let force = state.forceKeyframeNextFrame
             state.forceKeyframeNextFrame = false
@@ -248,9 +326,46 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
         output.1?(frame)
     }
 
-    // Extract SCStreamFrameInfoDirtyRects as native pixel rects. Returns empty
-    // for any frame that is not a complete capture or carries no usable damage,
-    // which the classifier reads as "refresh the whole frame".
+    // nil when the attachment is missing or carries an unknown raw value. Callers must
+    // treat nil as "no verdict" rather than as failure: the pre-existing behaviour is to
+    // still deliver such a frame, just without damage.
+    private static func frameStatus(from sampleBuffer: CMSampleBuffer) -> SCFrameStatus? {
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false)
+            as? [[SCStreamFrameInfo: Any]],
+            let info = attachments.first,
+            let raw = info[.status] as? Int else { return nil }
+        return SCFrameStatus(rawValue: raw)
+    }
+
+    // nil means the status carries no health verdict. `idle` is the normal
+    // nothing-changed-since-the-last-frame case and `started` is a one-off, so neither
+    // says anything about whether the target is still capturable.
+    private func availability(for status: SCFrameStatus?) -> CaptureAvailability? {
+        switch status {
+        case .complete: return .available
+        case .suspended: return .unavailable(reason: "window-suspended")
+        case .stopped: return .unavailable(reason: "capture-stopped")
+        case .blank: return .unavailable(reason: "capture-blank")
+        default: return nil
+        }
+    }
+
+    // Transition-only, and window targets only. A display target has never reported
+    // capture health, and a transient `blank` on the daily-driver display path would put
+    // an outage banner on the phone for a frame.
+    private func report(_ availability: CaptureAvailability?) {
+        guard let availability else { return }
+        let handler = controlState.withLock { state -> (@Sendable (CaptureAvailability) -> Void)? in
+            guard state.target.isWindow, state.lastReportedAvailability != availability else { return nil }
+            state.lastReportedAvailability = availability
+            return state.onAvailability
+        }
+        handler?(availability)
+    }
+
+    // Extract SCStreamFrameInfoDirtyRects as native pixel rects. Returns empty when the
+    // frame carries no usable damage geometry, which the classifier reads as "refresh the
+    // whole frame". Callers gate this on a complete frame status.
     //
     // A device spike (logged raw, ScreenCaptureKitFrameSource history) confirmed
     // the dirty rects arrive already in native pixel-buffer space on this path:
@@ -265,8 +380,6 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
             let info = attachments.first else {
             return []
         }
-        let statusRaw = (info[.status] as? Int) ?? -1
-        guard statusRaw == SCFrameStatus.complete.rawValue else { return [] }
         let rawRects = (info[.dirtyRects] as? [Any]) ?? []
         var rects: [PixelRect] = []
         rects.reserveCapacity(rawRects.count)
@@ -301,10 +414,14 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, DisplaySele
 }
 
 private struct CaptureControlState: Sendable {
-    var selectedDisplayId: String?
+    var target: CaptureTarget = .display(nil)
     var isRunning = false
     var forceKeyframeNextFrame = true
     var onFrame: (@Sendable (CapturedVideoFrame) -> Void)?
+    var onAvailability: (@Sendable (CaptureAvailability) -> Void)?
+    // Last verdict handed to onAvailability. Reporting is transition-only: capture
+    // status arrives per frame at 60 Hz and the consumer drives user-visible chrome.
+    var lastReportedAvailability: CaptureAvailability?
     // Composite the OS cursor into the captured video? Default off; the client's overlay is
     // the cursor. A client can turn it on via ClientConfig (setShowsCursorInVideo).
     var showsCursorInVideo = false
@@ -312,5 +429,6 @@ private struct CaptureControlState: Sendable {
 
 enum ScreenCaptureError: Error {
     case noDisplay
+    case noWindow
     case permissionDenied
 }

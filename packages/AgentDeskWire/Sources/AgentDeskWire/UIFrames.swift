@@ -37,6 +37,88 @@ public struct ThumbnailsPush: Codable, Equatable, Sendable {
         self.topWindows = topWindows
     }
 }
+// One window the phone can point its video stream at.
+//
+// `spaceId` joins against DesktopState.spaces, which already carries each Space's
+// ordinal, so the Desktop number is derived on the client rather than duplicated here.
+// It is optional because SkyLight declines to place a small number of windows (system
+// overlays, mostly); those still stream fine, they just get no Desktop badge.
+//
+// The icon is referenced by hash, not carried inline: icons are per-app, so ten windows
+// of one editor cost one image. `WindowListPush.icons` carries the bytes.
+public struct WindowSummary: Codable, Equatable, Sendable {
+    public let id: UInt32
+    public let spaceId: UInt64?
+    public let appName: String
+    public let title: String
+    public let iconHash: String
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case id = "i"
+        case spaceId = "s"
+        case appName = "a"
+        case title = "ti"
+        case iconHash = "ih"
+    }
+
+    public init(id: UInt32, spaceId: UInt64?, appName: String, title: String, iconHash: String) {
+        self.id = id
+        self.spaceId = spaceId
+        self.appName = appName
+        self.title = title
+        self.iconHash = iconHash
+    }
+}
+
+// App icon bytes for a `WindowSummary.iconHash`. Base64 PNG, matching CursorImagePush.
+// The host sends an entry only when it has not already sent that hash to this client, so
+// a steady-state push carries no image bytes at all.
+public struct WindowAppIcon: Codable, Equatable, Sendable {
+    public let hash: String
+    public let png: String
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case hash = "h"
+        case png = "p"
+    }
+
+    public init(hash: String, png: String) {
+        self.hash = hash
+        self.png = png
+    }
+}
+
+// Host -> client window picker contents.
+//
+// Deliberately its own push rather than a field on ThumbnailsPush: thumbnails are gated on
+// `thumbnailsEnabled`, and a user who turned previews off to save CPU has not asked for an
+// empty picker. This push is capture-free (window enumeration plus a SkyLight Space lookup),
+// so it does not carry the cost that made previews worth turning off.
+public struct WindowListPush: Codable, Equatable, Sendable {
+    public let type: String
+    public let windows: [WindowSummary]
+    public let icons: [WindowAppIcon]
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case type = "t"
+        case windows = "w"
+        case icons = "ic"
+    }
+
+    public init(windows: [WindowSummary], icons: [WindowAppIcon] = []) {
+        self.type = "window-list"
+        self.windows = windows
+        self.icons = icons
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decodeIfPresent(String.self, forKey: .type) ?? "window-list"
+        windows = try container.decode([WindowSummary].self, forKey: .windows)
+        icons = try container.decodeIfPresent([WindowAppIcon].self, forKey: .icons) ?? []
+    }
+}
+
 public struct AgentSayPush: Codable, Equatable, Sendable {
     public let type: String
     public let id: String
@@ -304,6 +386,20 @@ public struct ClientConfig: Codable, Equatable, Sendable {
     public let thumbnailsEnabled: Bool
     public let thumbnailRefresh: UInt64?
     public let selectedDisplayId: String?
+    // Watch one window instead of the whole display. nil = display capture (the default);
+    // non-nil is a CGWindowID the host streams through a desktop-independent window filter,
+    // which costs roughly a quarter of a display's bitrate and works while the window sits
+    // on another Space.
+    //
+    // Additive to selectedDisplayId rather than replacing it: the display still owns the
+    // input coordinate space, DesktopState, and thumbnail refresh. A window target is
+    // view-only, enforced host-side, because InputDispatcher posts global CGEvents in
+    // display coordinates and has no per-window routing.
+    public let selectedWindowId: UInt32?
+    // Whether this client wants WindowListPush. Its own flag rather than a ride-along on
+    // thumbnailsEnabled: the window list is capture-free, so a user who turned previews off
+    // for CPU should still get a populated picker.
+    public let windowListEnabled: Bool
     // Client's preference for the crisp text overlay. Optional tri-state: nil means the
     // client expressed no opinion (host falls back to its Config.ownedMediaCrispEnabled
     // default); true/false is an explicit request. The host composes it with its own gate
@@ -332,6 +428,8 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         case thumbnailsEnabled = "te"
         case thumbnailRefresh = "tr"
         case selectedDisplayId = "sd"
+        case selectedWindowId = "sw"
+        case windowListEnabled = "wl"
         case crispTextOverlayEnabled = "ce"
         case showHostCursorInVideo = "hc"
         case mediaQuality = "mq"
@@ -343,6 +441,8 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         thumbnailsEnabled: Bool,
         thumbnailRefresh: UInt64? = nil,
         selectedDisplayId: String? = nil,
+        selectedWindowId: UInt32? = nil,
+        windowListEnabled: Bool = false,
         crispTextOverlayEnabled: Bool? = nil,
         showHostCursorInVideo: Bool? = nil,
         mediaQuality: ClientMediaQualityConfig? = nil,
@@ -353,6 +453,8 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         self.thumbnailsEnabled = thumbnailsEnabled
         self.thumbnailRefresh = thumbnailRefresh
         self.selectedDisplayId = selectedDisplayId
+        self.selectedWindowId = selectedWindowId
+        self.windowListEnabled = windowListEnabled
         self.crispTextOverlayEnabled = crispTextOverlayEnabled
         self.showHostCursorInVideo = showHostCursorInVideo
         self.mediaQuality = mediaQuality
@@ -366,6 +468,8 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         thumbnailsEnabled = try container.decode(Bool.self, forKey: .thumbnailsEnabled)
         thumbnailRefresh = try container.decodeIfPresent(UInt64.self, forKey: .thumbnailRefresh)
         selectedDisplayId = try container.decodeIfPresent(String.self, forKey: .selectedDisplayId)
+        selectedWindowId = try container.decodeIfPresent(UInt32.self, forKey: .selectedWindowId)
+        windowListEnabled = try container.decodeIfPresent(Bool.self, forKey: .windowListEnabled) ?? false
         crispTextOverlayEnabled = try container.decodeIfPresent(Bool.self, forKey: .crispTextOverlayEnabled)
         showHostCursorInVideo = try container.decodeIfPresent(Bool.self, forKey: .showHostCursorInVideo)
         mediaQuality = try container.decodeIfPresent(ClientMediaQualityConfig.self, forKey: .mediaQuality)
@@ -379,6 +483,8 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         try container.encode(thumbnailsEnabled, forKey: .thumbnailsEnabled)
         try container.encodeIfPresent(thumbnailRefresh, forKey: .thumbnailRefresh)
         try container.encodeIfPresent(selectedDisplayId, forKey: .selectedDisplayId)
+        try container.encodeIfPresent(selectedWindowId, forKey: .selectedWindowId)
+        try container.encode(windowListEnabled, forKey: .windowListEnabled)
         try container.encodeIfPresent(crispTextOverlayEnabled, forKey: .crispTextOverlayEnabled)
         try container.encodeIfPresent(showHostCursorInVideo, forKey: .showHostCursorInVideo)
         try container.encodeIfPresent(mediaQuality, forKey: .mediaQuality)

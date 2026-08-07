@@ -199,6 +199,7 @@ private final class RecordingInputChannelServer: InputChannelServing, @unchecked
     func close() {}
     func pushDesktopState(_ state: DesktopState) {}
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow]) {}
+    func pushWindowList(_ windows: [WindowSummary], icons: [String: String]) {}
     func pushAgentSay(_ push: AgentSayPush) {}
     func pushCursor(_ push: CursorImagePush) {}
     func pushCursorApplied(_ push: CursorAppliedPush) {}

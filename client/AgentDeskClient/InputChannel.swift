@@ -24,6 +24,7 @@ protocol InputChannel: AnyObject, Sendable {
     var desktopStateUpdates: AsyncStream<DesktopState> { get }
     var thumbnailsUpdates: AsyncStream<[String: String]> { get }
     var topWindowsUpdates: AsyncStream<[String: SpaceTopWindow]> { get }
+    var windowListUpdates: AsyncStream<WindowListPush> { get }
     var agentSayUpdates: AsyncStream<AgentSayPush> { get }
     var cursorUpdates: AsyncStream<CursorImagePush> { get }
     var cursorReconciliationUpdates: AsyncStream<CursorReconciliationUpdate> { get }

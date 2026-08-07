@@ -207,6 +207,7 @@ private final class BrokerInputChannelServer: InputChannelServing, @unchecked Se
 
     func pushDesktopState(_ state: DesktopState) {}
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow]) {}
+    func pushWindowList(_ windows: [WindowSummary], icons: [String: String]) {}
     func pushAgentSay(_ push: AgentSayPush) {}
     func pushCursor(_ push: CursorImagePush) {}
     func pushCursorApplied(_ push: CursorAppliedPush) {}

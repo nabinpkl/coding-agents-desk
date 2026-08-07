@@ -642,6 +642,7 @@ private final class FakeInputChannelServer: InputChannelServing, @unchecked Send
     func pushDesktopState(_ state: DesktopState) {}
 
     func pushThumbnails(_ thumbnails: [UInt64: Data], topWindows: [UInt64: SpaceTopWindow]) {}
+    func pushWindowList(_ windows: [WindowSummary], icons: [String: String]) {}
 
     func pushAgentSay(_ push: AgentSayPush) {}
 

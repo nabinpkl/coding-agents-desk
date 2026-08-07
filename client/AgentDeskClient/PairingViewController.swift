@@ -205,8 +205,13 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // R25: merged Spaces band. Replaces the old dots band.
     let displayRailView = DisplayRailView()
     let thumbnailStripView = ThumbnailStripView()
+    let windowPickerStripView = WindowPickerStripView()
     var thumbnailsTask: Task<Void, Never>?
     var topWindowsTask: Task<Void, Never>?
+    var windowListTask: Task<Void, Never>?
+    // nil = watching the whole selected display. Non-nil rides ClientConfig and makes the
+    // host stream that window alone, view-only.
+    var selectedWindowIdForClientConfig: UInt32?
     // Most-recent DesktopState mirrored so the strip can re-render when
     // a thumbnails-push arrives without DesktopState changing, or when
     // the settings toggle flips after a state has already landed.
@@ -756,6 +761,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         activeDisplayRect = .zero
         activeDisplayIdMirror = nil
         selectedDisplayIdForClientConfig = nil
+        // The host resets its own capture target when the session ends, so holding a window
+        // id across a reconnect would leave the two disagreeing about what is on screen.
+        selectedWindowIdForClientConfig = nil
         hideTrackpad()
     }
 

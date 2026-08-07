@@ -1,3 +1,4 @@
+import CoreGraphics
 import CoreVideo
 import Foundation
 import AgentDeskWire
@@ -18,13 +19,53 @@ protocol VideoFrameSource: AnyObject, Sendable {
     func stop()
 }
 
-protocol DisplaySelectableVideoFrameSource: AnyObject, Sendable {
-    func selectDisplay(id: String?)
+// What the capture stream is pointed at.
+//
+// A window target streams that window alone through
+// `SCContentFilter(desktopIndependentWindow:)`, which renders it unoccluded and
+// works while it sits on another Space. Measured against a display target it costs
+// roughly a quarter of the bitrate and a sixth of the keyframe size, because the
+// wallpaper, menu bar, Dock, and neighbouring windows never enter the frame.
+//
+// A window target is view-only. `InputDispatcher` posts global CGEvents in display
+// coordinates and has no per-window routing, so the host drops input while one is
+// selected rather than moving a cursor the viewer cannot see.
+enum CaptureTarget: Equatable, Sendable {
+    case display(String?)
+    case window(CGWindowID)
+
+    var isWindow: Bool {
+        if case .window = self { return true }
+        return false
+    }
+}
+
+// Whether the capture source is currently producing usable frames.
+//
+// A window target can stop producing without the stream ever erroring: minimizing it
+// or hiding its app yields `SCFrameStatus.suspended` and then silence, and
+// `SCStreamDelegate.didStopWithError` never fires. Without this the client holds its
+// last frame forever with a fully healthy decoder, which reads as a freeze.
+enum CaptureAvailability: Equatable, Sendable {
+    case available
+    case unavailable(reason: String)
+}
+
+protocol TargetSelectableVideoFrameSource: AnyObject, Sendable {
+    func selectCaptureTarget(_ target: CaptureTarget)
     // Whether the OS cursor is composited into the captured video. Default off: the client
     // draws its own sharp, low-latency cursor overlay, so baking it into the (laggy,
     // compressed) video too is a redundant double-draw that also adds cursor-move damage.
     // Client-controlled via ClientConfig; applied live (restarts capture, rare event).
     func setShowsCursorInVideo(_ enabled: Bool)
+    // Reports capture health transitions only, not every frame.
+    func setCaptureAvailabilityHandler(_ handler: @escaping @Sendable (CaptureAvailability) -> Void)
+}
+
+extension TargetSelectableVideoFrameSource {
+    func selectDisplay(id: String?) {
+        selectCaptureTarget(.display(id))
+    }
 }
 
 // CVPixelBuffer is a CoreFoundation reference type; we never mutate it
@@ -71,16 +112,19 @@ struct CapturePixelSize: Equatable {
 }
 
 enum CaptureSizing {
+    // Points-to-pixels for whatever the capture is pointed at. A display supplies its
+    // point size and NSScreen backing scale; a window supplies its filter's contentRect
+    // and pointPixelScale. Same arithmetic either way, so it takes neither one's vocabulary.
     static func pixelSize(
-        displayWidthPoints: Int,
-        displayHeightPoints: Int,
+        widthPoints: Double,
+        heightPoints: Double,
         backingScale: Double,
         scaleDownBy: Double
     ) -> CapturePixelSize {
         let effectiveScale = max(backingScale / max(scaleDownBy, 1.0), 0.001)
         return CapturePixelSize(
-            width: evenDimension(from: Double(displayWidthPoints) * effectiveScale),
-            height: evenDimension(from: Double(displayHeightPoints) * effectiveScale)
+            width: evenDimension(from: widthPoints * effectiveScale),
+            height: evenDimension(from: heightPoints * effectiveScale)
         )
     }
 

@@ -79,6 +79,8 @@ private struct Channels {
     let thumbnailsUpdates: AsyncStream<[String: String]>
     private let topWindowsContinuation: AsyncStream<[String: SpaceTopWindow]>.Continuation
     let topWindowsUpdates: AsyncStream<[String: SpaceTopWindow]>
+    private let windowListContinuation: AsyncStream<WindowListPush>.Continuation
+    let windowListUpdates: AsyncStream<WindowListPush>
     private let agentSayContinuation: AsyncStream<AgentSayPush>.Continuation
     let agentSayUpdates: AsyncStream<AgentSayPush>
     private let cursorContinuation: AsyncStream<CursorImagePush>.Continuation
@@ -189,6 +191,9 @@ private struct Channels {
         var twCont: AsyncStream<[String: SpaceTopWindow]>.Continuation!
         topWindowsUpdates = AsyncStream { twCont = $0 }
         topWindowsContinuation = twCont
+        var wlCont: AsyncStream<WindowListPush>.Continuation!
+        windowListUpdates = AsyncStream { wlCont = $0 }
+        windowListContinuation = wlCont
         var sayCont: AsyncStream<AgentSayPush>.Continuation!
         agentSayUpdates = AsyncStream { sayCont = $0 }
         agentSayContinuation = sayCont
@@ -492,6 +497,7 @@ private struct Channels {
         desktopStateContinuation.finish()
         thumbnailsContinuation.finish()
         topWindowsContinuation.finish()
+        windowListContinuation.finish()
         agentSayContinuation.finish()
         cursorContinuation.finish()
         cursorReconciliationContinuation.finish()
@@ -670,6 +676,10 @@ private struct Channels {
             if let push = try? JSONDecoder().decode(ThumbnailsPush.self, from: data) {
                 thumbnailsContinuation.yield(push.thumbnails)
                 topWindowsContinuation.yield(push.topWindows ?? [:])
+            }
+        case "window-list":
+            if let push = try? JSONDecoder().decode(WindowListPush.self, from: data) {
+                windowListContinuation.yield(push)
             }
         case "cursor":
             if let push = try? JSONDecoder().decode(CursorImagePush.self, from: data) {

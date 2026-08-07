@@ -128,6 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var sessionMedia: [String: SessionMediaContinuity] = [:]
     private let scrollActivityHints = ScrollActivityStore()
     private let displaySelection = DisplaySelectionStore()
+    private let captureTarget = CaptureTargetStore()
     private var hostAvailability = HostAvailabilityController()
     private lazy var inputDispatcher = InputDispatcher(
         displayBoundsProvider: { [displaySelection] in
@@ -207,6 +208,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var agentSayServer: AgentSayLocalServer?
     private var thumbnailsBroadcastTask: Task<Void, Never>?
     private var thumbnailEnabledClients: Set<DeviceFingerprint> = []
+    private var windowListEnabledClients: Set<DeviceFingerprint> = []
+    private let windowListProvider = WindowListProvider()
     private var textInputFocusProbeGate = HostTextInputFocusProbeGate()
     private lazy var frameSource: VideoFrameSource = MediaStack.makeFrameSource(
         selectedDisplayIdProvider: { [displaySelection] in
@@ -358,6 +361,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installThumbnailsBroadcast()
         installCursorPositionMonitor()
         installCursorMonitor()
+        installCaptureAvailabilityHandler()
         startAgentSayServer()
         startSpaceAgent()
         startDictationBar()
@@ -1249,6 +1253,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         agentSessionTerminalEndpoints.endBinding(for: fingerprint)
         workspaceTerminalEndpoints.endBinding(for: fingerprint)
         thumbnailEnabledClients.remove(fingerprint)
+        windowListEnabledClients.remove(fingerprint)
+        // Fall back to display capture rather than leaving the host pointed at one window for
+        // whoever connects next. The target is host-global, so nothing else would clear it
+        // until a client happens to push a config.
+        if captureTarget.select(windowId: nil) {
+            applyCaptureTarget()
+        }
         spaceThumbnailProvider.setDemand(owner: .client(fingerprint.rawValue), enabled: false)
         domMirrorRelay.detach(for: fingerprint)
         browserProjectionViewportCoordinator?.remove(.remote(fingerprint))
@@ -1405,6 +1416,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let enabled = config.thumbnailsEnabled
             let refresh = config.thumbnailRefresh
             let selectedDisplayId = config.selectedDisplayId
+            // nil = watch the selected display (the default). Non-nil retargets capture to
+            // that one window, which is additive: the display selection below still runs.
+            let selectedWindowId = config.selectedWindowId.map { CGWindowID($0) }
+            let windowListEnabled = config.windowListEnabled
             // nil = client expressed no crisp opinion -> host keeps its default (on); the
             // transport composes this with Config.ownedMediaCrispEnabled as the hard gate.
             let crispEnabled = config.crispTextOverlayEnabled ?? true
@@ -1419,12 +1434,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let transport = self.sessions.transport(for: clientFingerprint)
                 transport?.setClientCrispEnabled(crispEnabled)
                 transport?.setClientMediaQuality(mediaQuality)
-                (self.frameSource as? DisplaySelectableVideoFrameSource)?.setShowsCursorInVideo(showHostCursor)
+                (self.frameSource as? TargetSelectableVideoFrameSource)?.setShowsCursorInVideo(showHostCursor)
                 if self.textInputFocusProbeGate.apply(autoKeyboardEnabled: autoKeyboardEnabled, for: clientFingerprint) {
                     self.textInputFocusProbeCoordinator.cancel(for: clientFingerprint)
                 }
                 let fixedTarget = mediaQuality.fixedTarget
-                self.thumbnailsLogger.notice("client thumbnail config fp=\(clientFingerprint.rawValue, privacy: .public) enabled=\(enabled, privacy: .public) refresh=\(String(describing: refresh), privacy: .public) selectedDisplay=\(selectedDisplayId ?? "nil", privacy: .public) crisp=\(crispEnabled, privacy: .public) autoKeyboard=\(autoKeyboardEnabled, privacy: .public) adaptiveQuality=\(mediaQuality.adaptiveEnabled, privacy: .public) fixedBitrateKbps=\(fixedTarget?.bitrateKbps ?? 0, privacy: .public) fixedFps=\(fixedTarget?.fps ?? 0, privacy: .public) fixedResolutionScale=\(fixedTarget?.resolutionScale ?? 0, privacy: .public)")
+                self.thumbnailsLogger.notice("client thumbnail config fp=\(clientFingerprint.rawValue, privacy: .public) enabled=\(enabled, privacy: .public) refresh=\(String(describing: refresh), privacy: .public) selectedDisplay=\(selectedDisplayId ?? "nil", privacy: .public) selectedWindow=\(selectedWindowId ?? 0, privacy: .public) crisp=\(crispEnabled, privacy: .public) autoKeyboard=\(autoKeyboardEnabled, privacy: .public) adaptiveQuality=\(mediaQuality.adaptiveEnabled, privacy: .public) fixedBitrateKbps=\(fixedTarget?.bitrateKbps ?? 0, privacy: .public) fixedFps=\(fixedTarget?.fps ?? 0, privacy: .public) fixedResolutionScale=\(fixedTarget?.resolutionScale ?? 0, privacy: .public)")
                 if enabled {
                     self.thumbnailEnabledClients.insert(clientFingerprint)
                 } else {
@@ -1438,14 +1453,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let spaceId = refresh {
                     provider.forceRefresh(spaceId: spaceId)
                 }
+                // Ahead of the display block below, which can return early when the
+                // requested display is gone. The window selection is independent of that.
+                if self.captureTarget.select(windowId: selectedWindowId) {
+                    self.applyCaptureTarget()
+                }
+                if windowListEnabled {
+                    self.windowListEnabledClients.insert(clientFingerprint)
+                    // Every enabling push refreshes, so opening the picker is the refresh
+                    // trigger: the client re-sends its config when the strip appears.
+                    self.broadcastWindowList()
+                } else {
+                    self.windowListEnabledClients.remove(clientFingerprint)
+                }
                 if let selectedDisplayId, selectedDisplayId != self.displaySelection.selectedDisplayId {
                     let available = Set(self.spacesProvider.current()?.displays.map(\.id) ?? [])
                     guard self.displaySelection.select(selectedDisplayId, availableDisplayIds: available) else {
                         return
                     }
-                    (self.frameSource as? DisplaySelectableVideoFrameSource)?.selectDisplay(
-                        id: self.displaySelection.selectedDisplayId
-                    )
+                    self.applyCaptureTarget()
                     self.broadcastDesktopState()
                     if enabled {
                         provider.forceRefresh()
@@ -1464,9 +1490,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         sessions.attachInputTask(
-            Task { [server, dispatcher, scrollActivityHints, logger, scheduleTextFocusProbe] in
+            Task { [server, dispatcher, scrollActivityHints, logger, scheduleTextFocusProbe, captureTarget] in
+                var loggedDropForWindow: CGWindowID?
                 for await frame in server.events {
                     let input = frame.event
+                    if let windowId = captureTarget.selectedWindowId {
+                        guard WindowCaptureInputGate.allowsWhileWatchingWindow(input) else {
+                            // Once per target change, not per event: this fires at pointer rates.
+                            if loggedDropForWindow != windowId {
+                                loggedDropForWindow = windowId
+                                logger.notice("input dropped: view-only window capture wid=\(windowId, privacy: .public)")
+                            }
+                            continue
+                        }
+                    } else {
+                        loggedDropForWindow = nil
+                    }
                     scrollActivityHints.record(input)
                     dispatcher.dispatch(
                         input,
@@ -1790,10 +1829,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forName: NSWorkspace.activeSpaceDidChangeNotification,
             object: nil,
             queue: .main
-        ) { [weak registry] _ in
+        ) { [weak self, weak registry] _ in
             guard let registry, let state = provider.current() else { return }
             for server in registry.allInputChannelServers() {
                 server.pushDesktopState(state)
+            }
+            // A Space change moves windows between Desktop badges and is when new windows
+            // typically appear. There is deliberately no timer behind this: enumeration is
+            // cheap, but a background timer is exactly how the thumbnail path became a CPU
+            // line item.
+            Task { @MainActor in self?.broadcastWindowList() }
+        }
+    }
+
+    private func broadcastWindowList() {
+        let clients = windowListEnabledClients
+        guard !clients.isEmpty else { return }
+        Task { [windowListProvider, sessions] in
+            let snapshot = await windowListProvider.snapshot()
+            await MainActor.run {
+                for (fingerprint, server) in sessions.allInputChannelServersByFingerprint()
+                where clients.contains(fingerprint) {
+                    server.pushWindowList(snapshot.windows, icons: snapshot.icons)
+                }
             }
         }
     }
@@ -1834,6 +1892,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.updateHostAvailability(.active, reason: "screens-did-wake")
+            }
+        }
+    }
+
+    // Single writer for the capture filter. The display and window selections are additive
+    // on the wire but exclusive at the filter: a selected window wins, and clearing it falls
+    // back to whichever display is selected.
+    private func applyCaptureTarget() {
+        let target: CaptureTarget = captureTarget.selectedWindowId.map { .window($0) }
+            ?? .display(displaySelection.selectedDisplayId)
+        (frameSource as? TargetSelectableVideoFrameSource)?.selectCaptureTarget(target)
+        signalingLogger.notice("capture target=\(String(describing: target), privacy: .public)")
+    }
+
+    // A window target can stop producing frames without the stream ever erroring, so this is
+    // the only path that turns "your window is minimized" into something the client can show
+    // instead of a frozen last frame with a perfectly healthy decoder.
+    private func installCaptureAvailabilityHandler() {
+        (frameSource as? TargetSelectableVideoFrameSource)?.setCaptureAvailabilityHandler { [weak self] availability in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                switch availability {
+                case .available:
+                    // Recover only from a capture outage. noteActive clobbers unconditionally,
+                    // so an unguarded call would let a complete frame arriving just after a
+                    // screen lock or session end overwrite that state with .active.
+                    guard self.hostAvailability.availability == .captureUnavailable else { return }
+                    self.updateHostAvailability(.active, reason: "capture-available")
+                case let .unavailable(reason):
+                    self.updateHostAvailability(.captureUnavailable, reason: reason)
+                }
             }
         }
     }

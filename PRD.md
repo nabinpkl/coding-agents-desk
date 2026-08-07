@@ -72,10 +72,16 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
     unavailable. After explicitly activating Keyboard Dictation in the containing app, voice takes
     use the paired Mac's existing recording, Whisper, and ZIPA pipeline. Automatic insertion is the
     default; Explicit Review keeps the final transcript editable before insertion.
+20. Pick one Mac window from a flat icon strip on the iPhone, below the Desktop chooser, and watch
+    only that window instead of the whole display, including windows sitting on another Desktop or
+    behind other windows. Each icon carries its Desktop number as a badge. Watching a window is
+    view-only: the trackpad, scroll strip, and keyboard go away, Desktop switching stays available,
+    and one tap on the Whole Desktop tile returns to the full projection.
 
 ## What v0 is not
 
 - **Provider-bounded agent control, not the full agent-native UX.** v0 keeps Claude and Codex transcript observation read-only while adding direct Pi session control through the host-owned agent sidecar: create, send, queue, steer, stop, and answer supported extension prompts from either Mac or phone. It does **not** include the richer agent-native UX mocked in `mock-design/`: no per-agent attention model, no live reasoning ticker as a separate control surface, no swipe-between-agents carousel, no arbitrary provider control, and no agent PTY projection. The host-side Space Agent remains a local Spaces navigator, distinct from this agent surface.
+- **No input into a watched window.** Window projection is view-only, enforced on the host rather than by hiding client chrome, because input is posted as global events in display coordinates with no per-window routing. A window that stops being capturable reports an outage; it never silently falls back to projecting the display.
 - **Not continuous multi-display gestures.** Display selection is an explicit tap on the client rail. Horizontal sliding remains dedicated to switching Spaces within the selected display.
 - **Not multi-user.** Single bearer token in Keychain. No accounts, no sharing.
 - **Not internet-routable.** Tailscale-only. No STUN, no TURN, no VPS, no relay.
