@@ -781,7 +781,7 @@ dom-mirror-e2e: ext-stamp
     trap cleanup EXIT
 
     echo "== build + launch host with DOM mirror enabled =="
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
+    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
     kill $(pgrep -f '{{derived_data}}/Build/Products/.*/{{host_process_suffix}}') 2>/dev/null || true; sleep 1
     launchctl setenv AGENTDESK_AUTO_APPROVE 1
     launchctl setenv AGENTDESK_DEV_ITERATION_RUN 1
@@ -1184,7 +1184,7 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
         done
     }
     just prepare-pty-runtime "{{variant}}"
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
+    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
     # Kill both build configurations of THIS variant. LaunchServices treats Debug
     # and Release as the same running app because they share a bundle id, so leaving
     # either one alive can make `open "$APP"` silently keep the stale executable.
@@ -1315,7 +1315,7 @@ host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-ge
         done
     }
     just prepare-pty-runtime "{{variant}}"
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
+    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
     # Kill both build configurations of THIS variant. LaunchServices treats Debug
     # and Release as the same running app because they share a bundle id, so leaving
     # either one alive can make `open "$APP"` silently keep the stale executable.
@@ -1497,10 +1497,10 @@ client-install variant="stable": build-agent-webview
     set -euo pipefail
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
     if [ "{{variant}}" = "dev" ]; then
-        xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{dev_derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$GIT_SHA" AGENTDESK_CLIENT_BUNDLE_ID='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev' build >/dev/null
+        sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{dev_derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$GIT_SHA" AGENTDESK_CLIENT_BUNDLE_ID='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev' build
         xcrun devicectl device install app --device {{ios_device}} '{{client_dev_app}}'
     else
-        xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$GIT_SHA" build >/dev/null
+        sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$GIT_SHA" build
         xcrun devicectl device install app --device {{ios_device}} '{{client_app}}'
     fi
 
@@ -1516,7 +1516,7 @@ client-reinstall variant="stable":
 # automatic development signing as the Debug path, so no distribution provisioning
 # is needed. Used by the fresh-install feel-test composite.
 client-install-release: build-agent-webview
-    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
+    sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
     xcrun devicectl device install app --device {{ios_device}} '{{client_app_release}}'
 
 # Historical recipe name retained for callers. Updates the stable Release app
@@ -1970,7 +1970,7 @@ motion-verify variant="dev" video="1" seconds="60" fixed_profile="180,1,0.5":
     PROFILE_LOG_MARKER="bitrateKbps=$PROFILE_BITRATE fps=$PROFILE_FPS resolutionScale=$PROFILE_SCALE_FORMATTED"
 
     echo "== [1/5] build host =="
-    xcodebuild -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
+    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath '{{derived_data}}' MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
 
     echo "== [2/5] build + install client ($BID) =="
     just client-install {{variant}}
@@ -2070,7 +2070,7 @@ client-sim-install variant="stable": build-agent-webview
         EXTRA=()
     fi
     xcrun simctl bootstatus "$SIM" -b >/dev/null
-    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath "$DD" -sdk iphonesimulator -destination "platform=iOS Simulator,id=$SIM" AGENTDESK_GIT_SHA="$GIT_SHA" ${EXTRA[@]+"${EXTRA[@]}"} build >/dev/null
+    sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath "$DD" -sdk iphonesimulator -destination "platform=iOS Simulator,id=$SIM" AGENTDESK_GIT_SHA="$GIT_SHA" ${EXTRA[@]+"${EXTRA[@]}"} build
     xcrun simctl install "$SIM" "$APP"
 
 # Historical recipe name retained for callers. This now performs an in-place
@@ -2083,7 +2083,7 @@ client-sim-reinstall variant="stable":
 # the sim-fresh-install feel-test composite. No signing concerns on the simulator.
 client-sim-install-release: build-agent-webview
     xcrun simctl bootstatus {{ios_sim_udid}} -b >/dev/null
-    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build >/dev/null
+    sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination 'platform=iOS Simulator,id={{ios_sim_udid}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
     xcrun simctl install {{ios_sim_udid}} "{{client_sim_app_release}}"
 
 client-sim-reinstall-release:
