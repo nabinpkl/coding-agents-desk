@@ -42,6 +42,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var handshakeTask: Task<Void, Never>?
     var sessionTask: Task<Void, Never>?
     var sessionAttemptGeneration: UInt64 = 0
+    // Why the last dial failed, and how many in a row have failed the same way. The reconnect
+    // loop never gives up, so without these the screen says "Paired (reconnecting)" identically
+    // for a two-second blip and for a Mac whose host process died and is not coming back.
+    var lastSessionFailureCause: SessionFailureCause?
+    var consecutiveSessionFailures = 0
     var mediaTransport: MediaTransport?
     var videoSink: VideoFrameSink?
     var preservesSuspendedSessionSurfaces = false
@@ -417,6 +422,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 do {
                     _ = try await self.pairingClient.attemptSession()
                     guard self.sessionAttemptGeneration == generation else { return }
+                    self.lastSessionFailureCause = nil
+                    self.consecutiveSessionFailures = 0
                     if let channel = self.pairingClient.activeInputChannel {
                         ClientRuntimeTelemetry.shared.setSender { checkpoint in
                             try await channel.sendRuntimeCheckpoint(checkpoint)
@@ -439,8 +446,15 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                     // transient failures. Keep retrying while foregrounded so a
                     // launch-time duplicate lifecycle callback cannot strand the
                     // app at "Paired (reconnecting)" after one pre-handshake drop.
+                    let cause = SessionFailureCause.classify(error)
+                    if cause == self.lastSessionFailureCause {
+                        self.consecutiveSessionFailures += 1
+                    } else {
+                        self.lastSessionFailureCause = cause
+                        self.consecutiveSessionFailures = 1
+                    }
                     self.sessionLogger.notice(
-                        "session reconnect attempt failed: \(String(describing: error), privacy: .public)"
+                        "session reconnect attempt failed cause=\(String(describing: cause), privacy: .public) consecutive=\(self.consecutiveSessionFailures, privacy: .public) error=\(String(describing: error), privacy: .public)"
                     )
                     self.render()
                     shouldDelay = true
@@ -928,6 +942,13 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         triggerSessionIfPaired()
     }
 
+    private func reconnectingStatusText() -> String {
+        SessionFailureCause.reconnectingStatusText(
+            cause: lastSessionFailureCause,
+            consecutiveFailures: consecutiveSessionFailures
+        )
+    }
+
     func render() {
         forgetButton.isHidden = true
         statusLabel.isHidden = false
@@ -957,7 +978,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 actionButton.setTitle("Connect", for: .normal)
                 actionButton.isHidden = false
             } else {
-                statusLabel.text = "Paired (reconnecting)"
+                statusLabel.text = reconnectingStatusText()
                 actionButton.isHidden = true
             }
             forgetButton.isHidden = false
