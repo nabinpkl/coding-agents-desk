@@ -1192,6 +1192,7 @@ async def get_reference_speech_audio(artifact_id: str) -> FileResponse:
             lease.path,
             media_type="audio/wav",
             filename=f"{artifact_id}.wav",
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
             background=BackgroundTask(lease.release),
         )
     except Exception:

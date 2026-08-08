@@ -543,7 +543,6 @@ class ReferenceSpeechArtifactStore:
             audio_path.unlink(missing_ok=True)
             return None
         os.utime(metadata_path)
-        os.utime(audio_path)
         return artifact
 
     def _persist(

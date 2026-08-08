@@ -770,6 +770,10 @@ class ReferenceSpeechHTTPTests(unittest.TestCase):
         self.assertEqual(fake.received["voice_identifier"], "af_heart")
         self.assertEqual(audio.status_code, 200)
         self.assertEqual(audio.content, b"RIFF-test")
+        self.assertEqual(
+            audio.headers["cache-control"],
+            "public, max-age=31536000, immutable",
+        )
         self.assertEqual(fake.audio_release_calls, 1)
 
 
