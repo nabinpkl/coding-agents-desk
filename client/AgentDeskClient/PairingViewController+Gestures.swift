@@ -537,6 +537,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             thumbnailRefresh: thumbnailRefresh,
             selectedDisplayId: explicitSelectedDisplayId ?? selectedDisplayIdForConfig(),
             selectedWindowId: selectedWindowIdForClientConfig,
+            videoViewport: currentVideoViewport(),
             // The picker is part of the Control surface's chrome, so demand tracks the same
             // condition that decides whether the strips are on screen at all. It is NOT gated
             // on showSpacePreviews: that setting exists to stop thumbnail CAPTURE, and this
@@ -547,6 +548,24 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             mediaQuality: Config.launchMediaQualityOverride ?? SettingsStore.shared.mediaQualityConfig,
             autoKeyboardEnabled: SettingsStore.shared.autoKeyboardEnabled,
             diagnosticScreenshotsEnabled: SettingsStore.shared.diagnosticScreenshotsEnabled
+        )
+    }
+
+    // The pixel size of the area actually showing host video, which is the top slice of the
+    // screen rather than the whole of it: the trackpad owns the rest. The host sizes a watched
+    // window to exactly this so remote text arrives without being resampled.
+    //
+    // Sent unconditionally rather than only while a window is selected. It costs two integers,
+    // and the alternative is a config that reaches the host without the number it needs at the
+    // moment a window is picked.
+    private func currentVideoViewport() -> ClientVideoViewport? {
+        guard let size = sinkScrollView?.bounds.size, size.width > 0, size.height > 0 else {
+            return nil
+        }
+        let scale = view.window?.screen.scale ?? UIScreen.main.scale
+        return ClientVideoViewport(
+            widthPixels: UInt32((size.width * scale).rounded()),
+            heightPixels: UInt32((size.height * scale).rounded())
         )
     }
 

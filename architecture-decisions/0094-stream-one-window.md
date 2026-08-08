@@ -71,7 +71,7 @@ the display-sized canvas, so it pays full-surface encode cost for a small window
 most of the bandwidth driver. Option A was measured live at ~57fps for windows that are not
 on screen, at native scale, with real pixels.
 
-Four further choices ride with it:
+Six further choices ride with it:
 
 1. **The wire field is additive.** `ClientConfig` gains `selectedWindowId: UInt32?` alongside
    `selectedDisplayId`, which keeps owning the input coordinate space, `DesktopState`, and
@@ -94,11 +94,40 @@ Four further choices ride with it:
    Because the pointer now matters and the client's cursor overlay is drawn in display
    points, which window pixels are not, window mode forces `showsCursor` on in the capture:
    the real pointer is baked into the video and the client dot stays hidden.
-3. **Target loss holds and reports.** An uncapturable window (minimized, app hidden) yields
+3. **Fitting the window is one captured pixel per phone pixel.** Selecting a window also
+   resizes it, through Accessibility (`kAXSize`/`kAXPosition`), to the size that makes its
+   captured pixels equal the client's video viewport pixels -- 603x722 points for a
+   1206x1443 viewport on a 2x display. The goal is readable remote text, and that is a
+   computable optimum rather than a taste call. Text on the phone gets larger as the window
+   gets smaller, because the phone's fixed viewport then shows fewer Mac points; but below
+   the matching size the phone starts upscaling, which blurs exactly the small glyphs being
+   read, and HEVC at a pinned bitrate makes that worse. Matching pixels is therefore the
+   largest text achievable with no resampling anywhere in the chain. Measured against the
+   alternatives on a 1800x1105 pt visible frame with a 1206x1443 px viewport: maximizing to
+   the viewport's aspect renders 13 pt Mac text at 5.7 pt on the phone, keeping the window's
+   current area gives 10.8 pt with a 1.24x upscale, and matching pixels gives 8.7 pt with
+   none. It also encodes 1.74 Mpx instead of 4.08, so the pinned bitrate goes further per
+   pixel. The window keeps the centre the user left it at, clamped inside the display, rather
+   than being centred on the display, which would move every picked window to the same place.
+4. **The fit is released on every change of target, not just on exit.** Each window's
+   pre-fit frame is remembered once and handed back exactly once, when it stops being the
+   watched window: tapping Whole Desktop, picking a different window, or ending the session.
+   Remembered once so a re-fit cannot overwrite the user's real geometry with the fitted one
+   and make the restore a silent no-op; handed back once so a window whose app has quit is
+   dropped rather than retried forever.
+   Ordering is load-bearing and is the reason the release runs before the Space switch:
+   Accessibility only lists an app's windows on the **active** Space, so once the Mac leaves
+   the fitted window's Desktop that window is out of reach and would be stranded at the
+   phone's size. This is also why fitting happens after the raise, not before.
+   Two failures are accepted rather than worked around. A fixed-size window answers `kAXSize`
+   with `kAXErrorFailure`; nothing moved, so nothing is owed back, and it streams at its own
+   size with the phone letterboxing it. And a host that dies mid-session leaves the window
+   fitted, because the memory is in-process; the user resizes it back by hand.
+5. **Target loss holds and reports.** An uncapturable window (minimized, app hidden) yields
    zero frames and `SCFrameStatus.suspended` with **no** stream error -- `didStopWithError`
    never fires. That status is the only signal, so it drives the existing
    `.captureUnavailable` host availability rather than a silent fallback to display capture.
-4. **Window identity is a bare `CGWindowID`, loudly lost.** No re-resolve by app plus title
+6. **Window identity is a bare `CGWindowID`, loudly lost.** No re-resolve by app plus title
    after a restart: a wrong re-resolve silently streams a different window, which is worse
    than an empty picker entry the user re-taps.
 
@@ -114,9 +143,13 @@ Four further choices ride with it:
   picker no longer has the "changes nothing on the Mac" property the first cut promised.
 - Bad, because window mode cannot show a window and the Desktop behind it at once. The
   window is raised, so it is on top of whatever it overlaps.
+- Bad, because picking a window now also resizes it. The size is given back on every exit,
+  but a host that dies mid-session cannot give it back, and a window whose app has since
+  moved to another Desktop is out of Accessibility's reach and stays fitted.
 - Bad, because a window resized mid-stream scales into the dimensions captured at start.
-  Visibly imperfect, not broken; live `updateContentFilter` / `updateConfiguration` is
-  deliberately deferred.
+  The fit works around this by restarting the capture, which costs one keyframe at exactly
+  the moment the picture changes anyway; a window the *user* resizes on the Mac still scales
+  into the old buffer. Live `updateContentFilter` / `updateConfiguration` is still deferred.
 - Neutral, because the capture target is host-global and last-writer-wins, matching
   `DisplaySelectionStore`. Two clients watching one host already share a display selection.
 - Neutral, because damage under a window filter is full-surface on ~95% of frames versus
@@ -128,9 +161,14 @@ Four further choices ride with it:
 `WindowCaptureTargetTests` pins the two behaviours the store owns beyond holding an id: that
 a moved window updates the cursor clamp without reporting a target change (which would
 needlessly restart capture and force a keyframe), and that the Desktop owed back on exit
-survives window-to-window hops and is handed out exactly once. `WireRoundTripTests` pins that
+survives window-to-window hops and is handed out exactly once. `WindowFitMemoryTests` pins
+the per-window half: the previous window is owed its frame back while the watched one is
+kept, a re-fit does not overwrite the remembered geometry, and each frame is handed out
+once. `WindowFitGeometryTests` pins the pixel-matching rule itself, including that an
+already-fitted window reports unchanged rather than paying a capture restart for nothing. `WireRoundTripTests` pins that
 an absent `sw` key decodes as "no window" rather than window 0. Host-side the signals are the
-`capture target=`, `window selection unresolved`, and `window focus failed` log lines.
+`capture target=`, `window selection unresolved`, `window focus failed`, `window fit`,
+`window fit failed`, and `window fit released` log lines.
 
 ## Links
 

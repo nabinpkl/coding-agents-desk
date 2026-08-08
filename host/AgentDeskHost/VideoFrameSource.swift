@@ -53,6 +53,11 @@ enum CaptureAvailability: Equatable, Sendable {
 
 protocol TargetSelectableVideoFrameSource: AnyObject, Sendable {
     func selectCaptureTarget(_ target: CaptureTarget)
+    // Rebuild the stream against the same target. The stream's pixel dimensions are fixed at
+    // start from the window's size, so a window resized underneath it keeps scaling into the
+    // old buffer until this is called. Costs a keyframe, which is why it is explicit rather
+    // than folded into selectCaptureTarget's no-op-when-unchanged path.
+    func restartCapture()
     // Whether the OS cursor is composited into the captured video. Default off: the client
     // draws its own sharp, low-latency cursor overlay, so baking it into the (laggy,
     // compressed) video too is a redundant double-draw that also adds cursor-move damage.

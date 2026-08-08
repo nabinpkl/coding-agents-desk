@@ -432,4 +432,12 @@ private final class RecordingDockAXAccess: DockAXWindowAccessing {
     func activate(pid: pid_t) throws {
         actions.append("activate:\(pid)")
     }
+
+    // Fixed-size windows answer AXSize with kAXErrorFailure, so the double can refuse too.
+    var frameFailure: DockWindowFocusError?
+
+    func setFrame(_ frame: CGRect, for element: Int) throws {
+        if let frameFailure { throw frameFailure }
+        actions.append("frame:\(element):\(Int(frame.origin.x)),\(Int(frame.origin.y)) \(Int(frame.width))x\(Int(frame.height))")
+    }
 }

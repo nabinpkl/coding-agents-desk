@@ -691,6 +691,39 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded.selectedWindowId == nil)
 }
 
+@Test func clientConfigCarriesTheVideoViewportInPixels() throws {
+    // Pixels, not points: the host sizes a watched window so one captured pixel lands on one
+    // phone pixel, and the two devices have different scale factors.
+    let config = ClientConfig(
+        thumbnailsEnabled: true,
+        selectedWindowId: 32_517,
+        videoViewport: ClientVideoViewport(widthPixels: 1206, heightPixels: 1443)
+    )
+    try roundTrip(config)
+
+    let object = try JSONSerialization.jsonObject(
+        with: try JSONEncoder().encode(config)
+    ) as? [String: Any]
+    let viewport = object?["vp"] as? [String: Any]
+    #expect(viewport?["w"] as? UInt32 == 1206)
+    #expect(viewport?["h"] as? UInt32 == 1443)
+}
+
+@Test func clientConfigWithoutAViewportAsksForNoFit() throws {
+    // Absent means the client is not asking for a fit, which must leave the window's geometry
+    // alone rather than decode as a zero-sized viewport the host would act on.
+    let decoded = try JSONDecoder().decode(
+        ClientConfig.self,
+        from: Data(#"{"t":"client-config","te":false,"sw":42}"#.utf8)
+    )
+    #expect(decoded.videoViewport == nil)
+
+    let object = try JSONSerialization.jsonObject(
+        with: try JSONEncoder().encode(ClientConfig(thumbnailsEnabled: false))
+    ) as? [String: Any]
+    #expect(object?["vp"] == nil)
+}
+
 @Test func voiceAssetRequestsRoundTrip() throws {
     try roundTrip(VoiceAssetLaneRequest.manifest)
     try roundTrip(VoiceAssetLaneRequest.fetch(path: "VoicePhoneModel.mlmodelc/model.mil", offset: 0))

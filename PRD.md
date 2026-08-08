@@ -77,8 +77,11 @@ Empirical, not duration-based. The author uses AgentDesk for agent control; v0 s
     behind other windows. Each icon carries its Desktop number as a badge. Picking a window brings
     the Mac to it: the Mac switches to that window's Desktop and raises the window, so the pixels
     are live and the trackpad, scroll strip, and keyboard all drive it as usual, with the pointer
-    confined to the window. One tap on the Whole Desktop tile returns to the full projection and
-    puts the Mac back on the Desktop it was showing before.
+    confined to the window. The window is also resized to the phone's video area, so its text
+    arrives at the phone without being scaled and stays readable. Its original size and position
+    come back the moment it stops being the watched window, whether that is picking a different
+    one or leaving window mode. One tap on the Whole Desktop tile returns to the full projection
+    and puts the Mac back on the Desktop it was showing before.
 
 ## What v0 is not
 

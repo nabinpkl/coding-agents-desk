@@ -598,6 +598,13 @@ struct HostDisplayInfo: Equatable {
     let label: String
     let isMain: Bool
     let bounds: CGRect
+    // `bounds` minus the menu bar and Dock, in the same CoreGraphics top-left space, so a
+    // window placed inside it is not shoved under system chrome. AppKit reports this with a
+    // bottom-left origin, which is why it is converted here rather than at each use.
+    let visibleBounds: CGRect
+    // Captured pixels per point on this display. The window fit needs it to turn the phone's
+    // viewport pixels into the window points that produce them.
+    let backingScale: CGFloat
 }
 
 enum HostDisplayResolver {
@@ -612,12 +619,23 @@ enum HostDisplayResolver {
             let cgDisplayId = CGDirectDisplayID(number.uint32Value)
             guard let skyLightId = skyLightId(for: cgDisplayId) else { continue }
             let bounds = CGDisplayBounds(cgDisplayId)
+            // Insets are taken within the display rather than by converting global AppKit
+            // coordinates, so this needs no reference to the main screen and stays correct
+            // on a multi-display Mac where the origins disagree.
+            let visible = CGRect(
+                x: bounds.minX + (screen.visibleFrame.minX - screen.frame.minX),
+                y: bounds.minY + (screen.frame.maxY - screen.visibleFrame.maxY),
+                width: screen.visibleFrame.width,
+                height: screen.visibleFrame.height
+            )
             result[skyLightId] = HostDisplayInfo(
                 skyLightId: skyLightId,
                 cgDisplayId: cgDisplayId,
                 label: screen.localizedName,
                 isMain: cgDisplayId == mainDisplayID,
-                bounds: bounds
+                bounds: bounds,
+                visibleBounds: visible,
+                backingScale: screen.backingScaleFactor
             )
         }
         return result

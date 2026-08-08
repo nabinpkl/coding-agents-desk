@@ -156,6 +156,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // The client's last stated cursor preference, remembered because window mode overrides it
     // and clearing the window has to hand the choice back rather than guess.
     private var showHostCursorInVideo = false
+    // The pixel size of the client's video area, used to size a watched window so one captured
+    // pixel lands on one phone pixel. nil means no client has asked for a fit.
+    private var clientVideoViewport: ClientVideoViewport?
     private let spaceThumbnailProvider = SpaceThumbnailProvider()
     private let cursorMonitor = CursorMonitor()
     private let textInputFocusProbeCoordinator = HostTextInputFocusProbeCoordinator()
@@ -1453,6 +1456,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // nil = no opinion -> adaptive media quality remains on, matching ADR-0033.
             let mediaQuality = config.mediaQuality ?? ClientMediaQualityConfig(adaptiveEnabled: true)
             let autoKeyboardEnabled = config.autoKeyboardEnabled
+            let videoViewport = config.videoViewport
             Task { @MainActor [weak self, provider, thumbnailOwner, server] in
                 guard let self else { return }
                 let transport = self.sessions.transport(for: clientFingerprint)
@@ -1461,6 +1465,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Remembered rather than applied directly: window mode overrides it, and
                 // applyCaptureTarget is the single writer that knows which mode is live.
                 self.showHostCursorInVideo = showHostCursor
+                // Read by applyWindowSelection when it fits a window. Stored before that call
+                // below so a config carrying both a viewport and a new window fits at the size
+                // that same config asked for.
+                self.clientVideoViewport = videoViewport
                 self.applyCaptureTarget()
                 if self.textInputFocusProbeGate.apply(autoKeyboardEnabled: autoKeyboardEnabled, for: clientFingerprint) {
                     self.textInputFocusProbeCoordinator.cancel(for: clientFingerprint)
@@ -1940,13 +1948,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if captureTarget.select(nil) {
                 applyCaptureTarget()
             }
-            guard let restore else { return }
-            let request = DockDesktopActivationRequest(
-                spaceID: restore.spaceId,
-                displayID: restore.displayId,
-                desktopLabel: desktopLabel(forSpace: restore.spaceId)
-            )
-            Task { @MainActor [windowFocusExecutor, signalingLogger] in
+            // `if let` rather than `Optional.map`: a closure literal inside a @MainActor
+            // method inherits that isolation, and handing it to a nonisolated generic gets
+            // an executor check compiled in that traps off the main queue.
+            var request: DockDesktopActivationRequest?
+            if let restore {
+                request = DockDesktopActivationRequest(
+                    spaceID: restore.spaceId,
+                    displayID: restore.displayId,
+                    desktopLabel: desktopLabel(forSpace: restore.spaceId)
+                )
+            }
+            Task { @MainActor [weak self, windowFocusExecutor, signalingLogger] in
+                // Windows first, Desktop second. Accessibility only reaches windows on the
+                // active Space, and the fitted window is on the Space the Mac is still
+                // showing; switching away first would put it out of reach and leave it
+                // stuck at the phone's size.
+                await self?.restoreFittedWindows(keeping: nil)
+                guard let request else { return }
                 do {
                     try await windowFocusExecutor.activateDesktop(request)
                 } catch {
@@ -1981,6 +2000,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.applyCaptureTarget()
             }
             guard !alreadyWatching else { return }
+            // Put the previous window back before switching Spaces, for the same reason the
+            // exit path does: once the Mac leaves its Space, Accessibility cannot see it.
+            await self?.restoreFittedWindows(keeping: resolved.id)
             if let activeDesktop {
                 captureTarget.rememberDesktopIfEnteringWindowMode(
                     spaceId: activeDesktop.spaceId,
@@ -1994,8 +2016,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // frozen and input may miss, which the user can see, and silently reverting to
                 // the whole display would be a 4-6x bandwidth jump nobody asked for.
                 signalingLogger.notice("window focus failed wid=\(selectedWindowId, privacy: .public) error=\(String(describing: error), privacy: .public)")
+                // Without the raise the window is on another Space, where Accessibility
+                // cannot reach it, so there is nothing to fit.
+                return
+            }
+            await self?.fitWatchedWindow(resolved)
+        }
+    }
+
+    // Size the watched window so its captured pixels match the phone's video area exactly.
+    // Runs only after the window has been raised onto the active Space, which is both what
+    // makes its pixels live and what puts it in Accessibility's reach.
+    private func fitWatchedWindow(_ window: WatchedWindow) async {
+        guard let viewport = clientVideoViewport else { return }
+        guard let displayId = window.displayId,
+              let display = HostDisplayResolver.displaysBySkyLightId()[displayId] else {
+            signalingLogger.notice("window fit skipped, unplaced wid=\(window.id, privacy: .public)")
+            return
+        }
+        let outcome = WindowFitGeometry.fit(
+            current: window.bounds,
+            viewportPixels: CGSize(
+                width: CGFloat(viewport.widthPixels),
+                height: CGFloat(viewport.heightPixels)
+            ),
+            backingScale: display.backingScale,
+            visibleFrame: display.visibleBounds
+        )
+        switch outcome {
+        case .unchanged:
+            return
+        case .impossible(let reason):
+            signalingLogger.notice("window fit impossible wid=\(window.id, privacy: .public) reason=\(reason, privacy: .public)")
+        case .fit(let frame):
+            do {
+                let previous = try await windowFocusExecutor.setFrame(
+                    DockWindowFocusRequest(watching: window),
+                    to: frame
+                )
+                captureTarget.rememberFrameBeforeFit(previous, window: window)
+                // The stream fixed its pixel dimensions from the window's old size at start,
+                // so without this the resized window scales into the old buffer.
+                (frameSource as? TargetSelectableVideoFrameSource)?.restartCapture()
+                signalingLogger.notice("window fit wid=\(window.id, privacy: .public) \(Int(frame.width), privacy: .public)x\(Int(frame.height), privacy: .public)")
+            } catch {
+                // A fixed-size window answers AXSize with kAXErrorFailure. Nothing is owed
+                // back because nothing moved; the window streams at its own size and the
+                // phone letterboxes it, which is the old behaviour and is not broken.
+                signalingLogger.notice("window fit failed wid=\(window.id, privacy: .public) error=\(String(describing: error), privacy: .public)")
             }
         }
+    }
+
+    // Give back every window the phone resized, except the one named. Each is handed out once
+    // by the store, so a window whose app has quit is dropped rather than retried forever.
+    private func restoreFittedWindows(keeping keep: CGWindowID?) async {
+        let owed = captureTarget.takeFramesToRestore(excluding: keep)
+        guard !owed.isEmpty else { return }
+        for (id, fitted) in owed {
+            do {
+                try await windowFocusExecutor.setFrame(
+                    DockWindowFocusRequest(watching: fitted.window),
+                    to: fitted.frame
+                )
+                signalingLogger.notice("window fit released wid=\(id, privacy: .public)")
+            } catch {
+                signalingLogger.notice("window fit release failed wid=\(id, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            }
+        }
+        // No capture restart here. A released window is by definition not the current target
+        // any more -- either the target is now the display, which selectCaptureTarget already
+        // restarted, or it is the next window, whose own fit restarts if it resizes.
     }
 
     // Only the activation request wants this, and only to name what it is switching to.

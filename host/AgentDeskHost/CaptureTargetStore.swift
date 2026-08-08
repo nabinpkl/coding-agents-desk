@@ -24,6 +24,14 @@ struct WatchedWindow: Equatable, Sendable {
     let appName: String
 }
 
+// A window the phone resized to fit its viewport, and the geometry owed back when it stops
+// being the watched one. The window travels with the frame because putting it back means
+// finding it again through Accessibility, which needs the pid and title, not just an id.
+struct FittedWindow: Equatable, Sendable {
+    let window: WatchedWindow
+    let frame: CGRect
+}
+
 extension DockWindowFocusRequest {
     // The phone's picker reuses the Dock strip's focus path (ADR-0055) rather than growing a
     // second way to raise a window. An extension keeps that reuse one-directional: nothing in
@@ -63,6 +71,10 @@ final class CaptureTargetStore: @unchecked Sendable {
     // the Mac to that window's Space, so leaving window mode owes the user their Desktop back.
     // Held across window-to-window changes: only entering and leaving window mode move it.
     private var desktopBeforeWindowMode: (spaceId: UInt64, displayId: String)?
+    // Window id -> what is owed back. Keyed by window rather than holding a single value
+    // because a restore can be owed for a window that is no longer the target, which is
+    // exactly what happens when the user picks the next one.
+    private var fittedWindows: [CGWindowID: FittedWindow] = [:]
 
     var watchedWindow: WatchedWindow? {
         lock.lock()
@@ -117,5 +129,40 @@ final class CaptureTargetStore: @unchecked Sendable {
         let remembered = desktopBeforeWindowMode
         desktopBeforeWindowMode = nil
         return remembered
+    }
+
+    // Records the frame a window had before the phone resized it to fit. Unlike the Desktop
+    // memory above, this is per window and is owed back on every change of target, not only
+    // on leaving window mode: picking a different window must put the previous one back.
+    //
+    // Set once per window for the same reason the Desktop memory is: a second fit of an
+    // already-fitted window would otherwise overwrite the user's real geometry with the
+    // fitted one and make the restore a no-op.
+    func rememberFrameBeforeFit(_ frame: CGRect, window: WatchedWindow) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard fittedWindows[window.id] == nil else { return }
+        fittedWindows[window.id] = FittedWindow(window: window, frame: frame)
+    }
+
+    // Every window owed a restore, handed back exactly once. Callers put them back and the
+    // store forgets them, so a failed restore is not retried forever against a window whose
+    // app may have quit.
+    func takeFramesToRestore(excluding keep: CGWindowID? = nil) -> [CGWindowID: FittedWindow] {
+        lock.lock()
+        defer { lock.unlock() }
+        var owed = fittedWindows
+        if let keep, let kept = owed.removeValue(forKey: keep) {
+            fittedWindows = [keep: kept]
+        } else {
+            fittedWindows = [:]
+        }
+        return owed
+    }
+
+    func isFitted(_ id: CGWindowID) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return fittedWindows[id] != nil
     }
 }

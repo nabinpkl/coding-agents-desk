@@ -381,6 +381,31 @@ public struct ClientMediaQualityConfig: Codable, Equatable, Sendable {
     }
 }
 
+// Pixel size of the area the client is actually drawing host video into -- not the phone's
+// screen, which is bigger, because the trackpad takes the rest of it.
+//
+// Sent so the host can size a watched window to exactly this, which is what makes remote text
+// readable: matching pixels means the frame is neither upscaled (which blurs small glyphs,
+// and HEVC at a pinned bitrate makes that worse) nor downscaled (which shrinks them). It is
+// the largest text achievable with no resampling anywhere in the chain.
+//
+// Pixels rather than points because the whole point is to land one captured pixel on one
+// phone pixel, and the two devices have different scale factors.
+public struct ClientVideoViewport: Codable, Equatable, Sendable {
+    public let widthPixels: UInt32
+    public let heightPixels: UInt32
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case widthPixels = "w"
+        case heightPixels = "h"
+    }
+
+    public init(widthPixels: UInt32, heightPixels: UInt32) {
+        self.widthPixels = widthPixels
+        self.heightPixels = heightPixels
+    }
+}
+
 public struct ClientConfig: Codable, Equatable, Sendable {
     public let type: String
     public let thumbnailsEnabled: Bool
@@ -392,10 +417,14 @@ public struct ClientConfig: Codable, Equatable, Sendable {
     // on another Space.
     //
     // Additive to selectedDisplayId rather than replacing it: the display still owns the
-    // input coordinate space, DesktopState, and thumbnail refresh. A window target is
-    // view-only, enforced host-side, because InputDispatcher posts global CGEvents in
-    // display coordinates and has no per-window routing.
+    // input coordinate space, DesktopState, and thumbnail refresh. Selecting a window makes
+    // the host switch to that window's Desktop and raise it, so its pixels are live and the
+    // trackpad, scroll strip, and keyboard all drive it.
     public let selectedWindowId: UInt32?
+    // Pixel size of the client's video viewport, sent so the host can size a watched window
+    // to it. nil means the client is not asking for a fit and the host leaves the window's
+    // geometry alone.
+    public let videoViewport: ClientVideoViewport?
     // Whether this client wants WindowListPush. Its own flag rather than a ride-along on
     // thumbnailsEnabled: the window list is capture-free, so a user who turned previews off
     // for CPU should still get a populated picker.
@@ -429,6 +458,7 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         case thumbnailRefresh = "tr"
         case selectedDisplayId = "sd"
         case selectedWindowId = "sw"
+        case videoViewport = "vp"
         case windowListEnabled = "wl"
         case crispTextOverlayEnabled = "ce"
         case showHostCursorInVideo = "hc"
@@ -442,6 +472,7 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         thumbnailRefresh: UInt64? = nil,
         selectedDisplayId: String? = nil,
         selectedWindowId: UInt32? = nil,
+        videoViewport: ClientVideoViewport? = nil,
         windowListEnabled: Bool = false,
         crispTextOverlayEnabled: Bool? = nil,
         showHostCursorInVideo: Bool? = nil,
@@ -454,6 +485,7 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         self.thumbnailRefresh = thumbnailRefresh
         self.selectedDisplayId = selectedDisplayId
         self.selectedWindowId = selectedWindowId
+        self.videoViewport = videoViewport
         self.windowListEnabled = windowListEnabled
         self.crispTextOverlayEnabled = crispTextOverlayEnabled
         self.showHostCursorInVideo = showHostCursorInVideo
@@ -469,6 +501,7 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         thumbnailRefresh = try container.decodeIfPresent(UInt64.self, forKey: .thumbnailRefresh)
         selectedDisplayId = try container.decodeIfPresent(String.self, forKey: .selectedDisplayId)
         selectedWindowId = try container.decodeIfPresent(UInt32.self, forKey: .selectedWindowId)
+        videoViewport = try container.decodeIfPresent(ClientVideoViewport.self, forKey: .videoViewport)
         windowListEnabled = try container.decodeIfPresent(Bool.self, forKey: .windowListEnabled) ?? false
         crispTextOverlayEnabled = try container.decodeIfPresent(Bool.self, forKey: .crispTextOverlayEnabled)
         showHostCursorInVideo = try container.decodeIfPresent(Bool.self, forKey: .showHostCursorInVideo)
@@ -484,6 +517,7 @@ public struct ClientConfig: Codable, Equatable, Sendable {
         try container.encodeIfPresent(thumbnailRefresh, forKey: .thumbnailRefresh)
         try container.encodeIfPresent(selectedDisplayId, forKey: .selectedDisplayId)
         try container.encodeIfPresent(selectedWindowId, forKey: .selectedWindowId)
+        try container.encodeIfPresent(videoViewport, forKey: .videoViewport)
         try container.encode(windowListEnabled, forKey: .windowListEnabled)
         try container.encodeIfPresent(crispTextOverlayEnabled, forKey: .crispTextOverlayEnabled)
         try container.encodeIfPresent(showHostCursorInVideo, forKey: .showHostCursorInVideo)

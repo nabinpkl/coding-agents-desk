@@ -138,6 +138,11 @@ enum DockWindowFocusError: Error, Equatable, LocalizedError {
 protocol DockWindowFocusExecuting: AnyObject {
     func focus(_ request: DockWindowFocusRequest) async throws
     func activateDesktop(_ request: DockDesktopActivationRequest) async throws
+    // Returns the frame the window held before the change, which is the only way the caller
+    // can put it back. Separate from `focus` rather than a flag on it, because the Dock strip
+    // focuses windows without ever wanting to move them.
+    @discardableResult
+    func setFrame(_ request: DockWindowFocusRequest, to frame: CGRect) async throws -> CGRect
 }
 
 struct DockAXWindowCandidate<Element> {
@@ -156,6 +161,7 @@ protocol DockAXWindowAccessing {
     func setFocused(_ focused: Bool, for element: Element) throws
     func raise(_ element: Element) throws
     func activate(pid: pid_t) throws
+    func setFrame(_ frame: CGRect, for element: Element) throws
 }
 
 @MainActor
@@ -212,6 +218,29 @@ struct AXDockWindowAccess: DockAXWindowAccessing {
         }
         guard app.activate() else {
             throw DockWindowFocusError.applicationActivationRejected(pid)
+        }
+    }
+
+    // Size first, then position. The target position is already clamped against the target
+    // size, so moving afterwards puts the window back inside the display if growing pushed
+    // it out. A window that refuses the resize (fixed-size dialogs answer AXSize with
+    // kAXErrorFailure) is left where it is rather than moved for no reason.
+    func setFrame(_ frame: CGRect, for element: AXUIElement) throws {
+        var size = frame.size
+        guard let sizeValue = AXValueCreate(.cgSize, &size) else {
+            throw DockWindowFocusError.accessibilityActionFailed("AXSize", 0)
+        }
+        let sizeResult = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, sizeValue)
+        guard sizeResult == .success else {
+            throw DockWindowFocusError.accessibilityActionFailed("AXSize", Int32(sizeResult.rawValue))
+        }
+        var origin = frame.origin
+        guard let originValue = AXValueCreate(.cgPoint, &origin) else {
+            throw DockWindowFocusError.accessibilityActionFailed("AXPosition", 0)
+        }
+        let originResult = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, originValue)
+        guard originResult == .success else {
+            throw DockWindowFocusError.accessibilityActionFailed("AXPosition", Int32(originResult.rawValue))
         }
     }
 
@@ -315,6 +344,35 @@ final class DockWindowFocusExecutor<AXAccess: DockAXWindowAccessing>: DockWindow
         try axAccess.setFocused(true, for: candidate.element)
         try axAccess.raise(candidate.element)
         try axAccess.activate(pid: request.pid)
+    }
+
+    // Move and resize a window that is already on the active Space. Deliberately does no
+    // Space switching: Accessibility only lists an app's windows on the active Space, so a
+    // caller has to raise the window first, and quietly switching Spaces here would hide
+    // that ordering requirement instead of enforcing it.
+    @discardableResult
+    func setFrame(_ request: DockWindowFocusRequest, to frame: CGRect) async throws -> CGRect {
+        logStage("set-frame", request: request)
+        try Task.checkCancellation()
+        guard axAccess.isTrusted() else {
+            throw DockWindowFocusError.accessibilityPermissionRequired
+        }
+        guard let windowID = request.windowID else {
+            throw DockWindowFocusError.unresolvedWindowID
+        }
+        let target = try liveCGWindow(matching: request, windowID: windowID)
+        let candidates = try axAccess.windows(for: request.pid)
+        switch DockWindowMatcher.axWindow(matching: target, in: candidates.map(\.facts)) {
+        case .matched(let index):
+            let candidate = candidates[index]
+            let previous = candidate.facts.bounds ?? target.bounds
+            try axAccess.setFrame(frame, for: candidate.element)
+            return previous
+        case .missing:
+            throw DockWindowFocusError.accessibilityWindowMissing(windowID)
+        case .ambiguous:
+            throw DockWindowFocusError.accessibilityWindowAmbiguous(windowID)
+        }
     }
 
     func activateDesktop(_ request: DockDesktopActivationRequest) async throws {

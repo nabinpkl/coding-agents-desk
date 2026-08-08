@@ -44,6 +44,14 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, TargetSelec
         try await startCurrentSelection()
     }
 
+    func restartCapture() {
+        let running = controlState.withLock { $0.isRunning && $0.onFrame != nil }
+        guard running else { return }
+        Task { [weak self] in
+            await self?.restartCurrentSelection()
+        }
+    }
+
     func selectCaptureTarget(_ target: CaptureTarget) {
         let shouldRestart = controlState.withLock { state -> Bool in
             let changed = state.target != target

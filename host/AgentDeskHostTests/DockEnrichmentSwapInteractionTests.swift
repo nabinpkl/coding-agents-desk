@@ -570,6 +570,10 @@ private final class RecordingDockFocusExecutor: DockWindowFocusExecuting {
     func activateDesktop(_ request: DockDesktopActivationRequest) async throws {
         desktopRequests.append(request)
     }
+
+    // These doubles exercise focus and Desktop activation only; the frame path has its own
+    // coverage in DockWindowFocusExecutorTests.
+    func setFrame(_ request: DockWindowFocusRequest, to frame: CGRect) async throws -> CGRect { .zero }
 }
 
 @MainActor
@@ -589,6 +593,10 @@ private final class CancellableDockFocusExecutor: DockWindowFocusExecuting {
     }
 
     func activateDesktop(_ request: DockDesktopActivationRequest) async throws {}
+
+    // These doubles exercise focus and Desktop activation only; the frame path has its own
+    // coverage in DockWindowFocusExecutorTests.
+    func setFrame(_ request: DockWindowFocusRequest, to frame: CGRect) async throws -> CGRect { .zero }
 }
 
 @MainActor
@@ -600,6 +608,10 @@ private final class FailingDockFocusExecutor: DockWindowFocusExecuting {
     func activateDesktop(_ request: DockDesktopActivationRequest) async throws {
         throw DockDesktopActivationError.spaceSwitchRejected(request.spaceID)
     }
+
+    // These doubles exercise focus and Desktop activation only; the frame path has its own
+    // coverage in DockWindowFocusExecutorTests.
+    func setFrame(_ request: DockWindowFocusRequest, to frame: CGRect) async throws -> CGRect { .zero }
 }
 
 private actor RecordingDockSwapExecutor: DockDesktopSwapExecuting {

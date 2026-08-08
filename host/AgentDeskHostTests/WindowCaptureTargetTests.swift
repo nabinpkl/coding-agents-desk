@@ -79,3 +79,72 @@ struct WindowCaptureTargetTests {
         #expect(restored?.displayId == "d2")
     }
 }
+
+// The fit memory, which is per window rather than per session because a restore is owed the
+// moment a window stops being the watched one, not only when window mode ends.
+@Suite("Window fit memory")
+struct WindowFitMemoryTests {
+    private func window(id: CGWindowID) -> WatchedWindow {
+        WatchedWindow(
+            id: id,
+            pid: 4242,
+            spaceId: 7,
+            displayId: "d1",
+            bounds: CGRect(x: 100, y: 200, width: 800, height: 600),
+            title: "Build log \(id)",
+            appName: "Terminal"
+        )
+    }
+
+    @Test("picking the next window owes the previous one its frame back")
+    func pickingTheNextWindowOwesThePreviousOneItsFrameBack() {
+        let store = CaptureTargetStore()
+        let first = window(id: 1)
+        let original = CGRect(x: 10, y: 20, width: 900, height: 700)
+        store.rememberFrameBeforeFit(original, window: first)
+
+        let owed = store.takeFramesToRestore(excluding: 2)
+        #expect(owed.count == 1)
+        #expect(owed[1]?.frame == original)
+        // The window travels with the frame: putting it back means finding it through
+        // Accessibility again, which needs the pid and title.
+        #expect(owed[1]?.window == first)
+    }
+
+    // The window still on screen must not be handed back mid-session, or the fit the user is
+    // looking at would be undone the moment anything else triggers a release.
+    @Test("the window still being watched is kept")
+    func theWindowStillBeingWatchedIsKept() {
+        let store = CaptureTargetStore()
+        store.rememberFrameBeforeFit(CGRect(x: 0, y: 0, width: 100, height: 100), window: window(id: 1))
+        store.rememberFrameBeforeFit(CGRect(x: 5, y: 5, width: 200, height: 200), window: window(id: 2))
+
+        let owed = store.takeFramesToRestore(excluding: 2)
+        #expect(owed.keys.sorted() == [1])
+        #expect(store.isFitted(2))
+        #expect(!store.isFitted(1))
+    }
+
+    // A second fit of an already-fitted window would otherwise overwrite the user's real
+    // geometry with the fitted one, making the restore a no-op that silently keeps the
+    // window at the phone's size forever.
+    @Test("the first frame is the one owed back, not the fitted one")
+    func theFirstFrameIsTheOneOwedBackNotTheFittedOne() {
+        let store = CaptureTargetStore()
+        let real = CGRect(x: 10, y: 20, width: 900, height: 700)
+        store.rememberFrameBeforeFit(real, window: window(id: 1))
+        store.rememberFrameBeforeFit(CGRect(x: 0, y: 0, width: 603, height: 722), window: window(id: 1))
+
+        #expect(store.takeFramesToRestore()[1]?.frame == real)
+    }
+
+    // Handed out once, so a window whose app has quit is dropped rather than retried forever.
+    @Test("frames are handed back exactly once")
+    func framesAreHandedBackExactlyOnce() {
+        let store = CaptureTargetStore()
+        store.rememberFrameBeforeFit(CGRect(x: 1, y: 2, width: 3, height: 4), window: window(id: 1))
+
+        #expect(store.takeFramesToRestore().count == 1)
+        #expect(store.takeFramesToRestore().isEmpty)
+    }
+}
