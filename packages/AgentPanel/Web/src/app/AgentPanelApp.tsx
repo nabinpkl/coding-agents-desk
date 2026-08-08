@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
-import { AppWindow, CornerDownLeft, Download, LoaderCircle, PanelLeft, Send, Square, Terminal as TerminalIcon } from "lucide-react";
+import { CornerDownLeft, LoaderCircle, PanelLeft, Send, Square, Terminal as TerminalIcon } from "lucide-react";
 import type {
   AgentExtensionUIRequest,
   AgentTerminalContext,
@@ -688,15 +688,30 @@ function SessionComposer({
     ? "Codex's window composer isn't available yet."
     : "This session's composer is unavailable.";
 
-  const editor = isClaude
+  const editor: {
+    value: string;
+    onChange: (value: string) => void;
+    disabled: boolean;
+    ariaLabel: string;
+    placeholder: string;
+    maxLength: number;
+    sendOnEnter: boolean;
+    onFocus?: () => void;
+    onBlur?: () => void;
+  } = isClaude
     ? {
         value: windowComposer.draft,
         onChange: (value: string) => windowComposer.change(value),
-        disabled: !windowComposer.enabled || windowComposer.pending,
+        // Focusable before the first status, because the watch is focus-gated: a field disabled
+        // "until a status arrives" could never be focused, so it could never trigger the watch that
+        // delivers the status. Only a KNOWN reason disables it.
+        disabled: (windowComposer.statusKnown && !windowComposer.enabled) || windowComposer.pending,
         ariaLabel: "Claude composer text",
         placeholder: windowComposer.enabled ? "Type into Claude's composer…" : "Composer unavailable",
         maxLength: 100_000,
         sendOnEnter: false,
+        onFocus: windowComposer.onFocus,
+        onBlur: windowComposer.onBlur,
       }
     : {
         value: localDraft,
@@ -725,18 +740,9 @@ function SessionComposer({
 
   const actions: ComposerAction[] = [];
   if (isClaude) {
-    if (windowComposer.enabled && !windowComposer.onActiveDesktop) {
-      actions.push({
-        key: "load",
-        ariaLabel: "Load from Claude window",
-        title: "Bring the window here, read its composer, and put it back",
-        icon: <Download className="size-4" aria-hidden />,
-        disabled: windowComposer.pending,
-        className:
-          "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-40",
-        onClick: () => void windowComposer.load(),
-      });
-    }
+    // The window band's only explicit action is the Enter button: filling and
+    // reading are automatic (focus prefill, debounced sync, one round trip for
+    // an off-Desktop window), so there is nothing left to button.
     actions.push({
       key: "submit-window",
       ariaLabel: "Send to Claude's composer",
@@ -750,20 +756,6 @@ function SessionComposer({
       className:
         "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
       onClick: () => void windowComposer.submitWindow(),
-    });
-    actions.push({
-      key: "fill",
-      ariaLabel: "Fill Claude's composer",
-      title: "Fill the composer. Nothing is sent -- press Return in Claude yourself.",
-      icon: windowComposer.pending ? (
-        <LoaderCircle className="size-4 animate-spin" aria-hidden />
-      ) : (
-        <AppWindow className="size-4" aria-hidden />
-      ),
-      disabled: !windowComposer.enabled || windowComposer.pending,
-      className:
-        "flex h-9 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
-      onClick: () => void windowComposer.fill(),
     });
   } else if (!unavailable) {
     if (running && capabilities.canSteer) {
@@ -833,6 +825,8 @@ function SessionComposer({
           ref={autoGrow}
           value={editor.value}
           onChange={(event) => editor.onChange(event.target.value)}
+          onFocus={editor.onFocus}
+          onBlur={editor.onBlur}
           onKeyDown={(event) => {
             if (
               editor.sendOnEnter &&
@@ -866,7 +860,7 @@ function SessionComposer({
         ))}
       </div>
       {/* The context meter sits below the action row, right-aligned under the
-          buttons (under the Fill button in the window band), not in the header. */}
+          buttons in the window band, not in the header. */}
       {usage ? (
         <div className="mt-1 flex justify-end px-1">
           <TokenMeter usage={usage} />
@@ -904,6 +898,15 @@ type ComposerAction = {
  * band itself is one component for every source. Inert -- and never
  * subscribing -- when `active` is false, so a Pi or Codex session posts no
  * `agent-window-input-watch`.
+ *
+ * The watch is FOCUS-gated: the field subscribes when focused and unwatches on
+ * blur, which stops the host's resolution poll and the AX value observer while
+ * nobody is composing. While focused the sync is automatic: the window's text
+ * is prefilled on focus (one automatic round trip when the window sits on
+ * another Desktop), every edit pushes the full value to the window after a
+ * debounce, and value-changed events from the window reconcile the field -- an
+ * echo of our own write marks it in sync, an independent edit in Claude
+ * updates it while idle. Enter stays the one explicit action.
  */
 function useClaudeWindowComposer(
   bridge: BridgeDataSource,
@@ -914,24 +917,42 @@ function useClaudeWindowComposer(
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
+  const draftRef = useRef("");
   const edited = useRef(false);
+  const inSync = useRef(true);
+  const roundTripDone = useRef(false);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (!active) return;
-    return bridge.subscribeWindowComposer(sessionId, (next) => {
-      setStatus(next);
-      if (next.composerText !== null && !edited.current) setDraft(next.composerText);
-    });
-  }, [active, bridge, sessionId]);
-
-  const adopt = useCallback((text: string) => {
-    edited.current = false;
+  const setDraftBoth = useCallback((text: string) => {
+    draftRef.current = text;
     setDraft(text);
   }, []);
 
-  const change = useCallback((value: string) => {
-    edited.current = true;
-    setDraft(value);
+  const adopt = useCallback(
+    (text: string) => {
+      edited.current = false;
+      inSync.current = true;
+      setDraftBoth(text);
+    },
+    [setDraftBoth],
+  );
+
+  const change = useCallback(
+    (value: string) => {
+      edited.current = true;
+      inSync.current = false;
+      setDraftBoth(value);
+    },
+    [setDraftBoth],
+  );
+
+  const reportFailure = useCallback((failure: unknown) => {
+    setError(
+      failure instanceof WindowComposerError
+        ? composerReasonText(failure.reason)
+        : String((failure as Error).message ?? failure),
+    );
   }, []);
 
   const run = useCallback(
@@ -941,51 +962,114 @@ function useClaudeWindowComposer(
       try {
         adopt(await operation());
       } catch (failure) {
-        setError(
-          failure instanceof WindowComposerError
-            ? composerReasonText(failure.reason)
-            : String((failure as Error).message ?? failure),
-        );
+        reportFailure(failure);
       } finally {
         setPending(false);
       }
     },
-    [adopt],
+    [adopt, reportFailure],
   );
 
-  const fill = useCallback(
-    () => run(() => bridge.syncWindowComposer(sessionId, draft)),
-    [bridge, draft, run, sessionId],
-  );
+  // The automatic push behind every edit. Deliberately silent: it is the field's
+  // own echo, so no spinner freezes the field mid-keystroke, and the caption
+  // carries the reason when the window refused. The draft stays so nothing is
+  // lost, and the next edit retries.
+  const push = useCallback(async () => {
+    try {
+      adopt(await bridge.syncWindowComposer(sessionId, draftRef.current));
+    } catch (failure) {
+      reportFailure(failure);
+    }
+  }, [adopt, bridge, reportFailure, sessionId]);
+
   const load = useCallback(
     () => run(() => bridge.readWindowComposer(sessionId)),
     [bridge, run, sessionId],
   );
+
   const submitWindow = useCallback(
-    () => run(() => bridge.submitWindowComposer(sessionId, draft)),
-    [bridge, draft, run, sessionId],
+    () => run(() => bridge.submitWindowComposer(sessionId, draftRef.current)),
+    [bridge, run, sessionId],
   );
+
+  // The focus-gated watch: subscribing makes the host's forced status prefill
+  // the field and starts the poll plus the AX value observer; the cleanup on
+  // blur unwatches, which stops all of it.
+  useEffect(() => {
+    if (!active || !focused) return;
+    roundTripDone.current = false;
+    return bridge.subscribeWindowComposer(sessionId, (next) => {
+      setStatus(next);
+      if (next.composerText === null) return;
+      if (!edited.current) {
+        // Fresh prefill (or an independent edit while idle): the window is the source.
+        inSync.current = true;
+        setDraftBoth(next.composerText);
+      } else if (next.composerText === draftRef.current) {
+        // The echo of our own write: field and window agree again, so later independent edits are
+        // adopted instead of being guarded forever by the "unsent edit" flag.
+        edited.current = false;
+        inSync.current = true;
+      }
+      // A window on another Desktop is read for free only by the explicit
+      // round trip; the prefill already told us it is elsewhere, so do the one
+      // automatic bring-and-move-back instead of leaving the field empty.
+      if (next.enabled === true && next.onActiveDesktop === false && !roundTripDone.current) {
+        roundTripDone.current = true;
+        void load();
+      }
+    });
+  }, [active, bridge, focused, load, sessionId, setDraftBoth]);
+
+  // Debounced auto-sync: every edit while focused pushes the full value 500ms
+  // after the last keystroke. Clearing the field is an edit too, so deletions
+  // reach the window instead of drifting, which is the whole point of syncing.
+  useEffect(() => {
+    if (!active || !focused || inSync.current) return;
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      debounceTimer.current = null;
+      void push();
+    }, 500);
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [active, draft, focused, push]);
+
+  const onFocus = useCallback(() => setFocused(true), []);
+  const onBlur = useCallback(() => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
+    }
+    // Flush anything still inside the debounce window before the watch drops.
+    if (!inSync.current) void push();
+    setFocused(false);
+  }, [push]);
 
   const enabled = status?.enabled === true;
   const notice =
     status === null
-      ? "Looking for this session's Claude window…"
+      ? focused
+        ? "Looking for this session's Claude window…"
+        : null
       : enabled
         ? null
         : composerReasonText(status.reason);
 
   return {
     enabled,
+    statusKnown: status !== null,
     onActiveDesktop: status?.onActiveDesktop === true,
     draft,
     change,
-    fill,
-    load,
     submitWindow,
     pending,
     error,
     canSubmit: enabled && draft.trim().length > 0,
     notice,
+    onFocus,
+    onBlur,
   };
 }
 

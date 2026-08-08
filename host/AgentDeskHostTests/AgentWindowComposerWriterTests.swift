@@ -1,4 +1,5 @@
 import AgentDeskWire
+import ApplicationServices
 import CoreGraphics
 import Foundation
 import Testing
@@ -43,6 +44,10 @@ struct AgentWindowComposerWriterTests {
         func readComposer(for target: AgentWindowSessionTarget) throws -> String {
             steps.append(.read)
             return readBack ?? ""
+        }
+
+        func composerElementIfAvailable(for target: AgentWindowSessionTarget) -> AXUIElement? {
+            nil
         }
 
         func writeComposer(_ text: String, for target: AgentWindowSessionTarget) throws -> String {

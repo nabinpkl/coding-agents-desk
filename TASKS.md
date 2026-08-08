@@ -1812,3 +1812,24 @@ movement and verification, and a second mover would be the per-feature copy ADR-
   -- the writer still judges the final value, never a guessed success; and a transient read failure no
   longer wipes the panel field with nil, because the coordinator keeps the last known `composerText` until
   a read succeeds again, so a flapping tree renders no flicker.
+- D257. Make composer sync focus-gated and event-driven. The panel's Claude window field now subscribes
+  only while focused: focusing posts the watch (the host's forced status prefills from the window, with
+  one automatic bring-and-move-back round trip when the window sits on another Desktop), blurring flushes
+  any debounced edit and unwatches, which stops the host's resolution poll AND the AX observer entirely.
+  Every edit auto-syncs: 500ms after the last keystroke the full value -- empty string included, so
+  deletions reach the window instead of drifting -- is pushed via `agent-window-input-sync`, so the
+  Fill button is gone; Enter (`agent-window-input-submit`) is the only explicit action left, and the
+  bring-window button is gone too. The reverse direction is event-driven: `AgentWindowComposerValueObserver`
+  registers one `AXObserver` for `kAXValueChanged` per Claude pid (one registration per composer element
+  found, so a second session window of the same process is covered), validated live -- setting `AXValue`
+  fired the notification with the new value, and so did the restore, so both our own write echoes and
+  independent Claude-side edits arrive the same way. The coordinator's poll pass reads nothing while the
+  observer is live (the events carry the text; a poll read would be exactly the continuous AX traffic
+  focus gating exists to remove), re-reads + re-registers on a forced pass or when the observer is absent
+  (a revived web contents has a new composer element), drops the observer when its event read fails (the
+  old registration is dead), and prunes observers when the last watch for a pid unwatches. A fresh
+  watcher always reads once on its forced pass, so prefill never depends on observer state. The
+  materialize budget for a window brought to this Desktop rose from 10s to 20s (`claudeComposerMaterializeTimeout`)
+  because a busy renderer measured fourteen seconds to build its tree after a move-in in the live probe.
+  The phone lane gets the same focus gating for free: it runs the same panel code and speaks the same
+  watch/unwatch protocol, and iOS knows about focus.

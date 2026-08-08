@@ -1,4 +1,5 @@
 import AgentDeskWire
+import ApplicationServices
 import Foundation
 import os
 
@@ -16,6 +17,11 @@ protocol AgentWindowComposerAccessing {
     /// Blocks until the composer exists in the accessibility tree, or fails saying it never did.
     func awaitComposer(for target: AgentWindowSessionTarget) throws
     func readComposer(for target: AgentWindowSessionTarget) throws -> String
+    /// The composer element when the scan is free, nil when the window or its tree is unavailable.
+    ///
+    /// Non-throwing on purpose: observer registration is opportunistic, and a collapsed tree is simply
+    /// "not now" rather than a failure to report.
+    func composerElementIfAvailable(for target: AgentWindowSessionTarget) -> AXUIElement?
     /// Writes the composer and returns what it reads back. Never sends Return.
     func writeComposer(_ text: String, for target: AgentWindowSessionTarget) throws -> String
     /// Focuses the composer and presses Return, committing whatever it holds. Returns the composer value
@@ -64,6 +70,11 @@ struct AgentWindowComposerWriter {
         } catch {
             return .failure(.accessibilityDenied)
         }
+    }
+
+    /// The composer element when it costs nothing to find, for observer registration.
+    func composerElementIfAvailable(for target: AgentWindowSessionTarget) -> AXUIElement? {
+        access.composerElementIfAvailable(for: target)
     }
 
     /// The composer's current text, paying a Desktop round trip if the window is elsewhere.

@@ -898,8 +898,10 @@ enum Config {
     // How long a window brought to this Desktop is given to build its accessibility tree, and how
     // often it is checked. Chromium builds a window's tree only while it is on the current Space, so
     // the composer genuinely does not exist for the first moments after a move-in. The ceiling bounds
-    // a renderer that never answers; the normal cost is one poll.
-    static let claudeComposerMaterializeTimeout: TimeInterval = 10
+    // a renderer that never answers; the normal cost is one poll. Twenty seconds rather than ten
+    // because a busy renderer measured fourteen seconds to build its tree after a move-in in the live
+    // probe, and a window moved back without being filled is a visible wasted round trip.
+    static let claudeComposerMaterializeTimeout: TimeInterval = 20
     static let claudeComposerMaterializePollInterval: TimeInterval = 0.2
     // A composer scan that finds the window but no prompt field usually means the window's web contents
     // never built its accessibility tree: a wedged contents reads as "composer missing" while the field

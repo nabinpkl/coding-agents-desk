@@ -27,6 +27,7 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
     private let audit: WorkspaceDesktopAuditing
     private let processRows: () -> [AgentWindowProcessRow]
     private let resolveInterval: TimeInterval
+    private let observer: AgentWindowComposerValueObserving
     private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-window-composer")
 
     /// sinkID -> that surface's delivery closure.
@@ -35,19 +36,24 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
     private var subscriptions: [SinkID: [String: String]] = [:]
     /// The last status emitted per sink and subscription, so an unchanged poll stays silent.
     private var lastStatus: [SinkID: [String: AgentWindowInputStatus]] = [:]
+    /// sessionId -> the last successfully resolved target, reused by the event-driven refresh so a
+    /// value-changed event costs no process-table scan.
+    private var lastTargets: [String: AgentWindowSessionTarget] = [:]
     private var timer: DispatchSourceTimer?
 
     init(
         writer: AgentWindowComposerWriter,
         audit: WorkspaceDesktopAuditing,
         processRows: @escaping () -> [AgentWindowProcessRow] = AgentWindowSessionResolver.liveProcessRows,
-        resolveInterval: TimeInterval = Config.claudeWindowResolveInterval
+        resolveInterval: TimeInterval = Config.claudeWindowResolveInterval,
+        observer: AgentWindowComposerValueObserving = AgentWindowComposerValueObserver()
     ) {
         self.queue = DispatchQueue(label: Config.dispatchQueuePrefix + ".agent-window-composer")
         self.writer = writer
         self.audit = audit
         self.processRows = processRows
         self.resolveInterval = resolveInterval
+        self.observer = observer
     }
 
     deinit { timer?.cancel() }
@@ -69,6 +75,10 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
             subscriptions[id] = nil
             lastStatus[id] = nil
             stopPollingIfIdle()
+            if subscriptions.isEmpty {
+                for pid in observer.observedPids { observer.stopObserving(claudeMainPid: pid) }
+                lastTargets = [:]
+            }
         }
     }
 
@@ -89,6 +99,13 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
                 if subscriptions[sink]?.isEmpty == true { subscriptions[sink] = nil }
                 lastStatus[sink]?[subscriptionId] = nil
                 stopPollingIfIdle()
+                // A blur that unwatched everything must also stop the AX events: nobody is listening,
+                // and keeping Chromium's observer alive is exactly the continuous traffic focus gating
+                // exists to save.
+                if subscriptions.isEmpty {
+                    for pid in observer.observedPids { observer.stopObserving(claudeMainPid: pid) }
+                    lastTargets = [:]
+                }
             }
         case .windowInputSync(let requestId, let sessionId, let text):
             queue.async { [self] in sync(requestId: requestId, sessionId: sessionId, text: text, to: sink) }
@@ -156,6 +173,7 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         let snapshot = audit.snapshot()
         var resolved: [String: Result<AgentWindowSessionTarget, AgentWindowInputReason>] = [:]
         var prefilled: [String: String?] = [:]
+        var neededPids: Set<pid_t> = []
 
         for (sink, watches) in subscriptions {
             guard let emit = sinks[sink] else { continue }
@@ -166,24 +184,48 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
                     return result
                 }()
                 let status: AgentWindowInputStatus
+                let isForced = forced?.sink == sink && forced?.subscriptionId == subscriptionId
                 switch target {
                 case .success(let target):
-                    // Prefill only when the window is already on this Desktop. Reading one that is not
-                    // would mean dragging it onto the user's screen and back just to populate a field.
-                    let composerText = prefilled[sessionId] ?? {
-                        let text: String?
-                        if let value = try? writer.readIfFree(target).get() {
-                            text = value
-                        } else {
-                            // A transient read failure -- a web contents rebuilding its tree -- must not
-                            // wipe the field with nil: the window is still there, and the panel adopts a
-                            // nil text as its own field contents. Keep the last known text until a read
-                            // succeeds again, so a flapping tree renders no flicker.
-                            text = lastStatus[sink]?[subscriptionId]?.composerText
-                        }
-                        prefilled[sessionId] = text
-                        return text
-                    }()
+                    neededPids.insert(target.claudeMainPid)
+                    lastTargets[sessionId] = target
+                    let composerText: String?
+                    if isForced || !observer.isObserving(claudeMainPid: target.claudeMainPid) {
+                        // Read: a forced pass is a fresh watcher that needs the value, and a missing
+                        // observer means registration needs (re)establishing -- a revived web contents
+                        // has a new composer element whose changes the old registration cannot see.
+                        // The read both prefills and proves the composer is reachable; the observer is
+                        // then registered on the element the scan found.
+                        composerText = prefilled[sessionId] ?? {
+                            let text: String?
+                            if let value = try? writer.readIfFree(target).get() {
+                                text = value
+                                if let element = writer.composerElementIfAvailable(for: target) {
+                                    observer.ensureObserving(
+                                        target: target,
+                                        composer: element,
+                                        onValueChanged: { [weak self] in
+                                            self?.queue.async { self?.refreshSession(sessionId) }
+                                        }
+                                    )
+                                }
+                            } else {
+                                // A transient read failure -- a web contents rebuilding its tree -- must not
+                                // wipe the field with nil: the window is still there, and the panel adopts a
+                                // nil text as its own field contents. Keep the last known text until a read
+                                // succeeds again, so a flapping tree renders no flicker.
+                                text = lastStatus[sink]?[subscriptionId]?.composerText
+                            }
+                            prefilled[sessionId] = text
+                            return text
+                        }()
+                    } else {
+                        // The value-changed observer carries text updates, so the poll pass reads nothing:
+                        // the last known text is what the window last reported, and every change since has
+                        // already been pushed by the event handler.
+                        composerText = prefilled[sessionId] ?? lastStatus[sink]?[subscriptionId]?.composerText
+                        prefilled[sessionId] = composerText
+                    }
                     status = AgentWindowInputStatus(
                         subscriptionId: subscriptionId,
                         sessionId: sessionId,
@@ -202,8 +244,47 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
                         composerText: nil
                     )
                 }
-                let isForced = forced?.sink == sink && forced?.subscriptionId == subscriptionId
                 guard isForced || lastStatus[sink]?[subscriptionId] != status else { continue }
+                lastStatus[sink, default: [:]][subscriptionId] = status
+                send(status, to: emit)
+            }
+        }
+
+        // Drop observers and target caches no watched session needs: a blur that unwatched everything
+        // must also stop the AX events, or the host would keep Chromium's observer alive with no panel.
+        for pid in observer.observedPids where !neededPids.contains(pid) {
+            observer.stopObserving(claudeMainPid: pid)
+        }
+        let watchedSessions = Set(subscriptions.values.flatMap { $0.values })
+        lastTargets = lastTargets.filter { watchedSessions.contains($0.key) }
+    }
+
+    /// The event-driven refresh: one watched session's composer value changed, so re-read it and emit
+    /// change-only to that session's watchers. No process-table scan: the last resolved target is what
+    /// the event is about, and resolution changes still surface on the next poll pass.
+    private func refreshSession(_ sessionId: String) {
+        guard !subscriptions.isEmpty, let target = lastTargets[sessionId] else { return }
+        let text: String?
+        if let value = try? writer.readIfFree(target).get() {
+            text = value
+        } else {
+            text = nil
+            // The tree is gone; the registration on the old element is dead. Drop the observer so the
+            // next poll pass re-registers on the respawned element instead of trusting a silent one.
+            observer.stopObserving(claudeMainPid: target.claudeMainPid)
+        }
+        for (sink, watches) in subscriptions {
+            guard let emit = sinks[sink] else { continue }
+            for (subscriptionId, watchedSession) in watches where watchedSession == sessionId {
+                let status = AgentWindowInputStatus(
+                    subscriptionId: subscriptionId,
+                    sessionId: sessionId,
+                    enabled: true,
+                    reason: nil,
+                    onActiveDesktop: target.isOnActiveDesktop,
+                    composerText: text ?? lastStatus[sink]?[subscriptionId]?.composerText
+                )
+                guard lastStatus[sink]?[subscriptionId] != status else { continue }
                 lastStatus[sink, default: [:]][subscriptionId] = status
                 send(status, to: emit)
             }

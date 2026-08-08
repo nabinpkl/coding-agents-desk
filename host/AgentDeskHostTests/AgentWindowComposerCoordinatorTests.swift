@@ -1,5 +1,6 @@
 import AgentDeskWire
 import AgentPanel
+import ApplicationServices
 import CoreGraphics
 import Foundation
 import Testing
@@ -61,6 +62,7 @@ struct AgentWindowComposerCoordinatorTests {
     private final class Access: AgentWindowComposerAccessing, AgentWindowDesktopMoving, @unchecked Sendable {
         private let lock = NSLock()
         private var _writes: [String] = []
+        private var _reads = 0
         var composerText = "existing draft"
         var readError: AgentWindowInputReason?
 
@@ -70,12 +72,28 @@ struct AgentWindowComposerCoordinatorTests {
             return _writes
         }
 
+        var readCount: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return _reads
+        }
+
         func frontmostApplicationPID() -> pid_t? { 100 }
         func latchManualAccessibility(pid: pid_t) throws {}
         func awaitComposer(for target: AgentWindowSessionTarget) throws {}
         func readComposer(for target: AgentWindowSessionTarget) throws -> String {
-            if let readError { throw readError }
-            return composerText
+            lock.lock()
+            _reads += 1
+            let error = readError
+            let text = composerText
+            lock.unlock()
+            if let error { throw error }
+            return text
+        }
+        // A real element reference is created without any Accessibility permission; the coordinator
+        // only hands it to the observer seam, which the tests fake.
+        func composerElementIfAvailable(for target: AgentWindowSessionTarget) -> AXUIElement? {
+            AXUIElementCreateApplication(target.claudeMainPid)
         }
 
         func writeComposer(_ text: String, for target: AgentWindowSessionTarget) throws -> String {
@@ -95,6 +113,51 @@ struct AgentWindowComposerCoordinatorTests {
         }
 
         func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {}
+    }
+
+    /// The observer seam, recording registrations and letting tests fire value-changed events.
+    private final class FakeValueObserver: AgentWindowComposerValueObserving, @unchecked Sendable {
+        private let lock = NSLock()
+        private var _observed: [pid_t] = []
+        private var _handlers: [pid_t: @Sendable () -> Void] = [:]
+
+        var observed: [pid_t] {
+            lock.lock()
+            defer { lock.unlock() }
+            return _observed
+        }
+
+        var observedPids: [pid_t] { observed }
+
+        func isObserving(claudeMainPid: pid_t) -> Bool { observed.contains(claudeMainPid) }
+
+        func ensureObserving(
+            target: AgentWindowSessionTarget,
+            composer: AXUIElement,
+            onValueChanged: @escaping @Sendable () -> Void
+        ) {
+            lock.lock()
+            if !_observed.contains(target.claudeMainPid) {
+                _observed.append(target.claudeMainPid)
+                _handlers[target.claudeMainPid] = onValueChanged
+            }
+            lock.unlock()
+        }
+
+        func stopObserving(claudeMainPid: pid_t) {
+            lock.lock()
+            _observed.removeAll { $0 == claudeMainPid }
+            _handlers[claudeMainPid] = nil
+            lock.unlock()
+        }
+
+        /// Fires the registered value-changed handler for the pid, as Chromium would.
+        func fireValueChanged(claudeMainPid: pid_t) {
+            lock.lock()
+            let handler = _handlers[claudeMainPid]
+            lock.unlock()
+            handler?()
+        }
     }
 
     // MARK: - Fixtures
@@ -133,6 +196,7 @@ struct AgentWindowComposerCoordinatorTests {
 
     private func makeCoordinator(
         access: Access,
+        observer: FakeValueObserver,
         windowSpaceID: UInt64 = 1,
         resolveInterval: TimeInterval = 60
     ) -> AgentWindowComposerCoordinator {
@@ -141,7 +205,8 @@ struct AgentWindowComposerCoordinatorTests {
             audit: StaticWorkspaceDesktopAudit(snapshot(windowSpaceID: windowSpaceID)),
             processRows: { processRows },
             // Long by default so a timer tick never races an assertion about a request-driven emit.
-            resolveInterval: resolveInterval
+            resolveInterval: resolveInterval,
+            observer: observer
         )
     }
 
@@ -157,7 +222,8 @@ struct AgentWindowComposerCoordinatorTests {
 
     @Test func aWatchAnswersOnlyTheSurfaceThatAskedForIt() async throws {
         let access = Access()
-        let coordinator = makeCoordinator(access: access)
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer)
         let mac = Sink()
         let phone = Sink()
         coordinator.attachSink("mac", emit: mac.emit)
@@ -197,7 +263,8 @@ struct AgentWindowComposerCoordinatorTests {
     }
 
     @Test func aTerminalSessionIsReportedUnavailableWithItsOwnReason() async throws {
-        let coordinator = makeCoordinator(access: Access())
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: Access(), observer: observer)
         let phone = Sink()
         coordinator.attachSink("phone", emit: phone.emit)
 
@@ -214,7 +281,8 @@ struct AgentWindowComposerCoordinatorTests {
 
     @Test func aWriteAnswersItsRequesterAndRefreshesEveryOtherWatcherOfTheSameSession() async throws {
         let access = Access()
-        let coordinator = makeCoordinator(access: access)
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer)
         let mac = Sink()
         let phone = Sink()
         coordinator.attachSink("mac", emit: mac.emit)
@@ -235,8 +303,9 @@ struct AgentWindowComposerCoordinatorTests {
         #expect(result.ok)
         #expect(result.text == "review the diff")
         #expect(access.writes == ["review the diff"])
-        // The Mac never saw the request, but it is showing the same window, so it must learn the new
-        // text rather than sit on the old one until the next poll.
+        // The write itself fired the value-changed event in Chromium; the coordinator's event-driven
+        // refresh is what tells the Mac, which never saw the request but is showing the same window.
+        observer.fireValueChanged(claudeMainPid: 400)
         let refreshed = try decodeStatus(await mac.wait(count: 2)[1])
         #expect(refreshed.composerText == "review the diff")
         // No result was addressed to the Mac: it did not ask, and a result would resolve a request id
@@ -246,7 +315,8 @@ struct AgentWindowComposerCoordinatorTests {
 
     @Test func aDetachedSurfaceCannotStillWriteIntoAnotherApplicationsWindow() async throws {
         let access = Access()
-        let coordinator = makeCoordinator(access: access)
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer)
         let phone = Sink()
         coordinator.attachSink("phone", emit: phone.emit)
         coordinator.handle(.windowInputWatch(subscriptionId: "sub-phone", sessionId: session), from: "phone")
@@ -272,7 +342,8 @@ struct AgentWindowComposerCoordinatorTests {
 
     @Test func aSubmitAnswersItsRequesterAndClearsItsComposer() async throws {
         let access = Access()
-        let coordinator = makeCoordinator(access: access)
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer)
         let phone = Sink()
         coordinator.attachSink("phone", emit: phone.emit)
         coordinator.handle(.windowInputWatch(subscriptionId: "sub-phone", sessionId: session), from: "phone")
@@ -290,53 +361,96 @@ struct AgentWindowComposerCoordinatorTests {
         #expect(result.text == "run the tests")
         #expect(access.writes == ["run the tests"])
         #expect(access.composerText == "")
-        // The watcher learns the window cleared too, so the field does not sit on the sent text.
+        // The cleared field arrives as the value-changed event, exactly as in the real window.
+        observer.fireValueChanged(claudeMainPid: 400)
         let refreshed = try decodeStatus(await phone.wait(count: 3)[2])
         #expect(refreshed.composerText == "")
     }
 
     @Test func anUnchangedPollStaysSilentButARealChangeIsAnnounced() async throws {
         let access = Access()
-        let coordinator = makeCoordinator(access: access, resolveInterval: 0.02)
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer, resolveInterval: 0.02)
         let mac = Sink()
         coordinator.attachSink("mac", emit: mac.emit)
         coordinator.handle(.windowInputWatch(subscriptionId: "sub-mac", sessionId: session), from: "mac")
         _ = await mac.wait(count: 1)
+        #expect(observer.observed == [400])
 
         // Many polls over an unchanged window. Every one of them re-resolves, and every one must stay
         // silent: a status that repeats itself would keep rewriting the panel's field from the window
-        // while the viewer is typing into it.
+        // while the viewer is typing into it. The observer carries the text, so the poll reads nothing.
         try await Task.sleep(for: .milliseconds(150))
         #expect(mac.current.count == 1)
 
-        // Someone types in the real Claude window. The next poll has to say so, or the panel would go
-        // on showing text the window no longer holds.
+        // Someone types in the real Claude window. The value-changed event has to say so, or the panel
+        // would go on showing text the window no longer holds.
         access.composerText = "typed in the real window"
+        observer.fireValueChanged(claudeMainPid: 400)
         let messages = await mac.wait(count: 2)
         let updated = try decodeStatus(messages[1])
         #expect(updated.composerText == "typed in the real window")
     }
 
-    @Test func aTransientReadFailureKeepsTheLastTextAndStaysSilent() async throws {
+    @Test func anObservedPassReadsNothingBecauseTheObserverCarriesText() async throws {
         let access = Access()
-        let coordinator = makeCoordinator(access: access, resolveInterval: 0.02)
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer, resolveInterval: 0.02)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-mac", sessionId: session), from: "mac")
+        _ = await mac.wait(count: 1)
+        let readsAfterRegistration = access.readCount
+
+        // Poll passes keep re-resolving, but with the observer live they read nothing: the events
+        // carry the text, and a poll read would be exactly the continuous AX traffic focus gating
+        // exists to remove.
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(access.readCount == readsAfterRegistration)
+    }
+
+    @Test func anUnwatchThatEmptiesSubscriptionsStopsObserving() async throws {
+        let access = Access()
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-mac", sessionId: session), from: "mac")
+        _ = await mac.wait(count: 1)
+        #expect(observer.observed == [400])
+
+        // A blur unwatches everything; the AX events must stop with it, or the host keeps Chromium's
+        // observer alive with no panel listening.
+        coordinator.handle(.windowInputUnwatch(subscriptionId: "sub-mac"), from: "mac")
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(observer.observed.isEmpty)
+    }
+
+    @Test func aTransientReadFailureKeepsTheLastTextAndDropsTheDeadObserver() async throws {
+        let access = Access()
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer, resolveInterval: 0.02)
         let mac = Sink()
         coordinator.attachSink("mac", emit: mac.emit)
         coordinator.handle(.windowInputWatch(subscriptionId: "sub-mac", sessionId: session), from: "mac")
         _ = await mac.wait(count: 1)
 
-        // The window's web contents rebuilds its tree, so reads fail for a stretch. The field must not
+        // The window's web contents rebuilds its tree, so the event's read fails. The field must not
         // flicker to nil: the window is still there, and a nil text is adopted by the panel as its own
-        // contents. The last known text is what keeps the field stable until a read succeeds again.
+        // contents. The last known text keeps the field stable -- and the registration on the dead
+        // element is dropped so the next poll re-registers on the respawned one.
         access.readError = .composerMissing
         access.composerText = "changed in the real window"
-        try await Task.sleep(for: .milliseconds(150))
+        observer.fireValueChanged(claudeMainPid: 400)
+        try await Task.sleep(for: .milliseconds(100))
         #expect(mac.current.count == 1)
+        #expect(observer.observed.isEmpty)
 
-        // The tree is back; the next poll announces the real change, proving the polls never stopped.
+        // The tree is back; the poll pass re-registers and announces the real change.
         access.readError = nil
         let messages = await mac.wait(count: 2)
         let updated = try decodeStatus(messages[1])
         #expect(updated.composerText == "changed in the real window")
+        #expect(observer.observed == [400])
     }
 }

@@ -79,6 +79,10 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
         return try composerValue(for: composer)
     }
 
+    func composerElementIfAvailable(for target: AgentWindowSessionTarget) -> AXUIElement? {
+        try? composerElement(for: target)
+    }
+
     func writeComposer(_ text: String, for target: AgentWindowSessionTarget) throws -> String {
         let composer = try composerElementOrRecover(for: target)
         // Sets the field's value. There is no key synthesis anywhere in this path, so no Return can be

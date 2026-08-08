@@ -1055,30 +1055,44 @@ describe("Claude window composer field", () => {
     return latestSubscription(fake, "agent-window-input-watch");
   }
 
-  it("stays disabled with the host's reason until a window owns the session", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
-
+  /** Focuses the Claude field and returns its watch subscription: the watch is focus-gated now. */
+  function focusComposer(fake: FakeHostBridge) {
     const field = screen.getByLabelText("Claude composer text");
-    // Disabled before the first status: nothing is known yet, and offering a write that would be
-    // dropped is worse than saying so.
-    expect(field).toBeDisabled();
+    fireEvent.focus(field);
+    return { field, sub: windowInputSubscription(fake) };
+  }
 
+  function deliverStatus(fake: FakeHostBridge, sub: string, overrides: Record<string, unknown> = {}) {
     act(() => {
       fake.deliver({
         t: "agent-window-input-status",
-        sub: windowInputSubscription(fake),
+        sub,
         sid: "sid-claude-01",
-        en: false,
-        r: "terminal-only",
+        en: true,
+        cur: true,
+        tx: "",
+        ...overrides,
       });
     });
+  }
 
-    expect(field).toBeDisabled();
+  it("is focusable before the first status, then disabled with the host's reason", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+
+    // Focusable before any status: the watch is focus-gated, so a field disabled "until a status
+    // arrives" could never be focused and the status would never arrive.
+    expect(screen.getByLabelText("Claude composer text")).toBeEnabled();
+
+    const { sub } = focusComposer(fake);
+    deliverStatus(fake, sub, { en: false, r: "terminal-only" });
+
+    expect(screen.getByLabelText("Claude composer text")).toBeDisabled();
     expect(screen.getByLabelText("Claude window composer")).toHaveTextContent(
       "running in a terminal",
     );
-    expect(screen.getByRole("button", { name: "Fill Claude's composer" })).toBeDisabled();
+    // The only explicit action left is Enter, and it cannot fire without a window.
+    expect(screen.getByRole("button", { name: "Send to Claude's composer" })).toBeDisabled();
     unmount();
   });
 
@@ -1088,16 +1102,9 @@ describe("Claude window composer field", () => {
     // one of them -- has to be readable from the notice alone.
     const { fake, unmount } = setup();
     openClaudeThread(fake);
+    const { sub } = focusComposer(fake);
 
-    act(() => {
-      fake.deliver({
-        t: "agent-window-input-status",
-        sub: windowInputSubscription(fake),
-        sid: "sid-claude-01",
-        en: false,
-        r: "multiple-instances",
-      });
-    });
+    deliverStatus(fake, sub, { en: false, r: "multiple-instances" });
 
     expect(screen.getByLabelText("Claude composer text")).toBeDisabled();
     expect(screen.getByLabelText("Claude window composer")).toHaveTextContent(
@@ -1106,37 +1113,29 @@ describe("Claude window composer field", () => {
     unmount();
   });
 
-  it("prefills for free, and fills on the explicit action without ever sending", () => {
+  it("prefills from the window on focus and auto-syncs every edit after a debounce", async () => {
+    vi.useFakeTimers();
     const { fake, unmount } = setup();
     openClaudeThread(fake);
-    const sub = windowInputSubscription(fake);
+    const { field, sub } = focusComposer(fake);
 
-    act(() => {
-      fake.deliver({
-        t: "agent-window-input-status",
-        sub,
-        sid: "sid-claude-01",
-        en: true,
-        cur: true,
-        tx: "half-written prompt",
-      });
-    });
+    deliverStatus(fake, sub, { tx: "half-written prompt" });
 
-    const field = screen.getByLabelText("Claude composer text");
     expect(field).toBeEnabled();
     expect(field).toHaveValue("half-written prompt");
-    // The window is already here, so no explicit load is offered.
-    expect(screen.queryByRole("button", { name: "Load from Claude window" })).toBeNull();
 
     fireEvent.change(field, { target: { value: "review the diff" } });
-    // Return must NOT send. There is no submit request on this wire at all: the text lands in the
-    // real composer and the human presses Return there, having seen it.
+    // No fill button anymore, and Return still never sends: the sync is automatic.
+    expect(screen.queryByRole("button", { name: "Fill Claude's composer" })).toBeNull();
     fireEvent.keyDown(field, { key: "Enter" });
     expect(
       fake.posted.filter((m) => (m as { t?: string }).t === "agent-window-input-sync"),
     ).toHaveLength(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Fill Claude's composer" }));
+    // One burst of typing lands as one sync, 500ms after the last keystroke.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
     expect(fake.posted.at(-1)).toMatchObject({
       t: "agent-window-input-sync",
       sid: "sid-claude-01",
@@ -1145,27 +1144,88 @@ describe("Claude window composer field", () => {
     unmount();
   });
 
+  it("clearing the field is an edit, so deletions sync as the empty value", async () => {
+    vi.useFakeTimers();
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    const { field, sub } = focusComposer(fake);
+    deliverStatus(fake, sub, { tx: "text to delete" });
+
+    fireEvent.change(field, { target: { value: "" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(fake.posted.at(-1)).toMatchObject({
+      t: "agent-window-input-sync",
+      sid: "sid-claude-01",
+      tx: "",
+    });
+    unmount();
+  });
+
+  it("blur flushes an unsynced edit and unwatches, stopping the host's poll", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    const { field, sub } = focusComposer(fake);
+    deliverStatus(fake, sub, { tx: "" });
+
+    fireEvent.change(field, { target: { value: "about to leave" } });
+    fireEvent.blur(field);
+
+    // The flush push lands before the unwatch, so nothing typed is lost.
+    expect(fake.posted.at(-2)).toMatchObject({
+      t: "agent-window-input-sync",
+      sid: "sid-claude-01",
+      tx: "about to leave",
+    });
+    expect(fake.posted.at(-1)).toMatchObject({
+      t: "agent-window-input-unwatch",
+      sub,
+    });
+    unmount();
+  });
+
+  it("an echo of our own write marks the field in sync; an independent edit then lands", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    const { field, sub } = focusComposer(fake);
+    deliverStatus(fake, sub, { tx: "" });
+
+    fireEvent.change(field, { target: { value: "mid" } });
+    // The host's write echo arrives while the draft is still "unsent": matching text means field and
+    // window agree again, so a LATER independent edit must be adopted rather than guarded forever.
+    deliverStatus(fake, sub, { tx: "mid" });
+    deliverStatus(fake, sub, { tx: "edited directly in Claude" });
+
+    expect(field).toHaveValue("edited directly in Claude");
+    unmount();
+  });
+
+  it("does not overwrite an in-flight edit with a status that arrives while typing", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    const { field, sub } = focusComposer(fake);
+    deliverStatus(fake, sub, { tx: "" });
+
+    fireEvent.change(field, { target: { value: "mid-sentence" } });
+
+    // The host re-resolves on a timer, so a status carrying the window's own text can land at any
+    // moment. Adopting it here would delete what the viewer just typed.
+    deliverStatus(fake, sub, { tx: "whatever the window holds" });
+
+    expect(field).toHaveValue("mid-sentence");
+    unmount();
+  });
+
   it("the Enter button actually sends by filling and pressing Return", () => {
     const { fake, unmount } = setup();
     openClaudeThread(fake);
-    const sub = windowInputSubscription(fake);
+    const { field, sub } = focusComposer(fake);
+    deliverStatus(fake, sub, { tx: "" });
 
-    act(() => {
-      fake.deliver({
-        t: "agent-window-input-status",
-        sub,
-        sid: "sid-claude-01",
-        en: true,
-        cur: true,
-        tx: "",
-      });
-    });
-
-    // The field is empty, and an empty prompt cannot be committed, so the Enter action stays disabled.
     const sendButton = screen.getByRole("button", { name: "Send to Claude's composer" });
     expect(sendButton).toBeDisabled();
 
-    const field = screen.getByLabelText("Claude composer text");
     fireEvent.change(field, { target: { value: "run the tests" } });
     expect(sendButton).toBeEnabled();
 
@@ -1178,34 +1238,46 @@ describe("Claude window composer field", () => {
     unmount();
   });
 
-  it("says a missing window mover is not something to retry", async () => {
-    // macOS has no public API for moving another application's window between Desktops, so without
-    // yabai an off-Desktop composer is unreachable, full stop. Showing the generic move failure here
-    // would invite the viewer to press Fill again forever.
+  it("an off-Desktop window is prefilled by one automatic round trip", async () => {
     const { fake, unmount } = setup();
     openClaudeThread(fake);
+    const { field, sub } = focusComposer(fake);
 
-    act(() => {
-      fake.deliver({
-        t: "agent-window-input-status",
-        sub: windowInputSubscription(fake),
-        sid: "sid-claude-01",
-        en: true,
-        cur: false,
-        tx: "",
-      });
-    });
+    deliverStatus(fake, sub, { cur: false });
 
-    fireEvent.change(screen.getByLabelText("Claude composer text"), {
-      target: { value: "review the diff" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Fill Claude's composer" }));
-    const sync = fake.posted.at(-1) as { rid: string };
+    // No bring-window button: the round trip is the flow now, fired once on focus.
+    expect(screen.queryByRole("button", { name: "Load from Claude window" })).toBeNull();
+    const read = fake.posted.at(-1) as { t?: string; rid?: string };
+    expect(read.t).toBe("agent-window-input-read");
 
     await act(async () => {
       fake.deliver({
         t: "agent-window-input-result",
-        rid: sync.rid,
+        rid: read.rid,
+        sid: "sid-claude-01",
+        ok: true,
+        tx: "found on the other Desktop",
+      });
+    });
+    expect(field).toHaveValue("found on the other Desktop");
+    unmount();
+  });
+
+  it("a failed round trip says a missing window mover is not something to retry", async () => {
+    // macOS has no public API for moving another application's window between Desktops, so without
+    // yabai an off-Desktop composer is unreachable, full stop. The automatic round trip fails once
+    // and the caption names the real fix rather than inviting an endless retry.
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    const { sub } = focusComposer(fake);
+
+    deliverStatus(fake, sub, { cur: false });
+    const read = fake.posted.at(-1) as { rid: string };
+
+    await act(async () => {
+      fake.deliver({
+        t: "agent-window-input-result",
+        rid: read.rid,
         sid: "sid-claude-01",
         ok: false,
         r: "window-mover-unavailable",
@@ -1213,59 +1285,6 @@ describe("Claude window composer field", () => {
     });
 
     expect(screen.getByLabelText("Claude window composer")).toHaveTextContent("needs yabai");
-    unmount();
-  });
-
-  it("does not overwrite an unsent edit with a status that arrives while typing", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
-    const sub = windowInputSubscription(fake);
-
-    const field = screen.getByLabelText("Claude composer text");
-    act(() => {
-      fake.deliver({
-        t: "agent-window-input-status", sub, sid: "sid-claude-01", en: true, cur: true, tx: "",
-      });
-    });
-    fireEvent.change(field, { target: { value: "mid-sentence" } });
-
-    // The host re-resolves on a timer, so a status carrying the window's own text can land at any
-    // moment. Adopting it here would delete what the viewer just typed.
-    act(() => {
-      fake.deliver({
-        t: "agent-window-input-status",
-        sub,
-        sid: "sid-claude-01",
-        en: true,
-        cur: true,
-        tx: "whatever the window holds",
-      });
-    });
-
-    expect(field).toHaveValue("mid-sentence");
-    unmount();
-  });
-
-  it("offers an explicit load only when reading would move a window", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
-    const sub = windowInputSubscription(fake);
-
-    act(() => {
-      fake.deliver({
-        t: "agent-window-input-status",
-        sub,
-        sid: "sid-claude-01",
-        en: true,
-        cur: false,
-      });
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Load from Claude window" }));
-    expect(fake.posted.at(-1)).toMatchObject({
-      t: "agent-window-input-read",
-      sid: "sid-claude-01",
-    });
     unmount();
   });
 
@@ -1294,18 +1313,9 @@ describe("Claude window composer field", () => {
   it("renders the composer as a roomy, padded field rather than a single cramped row", () => {
     const { fake, unmount } = setup();
     openClaudeThread(fake);
-    const sub = windowInputSubscription(fake);
+    const { sub } = focusComposer(fake);
 
-    act(() => {
-      fake.deliver({
-        t: "agent-window-input-status",
-        sub,
-        sid: "sid-claude-01",
-        en: true,
-        cur: true,
-        tx: "",
-      });
-    });
+    deliverStatus(fake, sub, { tx: "" });
 
     const field = screen.getByLabelText("Claude composer text");
     // The resting height and padding are the load-bearing part of the redesign: a multi-line draft
