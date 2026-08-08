@@ -815,19 +815,24 @@ function Passage({
               </p>
             ) : (
               <>
-                <div className="grid gap-2 sm:grid-cols-2">
+                <div
+                  className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))] gap-2"
+                  data-reference-pronunciation-grid
+                >
                   {reference.data?.words.map(
                     (
                       word: PracticePassageReferenceWord,
                       index: number,
                     ) => (
                       <div
-                        className="flex min-w-0 items-center justify-between gap-3 rounded-md bg-muted/50 p-3"
+                        className="flex min-w-0 items-center justify-between gap-2 rounded-md bg-muted/50 p-2"
                         key={`${word.word}:${index}`}
                       >
                         <span className="min-w-0">
-                          <span className="block font-medium">{word.word}</span>
-                          <span className="block text-sm text-muted-foreground">
+                          <span className="block text-sm font-medium">
+                            {word.word}
+                          </span>
+                          <span className="block text-xs text-muted-foreground">
                             {word.hasReferencePronunciation
                               ? word.referencePhones.join(" ")
                               : "No dictionary entry"}

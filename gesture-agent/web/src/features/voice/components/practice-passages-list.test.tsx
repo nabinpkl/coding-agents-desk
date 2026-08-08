@@ -414,6 +414,22 @@ describe("PracticePassagesList", () => {
     ).toBeTruthy();
   });
 
+  it("packs reference words into an adaptive compact grid", async () => {
+    renderList();
+
+    const reference = await screen.findByRole("region", {
+      name: "Reference pronunciation",
+    });
+    await waitFor(() => {
+      const grid = reference.querySelector(
+        "[data-reference-pronunciation-grid]",
+      );
+      expect(grid?.className).toContain(
+        "grid-cols-[repeat(auto-fit,minmax(min(100%,11rem),1fr))]",
+      );
+    });
+  });
+
   it("presents revision conflicts as recoverable errors", async () => {
     api.updateText.mockRejectedValueOnce(
       new ApiError(409, "Conflict", "stale revision"),
