@@ -65,6 +65,13 @@ struct AgentWindowComposerCoordinatorTests {
         private var _reads = 0
         var composerText = "existing draft"
         var readError: AgentWindowInputReason?
+        var questionState = AgentWindowQuestionState(
+            present: true,
+            selectedIndices: [],
+            otherText: nil,
+            submitEnabled: false
+        )
+        var questionActionError: AgentWindowInputReason?
 
         var writes: [String] {
             lock.lock()
@@ -110,6 +117,86 @@ struct AgentWindowComposerCoordinatorTests {
             composerText = ""
             lock.unlock()
             return submitted
+        }
+
+        func readQuestionState(for target: AgentWindowSessionTarget) throws -> AgentWindowQuestionState {
+            lock.lock()
+            let state = questionState
+            let error = questionActionError
+            lock.unlock()
+            if let error { throw error }
+            return state
+        }
+
+        func pressQuestionOption(index: Int, desired: Bool, for target: AgentWindowSessionTarget) throws {
+            lock.lock()
+            let error = questionActionError
+            if error == nil {
+                let current = questionState.selectedIndices
+                let next = desired
+                    ? (current.contains(index) ? current : current + [index])
+                    : current.filter { $0 != index }
+                questionState = AgentWindowQuestionState(
+                    present: true,
+                    selectedIndices: next,
+                    otherText: questionState.otherText,
+                    submitEnabled: !next.isEmpty
+                )
+            }
+            lock.unlock()
+            if let error { throw error }
+        }
+
+        func setQuestionOther(_ text: String, for target: AgentWindowSessionTarget) throws {
+            lock.lock()
+            let error = questionActionError
+            if error == nil {
+                questionState = AgentWindowQuestionState(
+                    present: true,
+                    selectedIndices: questionState.selectedIndices,
+                    otherText: text,
+                    submitEnabled: true
+                )
+            }
+            lock.unlock()
+            if let error { throw error }
+        }
+
+        func pressQuestionSubmit(for target: AgentWindowSessionTarget) throws {
+            lock.lock()
+            let error = questionActionError
+            if error == nil {
+                questionState = .absent
+            }
+            lock.unlock()
+            if let error { throw error }
+        }
+
+        func pressQuestionSkip(for target: AgentWindowSessionTarget) throws {
+            lock.lock()
+            let error = questionActionError
+            if error == nil {
+                questionState = .absent
+            }
+            lock.unlock()
+            if let error { throw error }
+        }
+
+        func pressQuestionDismiss(for target: AgentWindowSessionTarget) throws {
+            lock.lock()
+            let error = questionActionError
+            if error == nil {
+                questionState = .absent
+            }
+            lock.unlock()
+            if let error { throw error }
+        }
+
+        func pressQuestionViewOptions(for target: AgentWindowSessionTarget) throws {
+            lock.lock()
+            let error = questionActionError
+            lock.unlock()
+            if let error { throw error }
         }
 
         func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {}
@@ -452,5 +539,190 @@ struct AgentWindowComposerCoordinatorTests {
         let updated = try decodeStatus(messages[1])
         #expect(updated.composerText == "changed in the real window")
         #expect(observer.observed == [400])
+    }
+
+    // MARK: - AskUserQuestion mirror addressing
+
+    private func decodeQuestionStatus(_ json: String) throws -> AgentWindowQuestionStatus {
+        try JSONDecoder().decode(AgentWindowQuestionStatus.self, from: Data(json.utf8))
+    }
+
+    private func decodeQuestionResult(_ json: String) throws -> AgentWindowQuestionResult {
+        try JSONDecoder().decode(AgentWindowQuestionResult.self, from: Data(json.utf8))
+    }
+
+    @Test func aQuestionWatchAnswersOnlyTheSurfaceThatAskedForIt() async throws {
+        let access = Access()
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer)
+        let mac = Sink()
+        let phone = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+        coordinator.attachSink("phone", emit: phone.emit)
+
+        coordinator.handle(
+            .questionWatch(subscriptionId: "q-mac", sessionId: session),
+            from: "mac"
+        )
+
+        let status = try decodeQuestionStatus(await mac.wait(count: 1)[0])
+        #expect(status.subscriptionId == "q-mac")
+        #expect(status.sessionId == session)
+        #expect(status.enabled)
+        #expect(status.onActiveDesktop)
+        // The augmentation, never content: presence and live state only.
+        #expect(status.present == true)
+        #expect(status.selected == [])
+        #expect(status.submitEnabled == false)
+        // The phone never subscribed; nothing fans out to it.
+        #expect(phone.current.isEmpty)
+    }
+
+    @Test func aQuestionWatchOnAnotherDesktopReportsPresentNilRatherThanAbsence() async throws {
+        // The window's AX tree does not exist off the active Desktop, so the mirror cannot be told the
+        // panel is absent -- it keeps its JSON content and learns nothing about presence.
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: Access(), observer: observer, windowSpaceID: 4)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+
+        coordinator.handle(
+            .questionWatch(subscriptionId: "q-mac", sessionId: session),
+            from: "mac"
+        )
+
+        let status = try decodeQuestionStatus(await mac.wait(count: 1)[0])
+        #expect(status.enabled)
+        #expect(!status.onActiveDesktop)
+        #expect(status.present == nil)
+    }
+
+    @Test func aQuestionWatchForATerminalSessionIsReportedUnavailable() async throws {
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: Access(), observer: observer)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+
+        coordinator.handle(
+            .questionWatch(subscriptionId: "q-mac", sessionId: terminalSession),
+            from: "mac"
+        )
+
+        let status = try decodeQuestionStatus(await mac.wait(count: 1)[0])
+        #expect(!status.enabled)
+        #expect(status.reason == AgentWindowInputReason.terminalOnly.rawValue)
+    }
+
+    @Test func aQuestionStatusChangesEmitButAnUnchangedPollStaysSilent() async throws {
+        let access = Access()
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer, resolveInterval: 0.02)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+        coordinator.handle(.questionWatch(subscriptionId: "q-mac", sessionId: session), from: "mac")
+        _ = await mac.wait(count: 1)
+
+        // The panel disappears from the window (answered or dismissed in the real window). The next
+        // poll emits the change; an unchanged state after that stays silent.
+        access.questionState = .absent
+        let first = try decodeQuestionStatus(await mac.wait(count: 2)[1])
+        #expect(first.present == false)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(mac.current.count == 2)
+    }
+
+    @Test func aQuestionActionAnswersItsRequesterWithThePostActionState() async throws {
+        let access = Access()
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer)
+        let mac = Sink()
+        let phone = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+        coordinator.attachSink("phone", emit: phone.emit)
+
+        coordinator.handle(
+            .questionAction(
+                requestId: "q-1",
+                sessionId: session,
+                kind: .select,
+                optionIndex: 1,
+                desired: true,
+                otherText: nil
+            ),
+            from: "mac"
+        )
+
+        let result = try decodeQuestionResult(await mac.wait(count: 1)[0])
+        #expect(result.ok)
+        #expect(result.selected == [1])
+        #expect(result.submitEnabled == true)
+        #expect(result.present == true)
+        // The phone never asked; nothing is fanned out to it.
+        #expect(phone.current.isEmpty)
+    }
+
+    @Test func aQuestionActionThatFindsNoPanelReportsTheReason() async throws {
+        let access = Access()
+        access.questionActionError = .questionMissing
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+
+        coordinator.handle(
+            .questionAction(
+                requestId: "q-1",
+                sessionId: session,
+                kind: .dismiss,
+                optionIndex: nil,
+                desired: nil,
+                otherText: nil
+            ),
+            from: "mac"
+        )
+
+        let result = try decodeQuestionResult(await mac.wait(count: 1)[0])
+        #expect(!result.ok)
+        #expect(result.reason == AgentWindowInputReason.questionMissing.rawValue)
+    }
+
+    @Test func aQuestionActionWithoutASinkIsDropped() async throws {
+        let access = Access()
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer)
+
+        // No surface attached: nothing answers, so the panel's request times out rather than being
+        // answered by a stale sink (the same rule the composer submit path applies).
+        coordinator.handle(
+            .questionAction(
+                requestId: "q-1",
+                sessionId: session,
+                kind: .submit,
+                optionIndex: nil,
+                desired: nil,
+                otherText: nil
+            ),
+            from: "mac"
+        )
+        try await Task.sleep(for: .milliseconds(50))
+    }
+
+    @Test func unwatchingAQuestionStopsItsPollButNotAnUnrelatedComposerWatch() async throws {
+        let access = Access()
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer, resolveInterval: 0.02)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+        coordinator.handle(.questionWatch(subscriptionId: "q-mac", sessionId: session), from: "mac")
+        _ = await mac.wait(count: 1)
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-mac", sessionId: session), from: "mac")
+        _ = await mac.wait(count: 2)
+
+        // Unwatching the question leaves the composer watch polling; the poll timer must survive.
+        coordinator.handle(.questionUnwatch(subscriptionId: "q-mac"), from: "mac")
+        try await Task.sleep(for: .milliseconds(100))
+        // Only the composer status was emitted by the still-live poll; the question stays silent.
+        let last = try decodeStatus(mac.current.last!)
+        #expect(last.subscriptionId == "sub-mac")
     }
 }

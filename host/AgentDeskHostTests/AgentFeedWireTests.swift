@@ -246,6 +246,113 @@ struct AgentFeedWireTests {
         }
     }
 
+    @Test func questionMessagesRoundTripWithAbbreviatedKeys() throws {
+        try roundTrip(
+            AgentWindowQuestionWatch(subscriptionId: "question-1", sessionId: "session-1"),
+            tag: "agent-window-question-watch"
+        )
+        try roundTrip(
+            AgentWindowQuestionUnwatch(subscriptionId: "question-1"),
+            tag: "agent-window-question-unwatch"
+        )
+        try roundTrip(
+            AgentWindowQuestionAction(
+                requestId: "action-1",
+                sessionId: "session-1",
+                kind: AgentWindowQuestionActionKind.select.rawValue,
+                optionIndex: 1,
+                desired: 1,
+                text: nil
+            ),
+            tag: "agent-window-question-action"
+        )
+        try roundTrip(
+            AgentWindowQuestionAction(
+                requestId: "action-2",
+                sessionId: "session-1",
+                kind: AgentWindowQuestionActionKind.other.rawValue,
+                optionIndex: nil,
+                desired: nil,
+                text: "custom answer"
+            ),
+            tag: "agent-window-question-action"
+        )
+
+        let status = try roundTrip(
+            AgentWindowQuestionStatus(
+                subscriptionId: "question-1",
+                sessionId: "session-1",
+                enabled: true,
+                onActiveDesktop: true,
+                present: true,
+                selected: [0, 2],
+                otherText: "custom",
+                submitEnabled: false
+            ),
+            tag: "agent-window-question-status"
+        )
+        #expect(status.present == true)
+        #expect(status.selected == [0, 2])
+        #expect(status.otherText == "custom")
+        #expect(status.submitEnabled == false)
+
+        // A window on another Desktop reads as present-nil, never a claim of absence.
+        let offDesktop = try roundTrip(
+            AgentWindowQuestionStatus(
+                subscriptionId: "question-1",
+                sessionId: "session-1",
+                enabled: true,
+                onActiveDesktop: false,
+                present: nil
+            ),
+            tag: "agent-window-question-status"
+        )
+        #expect(offDesktop.present == nil)
+
+        let result = try roundTrip(
+            AgentWindowQuestionResult(
+                requestId: "action-1",
+                sessionId: "session-1",
+                ok: true,
+                present: false,
+                selected: [],
+                otherText: nil,
+                submitEnabled: nil
+            ),
+            tag: "agent-window-question-result"
+        )
+        #expect(result.present == false)
+
+        // The webview mirrors these abbreviations by hand, so pin them here.
+        let statusJSON = try encodedString(AgentWindowQuestionStatus(
+            subscriptionId: "question-1",
+            sessionId: "session-1",
+            enabled: true,
+            present: true,
+            selected: [0]
+        ))
+        for key in ["\"sub\"", "\"sid\"", "\"en\"", "\"cur\"", "\"pr\"", "\"sel\"", "\"oth\"", "\"sb\""] {
+            #expect(statusJSON.contains(key))
+        }
+        let actionJSON = try encodedString(AgentWindowQuestionAction(
+            requestId: "action-1",
+            sessionId: "session-1",
+            kind: AgentWindowQuestionActionKind.submit.rawValue
+        ))
+        for key in ["\"rid\"", "\"sid\"", "\"k\"", "\"oi\"", "\"v\"", "\"tx\""] {
+            #expect(actionJSON.contains(key))
+        }
+        let resultJSON = try encodedString(AgentWindowQuestionResult(
+            requestId: "action-1",
+            sessionId: "session-1",
+            ok: false,
+            reason: AgentWindowInputReason.questionMissing.rawValue
+        ))
+        for key in ["\"rid\"", "\"sid\"", "\"ok\"", "\"r\"", "\"pr\"", "\"sel\"", "\"oth\"", "\"sb\""] {
+            #expect(resultJSON.contains(key))
+        }
+    }
+
     private var transcriptCapabilities: AgentSessionCapabilities {
         AgentSessionCapabilities(modes: ["raw", "nice"], canSend: false, canSteer: false, canAbort: false, canFetchRaw: true, canOpenTerminal: true, supportsExtensionUI: false)
     }

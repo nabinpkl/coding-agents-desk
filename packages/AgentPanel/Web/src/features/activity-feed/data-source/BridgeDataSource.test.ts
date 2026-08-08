@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { BridgeDataSource, WindowComposerError } from "./BridgeDataSource";
+import { BridgeDataSource, WindowComposerError, WindowQuestionError } from "./BridgeDataSource";
 import { FakeHostBridge } from "./HostBridge";
 
 function makeSource() {
@@ -593,5 +593,201 @@ describe("BridgeDataSource Claude window composer", () => {
       sub: "window-input-1",
     });
     await expect(pending).rejects.toThrow("BridgeDataSource destroyed");
+  });
+});
+
+describe("BridgeDataSource AskUserQuestion mirror", () => {
+  it("watches the panel state and maps the augmentation, never content", () => {
+    const { host, source } = makeSource();
+    const listener = vi.fn();
+    const unwatch = source.subscribeWindowQuestion("session-a", listener);
+
+    expect(host.posted.at(-1)).toEqual({
+      t: "agent-window-question-watch",
+      sub: "question-1",
+      sid: "session-a",
+    });
+
+    host.deliver({
+      t: "agent-window-question-status",
+      sub: "question-1",
+      sid: "session-a",
+      en: true,
+      cur: false,
+      pr: true,
+      sel: [0, 2],
+      oth: "custom",
+      sb: false,
+    });
+    expect(listener).toHaveBeenCalledWith({
+      sessionId: "session-a",
+      enabled: true,
+      reason: null,
+      onActiveDesktop: false,
+      present: true,
+      selected: [0, 2],
+      otherText: "custom",
+      submitEnabled: false,
+    });
+
+    unwatch();
+    expect(host.posted.at(-1)).toEqual({
+      t: "agent-window-question-unwatch",
+      sub: "question-1",
+    });
+  });
+
+  it("keeps present null for a window on another Desktop and maps an absent panel to false", () => {
+    const { host, source } = makeSource();
+    const listener = vi.fn();
+    source.subscribeWindowQuestion("session-a", listener);
+
+    host.deliver({
+      t: "agent-window-question-status",
+      sub: "question-1",
+      sid: "session-a",
+      en: true,
+      cur: false,
+    });
+    expect(listener).toHaveBeenLastCalledWith(
+      expect.objectContaining({ present: null, onActiveDesktop: false }),
+    );
+
+    host.deliver({
+      t: "agent-window-question-status",
+      sub: "question-1",
+      sid: "session-a",
+      en: true,
+      cur: true,
+      pr: false,
+    });
+    expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({ present: false }));
+  });
+
+  it("ignores a status addressed to a session this subscription is no longer watching", () => {
+    const { host, source } = makeSource();
+    const listener = vi.fn();
+    source.subscribeWindowQuestion("session-a", listener);
+
+    host.deliver({
+      t: "agent-window-question-status",
+      sub: "question-1",
+      sid: "session-b",
+      en: true,
+      pr: true,
+      sel: [0],
+    });
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("posts each action with the wire payload and resolves with the post-action state", async () => {
+    const { host, source } = makeSource();
+
+    const selected = source.selectQuestionOption("session-a", 1, true);
+    expect(host.posted.at(-1)).toEqual({
+      t: "agent-window-question-action",
+      rid: "question-action-1",
+      sid: "session-a",
+      k: "select",
+      oi: 1,
+      v: 1,
+    });
+    host.deliver({
+      t: "agent-window-question-result",
+      rid: "question-action-1",
+      sid: "session-a",
+      ok: true,
+      pr: true,
+      sel: [1],
+      oth: null,
+      sb: true,
+    });
+    await expect(selected).resolves.toMatchObject({ selected: [1], submitEnabled: true });
+
+    const unchecked = source.selectQuestionOption("session-a", 1, false);
+    expect(host.posted.at(-1)).toEqual({
+      t: "agent-window-question-action",
+      rid: "question-action-2",
+      sid: "session-a",
+      k: "select",
+      oi: 1,
+      v: 0,
+    });
+    host.deliver({
+      t: "agent-window-question-result",
+      rid: "question-action-2",
+      sid: "session-a",
+      ok: true,
+      pr: true,
+      sel: [],
+      oth: null,
+      sb: false,
+    });
+    await expect(unchecked).resolves.toMatchObject({ selected: [] });
+
+    const typed = source.setQuestionOther("session-a", "custom answer");
+    expect(host.posted.at(-1)).toEqual({
+      t: "agent-window-question-action",
+      rid: "question-action-3",
+      sid: "session-a",
+      k: "other",
+      tx: "custom answer",
+    });
+    host.deliver({
+      t: "agent-window-question-result",
+      rid: "question-action-3",
+      sid: "session-a",
+      ok: true,
+      pr: true,
+      sel: [],
+      oth: "custom answer",
+      sb: true,
+    });
+    await expect(typed).resolves.toMatchObject({ otherText: "custom answer" });
+
+    const submitted = source.submitQuestion("session-a");
+    expect(host.posted.at(-1)).toEqual({
+      t: "agent-window-question-action",
+      rid: "question-action-4",
+      sid: "session-a",
+      k: "submit",
+    });
+    host.deliver({
+      t: "agent-window-question-result",
+      rid: "question-action-4",
+      sid: "session-a",
+      ok: true,
+      pr: false,
+      sel: [],
+      oth: null,
+      sb: null,
+    });
+    await expect(submitted).resolves.toMatchObject({ present: false });
+  });
+
+  it("rejects an action with the host's reason code", async () => {
+    const { host, source } = makeSource();
+    const skipped = source.skipQuestion("session-a");
+    host.deliver({
+      t: "agent-window-question-result",
+      rid: "question-action-1",
+      sid: "session-a",
+      ok: false,
+      r: "question-missing",
+    });
+    await expect(skipped).rejects.toBeInstanceOf(WindowQuestionError);
+    await expect(skipped).rejects.toMatchObject({ reason: "question-missing" });
+  });
+
+  it("re-posts question watches after a reconnect, like the composer watches", () => {
+    const { host, source } = makeSource();
+    source.subscribeWindowQuestion("session-a", vi.fn());
+    const before = host.posted.length;
+
+    source.resumeAfterSessionReconnect();
+
+    expect(host.posted.slice(before)).toEqual([
+      { t: "agent-window-question-watch", sub: "question-1", sid: "session-a" },
+    ]);
   });
 });

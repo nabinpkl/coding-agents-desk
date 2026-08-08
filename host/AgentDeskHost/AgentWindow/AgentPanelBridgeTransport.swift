@@ -93,12 +93,13 @@ final class AgentPanelBridgeTransport: AgentPanelTransport {
             ))
         case .terminal(let intent):
             onTerminalIntent?(intent)
-        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead, .windowInputSubmit:
-            // Composer sync is a host-local Accessibility action against another application's window.
-            // It routes past the bridge deliberately: `AgentFeedBridge` is a sidecar proxy, and there is
-            // no sidecar in this path. With no handler attached -- a host without its Space authority --
-            // nothing answers, so the panel keeps its field disabled rather than believing a write
-            // landed.
+        case .windowInputWatch, .windowInputUnwatch, .windowInputSync, .windowInputRead, .windowInputSubmit,
+             .questionWatch, .questionUnwatch, .questionAction:
+            // Composer sync and the AskUserQuestion mirror are host-local Accessibility actions against
+            // another application's window. They route past the bridge deliberately: `AgentFeedBridge`
+            // is a sidecar proxy, and there is no sidecar in this path. With no handler attached -- a
+            // host without its Space authority -- nothing answers, so the panel keeps its field disabled
+            // and its mirror inert rather than believing a write or press landed.
             onWindowInput?(request)
         }
     }

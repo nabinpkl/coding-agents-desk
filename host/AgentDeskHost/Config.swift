@@ -895,6 +895,13 @@ enum Config {
     // this is another application's private UI string and can change without notice.
     static let claudeComposerDescription = ProcessInfo.processInfo.environment["AGENTDESK_CLAUDE_COMPOSER_DESC"]
         ?? "Prompt"
+    // The `AXDescription` Claude Desktop gives the AskUserQuestion panel's "Other" input. Part of the
+    // panel anchor triple (a Submit-prefixed button plus a Skip button plus this input inside one
+    // group), so an AskUserQuestion panel is never matched by title alone. Env-overridable because it
+    // is another application's private UI string.
+    static let claudeQuestionOtherDescription =
+        ProcessInfo.processInfo.environment["AGENTDESK_CLAUDE_QUESTION_OTHER_DESC"]
+        ?? "Other option"
     // How long a window brought to this Desktop is given to build its accessibility tree, and how
     // often it is checked. Chromium builds a window's tree only while it is on the current Space, so
     // the composer genuinely does not exist for the first moments after a move-in. The ceiling bounds

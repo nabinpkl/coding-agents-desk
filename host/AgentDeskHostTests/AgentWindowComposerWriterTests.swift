@@ -16,6 +16,13 @@ struct AgentWindowComposerWriterTests {
             case write(String)
             case submit
             case move(windowID: UInt32, spaceID: UInt64)
+            case readQuestion
+            case pressOption(Int, Bool)
+            case setOther(String)
+            case pressSubmit
+            case pressSkip
+            case pressDismiss
+            case pressViewOptions
         }
 
         var steps: [Step] = []
@@ -26,6 +33,8 @@ struct AgentWindowComposerWriterTests {
         var readBack: String?
         var moveFailures: Set<UInt64> = []
         var moveFailureReason: AgentWindowInputReason?
+        var questionState: AgentWindowQuestionState = .absent
+        var questionActionError: AgentWindowInputReason?
 
         func frontmostApplicationPID() -> pid_t? {
             frontmost.isEmpty ? nil : frontmost.removeFirst()
@@ -60,6 +69,42 @@ struct AgentWindowComposerWriterTests {
             steps.append(.submit)
             if let writeError { throw writeError }
             return readBack ?? ""
+        }
+
+        func readQuestionState(for target: AgentWindowSessionTarget) throws -> AgentWindowQuestionState {
+            steps.append(.readQuestion)
+            if let questionActionError { throw questionActionError }
+            return questionState
+        }
+
+        func pressQuestionOption(index: Int, desired: Bool, for target: AgentWindowSessionTarget) throws {
+            steps.append(.pressOption(index, desired))
+            if let questionActionError { throw questionActionError }
+        }
+
+        func setQuestionOther(_ text: String, for target: AgentWindowSessionTarget) throws {
+            steps.append(.setOther(text))
+            if let questionActionError { throw questionActionError }
+        }
+
+        func pressQuestionSubmit(for target: AgentWindowSessionTarget) throws {
+            steps.append(.pressSubmit)
+            if let questionActionError { throw questionActionError }
+        }
+
+        func pressQuestionSkip(for target: AgentWindowSessionTarget) throws {
+            steps.append(.pressSkip)
+            if let questionActionError { throw questionActionError }
+        }
+
+        func pressQuestionDismiss(for target: AgentWindowSessionTarget) throws {
+            steps.append(.pressDismiss)
+            if let questionActionError { throw questionActionError }
+        }
+
+        func pressQuestionViewOptions(for target: AgentWindowSessionTarget) throws {
+            steps.append(.pressViewOptions)
+            if let questionActionError { throw questionActionError }
         }
 
         func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {
@@ -312,5 +357,96 @@ struct AgentWindowComposerWriterTests {
             .submit,
             .move(windowID: 42, spaceID: 4),
         ])
+    }
+
+    // MARK: - AskUserQuestion mirror
+
+    @Test func aQuestionActionOnAnotherDesktopIsBroughtHereAndPutBack() {
+        // The AX tree for another Desktop's window does not exist, so the press needs the same
+        // move-in / wait / move-back round trip a composer write does.
+        let recorder = Recorder()
+        recorder.questionState = AgentWindowQuestionState(
+            present: true,
+            selectedIndices: [1],
+            otherText: nil,
+            submitEnabled: true
+        )
+        let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
+
+        let result = writer.performQuestionAction(
+            .select(option: 1, desired: true),
+            to: target(homeSpaceID: 4)
+        )
+
+        #expect(result == .success(recorder.questionState))
+        #expect(recorder.steps == [
+            .latch(400),
+            .move(windowID: 42, spaceID: 1),
+            .awaitComposer,
+            .pressOption(1, true),
+            .readQuestion,
+            .move(windowID: 42, spaceID: 4),
+        ])
+    }
+
+    @Test func aQuestionActionOnTheActiveDesktopSkipsTheRoundTrip() {
+        let recorder = Recorder()
+        recorder.questionState = AgentWindowQuestionState(
+            present: true,
+            selectedIndices: [],
+            otherText: "custom",
+            submitEnabled: true
+        )
+        let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
+
+        let result = writer.performQuestionAction(.other("custom"), to: target(homeSpaceID: 1))
+
+        #expect(result == .success(recorder.questionState))
+        #expect(recorder.steps == [.latch(400), .setOther("custom"), .readQuestion])
+    }
+
+    @Test func aQuestionReadIsServedOnlyWhenItCostsNoDesktopFlash() {
+        let free = Recorder()
+        free.questionState = AgentWindowQuestionState(
+            present: true,
+            selectedIndices: [0, 2],
+            otherText: nil,
+            submitEnabled: true
+        )
+        let freeWriter = AgentWindowComposerWriter(access: free, placement: free)
+        #expect(freeWriter.readQuestionIfFree(target(homeSpaceID: 1)) == .success(free.questionState))
+        #expect(free.steps == [.latch(400), .readQuestion])
+
+        // Off the active Desktop there is no tree to read, so the mirror keeps its JSON content and
+        // learns nothing about presence -- nil, never a claim that the panel is absent.
+        let costly = Recorder()
+        let costlyWriter = AgentWindowComposerWriter(access: costly, placement: costly)
+        #expect(costlyWriter.readQuestionIfFree(target(homeSpaceID: 4)) == .success(nil))
+        #expect(costly.steps.isEmpty)
+    }
+
+    @Test func onlySubmitActivatesTheWindowForAQuestionAction() {
+        // Every press but submit is non-activating: AXPress does not need focus, so a changed frontmost
+        // app means the assumption broke and must be surfaced.
+        let steal = Recorder()
+        steal.frontmost = [100, 400]
+        let stealWriter = AgentWindowComposerWriter(access: steal, placement: steal)
+        #expect(stealWriter.performQuestionAction(.skip, to: target(homeSpaceID: 1)) == .failure(.focusStolen))
+
+        let activate = Recorder()
+        activate.frontmost = [100, 400]
+        let activateWriter = AgentWindowComposerWriter(access: activate, placement: activate)
+        #expect(activateWriter.performQuestionAction(.submit, to: target(homeSpaceID: 1)) == .success(activate.questionState))
+    }
+
+    @Test func aFailedQuestionActionStillReturnsTheWindow() {
+        let recorder = Recorder()
+        recorder.questionActionError = .questionMissing
+        let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
+
+        let result = writer.performQuestionAction(.dismiss, to: target(homeSpaceID: 4))
+
+        #expect(result == .failure(.questionMissing))
+        #expect(recorder.steps.last == .move(windowID: 42, spaceID: 4))
     }
 }

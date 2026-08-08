@@ -13,6 +13,21 @@ public enum AgentPanelUIValue: Equatable, Sendable {
     case string(String)
 }
 
+/// The interaction a panel wants performed against the AskUserQuestion panel in a Claude Desktop window.
+///
+/// Mirrors `AgentWindowQuestionActionKind` on the wire; the webview decoder validates the raw string so
+/// a frame this build does not recognize is rejected rather than misacted. The mirror's CONTENT never
+/// travels on any of these: it comes from the transcript feed, where the `AskUserQuestion` tool_use
+/// already carries the full question JSON.
+public enum AgentPanelQuestionActionKind: String, Equatable, Sendable {
+    case select
+    case other
+    case submit
+    case skip
+    case dismiss
+    case viewOptions = "view-options"
+}
+
 /// Which view of a transcript a request addresses: `raw` is every line in file order, `nice` is
 /// content lines only, renumbered contiguously.
 ///
@@ -76,6 +91,20 @@ public enum AgentPanelRequest: Equatable, Sendable {
     /// Fills the composer and presses Return, committing the prompt in Claude Desktop. Unlike `sync`,
     /// this actually sends, so it activates (and fronts) the owning window. Bounded like a sync.
     case windowInputSubmit(requestId: String, sessionId: String, text: String)
+    /// Subscribes to one session's AskUserQuestion panel state. Focus-gated like the composer watch:
+    /// only a panel the user is looking at keeps the host's poll and AX traffic alive.
+    case questionWatch(subscriptionId: String, sessionId: String)
+    case questionUnwatch(subscriptionId: String)
+    /// One interaction with the session's AskUserQuestion panel. Explicit user intent, so it may bring
+    /// the window onto the active Desktop and put it back.
+    case questionAction(
+        requestId: String,
+        sessionId: String,
+        kind: AgentPanelQuestionActionKind,
+        optionIndex: Int?,
+        desired: Bool?,
+        otherText: String?
+    )
 
     public static func decode(tag: String, body: [String: Any]) -> AgentPanelRequest? {
         switch tag {
@@ -198,6 +227,61 @@ public enum AgentPanelRequest: Equatable, Sendable {
                   let raw = body["tx"] as? String,
                   let text = AgentPanelWindowInputBounds.text(raw) else { return nil }
             return .windowInputSubmit(requestId: requestId, sessionId: sessionId, text: text)
+        case "agent-window-question-watch":
+            guard let subscriptionId = requestIdentifier(body["sub"]),
+                  let sessionId = sessionIdentifier(body["sid"]) else { return nil }
+            return .questionWatch(subscriptionId: subscriptionId, sessionId: sessionId)
+        case "agent-window-question-unwatch":
+            guard let subscriptionId = requestIdentifier(body["sub"]) else { return nil }
+            return .questionUnwatch(subscriptionId: subscriptionId)
+        case "agent-window-question-action":
+            // The option index addresses an element in ANOTHER application's window, so it is bounded
+            // like every other identifier here rather than trusted from the wire. The desired state is
+            // 0/1 only; the Other answer is written verbatim into the panel's text field, so it shares
+            // the composer sync's blast-radius cap. Per-kind presence is enforced by the shared payload
+            // validator, so `select` without an index and `submit` with a stray payload are both
+            // rejected rather than misacted.
+            guard let requestId = requestIdentifier(body["rid"]),
+                  let sessionId = sessionIdentifier(body["sid"]),
+                  let rawKind = body["k"] as? String,
+                  let kind = AgentPanelQuestionActionKind(rawValue: rawKind) else { return nil }
+            let optionIndex: Int?
+            if let raw = body["oi"] as? Int, raw >= 0, raw < AgentPanelWindowInputBounds.maxQuestionOptions {
+                optionIndex = raw
+            } else if body["oi"] == nil {
+                optionIndex = nil
+            } else {
+                return nil
+            }
+            let desired: Bool?
+            if let raw = body["v"] as? Int, raw == 0 || raw == 1 {
+                desired = raw == 1
+            } else if body["v"] == nil {
+                desired = nil
+            } else {
+                return nil
+            }
+            let otherText: String?
+            if let raw = body["tx"] as? String {
+                guard let text = AgentPanelWindowInputBounds.text(raw) else { return nil }
+                otherText = text
+            } else {
+                otherText = nil
+            }
+            guard let payload = AgentPanelWindowInputBounds.questionActionPayload(
+                kind: kind,
+                optionIndex: optionIndex,
+                desired: desired,
+                otherText: otherText
+            ) else { return nil }
+            return .questionAction(
+                requestId: requestId,
+                sessionId: sessionId,
+                kind: kind,
+                optionIndex: payload.optionIndex,
+                desired: payload.desired,
+                otherText: payload.otherText
+            )
         case "agent-terminal-open":
             return decodeTerminalIntent(body: body, make: AgentPanelTerminalIntent.open)
         case "agent-terminal-close":
@@ -298,6 +382,10 @@ public enum AgentPanelWindowInputBounds {
     /// rather than merely to send a large prompt.
     public static let textLimit = 100_000
 
+    /// Upper bound (exclusive) for an AskUserQuestion option index. The index addresses an element in
+    /// another application's window, so it is bounded here like every identifier that does.
+    public static let maxQuestionOptions = 64
+
     /// A bounded, charset-restricted identifier. Applied to request ids everywhere, and to the session
     /// ids that address a window: those are compared against the live process table, so an unbounded
     /// value would be scanned against every process's argv on every re-resolve.
@@ -313,6 +401,34 @@ public enum AgentPanelWindowInputBounds {
     /// sending an empty prompt is not.
     public static func text(_ value: String) -> String? {
         value.count <= textLimit ? value : nil
+    }
+
+    /// Per-kind validation of a question action's payload, shared by the webview decoder and the phone
+    /// lane converter so the two doors cannot drift.
+    ///
+    /// `select` requires an option index in range and an explicit desired state; `other` requires the
+    /// answer text (bounded by `text`); the button kinds take no payload at all. An `other` answer may
+    /// be the empty string -- clearing the input is a real intent -- so presence, not content, is what
+    /// is checked.
+    public static func questionActionPayload(
+        kind: AgentPanelQuestionActionKind,
+        optionIndex: Int?,
+        desired: Bool?,
+        otherText: String?
+    ) -> (optionIndex: Int?, desired: Bool?, otherText: String?)? {
+        switch kind {
+        case .select:
+            guard let optionIndex, optionIndex >= 0, optionIndex < maxQuestionOptions, let desired else {
+                return nil
+            }
+            return (optionIndex, desired, nil)
+        case .other:
+            guard let otherText else { return nil }
+            return (nil, nil, otherText)
+        case .submit, .skip, .dismiss, .viewOptions:
+            guard optionIndex == nil, desired == nil, otherText == nil else { return nil }
+            return (nil, nil, nil)
+        }
     }
 }
 

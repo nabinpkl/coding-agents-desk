@@ -34,15 +34,25 @@ vi.mock("../features/activity-feed/ActivityFeed", async () => {
       sessionId,
       controlsHost,
       onUsage,
+      onOpenQuestion,
     }: {
       source: string;
       sessionId: string;
       controlsHost: HTMLElement | null;
       onUsage?: (usage: unknown) => void;
+      onOpenQuestion?: (question: unknown) => void;
     }) => {
       useEffect(() => {
         onUsage?.(FIXED_USAGE);
       }, [onUsage, sessionId]);
+      // The real feed mirrors its open AskUserQuestion up; the mock exposes a
+      // hoisted emitter so tests can drive the mirror through the same seam.
+      useEffect(() => {
+        feedMock.emitQuestion = (question: unknown) => onOpenQuestion?.(question);
+        return () => {
+          feedMock.emitQuestion = null;
+        };
+      }, [onOpenQuestion, sessionId]);
       return (
         <div
           data-testid="activity-feed"
@@ -59,6 +69,12 @@ vi.mock("../features/activity-feed/ActivityFeed", async () => {
     },
   };
 });
+
+// Shared, hoisted state between the mocked feed and the tests: the tests set the
+// feed's open question through this emitter, exactly as the real feed reports it.
+const feedMock = vi.hoisted(() => ({
+  emitQuestion: null as ((question: unknown) => void) | null,
+}));
 
 // Mock the Markdown renderer (used by ActivityFeed; mocked so its
 // marked/shiki/katex deps never load under jsdom if pulled in transitively).
@@ -1378,6 +1394,339 @@ describe("Claude window composer field", () => {
         }),
       ).toBeInTheDocument(),
     );
+    unmount();
+  });
+});
+
+describe("AskUserQuestion mirror", () => {
+  // The same panel the live probe saw in Claude Desktop: question, header,
+  // single-select options, Other, Skip, Submit, and the header controls.
+  const QUESTION = {
+    callId: "toolu_01RiU9jjyzyX3HTCbLG1dGAh",
+    question: "Which release identity should the manual deploy of current main use?",
+    header: "Release id",
+    multiSelect: false,
+    options: [
+      {
+        label: "Mint 2026-08-08.1 (Recommended)",
+        description: "Add a ledger entry for a new application release.",
+      },
+      {
+        label: "Reuse 2026-08-03.1",
+        description: "Deploy immediately, no code change.",
+      },
+      {
+        label: "Don't deploy app code yet",
+        description: "Leave the running release alone.",
+      },
+    ],
+  };
+
+  const MULTI_QUESTION = {
+    callId: "toolu_02",
+    question: "Which features do you want to enable?",
+    multiSelect: true,
+    options: [
+      { label: "Dark mode", description: "Enable dark theme for the interface" },
+      { label: "Notifications", description: "Receive real-time alerts and updates" },
+      { label: "Analytics", description: "Track usage and performance metrics" },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    feedMock.emitQuestion = null;
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    restoreViewport();
+  });
+
+  function questionSubscription(fake: FakeHostBridge): string {
+    return latestSubscription(fake, "agent-window-question-watch");
+  }
+
+  function deliverQuestionStatus(
+    fake: FakeHostBridge,
+    sub: string,
+    overrides: Record<string, unknown> = {},
+  ) {
+    act(() => {
+      fake.deliver({
+        t: "agent-window-question-status",
+        sub,
+        sid: "sid-claude-01",
+        en: true,
+        cur: true,
+        pr: true,
+        sel: [],
+        ...overrides,
+      });
+    });
+  }
+
+  function openQuestion(question: unknown) {
+    act(() => feedMock.emitQuestion?.(question));
+  }
+
+  it("renders the panel from the feed JSON: question, options, Other, and every action", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    openQuestion(QUESTION);
+
+    expect(screen.getByLabelText("Claude question")).toHaveTextContent(
+      "Which release identity should the manual deploy of current main use?",
+    );
+    // Single-select questions render radio rows.
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
+    expect(
+      screen.getByRole("radio", { name: "Mint 2026-08-08.1 (Recommended)" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("radio", { name: "Don't deploy app code yet" }),
+    ).toBeInTheDocument();
+    // The header controls and the action row mirror Claude's panel exactly.
+    expect(screen.getByRole("button", { name: "View question options" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dismiss question" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Other")).toBeInTheDocument();
+    expect(screen.getByLabelText("Other answer")).toHaveAttribute(
+      "placeholder",
+      "Type your own answer here",
+    );
+    expect(screen.getByRole("button", { name: "Skip" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Submit answer" })).toBeDisabled();
+
+    // The mirror watches the live panel state while the question is open.
+    expect(questionSubscription(fake)).toBeTruthy();
+    unmount();
+  });
+
+  it("posts a select action on choice and adopts the post-action read-back", async () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    openQuestion(QUESTION);
+
+    fireEvent.click(screen.getByRole("radio", { name: "Reuse 2026-08-03.1" }));
+    const action = [...fake.posted]
+      .reverse()
+      .find((m) => (m as { t?: string }).t === "agent-window-question-action") as {
+      rid: string;
+      sid: string;
+      k: string;
+      oi: number;
+      v: number;
+    };
+    expect(action).toMatchObject({ sid: "sid-claude-01", k: "select", oi: 1, v: 1 });
+
+    await act(async () => {
+      fake.deliver({
+        t: "agent-window-question-result",
+        rid: action.rid,
+        sid: "sid-claude-01",
+        ok: true,
+        pr: true,
+        sel: [1],
+        oth: null,
+        sb: true,
+      });
+    });
+    expect(screen.getByRole("radio", { name: "Reuse 2026-08-03.1" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Submit answer" })).toBeEnabled();
+    unmount();
+  });
+
+  it("renders multi-select as checkboxes and un-checks by pressing with the desired state", async () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    openQuestion(MULTI_QUESTION);
+
+    expect(screen.getAllByRole("checkbox").length).toBeGreaterThanOrEqual(3);
+    const dark = screen.getByRole("checkbox", { name: "Dark mode" });
+    fireEvent.click(dark);
+    let action = [...fake.posted]
+      .reverse()
+      .find((m) => (m as { t?: string }).t === "agent-window-question-action") as {
+      rid: string;
+      k: string;
+      oi: number;
+      v: number;
+    };
+    expect(action).toMatchObject({ k: "select", oi: 0, v: 1 });
+
+    // The host reports it landed, pre-checked alongside a host-side selection.
+    await act(async () => {
+      fake.deliver({
+        t: "agent-window-question-result",
+        rid: action.rid,
+        sid: "sid-claude-01",
+        ok: true,
+        pr: true,
+        sel: [0, 1],
+        oth: null,
+        sb: true,
+      });
+    });
+    expect(dark).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Notifications" })).toBeChecked();
+
+    // Un-checking a box asks the host to press it toward unchecked.
+    fireEvent.click(dark);
+    action = [...fake.posted]
+      .reverse()
+      .find((m) => (m as { t?: string }).t === "agent-window-question-action") as {
+      k: string;
+      oi: number;
+      v: number;
+    };
+    expect(action).toMatchObject({ k: "select", oi: 0, v: 0 });
+    unmount();
+  });
+
+  it("debounces Other typing into an other action, and other-empty is a real intent", async () => {
+    vi.useFakeTimers();
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    openQuestion(QUESTION);
+
+    const other = screen.getByLabelText("Other answer");
+    fireEvent.change(other, { target: { value: "Deploy a different release" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(fake.posted.at(-1)).toMatchObject({
+      t: "agent-window-question-action",
+      sid: "sid-claude-01",
+      k: "other",
+      tx: "Deploy a different release",
+    });
+
+    // Clearing the input pushes the empty value, matching the composer's deletion rule.
+    fireEvent.change(other, { target: { value: "" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(fake.posted.at(-1)).toMatchObject({ t: "agent-window-question-action", k: "other", tx: "" });
+    unmount();
+  });
+
+  it("posts submit, skip, and dismiss with no payload", async () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    openQuestion(QUESTION);
+    const sub = questionSubscription(fake);
+    deliverQuestionStatus(fake, sub, { sel: [0], sb: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit answer" }));
+    expect(
+      [...fake.posted].reverse().find((m) => (m as { t?: string }).t === "agent-window-question-action"),
+    ).toMatchObject({ k: "submit" });
+    // Each explicit action holds the controls until its result lands; resolve
+    // between clicks so the next control is enabled again.
+    await act(async () => {
+      fake.deliver({
+        t: "agent-window-question-result",
+        rid: ([...fake.posted].reverse().find((m) => (m as { t?: string }).t === "agent-window-question-action") as { rid: string }).rid,
+        sid: "sid-claude-01",
+        ok: true,
+        pr: true,
+        sel: [0],
+        oth: null,
+        sb: true,
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    expect(
+      [...fake.posted].reverse().find((m) => (m as { t?: string }).t === "agent-window-question-action"),
+    ).toMatchObject({ k: "skip" });
+    // Skip keeps the panel up in the window until Claude records it; only Dismiss
+    // ends the test, so the mirror stays mounted.
+    await act(async () => {
+      fake.deliver({
+        t: "agent-window-question-result",
+        rid: ([...fake.posted].reverse().find((m) => (m as { t?: string }).t === "agent-window-question-action") as { rid: string }).rid,
+        sid: "sid-claude-01",
+        ok: true,
+        pr: true,
+        sel: [0],
+        oth: null,
+        sb: true,
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss question" }));
+    expect(
+      [...fake.posted].reverse().find((m) => (m as { t?: string }).t === "agent-window-question-action"),
+    ).toMatchObject({ k: "dismiss" });
+    unmount();
+  });
+
+  it("adopts pre-checked selection from the window's live state", async () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    openQuestion(MULTI_QUESTION);
+    const sub = questionSubscription(fake);
+
+    deliverQuestionStatus(fake, sub, { sel: [0, 2], sb: true });
+
+    expect(screen.getByRole("checkbox", { name: "Dark mode" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Notifications" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Analytics" })).toBeChecked();
+    unmount();
+  });
+
+  it("hides the mirror when the host reports the panel is gone, and closes the watch", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    openQuestion(QUESTION);
+    const sub = questionSubscription(fake);
+
+    deliverQuestionStatus(fake, sub, { pr: false });
+
+    expect(screen.queryByLabelText("Claude question")).toBeNull();
+    unmount();
+  });
+
+  it("unwatches when the question closes in the feed", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    openQuestion(QUESTION);
+    expect(questionSubscription(fake)).toBeTruthy();
+
+    openQuestion(null);
+    expect(fake.posted.at(-1)).toMatchObject({ t: "agent-window-question-unwatch" });
+    unmount();
+  });
+
+  it("surfaces the host's reason when the window is unreachable", () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    openQuestion(QUESTION);
+    const sub = questionSubscription(fake);
+
+    deliverQuestionStatus(fake, sub, { en: false, r: "terminal-only", pr: null });
+
+    expect(screen.getByLabelText("Claude question")).toHaveTextContent(
+      "running in a terminal",
+    );
+    expect(screen.getByRole("radio", { name: "Mint 2026-08-08.1 (Recommended)" })).toBeDisabled();
+    unmount();
+  });
+
+  it("shows the option description when View options is toggled", async () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    openQuestion(QUESTION);
+
+    expect(screen.queryByText("Add a ledger entry for a new application release.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View question options" }));
+    expect(
+      [...fake.posted].reverse().find((m) => (m as { t?: string }).t === "agent-window-question-action"),
+    ).toMatchObject({ k: "view-options" });
+    expect(screen.getByText("Add a ledger entry for a new application release.")).toBeInTheDocument();
     unmount();
   });
 });

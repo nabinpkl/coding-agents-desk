@@ -233,6 +233,31 @@ interface WireWindowInputResult {
   tx?: string | null;
 }
 
+interface WireWindowQuestionStatus {
+  t: "agent-window-question-status";
+  sub: string;
+  sid: string;
+  en: boolean;
+  r?: string | null;
+  cur?: boolean;
+  pr?: boolean | null;
+  sel?: number[];
+  oth?: string | null;
+  sb?: boolean | null;
+}
+
+interface WireWindowQuestionResult {
+  t: "agent-window-question-result";
+  rid: string;
+  sid: string;
+  ok: boolean;
+  r?: string | null;
+  pr?: boolean | null;
+  sel?: number[];
+  oth?: string | null;
+  sb?: boolean | null;
+}
+
 type InboundMessage =
   | WireProjectsPush
   | WireProjectsError
@@ -249,6 +274,8 @@ type InboundMessage =
   | WireExtensionUIDismissed
   | WireWindowInputStatus
   | WireWindowInputResult
+  | WireWindowQuestionStatus
+  | WireWindowQuestionResult
   | { t: string };
 
 export type SessionActivity = "live" | "ready" | "paused" | "cold";
@@ -347,6 +374,42 @@ export class WindowComposerError extends Error {
   }
 }
 
+/**
+ * The AskUserQuestion panel's live state in the session's Claude Desktop window, as the host last
+ * read it. CONTENT is deliberately absent: the question text, options, and multi-select shape come
+ * from the transcript feed's `AskUserQuestion` tool_use, and this only augments it with what a live
+ * AX read adds -- selection, the Other input, Submit's enabled state, and presence.
+ */
+export interface QuestionPanelStatus {
+  sessionId: string;
+  enabled: boolean;
+  reason: string | null;
+  /** True when the owning window is already on the active Desktop, so AX reads cost no Space move. */
+  onActiveDesktop: boolean;
+  /**
+   * Whether an AskUserQuestion panel exists in the window's tree. null when the window is on another
+   * Desktop, where Chromium builds no tree to read -- the mirror keeps its JSON content either way.
+   */
+  present: boolean | null;
+  /** Indices (into the JSON `options` array) currently selected or checked in the panel. */
+  selected: number[];
+  /** The panel's "Other" input value, or null when empty or unreadable. */
+  otherText: string | null;
+  /** The panel's Submit button enabled state, or null when unreadable. */
+  submitEnabled: boolean | null;
+}
+
+/** A question action the host refused or could not complete. */
+export class WindowQuestionError extends Error {
+  readonly reason: string;
+
+  constructor(reason: string) {
+    super(`window question action failed: ${reason}`);
+    this.name = "WindowQuestionError";
+    this.reason = reason;
+  }
+}
+
 interface WindowComposerWatch {
   sessionId: string;
   listener: (status: WindowComposerStatus) => void;
@@ -354,6 +417,17 @@ interface WindowComposerWatch {
 
 interface WindowComposerWaiter {
   resolve: (text: string) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+interface QuestionPanelWatch {
+  sessionId: string;
+  listener: (status: QuestionPanelStatus) => void;
+}
+
+interface QuestionPanelWaiter {
+  resolve: (status: QuestionPanelStatus) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -447,6 +521,19 @@ function mapUsage(wire: WireTokenUsage | null | undefined): TokenUsage | null {
     limit,
     updatedAt: typeof wire.ua === "number" ? wire.ua : 0,
     ...(typeof wire.mdl === "string" && wire.mdl ? { model: wire.mdl } : {}),
+  };
+}
+
+function mapQuestionPanelStatus(message: WireWindowQuestionStatus): QuestionPanelStatus {
+  return {
+    sessionId: message.sid,
+    enabled: message.en === true,
+    reason: typeof message.r === "string" ? message.r : null,
+    onActiveDesktop: message.cur === true,
+    present: typeof message.pr === "boolean" ? message.pr : null,
+    selected: Array.isArray(message.sel) ? message.sel : [],
+    otherText: typeof message.oth === "string" ? message.oth : null,
+    submitEnabled: typeof message.sb === "boolean" ? message.sb : null,
   };
 }
 
@@ -582,6 +669,8 @@ export class BridgeDataSource implements AgentDataSource {
   >();
   private readonly windowComposerWatches = new Map<string, WindowComposerWatch>();
   private readonly windowComposerWaiters = new Map<string, WindowComposerWaiter>();
+  private readonly questionPanelWatches = new Map<string, QuestionPanelWatch>();
+  private readonly questionPanelWaiters = new Map<string, QuestionPanelWaiter>();
   private activeTerminalRequest: AgentTerminalRequest | null = null;
   private unsubscribeHostMessages: (() => void) | null;
   private destroyed = false;
@@ -867,6 +956,94 @@ export class BridgeDataSource implements AgentDataSource {
     });
   }
 
+  /**
+   * Watches one session's AskUserQuestion panel state in its Claude Desktop window.
+   *
+   * Focus-gated by the caller exactly like the composer watch: the host's poll only runs while a
+   * panel the user is looking at keeps a watch alive. The status carries only AX-augmented state;
+   * the mirror's content comes from the session's feed events.
+   */
+  subscribeWindowQuestion(
+    sessionId: string,
+    listener: (status: QuestionPanelStatus) => void,
+  ): () => void {
+    if (this.destroyed) return () => {};
+    const subscriptionId = this.requestIDFactory("question");
+    this.questionPanelWatches.set(subscriptionId, { sessionId, listener });
+    this.bridge.postToHost({
+      t: "agent-window-question-watch",
+      sub: subscriptionId,
+      sid: sessionId,
+    });
+    return () => {
+      if (!this.questionPanelWatches.delete(subscriptionId)) return;
+      this.bridge.postToHost({
+        t: "agent-window-question-unwatch",
+        sub: subscriptionId,
+      });
+    };
+  }
+
+  /**
+   * Presses (or un-presses, per `desired`) the panel option at `option` and resolves with the state
+   * read after the action. `desired` is ignored by single-select panels, whose options cannot be
+   * un-pressed. The host presses only on mismatch, so retrying is idempotent.
+   */
+  selectQuestionOption(sessionId: string, option: number, desired: boolean): Promise<QuestionPanelStatus> {
+    return this.postQuestionAction(sessionId, {
+      k: "select",
+      oi: option,
+      v: desired ? 1 : 0,
+    });
+  }
+
+  /**
+   * Types `text` into the panel's "Other" input and resolves with the state read after. Empty text
+   * clears the input. The host checks the Other affordance when it is unchecked.
+   */
+  setQuestionOther(sessionId: string, text: string): Promise<QuestionPanelStatus> {
+    return this.postQuestionAction(sessionId, { k: "other", tx: text });
+  }
+
+  submitQuestion(sessionId: string): Promise<QuestionPanelStatus> {
+    return this.postQuestionAction(sessionId, { k: "submit" });
+  }
+
+  skipQuestion(sessionId: string): Promise<QuestionPanelStatus> {
+    return this.postQuestionAction(sessionId, { k: "skip" });
+  }
+
+  dismissQuestion(sessionId: string): Promise<QuestionPanelStatus> {
+    return this.postQuestionAction(sessionId, { k: "dismiss" });
+  }
+
+  toggleQuestionOptions(sessionId: string): Promise<QuestionPanelStatus> {
+    return this.postQuestionAction(sessionId, { k: "view-options" });
+  }
+
+  private postQuestionAction(
+    sessionId: string,
+    payload: Record<string, unknown>,
+  ): Promise<QuestionPanelStatus> {
+    if (this.destroyed) {
+      return Promise.reject(new Error("BridgeDataSource destroyed"));
+    }
+    const requestId = this.requestIDFactory("question-action");
+    return new Promise<QuestionPanelStatus>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.questionPanelWaiters.delete(requestId);
+        reject(new Error(`window question action timed out: ${requestId}`));
+      }, this.windowComposerTimeoutMs);
+      this.questionPanelWaiters.set(requestId, { resolve, reject, timer });
+      this.bridge.postToHost({
+        t: "agent-window-question-action",
+        rid: requestId,
+        sid: sessionId,
+        ...payload,
+      });
+    });
+  }
+
   private postWindowComposer(
     requestId: string,
     message: Record<string, unknown>,
@@ -980,6 +1157,15 @@ export class BridgeDataSource implements AgentDataSource {
         sid: watch.sessionId,
       });
     }
+    // Same for the question mirror: a resume is a new lane, and the old one's sink -- and its AX
+    // poll -- died with it.
+    for (const [subscriptionId, watch] of this.questionPanelWatches) {
+      this.bridge.postToHost({
+        t: "agent-window-question-watch",
+        sub: subscriptionId,
+        sid: watch.sessionId,
+      });
+    }
   }
 
   private ensureThreadSubscription(session: SessionReference): void {
@@ -1080,6 +1266,12 @@ export class BridgeDataSource implements AgentDataSource {
       case "agent-window-input-result":
         this.handleWindowComposerResult(message as WireWindowInputResult);
         break;
+      case "agent-window-question-status":
+        this.handleWindowQuestionStatus(message as WireWindowQuestionStatus);
+        break;
+      case "agent-window-question-result":
+        this.handleWindowQuestionResult(message as WireWindowQuestionResult);
+        break;
     }
   }
 
@@ -1117,6 +1309,39 @@ export class BridgeDataSource implements AgentDataSource {
       return;
     }
     waiter.resolve(message.tx);
+  }
+
+  private handleWindowQuestionStatus(message: WireWindowQuestionStatus): void {
+    const watch = this.questionPanelWatches.get(message.sub);
+    // A status for a session this subscription is no longer watching would drive the mirror from
+    // the wrong window. The host re-resolves on a timer, so a stale one can land after a switch.
+    if (!watch || watch.sessionId !== message.sid) return;
+    watch.listener(mapQuestionPanelStatus(message));
+  }
+
+  private handleWindowQuestionResult(message: WireWindowQuestionResult): void {
+    const waiter = this.questionPanelWaiters.get(message.rid);
+    if (!waiter) return;
+    this.questionPanelWaiters.delete(message.rid);
+    clearTimeout(waiter.timer);
+    if (message.ok !== true) {
+      waiter.reject(
+        new WindowQuestionError(
+          typeof message.r === "string" && message.r ? message.r : "unknown",
+        ),
+      );
+      return;
+    }
+    waiter.resolve({
+      sessionId: message.sid,
+      enabled: true,
+      reason: null,
+      onActiveDesktop: true,
+      present: typeof message.pr === "boolean" ? message.pr : null,
+      selected: Array.isArray(message.sel) ? message.sel : [],
+      otherText: typeof message.oth === "string" ? message.oth : null,
+      submitEnabled: typeof message.sb === "boolean" ? message.sb : null,
+    });
   }
 
   private handleProjects(message: WireProjectsPush): void {
@@ -1550,6 +1775,12 @@ export class BridgeDataSource implements AgentDataSource {
     }
     this.windowComposerWaiters.clear();
     this.windowComposerWatches.clear();
+    for (const waiter of this.questionPanelWaiters.values()) {
+      clearTimeout(waiter.timer);
+      waiter.reject(error);
+    }
+    this.questionPanelWaiters.clear();
+    this.questionPanelWatches.clear();
     this.projectWatches.clear();
     this.projectSessionsWatches.clear();
     this.activeThreads.clear();

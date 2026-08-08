@@ -38,6 +38,12 @@ enum AgentFeedRequest: Sendable {
     case windowInputSync(AgentWindowInputSync)
     case windowInputRead(AgentWindowInputRead)
     case windowInputSubmit(AgentWindowInputSubmit)
+    // Claude Desktop AskUserQuestion mirror. Same host-local Accessibility path as the composer frames:
+    // the mirror's content comes from the transcript feed, and these only watch and actuate the live
+    // panel in the window.
+    case questionWatch(AgentWindowQuestionWatch)
+    case questionUnwatch(AgentWindowQuestionUnwatch)
+    case questionAction(AgentWindowQuestionAction)
 }
 
 protocol AgentDataPushing: AnyObject, Sendable {
@@ -490,6 +496,18 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
         case "agent-window-input-submit":
             if let msg = try? JSONDecoder().decode(AgentWindowInputSubmit.self, from: data) {
                 agentRequestHandler?(.windowInputSubmit(msg))
+            }
+        case "agent-window-question-watch":
+            if let msg = try? JSONDecoder().decode(AgentWindowQuestionWatch.self, from: data) {
+                agentRequestHandler?(.questionWatch(msg))
+            }
+        case "agent-window-question-unwatch":
+            if let msg = try? JSONDecoder().decode(AgentWindowQuestionUnwatch.self, from: data) {
+                agentRequestHandler?(.questionUnwatch(msg))
+            }
+        case "agent-window-question-action":
+            if let msg = try? JSONDecoder().decode(AgentWindowQuestionAction.self, from: data) {
+                agentRequestHandler?(.questionAction(msg))
             }
         default:
             logger.notice("input lane unknown frame type=\(header.type, privacy: .public)")

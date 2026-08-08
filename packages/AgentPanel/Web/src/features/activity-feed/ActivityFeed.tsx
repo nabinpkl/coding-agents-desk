@@ -37,6 +37,7 @@ import {
 } from "./ActivityEventRows";
 import type { AgentSource, EventMode } from "./data-source/AgentDataSource";
 import type { AgentSessionControlState } from "./data-source/AgentDataSource";
+import { openAskUserQuestion, type OpenAskUserQuestion } from "../../app/askUserQuestion";
 
 /** Fallback for the sticky bar's height before it has rendered once. */
 const STICKY_HEIGHT_ESTIMATE = 44;
@@ -50,6 +51,7 @@ export function ActivityFeed({
   controlsHost,
   onSessionState,
   onUsage,
+  onOpenQuestion,
 }: {
   source: AgentSource;
   sessionId: string;
@@ -76,6 +78,12 @@ export function ActivityFeed({
    * feed owns the stream that carries it. `null` while nothing has arrived.
    */
   onUsage?: (usage: TokenUsage | null) => void;
+  /**
+   * Mirrors the session's open AskUserQuestion up to the shell. The composer band
+   * renders the mirror, so it lives here rather than in the header; the feed owns
+   * the event stream the question is derived from. `null` while no question is open.
+   */
+  onOpenQuestion?: (question: OpenAskUserQuestion | null) => void;
 }) {
   const { events, loadOlder, windowStart, usage, loading, error, runState, queue, liveTail } =
     useSessionEventsStream(source, sessionId, mode);
@@ -85,6 +93,15 @@ export function ActivityFeed({
   useEffect(() => {
     onUsage?.(usage);
   }, [onUsage, usage]);
+  // The open AskUserQuestion derives from the stream the feed owns. Memoized so
+  // the shell's mirror only re-renders when the answer actually changes it.
+  const openQuestion = useMemo(
+    () => openAskUserQuestion(events, liveTail),
+    [events, liveTail],
+  );
+  useEffect(() => {
+    onOpenQuestion?.(openQuestion);
+  }, [onOpenQuestion, openQuestion]);
   const parentRef = useRef<HTMLDivElement>(null);
   const sizedRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLButtonElement>(null);

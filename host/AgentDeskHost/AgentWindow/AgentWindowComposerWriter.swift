@@ -27,6 +27,18 @@ protocol AgentWindowComposerAccessing {
     /// Focuses the composer and presses Return, committing whatever it holds. Returns the composer value
     /// read after the send (expected to be the cleared field). Deliberately activates the owning window.
     func submitComposer(for target: AgentWindowSessionTarget) throws -> String
+    /// Reads the AskUserQuestion panel's live state. `present` is false when no panel exists, so a
+    /// panel that was never shown reads the same as one already answered.
+    func readQuestionState(for target: AgentWindowSessionTarget) throws -> AgentWindowQuestionState
+    /// Presses the panel option at `option`, only when its current state differs from `desired`.
+    /// Single-select options cannot be un-pressed, so `desired == false` is a no-op there.
+    func pressQuestionOption(index: Int, desired: Bool, for target: AgentWindowSessionTarget) throws
+    /// Sets the panel's "Other" input to `text`, checking the Other affordance when it is unchecked.
+    func setQuestionOther(_ text: String, for target: AgentWindowSessionTarget) throws
+    func pressQuestionSubmit(for target: AgentWindowSessionTarget) throws
+    func pressQuestionSkip(for target: AgentWindowSessionTarget) throws
+    func pressQuestionDismiss(for target: AgentWindowSessionTarget) throws
+    func pressQuestionViewOptions(for target: AgentWindowSessionTarget) throws
 }
 
 /// The Space move a composer write needs. `YabaiWindowSpaceMover` is the real one.
@@ -69,6 +81,52 @@ struct AgentWindowComposerWriter {
             return .failure(reason)
         } catch {
             return .failure(.accessibilityDenied)
+        }
+    }
+
+    /// The AskUserQuestion panel's live state, but only when reading it costs nothing.
+    ///
+    /// nil when the window sits on another Desktop, where Chromium builds no accessibility tree to read.
+    /// The state itself carries `present`, so "no panel in a readable window" and "window unreadable"
+    /// stay distinct: only the latter is nil.
+    func readQuestionIfFree(_ target: AgentWindowSessionTarget) -> Result<AgentWindowQuestionState?, AgentWindowInputReason> {
+        guard target.isOnActiveDesktop else { return .success(nil) }
+        do {
+            try access.latchManualAccessibility(pid: target.claudeMainPid)
+            return .success(try access.readQuestionState(for: target))
+        } catch let reason as AgentWindowInputReason {
+            return .failure(reason)
+        } catch {
+            return .failure(.accessibilityDenied)
+        }
+    }
+
+    /// Performs one interaction with the AskUserQuestion panel and returns the state read after it.
+    ///
+    /// An action is an explicit user request -- the user clicked the mirror -- so, like a composer
+    /// write, it pays the Desktop round trip when the window is elsewhere. Only submit activates the
+    /// window: it commits the answer, which is the requested outcome. The other presses need no focus
+    /// and must not steal it.
+    func performQuestionAction(
+        _ action: AgentWindowQuestionOperation,
+        to target: AgentWindowSessionTarget
+    ) -> Result<AgentWindowQuestionState, AgentWindowInputReason> {
+        withWindowHere(target, allowsActivation: action == .submit) {
+            switch action {
+            case .select(let option, let desired):
+                try access.pressQuestionOption(index: option, desired: desired, for: target)
+            case .other(let text):
+                try access.setQuestionOther(text, for: target)
+            case .submit:
+                try access.pressQuestionSubmit(for: target)
+            case .skip:
+                try access.pressQuestionSkip(for: target)
+            case .dismiss:
+                try access.pressQuestionDismiss(for: target)
+            case .viewOptions:
+                try access.pressQuestionViewOptions(for: target)
+            }
+            return try access.readQuestionState(for: target)
         }
     }
 
@@ -119,19 +177,19 @@ struct AgentWindowComposerWriter {
 
     /// Runs `body` with the target window on the active Desktop, then puts the window back.
     ///
-    /// Both the write and the explicit read share this because the ordering is the delicate part, not
-    /// what happens in the middle: latch, move in, wait for the tree, act, restore before judging the
-    /// result, and prove nothing was activated.
+    /// Both the composer writes and the question actions share this because the ordering is the delicate
+    /// part, not what happens in the middle: latch, move in, wait for the tree, act, restore before
+    /// judging the result, and prove nothing was activated.
     ///
     /// The materialize wait is not optional politeness. Chromium builds a window's accessibility tree
     /// only once that window is on the current Space, so immediately after the move-in the composer
     /// does not exist yet and a write would report the composer missing on a window that is right
     /// there. It is skipped for a window already here, whose tree is already built.
-    private func withWindowHere(
+    private func withWindowHere<Value>(
         _ target: AgentWindowSessionTarget,
         allowsActivation: Bool = false,
-        _ body: () throws -> String
-    ) -> Result<String, AgentWindowInputReason> {
+        _ body: () throws -> Value
+    ) -> Result<Value, AgentWindowInputReason> {
         let frontmostBefore = access.frontmostApplicationPID()
 
         do {
@@ -155,7 +213,7 @@ struct AgentWindowComposerWriter {
             }
         }
 
-        let outcome: Result<String, AgentWindowInputReason>
+        let outcome: Result<Value, AgentWindowInputReason>
         do {
             if moved { try access.awaitComposer(for: target) }
             outcome = .success(try body())

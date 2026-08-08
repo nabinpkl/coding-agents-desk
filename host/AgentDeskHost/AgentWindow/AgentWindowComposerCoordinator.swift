@@ -36,6 +36,11 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
     private var subscriptions: [SinkID: [String: String]] = [:]
     /// The last status emitted per sink and subscription, so an unchanged poll stays silent.
     private var lastStatus: [SinkID: [String: AgentWindowInputStatus]] = [:]
+    /// sinkID -> subscriptionId -> sessionId, for the AskUserQuestion mirror. Kept apart from the
+    /// composer watches because the two are independent surfaces: blurring the composer must not stop
+    /// the question mirror's status, and answering a question must not touch the composer watch.
+    private var questionSubscriptions: [SinkID: [String: String]] = [:]
+    private var lastQuestionStatus: [SinkID: [String: AgentWindowQuestionStatus]] = [:]
     /// sessionId -> the last successfully resolved target, reused by the event-driven refresh so a
     /// value-changed event costs no process-table scan.
     private var lastTargets: [String: AgentWindowSessionTarget] = [:]
@@ -74,8 +79,10 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
             sinks[id] = nil
             subscriptions[id] = nil
             lastStatus[id] = nil
+            questionSubscriptions[id] = nil
+            lastQuestionStatus[id] = nil
             stopPollingIfIdle()
-            if subscriptions.isEmpty {
+            if subscriptions.isEmpty, questionSubscriptions.isEmpty {
                 for pid in observer.observedPids { observer.stopObserving(claudeMainPid: pid) }
                 lastTargets = [:]
             }
@@ -113,6 +120,33 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
             queue.async { [self] in read(requestId: requestId, sessionId: sessionId, to: sink) }
         case .windowInputSubmit(let requestId, let sessionId, let text):
             queue.async { [self] in submit(requestId: requestId, sessionId: sessionId, text: text, to: sink) }
+        case .questionWatch(let subscriptionId, let sessionId):
+            queue.async { [self] in
+                questionSubscriptions[sink, default: [:]][subscriptionId] = sessionId
+                startPollingIfNeeded()
+                // Forced for THIS subscription only, exactly like the composer watch: a re-watch under
+                // an id this sink already knows would otherwise stay silent.
+                refreshQuestion(forcing: (sink, subscriptionId))
+            }
+        case .questionUnwatch(let subscriptionId):
+            queue.async { [self] in
+                questionSubscriptions[sink]?[subscriptionId] = nil
+                if questionSubscriptions[sink]?.isEmpty == true { questionSubscriptions[sink] = nil }
+                lastQuestionStatus[sink]?[subscriptionId] = nil
+                stopPollingIfIdle()
+            }
+        case .questionAction(let requestId, let sessionId, let kind, let optionIndex, let desired, let otherText):
+            queue.async { [self] in
+                questionAction(
+                    requestId: requestId,
+                    sessionId: sessionId,
+                    kind: kind,
+                    optionIndex: optionIndex,
+                    desired: desired,
+                    otherText: otherText,
+                    to: sink
+                )
+            }
         default:
             break
         }
@@ -158,7 +192,7 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
     }
 
     private func stopPollingIfIdle() {
-        guard subscriptions.isEmpty else { return }
+        guard subscriptions.isEmpty, questionSubscriptions.isEmpty else { return }
         timer?.cancel()
         timer = nil
     }
@@ -256,7 +290,109 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
             observer.stopObserving(claudeMainPid: pid)
         }
         let watchedSessions = Set(subscriptions.values.flatMap { $0.values })
+            .union(questionSubscriptions.values.flatMap { $0.values })
         lastTargets = lastTargets.filter { watchedSessions.contains($0.key) }
+        // The question mirror rides the same poll: while any question watch is live, its status is
+        // re-read and change-emitted on the timer like the composer statuses.
+        refreshQuestion()
+    }
+
+    /// The question-mirror status pass. Like the composer pass it resolves each DISTINCT session once,
+    /// reusing the composer pass's resolution when both surfaces watch the same session, and emits only
+    /// what changed -- the state read is an AX scan, so a silent poll is what makes the poll cheap.
+    private func refreshQuestion(forcing forced: (sink: SinkID, subscriptionId: String)? = nil) {
+        guard !questionSubscriptions.isEmpty else { return }
+        let rows = processRows()
+        let snapshot = audit.snapshot()
+        var resolved: [String: Result<AgentWindowSessionTarget, AgentWindowInputReason>] = [:]
+        for (sink, watches) in questionSubscriptions {
+            guard let emit = sinks[sink] else { continue }
+            for (subscriptionId, sessionId) in watches {
+                let target = resolved[sessionId] ?? {
+                    let result = resolveTarget(sessionId: sessionId, rows: rows, snapshot: snapshot)
+                    resolved[sessionId] = result
+                    return result
+                }()
+                let status: AgentWindowQuestionStatus
+                let isForced = forced?.sink == sink && forced?.subscriptionId == subscriptionId
+                switch target {
+                case .success(let target):
+                    lastTargets[sessionId] = target
+                    // A forced pass (fresh watch) reads fresh: the panel may have changed while
+                    // unwatched. A poll pass keeps the last known status through a transient read
+                    // failure -- a web contents rebuilding its tree must not flip the mirror, exactly
+                    // like the composer's last-known-text rule.
+                    let fallback = isForced ? nil : lastQuestionStatus[sink]?[subscriptionId]
+                    status = questionStatus(
+                        from: writer.readQuestionIfFree(target),
+                        target: target,
+                        subscriptionId: subscriptionId,
+                        sessionId: sessionId,
+                        fallback: fallback
+                    )
+                case .failure(let reason):
+                    status = AgentWindowQuestionStatus(
+                        subscriptionId: subscriptionId,
+                        sessionId: sessionId,
+                        enabled: false,
+                        reason: reason.rawValue,
+                        onActiveDesktop: false,
+                        present: nil
+                    )
+                }
+                guard isForced || lastQuestionStatus[sink]?[subscriptionId] != status else { continue }
+                lastQuestionStatus[sink, default: [:]][subscriptionId] = status
+                send(status, to: emit)
+            }
+        }
+    }
+
+    /// Maps a question-state read onto the wire status.
+    ///
+    /// A nil read means the window is on another Desktop -- there is no tree to read, so the panel
+    /// keeps its JSON-driven content and learns nothing about presence; `present` stays nil rather
+    /// than falsely claiming the panel is absent.
+    private func questionStatus(
+        from result: Result<AgentWindowQuestionState?, AgentWindowInputReason>,
+        target: AgentWindowSessionTarget,
+        subscriptionId: String,
+        sessionId: String,
+        fallback: AgentWindowQuestionStatus? = nil
+    ) -> AgentWindowQuestionStatus {
+        switch result {
+        case .success(let state?):
+            return AgentWindowQuestionStatus(
+                subscriptionId: subscriptionId,
+                sessionId: sessionId,
+                enabled: true,
+                reason: nil,
+                onActiveDesktop: target.isOnActiveDesktop,
+                present: state.present,
+                selected: state.selectedIndices,
+                otherText: state.otherText,
+                submitEnabled: state.submitEnabled
+            )
+        case .success(nil):
+            return AgentWindowQuestionStatus(
+                subscriptionId: subscriptionId,
+                sessionId: sessionId,
+                enabled: true,
+                reason: nil,
+                onActiveDesktop: target.isOnActiveDesktop,
+                present: nil
+            )
+        case .failure:
+            // A transient failure keeps the last known status rather than flipping the mirror; with no
+            // previous status the panel learns nothing and stays on its JSON content.
+            return fallback ?? AgentWindowQuestionStatus(
+                subscriptionId: subscriptionId,
+                sessionId: sessionId,
+                enabled: true,
+                reason: nil,
+                onActiveDesktop: target.isOnActiveDesktop,
+                present: nil
+            )
+        }
     }
 
     /// The event-driven refresh: one watched session's composer value changed, so re-read it and emit
@@ -357,13 +493,106 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         report(requestId: requestId, sessionId: sessionId, result: result, to: emit)
     }
 
+    /// Performs one AskUserQuestion interaction on the session's window and reports the post-action
+    /// state.
+    ///
+    /// The payload was already validated per kind at both doors, so a missing field here is an
+    /// unreachable state: the frame is dropped with a log rather than answered with a failure result,
+    /// matching the lane's own rejection philosophy.
+    private func questionAction(
+        requestId: String,
+        sessionId: String,
+        kind: AgentPanelQuestionActionKind,
+        optionIndex: Int?,
+        desired: Bool?,
+        otherText: String?,
+        to sink: SinkID
+    ) {
+        guard let emit = sinks[sink] else {
+            logger.notice("question action dropped, no sink sink=\(sink, privacy: .public)")
+            return
+        }
+        let action: AgentWindowQuestionOperation
+        switch kind {
+        case .select:
+            guard let optionIndex, let desired else {
+                logger.error("question action select missing payload session=\(sessionId, privacy: .public)")
+                return
+            }
+            action = .select(option: optionIndex, desired: desired)
+        case .other:
+            guard let otherText else {
+                logger.error("question action other missing payload session=\(sessionId, privacy: .public)")
+                return
+            }
+            action = .other(otherText)
+        case .submit:
+            action = .submit
+        case .skip:
+            action = .skip
+        case .dismiss:
+            action = .dismiss
+        case .viewOptions:
+            action = .viewOptions
+        }
+        let result: Result<AgentWindowQuestionState, AgentWindowInputReason>
+        switch resolveTarget(sessionId: sessionId, rows: processRows(), snapshot: audit.snapshot()) {
+        case .success(let target):
+            result = writer.performQuestionAction(action, to: target)
+        case .failure(let reason):
+            result = .failure(reason)
+        }
+        reportQuestion(requestId: requestId, sessionId: sessionId, result: result, to: emit)
+        // The window's state just changed -- an option was pressed, a panel dismissed -- so every
+        // watching surface must learn it without waiting out the poll interval. Change-only: both
+        // passes emit only what differs from their last status.
+        refresh()
+    }
+
+    private func reportQuestion(
+        requestId: String,
+        sessionId: String,
+        result: Result<AgentWindowQuestionState, AgentWindowInputReason>,
+        to emit: @Sendable (String) -> Void
+    ) {
+        switch result {
+        case .success(let state):
+            send(AgentWindowQuestionResult(
+                requestId: requestId,
+                sessionId: sessionId,
+                ok: true,
+                reason: nil,
+                present: state.present,
+                selected: state.selectedIndices,
+                otherText: state.otherText,
+                submitEnabled: state.submitEnabled
+            ), to: emit)
+        case .failure(let reason):
+            logger.error(
+                """
+                question action failed session=\(sessionId, privacy: .public) \
+                reason=\(reason.rawValue, privacy: .public)
+                """
+            )
+            send(AgentWindowQuestionResult(
+                requestId: requestId,
+                sessionId: sessionId,
+                ok: false,
+                reason: reason.rawValue,
+                present: nil,
+                selected: [],
+                otherText: nil,
+                submitEnabled: nil
+            ), to: emit)
+        }
+    }
+
     private func report(
         requestId: String,
         sessionId: String,
         result: Result<String, AgentWindowInputReason>,
         to emit: @Sendable (String) -> Void
-    ) {
-        switch result {
+    ) {        switch result {
         case .success(let text):
             send(AgentWindowInputResult(
                 requestId: requestId,

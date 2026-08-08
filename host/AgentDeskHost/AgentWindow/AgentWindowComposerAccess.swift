@@ -399,4 +399,354 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
         let axValue = value as! AXValue
         return AXValueGetType(axValue) == type ? axValue : nil
     }
+
+    // MARK: - AskUserQuestion panel
+
+    /// Reads the AskUserQuestion panel's live state from the window.
+    ///
+    /// `present` is false when no panel exists, so "never shown" and "already answered" read the same.
+    /// The content (question, options) never comes from here: the transcript feed already carries the
+    /// `AskUserQuestion` tool_use's full JSON, and this layer only augments it with live state.
+    func readQuestionState(for target: AgentWindowSessionTarget) throws -> AgentWindowQuestionState {
+        guard AXIsProcessTrusted() else { throw AgentWindowInputReason.accessibilityDenied }
+        let app = AXUIElementCreateApplication(target.claudeMainPid)
+        AXUIElementSetMessagingTimeout(app, Self.messagingTimeout)
+        let windows = windowElements(of: app)
+        guard !windows.isEmpty else { throw AgentWindowInputReason.noWindow }
+        guard let window = matchingWindow(target: target, among: windows) else {
+            throw AgentWindowInputReason.noWindow
+        }
+        guard let panel = findQuestionPanel(in: window) else {
+            return .absent
+        }
+        var selected: [Int] = []
+        for (index, option) in questionOptionElements(in: panel).enumerated()
+        where questionOptionIsSelected(option) {
+            selected.append(index)
+        }
+        let otherText = otherTextArea(in: panel).flatMap { string($0, kAXValueAttribute) }
+        let submitEnabled = submitButton(in: panel).flatMap { boolValue($0, kAXEnabledAttribute) }
+        return AgentWindowQuestionState(
+            present: true,
+            selectedIndices: selected,
+            otherText: (otherText?.isEmpty == false) ? otherText : nil,
+            submitEnabled: submitEnabled
+        )
+    }
+
+    func pressQuestionOption(index: Int, desired: Bool, for target: AgentWindowSessionTarget) throws {
+        let panel = try questionPanelOrThrow(for: target)
+        let options = questionOptionElements(in: panel)
+        guard options.indices.contains(index) else {
+            throw AgentWindowInputReason.questionMissing
+        }
+        let option = options[index]
+        // Idempotent: press only when the element's state differs from the requested one, so a retried
+        // action never toggles a checkbox twice. A single-select option button cannot be un-pressed --
+        // radio semantics -- so only a checkbox is pressed to clear a selection; the mirror never asks
+        // a single-select panel to clear anyway.
+        let selected = questionOptionIsSelected(option)
+        if selected != desired, desired || string(option, kAXRoleAttribute) == kAXCheckBoxRole {
+            try press(option)
+        }
+    }
+
+    func setQuestionOther(_ text: String, for target: AgentWindowSessionTarget) throws {
+        let panel = try questionPanelOrThrow(for: target)
+        // Typing an Other answer implies the Other affordance is in use; Claude's panel needs it
+        // checked for the answer to count, and the press is idempotent when it already is.
+        if let other = otherAffordance(in: panel), !questionOptionIsSelected(other) {
+            try press(other)
+        }
+        guard let textarea = otherTextArea(in: panel) else {
+            throw AgentWindowInputReason.questionMissing
+        }
+        let result = AXUIElementSetAttributeValue(textarea, kAXValueAttribute as CFString, text as CFString)
+        guard result == .success else { throw AgentWindowInputReason.writeFailed }
+    }
+
+    func pressQuestionSubmit(for target: AgentWindowSessionTarget) throws {
+        let panel = try questionPanelOrThrow(for: target)
+        guard let button = submitButton(in: panel) else { throw AgentWindowInputReason.questionMissing }
+        try press(button)
+    }
+
+    func pressQuestionSkip(for target: AgentWindowSessionTarget) throws {
+        let panel = try questionPanelOrThrow(for: target)
+        guard let button = skipButton(in: panel) else { throw AgentWindowInputReason.questionMissing }
+        try press(button)
+    }
+
+    func pressQuestionDismiss(for target: AgentWindowSessionTarget) throws {
+        let panel = try questionPanelOrThrow(for: target)
+        guard let button = dismissButton(in: panel) else { throw AgentWindowInputReason.questionMissing }
+        try press(button)
+    }
+
+    func pressQuestionViewOptions(for target: AgentWindowSessionTarget) throws {
+        let panel = try questionPanelOrThrow(for: target)
+        guard let button = viewOptionsButton(in: panel) else { throw AgentWindowInputReason.questionMissing }
+        try press(button)
+    }
+
+    // MARK: - Question panel helpers
+
+    /// The AskUserQuestion panel's group element, or `.questionMissing`.
+    private func questionPanelOrThrow(for target: AgentWindowSessionTarget) throws -> AXUIElement {
+        guard AXIsProcessTrusted() else { throw AgentWindowInputReason.accessibilityDenied }
+        let app = AXUIElementCreateApplication(target.claudeMainPid)
+        AXUIElementSetMessagingTimeout(app, Self.messagingTimeout)
+        let windows = windowElements(of: app)
+        guard !windows.isEmpty else { throw AgentWindowInputReason.noWindow }
+        guard let window = matchingWindow(target: target, among: windows) else {
+            throw AgentWindowInputReason.noWindow
+        }
+        guard let panel = findQuestionPanel(in: window) else {
+            throw AgentWindowInputReason.questionMissing
+        }
+        return panel
+    }
+
+    /// Finds the AskUserQuestion panel by its structural signature, never by content.
+    ///
+    /// The panel is the smallest group holding all three of: a button whose title starts with `Submit`
+    /// (`Submit ⏎` single-select, `Submit ⌘ ⏎` multi-select), a `Skip` button, and the `Other option`
+    /// input. The search anchors on the Submit button and climbs until a group containing the other two
+    /// is found. This is what keeps every later lookup scoped: a Claude window contains other Dismiss
+    /// and Submit-named controls (usage-limit banners, dialogs), and pressing one of those instead of
+    /// the panel's would be the exact wrong-window failure this feature exists to avoid.
+    private func findQuestionPanel(in window: AXUIElement) -> AXUIElement? {
+        var visited: Set<UInt> = []
+        guard let submit = firstDescendant(
+            in: window,
+            depth: 0,
+            visited: &visited,
+            matching: { element in
+                string(element, kAXRoleAttribute) == kAXButtonRole
+                    && string(element, kAXTitleAttribute).hasPrefix("Submit")
+            }
+        ) else { return nil }
+        var cursor = submit
+        for _ in 0..<16 {
+            guard let parent = parent(of: cursor) else { return nil }
+            cursor = parent
+            var skipVisited: Set<UInt> = []
+            var textVisited: Set<UInt> = []
+            let hasSkip = firstDescendant(
+                in: parent,
+                depth: 0,
+                visited: &skipVisited,
+                matching: { element in
+                    string(element, kAXRoleAttribute) == kAXButtonRole
+                        && string(element, kAXTitleAttribute) == "Skip"
+                }
+            ) != nil
+            let hasOtherInput = firstDescendant(
+                in: parent,
+                depth: 0,
+                visited: &textVisited,
+                matching: { element in
+                    string(element, kAXRoleAttribute) == kAXTextAreaRole
+                        && string(element, kAXDescriptionAttribute) == Config.claudeQuestionOtherDescription
+                }
+            ) != nil
+            if hasSkip && hasOtherInput { return parent }
+        }
+        return nil
+    }
+
+    /// The panel's selectable options in document order -- the order the JSON `options` array arrives
+    /// in, verified against the live app for both single-select buttons and multi-select checkboxes.
+    ///
+    /// Everything selectable inside the panel except the fixed controls: the Other affordance, Skip,
+    /// Submit, and the header's View/Dismiss buttons. Title `Other` is the one fixed control that is
+    /// itself selectable, so it is excluded by exact title rather than by role.
+    private func questionOptionElements(in panel: AXUIElement) -> [AXUIElement] {
+        var visited: Set<UInt> = []
+        var options: [AXUIElement] = []
+        collectDescendants(
+            of: panel,
+            depth: 0,
+            visited: &visited,
+            matching: { element in
+                let role = string(element, kAXRoleAttribute)
+                guard role == kAXCheckBoxRole || role == kAXButtonRole else { return false }
+                guard hasAction(element, kAXPressAction as String) else { return false }
+                let title = string(element, kAXTitleAttribute)
+                let description = string(element, kAXDescriptionAttribute)
+                guard title != "Other" else { return false }
+                guard title != "Skip", !title.hasPrefix("Submit") else { return false }
+                guard description != "View question options",
+                      description != "Dismiss question",
+                      description != Config.claudeQuestionOtherDescription else { return false }
+                return true
+            },
+            into: &options
+        )
+        return options
+    }
+
+    /// Whether a selectable element is currently chosen: a checkbox's value, a button's selection.
+    private func questionOptionIsSelected(_ element: AXUIElement) -> Bool {
+        if string(element, kAXRoleAttribute) == kAXCheckBoxRole {
+            return boolValue(element, kAXValueAttribute) ?? false
+        }
+        return boolValue(element, kAXSelectedAttribute) ?? false
+    }
+
+    /// The panel's Other affordance -- a checkbox in multi-select, a button in single-select.
+    private func otherAffordance(in panel: AXUIElement) -> AXUIElement? {
+        var visited: Set<UInt> = []
+        return firstDescendant(
+            in: panel,
+            depth: 0,
+            visited: &visited,
+            matching: { element in
+                let role = string(element, kAXRoleAttribute)
+                return (role == kAXCheckBoxRole || role == kAXButtonRole)
+                    && string(element, kAXTitleAttribute) == "Other"
+            }
+        )
+    }
+
+    /// The panel's "Other option" text input.
+    private func otherTextArea(in panel: AXUIElement) -> AXUIElement? {
+        var visited: Set<UInt> = []
+        return firstDescendant(
+            in: panel,
+            depth: 0,
+            visited: &visited,
+            matching: { element in
+                string(element, kAXRoleAttribute) == kAXTextAreaRole
+                    && string(element, kAXDescriptionAttribute) == Config.claudeQuestionOtherDescription
+            }
+        )
+    }
+
+    private func submitButton(in panel: AXUIElement) -> AXUIElement? {
+        var visited: Set<UInt> = []
+        return firstDescendant(
+            in: panel,
+            depth: 0,
+            visited: &visited,
+            matching: { element in
+                string(element, kAXRoleAttribute) == kAXButtonRole
+                    && string(element, kAXTitleAttribute).hasPrefix("Submit")
+            }
+        )
+    }
+
+    private func skipButton(in panel: AXUIElement) -> AXUIElement? {
+        var visited: Set<UInt> = []
+        return firstDescendant(
+            in: panel,
+            depth: 0,
+            visited: &visited,
+            matching: { element in
+                string(element, kAXRoleAttribute) == kAXButtonRole
+                    && string(element, kAXTitleAttribute) == "Skip"
+            }
+        )
+    }
+
+    private func dismissButton(in panel: AXUIElement) -> AXUIElement? {
+        var visited: Set<UInt> = []
+        return firstDescendant(
+            in: panel,
+            depth: 0,
+            visited: &visited,
+            matching: { element in
+                string(element, kAXRoleAttribute) == kAXButtonRole
+                    && string(element, kAXDescriptionAttribute) == "Dismiss question"
+            }
+        )
+    }
+
+    private func viewOptionsButton(in panel: AXUIElement) -> AXUIElement? {
+        var visited: Set<UInt> = []
+        return firstDescendant(
+            in: panel,
+            depth: 0,
+            visited: &visited,
+            matching: { element in
+                string(element, kAXRoleAttribute) == kAXButtonRole
+                    && string(element, kAXDescriptionAttribute) == "View question options"
+            }
+        )
+    }
+
+    /// Presses an element's AXPress action, failing as a write failure.
+    private func press(_ element: AXUIElement) throws {
+        guard AXUIElementPerformAction(element, kAXPressAction as CFString) == .success else {
+            throw AgentWindowInputReason.writeFailed
+        }
+    }
+
+    /// The first descendant matching `matching`, depth-first with a cycle guard.
+    private func firstDescendant(
+        in element: AXUIElement,
+        depth: Int,
+        visited: inout Set<UInt>,
+        matching: (AXUIElement) -> Bool
+    ) -> AXUIElement? {
+        guard depth < Self.maxSearchDepth, visited.insert(CFHash(element)).inserted else { return nil }
+        if matching(element) { return element }
+        var rawChildren: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &rawChildren) == .success,
+              let children = rawChildren as? [AXUIElement]
+        else { return nil }
+        for child in children {
+            if let found = firstDescendant(in: child, depth: depth + 1, visited: &visited, matching: matching) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    /// Every descendant matching `matching`, in document order, with a cycle guard.
+    private func collectDescendants(
+        of element: AXUIElement,
+        depth: Int,
+        visited: inout Set<UInt>,
+        matching: (AXUIElement) -> Bool,
+        into result: inout [AXUIElement]
+    ) {
+        guard depth < Self.maxSearchDepth, visited.insert(CFHash(element)).inserted else { return }
+        if matching(element) { result.append(element) }
+        var rawChildren: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &rawChildren) == .success,
+              let children = rawChildren as? [AXUIElement]
+        else { return }
+        for child in children {
+            collectDescendants(of: child, depth: depth + 1, visited: &visited, matching: matching, into: &result)
+        }
+    }
+
+    /// The element's parent, nil at the root or on error.
+    private func parent(of element: AXUIElement) -> AXUIElement? {
+        var raw: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &raw) == .success,
+              let parent = raw, CFGetTypeID(parent) == AXUIElementGetTypeID()
+        else { return nil }
+        return parent as! AXUIElement
+    }
+
+    /// A boolean attribute value. Chromium reports checkboxes as CFBoolean; some bridges report
+    /// NSNumber, so both are read.
+    private func boolValue(_ element: AXUIElement, _ attribute: String) -> Bool? {
+        var raw: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &raw) == .success else {
+            return nil
+        }
+        if let value = raw as? Bool { return value }
+        if let number = raw as? NSNumber { return number.boolValue }
+        return nil
+    }
+
+    private func hasAction(_ element: AXUIElement, _ action: String) -> Bool {
+        var names: CFArray?
+        guard AXUIElementCopyActionNames(element, &names) == .success,
+              let names = names as? [String] else { return false }
+        return names.contains(action)
+    }
 }

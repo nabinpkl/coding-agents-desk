@@ -191,6 +191,122 @@ struct AgentPanelTests {
         ) == nil)
     }
 
+    @Test func questionActionsDecodeWithPerKindPayloadBounds() {
+        let session = "9f2c1d54-0b3a-4e77-8c21-6a5be0d41f3e"
+
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-window-question-watch",
+                body: ["sub": "question-1", "sid": session]
+            ) == .questionWatch(subscriptionId: "question-1", sessionId: session)
+        )
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-window-question-unwatch",
+                body: ["sub": "question-1"]
+            ) == .questionUnwatch(subscriptionId: "question-1")
+        )
+
+        // `select` needs an in-range option index and an explicit desired state.
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-window-question-action",
+                body: ["rid": "action-1", "sid": session, "k": "select", "oi": 1, "v": 1]
+            ) == .questionAction(
+                requestId: "action-1",
+                sessionId: session,
+                kind: .select,
+                optionIndex: 1,
+                desired: true,
+                otherText: nil
+            )
+        )
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-window-question-action",
+                body: ["rid": "action-1", "sid": session, "k": "select", "oi": 0, "v": 0]
+            ) == .questionAction(
+                requestId: "action-1",
+                sessionId: session,
+                kind: .select,
+                optionIndex: 0,
+                desired: false,
+                otherText: nil
+            )
+        )
+        // The index addresses an element in another application's window, so it is bounded.
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-question-action",
+            body: ["rid": "action-1", "sid": session, "k": "select", "oi": -1, "v": 1]
+        ) == nil)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-question-action",
+            body: ["rid": "action-1", "sid": session, "k": "select", "oi": 64, "v": 1]
+        ) == nil)
+        // `select` without a desired state is a malformed press, not a default.
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-question-action",
+            body: ["rid": "action-1", "sid": session, "k": "select", "oi": 1]
+        ) == nil)
+
+        // `other` needs the answer text; empty clears the input, which is a real intent.
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-window-question-action",
+                body: ["rid": "action-2", "sid": session, "k": "other", "tx": "custom answer"]
+            ) == .questionAction(
+                requestId: "action-2",
+                sessionId: session,
+                kind: .other,
+                optionIndex: nil,
+                desired: nil,
+                otherText: "custom answer"
+            )
+        )
+        #expect(
+            AgentPanelRequest.decode(
+                tag: "agent-window-question-action",
+                body: ["rid": "action-2", "sid": session, "k": "other", "tx": ""]
+            ) == .questionAction(
+                requestId: "action-2",
+                sessionId: session,
+                kind: .other,
+                optionIndex: nil,
+                desired: nil,
+                otherText: ""
+            )
+        )
+        let atLimit = String(repeating: "x", count: AgentPanelWindowInputBounds.textLimit)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-question-action",
+            body: ["rid": "action-2", "sid": session, "k": "other", "tx": atLimit + "x"]
+        ) == nil)
+
+        // The button kinds take no payload at all; a stray one is rejected rather than ignored.
+        for kind in ["submit", "skip", "dismiss", "view-options"] {
+            #expect(AgentPanelRequest.decode(
+                tag: "agent-window-question-action",
+                body: ["rid": "action-3", "sid": session, "k": kind]
+            ) == .questionAction(
+                requestId: "action-3",
+                sessionId: session,
+                kind: AgentPanelQuestionActionKind(rawValue: kind)!,
+                optionIndex: nil,
+                desired: nil,
+                otherText: nil
+            ))
+            #expect(AgentPanelRequest.decode(
+                tag: "agent-window-question-action",
+                body: ["rid": "action-3", "sid": session, "k": kind, "oi": 0]
+            ) == nil)
+        }
+        // An unknown kind is rejected, not mapped to a default action.
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-window-question-action",
+            body: ["rid": "action-3", "sid": session, "k": "answer"]
+        ) == nil)
+    }
+
     @Test func requestDecoderAcceptsProviderNeutralSourcesAndRejectsInvalidIdentifiers() {
         for tag in ["agent-thread-sub", "agent-thread-unsub"] {
             #expect(AgentPanelRequest.decode(

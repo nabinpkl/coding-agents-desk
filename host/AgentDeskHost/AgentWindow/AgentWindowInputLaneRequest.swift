@@ -44,4 +44,44 @@ enum AgentWindowInputLaneRequest {
               let text = AgentPanelWindowInputBounds.text(message.text) else { return nil }
         return .windowInputSubmit(requestId: requestId, sessionId: sessionId, text: text)
     }
+
+    static func questionWatch(_ message: AgentWindowQuestionWatch) -> AgentPanelRequest? {
+        guard let subscriptionId = AgentPanelWindowInputBounds.identifier(message.subscriptionId),
+              let sessionId = AgentPanelWindowInputBounds.identifier(message.sessionId) else { return nil }
+        return .questionWatch(subscriptionId: subscriptionId, sessionId: sessionId)
+    }
+
+    static func questionUnwatch(_ message: AgentWindowQuestionUnwatch) -> AgentPanelRequest? {
+        guard let subscriptionId = AgentPanelWindowInputBounds.identifier(message.subscriptionId) else {
+            return nil
+        }
+        return .questionUnwatch(subscriptionId: subscriptionId)
+    }
+
+    static func questionAction(_ message: AgentWindowQuestionAction) -> AgentPanelRequest? {
+        guard let requestId = AgentPanelWindowInputBounds.identifier(message.requestId),
+              let sessionId = AgentPanelWindowInputBounds.identifier(message.sessionId),
+              let kind = AgentPanelQuestionActionKind(rawValue: message.kind) else { return nil }
+        // The wire's `desired` is a 0/1 integer because the panel speaks JSON booleans nowhere else on
+        // this lane; the converter restores the panel's own boolean view. Per-kind presence and range
+        // are enforced by the same payload validator the webview decoder uses, so the two doors cannot
+        // drift.
+        let optionIndex = message.optionIndex.flatMap { $0 >= 0 ? $0 : nil }
+        let desired = message.desired.flatMap { $0 == 1 ? true : ($0 == 0 ? false : nil) }
+        let otherText = message.text.flatMap(AgentPanelWindowInputBounds.text)
+        guard let payload = AgentPanelWindowInputBounds.questionActionPayload(
+            kind: kind,
+            optionIndex: optionIndex,
+            desired: desired,
+            otherText: otherText
+        ) else { return nil }
+        return .questionAction(
+            requestId: requestId,
+            sessionId: sessionId,
+            kind: kind,
+            optionIndex: payload.optionIndex,
+            desired: payload.desired,
+            otherText: payload.otherText
+        )
+    }
 }

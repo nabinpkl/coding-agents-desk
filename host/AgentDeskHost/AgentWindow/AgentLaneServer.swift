@@ -182,6 +182,18 @@ final class AgentLaneServer: AgentDataPushing, @unchecked Sendable {
             if let msg = try? JSONDecoder().decode(AgentWindowInputSubmit.self, from: data) {
                 agentRequestHandler?(.windowInputSubmit(msg))
             }
+        case "agent-window-question-watch":
+            if let msg = try? JSONDecoder().decode(AgentWindowQuestionWatch.self, from: data) {
+                agentRequestHandler?(.questionWatch(msg))
+            }
+        case "agent-window-question-unwatch":
+            if let msg = try? JSONDecoder().decode(AgentWindowQuestionUnwatch.self, from: data) {
+                agentRequestHandler?(.questionUnwatch(msg))
+            }
+        case "agent-window-question-action":
+            if let msg = try? JSONDecoder().decode(AgentWindowQuestionAction.self, from: data) {
+                agentRequestHandler?(.questionAction(msg))
+            }
         default:
             logger.notice("agent lane unknown frame type=\(header.type, privacy: .public)")
         }
