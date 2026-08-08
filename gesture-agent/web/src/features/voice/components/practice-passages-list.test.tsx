@@ -401,6 +401,19 @@ describe("PracticePassagesList", () => {
     );
   });
 
+  it("places whole-passage reference playback with its pronunciation", async () => {
+    renderList();
+
+    const reference = await screen.findByRole("region", {
+      name: "Reference pronunciation",
+    });
+    expect(
+      within(reference).getByRole("button", {
+        name: "Hear all reference",
+      }),
+    ).toBeTruthy();
+  });
+
   it("presents revision conflicts as recoverable errors", async () => {
     api.updateText.mockRejectedValueOnce(
       new ApiError(409, "Conflict", "stale revision"),

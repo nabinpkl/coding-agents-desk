@@ -774,11 +774,31 @@ function Passage({
             aria-label="Reference pronunciation"
             className="flex flex-col gap-3"
           >
-            <div>
-              <h3 className="font-medium">Reference pronunciation</h3>
-              <p className="text-xs text-muted-foreground">
-                Derived from intended text with the pinned pronunciation dictionary.
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="font-medium">Reference pronunciation</h3>
+                <p className="text-xs text-muted-foreground">
+                  Derived from intended text with the pinned pronunciation dictionary.
+                </p>
+              </div>
+              <Button
+                disabled={
+                  editing ||
+                  isCaptureBusy ||
+                  !referencePreferences ||
+                  passage.intendedText.length === 0
+                }
+                onClick={() => void playReference({ kind: "passage" })}
+                variant="outline"
+              >
+                {playback.requestKey === `${passage.id}:${passage.revision}:passage` &&
+                playback.status === "preparing" ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <Volume2 />
+                )}
+                Hear all reference
+              </Button>
             </div>
             {reference.isPending ? (
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -855,24 +875,6 @@ function Passage({
               {passage.attemptCount === 0
                 ? "Record first attempt"
                 : "Record another take"}
-            </Button>
-            <Button
-              disabled={
-                editing ||
-                isCaptureBusy ||
-                !referencePreferences ||
-                passage.intendedText.length === 0
-              }
-              onClick={() => void playReference({ kind: "passage" })}
-              variant="outline"
-            >
-              {playback.requestKey === `${passage.id}:${passage.revision}:passage` &&
-              playback.status === "preparing" ? (
-                <Loader2 className="animate-spin" />
-              ) : (
-                <Volume2 />
-              )}
-              Hear reference
             </Button>
             <Button
               disabled={isCaptureBusy}
