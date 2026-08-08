@@ -8,6 +8,7 @@ import {
   useSessionEventsStream,
   type ActivityBlock,
   type ActivityEvent,
+  type TokenUsage,
 } from "./useSessionEventsStream";
 import { useStickToBottom } from "./useStickToBottom";
 import { useProgressiveText } from "./streamingText";
@@ -34,7 +35,6 @@ import {
   UserRow,
   type EventRowContext,
 } from "./ActivityEventRows";
-import { TokenMeter } from "./TokenMeter";
 import type { AgentSource, EventMode } from "./data-source/AgentDataSource";
 import type { AgentSessionControlState } from "./data-source/AgentDataSource";
 
@@ -49,6 +49,7 @@ export function ActivityFeed({
   canToggleMode = true,
   controlsHost,
   onSessionState,
+  onUsage,
 }: {
   source: AgentSource;
   sessionId: string;
@@ -69,12 +70,21 @@ export function ActivityFeed({
    */
   controlsHost: HTMLElement | null;
   onSessionState?: (state: AgentSessionControlState) => void;
+  /**
+   * Mirrors the session's latest context-window occupancy up to the shell. The
+   * composer band renders it, so it lives here rather than in the header; the
+   * feed owns the stream that carries it. `null` while nothing has arrived.
+   */
+  onUsage?: (usage: TokenUsage | null) => void;
 }) {
   const { events, loadOlder, windowStart, usage, loading, error, runState, queue, liveTail } =
     useSessionEventsStream(source, sessionId, mode);
   useEffect(() => {
     onSessionState?.({ runState, queue });
   }, [onSessionState, queue.followUp, queue.steer, runState]);
+  useEffect(() => {
+    onUsage?.(usage);
+  }, [onUsage, usage]);
   const parentRef = useRef<HTMLDivElement>(null);
   const sizedRef = useRef<HTMLDivElement>(null);
   const stickyHeaderRef = useRef<HTMLButtonElement>(null);
@@ -347,7 +357,6 @@ export function ActivityFeed({
   const threadControls = controlsHost
     ? createPortal(
         <>
-          <TokenMeter usage={usage} />
           {/* The nice view omits harness machinery, so the raw view has to stay one
               press away: it is the fidelity guarantee that makes omitting allowed at
               all, and a viewer who wants to know what was dropped here needs it. */}

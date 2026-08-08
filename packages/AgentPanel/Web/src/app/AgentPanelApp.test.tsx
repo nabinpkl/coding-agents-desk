@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, act, waitFor, within } from "@testing-library/react";
 import { BridgeDataSource } from "../features/activity-feed/data-source/BridgeDataSource";
 import { FakeHostBridge } from "../features/activity-feed/data-source/HostBridge";
 import { storeSidebarPreferences } from "../features/sidebar/sidebarPreferences";
@@ -23,29 +23,42 @@ import { App } from "./AgentPanelApp";
 // ---------------------------------------------------------------------------
 
 // Mock ActivityFeed so Milkdown/ProseMirror never loads in jsdom.
-vi.mock("../features/activity-feed/ActivityFeed", () => ({
-  ActivityFeed: ({
-    source,
-    sessionId,
-    controlsHost,
-  }: {
-    source: string;
-    sessionId: string;
-    controlsHost: HTMLElement | null;
-  }) => (
-    <div
-      data-testid="activity-feed"
-      data-source={source}
-      data-session-id={sessionId}
-      // The feed portals its fold control into the shell's header instead of
-      // spending a band of its own on it, so the host node is part of the
-      // contract between them.
-      data-controls-host={controlsHost ? "attached" : "missing"}
-    >
-      Thread for {sessionId}
-    </div>
-  ),
-}));
+vi.mock("../features/activity-feed/ActivityFeed", async () => {
+  const { useEffect } = await import("react");
+  // A fixed occupancy report so tests can assert the context meter: 150k of a
+  // 200k window is 75%.
+  const FIXED_USAGE = { current: 150_000, limit: 200_000, updatedAt: 1, model: "claude-opus-5" };
+  return {
+    ActivityFeed: ({
+      source,
+      sessionId,
+      controlsHost,
+      onUsage,
+    }: {
+      source: string;
+      sessionId: string;
+      controlsHost: HTMLElement | null;
+      onUsage?: (usage: unknown) => void;
+    }) => {
+      useEffect(() => {
+        onUsage?.(FIXED_USAGE);
+      }, [onUsage, sessionId]);
+      return (
+        <div
+          data-testid="activity-feed"
+          data-source={source}
+          data-session-id={sessionId}
+          // The feed portals its fold control into the shell's header instead of
+          // spending a band of its own on it, so the host node is part of the
+          // contract between them.
+          data-controls-host={controlsHost ? "attached" : "missing"}
+        >
+          Thread for {sessionId}
+        </div>
+      );
+    },
+  };
+});
 
 // Mock the Markdown renderer (used by ActivityFeed; mocked so its
 // marked/shiki/katex deps never load under jsdom if pulled in transitively).
@@ -1256,15 +1269,22 @@ describe("Claude window composer field", () => {
     unmount();
   });
 
-  it("is absent for a harness the resume mapping cannot reach", () => {
+  it("renders the shared band for Codex but keeps it unavailable", () => {
     const { fake, unmount } = setup();
     deliverProjects(fake);
     deliverSessions(fake);
     fireEvent.click(screen.getByText("Session Codex 01"));
 
-    // Codex sessions would resolve to a permanent "not-running": the mapping walks to a Claude.app
-    // window. A field that can never work is worse than no field.
-    expect(screen.queryByLabelText("Claude composer text")).toBeNull();
+    // The composer UI is shared across sources, so Codex still gets the band --
+    // it is write-capable, but its window-fill mechanism is not built yet, so the
+    // field is disabled and says why rather than offering a write that cannot
+    // land.
+    const field = screen.getByLabelText("Codex composer text");
+    expect(field).toBeDisabled();
+    expect(screen.getByLabelText("Codex composer")).toHaveTextContent(
+      "Codex's window composer isn't available yet.",
+    );
+    // The Codex window mechanism is deferred, so no window watch is posted.
     expect(
       fake.posted.filter((m) => (m as { t?: string }).t === "agent-window-input-watch"),
     ).toHaveLength(0);
@@ -1297,6 +1317,57 @@ describe("Claude window composer field", () => {
     expect(field.className).toContain("py-3");
     expect(field.className).toContain("max-h-48");
     expect(field.className).toContain("focus:ring-2");
+    unmount();
+  });
+
+  it("shows the context meter below the composer's action row, not in the header", async () => {
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+
+    // The meter is rendered by the composer band, which exists for every source;
+    // the shell's header keeps only the feed's own controls.
+    const meter = await waitFor(() =>
+      within(screen.getByLabelText("Claude window composer")).getByRole("progressbar", {
+        name: "Context: 75% of 200,000 tokens",
+      }),
+    );
+    expect(meter).toBeInTheDocument();
+    expect(within(screen.getByRole("banner")).queryByRole("progressbar")).toBeNull();
+    unmount();
+  });
+
+  it("shows the context meter in the Pi composer band as well", async () => {
+    const { fake, unmount } = setup();
+    deliverProjects(fake);
+    deliverSessions(fake);
+
+    fireEvent.click(screen.getByRole("button", { name: "New Pi session in Alpha Project" }));
+    const create = fake.posted.at(-1) as { rid: string };
+    await act(async () => {
+      fake.deliver({
+        t: "agent-command-receipt",
+        rid: create.rid,
+        src: "pi",
+        sid: "pi-1",
+        del: "created",
+        s: {
+          sid: "pi-1",
+          src: "pi",
+          ttl: "SDK-authored Pi session",
+          lea: 123,
+          ac: "ready",
+          cap: { md: ["nice"], snd: true, str: true, abt: true, raw: false, pty: false, xui: true },
+        },
+      });
+    });
+
+    await waitFor(() =>
+      expect(
+        within(screen.getByLabelText("Agent prompt")).getByRole("progressbar", {
+          name: "Context: 75% of 200,000 tokens",
+        }),
+      ).toBeInTheDocument(),
+    );
     unmount();
   });
 });

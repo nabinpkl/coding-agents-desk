@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { AppWindow, CornerDownLeft, Download, LoaderCircle, PanelLeft, Send, Square, Terminal as TerminalIcon } from "lucide-react";
 import type {
   AgentExtensionUIRequest,
@@ -14,6 +14,8 @@ import { WindowComposerError } from "../features/activity-feed/data-source/Bridg
 import type { AgentSessionControlState, EventMode } from "../features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "../features/activity-feed/data-source/AgentDataSourceContext";
 import { ActivityFeed } from "../features/activity-feed/ActivityFeed";
+import { TokenMeter } from "../features/activity-feed/TokenMeter";
+import type { TokenUsage } from "../features/activity-feed/useSessionEventsStream";
 import { FontSizeRoot } from "../features/activity-feed/fontStore";
 import { loadEventMode, storeEventMode } from "../features/activity-feed/eventModeStore";
 import {
@@ -146,13 +148,16 @@ export function App({ bridge }: Props) {
   const [terminal, setTerminal] = useState<TerminalState>({ kind: "idle" });
   const [creatingProjectPath, setCreatingProjectPath] = useState<string | null>(null);
   const [creationErrors, setCreationErrors] = useState<Map<string, string>>(new Map());
-  const [draft, setDraft] = useState("");
   const [commandPending, setCommandPending] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [sessionState, setSessionState] = useState<AgentSessionControlState>({
     runState: "idle",
     queue: { steer: 0, followUp: 0 },
   });
+  // The selected thread's context-window occupancy, mirrored up from ActivityFeed
+  // and owned here so the composer band below the transcript can render it. Reset
+  // when the thread changes so a stale count never survives a switch.
+  const [sessionUsage, setSessionUsage] = useState<TokenUsage | null>(null);
   const [extensionUI, setExtensionUI] = useState<AgentExtensionUIRequest[]>([]);
   const { compact, hoverCapable } = useSidebarEnvironment();
   const [sidebarPreferences, setSidebarPreferences] = useState(loadSidebarPreferences);
@@ -389,9 +394,9 @@ export function App({ bridge }: Props) {
       setEventMode((current) => session.capabilities.modes.includes(current)
         ? current
         : (session.capabilities.modes[0] ?? "nice"));
-      setDraft("");
       setCommandError(null);
       setSessionState({ runState: "idle", queue: { steer: 0, followUp: 0 } });
+      setSessionUsage(null);
       setExtensionUI([]);
       setSelectedThread({ project, session });
       setHoverPreviewOpen(false);
@@ -435,20 +440,21 @@ export function App({ bridge }: Props) {
     }
   }, [bridge, creatingProjectPath, openSession]);
 
-  const sendPrompt = useCallback(async (delivery: "next" | "steer") => {
-    if (!selectedThread || commandPending || !draft.trim()) return;
-    const text = draft.trim();
+  const sendPrompt = useCallback(async (text: string, delivery: "next" | "steer") => {
+    if (!selectedThread || commandPending || !text.trim()) return;
+    const trimmed = text.trim();
     setCommandPending(true);
     setCommandError(null);
     try {
-      await bridge.sendMessage(selectedThread.session, text, delivery);
-      setDraft("");
+      await bridge.sendMessage(selectedThread.session, trimmed, delivery);
     } catch (error) {
       setCommandError(String((error as Error).message ?? error));
+      // Rethrow so the composer that owns the draft only clears it on success.
+      throw error;
     } finally {
       setCommandPending(false);
     }
-  }, [bridge, commandPending, draft, selectedThread]);
+  }, [bridge, commandPending, selectedThread]);
 
   const abortRun = useCallback(async () => {
     if (!selectedThread || commandPending) return;
@@ -577,6 +583,7 @@ export function App({ bridge }: Props) {
                   canToggleMode={selectedThread.session.capabilities.modes.length > 1}
                   controlsHost={threadControlsHost}
                   onSessionState={setSessionState}
+                  onUsage={setSessionUsage}
                 />
               </div>
             ) : (
@@ -602,27 +609,24 @@ export function App({ bridge }: Props) {
                 setExtensionUI((current) => current.filter((item) => item.requestId !== request.requestId))}
             />
           ) : null}
-          {selectedThread?.session.capabilities.canSend ? (
-            <AgentComposer
-              draft={draft}
-              onDraftChange={setDraft}
-              pending={commandPending}
-              error={commandError}
-              state={sessionState}
-              canSteer={selectedThread.session.capabilities.canSteer}
-              canAbort={selectedThread.session.capabilities.canAbort}
-              onSend={() => void sendPrompt("next")}
-              onSteer={() => void sendPrompt("steer")}
-              onAbort={() => void abortRun()}
-            />
-          ) : null}
-          {selectedThread?.session.source === "claude" ? (
-            // Keyed by session so switching threads remounts rather than carrying a draft written
-            // for one window into another.
-            <ComposerSyncField
+          {/* One composer band for every source. The UI is shared code; the send
+              mechanism is per-source (Pi reaches the harness, Claude writes into
+              its window composer, Codex is available only once its window-fill
+              work lands). The context meter lives here, below the action row,
+              instead of in the header. Keyed by session so switching threads
+              remounts rather than carrying a draft written for one session into
+              another. */}
+          {selectedThread ? (
+            <SessionComposer
               key={selectedThread.session.sessionId}
               bridge={bridge}
-              sessionId={selectedThread.session.sessionId}
+              session={selectedThread.session}
+              state={sessionState}
+              usage={sessionUsage}
+              pending={commandPending}
+              error={commandError}
+              onSendMessage={sendPrompt}
+              onAbort={abortRun}
             />
           ) : null}
           {selectedThread && isTerminalSource(selectedThread.session.source) ? (
@@ -642,83 +646,347 @@ function harnessName(source: "claude" | "codex"): string {
   return source === "claude" ? "Claude" : "Codex";
 }
 
-function AgentComposer({
-  draft,
-  onDraftChange,
+function SessionComposer({
+  bridge,
+  session,
+  state,
+  usage,
   pending,
   error,
-  state,
-  canSteer,
-  canAbort,
-  onSend,
-  onSteer,
+  onSendMessage,
   onAbort,
 }: {
-  draft: string;
-  onDraftChange: (value: string) => void;
+  bridge: BridgeDataSource;
+  session: BridgeSessionSummary;
+  state: AgentSessionControlState;
+  usage: TokenUsage | null;
   pending: boolean;
   error: string | null;
-  state: AgentSessionControlState;
-  canSteer: boolean;
-  canAbort: boolean;
-  onSend: () => void;
-  onSteer: () => void;
-  onAbort: () => void;
+  onSendMessage: (text: string, delivery: "next" | "steer") => Promise<void>;
+  onAbort: () => Promise<void>;
 }) {
+  const { source, sessionId, capabilities } = session;
+  const isClaude = source === "claude";
+  const isCodex = source === "codex";
   const running = state.runState === "running";
   const queued = state.queue.followUp + state.queue.steer;
-  const autoGrow = useAutoGrowingTextArea(draft);
+
+  // Claude reaches the session's prompt through its window composer. The hook is
+  // inert -- and never subscribes -- for every other source, so hook order here
+  // never varies.
+  const windowComposer = useClaudeWindowComposer(bridge, sessionId, isClaude);
+
+  // The harness band (Pi/Codex) composes against local draft state; the window
+  // band (Claude) composes against the live window's text.
+  const [localDraft, setLocalDraft] = useState("");
+  const editorValue = isClaude ? windowComposer.draft : localDraft;
+  const autoGrow = useAutoGrowingTextArea(editorValue);
+
+  const piUnavailable = !isClaude && !isCodex && !capabilities.canSend;
+  const unavailable = isClaude ? false : isCodex || piUnavailable;
+  const unavailableReason = isCodex
+    ? "Codex's window composer isn't available yet."
+    : "This session's composer is unavailable.";
+
+  const editor = isClaude
+    ? {
+        value: windowComposer.draft,
+        onChange: (value: string) => windowComposer.change(value),
+        disabled: !windowComposer.enabled || windowComposer.pending,
+        ariaLabel: "Claude composer text",
+        placeholder: windowComposer.enabled ? "Type into Claude's composer…" : "Composer unavailable",
+        maxLength: 100_000,
+        sendOnEnter: false,
+      }
+    : {
+        value: localDraft,
+        onChange: unavailable ? () => {} : setLocalDraft,
+        disabled: unavailable || pending,
+        ariaLabel: isCodex ? "Codex composer text" : "Message Pi",
+        placeholder: unavailable
+          ? "Composer unavailable"
+          : running
+            ? "Queue the next instruction…"
+            : "Message Pi…",
+        maxLength: 200_000,
+        sendOnEnter: !unavailable,
+      };
+
+  const submit = async (delivery: "next" | "steer") => {
+    if (pending || !editorValue.trim()) return;
+    const text = editorValue.trim();
+    try {
+      await onSendMessage(text, delivery);
+      setLocalDraft("");
+    } catch {
+      // The shell's caption carries the reason; keep the draft so nothing is lost.
+    }
+  };
+
+  const actions: ComposerAction[] = [];
+  if (isClaude) {
+    if (windowComposer.enabled && !windowComposer.onActiveDesktop) {
+      actions.push({
+        key: "load",
+        ariaLabel: "Load from Claude window",
+        title: "Bring the window here, read its composer, and put it back",
+        icon: <Download className="size-4" aria-hidden />,
+        disabled: windowComposer.pending,
+        className:
+          "flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-40",
+        onClick: () => void windowComposer.load(),
+      });
+    }
+    actions.push({
+      key: "submit-window",
+      ariaLabel: "Send to Claude's composer",
+      title: "Fill and press Enter in Claude, sending the prompt now",
+      icon: windowComposer.pending ? (
+        <LoaderCircle className="size-4 animate-spin" aria-hidden />
+      ) : (
+        <CornerDownLeft className="size-4" aria-hidden />
+      ),
+      disabled: !windowComposer.canSubmit || windowComposer.pending,
+      className:
+        "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
+      onClick: () => void windowComposer.submitWindow(),
+    });
+    actions.push({
+      key: "fill",
+      ariaLabel: "Fill Claude's composer",
+      title: "Fill the composer. Nothing is sent -- press Return in Claude yourself.",
+      icon: windowComposer.pending ? (
+        <LoaderCircle className="size-4 animate-spin" aria-hidden />
+      ) : (
+        <AppWindow className="size-4" aria-hidden />
+      ),
+      disabled: !windowComposer.enabled || windowComposer.pending,
+      className:
+        "flex h-9 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
+      onClick: () => void windowComposer.fill(),
+    });
+  } else if (!unavailable) {
+    if (running && capabilities.canSteer) {
+      actions.push({
+        key: "steer",
+        ariaLabel: "Steer",
+        title: "Steer",
+        icon: <span>Steer</span>,
+        disabled: pending || !editorValue.trim(),
+        className:
+          "h-9 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground hover:bg-muted disabled:opacity-40",
+        onClick: () => void submit("steer"),
+      });
+    }
+    if (running && capabilities.canAbort) {
+      actions.push({
+        key: "abort",
+        ariaLabel: "Stop agent",
+        title: "Stop agent",
+        icon: <Square className="size-3.5 fill-current" aria-hidden />,
+        disabled: pending,
+        className:
+          "flex size-9 items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 disabled:opacity-40",
+        onClick: () => void onAbort(),
+      });
+    }
+    actions.push({
+      key: "send",
+      ariaLabel: running ? "Queue message" : "Send message",
+      title: running ? "Queue message" : "Send message",
+      icon: pending ? (
+        <LoaderCircle className="size-4 animate-spin" aria-hidden />
+      ) : (
+        <Send className="size-4" aria-hidden />
+      ),
+      disabled: pending || !editorValue.trim(),
+      className:
+        "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
+      onClick: () => void submit("next"),
+    });
+  }
+
+  let caption: string | null = null;
+  let captionIsError = false;
+  if (isClaude) {
+    caption = windowComposer.error ?? windowComposer.notice;
+    captionIsError = windowComposer.error != null;
+  } else if (unavailable) {
+    caption = unavailableReason;
+  } else if (error) {
+    caption = error;
+    captionIsError = true;
+  } else if (queued > 0) {
+    caption = `${queued} queued${state.queue.steer ? `, ${state.queue.steer} steering` : ""}`;
+  }
+
+  const sectionLabel = isClaude
+    ? "Claude window composer"
+    : isCodex
+      ? "Codex composer"
+      : "Agent prompt";
+
   return (
-    <section aria-label="Agent prompt" className="shrink-0 border-t border-border bg-card px-3 py-3">
+    <section aria-label={sectionLabel} className="shrink-0 border-t border-border bg-card px-3 py-3">
       <div className="flex items-end gap-1.5">
         <textarea
           ref={autoGrow}
-          value={draft}
-          onChange={(event) => onDraftChange(event.target.value)}
+          value={editor.value}
+          onChange={(event) => editor.onChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (
+              editor.sendOnEnter &&
+              event.key === "Enter" &&
+              !event.shiftKey &&
+              !event.nativeEvent.isComposing
+            ) {
               event.preventDefault();
-              onSend();
+              void submit("next");
             }
           }}
-          maxLength={200_000}
+          maxLength={editor.maxLength}
           rows={1}
-          placeholder={running ? "Queue the next instruction…" : "Message Pi…"}
-          aria-label="Message Pi"
-          className="max-h-48 min-h-12 flex-1 resize-none rounded-xl border border-border bg-background px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 shadow-xs outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25"
+          placeholder={editor.placeholder}
+          aria-label={editor.ariaLabel}
+          disabled={editor.disabled}
+          className="max-h-48 min-h-12 flex-1 resize-none rounded-xl border border-border bg-background px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 shadow-xs outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:opacity-40"
         />
-        {running && canSteer ? (
+        {actions.map((action) => (
           <button
+            key={action.key}
             type="button"
-            onClick={onSteer}
-            disabled={pending || !draft.trim()}
-            className="h-9 rounded-lg px-2 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-muted-foreground hover:bg-muted disabled:opacity-40"
+            onClick={action.onClick}
+            disabled={action.disabled}
+            aria-label={action.ariaLabel}
+            title={action.title}
+            className={action.className}
           >
-            Steer
+            {action.icon}
           </button>
-        ) : null}
-        {running && canAbort ? (
-          <button type="button" onClick={onAbort} disabled={pending} aria-label="Stop agent" className="flex size-9 items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 disabled:opacity-40">
-            <Square className="size-3.5 fill-current" aria-hidden />
-          </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={onSend}
-          disabled={pending || !draft.trim()}
-          aria-label={running ? "Queue message" : "Send message"}
-          className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
-        >
-          {pending ? <LoaderCircle className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" aria-hidden />}
-        </button>
+        ))}
       </div>
-      {queued > 0 || error ? (
-        <div className={`mt-1 px-1 text-(length:--agent-panel-fs-sidebar-meta,13px) ${error ? "text-destructive" : "text-muted-foreground"}`} role={error ? "alert" : "status"}>
-          {error ?? `${queued} queued${state.queue.steer ? `, ${state.queue.steer} steering` : ""}`}
+      {/* The context meter sits below the action row, right-aligned under the
+          buttons (under the Fill button in the window band), not in the header. */}
+      {usage ? (
+        <div className="mt-1 flex justify-end px-1">
+          <TokenMeter usage={usage} />
         </div>
+      ) : null}
+      {caption ? (
+        <p
+          {...(isClaude || isCodex
+            ? { "aria-live": "polite" as const }
+            : { role: captionIsError ? ("alert" as const) : ("status" as const) })}
+          className={`px-1 pt-1 text-(length:--agent-panel-fs-sidebar-meta,13px) ${
+            captionIsError ? "text-destructive" : "text-muted-foreground"
+          }`}
+        >
+          {caption}
+        </p>
       ) : null}
     </section>
   );
+}
+
+/** One action in the composer's action row, rendered in array order. */
+type ComposerAction = {
+  key: string;
+  ariaLabel: string;
+  title: string;
+  icon: ReactNode;
+  disabled: boolean;
+  className: string;
+  onClick: () => void;
+};
+
+/**
+ * The Claude window-composer mechanism, extracted from the shared band so the
+ * band itself is one component for every source. Inert -- and never
+ * subscribing -- when `active` is false, so a Pi or Codex session posts no
+ * `agent-window-input-watch`.
+ */
+function useClaudeWindowComposer(
+  bridge: BridgeDataSource,
+  sessionId: string,
+  active: boolean,
+) {
+  const [status, setStatus] = useState<WindowComposerStatus | null>(null);
+  const [draft, setDraft] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const edited = useRef(false);
+
+  useEffect(() => {
+    if (!active) return;
+    return bridge.subscribeWindowComposer(sessionId, (next) => {
+      setStatus(next);
+      if (next.composerText !== null && !edited.current) setDraft(next.composerText);
+    });
+  }, [active, bridge, sessionId]);
+
+  const adopt = useCallback((text: string) => {
+    edited.current = false;
+    setDraft(text);
+  }, []);
+
+  const change = useCallback((value: string) => {
+    edited.current = true;
+    setDraft(value);
+  }, []);
+
+  const run = useCallback(
+    async (operation: () => Promise<string>) => {
+      setPending(true);
+      setError(null);
+      try {
+        adopt(await operation());
+      } catch (failure) {
+        setError(
+          failure instanceof WindowComposerError
+            ? composerReasonText(failure.reason)
+            : String((failure as Error).message ?? failure),
+        );
+      } finally {
+        setPending(false);
+      }
+    },
+    [adopt],
+  );
+
+  const fill = useCallback(
+    () => run(() => bridge.syncWindowComposer(sessionId, draft)),
+    [bridge, draft, run, sessionId],
+  );
+  const load = useCallback(
+    () => run(() => bridge.readWindowComposer(sessionId)),
+    [bridge, run, sessionId],
+  );
+  const submitWindow = useCallback(
+    () => run(() => bridge.submitWindowComposer(sessionId, draft)),
+    [bridge, draft, run, sessionId],
+  );
+
+  const enabled = status?.enabled === true;
+  const notice =
+    status === null
+      ? "Looking for this session's Claude window…"
+      : enabled
+        ? null
+        : composerReasonText(status.reason);
+
+  return {
+    enabled,
+    onActiveDesktop: status?.onActiveDesktop === true,
+    draft,
+    change,
+    fill,
+    load,
+    submitWindow,
+    pending,
+    error,
+    canSubmit: enabled && draft.trim().length > 0,
+    notice,
+  };
 }
 
 function ExtensionUISurface({
@@ -907,191 +1175,6 @@ function composerReasonText(reason: string | null): string {
     default:
       return `Unavailable (${reason}).`;
   }
-}
-
-/**
- * Writes a session's prompt into the Claude Desktop window that owns it.
- *
- * "Fill" writes without activating and never sends -- the text lands in the real composer and the human
- * presses Return there, having seen it. The adjacent Enter button is the deliberate exception: it fills
- * AND presses Return in the owning window, so the prompt actually runs in Claude Desktop, fronting that
- * window. The textarea's own Enter key still inserts a newline like any ordinary textarea; sending stays
- * an explicit button press.
- *
- * Rendered only for `claude` sessions. The mapping walks from a process carrying `--resume=<id>` (or a
- * registry row for a brand-new session) to the Claude.app window that owns it, so every other harness
- * would resolve to a permanent `not-running` -- a field that can never work is worse than no field.
- */
-function ComposerSyncField({
-  bridge,
-  sessionId,
-}: {
-  bridge: BridgeDataSource;
-  sessionId: string;
-}) {
-  const [status, setStatus] = useState<WindowComposerStatus | null>(null);
-  const [draft, setDraft] = useState("");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const autoGrow = useAutoGrowingTextArea(draft);
-  // Whether the field holds an edit the viewer has not committed. A prefill must never overwrite one:
-  // the host re-resolves on a timer, so a status carrying the window's older text can land at any
-  // moment, including mid-sentence.
-  const edited = useRef(false);
-
-  useEffect(
-    () =>
-      bridge.subscribeWindowComposer(sessionId, (next) => {
-        setStatus(next);
-        if (next.composerText !== null && !edited.current) setDraft(next.composerText);
-      }),
-    [bridge, sessionId],
-  );
-
-  const adopt = useCallback((text: string) => {
-    edited.current = false;
-    setDraft(text);
-  }, []);
-
-  const commit = useCallback(async () => {
-    if (pending) return;
-    setPending(true);
-    setError(null);
-    try {
-      adopt(await bridge.syncWindowComposer(sessionId, draft));
-    } catch (failure) {
-      setError(
-        failure instanceof WindowComposerError
-          ? composerReasonText(failure.reason)
-          : String((failure as Error).message ?? failure),
-      );
-    } finally {
-      setPending(false);
-    }
-  }, [adopt, bridge, draft, pending, sessionId]);
-
-  const load = useCallback(async () => {
-    if (pending) return;
-    setPending(true);
-    setError(null);
-    try {
-      adopt(await bridge.readWindowComposer(sessionId));
-    } catch (failure) {
-      setError(
-        failure instanceof WindowComposerError
-          ? composerReasonText(failure.reason)
-          : String((failure as Error).message ?? failure),
-      );
-    } finally {
-      setPending(false);
-    }
-  }, [adopt, bridge, pending, sessionId]);
-
-  const send = useCallback(async () => {
-    if (pending) return;
-    setPending(true);
-    setError(null);
-    try {
-      adopt(await bridge.submitWindowComposer(sessionId, draft));
-    } catch (failure) {
-      setError(
-        failure instanceof WindowComposerError
-          ? composerReasonText(failure.reason)
-          : String((failure as Error).message ?? failure),
-      );
-    } finally {
-      setPending(false);
-    }
-  }, [adopt, bridge, draft, pending, sessionId]);
-
-  const enabled = status?.enabled === true;
-  // A submit of only whitespace is meaningless -- Return on an empty composer sends nothing -- so the
-  // Enter action stays disabled until there is actually a prompt to commit.
-  const canSend = enabled && draft.trim().length > 0;
-  // Before the first status arrives nothing is known, so the field stays disabled and says so rather
-  // than offering a write that would be dropped.
-  const notice = status === null
-    ? "Looking for this session's Claude window…"
-    : enabled
-      ? null
-      : composerReasonText(status.reason);
-
-  return (
-    <section
-      aria-label="Claude window composer"
-      className="shrink-0 border-t border-border bg-card px-3 py-3"
-    >
-      <div className="flex items-end gap-1.5">
-        <textarea
-          ref={autoGrow}
-          value={draft}
-          onChange={(event) => {
-            edited.current = true;
-            setDraft(event.target.value);
-          }}
-          disabled={!enabled || pending}
-          maxLength={100_000}
-          rows={1}
-          placeholder={enabled ? "Type into Claude's composer…" : "Composer unavailable"}
-          aria-label="Claude composer text"
-          className="max-h-48 min-h-12 flex-1 resize-none rounded-xl border border-border bg-background px-4 py-3 text-(length:--agent-panel-fs-sidebar-body,15px) leading-6 shadow-xs outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/25 disabled:opacity-40"
-        />
-        {enabled && !status.onActiveDesktop ? (
-          <button
-            type="button"
-            onClick={() => void load()}
-            disabled={pending}
-            aria-label="Load from Claude window"
-            title="Bring the window here, read its composer, and put it back"
-            className="flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted disabled:opacity-40"
-          >
-            <Download className="size-4" aria-hidden />
-          </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={() => void send()}
-          disabled={!canSend}
-          aria-label="Send to Claude's composer"
-          title="Fill and press Enter in Claude, sending the prompt now"
-          className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
-        >
-          {pending ? (
-            <LoaderCircle className="size-4 animate-spin" aria-hidden />
-          ) : (
-            <CornerDownLeft className="size-4" aria-hidden />
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => void commit()}
-          disabled={!enabled || pending}
-          aria-label="Fill Claude's composer"
-          title="Fill the composer. Nothing is sent -- press Return in Claude yourself."
-          className="flex h-9 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-(length:--agent-panel-fs-sidebar-meta,13px) font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
-        >
-          {pending ? (
-            <LoaderCircle className="size-4 animate-spin" aria-hidden />
-          ) : (
-            <AppWindow className="size-4" aria-hidden />
-          )}
-          Fill
-        </button>
-      </div>
-      {notice || error ? (
-        <p
-          // `aria-live` rather than `role="status"`: the terminal band below already owns that role,
-          // and a view holding two of them announces the wrong one as often as the right one.
-          aria-live="polite"
-          className={`px-1 pt-1 text-(length:--agent-panel-fs-sidebar-meta,13px) ${
-            error ? "text-destructive" : "text-muted-foreground"
-          }`}
-        >
-          {error ?? notice}
-        </p>
-      ) : null}
-    </section>
-  );
 }
 
 function TerminalNotice({
