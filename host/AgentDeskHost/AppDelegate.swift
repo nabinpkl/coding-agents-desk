@@ -181,8 +181,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             access: AgentWindowComposerAccess(),
             placement: YabaiWindowSpaceMover()
         ),
+        // Codex Desktop sessions resolve through the same coordinator: one access instance serves both
+        // the window-identity scans and the composer writes, so the summary a session resolved to and
+        // the window a write targets are always the same AX scan.
+        codexWriter: CodexWindowComposerWriter(
+            access: codexWindowComposerAccess,
+            placement: YabaiWindowSpaceMover()
+        ),
+        codexSummaries: codexWindowComposerAccess,
         audit: HostWorkspaceDesktopAudit()
     )
+    private lazy var codexWindowComposerAccess = CodexWindowComposerAccess()
     private var terminalClientBridges: [ObjectIdentifier: TerminalClientBridge] = [:]
     // Protocol-v11 workspace lane. One responder serializes file writes against the workspace
     // store. Each attached `.files` stream owns a subscription session, while the repository

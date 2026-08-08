@@ -1233,6 +1233,38 @@ describe("Claude window composer field", () => {
     unmount();
   });
 
+  it("does not overwrite newer typing with a stale sync result that resolves late", async () => {
+    vi.useFakeTimers();
+    const { fake, unmount } = setup();
+    openClaudeThread(fake);
+    const { field, sub } = focusComposer(fake);
+    deliverStatus(fake, sub, { tx: "" });
+
+    fireEvent.change(field, { target: { value: "first burst" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    // The debounce fired: a sync for "first burst" is in flight. The user keeps typing before the
+    // host settles the write, so the write's read-back is stale the moment it resolves. Adopting it
+    // would truncate the field back to "first burst" mid-keystroke.
+    fireEvent.change(field, { target: { value: "first burst, then more" } });
+    const sync = [...fake.posted].reverse().find(
+      (m) => (m as { t?: string }).t === "agent-window-input-sync",
+    ) as { rid: string };
+    await act(async () => {
+      fake.deliver({
+        t: "agent-window-input-result",
+        rid: sync.rid,
+        sid: "sid-claude-01",
+        ok: true,
+        tx: "first burst",
+      });
+    });
+
+    expect(field).toHaveValue("first burst, then more");
+    unmount();
+  });
+
   it("the Enter button actually sends by filling and pressing Return", () => {
     const { fake, unmount } = setup();
     openClaudeThread(fake);
@@ -1304,24 +1336,65 @@ describe("Claude window composer field", () => {
     unmount();
   });
 
-  it("renders the shared band for Codex but keeps it unavailable", () => {
+  it("renders the shared band for Codex through the window composer", () => {
     const { fake, unmount } = setup();
     deliverProjects(fake);
     deliverSessions(fake);
     fireEvent.click(screen.getByText("Session Codex 01"));
 
-    // The composer UI is shared across sources, so Codex still gets the band --
-    // it is write-capable, but its window-fill mechanism is not built yet, so the
-    // field is disabled and says why rather than offering a write that cannot
-    // land.
+    // The composer UI is shared across sources, so Codex gets the same window
+    // band Claude gets: focusing subscribes the watch, the status prefills the
+    // field, and the explicit action is the Enter button that commits the
+    // prompt in the Codex window.
     const field = screen.getByLabelText("Codex composer text");
-    expect(field).toBeDisabled();
-    expect(screen.getByLabelText("Codex composer")).toHaveTextContent(
-      "Codex's window composer isn't available yet.",
-    );
-    // The Codex window mechanism is deferred, so no window watch is posted.
+    expect(field).not.toBeDisabled();
+    fireEvent.focus(field);
+    const watch = fake.posted.filter((m) => (m as { t?: string }).t === "agent-window-input-watch");
+    expect(watch).toHaveLength(1);
+    const sub = (watch[0] as { sub: string }).sub;
+    act(() => {
+      fake.deliver({
+        t: "agent-window-input-status",
+        sub,
+        sid: "sid-codex-01",
+        en: true,
+        cur: true,
+        tx: "existing codex draft",
+      });
+    });
+    expect(field).toHaveValue("existing codex draft");
+    expect(screen.getByLabelText("Send to Codex's composer")).not.toBeDisabled();
+    unmount();
+  });
+
+  it("does not send Codex on the off-Desktop round trip: its reads are always free", () => {
+    const { fake, unmount } = setup();
+    deliverProjects(fake);
+    deliverSessions(fake);
+    fireEvent.click(screen.getByText("Session Codex 01"));
+
+    // Codex Desktop materializes trees for every window on every Desktop, so the watch status always
+    // carries the composer text -- the status IS the free read. Claude's one automatic
+    // bring-and-move-back must not fire here even when the window sits on another Desktop.
+    const field = screen.getByLabelText("Codex composer text");
+    fireEvent.focus(field);
+    const sub = (fake.posted.find((m) => (m as { t?: string }).t === "agent-window-input-watch") as {
+      sub: string;
+    }).sub;
+    act(() => {
+      fake.deliver({
+        t: "agent-window-input-status",
+        sub,
+        sid: "sid-codex-01",
+        en: true,
+        cur: false,
+        tx: "already readable",
+      });
+    });
+
+    expect(field).toHaveValue("already readable");
     expect(
-      fake.posted.filter((m) => (m as { t?: string }).t === "agent-window-input-watch"),
+      fake.posted.filter((m) => (m as { t?: string }).t === "agent-window-input-read"),
     ).toHaveLength(0);
     unmount();
   });

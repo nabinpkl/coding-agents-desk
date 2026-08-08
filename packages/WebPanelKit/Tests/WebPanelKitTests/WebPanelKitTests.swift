@@ -99,10 +99,10 @@ struct WebPanelKitTests {
 
     @MainActor
     @Test func serialDeliveryPreservesAsyncPushOrder() async {
-        var delivered: [String] = []
-        let serial = WebPanelSerialDelivery { rawJSON in
+        var delivered: [[String]] = []
+        let serial = WebPanelSerialDelivery { batch in
             await Task.yield()
-            delivered.append(rawJSON)
+            delivered.append(batch)
         }
 
         serial.enqueue(rawJSON: "first")
@@ -110,24 +110,57 @@ struct WebPanelKitTests {
         serial.enqueue(rawJSON: "third")
         await serial.waitUntilIdle()
 
-        #expect(delivered == ["first", "second", "third"])
+        // All three enqueues land before the worker's first iteration, so they
+        // arrive as one ordered batch -- order preserved within it.
+        #expect(delivered == [["first", "second", "third"]])
+    }
+
+    @MainActor
+    @Test func serialDeliveryBatchesWhileADeliveryIsInFlight() async {
+        var delivered: [[String]] = []
+        var release: AsyncStream<Void>.Continuation?
+        let gate = AsyncStream<Void> { release = $0 }
+        var iterator = gate.makeAsyncIterator()
+        let serial = WebPanelSerialDelivery { batch in
+            delivered.append(batch)
+            if batch == ["first"] {
+                // Hold the first delivery so the burst queues behind it.
+                release?.yield()
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+        }
+
+        serial.enqueue(rawJSON: "first")
+        _ = await iterator.next()
+        for index in 2...40 {
+            serial.enqueue(rawJSON: "message-\(index)")
+        }
+        await serial.waitUntilIdle()
+
+        // One round trip for the burst: everything queued during the in-flight
+        // delivery arrived as a single batch, in order.
+        #expect(delivered.first == ["first"])
+        #expect(delivered.count == 2)
+        #expect(delivered[1].count == 39)
+        #expect(delivered[1].first == "message-2")
+        #expect(delivered[1].last == "message-40")
     }
 
     @MainActor
     @Test func serialDeliveryCancellationDropsQueuedPushes() async {
-        var delivered: [String] = []
+        var delivered: [[String]] = []
         var startContinuation: AsyncStream<Void>.Continuation?
         let started = AsyncStream<Void> { startContinuation = $0 }
         var iterator = started.makeAsyncIterator()
-        let serial = WebPanelSerialDelivery { rawJSON in
-            if rawJSON == "first" {
+        let serial = WebPanelSerialDelivery { batch in
+            if batch.first == "first" {
                 startContinuation?.yield()
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
                 guard !Task.isCancelled else {
                     return
                 }
             }
-            delivered.append(rawJSON)
+            delivered.append(batch)
         }
 
         serial.enqueue(rawJSON: "first")

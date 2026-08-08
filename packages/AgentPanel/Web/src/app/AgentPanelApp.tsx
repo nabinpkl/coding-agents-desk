@@ -684,29 +684,28 @@ function SessionComposer({
   const { source, sessionId, capabilities } = session;
   const isClaude = source === "claude";
   const isCodex = source === "codex";
+  const windowBand = isClaude || isCodex;
   const running = state.runState === "running";
   const queued = state.queue.followUp + state.queue.steer;
 
-  // Claude reaches the session's prompt through its window composer. The hook is
-  // inert -- and never subscribes -- for every other source, so hook order here
-  // never varies.
-  const windowComposer = useClaudeWindowComposer(bridge, sessionId, isClaude);
+  // Claude and Codex reach the session's prompt through their window composer.
+  // The hook is inert -- and never subscribes -- for every other source, so
+  // hook order here never varies. Codex reads are free on any Desktop, so it
+  // skips the off-Desktop bring-and-move-back round trip Claude's windows need.
+  const windowComposer = useWindowComposer(bridge, sessionId, windowBand, isCodex ? "Codex" : "Claude", isCodex);
   // The AskUserQuestion mirror is Claude-only too, and only while the feed says a
   // question is open. Its content comes from the transcript JSON; the hook adds
   // the focus-gated watch for live state and the press actions.
   const questionPanel = useClaudeWindowQuestion(bridge, sessionId, isClaude && question != null, question);
 
-  // The harness band (Pi/Codex) composes against local draft state; the window
-  // band (Claude) composes against the live window's text.
+  // The harness band (Pi) composes against local draft state; the window
+  // band (Claude/Codex) composes against the live window's text.
   const [localDraft, setLocalDraft] = useState("");
-  const editorValue = isClaude ? windowComposer.draft : localDraft;
+  const editorValue = windowBand ? windowComposer.draft : localDraft;
   const autoGrow = useAutoGrowingTextArea(editorValue);
 
   const piUnavailable = !isClaude && !isCodex && !capabilities.canSend;
-  const unavailable = isClaude ? false : isCodex || piUnavailable;
-  const unavailableReason = isCodex
-    ? "Codex's window composer isn't available yet."
-    : "This session's composer is unavailable.";
+  const unavailable = windowBand ? false : piUnavailable;
 
   const editor: {
     value: string;
@@ -718,7 +717,7 @@ function SessionComposer({
     sendOnEnter: boolean;
     onFocus?: () => void;
     onBlur?: () => void;
-  } = isClaude
+  } = windowBand
     ? {
         value: windowComposer.draft,
         onChange: (value: string) => windowComposer.change(value),
@@ -726,8 +725,12 @@ function SessionComposer({
         // "until a status arrives" could never be focused, so it could never trigger the watch that
         // delivers the status. Only a KNOWN reason disables it.
         disabled: (windowComposer.statusKnown && !windowComposer.enabled) || windowComposer.pending,
-        ariaLabel: "Claude composer text",
-        placeholder: windowComposer.enabled ? "Type into Claude's composer…" : "Composer unavailable",
+        ariaLabel: isCodex ? "Codex composer text" : "Claude composer text",
+        placeholder: windowComposer.enabled
+          ? isCodex
+            ? "Type into Codex's composer…"
+            : "Type into Claude's composer…"
+          : "Composer unavailable",
         maxLength: 100_000,
         sendOnEnter: false,
         onFocus: windowComposer.onFocus,
@@ -737,7 +740,7 @@ function SessionComposer({
         value: localDraft,
         onChange: unavailable ? () => {} : setLocalDraft,
         disabled: unavailable || pending,
-        ariaLabel: isCodex ? "Codex composer text" : "Message Pi",
+        ariaLabel: "Message Pi",
         placeholder: unavailable
           ? "Composer unavailable"
           : running
@@ -759,14 +762,16 @@ function SessionComposer({
   };
 
   const actions: ComposerAction[] = [];
-  if (isClaude) {
+  if (windowBand) {
     // The window band's only explicit action is the Enter button: filling and
     // reading are automatic (focus prefill, debounced sync, one round trip for
     // an off-Desktop window), so there is nothing left to button.
     actions.push({
       key: "submit-window",
-      ariaLabel: "Send to Claude's composer",
-      title: "Fill and press Enter in Claude, sending the prompt now",
+      ariaLabel: isCodex ? "Send to Codex's composer" : "Send to Claude's composer",
+      title: isCodex
+        ? "Fill and press Enter in Codex, sending the prompt now"
+        : "Fill and press Enter in Claude, sending the prompt now",
       icon: windowComposer.pending ? (
         <LoaderCircle className="size-4 animate-spin" aria-hidden />
       ) : (
@@ -820,11 +825,11 @@ function SessionComposer({
 
   let caption: string | null = null;
   let captionIsError = false;
-  if (isClaude) {
+  if (windowBand) {
     caption = windowComposer.error ?? windowComposer.notice;
     captionIsError = windowComposer.error != null;
   } else if (unavailable) {
-    caption = unavailableReason;
+    caption = "This session's composer is unavailable.";
   } else if (error) {
     caption = error;
     captionIsError = true;
@@ -933,24 +938,34 @@ type ComposerAction = {
 };
 
 /**
- * The Claude window-composer mechanism, extracted from the shared band so the
- * band itself is one component for every source. Inert -- and never
- * subscribing -- when `active` is false, so a Pi or Codex session posts no
- * `agent-window-input-watch`.
+ * The window-composer mechanism, extracted from the shared band so the band
+ * itself is one component for every source. Inert -- and never subscribing --
+ * when `active` is false, so a Pi session posts no `agent-window-input-watch`.
+ *
+ * Claude and Codex both reach the session's prompt through the owning desktop
+ * app's window composer: the host resolves the session to its window (Claude
+ * through the process tree, Codex through the app's own thread registry and
+ * each window's accessibility header) and writes the field over Accessibility.
  *
  * The watch is FOCUS-gated: the field subscribes when focused and unwatches on
  * blur, which stops the host's resolution poll and the AX value observer while
  * nobody is composing. While focused the sync is automatic: the window's text
- * is prefilled on focus (one automatic round trip when the window sits on
- * another Desktop), every edit pushes the full value to the window after a
- * debounce, and value-changed events from the window reconcile the field -- an
- * echo of our own write marks it in sync, an independent edit in Claude
+ * is prefilled on focus, every edit pushes the full value to the window after
+ * a debounce, and value-changed events from the window reconcile the field --
+ * an echo of our own write marks it in sync, an independent edit in the app
  * updates it while idle. Enter stays the one explicit action.
  */
-function useClaudeWindowComposer(
+function useWindowComposer(
   bridge: BridgeDataSource,
   sessionId: string,
   active: boolean,
+  windowName: string,
+  /**
+   * True when the owning app's composer reads are free on any Desktop (Codex Desktop materializes
+   * accessibility trees for every window, so the watch status always carries the text). Free reads
+   * skip the one automatic bring-and-move-back round trip that Claude's off-Desktop windows need.
+   */
+  freeReads: boolean,
 ) {
   const [status, setStatus] = useState<WindowComposerStatus | null>(null);
   const [draft, setDraft] = useState("");
@@ -1011,20 +1026,36 @@ function useClaudeWindowComposer(
 
   // The automatic push behind every edit. Deliberately silent: it is the field's
   // own echo, so no spinner freezes the field mid-keystroke, and the caption
-  // carries the reason when the window refused. The draft stays so nothing is
-  // lost, and the next edit retries.
+  // carries the reason when the window refused. The result is NOT adopted: the
+  // write's read-back can lag the draft (the user keeps typing while the host
+  // settles the write), and the field must never be replaced by stale text. The
+  // write echo arrives as a status and the status handler reconciles it; the
+  // draft stays so nothing is lost, and the next edit retries.
   const push = useCallback(async () => {
     try {
-      adopt(await bridge.syncWindowComposer(sessionId, draftRef.current));
+      await bridge.syncWindowComposer(sessionId, draftRef.current);
     } catch (failure) {
       reportFailure(failure);
     }
-  }, [adopt, bridge, reportFailure, sessionId]);
+  }, [bridge, reportFailure, sessionId]);
 
-  const load = useCallback(
-    () => run(() => bridge.readWindowComposer(sessionId)),
-    [bridge, run, sessionId],
-  );
+  const load = useCallback(async () => {
+    setPending(true);
+    setError(null);
+    try {
+      const text = await bridge.readWindowComposer(sessionId);
+      // Adopt only when no keystroke landed while the read was in flight: the
+      // window's text is older than a draft the user typed in the meantime, and
+      // replacing the draft would delete what they just wrote.
+      if (!edited.current) {
+        adopt(text);
+      }
+    } catch (failure) {
+      reportFailure(failure);
+    } finally {
+      setPending(false);
+    }
+  }, [adopt, bridge, reportFailure, sessionId]);
 
   const submitWindow = useCallback(
     () => run(() => bridge.submitWindowComposer(sessionId, draftRef.current)),
@@ -1052,13 +1083,14 @@ function useClaudeWindowComposer(
       }
       // A window on another Desktop is read for free only by the explicit
       // round trip; the prefill already told us it is elsewhere, so do the one
-      // automatic bring-and-move-back instead of leaving the field empty.
-      if (next.enabled === true && next.onActiveDesktop === false && !roundTripDone.current) {
+      // automatic bring-and-move-back instead of leaving the field empty. Free
+      // reads (Codex) never need this: the watch status always carries the text.
+      if (!freeReads && next.enabled === true && next.onActiveDesktop === false && !roundTripDone.current) {
         roundTripDone.current = true;
         void load();
       }
     });
-  }, [active, bridge, focused, load, sessionId, setDraftBoth]);
+  }, [active, bridge, focused, freeReads, load, sessionId, setDraftBoth]);
 
   // Debounced auto-sync: every edit while focused pushes the full value 500ms
   // after the last keystroke. Clearing the field is an edit too, so deletions
@@ -1090,7 +1122,7 @@ function useClaudeWindowComposer(
   const notice =
     status === null
       ? focused
-        ? "Looking for this session's Claude window…"
+        ? `Looking for this session's ${windowName} window…`
         : null
       : enabled
         ? null
@@ -1656,12 +1688,14 @@ function composerReasonText(reason: string | null): string {
       return "This session is running in a terminal, which has no window composer.";
     case "multiple-instances":
       return "This session is open in more than one Claude instance, so the host cannot tell which window to write into.";
+    case "ambiguous-window":
+      return "More than one open Codex window shows this session (likely a chat that has no first message yet). Open it in only one window, or send its first message, then try again.";
     case "no-window":
-      return "Claude is running this session but has no window for it.";
+      return "This session's desktop app is running it but has no window for it.";
     case "ax-denied":
-      return "Claude's composer needs Accessibility permission for the host.";
+      return "The window composer needs Accessibility permission for the host.";
     case "composer-missing":
-      return "Claude's window exposed no prompt field to write into.";
+      return "The window exposed no prompt field to write into.";
     case "move-failed":
       return "The window could not be brought to this Desktop.";
     case "window-mover-unavailable":

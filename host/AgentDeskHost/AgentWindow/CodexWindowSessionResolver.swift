@@ -5,20 +5,18 @@ import Foundation
 /// One row of Codex Desktop's own thread registry, reduced to what resolution needs.
 ///
 /// `state_5.sqlite` `threads` is the desktop app's registry: `id` is the SAME thread id the feed keys
-/// codex sessions by, `cwd` is the project directory, `title` is the (lowercased) thread title, and
-/// `first_user_message` is the first prompt the thread received. Fields resolution does not need are
-/// ignored.
+/// codex sessions by, `cwd` is the project directory, and `title` is the (lowercased) thread title.
+/// Fields resolution does not need are ignored.
 struct CodexThreadRecord: Equatable, Sendable {
     let threadId: String
     let title: String
     let cwd: String
-    let firstUserMessage: String
 }
 
 /// One line of `~/.codex/session_index.jsonl`, the app's display-title index.
 ///
-/// `thread_name` is the title the app SHOWS in the window header -- it matches the accessibility header
-/// button text exactly, where `threads.title` is lowercased and does not.
+/// `thread_name` is the title the app SHOWS -- it matches the accessibility header button and the
+/// Recents sidebar row exactly, where `threads.title` is lowercased and does not.
 struct CodexSessionIndexEntry: Equatable, Sendable {
     let threadId: String
     let threadName: String
@@ -26,14 +24,22 @@ struct CodexSessionIndexEntry: Equatable, Sendable {
 
 /// The identity a Codex Desktop window's accessibility tree exposes for the thread it is showing.
 ///
-/// Ground-truthed against the live app: each window's header holds a `AXPopUpButton` whose description
-/// reads `Project: <directory name>` and a title button carrying the thread's display title; the first
-/// user message appears as a `You said:` static text followed by the message. `frame` is what correlates
-/// the window to its audited `CGWindowID` for a Space move.
+/// Ground-truthed against the live app. Two layouts exist:
+///
+/// - The threads-sidebar layout exposes a header bar with a `Project: <name>` popup and a title
+///   button (`threadTitle`/`projectName`).
+/// - The projects/Recents layout exposes neither, but the sidebar's Recents list pins the window's
+///   CURRENT thread as its first row (`recentsFirstRow`) -- verified live: the first row was the
+///   window's thread even when another thread had more recent activity, and it followed the window
+///   when the thread switched.
+///
+/// `frame` is what correlates the window to its audited `CGWindowID` for a Space move.
 struct CodexWindowSummary: Equatable, Sendable {
     let threadTitle: String
     let projectName: String
-    let firstUserMessage: String?
+    /// The title of the first row of the window's Recents list: the thread this window is showing.
+    /// nil when the layout exposes no Recents list (the threads-sidebar layout, or no chat open).
+    let recentsFirstRow: String?
     let frame: CGRect
 }
 
@@ -50,14 +56,21 @@ enum CodexWindowMatch: Equatable, Sendable {
 
 /// Resolves a Codex Desktop thread id to the window showing it.
 ///
-/// The mapping is the app's own state joined to the accessibility header, never the process tree:
-/// Codex Desktop runs ONE `codex app-server` child for every thread of every window, and no child argv
-/// or registry file carries the thread id in a window-distinguishing way (probed live). The thread's
-/// `thread_name` and `cwd` come from `~/.codex` state files; each window's accessibility header exposes
-/// the thread title button and the `Project: <name>` popup. Matching is layered so a thread that has
-/// not received its first message yet -- whose title is still the generic `New chat` and whose
-/// `first_user_message` is empty -- still resolves when its project is unique among open windows, and
-/// otherwise refuses with `.ambiguousWindow` instead of guessing.
+/// The mapping is the app's own state joined to the accessibility tree, never the process tree:
+/// Codex Desktop runs ONE `codex app-server` child for every thread of every window, and no child
+/// argv or registry file carries the thread id in a window-distinguishing way (probed live). The
+/// thread's display title and `cwd` come from `~/.codex` state files; each window's accessibility
+/// tree exposes either the header bar identity (thread title button + `Project:` popup) or the
+/// Recents first-row pin. Matching is layered:
+///
+/// - A named thread matches the header title AND project together.
+/// - A still-generic thread (`New chat` / `New voice chat` / `Untitled`) drops the title
+///   requirement in the header layout: the project popup alone is identity.
+/// - Any thread whose display title equals a window's Recents first row matches that window, which
+///   is how a thread opened from Recents -- a `cwd` outside the app's project registry -- resolves.
+///
+/// Conversation content is deliberately NOT matched: the app virtualizes its message list, so what
+/// is rendered depends on scroll position and can never be a deterministic anchor.
 ///
 /// Parsing and matching are pure and take file text and window summaries as values, so every case is
 /// testable against fixtures without a live app or process table.
@@ -74,7 +87,6 @@ enum CodexWindowSessionResolver {
             let id: String
             let title: String?
             let cwd: String?
-            let first_user_message: String?
         }
         guard let rows = try? JSONDecoder().decode([Row].self, from: json) else { return [] }
         return rows.compactMap { row in
@@ -82,8 +94,7 @@ enum CodexWindowSessionResolver {
             return CodexThreadRecord(
                 threadId: row.id,
                 title: row.title ?? "",
-                cwd: cwd,
-                firstUserMessage: row.first_user_message ?? ""
+                cwd: cwd
             )
         }
     }
@@ -111,21 +122,12 @@ enum CodexWindowSessionResolver {
         (cwd as NSString).lastPathComponent
     }
 
-    /// Resolves one thread to the unique window showing it, per the layered rules:
-    ///
-    /// - A named thread must match BOTH the header title button (against the display `thread_name`,
-    ///   then the lowercased `threads.title`) and the `Project:` popup (against the thread's `cwd`
-    ///   directory name).
-    /// - A still-generic thread (`New chat` / `New voice chat` / `Untitled` / empty) drops the title
-    ///   requirement: the project popup alone is identity, and only a unique project match counts.
-    /// - When neither anchor resolves, the thread's first user message is matched against each
-    ///   window's first `You said:` text, still constrained by the project.
-    /// - More than one candidate at any stage is `.ambiguous`; none is `.notFound`.
+    /// Resolves one thread to the unique window showing it, per the layered rules documented on the
+    /// type. More than one candidate at any stage is `.ambiguous`; none is `.notFound`.
     static func resolve(
         threadId: String,
         title: String,
         cwd: String,
-        firstUserMessage: String,
         threadName: String,
         windows: [CodexWindowSummary]
     ) -> CodexWindowMatch {
@@ -133,19 +135,21 @@ enum CodexWindowSessionResolver {
         let displayName = threadName.isEmpty ? title : threadName
         let isGeneric = genericTitles.contains(displayName.lowercased())
 
-        var candidates = windows.filter { window in
-            guard !project.isEmpty else { return false }
-            guard window.projectName == project else { return false }
-            if isGeneric { return true }
-            let titleMatches = (!threadName.isEmpty && window.threadTitle == threadName)
-                || (!title.isEmpty && window.threadTitle.lowercased() == title.lowercased())
-            return titleMatches
-        }
-
-        if candidates.isEmpty, !firstUserMessage.isEmpty {
-            candidates = windows.filter { window in
-                window.projectName == project && window.firstUserMessage == firstUserMessage
+        let candidates = windows.filter { window in
+            // Header-bar layout: title AND project together, or project alone for a generic title.
+            if !window.projectName.isEmpty {
+                guard window.projectName == project else { return false }
+                if isGeneric { return true }
+                let titleMatches = (!threadName.isEmpty && window.threadTitle == threadName)
+                    || (!title.isEmpty && window.threadTitle.lowercased() == title.lowercased())
+                return titleMatches
             }
+            // Projects/Recents layout: the window's current thread is pinned as the first row of its
+            // Recents list. A named thread matches its display title exactly; a generic thread
+            // matches the generic first row (uniqueness across windows still refuses ambiguity).
+            guard let firstRow = window.recentsFirstRow, !firstRow.isEmpty else { return false }
+            return firstRow == displayName
+                || (!title.isEmpty && firstRow.lowercased() == title.lowercased())
         }
 
         switch candidates.count {
@@ -186,7 +190,7 @@ struct CodexWindowState: CodexWindowStateReading {
         guard let json = Self.sqliteJSON(
             path: sqlitePath,
             query: """
-            SELECT id, title, cwd, first_user_message FROM threads \
+            SELECT id, title, cwd FROM threads \
             WHERE id = '\(Self.sqliteLiteral(threadId))' LIMIT 1;
             """
         ) else { return nil }

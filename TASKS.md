@@ -1876,3 +1876,74 @@ movement and verification, and a second mover would be the per-feature copy ADR-
   have not both been driven through a live end-to-end answer yet; "View question options" is a
   pass-through whose local effect is unknown beyond the mirror's own expand/collapse; and the Other
   affordance's exact role in a submit with only Other text is unverified live.
+
+## v16 Codex Desktop composer sync
+
+The composer-sync field now works for Codex Desktop sessions, not just Claude. The mapping was probed
+read-only before this arc opened: Codex Desktop runs inside ChatGPT.app (`com.openai.codex`), one
+Chromium window per chat thread, and NO process-tree mapping exists -- renderer and `codex app-server`
+argv carry no thread id, `chat_processes.json` is a stale tool-exec registry, and no window/thread
+persistence exists anywhere. The deterministic mapping is the app's own state joined to the window's
+accessibility tree: `~/.codex/state_5.sqlite` `threads` (id, title, cwd) and `~/.codex/session_index.jsonl`
+(id -> thread_name, which matches the tree text exactly) resolve the feed's thread id, and each window
+exposes the thread it shows through ONE of two layouts, both probed live: the threads-sidebar layout
+carries a header bar with a `Project: <name>` popup and a title button; the projects/Recents layout
+carries neither, but pins the window's CURRENT thread as the first row of the sidebar's Recents list
+(the list inside the `Recents` button's own group, so per-project lists never satisfy the anchor) --
+verified live with TWO windows: each window's first row was its own current thread, the anchor followed
+the thread when the window switched, and a thread opened from Recents (cwd outside the app's project
+registry, like `~/Documents/Codex/...`) resolved to exactly its window. Conversation content is
+deliberately NOT matched: the app virtualizes its message list, so rendered messages depend on scroll
+position and can never be a deterministic anchor. Two live findings shaped the implementation:
+(1) there is NO `AXManualAccessibility` latch for this app (the attribute is unsupported), but the
+full tree materializes within ~2s of an AX client attaching when collapsed, so the access waits a
+bounded materialize budget instead of latching; (2) the codex tree exists for windows on OTHER
+Spaces, so fills are free -- the Space round trip is recovery-only (window tree missing), not the
+default, unlike Claude.
+
+- D260. Add `CodexWindowSessionResolver`: pure parsers for the `threads` rows (sqlite3 -json) and
+  `session_index.jsonl`, the layered matcher, the live `CodexWindowState` reader (read-only sqlite,
+  quote-escaped id), the main-binary pid resolution, and frame-based `CodexWindowTargeting`. Matching
+  is layered: a named thread needs header title AND project together; a still-generic thread
+  (`New chat`/`New voice chat`/`Untitled`, transient because codex auto-titles from the first message)
+  resolves by unique project; and any thread whose display title equals a window's Recents first row
+  matches that window -- the anchor that makes a Recents-opened thread (no project popup anywhere)
+  resolvable. More than one candidate refuses with the new `ambiguous-window` wire reason rather than
+  guessing.
+- D261. Add `CodexWindowComposerAccess` + `CodexWindowComposerWriter`: AX read/write/submit against
+  the `AXTextArea` described `Do anything` (placeholder serializes as `"\nDo anything"`; normalized
+  to empty), no latch, no renderer reviver, free-first with a bounded tree-materialize wait, and the
+  bring/await/restore round trip only as recovery when the target window's tree is missing. Submit
+  focuses the composer and posts Return to the ChatGPT pid; the frontmost assertion covers the
+  non-activating fill/read paths. `AgentWindowComposerValueObserver` now registers one handler box
+  PER composer element so a pid holding several windows (Codex routinely does) delivers each window's
+  value-changed events to its own session.
+- D262. Dispatch the coordinator by harness: Claude resolution first (cheap process scan; codex
+  thread ids never appear in `--resume=` argv), falling through to Codex resolution only when no
+  Claude chain exists (session ids can never collide across harnesses -- a codex id is absent from
+  `~/.claude`, a claude id absent from the codex `threads` table). The right writer is dispatched per
+  resolution; question-mirror requests on a codex session resolve to `question-missing` (Claude-only
+  surface). The web band treats codex as a window band: focus-gated watch, prefill, debounced sync,
+  and the explicit Enter action (`Send to Codex's composer`); the codex placeholder caption and the
+  `ambiguous-window` reason text are panel-owned. The sidecar needs no change -- it already emits the
+  thread id per codex session.
+- R263. Live checkpoint on the real Mac: `tools/codex-window-probe.swift` dumps per-window identity,
+  resolves a thread (matched/ambiguous/not-found), and exercises fill against the resolved window.
+  Verified live: with TWO codex windows open, `019fe292` (Find stream details, Recents-opened with a
+  non-project cwd) resolved to exactly the window showing it while the second window (a different
+  thread) did not match; a collapsed tree materialized within ~2s of client attach; a fill wrote
+  `AGENTDESK-PROBE-OK` into the real composer, read it back byte-for-byte, and cleared it. OPEN before
+  this flips: Enter-to-submit has not been driven live (the Send button's AXPress is the fallback if
+  Enter is not the send key); the header-layout anchors were re-validated in a single-window state but
+  not re-driven with two windows; and the `x-codex-window-id` `:N` suffix remains an untapped exact
+  anchor if ambiguity ever bites.
+- D264. Fix stuttering codex live streaming in the panel: measured the delta cadence at the
+  proxy observer (per-token, ~2-26ms gaps -- the codex app streams smoothly; the one multi-second
+  gap is a tool-call boundary) and found every pipeline layer event-per-message except the last:
+  `WebPanelSerialDelivery` awaited one `callAsyncJavaScript` webview round trip per feed message,
+  so a ~60+ msg/sec codex delta burst backed up the serial chain and WKWebView flushed the
+  backlog in jumps (Claude's ~15-20 tokens/sec kept up, which is why only codex stuttered).
+  `WebPanelSerialDelivery` now delivers BATCHES: everything queued while a delivery is in flight
+  goes as one array, the webview script fans it out to the panel's own deliver function in
+  order (JS contract unchanged, React coalesces the batch into one render pass), and a 256-message
+  cap bounds the JS task. Verified: the fix is in the rebuilt Release app bundle.

@@ -80,14 +80,28 @@ public final class WebPanelWebViewController: NSObject {
         self.logger = Logger(subsystem: logSubsystem, category: "web-panel-js")
         super.init()
 
-        serialDelivery = WebPanelSerialDelivery { [weak self] rawJSON in
+        serialDelivery = WebPanelSerialDelivery { [weak self] rawJSONs in
             guard let self, !self.tornDown else {
                 return
             }
             do {
+                // One webview round trip per batch: the evaluated script fans the
+                // messages out to the panel's own delivery function in order, so
+                // the JS contract is unchanged while the batch's updates coalesce
+                // into a single render pass on the webview side.
+                let encoded = try JSONEncoder().encode(rawJSONs)
+                let arrayLiteral = String(decoding: encoded, as: UTF8.self)
                 _ = try await self.webView.callAsyncJavaScript(
-                    "window.\(self.contract.deliveryFunctionName)(JSON.parse(payload))",
-                    arguments: ["payload": rawJSON],
+                    """
+                    (function (payloads) {
+                      var deliver = window.\(self.contract.deliveryFunctionName);
+                      if (typeof deliver !== 'function') return;
+                      for (var i = 0; i < payloads.length; i++) {
+                        deliver(JSON.parse(payloads[i]));
+                      }
+                    })(payloads)
+                    """,
+                    arguments: ["payloads": arrayLiteral],
                     in: nil,
                     contentWorld: .page
                 )

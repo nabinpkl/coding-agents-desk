@@ -202,6 +202,74 @@ struct AgentWindowComposerCoordinatorTests {
         func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {}
     }
 
+    /// The Codex Desktop side of the same seams: a writer access plus the state/summary readers the
+    /// codex resolution path consumes.
+    private final class CodexAccess: CodexWindowAccessing, CodexWindowSummarizing, CodexWindowStateReading, AgentWindowDesktopMoving, @unchecked Sendable {
+        private let lock = NSLock()
+        var record: CodexThreadRecord?
+        var threadNameValue: String?
+        var summaries: [CodexWindowSummary] = []
+        var composerText = "existing codex draft"
+        private var _writes: [String] = []
+
+        var writes: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return _writes
+        }
+
+        // CodexWindowStateReading
+        func threadRecord(_ threadId: String) -> CodexThreadRecord? {
+            lock.lock()
+            defer { lock.unlock() }
+            return record
+        }
+
+        func threadName(_ threadId: String) -> String? {
+            lock.lock()
+            defer { lock.unlock() }
+            return threadNameValue
+        }
+
+        // CodexWindowSummarizing
+        func windowSummaries(mainPid: pid_t) -> [CodexWindowSummary] {
+            lock.lock()
+            defer { lock.unlock() }
+            return summaries
+        }
+
+        // CodexWindowAccessing
+        func frontmostApplicationPID() -> pid_t? { 100 }
+        func awaitComposer(frame: CGRect, mainPid: pid_t) throws {}
+        func readComposer(frame: CGRect, mainPid: pid_t) throws -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            return composerText
+        }
+
+        func composerElementIfAvailable(frame: CGRect, mainPid: pid_t) -> AXUIElement? {
+            AXUIElementCreateApplication(mainPid)
+        }
+
+        func writeComposer(_ text: String, frame: CGRect, mainPid: pid_t) throws -> String {
+            lock.lock()
+            _writes.append(text)
+            composerText = text
+            lock.unlock()
+            return text
+        }
+
+        func submitComposer(frame: CGRect, mainPid: pid_t) throws -> String {
+            lock.lock()
+            let submitted = composerText
+            composerText = ""
+            lock.unlock()
+            return submitted
+        }
+
+        func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {}
+    }
+
     /// The observer seam, recording registrations and letting tests fire value-changed events.
     private final class FakeValueObserver: AgentWindowComposerValueObserving, @unchecked Sendable {
         private let lock = NSLock()
@@ -284,11 +352,17 @@ struct AgentWindowComposerCoordinatorTests {
     private func makeCoordinator(
         access: Access,
         observer: FakeValueObserver,
+        codexAccess: CodexAccess = CodexAccess(),
         windowSpaceID: UInt64 = 1,
         resolveInterval: TimeInterval = 60
     ) -> AgentWindowComposerCoordinator {
         AgentWindowComposerCoordinator(
             writer: AgentWindowComposerWriter(access: access, placement: access),
+            // Always fake: the codex resolution path must never touch the developer's real
+            // ~/.codex state or the live ChatGPT.app window headers during unit tests.
+            codexWriter: CodexWindowComposerWriter(access: codexAccess, placement: codexAccess),
+            codexState: codexAccess,
+            codexSummaries: codexAccess,
             audit: StaticWorkspaceDesktopAudit(snapshot(windowSpaceID: windowSpaceID)),
             processRows: { processRows },
             // Long by default so a timer tick never races an assertion about a request-driven emit.
@@ -724,5 +798,170 @@ struct AgentWindowComposerCoordinatorTests {
         // Only the composer status was emitted by the still-live poll; the question stays silent.
         let last = try decodeStatus(mac.current.last!)
         #expect(last.subscriptionId == "sub-mac")
+    }
+
+    // MARK: - Codex Desktop addressing
+
+    private let codexSession = "019fe292-5466-7393-b931-8bf0c2cece82"
+    private let codexMain = "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"
+    private let codexFrame = CGRect(x: 100, y: 100, width: 830, height: 877)
+
+    private func codexRecord(
+        title: String = "find stream details",
+        cwd: String = "/Users/dev/Documents/Codex/2026-08-08/str"
+    ) -> CodexThreadRecord {
+        CodexThreadRecord(threadId: codexSession, title: title, cwd: cwd)
+    }
+
+    private func codexSummary(
+        title: String = "Find stream details",
+        project: String = "",
+        recentsFirstRow: String? = "Find stream details",
+        frame: CGRect? = nil
+    ) -> CodexWindowSummary {
+        CodexWindowSummary(
+            threadTitle: title,
+            projectName: project,
+            recentsFirstRow: recentsFirstRow,
+            frame: frame ?? codexFrame
+        )
+    }
+
+    private func codexSnapshot(activeSpaceID: UInt64 = 1, windowSpaceID: UInt64 = 1) -> WorkspaceDesktopSnapshot {
+        WorkspaceDesktopSnapshot(
+            activeSpaceID: activeSpaceID,
+            desktops: [],
+            windows: [
+                WorkspaceDesktopWindow(
+                    windowID: 42,
+                    ownerPID: 400,
+                    ownerName: "Claude",
+                    title: "Claude",
+                    spaceIDs: [windowSpaceID],
+                    layer: 0,
+                    bounds: CGRect(x: 0, y: 0, width: 1200, height: 800),
+                    expectation: .otherApp
+                ),
+                WorkspaceDesktopWindow(
+                    windowID: 77,
+                    ownerPID: 700,
+                    ownerName: "ChatGPT",
+                    title: "ChatGPT",
+                    spaceIDs: [windowSpaceID],
+                    layer: 0,
+                    bounds: codexFrame,
+                    expectation: .otherApp
+                )
+            ],
+            diagnostic: nil
+        )
+    }
+
+    private func makeCodexCoordinator(
+        codexAccess: CodexAccess,
+        observer: FakeValueObserver,
+        windowSpaceID: UInt64 = 1
+    ) -> AgentWindowComposerCoordinator {
+        AgentWindowComposerCoordinator(
+            writer: AgentWindowComposerWriter(access: Access(), placement: Access()),
+            codexWriter: CodexWindowComposerWriter(access: codexAccess, placement: codexAccess),
+            codexState: codexAccess,
+            codexSummaries: codexAccess,
+            audit: StaticWorkspaceDesktopAudit(codexSnapshot(windowSpaceID: windowSpaceID)),
+            processRows: { codexProcessRows },
+            resolveInterval: 60,
+            observer: observer
+        )
+    }
+
+    /// A codex thread id never appears in a `--resume=` argv, so the claude resolver reports
+    /// not-running and the coordinator falls through to the Codex Desktop resolution path.
+    private var codexProcessRows: [AgentWindowProcessRow] {
+        AgentWindowSessionResolver.parseProcessTable("""
+            1     0 /sbin/launchd
+            700     1 \(codexMain)
+        """)
+    }
+
+    @Test func aCodexSessionResolvesThroughTheCodexWriterAndReadsFree() async throws {
+        let codex = CodexAccess()
+        codex.record = codexRecord()
+        codex.threadNameValue = "Find stream details"
+        // A Recents-opened thread: no header project, the window's Recents first row is the identity.
+        codex.summaries = [codexSummary()]
+        let observer = FakeValueObserver()
+        let coordinator = makeCodexCoordinator(codexAccess: codex, observer: observer)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-mac", sessionId: codexSession), from: "mac")
+
+        let status = try decodeStatus(await mac.wait(count: 1)[0])
+        #expect(status.enabled)
+        // The codex tree is readable on any Desktop, so the free read prefills without a move.
+        #expect(status.composerText == "existing codex draft")
+        #expect(observer.observed == [700])
+
+        // A sync dispatches to the codex writer, not the claude one.
+        coordinator.handle(.windowInputSync(requestId: "r-1", sessionId: codexSession, text: "typed here"), from: "mac")
+        let result = try decodeResult(await mac.wait(count: 2)[1])
+        #expect(result.ok)
+        #expect(result.text == "typed here")
+        #expect(codex.writes == ["typed here"])
+    }
+
+    @Test func aCodexThreadShownInTwoWindowsIsRefusedRatherThanGuessed() async throws {
+        let codex = CodexAccess()
+        codex.record = codexRecord()
+        codex.threadNameValue = "New chat"
+        // Two windows, same generic Recents first row: the write cannot be addressed.
+        codex.summaries = [
+            codexSummary(title: "New chat", recentsFirstRow: "New chat"),
+            codexSummary(title: "New chat", recentsFirstRow: "New chat", frame: CGRect(x: 1000, y: 100, width: 830, height: 877)),
+        ]
+        let observer = FakeValueObserver()
+        let coordinator = makeCodexCoordinator(codexAccess: codex, observer: observer)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-mac", sessionId: codexSession), from: "mac")
+
+        let status = try decodeStatus(await mac.wait(count: 1)[0])
+        #expect(!status.enabled)
+        #expect(status.reason == AgentWindowInputReason.ambiguousWindow.rawValue)
+    }
+
+    @Test func aCodexSessionFallsThroughToNotRunningWhenTheAppDoesNotKnowTheThread() async throws {
+        let codex = CodexAccess()
+        // No registry row: the app does not know this thread, so it is not open anywhere.
+        codex.record = nil
+        let observer = FakeValueObserver()
+        let coordinator = makeCodexCoordinator(codexAccess: codex, observer: observer)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-mac", sessionId: codexSession), from: "mac")
+
+        let status = try decodeStatus(await mac.wait(count: 1)[0])
+        #expect(!status.enabled)
+        #expect(status.reason == AgentWindowInputReason.notRunning.rawValue)
+    }
+
+    @Test func aCodexQuestionWatchIsReportedUnavailable() async throws {
+        // The AskUserQuestion mirror is Claude Desktop-only; a codex session's question watch must
+        // resolve to a disabled status rather than reaching a claude writer with a codex target.
+        let codex = CodexAccess()
+        codex.record = codexRecord()
+        codex.summaries = [codexSummary()]
+        let observer = FakeValueObserver()
+        let coordinator = makeCodexCoordinator(codexAccess: codex, observer: observer)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+
+        coordinator.handle(.questionWatch(subscriptionId: "q-mac", sessionId: codexSession), from: "mac")
+
+        let status = try decodeQuestionStatus(await mac.wait(count: 1)[0])
+        #expect(!status.enabled)
+        #expect(status.reason == AgentWindowInputReason.questionMissing.rawValue)
     }
 }

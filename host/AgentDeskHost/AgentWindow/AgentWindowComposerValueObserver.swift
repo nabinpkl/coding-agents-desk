@@ -32,10 +32,12 @@ protocol AgentWindowComposerValueObserving {
     var observedPids: [pid_t] { get }
 }
 
-/// The live Accessibility implementation of a value-changed observer for Claude Desktop composers.
+/// The live Accessibility implementation of a value-changed observer for composer elements.
 ///
-/// One `AXObserver` per Claude main pid, with one `kAXValueChanged` registration per composer element
-/// found for that process (a Claude instance can hold several session windows). Registration touches
+/// One `AXObserver` per owning pid (a Claude Desktop instance, or the ChatGPT.app process hosting
+/// Codex Desktop), with one `kAXValueChanged` registration per composer element found for that
+/// process -- one pid can hold several session windows, and each element gets its own handler box so
+/// its changes reach the session that owns it. Registration touches
 /// only elements the scanner already found, so it never activates or focuses anything. Delivery runs
 /// on the main run loop -- the host is an AppKit application -- and each callback forwards through the
 /// handler the coordinator registered, which is the coordinator's serial queue hop.
@@ -60,8 +62,11 @@ final class AgentWindowComposerValueObserver: AgentWindowComposerValueObserving 
     private struct Observation {
         let observer: AXObserver
         let source: CFRunLoopSource
-        let box: Unmanaged<HandlerBox>
-        var elements: [(hash: CFHashCode, element: AXUIElement)]
+        /// One retained box PER registered element: the C callback's refcon is per registration, and
+        /// each element's events must reach the handler of the SESSION that owns that element. A
+        /// single shared box would deliver a second window's changes under the first session's id --
+        /// harmless when one pid holds one window, wrong when one pid (Codex Desktop) holds several.
+        var elements: [(hash: CFHashCode, element: AXUIElement, box: Unmanaged<HandlerBox>)]
     }
 
     private let lock = NSLock()
@@ -86,20 +91,26 @@ final class AgentWindowComposerValueObserver: AgentWindowComposerValueObserving 
     ) {
         lock.lock()
         if var existing = observations[target.claudeMainPid] {
-            // Same window already observed: nothing to do. A NEW window of the same process: add its
-            // composer element to the same observer so its changes arrive too.
+            // Same window already observed: nothing to do. A NEW window of the same process: give it
+            // its own handler box and register its composer element on the same observer, so its
+            // changes arrive under its own session.
             let hash = CFHash(composer)
             if !existing.elements.contains(where: { $0.hash == hash }) {
+                let box = HandlerBox()
+                box.handler = onValueChanged
+                let retainedBox = Unmanaged.passRetained(box)
                 AXUIElementSetMessagingTimeout(composer, AgentWindowComposerAccess.messagingTimeout)
                 let addResult = AXObserverAddNotification(
                     existing.observer,
                     composer,
                     kAXValueChangedNotification as CFString,
-                    Unmanaged.passUnretained(existing.box.takeUnretainedValue()).toOpaque()
+                    Unmanaged.passUnretained(box).toOpaque()
                 )
                 if addResult == .success {
-                    existing.elements.append((hash, composer))
+                    existing.elements.append((hash, composer, retainedBox))
                     observations[target.claudeMainPid] = existing
+                } else {
+                    retainedBox.release()
                 }
             }
             lock.unlock()
@@ -116,8 +127,7 @@ final class AgentWindowComposerValueObserver: AgentWindowComposerValueObserving 
         observations[target.claudeMainPid] = Observation(
             observer: observer,
             source: AXObserverGetRunLoopSource(observer),
-            box: retainedBox,
-            elements: [(CFHash(composer), composer)]
+            elements: [(CFHash(composer), composer, retainedBox)]
         )
         lock.unlock()
     }
@@ -129,7 +139,7 @@ final class AgentWindowComposerValueObserver: AgentWindowComposerValueObserving 
             return
         }
         lock.unlock()
-        for (_, element) in observation.elements {
+        for (_, element, _) in observation.elements {
             AXObserverRemoveNotification(
                 observation.observer,
                 element,
@@ -137,7 +147,7 @@ final class AgentWindowComposerValueObserver: AgentWindowComposerValueObserving 
             )
         }
         CFRunLoopSourceInvalidate(observation.source)
-        // The box is intentionally not released; see the type's documentation.
+        // The boxes are intentionally not released; see the type's documentation.
     }
 
     private func makeObserver(pid: pid_t, composer: AXUIElement, box: Unmanaged<HandlerBox>) -> AXObserver? {

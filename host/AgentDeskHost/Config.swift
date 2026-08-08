@@ -905,10 +905,12 @@ enum Config {
     // Codex Desktop composer sync. Codex Desktop runs inside ChatGPT.app (bundle com.openai.codex) and
     // exposes one Chromium window per chat thread. Unlike Claude, no child argv carries the thread id:
     // the deterministic mapping is the app's OWN state (`~/.codex/state_5.sqlite` `threads` table and
-    // `~/.codex/session_index.jsonl`) joined to each window's accessibility header (thread title button
-    // plus the `Project: <name>` popup). The main binary path resolves the owning pid; both files are
-    // read-only for the host. All values env-overridable because they are another application's private
-    // layout and can change without notice.
+    // `~/.codex/session_index.jsonl`) joined to each window's accessibility tree -- the header bar
+    // (thread title button plus `Project: <name>` popup) in the threads-sidebar layout, or the first
+    // row of the window's Recents list (the pinned current thread) in the projects/Recents layout.
+    // The main binary path resolves the owning pid; both files are read-only for the host. All values
+    // env-overridable because they are another application's private layout and can change without
+    // notice.
     static let codexMainPath = ProcessInfo.processInfo.environment["AGENTDESK_CODEX_MAIN_PATH"]
         ?? "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"
     // The `AXDescription` Codex Desktop gives its prompt composer. Matched together with the
@@ -936,6 +938,13 @@ enum Config {
     static let codexComposerVerifySettlePollInterval: TimeInterval = 0.1
     static let codexComposerSubmitSettleTimeout: TimeInterval = 2
     static let codexComposerSubmitSettlePollInterval: TimeInterval = 0.1
+    // How long a fresh scan waits for Codex Desktop to materialize its accessibility tree. Unlike
+    // Claude there is no `AXManualAccessibility` latch to set (the attribute is unsupported on this
+    // app), but the tree is built lazily when no assistive-technology client is attached: a probe
+    // measured a collapsed tree materializing into the full web contents within two seconds of an AX
+    // client attaching. The host is a long-lived client, so the wait costs once per materialization.
+    static let codexTreeMaterializeTimeout: TimeInterval = 3
+    static let codexTreeMaterializePollInterval: TimeInterval = 0.25
     // How long a window brought to this Desktop is given to build its accessibility tree, and how
     // often it is checked. Chromium builds a window's tree only while it is on the current Space, so
     // the composer genuinely does not exist for the first moments after a move-in. The ceiling bounds

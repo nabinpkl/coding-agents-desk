@@ -1,15 +1,23 @@
 import AgentDeskWire
 import AgentPanel
+import ApplicationServices
 import Foundation
 import os
 
-/// Owns composer-sync subscriptions for every surface and serializes each write against Claude Desktop.
+/// Owns composer-sync subscriptions for every surface and serializes each write against the owning
+/// desktop app -- Claude Desktop or Codex Desktop (ChatGPT.app).
 ///
 /// ONE coordinator serves all Mac Agents windows and every attached phone lane, because the thing being
 /// coordinated is a single external application's windows: two independent writers could move the same
 /// window to two Desktops at once, and each would restore it to the home Desktop the other just changed.
 /// Every request runs on one serial queue for that reason, and off the main thread because a write blocks
 /// on Accessibility round trips and a Space move.
+///
+/// Sessions resolve by harness: the Claude resolver walks the process tree to a Claude.app window, and
+/// a session no Claude process carries falls through to Codex Desktop resolution, which joins the app's
+/// own thread registry to each window's accessibility header. The right writer is dispatched per
+/// resolution -- the codex writer needs no `AXManualAccessibility` latch and no Space round trip for a
+/// fill, where the Claude writer pays both.
 ///
 /// Surfaces are therefore addressed rather than owned. A sink is one panel's return path -- an Agents
 /// window's webview, or one paired device's input lane -- and status and results go only to the sink that
@@ -24,6 +32,9 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
     /// mutable below is touched only from a `queue` block; nothing here is safe to read from outside.
     private let queue: DispatchQueue
     private let writer: AgentWindowComposerWriter
+    private let codexWriter: CodexWindowComposerWriter
+    private let codexState: CodexWindowStateReading
+    private let codexSummaries: CodexWindowSummarizing
     private let audit: WorkspaceDesktopAuditing
     private let processRows: () -> [AgentWindowProcessRow]
     private let resolveInterval: TimeInterval
@@ -42,12 +53,18 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
     private var questionSubscriptions: [SinkID: [String: String]] = [:]
     private var lastQuestionStatus: [SinkID: [String: AgentWindowQuestionStatus]] = [:]
     /// sessionId -> the last successfully resolved target, reused by the event-driven refresh so a
-    /// value-changed event costs no process-table scan.
-    private var lastTargets: [String: AgentWindowSessionTarget] = [:]
+    /// value-changed event costs no process-table scan. Tagged so the right writer is dispatched.
+    private var lastTargets: [String: ResolvedTarget] = [:]
     private var timer: DispatchSourceTimer?
 
     init(
         writer: AgentWindowComposerWriter,
+        codexWriter: CodexWindowComposerWriter,
+        codexState: CodexWindowStateReading = CodexWindowState(
+            sqlitePath: Config.codexStateSqlite,
+            sessionIndexPath: Config.codexSessionIndex
+        ),
+        codexSummaries: CodexWindowSummarizing = CodexWindowComposerAccess(),
         audit: WorkspaceDesktopAuditing,
         processRows: @escaping () -> [AgentWindowProcessRow] = AgentWindowSessionResolver.liveProcessRows,
         resolveInterval: TimeInterval = Config.claudeWindowResolveInterval,
@@ -55,6 +72,9 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
     ) {
         self.queue = DispatchQueue(label: Config.dispatchQueuePrefix + ".agent-window-composer")
         self.writer = writer
+        self.codexWriter = codexWriter
+        self.codexState = codexState
+        self.codexSummaries = codexSummaries
         self.audit = audit
         self.processRows = processRows
         self.resolveInterval = resolveInterval
@@ -154,32 +174,94 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
 
     // MARK: - Resolution
 
+    /// A session resolved to the window that owns it, tagged by harness so the right writer and the
+    /// right resolution rules apply.
+    private enum ResolvedTarget {
+        case claude(AgentWindowSessionTarget)
+        case codex(AgentWindowSessionTarget)
+
+        var target: AgentWindowSessionTarget {
+            switch self {
+            case .claude(let target), .codex(let target): return target
+            }
+        }
+    }
+
     /// Resolves one session to a writable window, or the reason it is not writable.
     ///
     /// Every caller shares this so the reason the panel disables the field is the same reason a write
-    /// would have failed with. Both reads take one process-table scan and one audit.
+    /// would have failed with. Claude resolution is tried first -- the process tree is the cheap scan
+    /// and the two harnesses' session ids never collide, because a codex thread id never appears in a
+    /// `--resume=` argv and a claude session id never appears in the codex app's thread registry. A
+    /// session with no claude chains (`.notRunning`) falls through to Codex Desktop resolution, which
+    /// maps the thread through the app's own state files and each window's accessibility header.
     private func resolveTarget(
         sessionId: String,
         rows: [AgentWindowProcessRow],
         snapshot: WorkspaceDesktopSnapshot
-    ) -> Result<AgentWindowSessionTarget, AgentWindowInputReason> {
+    ) -> Result<ResolvedTarget, AgentWindowInputReason> {
         let resolution = AgentWindowSessionResolver.resolve(sessionId: sessionId, in: rows)
-        let pid: pid_t
         if let resolved = resolution.claudeMainPid {
-            pid = resolved
-        } else if resolution.chains.isEmpty,
-                  let runtimeOwner = AgentWindowRuntimeResolver.desktopOwner(
-                    sessionId: sessionId,
-                    rows: rows,
-                    claudeMainPath: Config.claudeDesktopMainPath
-                  ) {
-            // A brand-new (not resumed) Claude Desktop session: no child argv carries its id, but its
-            // `~/.claude/sessions/<pid>.json` registry row names it and its CLI's pid under Claude.app.
-            pid = runtimeOwner
-        } else {
+            return AgentWindowSessionTargeting.target(sessionId: sessionId, claudeMainPid: resolved, in: snapshot)
+                .map(ResolvedTarget.claude)
+        }
+        if !resolution.chains.isEmpty {
             return .failure(resolution.unavailableReason ?? .notRunning)
         }
-        return AgentWindowSessionTargeting.target(sessionId: sessionId, claudeMainPid: pid, in: snapshot)
+        if let runtimeOwner = AgentWindowRuntimeResolver.desktopOwner(
+            sessionId: sessionId,
+            rows: rows,
+            claudeMainPath: Config.claudeDesktopMainPath
+        ) {
+            return AgentWindowSessionTargeting.target(sessionId: sessionId, claudeMainPid: runtimeOwner, in: snapshot)
+                .map(ResolvedTarget.claude)
+        }
+        return resolveCodexTarget(sessionId: sessionId, rows: rows, snapshot: snapshot)
+    }
+
+    /// Resolves a session through Codex Desktop's own state: the thread's registry row and display
+    /// title, the owning ChatGPT.app pid, and each open window's accessibility identity.
+    private func resolveCodexTarget(
+        sessionId: String,
+        rows: [AgentWindowProcessRow],
+        snapshot: WorkspaceDesktopSnapshot
+    ) -> Result<ResolvedTarget, AgentWindowInputReason> {
+        guard let record = codexState.threadRecord(sessionId) else {
+            // The app does not know this thread id, so it is not open anywhere.
+            return .failure(.notRunning)
+        }
+        let mainPids = CodexWindowSessionResolver.codexMainPids(
+            in: rows,
+            mainPath: Config.codexMainPath
+        )
+        guard mainPids.count == 1 else {
+            // No live process means the app is not running; several processes means the binary path
+            // matched more than one instance.
+            return .failure(mainPids.isEmpty ? .notRunning : .multipleInstances)
+        }
+        let threadName = codexState.threadName(sessionId) ?? ""
+        let summaries = codexSummaries.windowSummaries(mainPid: mainPids[0])
+        switch CodexWindowSessionResolver.resolve(
+            threadId: sessionId,
+            title: record.title,
+            cwd: record.cwd,
+            threadName: threadName,
+            windows: summaries
+        ) {
+        case .matched(let summary):
+            return CodexWindowTargeting.target(
+                sessionId: sessionId,
+                mainPid: mainPids[0],
+                frame: summary.frame,
+                in: snapshot
+            ).map(ResolvedTarget.codex)
+        case .ambiguous:
+            return .failure(.ambiguousWindow)
+        case .notFound:
+            // The thread exists but no open window's identity shows it: either the window is on a
+            // view that exposes no identity, or the thread is not the current one in any window.
+            return .failure(.noWindow)
+        }
     }
 
     private func startPollingIfNeeded() {
@@ -212,24 +294,38 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         }
         let rows = processRows()
         let snapshot = audit.snapshot()
-        var resolved: [String: Result<AgentWindowSessionTarget, AgentWindowInputReason>] = [:]
+        var resolved: [String: Result<ResolvedTarget, AgentWindowInputReason>] = [:]
         var prefilled: [String: String?] = [:]
         var neededPids: Set<pid_t> = []
 
         for (sink, watches) in subscriptions {
             guard let emit = sinks[sink] else { continue }
             for (subscriptionId, sessionId) in watches {
+                let isForced = forced?.sink == sink && forced?.subscriptionId == subscriptionId
                 let target = resolved[sessionId] ?? {
+                    // A codex session whose observer is live is NOT re-scanned on the poll: its
+                    // resolution is a full-tree accessibility walk (thread registry plus every
+                    // window's header), and Chromium answers AX queries on its main thread, so a
+                    // 3s re-scan while the user is composing would visibly stall the app. The
+                    // value-changed observer already carries the composer updates, and the status
+                    // only goes stale in the one case nobody is looking (the app quit while the
+                    // field stayed focused) -- any write, submit, read, or refocus re-resolves.
+                    // A forced pass is a fresh watcher and always re-scans.
+                    if !isForced, let last = lastTargets[sessionId],
+                       case .codex = last,
+                       observer.isObserving(claudeMainPid: last.target.claudeMainPid) {
+                        return .success(last)
+                    }
                     let result = resolveTarget(sessionId: sessionId, rows: rows, snapshot: snapshot)
                     resolved[sessionId] = result
                     return result
                 }()
                 let status: AgentWindowInputStatus
-                let isForced = forced?.sink == sink && forced?.subscriptionId == subscriptionId
                 switch target {
-                case .success(let target):
+                case .success(let resolved):
+                    let target = resolved.target
                     neededPids.insert(target.claudeMainPid)
-                    lastTargets[sessionId] = target
+                    lastTargets[sessionId] = resolved
                     let composerText: String?
                     if isForced || !observer.isObserving(claudeMainPid: target.claudeMainPid) {
                         // Read: a forced pass is a fresh watcher that needs the value, and a missing
@@ -239,9 +335,9 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
                         // then registered on the element the scan found.
                         composerText = prefilled[sessionId] ?? {
                             let text: String?
-                            if let value = try? writer.readIfFree(target).get() {
+                            if let value = try? readComposer(resolved).get() {
                                 text = value
-                                if let element = writer.composerElementIfAvailable(for: target) {
+                                if let element = composerElement(resolved) {
                                     observer.ensureObserving(
                                         target: target,
                                         composer: element,
@@ -311,7 +407,7 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         guard !questionSubscriptions.isEmpty else { return }
         let rows = processRows()
         let snapshot = audit.snapshot()
-        var resolved: [String: Result<AgentWindowSessionTarget, AgentWindowInputReason>] = [:]
+        var resolved: [String: Result<ResolvedTarget, AgentWindowInputReason>] = [:]
         for (sink, watches) in questionSubscriptions {
             guard let emit = sinks[sink] else { continue }
             for (subscriptionId, sessionId) in watches {
@@ -323,8 +419,8 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
                 let status: AgentWindowQuestionStatus
                 let isForced = forced?.sink == sink && forced?.subscriptionId == subscriptionId
                 switch target {
-                case .success(let target):
-                    lastTargets[sessionId] = target
+                case .success(.claude(let target)):
+                    lastTargets[sessionId] = .claude(target)
                     // A forced pass (fresh watch) reads fresh: the panel may have changed while
                     // unwatched. A poll pass keeps the last known status through a transient read
                     // failure -- a web contents rebuilding its tree must not flip the mirror, exactly
@@ -336,6 +432,17 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
                         subscriptionId: subscriptionId,
                         sessionId: sessionId,
                         fallback: fallback
+                    )
+                case .success(.codex):
+                    // The AskUserQuestion mirror is Claude Desktop-only: the codex desktop app has no
+                    // panel surface this host mirrors.
+                    status = AgentWindowQuestionStatus(
+                        subscriptionId: subscriptionId,
+                        sessionId: sessionId,
+                        enabled: false,
+                        reason: AgentWindowInputReason.questionMissing.rawValue,
+                        onActiveDesktop: false,
+                        present: nil
                     )
                 case .failure(let reason):
                     status = AgentWindowQuestionStatus(
@@ -406,9 +513,10 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
     /// change-only to that session's watchers. No process-table scan: the last resolved target is what
     /// the event is about, and resolution changes still surface on the next poll pass.
     private func refreshSession(_ sessionId: String) {
-        guard !subscriptions.isEmpty, let target = lastTargets[sessionId] else { return }
+        guard !subscriptions.isEmpty, let resolved = lastTargets[sessionId] else { return }
+        let target = resolved.target
         let text: String?
-        if let value = try? writer.readIfFree(target).get() {
+        if let value = try? readComposer(resolved).get() {
             text = value
         } else {
             text = nil
@@ -445,8 +553,8 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         }
         let result: Result<String, AgentWindowInputReason>
         switch resolveTarget(sessionId: sessionId, rows: processRows(), snapshot: audit.snapshot()) {
-        case .success(let target):
-            result = writer.write(text, to: target)
+        case .success(let resolved):
+            result = write(resolved, text: text)
         case .failure(let reason):
             result = .failure(reason)
         }
@@ -469,9 +577,9 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         }
         let result: Result<String, AgentWindowInputReason>
         switch resolveTarget(sessionId: sessionId, rows: processRows(), snapshot: audit.snapshot()) {
-        case .success(let target):
+        case .success(let resolved):
             // Commits the prompt: fills and presses Return. Unlike sync this fronts the owning window.
-            result = writer.writeAndSubmit(text, to: target)
+            result = submitComposer(resolved, text: text)
         case .failure(let reason):
             result = .failure(reason)
         }
@@ -483,14 +591,12 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         guard let emit = sinks[sink] else { return }
         let result: Result<String, AgentWindowInputReason>
         switch resolveTarget(sessionId: sessionId, rows: processRows(), snapshot: audit.snapshot()) {
-        case .success(let target):
+        case .success(let resolved):
             // An explicit load is the user asking for the round trip, so unlike the poll it is allowed
             // to bring the window here. Writing back what was read is what performs the move.
-            switch writer.readIfFree(target) {
-            case .success(let text?):
+            switch readComposer(resolved) {
+            case .success(let text):
                 result = .success(text)
-            case .success(nil):
-                result = writer.readAcrossDesktops(target)
             case .failure(let reason):
                 result = .failure(reason)
             }
@@ -544,8 +650,10 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         }
         let result: Result<AgentWindowQuestionState, AgentWindowInputReason>
         switch resolveTarget(sessionId: sessionId, rows: processRows(), snapshot: audit.snapshot()) {
-        case .success(let target):
+        case .success(.claude(let target)):
             result = writer.performQuestionAction(action, to: target)
+        case .success(.codex):
+            result = .failure(.questionMissing)
         case .failure(let reason):
             result = .failure(reason)
         }
@@ -591,6 +699,46 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
                 otherText: nil,
                 submitEnabled: nil
             ), to: emit)
+        }
+    }
+
+    // MARK: - Writer dispatch
+
+    /// Reads the composer for a resolved target through the writer that owns its harness.
+    ///
+    /// The codex read is always free (its trees exist on every Desktop), so the claude
+    /// read-if-free / read-across-desktops split collapses to one path there.
+    private func readComposer(_ resolved: ResolvedTarget) -> Result<String, AgentWindowInputReason> {
+        switch resolved {
+        case .claude(let target):
+            switch writer.readIfFree(target) {
+            case .success(let text?): return .success(text)
+            case .success(nil): return writer.readAcrossDesktops(target)
+            case .failure(let reason): return .failure(reason)
+            }
+        case .codex(let target):
+            return codexWriter.readIfFree(target)
+        }
+    }
+
+    private func composerElement(_ resolved: ResolvedTarget) -> AXUIElement? {
+        switch resolved {
+        case .claude(let target): return writer.composerElementIfAvailable(for: target)
+        case .codex(let target): return codexWriter.composerElementIfAvailable(for: target)
+        }
+    }
+
+    private func write(_ resolved: ResolvedTarget, text: String) -> Result<String, AgentWindowInputReason> {
+        switch resolved {
+        case .claude(let target): return writer.write(text, to: target)
+        case .codex(let target): return codexWriter.write(text, to: target)
+        }
+    }
+
+    private func submitComposer(_ resolved: ResolvedTarget, text: String) -> Result<String, AgentWindowInputReason> {
+        switch resolved {
+        case .claude(let target): return writer.writeAndSubmit(text, to: target)
+        case .codex(let target): return codexWriter.writeAndSubmit(text, to: target)
         }
     }
 
