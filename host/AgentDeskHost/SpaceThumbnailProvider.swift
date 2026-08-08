@@ -450,8 +450,9 @@ final class SpaceThumbnailProvider: @unchecked Sendable {
         )
     }
 
-    // Shared window filter: drop wallpaper, dock, menu-bar, control center,
-    // and sub-50pt overlays; keep regular app windows (layer 0).
+    // Shared window filter: drop wallpaper, dock, menu-bar, control center, sub-50pt
+    // overlays, windows owned by processes that cannot be activated, and the untitled
+    // placeholders menu-bar apps park offscreen; keep regular app windows (layer 0).
     private func candidateWindows(_ content: SCShareableContent) -> [SCWindow] {
         CaptureWindowFilter.candidates(content)
     }
