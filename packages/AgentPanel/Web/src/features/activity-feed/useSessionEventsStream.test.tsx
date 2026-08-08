@@ -249,4 +249,76 @@ describe("useSessionEventsStream", () => {
     expect(view.result.current.total).toBe(1);
     expect(view.result.current.windowStart).toBe(0);
   });
+
+  it("initializes usage from the last transcript reading when the seed carries none", async () => {
+    let handlers: SessionEventsHandlers | undefined;
+    const seedEvents: ActivityEvent[] = [
+      {
+        index: 0,
+        id: "user-0",
+        revision: 0,
+        phase: "complete",
+        ts: 1000,
+        type: "user",
+        blocks: [{ kind: "text", text: "prompt" }],
+      },
+      {
+        index: 1,
+        id: "assistant-1",
+        revision: 0,
+        phase: "complete",
+        ts: 2000,
+        type: "assistant",
+        blocks: [
+          { kind: "text", text: "answer" },
+          { kind: "metadata", label: "Token Usage", text: "71,411 tokens" },
+        ],
+      },
+    ];
+    const source: AgentDataSource = {
+      fetchEventsPage: async (_session, offset, limit) => ({
+        events: seedEvents.filter(
+          (value) => value.index >= offset && value.index < offset + limit,
+        ),
+        total: 2,
+        usage: null,
+      }),
+      subscribeSessionEvents: (_session, _after, nextHandlers) => {
+        handlers = nextHandlers;
+        return () => {};
+      },
+      fetchRawEvent: async () => "",
+    };
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <DataSourceProvider source={source}>{children}</DataSourceProvider>
+    );
+    const view = renderHook(
+      () => useSessionEventsStream("claude", "thread", "nice"),
+      { wrapper },
+    );
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+
+    // No structured occupancy arrived with the seed, so the meter's initial
+    // value must come from the transcript's own last reading.
+    expect(view.result.current.usage).toEqual({
+      current: 71_411,
+      limit: null,
+      updatedAt: 2000,
+    });
+
+    // A live reading with a newer timestamp replaces the fallback, exactly as
+    // it replaces a structured reading today.
+    act(() =>
+      handlers?.onUsage?.({
+        current: 88_000,
+        limit: 200_000,
+        updatedAt: 3000,
+      }),
+    );
+    expect(view.result.current.usage).toEqual({
+      current: 88_000,
+      limit: 200_000,
+      updatedAt: 3000,
+    });
+  });
 });

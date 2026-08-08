@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDataSource } from "./data-source/AgentDataSourceContext";
 import { seedRange, olderRange } from "./data-source/eventPaging";
+import { lastUsageFromEvents } from "./usageFromEvents";
 import type { AgentSource, EventMode } from "./data-source/AgentDataSource";
 
 export interface ActivityBlock {
@@ -177,7 +178,13 @@ onEvent: (event) => {
             events: new Map(snapshot.events.map((event) => [event.index, event])),
             total: snapshot.total,
             windowStart: snapshot.windowStart,
-            usage: newerUsage(current.usage, snapshot.usage),
+            // The snapshot's structured occupancy, or -- when the runtime did
+            // not deliver it -- the transcript's own last reading, which the
+            // events already carry. Live readings still win later: `updatedAt`
+            // on those is newer, so `newerUsage` replaces the fallback.
+            usage:
+              newerUsage(current.usage, snapshot.usage) ??
+              lastUsageFromEvents(snapshot.events),
             loading: false,
             error: null,
             sequence: snapshot.state.sequence,
@@ -235,8 +242,12 @@ onEvent: (event) => {
           windowStart: offset,
           // A live chunk can land before the seed resolves, so this cannot just
           // take the page's value: `updatedAt` decides, which makes the outcome
-          // independent of which of the two arrives first.
-          usage: newerUsage(current.usage, seedUsage),
+          // independent of which of the two arrives first. When neither the
+          // page nor a live chunk carried structured occupancy, initialize the
+          // meter from the transcript's own last reading in the seed events.
+          usage:
+            newerUsage(current.usage, seedUsage) ??
+            lastUsageFromEvents(initial),
           loading: false,
           error: null,
           sequence: current.sequence,
