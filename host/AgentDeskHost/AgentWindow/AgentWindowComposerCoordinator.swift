@@ -201,8 +201,15 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
     ///
     /// Each DISTINCT session is resolved once per pass even when several surfaces watch it, because the
     /// expensive part is the Accessibility round trip and both surfaces would get the same answer.
+    ///
+    /// The question mirror shares this poll, so an empty composer table must NOT short-circuit the
+    /// pass: a panel whose question is open with nobody typing in the composer still needs its status
+    /// re-read and change-emitted on the timer.
     private func refresh(forcing forced: (sink: SinkID, subscriptionId: String)? = nil) {
-        guard !subscriptions.isEmpty else { return }
+        guard !subscriptions.isEmpty else {
+            refreshQuestion()
+            return
+        }
         let rows = processRows()
         let snapshot = audit.snapshot()
         var resolved: [String: Result<AgentWindowSessionTarget, AgentWindowInputReason>] = [:]

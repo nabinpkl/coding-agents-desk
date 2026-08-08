@@ -1577,6 +1577,7 @@ describe("AskUserQuestion mirror", () => {
     action = [...fake.posted]
       .reverse()
       .find((m) => (m as { t?: string }).t === "agent-window-question-action") as {
+      rid: string;
       k: string;
       oi: number;
       v: number;

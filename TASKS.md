@@ -1833,3 +1833,46 @@ movement and verification, and a second mover would be the per-feature copy ADR-
   because a busy renderer measured fourteen seconds to build its tree after a move-in in the live probe.
   The phone lane gets the same focus gating for free: it runs the same panel code and speaks the same
   watch/unwatch protocol, and iOS knows about focus.
+- R258. Mirror Claude's AskUserQuestion panel in the Agent panel and answer it through the window. The
+  mirror's CONTENT never comes from the accessibility tree: the `AskUserQuestion` tool_use already
+  carries the full question JSON (`input.questions`: question text, header, multiSelect, option
+  labels/descriptions), which the feed streams end to end (sidecar keeps `tool_use.input` raw; the live
+  backend accumulates `partial_json` and parses it at `content_block_stop`), so the panel derives the
+  open question from its own event stream -- the LAST AskUserQuestion without a matching tool_result
+  callId -- and AX is only the actuator plus the live-state augmentation. Ground-truth probes of Claude
+  1.26832.0 established the panel's AX shape for BOTH selection modes: single-select options are
+  `AXButton`s whose title is `"<label> <description> N"` with a trailing index static text, multi-select
+  options are `AXCheckBox[AXToggleButton]`s whose `AXValue` (1/0) is readable but NOT settable -- press
+  toggles -- with no trailing index, `Other` is a checkbox (multi) or button (single), the other input
+  is an `AXTextArea` described `Other option` with settable value, Submit reads `Submit ⏎` (single) or
+  `Submit ⌘ ⏎` (multi) -- matched by prefix -- and Skip/Dismiss/View-options are buttons; option order
+  in AX matches JSON order in both modes, and the panel is anchored structurally (a group holding a
+  Submit-prefixed button, a Skip button, and the Other input), never by content. New wire frames
+  `agent-window-question-watch`/`-unwatch`/`-status`/`-action`/`-result`: the status carries only
+  augmentation (`en`, `cur`, `pr` present, `sel` indices, `oth`, `sb` submit-enabled); the action is
+  one of select (option index + desired 0/1, pressed only on mismatch so retries are idempotent),
+  other (text, also checks the Other affordance), submit, skip, dismiss, view-options; the result
+  carries the state read back after the action, which is how submit/skip/dismiss close the mirror.
+  Host side: `AgentWindowComposerAccess` scans the panel, presses, and sets the other input; the
+  writer's `withWindowHere` round trip is now generic and serves both composer writes and question
+  actions (only submit activates); the coordinator owns question subscriptions on the same serial
+  queue and poll -- a question-only watch MUST keep the poll alive, because the composer guard
+  short-circuited the shared pass before `refreshQuestion` (a real bug caught by a test that would
+  hang forever without the fix: with no composer subscriptions the poll returned before the question
+  status could ever re-emit). Panel side: `openAskUserQuestion` derives the open question from the
+  feed events, `useClaudeWindowQuestion` watches it while open (not focus-gated, unlike the composer:
+  a question panel is a transient modal surface and its pre-checked state must appear before any
+  interaction), reconciles selection/Other from status with the composer's edited-guard rules, and the
+  `AskUserQuestionMirror` renders question, radio/checkbox options, Other input (500ms debounced push,
+  empty clears), Skip, Submit, and the View-options/Dismiss header controls. Bounds: option index
+  0..<64, other text shares the composer's 100k blast-radius cap, per-kind payload presence is
+  validated by one shared rule used by both the webview decoder and the phone lane converter; the new
+  `question-missing` reason names a panel that vanished between the transcript signal and the press.
+  The phone runs the same panel code over the same lanes and gets the mirror for free. Tests: wire
+  round trips and abbreviated-key pins, per-kind decode bounds, writer round-trip/activation rules,
+  coordinator addressing/change-only/off-Desktop-present-nil, web derivation, bridge handlers, and
+  mirror interaction; `just check` green. Open items before R258 can flip: multiSelect was probed
+  against a live checkbox panel (value 1/0, press toggles, no index text) but the two selection modes
+  have not both been driven through a live end-to-end answer yet; "View question options" is a
+  pass-through whose local effect is unknown beyond the mirror's own expand/collapse; and the Other
+  affordance's exact role in a submit with only Other text is unverified live.

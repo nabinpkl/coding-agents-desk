@@ -323,13 +323,18 @@ struct AgentFeedWireTests {
         )
         #expect(result.present == false)
 
-        // The webview mirrors these abbreviations by hand, so pin them here.
+        // The webview mirrors these abbreviations by hand, so pin them here. Optional fields are
+        // omitted by Codable when nil -- the webview reads absence as null -- so every pinned key is
+        // populated in the fixture.
         let statusJSON = try encodedString(AgentWindowQuestionStatus(
             subscriptionId: "question-1",
             sessionId: "session-1",
             enabled: true,
+            onActiveDesktop: true,
             present: true,
-            selected: [0]
+            selected: [0],
+            otherText: "custom",
+            submitEnabled: false
         ))
         for key in ["\"sub\"", "\"sid\"", "\"en\"", "\"cur\"", "\"pr\"", "\"sel\"", "\"oth\"", "\"sb\""] {
             #expect(statusJSON.contains(key))
@@ -337,7 +342,10 @@ struct AgentFeedWireTests {
         let actionJSON = try encodedString(AgentWindowQuestionAction(
             requestId: "action-1",
             sessionId: "session-1",
-            kind: AgentWindowQuestionActionKind.submit.rawValue
+            kind: AgentWindowQuestionActionKind.select.rawValue,
+            optionIndex: 1,
+            desired: 1,
+            text: "custom"
         ))
         for key in ["\"rid\"", "\"sid\"", "\"k\"", "\"oi\"", "\"v\"", "\"tx\""] {
             #expect(actionJSON.contains(key))
@@ -346,9 +354,13 @@ struct AgentFeedWireTests {
             requestId: "action-1",
             sessionId: "session-1",
             ok: false,
-            reason: AgentWindowInputReason.questionMissing.rawValue
+            reason: AgentWindowInputReason.questionMissing.rawValue,
+            present: false,
+            selected: [],
+            otherText: nil,
+            submitEnabled: nil
         ))
-        for key in ["\"rid\"", "\"sid\"", "\"ok\"", "\"r\"", "\"pr\"", "\"sel\"", "\"oth\"", "\"sb\""] {
+        for key in ["\"rid\"", "\"sid\"", "\"ok\"", "\"r\"", "\"pr\"", "\"sel\""] {
             #expect(resultJSON.contains(key))
         }
     }
