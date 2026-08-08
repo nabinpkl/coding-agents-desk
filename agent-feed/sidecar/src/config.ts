@@ -189,6 +189,31 @@ export const config = {
     1_000,
     10 * 60_000,
   ),
+  codexLiveEnabled: booleanEnvironment("AGENT_FEED_CODEX_LIVE_ENABLED", true),
+  codexLiveReconnectMs: integerEnvironment(
+    "AGENT_FEED_CODEX_LIVE_RECONNECT_MS",
+    1000,
+    50,
+    60_000,
+  ),
+  codexLiveReconnectMaxMs: integerEnvironment(
+    "AGENT_FEED_CODEX_LIVE_RECONNECT_MAX_MS",
+    30_000,
+    1_000,
+    5 * 60_000,
+  ),
+  codexLiveMaxSessions: integerEnvironment(
+    "AGENT_FEED_CODEX_LIVE_MAX_SESSIONS",
+    64,
+    1,
+    512,
+  ),
+  codexLiveIdleDropMs: integerEnvironment(
+    "AGENT_FEED_CODEX_LIVE_IDLE_DROP_MS",
+    30_000,
+    1_000,
+    10 * 60_000,
+  ),
 } as const;
 
 /**

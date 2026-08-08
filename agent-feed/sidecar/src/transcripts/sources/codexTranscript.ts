@@ -140,6 +140,9 @@ function summarizeToolUse(name: string, input: Record<string, unknown>, raw: str
 interface ResponseItemPayload {
   type?: string;
   role?: string;
+  // The item id (msg_.../rs_.../fc_.../fco_...), the same id the live mirror
+  // keys its rows by, so the live tail can hand off to the durable row.
+  id?: string;
   content?: unknown;
   name?: string;
   arguments?: string;
@@ -333,10 +336,19 @@ function normalizedRecord(
     type: ParsedLine['type'],
     blocks: NormalizedCodexBlock[],
     stateUpdates: Omit<LineResult, 'event'> = {},
+    messageId?: string,
   ): NormalizedCodexLine => {
     const rawBlocks = [...blocks, { block: rawBlock(), raw: line }];
     return {
-      result: { ...stateUpdates, event: { ts, type, blocks: rawBlocks.map(({ block }) => block) } },
+      result: {
+        ...stateUpdates,
+        event: {
+          ts,
+          type,
+          blocks: rawBlocks.map(({ block }) => block),
+          ...(messageId ? { messageId } : {}),
+        },
+      },
       rawBlocks,
     };
   };
@@ -402,14 +414,15 @@ function normalizedRecord(
     return finish('system', [{ block: metadataBlock(label, metadataText(p)), raw: null }], cwd ? { cwd } : {});
   }
   const pr = p as ResponseItemPayload;
+  const itemId = typeof pr.id === "string" && pr.id ? pr.id : undefined;
 
   if (pr.type === 'message') {
     const blocks = normalizeMessageContent(pr.content);
     if (pr.role === 'assistant') {
-      return finish('assistant', blocks);
+      return finish('assistant', blocks, {}, itemId);
     }
     if (pr.role === 'user') {
-      return finish('user', blocks);
+      return finish('user', blocks, {}, itemId);
     }
     if (pr.role === 'developer' || pr.role === 'system') {
       const label = pr.role === 'developer' ? 'Developer Message' : 'System Message';
@@ -433,7 +446,7 @@ function normalizedRecord(
           ...(callId ? { callId } : {}),
       },
       raw: null,
-    }]);
+    }], {}, itemId);
   }
 
   if (pr.type === 'function_call_output' || pr.type === 'custom_tool_call_output') {
@@ -441,7 +454,7 @@ function normalizedRecord(
     if (!text) return plain();
     const callId = typeof pr.call_id === 'string' ? pr.call_id : undefined;
     const block = makeToolResultBlock(text);
-    return finish('user', [{ block: callId ? { ...block, callId } : block, raw: text }]);
+    return finish('user', [{ block: callId ? { ...block, callId } : block, raw: text }], {}, itemId);
   }
 
   if (pr.type === 'reasoning') {
@@ -457,9 +470,9 @@ function normalizedRecord(
       return finish('system', [{
         block: metadataBlock('Reasoning', 'encrypted, no readable trace'),
         raw: null,
-      }]);
+      }], {}, itemId);
     }
-    return finish('reasoning', [{ block: { kind: 'reasoning', text }, raw: text }]);
+    return finish('reasoning', [{ block: { kind: 'reasoning', text }, raw: text }], {}, itemId);
   }
 
   if (pr.type === 'agent_message') {

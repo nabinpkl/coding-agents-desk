@@ -22,6 +22,7 @@ export interface ObserverFlow {
   method?: unknown;
   protocol?: unknown;
   requestBody?: { value?: unknown; sizeBytes?: unknown };
+  requestHeaders?: unknown;
 }
 
 export interface ObserverFlowUpserted {
@@ -39,10 +40,19 @@ export interface ObserverStreamEnded {
   flowId?: unknown;
 }
 
+export interface ObserverWebSocketMessage {
+  flowId?: unknown;
+  sequence?: unknown;
+  direction?: unknown;
+  kind?: unknown;
+  data?: unknown;
+}
+
 export type ObserverEvent = {
   observedAt?: unknown;
   flowUpserted?: ObserverFlowUpserted;
   streamDeltaObserved?: ObserverDelta;
+  websocketMessageObserved?: ObserverWebSocketMessage;
   streamEnded?: ObserverStreamEnded;
 };
 
@@ -97,11 +107,12 @@ export async function subscribeToObserver(
   onEvent: (event: ObserverEvent) => void,
   onError: (error: unknown) => void,
   signal?: AbortSignal,
+  filter: Record<string, unknown> = OBSERVER_SSE_FILTER,
 ): Promise<ObserverSubscription> {
   const createdResponse = await fetch(new URL("/v1/viewer/streams", endpoint), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ filter: OBSERVER_SSE_FILTER }),
+    body: JSON.stringify({ filter }),
     signal,
   });
   if (!createdResponse.ok) {

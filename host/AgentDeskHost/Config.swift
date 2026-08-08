@@ -902,6 +902,40 @@ enum Config {
     static let claudeQuestionOtherDescription =
         ProcessInfo.processInfo.environment["AGENTDESK_CLAUDE_QUESTION_OTHER_DESC"]
         ?? "Other option"
+    // Codex Desktop composer sync. Codex Desktop runs inside ChatGPT.app (bundle com.openai.codex) and
+    // exposes one Chromium window per chat thread. Unlike Claude, no child argv carries the thread id:
+    // the deterministic mapping is the app's OWN state (`~/.codex/state_5.sqlite` `threads` table and
+    // `~/.codex/session_index.jsonl`) joined to each window's accessibility header (thread title button
+    // plus the `Project: <name>` popup). The main binary path resolves the owning pid; both files are
+    // read-only for the host. All values env-overridable because they are another application's private
+    // layout and can change without notice.
+    static let codexMainPath = ProcessInfo.processInfo.environment["AGENTDESK_CODEX_MAIN_PATH"]
+        ?? "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"
+    // The `AXDescription` Codex Desktop gives its prompt composer. Matched together with the
+    // `AXTextArea` role, never on role alone. Env-overridable because it is another application's
+    // private UI string and can change without notice.
+    static let codexComposerDescription = ProcessInfo.processInfo.environment["AGENTDESK_CODEX_COMPOSER_DESC"]
+        ?? "Do anything"
+    // The app's own thread registry. `threads` rows keyed by thread id carry `cwd`, `title`,
+    // `first_user_message`, and `updated_at`; the header title a window shows is the `thread_name`
+    // carried by `session_index.jsonl`, which matches the AX header text exactly.
+    static let codexStateSqlite = ProcessInfo.processInfo.environment["AGENTDESK_CODEX_STATE_SQLITE"]
+        ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/state_5.sqlite").path
+    static let codexSessionIndex = ProcessInfo.processInfo.environment["AGENTDESK_CODEX_SESSION_INDEX"]
+        ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".codex/session_index.jsonl").path
+    // How often a watched codex session is re-resolved against the app's state files and window headers.
+    // The state files change only when a human opens, renames, or types in a thread, so a cadence like
+    // the Claude window poll is right.
+    static let codexWindowResolveInterval: TimeInterval = 3
+    // Timeouts for the codex composer path. The materialize budget is how long a window brought to this
+    // Desktop is given to build its tree; the verify and submit budgets match the Claude ones because
+    // the codex composer is also a Chromium web contents with an async value commit.
+    static let codexComposerMaterializeTimeout: TimeInterval = 20
+    static let codexComposerMaterializePollInterval: TimeInterval = 0.2
+    static let codexComposerVerifySettleTimeout: TimeInterval = 2
+    static let codexComposerVerifySettlePollInterval: TimeInterval = 0.1
+    static let codexComposerSubmitSettleTimeout: TimeInterval = 2
+    static let codexComposerSubmitSettlePollInterval: TimeInterval = 0.1
     // How long a window brought to this Desktop is given to build its accessibility tree, and how
     // often it is checked. Chromium builds a window's tree only while it is on the current Space, so
     // the composer genuinely does not exist for the first moments after a move-in. The ceiling bounds

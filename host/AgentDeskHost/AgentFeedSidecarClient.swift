@@ -268,6 +268,7 @@ protocol SidecarClient: Sendable {
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle
     func openClaudeLiveStream(
+        source: String,
         sessionId: String,
         afterSequence: Int,
         mode: AgentFeedEventMode,
@@ -275,6 +276,7 @@ protocol SidecarClient: Sendable {
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle
     func fetchClaudeLiveEventsPage(
+        source: String,
         sessionId: String,
         offset: Int,
         limit: Int,
@@ -533,6 +535,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
     }
 
     func openClaudeLiveStream(
+        source: String,
         sessionId: String,
         afterSequence: Int,
         mode: AgentFeedEventMode,
@@ -542,7 +545,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         openJSONStream(
             request: {
                 try await self.request(
-                    path: "/api/agent-sessions/claude/\(sessionId)/stream",
+                    path: "/api/agent-sessions/\(source)/\(sessionId)/stream",
                     query: [
                         URLQueryItem(name: "since", value: String(afterSequence)),
                         URLQueryItem(name: "mode", value: mode.rawValue),
@@ -556,6 +559,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
     }
 
     func fetchClaudeLiveEventsPage(
+        source: String,
         sessionId: String,
         offset: Int,
         limit: Int,
@@ -572,7 +576,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         let envelope = try await fetchJSON(
             Envelope.self,
             request: try await request(
-                path: "/api/agent-sessions/claude/\(sessionId)/events",
+                path: "/api/agent-sessions/\(source)/\(sessionId)/events",
                 query: [
                     URLQueryItem(name: "offset", value: String(offset)),
                     URLQueryItem(name: "limit", value: String(limit)),

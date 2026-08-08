@@ -22,6 +22,7 @@ import {
 import { AgentBackendRegistry } from "./agents/agentBackend.ts";
 import { PiAgentBackend } from "./agents/piAgentBackend.ts";
 import { ClaudeLiveBackend } from "./live/claudeLiveBackend.ts";
+import { CodexLiveBackend } from "./live/codexLiveBackend.ts";
 
 // Pi normally lazy-loads OAuth providers from sibling files. A standalone Bun
 // executable has no such files beside it, so use Pi's static loader registry to
@@ -40,6 +41,10 @@ backends.register(new PiAgentBackend({
 // quiet no-op when disabled.
 const claudeLive = new ClaudeLiveBackend();
 backends.register(claudeLive);
+// Read-only live mirror of Codex Desktop traffic observed through proxy-agent,
+// with the same registration contract as the claude live mirror.
+const codexLive = new CodexLiveBackend();
+backends.register(codexLive);
 const routes: RouteHandler[] = [
   handleProjectRoutes,
   createAgentRoutes((id) => backends.get(id)),
@@ -79,7 +84,10 @@ const server = Bun.serve<undefined>({
 
 console.log(`agent feed sidecar listening on http://${config.host}:${server.port}`);
 void startCatalog()
-  .then(() => claudeLive.start())
+  .then(async () => {
+    await claudeLive.start();
+    await codexLive.start();
+  })
   .catch((error) => {
     console.error("agent feed catalog startup failed", error);
     server.stop(true);

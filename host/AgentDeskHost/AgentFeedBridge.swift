@@ -435,6 +435,7 @@ final class AgentFeedBridge: @unchecked Sendable {
         }
         guard isClaudeLive(source, sessionId) else { return }
         let tail = client.openClaudeLiveStream(
+            source: source,
             sessionId: sessionId,
             afterSequence: 0,
             mode: mode,
@@ -508,7 +509,8 @@ final class AgentFeedBridge: @unchecked Sendable {
     }
 
     private func isClaudeLive(_ source: String, _ sessionId: String) -> Bool {
-        guard source == "claude" else { return false }
+        // The live tail is a capability, not a source: any session whose backend
+        // advertises canStreamLive (claude, codex) gets the streaming mirror.
         return queue.sync { sessionCapabilities[threadKey(source: source, sessionId: sessionId)]?.canStreamLive ?? false } == true
     }
 

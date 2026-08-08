@@ -1015,6 +1015,7 @@ private struct SessionsSidecarClient: SidecarClient, @unchecked Sendable {
     }
 
     func openClaudeLiveStream(
+        source: String,
         sessionId: String,
         afterSequence: Int,
         mode: AgentFeedEventMode,
@@ -1024,7 +1025,7 @@ private struct SessionsSidecarClient: SidecarClient, @unchecked Sendable {
         SidecarStreamHandle(task: Task {})
     }
 
-    func fetchClaudeLiveEventsPage(sessionId: String, offset: Int, limit: Int, mode: AgentFeedEventMode) async throws -> AgentFeedEventsPage {
+    func fetchClaudeLiveEventsPage(source: String, sessionId: String, offset: Int, limit: Int, mode: AgentFeedEventMode) async throws -> AgentFeedEventsPage {
         AgentFeedEventsPage(events: [], total: 0)
     }
 

@@ -642,6 +642,11 @@ public enum AgentWindowInputReason: String, Error, Equatable, Sendable {
     /// construction, so this reports a broken assumption rather than a recoverable failure: it cannot
     /// be undone, and it is the signal that this approach is wrong on the current macOS.
     case focusStolen = "focus-stolen"
+    /// A Codex Desktop session resolved to more than one open window (same thread title and same
+    /// project, usually a thread that has not received its first message yet). Refused rather than
+    /// guessed: writing into the wrong window is indistinguishable from a correct write until the
+    /// text lands in the other session.
+    case ambiguousWindow = "ambiguous-window"
     /// A question action found no AskUserQuestion panel in the window -- it vanished between the
     /// transcript signal and the press, or was answered in the real window first.
     case questionMissing = "question-missing"

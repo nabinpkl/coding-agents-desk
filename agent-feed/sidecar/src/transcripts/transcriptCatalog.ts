@@ -506,7 +506,9 @@ export async function probeSession(
     };
   }
   const adapter = session.source === "claude" ? claudeAdapter : codexAdapter;
-  const live = session.source === "claude"
+  // Both live mirrors (claude, codex) resolve a session descriptor; a live
+  // backend that answers for a catalog session means the session can stream.
+  const live = session.source === "claude" || session.source === "codex"
     ? resolveAgentSession?.(session.source, session.sessionId)
     : undefined;
   const capabilities = live?.capabilities.canStreamLive

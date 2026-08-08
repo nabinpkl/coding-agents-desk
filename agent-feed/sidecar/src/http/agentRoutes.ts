@@ -12,10 +12,10 @@ const UI_STREAM_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-
 const UI_RESPONSE_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/ui\/([A-Za-z0-9._:-]{1,128})$/;
 const EVENT_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/events$/;
 const STREAM_ROUTE = /^\/api\/sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/stream$/;
-const CLAUDE_LIVE_EVENT_ROUTE = /^\/api\/agent-sessions\/(claude)\/([A-Za-z0-9._:-]{1,128})\/events$/;
-const CLAUDE_LIVE_STREAM_ROUTE = /^\/api\/agent-sessions\/(claude)\/([A-Za-z0-9._:-]{1,128})\/stream$/;
+const LIVE_EVENT_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/events$/;
+const LIVE_STREAM_ROUTE = /^\/api\/agent-sessions\/([a-z][a-z0-9-]{0,31})\/([A-Za-z0-9._:-]{1,128})\/stream$/;
 const MAXIMUM_BODY_BYTES = 256 * 1024;
-const CLAUDE_LIVE_STREAM_LAG_LIMIT = 32;
+const LIVE_STREAM_LAG_LIMIT = 32;
 
 type LiveBackend = AgentBackend & { sessionUsage(sessionId: string): TokenUsage | null };
 
@@ -48,13 +48,13 @@ export function createAgentRoutes(resolveBackend: (id: string) => AgentBackend |
     if (request.method === "GET" && stream && stream[1] === "pi") {
       return streamEvents(request, url, server, resolveBackend, stream[1], stream[2]!);
     }
-    const claudeEvents = CLAUDE_LIVE_EVENT_ROUTE.exec(url.pathname);
-    if (request.method === "GET" && claudeEvents) {
-      return pageClaudeLiveEvents(url, resolveBackend, claudeEvents[1]!, claudeEvents[2]!);
+    const liveEvents = LIVE_EVENT_ROUTE.exec(url.pathname);
+    if (request.method === "GET" && liveEvents) {
+      return pageLiveEvents(url, resolveBackend, liveEvents[1]!, liveEvents[2]!);
     }
-    const claudeStream = CLAUDE_LIVE_STREAM_ROUTE.exec(url.pathname);
-    if (request.method === "GET" && claudeStream) {
-      return streamClaudeLiveEvents(request, url, server, resolveBackend, claudeStream[1]!, claudeStream[2]!);
+    const liveStream = LIVE_STREAM_ROUTE.exec(url.pathname);
+    if (request.method === "GET" && liveStream) {
+      return streamLiveEvents(request, url, server, resolveBackend, liveStream[1]!, liveStream[2]!);
     }
     return undefined;
   };
@@ -176,7 +176,7 @@ async function abortSession(
   }
 }
 
-async function pageClaudeLiveEvents(
+async function pageLiveEvents(
   url: URL,
   resolveBackend: (id: string) => AgentBackend | undefined,
   source: string,
@@ -185,7 +185,7 @@ async function pageClaudeLiveEvents(
   const backend = resolveBackend(source);
   if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404);
   const mode = liveModeQuery(url);
-  if (mode === null) return errorResponse("unsupported-mode", "claude live supports raw and nice only", 400);
+  if (mode === null) return errorResponse("unsupported-mode", "live sessions support raw and nice only", 400);
   const offset = integerQuery(url, "offset", 0, Number.MAX_SAFE_INTEGER);
   const limit = integerQuery(url, "limit", 100, 500);
   if (offset === null || limit === null || limit < 1) {
@@ -213,7 +213,7 @@ function liveModeQuery(url: URL): EventMode | null {
   return raw === "nice" || raw === "raw" ? raw : null;
 }
 
-function streamClaudeLiveEvents(
+function streamLiveEvents(
   request: Request,
   url: URL,
   server: Parameters<RouteHandler>[2],
@@ -224,7 +224,7 @@ function streamClaudeLiveEvents(
   const backend = resolveBackend(source);
   if (!backend) return errorResponse("unknown-source", `agent source "${source}" is not registered`, 404);
   const mode = liveModeQuery(url);
-  if (mode === null) return errorResponse("unsupported-mode", "claude live supports raw and nice only", 400);
+  if (mode === null) return errorResponse("unsupported-mode", "live sessions support raw and nice only", 400);
   const after = integerQuery(url, "since", 0, Number.MAX_SAFE_INTEGER);
   if (after === null) return errorResponse("invalid-sequence", "since must be a nonnegative integer", 400);
   const live = backend as LiveBackend;
@@ -255,7 +255,7 @@ function streamClaudeLiveEvents(
         unsubscribe?.();
       };
     },
-    { lagLimit: CLAUDE_LIVE_STREAM_LAG_LIMIT },
+    { lagLimit: LIVE_STREAM_LAG_LIMIT },
   );
 }
 

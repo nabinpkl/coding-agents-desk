@@ -133,6 +133,7 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
     }
 
     func openClaudeLiveStream(
+        source: String,
         sessionId: String,
         afterSequence: Int,
         mode: AgentFeedEventMode,
@@ -142,13 +143,13 @@ final class FakeSidecarClient: SidecarClient, @unchecked Sendable {
         lock.withLock {
             _openedEventStreams += 1
             _streamModes.append(mode)
-            eventCallbacks["claude:\(sessionId)"] = onEnvelope
+            eventCallbacks["\(source):\(sessionId)"] = onEnvelope
             eventErrorHistory.append(onError)
         }
         return cancellableHandle()
     }
 
-    func fetchClaudeLiveEventsPage(sessionId: String, offset: Int, limit: Int, mode: AgentFeedEventMode) async throws -> AgentFeedEventsPage {
+    func fetchClaudeLiveEventsPage(source: String, sessionId: String, offset: Int, limit: Int, mode: AgentFeedEventMode) async throws -> AgentFeedEventsPage {
         lock.withLock {
             _eventRequests.append(EventRequest(source: "claude", sessionId: sessionId, offset: offset, limit: limit, mode: mode))
         }
