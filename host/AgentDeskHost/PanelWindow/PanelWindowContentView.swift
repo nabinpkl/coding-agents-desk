@@ -1,15 +1,13 @@
 import AppKit
 
-/// The Agents window's content view: whatever the window is showing, plus the window-level key
-/// equivalents.
+/// A panel's content view plus its window-level zoom key equivalents.
 ///
-/// It exists because the window comes in two classes -- a nonactivating `AgentPanelWindow` normally,
-/// a plain `NSWindow` under AX automation -- so an override on either would cover only half the
-/// launches. `NSWindow` walks its content view's hierarchy for key equivalents before the responder
-/// chain sees the key, so owning them one level down covers both without a second subclass.
+/// `NSWindow` walks its content view hierarchy for key equivalents before the responder chain sees
+/// the webview. Owning the chords one level below the window makes the behavior independent of the
+/// panel's concrete window class.
 @MainActor
-final class AgentWindowContentView: NSView {
-    var onZoomCommand: ((AgentWindowZoomCommand) -> Void)?
+final class PanelWindowContentView: NSView {
+    var onZoomCommand: ((PanelWindowZoomCommand) -> Void)?
 
     init(content: NSView) {
         super.init(frame: .zero)
@@ -25,13 +23,13 @@ final class AgentWindowContentView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
-        fatalError("AgentWindowContentView does not support Interface Builder")
+        fatalError("PanelWindowContentView does not support Interface Builder")
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // Checked before `super`, which walks the subviews: the webview would otherwise see the
         // chord first and scroll or insert on it.
-        guard let command = AgentWindowZoomShortcut.command(for: event) else {
+        guard let command = PanelWindowZoomShortcut.command(for: event) else {
             return super.performKeyEquivalent(with: event)
         }
         onZoomCommand?(command)

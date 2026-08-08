@@ -26,7 +26,7 @@ struct AgentWindowPresentationDescriptor: Codable, Equatable, Identifiable, Send
     let cascadeOrdinal: Int
     /// Absent when the window had no terminal pane open, which is also what a window restores to.
     var terminal: AgentWindowTerminalAttachment?
-    /// How far the window was zoomed, as `AgentWindowZoom`'s step. Belongs here for the same reason
+    /// How far the window was zoomed, as `PanelWindowZoom`'s step. Belongs here for the same reason
     /// the frame does: it is how big the window's contents were, and a restart that puts the window
     /// back at the wrong size has not really put it back.
     var zoomStep: Int

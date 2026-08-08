@@ -33,35 +33,35 @@ struct AgentWindowZoomTests {
     }
 
     @Test func commandMinusAndEqualsMapToZoomWhateverElseIsHeld() {
-        #expect(AgentWindowZoomShortcut.command(for: keyEvent("=")) == .zoomIn)
-        #expect(AgentWindowZoomShortcut.command(for: keyEvent("-")) == .zoomOut)
-        #expect(AgentWindowZoomShortcut.command(for: keyEvent("0")) == .reset)
+        #expect(PanelWindowZoomShortcut.command(for: keyEvent("=")) == .zoomIn)
+        #expect(PanelWindowZoomShortcut.command(for: keyEvent("-")) == .zoomOut)
+        #expect(PanelWindowZoomShortcut.command(for: keyEvent("0")) == .reset)
 
         // Shift is not consulted, because the chord people mean by "Command plus" arrives with Shift
         // applied and so reads as "+" rather than "=".
-        #expect(AgentWindowZoomShortcut.command(for: keyEvent("+", modifiers: [.command, .shift])) == .zoomIn)
-        #expect(AgentWindowZoomShortcut.command(for: keyEvent("_", modifiers: [.command, .shift])) == .zoomOut)
+        #expect(PanelWindowZoomShortcut.command(for: keyEvent("+", modifiers: [.command, .shift])) == .zoomIn)
+        #expect(PanelWindowZoomShortcut.command(for: keyEvent("_", modifiers: [.command, .shift])) == .zoomOut)
 
         // Caps lock is noise on the flags, not a different chord.
-        #expect(AgentWindowZoomShortcut.command(for: keyEvent("=", modifiers: [.command, .capsLock])) == .zoomIn)
+        #expect(PanelWindowZoomShortcut.command(for: keyEvent("=", modifiers: [.command, .capsLock])) == .zoomIn)
     }
 
     @Test func chordsThisWindowDoesNotOwnAreLeftAlone() {
         // Without Command these are ordinary typing, and the webview must receive them.
-        #expect(AgentWindowZoomShortcut.command(for: keyEvent("=", modifiers: [])) == nil)
-        #expect(AgentWindowZoomShortcut.command(for: keyEvent("-", modifiers: [])) == nil)
+        #expect(PanelWindowZoomShortcut.command(for: keyEvent("=", modifiers: [])) == nil)
+        #expect(PanelWindowZoomShortcut.command(for: keyEvent("-", modifiers: [])) == nil)
 
         // With Option or Control they belong to whatever else claims them; answering here would
         // shadow a binding this window did not define.
-        #expect(AgentWindowZoomShortcut.command(for: keyEvent("-", modifiers: [.command, .option])) == nil)
-        #expect(AgentWindowZoomShortcut.command(for: keyEvent("=", modifiers: [.command, .control])) == nil)
+        #expect(PanelWindowZoomShortcut.command(for: keyEvent("-", modifiers: [.command, .option])) == nil)
+        #expect(PanelWindowZoomShortcut.command(for: keyEvent("=", modifiers: [.command, .control])) == nil)
 
-        #expect(AgentWindowZoomShortcut.command(for: keyEvent("k")) == nil)
-        #expect(AgentWindowZoomShortcut.command(for: keyEvent("=", type: .keyUp)) == nil)
+        #expect(PanelWindowZoomShortcut.command(for: keyEvent("k")) == nil)
+        #expect(PanelWindowZoomShortcut.command(for: keyEvent("=", type: .keyUp)) == nil)
     }
 
     @Test func zoomStepsInTenthsAndStopsAtBothEnds() {
-        var zoom = AgentWindowZoom()
+        var zoom = PanelWindowZoom()
         #expect(zoom.scale == 1)
 
         zoom.apply(.zoomIn)
@@ -163,7 +163,7 @@ struct AgentWindowZoomTests {
 
         // The key equivalent is owned one level below the window because the window itself is one of
         // two classes depending on `Config.axAutomationEnabled`.
-        let contentView = try #require(window.contentView as? AgentWindowContentView)
+        let contentView = try #require(window.contentView as? PanelWindowContentView)
         contentView.layoutSubtreeIfNeeded()
 
         #expect(contentView.performKeyEquivalent(with: keyEvent("=")))
@@ -193,7 +193,7 @@ struct AgentWindowZoomTests {
         controller.show()
         let window = try #require(controller.windowForTesting)
         window.concealFromTheDesktopUnderTest()
-        let contentView = try #require(window.contentView as? AgentWindowContentView)
+        let contentView = try #require(window.contentView as? PanelWindowContentView)
 
         // Skipped rather than failed when the bundled panel assets are absent: the window then shows
         // the "unavailable" label and has no webview to scale, which the AX suite tolerates the same
@@ -224,7 +224,7 @@ struct AgentWindowZoomTests {
         controller.show()
         let window = try #require(controller.windowForTesting)
         window.concealFromTheDesktopUnderTest()
-        let contentView = try #require(window.contentView as? AgentWindowContentView)
+        let contentView = try #require(window.contentView as? PanelWindowContentView)
 
         _ = contentView.performKeyEquivalent(with: keyEvent("="))
         _ = contentView.performKeyEquivalent(with: keyEvent("="))
@@ -254,7 +254,7 @@ struct AgentWindowZoomTests {
         controller.show()
         let window = try #require(controller.windowForTesting)
         window.concealFromTheDesktopUnderTest()
-        let contentView = try #require(window.contentView as? AgentWindowContentView)
+        let contentView = try #require(window.contentView as? PanelWindowContentView)
 
         #expect(controller.zoomScaleForTesting == 1.4)
         if let webView = firstWebView(in: contentView) {
@@ -278,9 +278,9 @@ struct AgentWindowZoomTests {
     @Test func aStepFromOutsideTheSupportedRangeIsClampedOnTheWayIn() {
         // The store is the untrusted input here: a build with a wider range, or a hand-edited file,
         // must not land a window at a size its own keys cannot walk back from.
-        #expect(AgentWindowZoom(step: 99).scale == 2)
-        #expect(AgentWindowZoom(step: -99).scale == 0.6)
-        #expect(AgentWindowZoom(step: 3).scale == 1.3)
+        #expect(PanelWindowZoom(step: 99).scale == 2)
+        #expect(PanelWindowZoom(step: -99).scale == 0.6)
+        #expect(PanelWindowZoom(step: 3).scale == 1.3)
     }
 
     private func firstWebView(in view: NSView) -> WKWebView? {

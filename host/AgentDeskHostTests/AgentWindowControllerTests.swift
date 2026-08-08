@@ -64,7 +64,7 @@ struct AgentWindowControllerTests {
         #expect(window.titlebarAppearsTransparent)
         #expect(window.titlebarSeparatorStyle == .none)
 
-        let contentView = try #require(window.contentView as? AgentWindowContentView)
+        let contentView = try #require(window.contentView as? PanelWindowContentView)
         contentView.layoutSubtreeIfNeeded()
         // The web header starts clear of the traffic lights. It is the only native title-bar
         // geometry left: dragging is hit-tested in the DOM and performed over the chrome channel,

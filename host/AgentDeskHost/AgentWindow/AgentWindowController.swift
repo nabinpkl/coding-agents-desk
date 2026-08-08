@@ -54,7 +54,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     /// Restored from `AgentWindowPresentationStore` at launch and reported back on every change, so
     /// a window comes back at the size it was left at. A window the user CLOSED forfeits its whole
     /// stored presentation, zoom with it, exactly as it forfeits its frame.
-    private var zoom: AgentWindowZoom
+    private var zoom: PanelWindowZoom
 
     init(
         sidecarClient: any SidecarClient,
@@ -87,7 +87,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
             placementSession = nil
         }
         self.placementCoordinator = placementCoordinator
-        self.zoom = AgentWindowZoom(step: initialZoomStep)
+        self.zoom = PanelWindowZoom(step: initialZoomStep)
         self.onClosed = onClosed
         super.init()
     }
@@ -332,8 +332,8 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         }
     }
 
-    private func makeContentView(_ content: NSView) -> AgentWindowContentView {
-        let view = AgentWindowContentView(content: content)
+    private func makeContentView(_ content: NSView) -> PanelWindowContentView {
+        let view = PanelWindowContentView(content: content)
         view.onZoomCommand = { [weak self] command in
             self?.applyZoom(command)
         }
@@ -395,7 +395,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
 
     /// Scales both halves of the window by one level, through the mechanism each one wants: page
     /// zoom for the feed, font size for the terminal, whose character grid page zoom would blur.
-    private func applyZoom(_ command: AgentWindowZoomCommand) {
+    private func applyZoom(_ command: PanelWindowZoomCommand) {
         let previous = zoom
         zoom.apply(command)
         guard zoom != previous else { return }

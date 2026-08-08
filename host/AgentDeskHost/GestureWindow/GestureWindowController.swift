@@ -27,6 +27,9 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
     private var window: NSWindow?
     private var panelController: InteractionPanelWebViewController?
     private var transport: GesturePanelSpaceStepTransport?
+    /// Retained while the panel is hidden so returning to Voice or Gesture does
+    /// not surprise the user by changing its reading scale.
+    private var zoom = PanelWindowZoom()
     /// Mirrors the default input device, so a window built later opens with the
     /// current echo-cancellation answer rather than the launch-time one.
     private var echoCancellation = DefaultAudioInput.shouldCancelEcho()
@@ -38,6 +41,8 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
 
     /// Test seam: the constructed window (nil until the first `show()`, and after `stop()`).
     var windowForTesting: NSWindow? { window }
+    var zoomScaleForTesting: Double { zoom.scale }
+    var webViewZoomScaleForTesting: Double? { panelController.map { Double($0.webView.pageZoom) } }
 
     func toggle() {
         if let window, window.isVisible {
@@ -113,14 +118,15 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
 
             let webView = controller.webView
             webView.setAccessibilityIdentifier(Self.webViewAccessibilityIdentifier)
+            webView.pageZoom = zoom.scale
             // The gesture UI needs the camera; grant capture requests from the
             // bundled origin (the app must also declare NSCameraUsageDescription
             // and the camera entitlement — see the wiring checklist).
             webView.uiDelegate = self
-            window.contentView = webView
+            window.contentView = makeContentView(webView)
         } catch {
             logger.error("gesture-window: InteractionPanel init failed: \(String(describing: error), privacy: .public)")
-            window.contentView = makeUnavailableView()
+            window.contentView = makeContentView(makeUnavailableView())
         }
     }
 
@@ -147,6 +153,21 @@ final class GestureWindowController: NSObject, NSWindowDelegate, WKUIDelegate {
         window.setFrameAutosaveName("AgentDeskGestureWindow")
         window.center()
         return window
+    }
+
+    private func makeContentView(_ content: NSView) -> PanelWindowContentView {
+        let view = PanelWindowContentView(content: content)
+        view.onZoomCommand = { [weak self] command in
+            self?.applyZoom(command)
+        }
+        return view
+    }
+
+    private func applyZoom(_ command: PanelWindowZoomCommand) {
+        let previous = zoom
+        zoom.apply(command)
+        guard zoom != previous else { return }
+        panelController?.webView.pageZoom = zoom.scale
     }
 
     private func makeUnavailableView() -> NSView {
