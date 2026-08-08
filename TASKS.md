@@ -1793,3 +1793,22 @@ movement and verification, and a second mover would be the per-feature copy ADR-
   window on another Desktop, a session open only in a terminal, a session not running, frontmost unchanged
   across a write, the window returned to its home Desktop, and the composer holding the exact text with
   nothing submitted.
+- D256. Recover a wedged composer deterministically: a Claude window's conversation web contents can fail
+  to build its accessibility tree entirely -- the composer is on screen (`AXTextArea`, `AXDescription ==
+  "Prompt"`) yet the scan reads `composerMissing` on every poll, with no AX client, latch, or trigger able
+  to materialize it. Terminating Claude's `--type=renderer` children (matched by parent pid and the
+  Chromium renderer marker, never by CPU or activity) makes Chromium respawn the contents fresh, which
+  rebuilds the tree -- verified against the live app: the composer appeared within a second of the kill
+  and stayed. `AgentWindowRendererReviver` owns the selection, SIGTERM, and two gates so the kill never
+  becomes a nuisance: the composer must be missing CONTINUOUSLY for `claudeRendererReviveMinMissing` (8s)
+  before a revive fires (a tree that flaps on a shorter cycle is never killed), and
+  `claudeRendererReviveCooldown` (60s) bounds one kill per Claude process. The composer paths
+  (`readComposer`/`writeComposer`/`submitComposer`/`awaitComposer`) revive on `composerMissing` and, when a
+  kill actually fires, wait `claudeRendererReviveWait` (3s) for the respawned tree; otherwise they fail
+  fast and the coordinator's own 3s poll retries. Two related fixes fell out of live validation: a write
+  that landed could fail reconciliation because ProseMirror commits the value asynchronously and a
+  mid-rebuild web contents answers the first read with the old value or the placeholder, so
+  `writeComposer` now settles the read-back (`claudeComposerVerifySettleTimeout`, 2s) before returning it
+  -- the writer still judges the final value, never a guessed success; and a transient read failure no
+  longer wipes the panel field with nil, because the coordinator keeps the last known `composerText` until
+  a read succeeds again, so a flapping tree renders no flicker.

@@ -171,7 +171,16 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
                     // Prefill only when the window is already on this Desktop. Reading one that is not
                     // would mean dragging it onto the user's screen and back just to populate a field.
                     let composerText = prefilled[sessionId] ?? {
-                        let text = (try? writer.readIfFree(target).get()) ?? nil
+                        let text: String?
+                        if let value = try? writer.readIfFree(target).get() {
+                            text = value
+                        } else {
+                            // A transient read failure -- a web contents rebuilding its tree -- must not
+                            // wipe the field with nil: the window is still there, and the panel adopts a
+                            // nil text as its own field contents. Keep the last known text until a read
+                            // succeeds again, so a flapping tree renders no flicker.
+                            text = lastStatus[sink]?[subscriptionId]?.composerText
+                        }
                         prefilled[sessionId] = text
                         return text
                     }()

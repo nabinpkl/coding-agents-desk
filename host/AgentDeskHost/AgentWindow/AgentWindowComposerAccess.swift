@@ -3,6 +3,7 @@ import AppKit
 import ApplicationServices
 import CoreGraphics
 import Foundation
+import os
 
 /// The live Accessibility implementation of a composer read/write against Claude Desktop.
 ///
@@ -18,6 +19,13 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
     /// Depth bound for the composer search. The prompt sits shallow inside the web contents; the bound
     /// is a guard against a cyclic tree, not a real limit.
     static let maxSearchDepth = 48
+
+    private let reviver: AgentWindowRendererReviving
+    private let logger = Logger(subsystem: Config.logSubsystem, category: "agent-window-composer")
+
+    init(reviver: AgentWindowRendererReviving = AgentWindowRendererReviver()) {
+        self.reviver = reviver
+    }
 
     func frontmostApplicationPID() -> pid_t? {
         NSWorkspace.shared.frontmostApplication?.processIdentifier
@@ -50,9 +58,16 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
         while Date() < deadline {
             do {
                 _ = try composerElement(for: target)
+                reviver.noteComposerFound(for: target.claudeMainPid)
                 return
             } catch let reason as AgentWindowInputReason {
                 lastError = reason
+                // A window that was just moved here is expected to build its tree on its own, but a
+                // wedged web contents never will. The reviver's continuous-missing gate means a slow
+                // build is never touched, and a wedge recovers within it.
+                if reason == .composerMissing {
+                    reviveIfDue(for: target)
+                }
             }
             Thread.sleep(forTimeInterval: Config.claudeComposerMaterializePollInterval)
         }
@@ -60,17 +75,45 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
     }
 
     func readComposer(for target: AgentWindowSessionTarget) throws -> String {
-        let composer = try composerElement(for: target)
+        let composer = try composerElementOrRecover(for: target)
         return try composerValue(for: composer)
     }
 
     func writeComposer(_ text: String, for target: AgentWindowSessionTarget) throws -> String {
-        let composer = try composerElement(for: target)
+        let composer = try composerElementOrRecover(for: target)
         // Sets the field's value. There is no key synthesis anywhere in this path, so no Return can be
         // produced: the human commits the prompt in the real window.
         let result = AXUIElementSetAttributeValue(composer, kAXValueAttribute as CFString, text as CFString)
         guard result == .success else { throw AgentWindowInputReason.writeFailed }
-        return try composerValue(for: composer)
+        // The value commits asynchronously in Chromium, and a web contents mid-rebuild can answer the
+        // first read with the old value or the placeholder. A landed write must not fail reconciliation
+        // on that stale first read, so the read-back gets the same settle budget a submit gets; the
+        // writer still judges the final value, never a guessed success.
+        return try settledReadBack(of: text, for: target)
+    }
+
+    /// Polls the composer until it reads back the written text, or the settle budget expires.
+    ///
+    /// Each attempt re-scans the window rather than reusing the first element, because the web contents
+    /// may rebuild its tree mid-settle. Any read error is a retry: the write already landed, so a
+    /// momentary absence must not fail the reconciliation. After the budget, the final read-back is
+    /// returned -- empty when the window holds nothing readable -- so the writer reports an honest
+    /// mismatch instead of a guessed success.
+    private func settledReadBack(of text: String, for target: AgentWindowSessionTarget) throws -> String {
+        let expected = AgentWindowComposerWriter.lineEndCanonical(text)
+        let deadline = Date().addingTimeInterval(Config.claudeComposerVerifySettleTimeout)
+        while Date() < deadline {
+            do {
+                let readBack = try composerValue(for: composerElement(for: target))
+                if AgentWindowComposerWriter.lineEndCanonical(readBack) == expected {
+                    return readBack
+                }
+            } catch {
+                // Tree mid-rebuild; keep polling.
+            }
+            Thread.sleep(forTimeInterval: Config.claudeComposerVerifySettlePollInterval)
+        }
+        return (try? composerValue(for: composerElement(for: target))) ?? ""
     }
 
     /// Focuses the composer and presses Return, committing whatever it holds.
@@ -91,7 +134,7 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
         // This activates the owning app and fronts its window -- the submit path is the user asking for
         // the prompt to run, so that is the requested outcome, not the focus-stolen failure the
         // non-activating fill path reports.
-        let composer = try composerElement(for: target)
+        let composer = try composerElementOrRecover(for: target)
         let focusResult = AXUIElementSetAttributeValue(composer, kAXFocusedAttribute as CFString, kCFBooleanTrue)
         guard focusResult == .success else { throw AgentWindowInputReason.writeFailed }
 
@@ -182,6 +225,53 @@ final class AgentWindowComposerAccess: AgentWindowComposerAccessing {
     }
 
     // MARK: - Element lookup
+
+    /// The composer, recovering a wedged web contents before giving up.
+    ///
+    /// A window can sit on the current Space, focused, with the composer plainly on screen, and still
+    /// expose no prompt field: Chromium only materializes a web contents' accessibility tree under
+    /// conditions this host cannot control, and a contents that never built its tree reads as
+    /// "composer missing". The deterministic recovery is to terminate Claude's renderer children --
+    /// Chromium respawns the contents fresh, which builds the tree (verified against the live app).
+    /// The reviver's continuous-missing gate means a tree that flaps briefly is never killed, and the
+    /// cooldown bounds a tree that never rebuilds. When a revive actually fires, the respawned
+    /// contents gets a short bounded wait; otherwise the caller fails fast and the coordinator's own
+    /// poll retries.
+    private func composerElementOrRecover(for target: AgentWindowSessionTarget) throws -> AXUIElement {
+        do {
+            let element = try composerElement(for: target)
+            reviver.noteComposerFound(for: target.claudeMainPid)
+            return element
+        } catch AgentWindowInputReason.composerMissing {
+            guard !reviveIfDue(for: target).isEmpty else {
+                throw AgentWindowInputReason.composerMissing
+            }
+            let deadline = Date().addingTimeInterval(Config.claudeRendererReviveWait)
+            while Date() < deadline {
+                Thread.sleep(forTimeInterval: Config.claudeComposerMaterializePollInterval)
+                do {
+                    let element = try composerElement(for: target)
+                    reviver.noteComposerFound(for: target.claudeMainPid)
+                    return element
+                } catch AgentWindowInputReason.composerMissing {
+                    continue
+                }
+            }
+            throw AgentWindowInputReason.composerMissing
+        }
+    }
+
+    /// Records a composer-missing observation and, when the revive gates allow, terminates the
+    /// target's renderer children. Returns the terminated pids so the caller can log and wait.
+    private func reviveIfDue(for target: AgentWindowSessionTarget) -> [pid_t] {
+        let killed = reviver.noteComposerMissing(for: target.claudeMainPid, now: Date())
+        if !killed.isEmpty {
+            logger.warning(
+                "composer absent in window \(target.windowID, privacy: .public); terminated renderer(s) \(killed, privacy: .public) for pid \(target.claudeMainPid, privacy: .public)"
+            )
+        }
+        return killed
+    }
 
     private func composerElement(for target: AgentWindowSessionTarget) throws -> AXUIElement {
         guard AXIsProcessTrusted() else { throw AgentWindowInputReason.accessibilityDenied }

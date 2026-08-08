@@ -62,6 +62,7 @@ struct AgentWindowComposerCoordinatorTests {
         private let lock = NSLock()
         private var _writes: [String] = []
         var composerText = "existing draft"
+        var readError: AgentWindowInputReason?
 
         var writes: [String] {
             lock.lock()
@@ -72,7 +73,10 @@ struct AgentWindowComposerCoordinatorTests {
         func frontmostApplicationPID() -> pid_t? { 100 }
         func latchManualAccessibility(pid: pid_t) throws {}
         func awaitComposer(for target: AgentWindowSessionTarget) throws {}
-        func readComposer(for target: AgentWindowSessionTarget) throws -> String { composerText }
+        func readComposer(for target: AgentWindowSessionTarget) throws -> String {
+            if let readError { throw readError }
+            return composerText
+        }
 
         func writeComposer(_ text: String, for target: AgentWindowSessionTarget) throws -> String {
             lock.lock()
@@ -311,5 +315,28 @@ struct AgentWindowComposerCoordinatorTests {
         let messages = await mac.wait(count: 2)
         let updated = try decodeStatus(messages[1])
         #expect(updated.composerText == "typed in the real window")
+    }
+
+    @Test func aTransientReadFailureKeepsTheLastTextAndStaysSilent() async throws {
+        let access = Access()
+        let coordinator = makeCoordinator(access: access, resolveInterval: 0.02)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-mac", sessionId: session), from: "mac")
+        _ = await mac.wait(count: 1)
+
+        // The window's web contents rebuilds its tree, so reads fail for a stretch. The field must not
+        // flicker to nil: the window is still there, and a nil text is adopted by the panel as its own
+        // contents. The last known text is what keeps the field stable until a read succeeds again.
+        access.readError = .composerMissing
+        access.composerText = "changed in the real window"
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(mac.current.count == 1)
+
+        // The tree is back; the next poll announces the real change, proving the polls never stopped.
+        access.readError = nil
+        let messages = await mac.wait(count: 2)
+        let updated = try decodeStatus(messages[1])
+        #expect(updated.composerText == "changed in the real window")
     }
 }

@@ -901,6 +901,25 @@ enum Config {
     // a renderer that never answers; the normal cost is one poll.
     static let claudeComposerMaterializeTimeout: TimeInterval = 10
     static let claudeComposerMaterializePollInterval: TimeInterval = 0.2
+    // A composer scan that finds the window but no prompt field usually means the window's web contents
+    // never built its accessibility tree: a wedged contents reads as "composer missing" while the field
+    // is plainly on screen. The deterministic recovery is to terminate Claude's renderer children --
+    // Chromium respawns the web contents fresh, which materializes the tree. The revive only fires once
+    // the composer has been CONTINUOUSLY missing for `claudeRendererReviveMinMissing`, so a tree that
+    // flaps on a sub-minute cycle is never killed; after a revive, `claudeRendererReviveCooldown` gates
+    // the next one per Claude process, because the coordinator re-resolves every few seconds and without
+    // the gate a tree that never rebuilds would be killed on every poll.
+    static let claudeRendererReviveMinMissing: TimeInterval = 8
+    static let claudeRendererReviveCooldown: TimeInterval = 60
+    // How long after an actual revive the already-visible path waits for the respawned tree before
+    // reporting missing. The coordinator's own 3s poll retries after that; the moved-window path waits
+    // longer, through its own materialize budget.
+    static let claudeRendererReviveWait: TimeInterval = 3
+    // How long a write's read-back is given to converge. The value commits asynchronously in Chromium,
+    // and a web contents mid-rebuild can answer the first read with the old value or the placeholder; a
+    // landed write must not fail reconciliation on that stale first read.
+    static let claudeComposerVerifySettleTimeout: TimeInterval = 2
+    static let claudeComposerVerifySettlePollInterval: TimeInterval = 0.1
     // How long a submit waits for Chromium to clear the composer after Return is pressed. Chromium runs
     // that submit on its own main thread, which a busy session can occupy; the ceiling bounds it, and a
     // composer that has not cleared by then is reported holding whatever text it still has.
