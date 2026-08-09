@@ -89,19 +89,9 @@ public final class WebPanelWebViewController: NSObject {
                 // messages out to the panel's own delivery function in order, so
                 // the JS contract is unchanged while the batch's updates coalesce
                 // into a single render pass on the webview side.
-                let encoded = try JSONEncoder().encode(rawJSONs)
-                let arrayLiteral = String(decoding: encoded, as: UTF8.self)
                 _ = try await self.webView.callAsyncJavaScript(
-                    """
-                    (function (payloads) {
-                      var deliver = window.\(self.contract.deliveryFunctionName);
-                      if (typeof deliver !== 'function') return;
-                      for (var i = 0; i < payloads.length; i++) {
-                        deliver(JSON.parse(payloads[i]));
-                      }
-                    })(payloads)
-                    """,
-                    arguments: ["payloads": arrayLiteral],
+                    Self.batchDeliveryScript(deliveryFunctionName: self.contract.deliveryFunctionName),
+                    arguments: ["payloads": rawJSONs],
                     in: nil,
                     contentWorld: .page
                 )
@@ -243,6 +233,27 @@ extension WebPanelWebViewController: WKScriptMessageHandler {
         var payload = body
         payload.removeValue(forKey: "t")
         return payload
+    }
+
+    /// The script that delivers one BATCH of native-to-JS messages in a single
+    /// webview round trip. It fans the array out to the panel's own delivery
+    /// function in order, so the JS contract is unchanged and React coalesces
+    /// the batch into one render pass.
+    ///
+    /// The batch must arrive as a Swift `[String]` so `callAsyncJavaScript`
+    /// converts it to a JS ARRAY of strings; passing the JSON-encoded array
+    /// text instead makes `payloads` a string and the loop iterates characters,
+    /// failing every delivery.
+    static func batchDeliveryScript(deliveryFunctionName: String) -> String {
+        """
+        (function (payloads) {
+          var deliver = window.\(deliveryFunctionName);
+          if (typeof deliver !== 'function') return;
+          for (var i = 0; i < payloads.length; i++) {
+            deliver(JSON.parse(payloads[i]));
+          }
+        })(payloads)
+        """
     }
 
     private func handleDiagnostics(_ body: Any) {

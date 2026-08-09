@@ -348,6 +348,9 @@ enum AgentFeedRequest: Equatable {
     case sessionSend(AgentSessionSend)
     case sessionAbort(AgentSessionAbort)
     case extensionUIResponse(AgentExtensionUIResponse)
+    case questionWatch(AgentWindowQuestionWatch)
+    case questionUnwatch(AgentWindowQuestionUnwatch)
+    case questionAction(AgentWindowQuestionAction)
 
     init(_ request: AgentPanelRequest) {
         switch request {
@@ -420,6 +423,22 @@ enum AgentFeedRequest: Equatable {
                 sessionId: sessionId,
                 requestId: requestId,
                 value: wireValue
+            ))
+        case .questionWatch(let subscriptionId, let sessionId):
+            self = .questionWatch(AgentWindowQuestionWatch(
+                subscriptionId: subscriptionId,
+                sessionId: sessionId
+            ))
+        case .questionUnwatch(let subscriptionId):
+            self = .questionUnwatch(AgentWindowQuestionUnwatch(subscriptionId: subscriptionId))
+        case .questionAction(let requestId, let sessionId, let kind, let optionIndex, let desired, let otherText):
+            self = .questionAction(AgentWindowQuestionAction(
+                requestId: requestId,
+                sessionId: sessionId,
+                kind: kind.rawValue,
+                optionIndex: optionIndex,
+                desired: desired.map { $0 ? 1 : 0 },
+                text: otherText
             ))
         case .terminal:
             preconditionFailure("Terminal intents must route through AgentFeedSurface.onTerminalIntent")

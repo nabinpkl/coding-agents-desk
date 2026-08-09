@@ -1946,4 +1946,12 @@ default, unlike Claude.
   `WebPanelSerialDelivery` now delivers BATCHES: everything queued while a delivery is in flight
   goes as one array, the webview script fans it out to the panel's own deliver function in
   order (JS contract unchanged, React coalesces the batch into one render pass), and a 256-message
-  cap bounds the JS task. Verified: the fix is in the rebuilt Release app bundle.
+  cap bounds the JS task. A regression in that fix hung the panel on `Loading projects...`:
+  the batch was passed to `callAsyncJavaScript` as the JSON-encoded array TEXT, which arrives as a
+  JS STRING, so the fan-out loop iterated characters and `JSON.parse` threw on the first one,
+  killing every webview delivery. The batch is now passed as a Swift `[String]` (bridges to a JS
+  array of strings), the script is a pinned static (`batchDeliveryScript`), and a unit test
+  asserts the script shape AND that the argument is a `[String]`, not a `String` -- a real-WKWebView
+  test was attempted but WKWebView answers every `callAsyncJavaScript` with undefined in this
+  package's CLI test environment (even `1 + 1`), so the argument-type pin is the regression guard.
+  Verified: `just check` green and the fix is in the rebuilt Release app bundle.

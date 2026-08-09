@@ -72,6 +72,10 @@ protocol InputChannel: AnyObject, Sendable {
     func sendAgentWindowInputSync(_ request: AgentWindowInputSync) async throws
     func sendAgentWindowInputRead(_ request: AgentWindowInputRead) async throws
     func sendAgentWindowInputSubmit(_ request: AgentWindowInputSubmit) async throws
+    // AskUserQuestion panel state, answered on the same Accessibility-answered lane.
+    func sendAgentWindowQuestionWatch(_ request: AgentWindowQuestionWatch) async throws
+    func sendAgentWindowQuestionUnwatch(_ request: AgentWindowQuestionUnwatch) async throws
+    func sendAgentWindowQuestionAction(_ request: AgentWindowQuestionAction) async throws
 
     var closed: AsyncStream<Void> { get }
 }

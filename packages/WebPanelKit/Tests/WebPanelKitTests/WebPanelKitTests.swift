@@ -174,6 +174,30 @@ struct WebPanelKitTests {
         #expect(serial.pendingCount == 0)
     }
 
+    #if os(macOS)
+    /// The batch delivery is only as good as the argument conversion that feeds
+    /// it: `callAsyncJavaScript` turns a Swift `[String]` into a JS array of
+    /// strings, and the loop parses each element. Passing the JSON-encoded array
+    /// TEXT instead makes `payloads` a string, the loop iterates characters, and
+    /// every webview delivery fails -- the regression that hung the panel on
+    /// "Loading projects...". This pins the script shape and the argument type
+    /// that the webview conversion depends on.
+    @MainActor
+    @Test func batchDeliveryScriptFansOutAndTakesAStringArray() {
+        let script = WebPanelWebViewController.batchDeliveryScript(deliveryFunctionName: "__agentFeedDeliver")
+        #expect(script.contains("window.__agentFeedDeliver"))
+        #expect(script.contains("JSON.parse(payloads[i])"))
+        #expect(script.contains("for (var i = 0; i < payloads.length; i++)"))
+
+        // The regression: the batch must be a [String] (bridges to a JS array of
+        // strings). The JSON-encoded array TEXT is a String and would break the loop.
+        let batch: [String] = [#"{"t":"a"}"#, #"{"t":"b"}"#]
+        let arguments: [String: Any] = ["payloads": batch]
+        #expect(arguments["payloads"] is [String])
+        #expect(!(arguments["payloads"] is String))
+    }
+    #endif
+
     private func makeTemporaryResourceRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("WebPanelKitTests-\(UUID().uuidString)", isDirectory: true)

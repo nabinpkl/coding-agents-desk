@@ -430,6 +430,18 @@ private struct Channels {
         try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
+    func sendAgentWindowQuestionWatch(_ request: AgentWindowQuestionWatch) async throws {
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
+    }
+
+    func sendAgentWindowQuestionUnwatch(_ request: AgentWindowQuestionUnwatch) async throws {
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
+    }
+
+    func sendAgentWindowQuestionAction(_ request: AgentWindowQuestionAction) async throws {
+        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
+    }
+
     static func agentTerminalFrame(_ message: AgentTerminalClientMessage) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

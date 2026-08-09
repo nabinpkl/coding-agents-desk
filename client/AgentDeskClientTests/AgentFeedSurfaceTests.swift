@@ -130,6 +130,45 @@ struct AgentFeedSurfaceTests {
             requestId: "ui-1",
             value: .bool(true)
         )))
+        #expect(AgentFeedRequest(.questionWatch(
+            subscriptionId: "q-1",
+            sessionId: "session"
+        )) == .questionWatch(AgentWindowQuestionWatch(
+            subscriptionId: "q-1",
+            sessionId: "session"
+        )))
+        #expect(AgentFeedRequest(.questionUnwatch(subscriptionId: "q-1"))
+            == .questionUnwatch(AgentWindowQuestionUnwatch(subscriptionId: "q-1")))
+        #expect(AgentFeedRequest(.questionAction(
+            requestId: "a-1",
+            sessionId: "session",
+            kind: .select,
+            optionIndex: 2,
+            desired: true,
+            otherText: nil
+        )) == .questionAction(AgentWindowQuestionAction(
+            requestId: "a-1",
+            sessionId: "session",
+            kind: "select",
+            optionIndex: 2,
+            desired: 1,
+            text: nil
+        )))
+        #expect(AgentFeedRequest(.questionAction(
+            requestId: "a-2",
+            sessionId: "session",
+            kind: .other,
+            optionIndex: nil,
+            desired: nil,
+            otherText: "custom answer"
+        )) == .questionAction(AgentWindowQuestionAction(
+            requestId: "a-2",
+            sessionId: "session",
+            kind: "other",
+            optionIndex: nil,
+            desired: nil,
+            text: "custom answer"
+        )))
     }
 
     @Test func sendsBridgedRequestsToTheInputLaneCallback() {
@@ -142,12 +181,38 @@ struct AgentFeedSurfaceTests {
             source: "codex",
             sessionId: "s"
         ))
+        surface.sendAgentPanelRequest(.questionWatch(
+            subscriptionId: "q",
+            sessionId: "s"
+        ))
+        surface.sendAgentPanelRequest(.questionUnwatch(subscriptionId: "q"))
+        surface.sendAgentPanelRequest(.questionAction(
+            requestId: "a",
+            sessionId: "s",
+            kind: .submit,
+            optionIndex: nil,
+            desired: nil,
+            otherText: nil
+        ))
 
         #expect(received == [
             .projectsWatch(AgentProjectsWatch(subscriptionId: "p")),
             .threadUnsubscribe(AgentThreadUnsubscribe(
                 source: "codex",
                 sessionId: "s"
+            )),
+            .questionWatch(AgentWindowQuestionWatch(
+                subscriptionId: "q",
+                sessionId: "s"
+            )),
+            .questionUnwatch(AgentWindowQuestionUnwatch(subscriptionId: "q")),
+            .questionAction(AgentWindowQuestionAction(
+                requestId: "a",
+                sessionId: "s",
+                kind: "submit",
+                optionIndex: nil,
+                desired: nil,
+                text: nil
             )),
         ])
     }
