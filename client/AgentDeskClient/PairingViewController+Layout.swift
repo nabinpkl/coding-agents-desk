@@ -211,11 +211,17 @@ extension PairingViewController {
         // Directly under the Spaces strip, because the two are the same kind of thing: pick a
         // thing to look at. They need visibly distinct affordances though -- a Desktop tile
         // switches the Mac's Space, a window icon only retargets this phone's view and
-        // changes nothing on the Mac.
+        // changes nothing on the Mac. Unlike the Spaces strip it starts collapsed to its bar,
+        // because picking a window is occasional while the Spaces strip is navigation.
         windowPickerStripView.translatesAutoresizingMaskIntoConstraints = false
         windowPickerStripView.delegate = self
         windowPickerStripView.isHidden = true
         hostContentView.addSubview(windowPickerStripView)
+
+        let windowPickerHeight = windowPickerStripView.heightAnchor.constraint(
+            equalToConstant: windowPickerStripView.preferredHeight
+        )
+        windowPickerStripHeightConstraint = windowPickerHeight
 
         let bottomConstraint = buttonRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
         buttonRowBottomConstraint = bottomConstraint
@@ -243,9 +249,7 @@ extension PairingViewController {
             thumbnailStripView.heightAnchor.constraint(
                 equalToConstant: ThumbnailStripView.tileHeight + ThumbnailStripView.tileCaptionHeight
             ),
-            windowPickerStripView.heightAnchor.constraint(
-                equalToConstant: WindowPickerStripView.stripHeight
-            ),
+            windowPickerHeight,
 
             keyboardSurface.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
 

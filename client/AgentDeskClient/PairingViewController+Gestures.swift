@@ -386,11 +386,17 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             displayRailView.isHidden = true
             thumbnailStripView.isHidden = true
             windowPickerStripView.isHidden = true
+            // A hidden view still holds its height here, so an expanded picker left open
+            // while the keyboard is up would reserve the tile row for nothing.
+            windowPickerStripView.setExpanded(false)
             return
         }
         displayRailView.isHidden = displayRailView.displayCount <= 1
         thumbnailStripView.isHidden = thumbnailStripView.userSpaceCount <= 1
         windowPickerStripView.isHidden = windowPickerStripView.isEmptyAndIdle
+        if windowPickerStripView.isHidden {
+            windowPickerStripView.setExpanded(false)
+        }
     }
 
     // Whether the host should be producing the window list at all. Same condition as strip
@@ -499,6 +505,23 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         let config = currentClientConfig(thumbnailRefresh: spaceId)
         Task { [channel, config] in
             try? await channel.sendConfig(config)
+        }
+    }
+
+    // MARK: - WindowPickerStripViewDelegate
+
+    // The strip owns whether it is open; the layout owns how tall it is. Animating here
+    // rather than inside the strip keeps the trackpad's top edge, which is pinned to the
+    // strip's bottom, moving in the same pass.
+    func windowPickerDidChangePreferredHeight(_ view: WindowPickerStripView) {
+        windowPickerStripHeightConstraint?.constant = view.preferredHeight
+        guard viewIfLoaded?.window != nil else { return }
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.curveEaseInOut, .beginFromCurrentState]
+        ) { [weak self] in
+            self?.view.layoutIfNeeded()
         }
     }
 

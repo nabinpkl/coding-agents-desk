@@ -5,10 +5,19 @@ import AgentDeskWire
 protocol WindowPickerStripViewDelegate: AnyObject {
     // nil means "go back to watching the whole Desktop".
     func windowPicker(_ view: WindowPickerStripView, didSelectWindowId windowId: UInt32?)
+    // The strip's `preferredHeight` changed. The height constraint lives with the layout
+    // owner, so expansion has to be reported rather than self-applied.
+    func windowPickerDidChangePreferredHeight(_ view: WindowPickerStripView)
 }
 
 // Flat horizontal strip of app icons, one per watchable window, sitting directly under the
 // Spaces strip.
+//
+// Collapsed by default to a one-line bar, expanded on demand. Picking a window is an
+// occasional act, while the row it used to hold was permanent: 52pt of tiles under the
+// Spaces strip, every session, mostly to say "you are watching the whole Desktop", which the
+// video already says. Collapsed, the bar reports the current target in a line and hands the
+// rest back to the trackpad; tapping opens the tiles, and picking one closes them again.
 //
 // Flat rather than grouped by Desktop: the Mac-side Dock enrichment groups per Desktop and
 // ends up wide and under-used, while the real Dock stays flat. The Desktop lives on the icon
@@ -30,13 +39,21 @@ final class WindowPickerStripView: UIView {
     static let tileSize: CGFloat = 44
     static let tileSpacing: CGFloat = 10
     // Icon plus a little breathing room; the badge overlaps the icon corner rather than
-    // claiming its own height, so the strip stays one tile tall.
-    static let stripHeight: CGFloat = tileSize + 8
+    // claiming its own height, so the tile row stays one tile tall.
+    static let tileRowHeight: CGFloat = tileSize + 8
+    // The bar is the whole strip when collapsed. Short, because it is a label with a hit
+    // target rather than a control cluster, and it spans the full width so the tap target is
+    // large in the axis that matters.
+    static let barHeight: CGFloat = 28
+    static let tileRowGap: CGFloat = 4
+    static let collapsedHeight: CGFloat = barHeight
+    static let expandedHeight: CGFloat = barHeight + tileRowGap + tileRowHeight
 
     private var windows: [WindowSummary] = []
     private var icons: [String: UIImage] = [:]
     private var desktopOrdinals: [UInt64: Int] = [:]
     private var selectedWindowId: UInt32?
+    private(set) var isExpanded = false
 
     private lazy var layout: UICollectionViewFlowLayout = {
         let l = UICollectionViewFlowLayout()
@@ -47,6 +64,11 @@ final class WindowPickerStripView: UIView {
         l.sectionInset = .zero
         return l
     }()
+
+    private let barButton = UIControl()
+    private let barChevron = UIImageView()
+    private let barTitleLabel = UILabel()
+    private let barCountLabel = UILabel()
 
     private lazy var collectionView: UICollectionView = {
         let cv = UICollectionView(frame: .zero, collectionViewLayout: layout)
@@ -74,14 +96,65 @@ final class WindowPickerStripView: UIView {
     private func configure() {
         backgroundColor = .clear
         accessibilityIdentifier = "window-picker-strip"
+        // The tile row is laid out below the strip's own height while collapsed, so it has to
+        // be clipped rather than merely hidden: mid-animation it is partially on screen.
+        clipsToBounds = true
+
+        barButton.translatesAutoresizingMaskIntoConstraints = false
+        barButton.layer.cornerRadius = 8
+        barButton.layer.borderWidth = 1
+        barButton.accessibilityIdentifier = "window-picker-bar"
+        barButton.isAccessibilityElement = true
+        barButton.accessibilityTraits = [.button]
+        barButton.addTarget(self, action: #selector(toggleExpansion), for: .touchUpInside)
+        addSubview(barButton)
+
+        barChevron.contentMode = .scaleAspectFit
+        barChevron.tintColor = .secondaryLabel
+        barChevron.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        barChevron.translatesAutoresizingMaskIntoConstraints = false
+        barButton.addSubview(barChevron)
+
+        barTitleLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        barTitleLabel.textColor = .label
+        barTitleLabel.lineBreakMode = .byTruncatingTail
+        barTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        barButton.addSubview(barTitleLabel)
+
+        barCountLabel.font = .systemFont(ofSize: 11, weight: .regular)
+        barCountLabel.textColor = .secondaryLabel
+        barCountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        barCountLabel.translatesAutoresizingMaskIntoConstraints = false
+        barButton.addSubview(barCountLabel)
+
         addSubview(collectionView)
         NSLayoutConstraint.activate([
+            barButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+            barButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            barButton.topAnchor.constraint(equalTo: topAnchor),
+            barButton.heightAnchor.constraint(equalToConstant: Self.barHeight),
+
+            barChevron.leadingAnchor.constraint(equalTo: barButton.leadingAnchor, constant: 2),
+            barChevron.centerYAnchor.constraint(equalTo: barButton.centerYAnchor),
+            barChevron.widthAnchor.constraint(equalToConstant: 14),
+
+            barTitleLabel.leadingAnchor.constraint(equalTo: barChevron.trailingAnchor, constant: 6),
+            barTitleLabel.centerYAnchor.constraint(equalTo: barButton.centerYAnchor),
+            barTitleLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: barCountLabel.leadingAnchor, constant: -8
+            ),
+
+            barCountLabel.trailingAnchor.constraint(equalTo: barButton.trailingAnchor, constant: -2),
+            barCountLabel.centerYAnchor.constraint(equalTo: barButton.centerYAnchor),
+
             collectionView.leadingAnchor.constraint(equalTo: leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            collectionView.topAnchor.constraint(equalTo: topAnchor),
-            collectionView.bottomAnchor.constraint(equalTo: bottomAnchor)
+            collectionView.topAnchor.constraint(equalTo: barButton.bottomAnchor, constant: Self.tileRowGap),
+            collectionView.heightAnchor.constraint(equalToConstant: Self.tileRowHeight)
         ])
         isHidden = true
+        renderBar()
+        applyExpansionToSubviews()
     }
 
     // MARK: - State
@@ -99,6 +172,7 @@ final class WindowPickerStripView: UIView {
         // 4-6x more expensive display capture. Whole Desktop is one tap away when the user
         // wants it.
         collectionView.reloadData()
+        renderBar()
     }
 
     func apply(state: DesktopState) {
@@ -112,6 +186,60 @@ final class WindowPickerStripView: UIView {
         desktopOrdinals = [:]
         isHidden = true
         collectionView.reloadData()
+        setExpanded(false)
+        renderBar()
+    }
+
+    // MARK: - Expansion
+
+    // Collapsed height is the bar alone; expanded adds the tile row. The layout owner reads
+    // this after every `windowPickerDidChangePreferredHeight`.
+    var preferredHeight: CGFloat { isExpanded ? Self.expandedHeight : Self.collapsedHeight }
+
+    @objc private func toggleExpansion() {
+        setExpanded(!isExpanded)
+    }
+
+    func setExpanded(_ expanded: Bool) {
+        guard expanded != isExpanded else { return }
+        isExpanded = expanded
+        applyExpansionToSubviews()
+        renderBar()
+        delegate?.windowPickerDidChangePreferredHeight(self)
+    }
+
+    private func applyExpansionToSubviews() {
+        collectionView.isHidden = !isExpanded
+        barChevron.image = UIImage(systemName: isExpanded ? "chevron.down" : "chevron.right")
+    }
+
+    private func renderBar() {
+        let title: String
+        if let selectedWindowId, let window = windows.first(where: { $0.id == selectedWindowId }) {
+            title = window.title.isEmpty ? window.appName : "\(window.appName): \(window.title)"
+        } else if selectedWindowId != nil {
+            // Selected but no longer listed. Naming it "Whole Desktop" would claim a fallback
+            // the host did not make; see `apply(push:)`.
+            title = "Window unavailable"
+        } else {
+            title = "Whole Desktop"
+        }
+        barTitleLabel.text = title
+        barCountLabel.text = windows.isEmpty ? nil : "\(windows.count) windows"
+        // Narrowed to one window is the state worth seeing at a glance from the collapsed
+        // bar, because it is the state where the trackpad is view-only and the phone is not
+        // showing the rest of the Mac.
+        let narrowed = selectedWindowId != nil
+        barButton.backgroundColor = narrowed
+            ? UIColor.tintColor.withAlphaComponent(0.16)
+            : .tertiarySystemFill
+        barButton.layer.borderColor = narrowed
+            ? UIColor.tintColor.cgColor
+            : UIColor.clear.cgColor
+        barChevron.tintColor = narrowed ? .tintColor : .secondaryLabel
+        barButton.accessibilityLabel = "Window picker"
+        barButton.accessibilityValue = title
+        barButton.accessibilityHint = isExpanded ? "Closes the window list." : "Opens the window list."
     }
 
     // Visibility has one owner, refreshThumbnailStripVisibility(), same as the two strips
@@ -123,6 +251,7 @@ final class WindowPickerStripView: UIView {
     // Test affordances.
     var renderedTileCount: Int { windows.count + 1 }
     var currentSelection: UInt32? { selectedWindowId }
+    var barTitleText: String? { barTitleLabel.text }
 }
 
 extension WindowPickerStripView: UICollectionViewDataSource {
@@ -158,9 +287,14 @@ extension WindowPickerStripView: UICollectionViewDataSource {
 extension WindowPickerStripView: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         let target: UInt32? = indexPath.item == 0 ? nil : windows[indexPath.item - 1].id
+        // Picking closes the list either way, including re-picking the current target: the
+        // tap was an act of dismissal as much as of selection, and leaving the tiles open
+        // would make it read as ignored.
+        setExpanded(false)
         guard target != selectedWindowId else { return }
         selectedWindowId = target
         collectionView.reloadData()
+        renderBar()
         delegate?.windowPicker(self, didSelectWindowId: target)
     }
 }
