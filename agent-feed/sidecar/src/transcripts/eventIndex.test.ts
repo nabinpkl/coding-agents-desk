@@ -53,10 +53,21 @@ async function interleavedTranscript(): Promise<string> {
       payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: `turn ${turn}` }] },
     }));
     // Two machinery lines per content line, the ratio the real corpus shows.
+    // The token_count records carry per-turn cache data like the real harness,
+    // so the cache-badge re-stamp is exercised by the interleaved reads.
     lines.push(JSON.stringify({
       timestamp: at,
       type: "event_msg",
-      payload: { type: "token_count", info: { last_token_usage: { total_tokens: 1_000 + turn } } },
+      payload: {
+        type: "token_count",
+        info: {
+          last_token_usage: {
+            input_tokens: 600 + turn,
+            cached_input_tokens: 500 + turn,
+            total_tokens: 1_000 + turn,
+          },
+        },
+      },
     }));
     lines.push(JSON.stringify({
       timestamp: at,
@@ -173,6 +184,35 @@ describe("nice mode", () => {
     expect(raw.map((event) => [event.index, event.otherModeIndex])).toEqual([
       [12, 4], [13, null], [14, null],
     ]);
+    releaseIndex(source, sessionId);
+  });
+
+  test("codex token_count re-stamps its cache badge onto the turn's last content row", async () => {
+    const transcriptPath = await interleavedTranscript();
+    acquireIndex(source, sessionId);
+    await ensureIndexed(source, sessionId, transcriptPath);
+
+    for (const mode of ["raw", "nice"] as const) {
+      const page = await readEvents(source, sessionId, transcriptPath, 0, 100, mode);
+      const content = page.filter((event) => event.blocks[0]?.kind === "text");
+      expect(content.length).toBe(12);
+      content.forEach((event, turn) => {
+        // cached 500+turn of the full input 600+turn (input_tokens already
+        // includes the cached portion).
+        expect(event.cacheHit).toEqual({ cached: 500 + turn, input: 600 + turn });
+      });
+      const tokenRows = page.filter((event) => event.blocks[0]?.label === "Token Usage");
+      if (mode === "raw") {
+        // Raw renders the machinery row itself, and it carries the badge there
+        // too; the nice view hides it and reads the text-row badge instead.
+        expect(tokenRows.length).toBe(12);
+        tokenRows.forEach((event, turn) => {
+          expect(event.cacheHit).toEqual({ cached: 500 + turn, input: 600 + turn });
+        });
+      } else {
+        expect(tokenRows.length).toBe(0);
+      }
+    }
     releaseIndex(source, sessionId);
   });
 

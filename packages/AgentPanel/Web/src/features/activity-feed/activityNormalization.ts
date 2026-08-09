@@ -67,6 +67,9 @@ export function normalizeActivityEvent(value: unknown): ActivityEvent {
     ? source.blocks.map(normalizeActivityBlock)
     : [{ kind: "plain", label: "Plain", text: plainText(value) } satisfies ActivityBlock];
   const rawType = source?.type;
+  const rawCacheHit = record(source?.cacheHit);
+  const cached = typeof rawCacheHit?.cached === "number" ? rawCacheHit.cached : undefined;
+  const hitInput = typeof rawCacheHit?.input === "number" ? rawCacheHit.input : undefined;
   return {
     id: typeof source?.id === "string" ? source.id : undefined,
     index: typeof source?.index === "number" ? source.index : -1,
@@ -89,6 +92,12 @@ export function normalizeActivityEvent(value: unknown): ActivityEvent {
     otherModeIndex:
       typeof source?.otherModeIndex === "number" ? source.otherModeIndex : null,
     messageId: typeof source?.messageId === "string" ? source.messageId : undefined,
+    // A cache summary is only meaningful with both counts present and sane; a
+    // peer that emits one half is treated as reporting nothing.
+    cacheHit:
+      typeof cached === "number" && typeof hitInput === "number" && hitInput > 0
+        ? { cached, input: hitInput }
+        : undefined,
   };
 }
 

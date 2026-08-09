@@ -81,19 +81,37 @@ export function niceInsertionPoint(niceToRaw: number[], rawIndex: number): numbe
   return low;
 }
 
+// Re-deliver a previously emitted event to the session's subscribers without
+// touching the index. Used to upsert the cache-hit badge onto a turn's last
+// content event after its `token_count` line reports the prompt usage: the
+// badge line is machinery, so it never has an event of its own in the nice
+// view, and re-notifying with the same id lets the panel replace the row.
+function renotifyEvent(
+  key: string,
+  notice: { event: ActivityEvent; niceIndex: number | null },
+): void {
+  for (const subscriber of state.eventSubscribers.get(key) ?? []) {
+    try {
+      subscriber(notice);
+    } catch (error) {
+      console.error("agent feed event subscriber failed", error);
+    }
+  }
+}
+
 function emitParsedRaw(
   key: string,
   byteOffset: number,
   parsed: ParsedLine,
   lineClass: LineClass | undefined,
-): void {
+): { event: ActivityEvent; niceIndex: number | null } | null {
   let offsets = state.eventByteOffsets.get(key);
   if (!offsets) {
     offsets = [];
     state.eventByteOffsets.set(key, offsets);
   }
   const last = offsets.length > 0 ? offsets[offsets.length - 1]! : -1;
-  if (byteOffset <= last) return;
+  if (byteOffset <= last) return null;
   let niceToRaw = state.niceToRaw.get(key);
   if (!niceToRaw) {
     niceToRaw = [];
@@ -115,13 +133,8 @@ function emitParsedRaw(
     otherModeIndex: niceIndex,
     ...parsed,
   };
-  for (const subscriber of state.eventSubscribers.get(key) ?? []) {
-    try {
-      subscriber({ event, niceIndex });
-    } catch (error) {
-      console.error("agent feed event subscriber failed", error);
-    }
-  }
+  renotifyEvent(key, { event, niceIndex });
+  return { event, niceIndex };
 }
 
 async function scanFrom(
@@ -135,6 +148,16 @@ async function scanFrom(
   let carry = new Uint8Array();
   let carryStart = startOffset;
   const decoder = new TextDecoder();
+  // The last content event emitted for this session, so a machinery line that
+  // reports prompt usage (`token_count`) can hand its cache-hit badge to the
+  // turn's last visible row. Replays keep this current too, which is harmless.
+  //
+  // Only events that carry a text block qualify. Codex emits `token_count`
+  // between a response's tool calls and their results, so the immediately
+  // preceding event is usually a tool row -- which the nice view folds into a
+  // cluster that renders no badge. The assistant's prose row is the one a
+  // viewer can actually see the badge on.
+  let lastText: { event: ActivityEvent; niceIndex: number | null } | null = null;
   while (cursor < endOffset) {
     const chunkEnd = Math.min(endOffset, cursor + INDEX_READ_BYTES);
     const chunk = await Bun.file(transcriptPath).slice(cursor, chunkEnd).bytes();
@@ -159,7 +182,27 @@ async function scanFrom(
           );
         }
         if (result?.event) {
-          emitParsedRaw(key, carryStart + lineStart, result.event, result.lineClass);
+          const isContent = result.lineClass !== "machinery";
+          // A line that reports cache usage owns the badge on the event it
+          // emits: content lines (Claude assistant usage) show it in both
+          // views, and codex `token_count` rows show it in the raw view that
+          // renders them. The nice view reads it off the re-stamped text row.
+          if (result.cacheHit) result.event.cacheHit = result.cacheHit;
+          const notice = emitParsedRaw(key, carryStart + lineStart, result.event, result.lineClass);
+          if (notice) {
+            if (isContent && result.event.blocks.some((block) => block.kind === "text")) {
+              lastText = notice;
+            } else if (result.cacheHit && lastText) {
+              // Codex `token_count`: the badge also belongs on the turn's last
+              // prose row, which was already emitted. Re-notify with the same
+              // id so the panel upserts the badge onto it. The revision bumps
+              // so the panel's upsert filter (newer revision wins) accepts the
+              // badge exactly like the live mirror's cache re-stamp does.
+              lastText.event.revision += 1;
+              lastText.event.cacheHit = result.cacheHit;
+              renotifyEvent(key, lastText);
+            }
+          }
         }
       }
       lineStart = index + 1;
@@ -348,6 +391,14 @@ export async function readEvents(
   // absolute rather than window-relative.
   let rawCursor = startRaw;
   let niceCursor = nice ? startIndex : niceInsertionPoint(niceToRaw, startRaw);
+  // Last content event that carries a text block, so a machinery `token_count`
+  // line can hand its cache-hit badge to the turn's prose row instead of the
+  // tool row that precedes it (Codex emits `token_count` between a response's
+  // tool calls and their results, and tool rows fold into clusters that render
+  // no badge). A badge whose `token_count` opens the window is dropped: its
+  // turn's last row lives in the previous window and was already delivered (the
+  // live tail re-stamps those, since it processes lines in order).
+  let lastTextEvent: ActivityEvent | null = null;
   for (const line of text.split("\n")) {
     if (events.length >= limit) break;
     if (!line) continue;
@@ -356,15 +407,36 @@ export async function readEvents(
     const isContent = parsed.lineClass !== "machinery";
     const rawIndex = rawCursor++;
     const niceIndex = isContent ? niceCursor++ : null;
-    if (nice && !isContent) continue;
-    events.push({
+    if (!isContent) {
+      if (parsed.cacheHit) {
+        if (lastTextEvent) lastTextEvent.cacheHit = parsed.cacheHit;
+        // The raw view renders the machinery row itself (the "Token Usage"
+        // row), so it carries the badge there; the nice view hides it and
+        // reads the badge off the text row instead.
+        parsed.event.cacheHit = parsed.cacheHit;
+      }
+      if (nice) continue;
+      events.push({
+        id: `${key}:line:${rawIndex}`,
+        index: rawIndex,
+        revision: 0,
+        phase: "complete",
+        otherModeIndex: null,
+        ...parsed.event,
+      });
+      continue;
+    }
+    const event: ActivityEvent = {
       id: `${key}:line:${rawIndex}`,
       index: nice ? niceIndex! : rawIndex,
       revision: 0,
       phase: "complete",
       otherModeIndex: nice ? rawIndex : niceIndex,
       ...parsed.event,
-    });
+    };
+    if (parsed.cacheHit) event.cacheHit = parsed.cacheHit;
+    events.push(event);
+    if (event.blocks.some((block) => block.kind === "text")) lastTextEvent = event;
   }
   return events;
 }

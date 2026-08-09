@@ -11,7 +11,13 @@ import {
   shellCommand,
   stripInlineMarkdown,
 } from "./activityDisplayItems";
-import { LabeledTextBlock, RawDetails, RawJsonBlock } from "./ActivitySystemBlocks";
+import {
+  LabeledTextBlock,
+  RawDetails,
+  RawJsonBlock,
+  formatRawJson,
+  RAW_JSON_FORMAT_MAX_CHARS,
+} from "./ActivitySystemBlocks";
 import type { ActivityEvent } from "./useSessionEventsStream";
 
 function source(fetchRawEvent: AgentDataSource["fetchRawEvent"]): AgentDataSource {
@@ -74,8 +80,66 @@ describe("complete activity blocks", () => {
     );
 
     await act(async () => { release!(exact); });
-    expect(screen.getByText(exact)).toBeTruthy();
+    // The drawer pretty-prints the line. The pre may be the plain fallback or
+    // the Shiki-highlighted markup depending on whether the singleton loaded
+    // during this run, so assert on the element's merged text content rather
+    // than text matchers (Testing Library's getNodeText only sees direct text
+    // nodes, which the highlighted path has none of).
+    const pre = container.querySelector("pre");
+    expect(pre?.textContent).toContain('"type": "future"');
+    expect(pre?.textContent).toContain("<b>literal</b>");
+    expect(screen.getByLabelText("Copy raw JSON")).toBeTruthy();
     expect(container.querySelector("b")).toBeNull();
+  });
+
+  it("leaves unparseable raw lines exactly as fetched", async () => {
+    const notJson = "2026-08-09T00:00:00Z event not json";
+    const fetchRawEvent = vi.fn(async () => notJson);
+    const { container } = render(
+      <DataSourceProvider source={source(fetchRawEvent)}>
+        <RawJsonBlock
+          session={{ source: "claude", sessionId: "session", mode: "raw" }}
+          eventIndex={8}
+        />
+      </DataSourceProvider>,
+    );
+    const details = container.querySelector("details")!;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    await act(async () => {});
+    expect(container.querySelector("pre")?.textContent).toBe(notJson);
+  });
+
+  it("skips formatting for raw lines past the format cap", async () => {
+    const huge = `{"data":"${"x".repeat(RAW_JSON_FORMAT_MAX_CHARS)}"}`;
+    const fetchRawEvent = vi.fn(async () => huge);
+    const { container } = render(
+      <DataSourceProvider source={source(fetchRawEvent)}>
+        <RawJsonBlock
+          session={{ source: "claude", sessionId: "session", mode: "raw" }}
+          eventIndex={9}
+        />
+      </DataSourceProvider>,
+    );
+    const details = container.querySelector("details")!;
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    await act(async () => {});
+    // The exact compact line, unformatted: no pretty-print newlines, still over
+    // the cap in length.
+    const rendered = container.querySelector("pre")?.textContent;
+    expect(rendered).toBe(huge);
+  });
+
+  it("formatRawJson pretty-prints valid JSON and passes through everything else", () => {
+    expect(formatRawJson('{"a":1,"b":[true,null]}')).toBe(
+      '{\n  "a": 1,\n  "b": [\n    true,\n    null\n  ]\n}',
+    );
+    expect(formatRawJson("plain text")).toBe("plain text");
+    expect(formatRawJson('{"unclosed": ')).toBe('{"unclosed": ');
+    // The cap is respected by the pure function as well as the component.
+    const atCap = `[${"0,".repeat(RAW_JSON_FORMAT_MAX_CHARS)}0]`;
+    expect(formatRawJson(atCap)).toBe(atCap);
   });
 
 });
@@ -441,7 +505,12 @@ describe("raw drawer", () => {
     expect(fetchRawEvent).toHaveBeenCalledTimes(1);
 
     await act(async () => { release!(exact); });
-    expect(screen.getByText(exact)).toBeTruthy();
+    // Shiki splits the rendered line into token spans, so assert on the merged
+    // text content: the pretty-printed form with a spaced key. The metadata
+    // blocks render their own <pre>s first, so the raw JSON one is the last.
+    const pres = container.querySelectorAll("pre");
+    const rawPre = pres[pres.length - 1];
+    expect(rawPre?.textContent).toContain('"type": "assistant"');
   });
 
   it("takes a label so a paired call's two source lines stay distinguishable", () => {

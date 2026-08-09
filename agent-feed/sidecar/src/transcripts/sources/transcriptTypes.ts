@@ -56,6 +56,25 @@ export interface ParsedLine {
    * instead of duplicating it.
    */
   messageId?: string;
+  /**
+   * Per-turn prompt cache summary, attached to the turn's last visible row so the
+   * panel can render a cache-hit badge next to the output it belongs to.
+   * `cached` is the input tokens served from the prompt cache and `input` is the
+   * whole prompt (cached + freshly encoded). Semantics are source-adapted:
+   * Codex reports `cached_input_tokens` on its `token_count` line (which is
+   * machinery, so the read path re-stamps it onto the preceding content event),
+   * Claude reports `cache_read_input_tokens` on the assistant message itself.
+   */
+  cacheHit?: EventCacheHit;
+}
+
+/**
+ * One turn's prompt-cache accounting, in tokens. Both numbers are counts of the
+ * same prompt, so `cached / input` is the fraction served from cache.
+ */
+export interface EventCacheHit {
+  cached: number;
+  input: number;
 }
 
 export interface ActivityEvent extends ParsedLine {
@@ -131,6 +150,10 @@ export interface LineResult {
   turnClosed?: boolean;
   title?: string;
   usage?: TokenUsage;
+  // Per-turn prompt cache summary. On a content line (Claude assistant usage) it
+  // rides the event emitted for that line; on a machinery line (Codex
+  // `token_count`) the read path re-stamps it onto the previous content event.
+  cacheHit?: EventCacheHit;
   // Set by the adapter, which is the only layer that knows its own record layout.
   // Absent means 'content': the raw view renders every line regardless, and this
   // only gates the nice index.

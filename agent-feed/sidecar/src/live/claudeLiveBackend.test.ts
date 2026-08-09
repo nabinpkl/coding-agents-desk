@@ -130,6 +130,38 @@ describe("ClaudeLiveBackend ingest", () => {
     expect(raw.events[0]!.otherModeIndex).toBe(raw.events[0]!.index);
   });
 
+  test("message_delta usage stamps the assistant row with the cache badge", async () => {
+    const probe = new ClaudeLiveBackend(fixture.url, true, 8);
+    const probeSession = "sess-cache";
+    probe.acceptObserverEvent(flowEvent("fc", "/v1/messages", "api.anthropic.com", "cache"));
+    probe.acceptObserverEvent(delta("fc", {
+      type: "message_start",
+      message: { id: "msg_cache", model: "claude-haiku-4-5", usage: { input_tokens: 0, output_tokens: 0 } },
+    }));
+    probe.acceptObserverEvent(delta("fc", { type: "content_block_start", index: 0, content_block: { type: "text" } }));
+    probe.acceptObserverEvent(delta("fc", { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "cached turn" } }));
+    probe.acceptObserverEvent(delta("fc", {
+      type: "message_delta",
+      usage: {
+        input_tokens: 100,
+        cache_creation_input_tokens: 200,
+        cache_read_input_tokens: 400,
+        output_tokens: 50,
+      },
+    }));
+    probe.acceptObserverEvent(delta("fc", { type: "message_stop" }));
+    probe.acceptObserverEvent(ended("fc"));
+    await flush(160);
+
+    const page = await probe.page(probeSession, 0, 10, "nice");
+    expect(page.total).toBe(1);
+    // Meter includes the cache: 100 + 200 + 400 + 50.
+    expect(probe.sessionUsage(probeSession)?.current).toBe(750);
+    // Badge: 400 of 700 prompt tokens came from the cache.
+    expect(page.events[0]!.cacheHit).toEqual({ cached: 400, input: 700 });
+    await probe.dispose();
+  });
+
   test("unknown source session 404s on page", async () => {
     await expect(backend.page("sess-unknown", 0, 10, "nice")).rejects.toThrow();
   });

@@ -180,8 +180,17 @@ interface EventMsgPayload {
   // Populated only on `token_count` payloads. `last_token_usage.total_tokens`
   // is the size of the prompt the model just processed; this is the meter
   // the Agent Panel shows. After compaction it drops automatically.
+  // `input_tokens` is the FULL prompt and already INCLUDES the cached portion
+  // (verified across this project's rollouts: total = input + output, and
+  // input - cached is the small freshly-encoded remainder). The cache-hit
+  // fraction is therefore `cached_input_tokens / input_tokens`.
   info?: {
-    last_token_usage?: { total_tokens?: number };
+    last_token_usage?: {
+      input_tokens?: number;
+      cached_input_tokens?: number;
+      output_tokens?: number;
+      total_tokens?: number;
+    };
     total_token_usage?: { total_tokens?: number };
     model_context_window?: number;
   };
@@ -381,8 +390,15 @@ function normalizedRecord(
       return finish('system', [{ block: patchAppliedBlock(pe, label), raw: null }], stateUpdates);
     }
     if (pe.type === 'token_count') {
-      const last = pe.info?.last_token_usage?.total_tokens;
-      if (typeof last === 'number' && last > 0) {
+      const lastUsage = pe.info?.last_token_usage;
+      const last = typeof lastUsage?.total_tokens === 'number' ? lastUsage.total_tokens : 0;
+      const cached = typeof lastUsage?.cached_input_tokens === 'number' ? lastUsage.cached_input_tokens : 0;
+      const input = typeof lastUsage?.input_tokens === 'number' ? lastUsage.input_tokens : 0;
+      if (last > 0) {
+        // `current` is `total_tokens` as published: it already counts the
+        // cached portion, because `input_tokens` includes it. The meter is the
+        // prompt the model actually held, matching the Claude adapter's sum.
+        const current = last;
         // No `model` on the usage: `token_count` does not name one, and Codex
         // needs no name to produce a limit -- it publishes the window itself,
         // and the published value is authoritative (three distinct windows
@@ -395,9 +411,24 @@ function normalizedRecord(
         const limit = typeof pe.info?.model_context_window === 'number'
           ? pe.info.model_context_window
           : null;
-        const usage = { current: last, limit, updatedAt: ts || Date.now() };
-        const text = limit ? `${last.toLocaleString()} / ${limit.toLocaleString()} tokens` : `${last.toLocaleString()} tokens`;
-        return finish('system', [{ block: metadataBlock(label, text), raw: null }], { usage });
+        const usage = { current, limit, updatedAt: ts || Date.now() };
+        const text = limit ? `${current.toLocaleString()} / ${limit.toLocaleString()} tokens` : `${current.toLocaleString()} tokens`;
+        // The `token_count` line is machinery, so this cacheHit is re-stamped
+        // onto the turn's last text event by the read paths. `input` is the
+        // full prompt: `input_tokens` already includes the cached portion, so
+        // the fraction `cached / input` is the true cache-hit rate. Both
+        // numbers must be present: a record with input but no cache field
+        // predates the field (or drifted), and a fabricated 0% would read as
+        // authoritative.
+        const cacheHit = typeof lastUsage?.input_tokens === 'number'
+          && typeof lastUsage?.cached_input_tokens === 'number'
+          && input > 0 && cached >= 0
+          ? { cached, input }
+          : undefined;
+        return finish('system', [{ block: metadataBlock(label, text), raw: null }], {
+          usage,
+          ...(cacheHit ? { cacheHit } : {}),
+        });
       }
       return finish('system', [{ block: metadataBlock(label, metadataText(pe)), raw: null }]);
     }

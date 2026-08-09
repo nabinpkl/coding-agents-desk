@@ -51,6 +51,8 @@ describe("initial usage, full feed chain", () => {
             sessionId="sid-1"
             mode="nice"
             onToggleMode={() => {}}
+            showCacheHits={false}
+            onToggleCacheHits={() => {}}
             controlsHost={null}
             onUsage={setUsage}
           />
@@ -101,6 +103,8 @@ describe("initial usage, full feed chain", () => {
             sessionId="sid-2"
             mode="nice"
             onToggleMode={() => {}}
+            showCacheHits={false}
+            onToggleCacheHits={() => {}}
             controlsHost={null}
             onUsage={setUsage}
           />

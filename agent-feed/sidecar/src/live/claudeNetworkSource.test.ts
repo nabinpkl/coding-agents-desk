@@ -117,6 +117,14 @@ test("mapAnthropicStreamEvent normalizes the stream shapes", () => {
   }))
     .toEqual({ kind: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hi" } });
   expect(mapAnthropicStreamEvent({ type: "message_stop" })).toEqual({ kind: "message_stop" });
+  // Usage rides at the event's top level, not inside `delta`; the mapper must
+  // read it there or the live meter never sees a turn's final usage.
+  expect(mapAnthropicStreamEvent({
+    type: "message_delta",
+    delta: { stop_reason: "end_turn" },
+    usage: { input_tokens: 100, output_tokens: 50 },
+  }))
+    .toEqual({ kind: "message_delta", stopReason: "end_turn", usage: { input_tokens: 100, output_tokens: 50 } });
   expect(mapAnthropicStreamEvent({ type: "ping" })).toEqual({ kind: "ping" });
   expect(mapAnthropicStreamEvent({ type: "made_up" })).toBeNull();
 });

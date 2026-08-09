@@ -27,7 +27,7 @@ import {
 } from "../agents/agentBackend.ts";
 import { LiveAgentProjection, type TimelineEnvelope } from "../agents/liveAgentProjection.ts";
 import { findSession } from "../transcripts/transcriptCatalog.ts";
-import type { ActivityBlock, EventMode, TokenUsage } from "../transcripts/sources/transcriptTypes.ts";
+import type { ActivityBlock, EventCacheHit, EventMode, TokenUsage } from "../transcripts/sources/transcriptTypes.ts";
 import {
   claudeLiveReconnectDelay,
   decodeDeltaData,
@@ -64,6 +64,8 @@ interface LiveMessage {
   phase: "streaming" | "complete";
   blocks: ActivityBlock[];
   toolRaw: Map<number, string>;
+  /** Per-turn prompt-cache summary, from the message's usage record. */
+  cacheHit?: EventCacheHit;
 }
 
 interface FlowContext {
@@ -108,6 +110,20 @@ function usageFor(model: string | undefined, usage: unknown, ts: number): TokenU
     updatedAt: ts || Date.now(),
     ...(model ? { model } : {}),
   };
+}
+
+// Per-turn prompt-cache summary for the cache-hit badge, matching the durable
+// transcript adapter's semantics: cached = `cache_read_input_tokens`, input =
+// the whole prompt including what this turn wrote to the cache.
+function extractClaudeCacheHit(usage: unknown): EventCacheHit | undefined {
+  if (!usage || typeof usage !== "object") return undefined;
+  const u = usage as Record<string, unknown>;
+  const input = typeof u.input_tokens === "number" ? u.input_tokens : 0;
+  const cacheCreate = typeof u.cache_creation_input_tokens === "number" ? u.cache_creation_input_tokens : 0;
+  const cacheRead = typeof u.cache_read_input_tokens === "number" ? u.cache_read_input_tokens : 0;
+  const total = input + cacheCreate + cacheRead;
+  if (total <= 0) return undefined;
+  return { cached: cacheRead, input: total };
 }
 
 export class ClaudeLiveBackend implements AgentBackend {
@@ -518,6 +534,8 @@ export class ClaudeLiveBackend implements AgentBackend {
         const model = this.usage.get(sessionId)?.model;
         const usage = usageFor(model, event.usage, ts);
         if (usage) this.usage.set(sessionId, usage);
+        const cacheHit = extractClaudeCacheHit(event.usage);
+        if (cacheHit) message.cacheHit = cacheHit;
         break;
       }
       case "message_stop": {
@@ -567,6 +585,7 @@ export class ClaudeLiveBackend implements AgentBackend {
       type: "assistant",
       phase: message.phase,
       blocks: message.blocks.map((block) => ({ ...block })),
+      ...(message.cacheHit ? { cacheHit: message.cacheHit } : {}),
     });
   }
 

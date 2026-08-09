@@ -374,3 +374,58 @@ too, so both host targets link the terminal products.
 - **Restoration stores workspace metadata only.** The old one-session descriptor decodes into one tab.
   New descriptors persist bounded tabs, split trees, focused pane, session names, labels, and frames.
   Cells, scrollback, ANSI, input, checkpoints, and ownership remain memory-only.
+
+## Per-turn prompt-cache badges and the occupancy meter fix (Codex + Claude)
+
+### D1. The badge rides prose rows in the nice view and the Token Usage row in raw; the toggle is pure presentation
+
+Codex publishes prompt-cache accounting on `event_msg.token_count` lines (one per processed
+prompt, field `cached_input_tokens`), which the nice view classifies as machinery and hides. Making
+those rows visible on demand would fight the cached index: nice indices are assigned at index build
+time, so a read-time classification flag would misnumber every later row. Instead the sidecar
+re-stamps the badge onto the turn's last prose row at read and stream time (Claude stamps its
+assistant event directly from `cache_read_input_tokens`), the wire carries one compact optional
+field per event (`ActivityEvent.cacheHit`, keys `ch:{c,i}`), and the panel renders `cache N%` only
+while its local toggle (a persisted reading preference, like the event mode) is on. No sidecar query
+parameter, no host request change, no index rebuild, and no refetch when toggling.
+
+The first placement rule (last content event before the `token_count`) proved invisible: Codex
+emits `token_count` between a response's tool calls and their results, so badges landed on tool
+rows, which the nice view folds into clusters that render no badge. The stamp target is now the last
+event with a text block (the assistant's prose response, or the user prompt when the `token_count`
+precedes any output). The raw view additionally renders the machinery row itself, and it carries
+the badge there too, so both views show per-turn cache data.
+
+### D2. The durable stream re-stamp bumps the event revision
+
+The panel's upsert filter accepts an event only when its revision increases, and the durable
+transcript stream delivers everything with `revision 0`. A badge re-notified with the same revision
+was silently dropped, so the re-stamp increments the revision like the live mirror's cache re-stamp
+(`response.completed` on Codex, `message_delta.usage` on Claude) already does through
+`LiveAgentProjection`. Both producers now share one "late badge = newer revision" contract. A badge
+whose `token_count` opens a paged window is dropped (its turn's last row lives in the previous
+window and was already delivered); the in-order live tail always stamps correctly.
+
+### D3. Codex occupancy is `total_tokens` as published; an attempted "meter fix" was a regression
+
+Codex's `input_tokens` is the FULL prompt and already includes the cached
+portion (`input - cached` is the small freshly-encoded remainder, verified
+across real rollouts), so `total_tokens` counts cached tokens once and the
+meter was correct as originally written. A first implementation assumed
+`input_tokens` excluded cache and "fixed" the meter by adding
+`cached_input_tokens` back, which double-counted: a session at 119,815/258,400
+tokens read as 238,599/258,400, making compaction look imminent when it was
+not. The same misreading inflated the badge denominator (cached/input+cached
+instead of cached/input). Both the durable transcript adapter and the live
+`response.completed` path (Responses-API shape, `input_tokens_details
+.cached_tokens`) were corrected to the published semantics, and the badge's
+`input` is now `input_tokens` unchanged. The Claude adapter keeps its additive
+sum (input + cache_read + cache_creation + output), which matches Anthropic's
+separately-reported cache fields.
+
+### D4. Claude live `message_delta.usage` rides the event's top level, not `delta`
+
+While wiring the Claude live cache badge, the mapper read `message_delta.usage` from inside
+`delta`, but the Anthropic wire carries `usage` at the event's top level, so live message usage
+never reached the meter before. Fixed in `mapAnthropicStreamEvent` with a pinning test; the live
+Claude meter now updates from `message_delta` as well as `message_start`.

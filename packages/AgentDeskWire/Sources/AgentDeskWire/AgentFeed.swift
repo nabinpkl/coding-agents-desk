@@ -87,6 +87,11 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
     /// Stable Anthropic message id (`msg_...`), shared between the durable
     /// transcript and the live mirror, used to hand a streaming tail off.
     public let messageId: String?
+    /// Per-turn prompt-cache summary, attached to the turn's last visible row so the panel can
+    /// render a cache-hit badge. `cached` is the input tokens served from the prompt cache and
+    /// `input` is the whole prompt (cached + freshly encoded); the fraction is `cached / input`.
+    /// Absent means the harness reported no cache data for that turn.
+    public let cacheHit: EventCacheHit?
 
     public enum CodingKeys: String, CodingKey {
         case id = "id"
@@ -98,6 +103,7 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         case blocks = "b"
         case otherModeIndex = "xi"
         case messageId = "mid"
+        case cacheHit = "ch"
     }
 
     public init(
@@ -109,7 +115,8 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         type: String,
         blocks: [ActivityBlock],
         otherModeIndex: Int? = nil,
-        messageId: String? = nil
+        messageId: String? = nil,
+        cacheHit: EventCacheHit? = nil
     ) {
         self.id = id
         self.index = index
@@ -120,6 +127,24 @@ public struct ActivityEvent: Codable, Equatable, Sendable {
         self.blocks = blocks
         self.otherModeIndex = otherModeIndex
         self.messageId = messageId
+        self.cacheHit = cacheHit
+    }
+}
+
+/// One turn's prompt-cache accounting, in tokens. Both numbers count the same prompt, so
+/// `cached / input` is the fraction served from cache.
+public struct EventCacheHit: Codable, Equatable, Sendable {
+    public let cached: Int
+    public let input: Int
+
+    public enum CodingKeys: String, CodingKey {
+        case cached = "c"
+        case input = "i"
+    }
+
+    public init(cached: Int, input: Int) {
+        self.cached = cached
+        self.input = input
     }
 }
 

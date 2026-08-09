@@ -48,6 +48,8 @@ export function ActivityFeed({
   mode,
   onToggleMode,
   canToggleMode = true,
+  showCacheHits,
+  onToggleCacheHits,
   controlsHost,
   onSessionState,
   onUsage,
@@ -64,6 +66,13 @@ export function ActivityFeed({
   mode: EventMode;
   onToggleMode: () => void;
   canToggleMode?: boolean;
+  /**
+   * Whether per-turn prompt-cache badges render next to the rows that carry
+   * cache data. Pure presentation: the data already rides the events, so toggling
+   * never refetches anything.
+   */
+  showCacheHits: boolean;
+  onToggleCacheHits: () => void;
   /**
    * Where to render the thread's controls, supplied by the shell so the thread
    * spends no row of its own on them. `null` only while the shell's header is
@@ -253,8 +262,9 @@ export function ActivityFeed({
       expandedTools,
       onToggleTool: toggleTool,
       pairedToolResults,
+      showCacheHits,
     }),
-    [source, sessionId, mode, expandedTools, toggleTool, pairedToolResults],
+    [source, sessionId, mode, expandedTools, toggleTool, pairedToolResults, showCacheHits],
   );
 
   const rowVirtualizer = useVirtualizer({
@@ -396,6 +406,25 @@ export function ActivityFeed({
           >
             {mode === "raw" ? "raw" : "nice"}
           </button> : null}
+          <button
+            type="button"
+            onClick={onToggleCacheHits}
+            title={
+              showCacheHits
+                ? "Hiding per-turn prompt-cache badges"
+                : "Show how much of each turn's prompt was served from the prompt cache"
+            }
+            aria-label={showCacheHits ? "hide prompt cache badges" : "show prompt cache badges"}
+            aria-pressed={showCacheHits}
+            className={
+              "flex h-8 items-center justify-center rounded-lg px-1.5 font-mono text-(length:--agent-panel-fs-tile-chip,12px) uppercase tracking-wider transition-colors " +
+              (showCacheHits
+                ? "bg-emerald-500/20 text-emerald-600 hover:bg-emerald-500/30 dark:text-emerald-400"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground active:bg-muted/80")
+            }
+          >
+            cache
+          </button>
           <button
             type="button"
             onClick={allCollapsed ? expandAll : collapseAll}

@@ -144,7 +144,10 @@ function sameEventContent(left: ActivityEvent, right: ActivityEvent): boolean {
   return left.ts === right.ts &&
     left.type === right.type &&
     left.phase === right.phase &&
-    JSON.stringify(left.blocks) === JSON.stringify(right.blocks);
+    JSON.stringify(left.blocks) === JSON.stringify(right.blocks) &&
+    // A late cache badge (Codex `response.completed` re-stamp) must count as a
+    // content change or the upsert would be skipped and the badge never shown.
+    JSON.stringify(left.cacheHit) === JSON.stringify(right.cacheHit);
 }
 
 export interface AgentValueLimits {

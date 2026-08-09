@@ -37,6 +37,8 @@ interface WireActivityEvent {
   b: WireActivityBlock[];
   xi?: number | null;
   mid?: string;
+  /** Per-turn prompt-cache summary; the short-key form of `EventCacheHit`. */
+  ch?: { c: number; i: number } | null;
 }
 
 interface WireProjectSummary {
@@ -538,6 +540,10 @@ function mapQuestionPanelStatus(message: WireWindowQuestionStatus): QuestionPane
 }
 
 function mapEvent(wire: WireActivityEvent): ActivityEvent {
+  const cacheHit =
+    wire.ch && typeof wire.ch.c === "number" && typeof wire.ch.i === "number"
+      ? { cached: wire.ch.c, input: wire.ch.i }
+      : undefined;
   return normalizeActivityEvent({
     id: wire.id,
     index: wire.i,
@@ -548,6 +554,7 @@ function mapEvent(wire: WireActivityEvent): ActivityEvent {
     blocks: wire.b.map(mapBlock),
     otherModeIndex: typeof wire.xi === "number" ? wire.xi : null,
     messageId: typeof wire.mid === "string" ? wire.mid : undefined,
+    cacheHit,
   });
 }
 

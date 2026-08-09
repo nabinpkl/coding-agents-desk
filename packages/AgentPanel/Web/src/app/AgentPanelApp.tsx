@@ -19,6 +19,7 @@ import { TokenMeter } from "../features/activity-feed/TokenMeter";
 import type { TokenUsage } from "../features/activity-feed/useSessionEventsStream";
 import { FontSizeRoot } from "../features/activity-feed/fontStore";
 import { loadEventMode, storeEventMode } from "../features/activity-feed/eventModeStore";
+import { loadCacheHitsVisible, storeCacheHitsVisible } from "../features/activity-feed/cacheHitStore";
 import type { OpenAskUserQuestion } from "./askUserQuestion";
 import {
   AgentSidebar,
@@ -187,6 +188,17 @@ export function App({ bridge }: Props) {
     setEventMode((current) => {
       const next = current === "nice" ? "raw" : "nice";
       storeEventMode(next);
+      return next;
+    });
+  }, []);
+
+  // Pure presentation: per-turn cache badges on rows that carry the data.
+  // Owned here (like the mode) so the choice survives switching threads.
+  const [showCacheHits, setShowCacheHits] = useState<boolean>(loadCacheHitsVisible);
+  const toggleCacheHits = useCallback(() => {
+    setShowCacheHits((current) => {
+      const next = !current;
+      storeCacheHitsVisible(next);
       return next;
     });
   }, []);
@@ -588,6 +600,8 @@ export function App({ bridge }: Props) {
                   mode={eventMode}
                   onToggleMode={toggleEventMode}
                   canToggleMode={selectedThread.session.capabilities.modes.length > 1}
+                  showCacheHits={showCacheHits}
+                  onToggleCacheHits={toggleCacheHits}
                   controlsHost={threadControlsHost}
                   onSessionState={setSessionState}
                   onUsage={setSessionUsage}

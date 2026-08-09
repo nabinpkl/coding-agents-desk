@@ -29,6 +29,7 @@ const CTX: EventRowContext = {
   expandedTools: new Set(),
   onToggleTool: () => {},
   pairedToolResults: new Map(),
+  showCacheHits: true,
 };
 
 function renderRow(node: React.ReactNode) {
@@ -110,6 +111,72 @@ describe("event heading", () => {
       />,
     );
     expect(screen.getByLabelText("expand event")).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+describe("prompt cache badge", () => {
+  it("renders the cached and total input token counts next to a cache-bearing row", () => {
+    renderRow(
+      <SegmentEventRow
+        ev={event({ cacheHit: { cached: 13184, input: 31428 } })}
+        ctx={CTX}
+        isFirst
+        isLast
+        isCollapsed={false}
+        onToggle={() => {}}
+        isHighlighted={false}
+      />,
+    );
+    const badge = screen.getByLabelText("Prompt cache: 13,184 of 31,428 input tokens");
+    expect(badge.textContent).toBe("cached 13,184 / 31,428");
+    // The fraction still rides the tooltip and the accessible name.
+    expect(badge.getAttribute("title")).toContain("(42%)");
+  });
+
+  it("puts the hit fraction in the tooltip, rounding half a percent down", () => {
+    renderRow(
+      <SegmentEventRow
+        ev={event({ cacheHit: { cached: 1, input: 3 } })}
+        ctx={CTX}
+        isFirst
+        isLast
+        isCollapsed={false}
+        onToggle={() => {}}
+        isHighlighted={false}
+      />,
+    );
+    const badge = screen.getByLabelText("Prompt cache: 1 of 3 input tokens");
+    expect(badge.getAttribute("title")).toContain("(33%)");
+  });
+
+  it("is absent when the toggle is off even though the data is present", () => {
+    renderRow(
+      <SegmentEventRow
+        ev={event({ cacheHit: { cached: 300, input: 800 } })}
+        ctx={{ ...CTX, showCacheHits: false }}
+        isFirst
+        isLast
+        isCollapsed={false}
+        onToggle={() => {}}
+        isHighlighted={false}
+      />,
+    );
+    expect(screen.queryByText(/cached/)).toBeNull();
+  });
+
+  it("is absent when the event carries no cache data", () => {
+    renderRow(
+      <SegmentEventRow
+        ev={event()}
+        ctx={CTX}
+        isFirst
+        isLast
+        isCollapsed={false}
+        onToggle={() => {}}
+        isHighlighted={false}
+      />,
+    );
+    expect(screen.queryByText(/cached/)).toBeNull();
   });
 });
 

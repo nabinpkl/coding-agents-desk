@@ -57,6 +57,8 @@ struct AgentFeedActivityEvent: Codable {
     let otherModeIndex: Int?
     /// Stable Anthropic message id, shared with the live mirror for handoff.
     let messageId: String?
+    /// Per-turn prompt-cache summary (long-key form of the wire `EventCacheHit`).
+    let cacheHit: AgentFeedEventCacheHit?
     /// Occupancy as of this event. Session state, not event state: it rides the per-event stream
     /// message because that stream already fires once per event, so the meter goes live without a
     /// message type of its own.
@@ -72,6 +74,7 @@ struct AgentFeedActivityEvent: Codable {
         blocks: [AgentFeedActivityBlock],
         otherModeIndex: Int? = nil,
         messageId: String? = nil,
+        cacheHit: AgentFeedEventCacheHit? = nil,
         usage: AgentFeedTokenUsage? = nil
     ) {
         self.id = id
@@ -83,7 +86,19 @@ struct AgentFeedActivityEvent: Codable {
         self.blocks = blocks
         self.otherModeIndex = otherModeIndex
         self.messageId = messageId
+        self.cacheHit = cacheHit
         self.usage = usage
+    }
+}
+
+/// One turn's prompt-cache accounting in tokens; the long-key sidecar form of `EventCacheHit`.
+struct AgentFeedEventCacheHit: Codable {
+    let cached: Int
+    let input: Int
+
+    init(cached: Int, input: Int) {
+        self.cached = cached
+        self.input = input
     }
 }
 

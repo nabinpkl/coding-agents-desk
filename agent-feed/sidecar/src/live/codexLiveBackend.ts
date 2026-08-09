@@ -28,7 +28,7 @@ import {
 } from "../agents/agentBackend.ts";
 import { LiveAgentProjection, type TimelineEnvelope } from "../agents/liveAgentProjection.ts";
 import { findSession } from "../transcripts/transcriptCatalog.ts";
-import type { ActivityBlock, EventMode, TokenUsage } from "../transcripts/sources/transcriptTypes.ts";
+import type { ActivityBlock, EventCacheHit, EventMode, TokenUsage } from "../transcripts/sources/transcriptTypes.ts";
 import {
   CODECX_OBSERVER_FILTER,
   CODECX_RESPONSES_AUTHORITY,
@@ -93,12 +93,31 @@ function observedAtMs(event: ObserverEvent): number {
   return Number.isFinite(parsed) ? parsed : Date.now();
 }
 
+// Cached input tokens from the Responses-API usage shape the codex websocket
+// publishes on `response.completed`. The transcript's `token_count` record
+// normalizes this to a flat `cached_input_tokens`; the API shape nests it under
+// `input_tokens_details.cached_tokens`. Both are accepted so a drift in either
+// representation still feeds the badge. Undefined when neither is present, so
+// a missing cache field never fabricates a 0% badge.
+function cachedInputTokens(usage: Record<string, unknown>): number | undefined {
+  const details = usage.input_tokens_details;
+  const nested = details && typeof details === "object"
+    ? (details as Record<string, unknown>).cached_tokens
+    : undefined;
+  const flat = usage.cached_input_tokens;
+  const value = typeof nested === "number" ? nested : flat;
+  return typeof value === "number" && value >= 0 ? value : undefined;
+}
+
 function usageFor(model: string | undefined, usage: unknown, ts: number): TokenUsage | null {
   if (!usage || typeof usage !== "object") return null;
   const u = usage as Record<string, unknown>;
   const input = typeof u.input_tokens === "number" ? u.input_tokens : 0;
   const output = typeof u.output_tokens === "number" ? u.output_tokens : 0;
   const total = typeof u.total_tokens === "number" ? u.total_tokens : 0;
+  // `total_tokens` already includes the cached portion: `input_tokens` counts
+  // the full prompt, with `cached_tokens` a subset of it. This mirrors the
+  // durable transcript adapter, where the meter is `total_tokens` as published.
   const current = total > 0 ? total : input + output;
   if (current <= 0) return null;
   return {
@@ -107,6 +126,19 @@ function usageFor(model: string | undefined, usage: unknown, ts: number): TokenU
     updatedAt: ts || Date.now(),
     ...(model ? { model } : {}),
   };
+}
+
+// Per-turn prompt-cache summary for the cache-hit badge. `input` is the full
+// prompt (`input_tokens` already includes the cached portion), so the fraction
+// `cached / input` is the true cache-hit rate. Both numbers must be present;
+// a usage record without cache info reports no badge.
+function cacheHitFor(usage: unknown): EventCacheHit | undefined {
+  if (!usage || typeof usage !== "object") return undefined;
+  const u = usage as Record<string, unknown>;
+  const input = typeof u.input_tokens === "number" ? u.input_tokens : 0;
+  const cached = cachedInputTokens(u);
+  if (input <= 0 || cached === undefined) return undefined;
+  return { cached, input };
 }
 
 export class CodexLiveBackend implements AgentBackend {
@@ -493,6 +525,18 @@ export class CodexLiveBackend implements AgentBackend {
         const model = typeof response.model === "string" ? response.model : undefined;
         const usage = usageFor(model, response.usage, ts);
         if (usage) this.usage.set(sessionId, usage);
+        const cacheHit = cacheHitFor(response.usage);
+        if (cacheHit) {
+          // Re-upsert the turn's last assistant row with the badge, the same
+          // way the durable path re-stamps a `token_count` line onto the last
+          // content event. The projection upserts by id and bumps `revision`,
+          // so the panel replaces the row rather than duplicating it.
+          const lastId = this.lastContent.get(sessionId);
+          const lastItem = lastId !== undefined ? this.itemFor(sessionId, lastId) : undefined;
+          if (lastItem && lastId !== undefined) {
+            this.upsertItem(sessionId, lastId, lastItem.ts, lastItem.phase, lastItem.blocks, cacheHit);
+          }
+        }
         this.finishStreaming(context);
         const error = response.error;
         if (error && typeof error === "object") {
@@ -567,6 +611,8 @@ export class CodexLiveBackend implements AgentBackend {
 
   /** In-flight item rows, keyed `sessionId` -> `itemId`, so stream state survives flow churn. */
   private readonly items = new Map<string, Map<string, LiveItem>>();
+  /** Last assistant row upserted per session, so `response.completed` can stamp it with the cache badge. */
+  private readonly lastContent = new Map<string, string>();
 
   private itemFor(sessionId: string, itemId: string): LiveItem | undefined {
     return this.items.get(sessionId)?.get(itemId);
@@ -578,6 +624,7 @@ export class CodexLiveBackend implements AgentBackend {
     ts: number,
     phase: "streaming" | "complete",
     blocks: ActivityBlock[],
+    cacheHit?: EventCacheHit,
   ): void {
     const bySession = this.items.get(sessionId) ?? new Map<string, LiveItem>();
     const current = bySession.get(itemId) ?? { id: itemId, ts, phase: "streaming", blocks: [] };
@@ -597,7 +644,16 @@ export class CodexLiveBackend implements AgentBackend {
       type: "assistant",
       phase,
       blocks: blocks.map((block) => ({ ...block })),
+      ...(cacheHit ? { cacheHit } : {}),
     });
+    // The last prose row is where a `response.completed` cache summary belongs,
+    // mirroring how the durable transcript re-stamps its `token_count` line
+    // onto the turn's last text event (tool rows fold into clusters that
+    // render no badge). Responses can end on a tool call, so an item with no
+    // text leaves the previous prose row as the target.
+    if (blocks.some((block) => block.kind === "text")) {
+      this.lastContent.set(sessionId, itemId);
+    }
   }
 
   // --- lifecycle helpers ----------------------------------------------------
@@ -638,6 +694,7 @@ export class CodexLiveBackend implements AgentBackend {
       this.tracks.delete(sessionId);
       this.usage.delete(sessionId);
       this.items.delete(sessionId);
+      this.lastContent.delete(sessionId);
     }, config.codexLiveIdleDropMs);
     timer.unref?.();
     this.tracks.set(sessionId, { lastEventAt: track?.lastEventAt ?? Date.now(), dropTimer: timer });
@@ -672,6 +729,7 @@ export class CodexLiveBackend implements AgentBackend {
     this.tracks.delete(sessionId);
     this.usage.delete(sessionId);
     this.items.delete(sessionId);
+    this.lastContent.delete(sessionId);
   }
 
   private scheduleFlowDrop(flowId: string): void {

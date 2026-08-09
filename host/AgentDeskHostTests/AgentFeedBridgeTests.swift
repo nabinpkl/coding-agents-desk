@@ -276,7 +276,7 @@ private func waitFor(
     }
 }
 
-private func event(index: Int) -> AgentFeedActivityEvent {
+private func event(index: Int, cacheHit: AgentFeedEventCacheHit? = nil) -> AgentFeedActivityEvent {
     AgentFeedActivityEvent(
         id: "event-\(index)",
         index: index,
@@ -284,7 +284,8 @@ private func event(index: Int) -> AgentFeedActivityEvent {
         phase: "complete",
         ts: 1_700_000_000_000,
         type: "assistant",
-        blocks: [AgentFeedActivityBlock(kind: "text", text: "hello")]
+        blocks: [AgentFeedActivityBlock(kind: "text", text: "hello")],
+        cacheHit: cacheHit
     )
 }
 
@@ -372,8 +373,20 @@ struct AgentFeedBridgeTests {
         #expect(fake.cancelledStreams == 3)
     }
 
-    @Test func sameSessionIDAcrossSourcesUsesIndependentThreadStreams() async throws {
+    @Test func cacheHitSurvivesTheBridgeToTheWireEvent() async throws {
         let fake = FakeSidecarClient()
+        fake.eventsPage = AgentFeedEventsPage(events: [event(index: 0, cacheHit: AgentFeedEventCacheHit(cached: 300, input: 800))], total: 1)
+        let sink = CapturingSink()
+        let bridge = AgentFeedBridge(client: fake, send: sink.accept)
+
+        bridge.handleThreadSubscribe(AgentThreadSubscribe(source: "codex", sessionId: "thread"))
+        await waitFor { sink.count == 1 }
+
+        let chunk = try sink.decode(AgentThreadChunk.self, at: 0)
+        #expect(chunk.events.first?.cacheHit == EventCacheHit(cached: 300, input: 800))
+    }
+
+    @Test func sameSessionIDAcrossSourcesUsesIndependentThreadStreams() async throws {        let fake = FakeSidecarClient()
         fake.eventsPage = AgentFeedEventsPage(events: [event(index: 0)], total: 1)
         let sink = CapturingSink()
         let bridge = AgentFeedBridge(client: fake, send: sink.accept)

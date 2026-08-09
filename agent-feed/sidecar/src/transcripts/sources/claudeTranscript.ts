@@ -10,6 +10,7 @@ import { basename, resolve } from 'node:path';
 import { config, contextWindowFor } from '../../config.ts';
 import type {
   ActivityBlock,
+  EventCacheHit,
   Header,
   LineResult,
   ParsedLine,
@@ -252,6 +253,22 @@ function extractClaudeUsage(
   };
 }
 
+// Per-turn prompt-cache summary for the cache-hit badge. A "cache hit" for
+// Claude is input served from the prompt cache (`cache_read_input_tokens`);
+// `input` is the whole prompt, including the portion written to cache this
+// turn (`cache_creation_input_tokens`), so the fraction reads as
+// cache_read / (input + cache_read + cache_creation).
+function extractClaudeCacheHit(usage: unknown): EventCacheHit | undefined {
+  if (!usage || typeof usage !== 'object') return undefined;
+  const u = usage as Record<string, unknown>;
+  const input = typeof u.input_tokens === 'number' ? u.input_tokens : 0;
+  const cacheCreate = typeof u.cache_creation_input_tokens === 'number' ? u.cache_creation_input_tokens : 0;
+  const cacheRead = typeof u.cache_read_input_tokens === 'number' ? u.cache_read_input_tokens : 0;
+  const total = input + cacheCreate + cacheRead;
+  if (total <= 0) return undefined;
+  return { cached: cacheRead, input: total };
+}
+
 function timestampMs(value: unknown): number {
   if (typeof value !== 'string') return 0;
   const parsed = Date.parse(value);
@@ -461,6 +478,10 @@ function normalizedRecord(
     },
   };
   if (usage) result.usage = usage;
+  if (t === 'assistant') {
+    const cacheHit = extractClaudeCacheHit(message.usage);
+    if (cacheHit) result.cacheHit = cacheHit;
+  }
   if (cwd) result.cwd = cwd;
   return { result, rawBlocks };
 }

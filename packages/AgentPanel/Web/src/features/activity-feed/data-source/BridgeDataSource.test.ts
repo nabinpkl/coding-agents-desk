@@ -127,6 +127,86 @@ describe("BridgeDataSource visibility lifecycle", () => {
     expect(onLiveTail).toHaveBeenLastCalledWith(null);
   });
 
+  it("maps the per-turn prompt-cache badge through the wire event", () => {
+    const { host, source } = makeSource();
+    const onEvent = vi.fn();
+    const session = { source: "codex" as const, sessionId: "thread", mode: "nice" as const };
+    source.subscribeSessionEvents(session, 0, {
+      onEvent,
+      onSnapshot: vi.fn(),
+    });
+
+    host.deliver({
+      t: "agent-thread-chunk",
+      src: "codex",
+      sid: "thread",
+      md: "nice",
+      ev: [{ id: "codex:line:0", i: 0, rev: 0, ph: "complete", ts: 1, tp: "assistant", b: [{ k: "text", t: "turn" }], ch: { c: 300, i: 800 } }],
+      ws: 0,
+      tot: 1,
+      lv: true,
+      k: "upsert",
+      seq: 1,
+      rs: "idle",
+      qs: 0,
+      qf: 0,
+    });
+    const event = onEvent.mock.calls[0]![0];
+    expect(event.cacheHit).toEqual({ cached: 300, input: 800 });
+  });
+
+  it("drops a malformed cache summary instead of inventing a badge", () => {
+    const { host, source } = makeSource();
+    const onEvent = vi.fn();
+    const session = { source: "codex" as const, sessionId: "thread", mode: "nice" as const };
+    source.subscribeSessionEvents(session, 0, {
+      onEvent,
+      onSnapshot: vi.fn(),
+    });
+
+    host.deliver({
+      t: "agent-thread-chunk",
+      src: "codex",
+      sid: "thread",
+      md: "nice",
+      ev: [{ id: "codex:line:0", i: 0, rev: 0, ph: "complete", ts: 1, tp: "assistant", b: [{ k: "text", t: "turn" }], ch: { c: "nope", i: 0 } }],
+      ws: 0,
+      tot: 1,
+      lv: true,
+      k: "upsert",
+      seq: 1,
+      rs: "idle",
+      qs: 0,
+      qf: 0,
+    });
+    expect(onEvent.mock.calls[0]![0].cacheHit).toBeUndefined();
+  });
+
+  it("accepts a later-revision re-upsert carrying the cache badge", () => {
+    // The durable transcript stream re-delivers a turn's last row with the
+    // same id, a bumped revision, and the badge, once its `token_count` line
+    // reports the prompt usage. The revision gate is what lets that through.
+    const { host, source } = makeSource();
+    const onEvent = vi.fn();
+    const session = { source: "codex" as const, sessionId: "thread", mode: "nice" as const };
+    source.subscribeSessionEvents(session, 0, {
+      onEvent,
+      onSnapshot: vi.fn(),
+    });
+
+    const base = { id: "codex:line:0", i: 0, ph: "complete", ts: 1, tp: "assistant", b: [{ k: "text", t: "turn" }] };
+    host.deliver({
+      t: "agent-thread-chunk", src: "codex", sid: "thread", md: "nice",
+      ev: [{ ...base, rev: 0 }], ws: 0, tot: 1, lv: true, k: "upsert", seq: 1, rs: "idle", qs: 0, qf: 0,
+    });
+    host.deliver({
+      t: "agent-thread-chunk", src: "codex", sid: "thread", md: "nice",
+      ev: [{ ...base, rev: 1, ch: { c: 300, i: 800 } }], ws: 0, tot: 1, lv: true, k: "upsert", seq: 2, rs: "idle", qs: 0, qf: 0,
+    });
+    expect(onEvent).toHaveBeenCalledTimes(2);
+    expect(onEvent.mock.calls[1]![0].cacheHit).toEqual({ cached: 300, input: 800 });
+  });
+
   it("rebases sequence and paging onto a lower-sequence reconnect snapshot", async () => {
     const { host, source } = makeSource();
     const onEvent = vi.fn();

@@ -15,7 +15,7 @@ import {
   type DisplayRole,
   type PairedToolResult,
 } from "./activityDisplayItems";
-import type { ActivityBlock, ActivityEvent } from "./useSessionEventsStream";
+import type { ActivityBlock, ActivityEvent, EventCacheHit } from "./useSessionEventsStream";
 import type { SessionReference } from "./data-source/AgentDataSource";
 import { useProgressiveText } from "./streamingText";
 
@@ -29,6 +29,28 @@ export interface EventRowContext {
   expandedTools: Set<string>;
   onToggleTool: (key: string) => void;
   pairedToolResults: ReadonlyMap<string, PairedToolResult>;
+  /** Whether per-turn prompt-cache badges are rendered. */
+  showCacheHits: boolean;
+}
+
+/**
+ * The per-turn prompt-cache badge: the actual cached and total input token
+ * counts, e.g. `cached 13,184 / 31,428`, next to the row the turn's usage
+ * belongs to. The hit fraction rides in the tooltip and accessible label.
+ * Rendered only while the cache-hits toggle is on.
+ */
+export function CacheBadge({ cacheHit }: { cacheHit: EventCacheHit }) {
+  const fraction = cacheHit.input > 0 ? cacheHit.cached / cacheHit.input : 0;
+  const percent = Math.min(100, Math.max(0, Math.round(fraction * 100)));
+  return (
+    <span
+      title={`${cacheHit.cached.toLocaleString()} of ${cacheHit.input.toLocaleString()} input tokens served from the prompt cache (${percent}%)`}
+      aria-label={`Prompt cache: ${cacheHit.cached.toLocaleString()} of ${cacheHit.input.toLocaleString()} input tokens`}
+      className="ml-[0.5em] shrink-0 rounded-sm bg-emerald-500/15 px-[0.35em] py-[0.1em] font-mono text-(length:--agent-panel-fs-tile-chip,12px) leading-none tabular-nums text-emerald-600 dark:text-emerald-400"
+    >
+      cached {cacheHit.cached.toLocaleString()} / {cacheHit.input.toLocaleString()}
+    </span>
+  );
 }
 
 export const ROLE_STYLES: Record<DisplayRole, string> = {
@@ -84,11 +106,13 @@ function EventHeading({
   role,
   isCollapsed,
   onToggle,
+  showCacheHits,
 }: {
   ev: ActivityEvent;
   role: DisplayRole;
   isCollapsed: boolean;
   onToggle: () => void;
+  showCacheHits: boolean;
 }) {
   const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : null;
   return (
@@ -108,6 +132,7 @@ function EventHeading({
         aria-hidden
       />
       <span className={CHIP_CLASS + ROLE_STYLES[role]}>{role}</span>
+      {showCacheHits && ev.cacheHit ? <CacheBadge cacheHit={ev.cacheHit} /> : null}
     </button>
   );
 }
@@ -188,7 +213,7 @@ function EventRowShell({
 }) {
   return (
     <div className="flow-root">
-      <EventHeading ev={ev} role={role} isCollapsed={isCollapsed} onToggle={onToggle} />
+      <EventHeading ev={ev} role={role} isCollapsed={isCollapsed} onToggle={onToggle} showCacheHits={ctx.showCacheHits} />
       {isCollapsed ? <CollapsedPreview ev={ev} /> : <EventBody ev={ev} ctx={ctx} />}
     </div>
   );

@@ -131,6 +131,18 @@ describe("CodexLiveBackend fixture ingest", () => {
     expect(page.runState).toBe("idle");
   });
 
+  test("response.completed stamps the turn's last assistant row with the cache badge", async () => {
+    const page = await backend.page(SESSION_ID, 0, 100, "nice");
+    const badged = page.events.filter((event) => event.cacheHit);
+    // Every response.completed in the fixture reports cached input.
+    expect(badged.length).toBeGreaterThan(0);
+    // The fixture's final response.completed usage: input 26449 (which already
+    // includes cached), cached 25984 -- the badge reads the full input, not
+    // input + cached.
+    const last = badged[badged.length - 1]!;
+    expect(last.cacheHit).toEqual({ cached: 25_984, input: 26_449 });
+  });
+
   test("orders user rows before their turn's assistant rows", async () => {
     const page = await backend.page(SESSION_ID, 0, 100, "nice");
     const events = page.events;

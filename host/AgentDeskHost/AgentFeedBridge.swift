@@ -808,7 +808,10 @@ final class AgentFeedBridge: @unchecked Sendable {
                 )
             },
             otherModeIndex: event.otherModeIndex,
-            messageId: event.messageId
+            messageId: event.messageId,
+            cacheHit: event.cacheHit.map {
+                EventCacheHit(cached: $0.cached, input: $0.input)
+            }
         )
     }
 

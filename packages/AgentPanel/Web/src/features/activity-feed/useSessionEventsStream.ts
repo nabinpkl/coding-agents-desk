@@ -45,6 +45,19 @@ export interface ActivityEvent {
   /** Stable Anthropic message id (`msg_...`), shared between the durable
    *  transcript and the live mirror so a streaming tail can hand off. */
   messageId?: string;
+  /** Per-turn prompt-cache summary, attached to the turn's last visible row so
+   *  a cache-hit badge can render next to the output it belongs to. Absent
+   *  means the harness reported no cache data for that turn. */
+  cacheHit?: EventCacheHit;
+}
+
+/**
+ * One turn's prompt-cache accounting, in tokens. Both numbers count the same
+ * prompt, so `cached / input` is the fraction served from cache.
+ */
+export interface EventCacheHit {
+  cached: number;
+  input: number;
 }
 
 /**

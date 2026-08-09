@@ -71,6 +71,50 @@ test('claude resolves the context window from the model on the line', () => {
   });
 });
 
+test('claude assistant usage carries a per-turn cache hit badge', () => {
+  const result = claudeAdapter.processLine(JSON.stringify({
+    type: 'assistant',
+    timestamp: '2026-07-29T12:00:00.000Z',
+    message: {
+      role: 'assistant',
+      usage: {
+        input_tokens: 1_000,
+        cache_read_input_tokens: 40_000,
+        cache_creation_input_tokens: 2_000,
+        output_tokens: 500,
+      },
+      content: [{ type: 'text', text: 'done' }],
+    },
+  }));
+
+  // A hit is input served from the cache; `input` is the whole prompt,
+  // including the portion written to cache this turn.
+  expect(result?.cacheHit).toEqual({ cached: 40_000, input: 43_000 });
+  // Usage-less assistant lines carry no badge.
+  const plain = claudeAdapter.processLine(JSON.stringify({
+    type: 'assistant',
+    timestamp: '2026-07-29T12:00:00.000Z',
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'streaming' }],
+    },
+  }));
+  expect(plain?.cacheHit).toBeUndefined();
+});
+
+test('claude cache badge is absent when usage reports no tokens at all', () => {
+  const result = claudeAdapter.processLine(JSON.stringify({
+    type: 'assistant',
+    timestamp: '2026-07-29T12:00:00.000Z',
+    message: {
+      role: 'assistant',
+      usage: { input_tokens: 0, output_tokens: 0 },
+      content: [{ type: 'text', text: 'empty' }],
+    },
+  }));
+  expect(result?.cacheHit).toBeUndefined();
+});
+
 test('a <synthetic> model reads as no model rather than an unknown one', () => {
   const result = claudeAdapter.processLine(JSON.stringify({
     type: 'assistant',
@@ -107,4 +151,46 @@ test('codex carries the window the transcript published and names no model', () 
     limit: 258_400,
     updatedAt: Date.parse('2026-07-29T12:00:00.000Z'),
   });
+});
+
+test('codex occupancy is total_tokens as published, which already counts cache', () => {
+  const result = codexAdapter.processLine(JSON.stringify({
+    timestamp: '2026-07-29T12:00:00.000Z',
+    type: 'event_msg',
+    payload: {
+      type: 'token_count',
+      info: {
+        last_token_usage: {
+          input_tokens: 5_000,
+          cached_input_tokens: 3_000,
+          total_tokens: 5_500,
+        },
+        model_context_window: 258_400,
+      },
+    },
+  }));
+
+  // `input_tokens` is the FULL prompt and already includes the cached portion
+  // (verified against real rollouts: input - cached is the small fresh
+  // remainder), so the meter is `total_tokens` unchanged and the hit rate is
+  // cached / input = 3000 / 5000.
+  expect(result?.usage?.current).toBe(5_500);
+  expect(result?.cacheHit).toEqual({ cached: 3_000, input: 5_000 });
+  // The record stays machinery: the badge is re-stamped onto the turn's last
+  // text event by the read paths, never shown as its own nice-view row.
+  expect(result?.lineClass).toBe('machinery');
+});
+
+test('codex token_count without cache fields reports no badge', () => {
+  const result = codexAdapter.processLine(JSON.stringify({
+    timestamp: '2026-07-29T12:00:00.000Z',
+    type: 'event_msg',
+    payload: {
+      type: 'token_count',
+      info: { last_token_usage: { input_tokens: 5_000, total_tokens: 5_500 } },
+    },
+  }));
+
+  expect(result?.usage?.current).toBe(5_500);
+  expect(result?.cacheHit).toBeUndefined();
 });

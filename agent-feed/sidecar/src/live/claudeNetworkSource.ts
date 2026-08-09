@@ -430,7 +430,8 @@ export function mapAnthropicStreamEvent(payload: unknown): AnthropicStreamEvent 
       return { kind: "content_block_stop", index: asIndex(obj.index) };
     case "message_delta": {
       const delta = asObject(obj.delta);
-      return { kind: "message_delta", stopReason: delta.stop_reason, usage: delta.usage };
+      // `usage` rides at the event's top level on the wire, not inside `delta`.
+      return { kind: "message_delta", stopReason: delta.stop_reason, usage: obj.usage };
     }
     case "message_stop":
       return { kind: "message_stop" };
