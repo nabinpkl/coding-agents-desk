@@ -218,6 +218,11 @@ extension PairingViewController {
         windowPickerStripView.isHidden = true
         hostContentView.addSubview(windowPickerStripView)
 
+        let thumbnailStripHeight = thumbnailStripView.heightAnchor.constraint(
+            equalToConstant: thumbnailStripView.preferredHeight
+        )
+        thumbnailStripHeightConstraint = thumbnailStripHeight
+
         let windowPickerHeight = windowPickerStripView.heightAnchor.constraint(
             equalToConstant: windowPickerStripView.preferredHeight
         )
@@ -238,17 +243,13 @@ extension PairingViewController {
             bottomConstraint,
             heightConstraint,
 
-            // Strip must fit the full cell: tile thumbnail (tileHeight) +
-            // two-row caption (tileCaptionHeight). The old 56pt value was
-            // the original image-only tile height; with the Spotify-style
-            // two-row caption added, the strip needs the full cell height
-            // or the secondary label is clipped and the active-tile
-            // selection overlay (sized to cell, not strip) looks oversized
-            // relative to the visible tile content.
+            // Both strips size themselves: collapsed they are a bar, expanded they add a tile
+            // row whose height depends on the previews setting. The constants are driven by
+            // each strip's `preferredHeight` through the delegate seam, so the full-cell
+            // sizing that a preview tile needs (image + two-row caption) lives with the
+            // strip that knows whether it is drawing one.
             displayRailView.heightAnchor.constraint(equalToConstant: 32),
-            thumbnailStripView.heightAnchor.constraint(
-                equalToConstant: ThumbnailStripView.tileHeight + ThumbnailStripView.tileCaptionHeight
-            ),
+            thumbnailStripHeight,
             windowPickerHeight,
 
             keyboardSurface.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),

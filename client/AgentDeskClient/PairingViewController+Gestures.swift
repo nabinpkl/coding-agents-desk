@@ -30,6 +30,10 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     func applySettingsToTranslator() {
         gestureTranslator.tuning = SettingsStore.shared.tuning
         thumbnailStripView.useMacOSDirection = SettingsStore.shared.useMacOSSpacesDirection
+        // Same setting that gates thumbnail capture host-side. With capture off the strip has
+        // no image to draw, so it renders compact Desktop pills instead of empty preview
+        // tiles.
+        thumbnailStripView.showsPreviews = SettingsStore.shared.showSpacePreviews
     }
 
     // R11: drains the InputChannel's host-pushed DesktopState frames
@@ -386,14 +390,18 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             displayRailView.isHidden = true
             thumbnailStripView.isHidden = true
             windowPickerStripView.isHidden = true
-            // A hidden view still holds its height here, so an expanded picker left open
-            // while the keyboard is up would reserve the tile row for nothing.
+            // A hidden view still holds its height here, so an expanded strip left open while
+            // the keyboard is up would reserve the tile row for nothing.
+            thumbnailStripView.setExpanded(false)
             windowPickerStripView.setExpanded(false)
             return
         }
         displayRailView.isHidden = displayRailView.displayCount <= 1
         thumbnailStripView.isHidden = thumbnailStripView.userSpaceCount <= 1
         windowPickerStripView.isHidden = windowPickerStripView.isEmptyAndIdle
+        if thumbnailStripView.isHidden {
+            thumbnailStripView.setExpanded(false)
+        }
         if windowPickerStripView.isHidden {
             windowPickerStripView.setExpanded(false)
         }
@@ -508,13 +516,22 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         }
     }
 
-    // MARK: - WindowPickerStripViewDelegate
+    // MARK: - On-demand strip heights
 
-    // The strip owns whether it is open; the layout owns how tall it is. Animating here
-    // rather than inside the strip keeps the trackpad's top edge, which is pinned to the
-    // strip's bottom, moving in the same pass.
+    // Each strip owns whether it is open; the layout owns how tall it is. Animating here
+    // rather than inside the strip keeps everything pinned below it, down to the trackpad's
+    // top edge, moving in the same pass.
+    func thumbnailStripDidChangePreferredHeight(_ view: ThumbnailStripView) {
+        thumbnailStripHeightConstraint?.constant = view.preferredHeight
+        animateStripHeightChange()
+    }
+
     func windowPickerDidChangePreferredHeight(_ view: WindowPickerStripView) {
         windowPickerStripHeightConstraint?.constant = view.preferredHeight
+        animateStripHeightChange()
+    }
+
+    private func animateStripHeightChange() {
         guard viewIfLoaded?.window != nil else { return }
         UIView.animate(
             withDuration: 0.2,

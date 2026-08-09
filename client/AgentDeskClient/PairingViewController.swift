@@ -227,8 +227,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var keyboardPresentationState: KeyboardPresentationState = .hidden
     var buttonRowBottomConstraint: NSLayoutConstraint?
     var buttonRowHeightConstraint: NSLayoutConstraint?
-    // The window picker collapses to a bar and expands on demand, so its height is driven by
-    // the strip's `preferredHeight` rather than being a fixed row.
+    // Both strips collapse to a bar and expand on demand, so their heights are driven by each
+    // strip's `preferredHeight` rather than being fixed rows.
+    var thumbnailStripHeightConstraint: NSLayoutConstraint?
     var windowPickerStripHeightConstraint: NSLayoutConstraint?
     var dismissKeyboardTap: UITapGestureRecognizer?
     // R23: orientation-variant constraints, one set active at a time.
