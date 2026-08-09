@@ -268,12 +268,12 @@ struct ThumbnailStripViewTests {
         #expect(view.activeIndex == nil)
     }
 
-    // MARK: - On-demand bar and compact mode
+    // MARK: - Compact row and on-demand previews
     //
-    // The strip rests as a bar and opens on tap, and what it opens into depends on the
-    // previews setting: preview tiles when the host is capturing, compact Desktop pills when
-    // it is not. Both are the height the layout owner has to install, so they are asserted
-    // through `preferredHeight` rather than through the view hierarchy.
+    // The strip rests as a compact row of Desktop pills, which is also its bar: Desktop
+    // switching is never a tap deep. A leading chevron grows those pills into preview tiles,
+    // and exists only when the host is capturing previews at all. The row height is what the
+    // layout owner installs, so it is asserted through `preferredHeight`.
 
     private func threeSpaceState() -> DesktopState {
         DesktopState(
@@ -288,30 +288,28 @@ struct ThumbnailStripViewTests {
         )
     }
 
-    @Test func startsCollapsedToTheBar() {
+    @Test func restsAsTheCompactPillRow() {
         let view = ThumbnailStripView()
         view.apply(state: threeSpaceState())
 
         #expect(view.isExpanded == false)
-        #expect(view.preferredHeight == ThumbnailStripView.collapsedHeight)
+        #expect(view.currentTileWidth == ThumbnailStripView.compactTileWidth)
+        #expect(view.preferredHeight == ThumbnailStripView.compactRowHeight)
     }
 
-    // The setting's own default is off, so this is the common path: opening the strip must
-    // not reserve room for preview tiles the host was never asked to capture.
-    @Test func expandsToTheCompactRowWhenPreviewsAreOff() {
+    // The setting's own default is off, and with capture off there is nothing to open into:
+    // the expanded row would be the same tiles around an image box that never fills.
+    @Test func doesNotExpandWhenPreviewsAreOff() {
         let view = ThumbnailStripView()
+        let recorder = StripRecorder()
+        view.delegate = recorder
         view.showsPreviews = false
         view.apply(state: threeSpaceState())
         view.setExpanded(true)
 
-        #expect(view.currentTileWidth == ThumbnailStripView.compactTileWidth)
-        #expect(view.contentRowHeight == ThumbnailStripView.compactRowHeight)
-        #expect(
-            view.preferredHeight
-                == ThumbnailStripView.barHeight
-                    + ThumbnailStripView.barRowGap
-                    + ThumbnailStripView.compactRowHeight
-        )
+        #expect(view.isExpanded == false)
+        #expect(view.preferredHeight == ThumbnailStripView.compactRowHeight)
+        #expect(recorder.heightChanges == 0)
     }
 
     @Test func expandsToThePreviewRowWhenPreviewsAreOn() {
@@ -320,32 +318,30 @@ struct ThumbnailStripViewTests {
         view.apply(state: threeSpaceState())
         view.setExpanded(true)
 
+        #expect(view.showsPreviewTiles)
         #expect(view.currentTileWidth == ThumbnailStripView.tileWidth)
-        #expect(
-            view.preferredHeight
-                == ThumbnailStripView.barHeight
-                    + ThumbnailStripView.barRowGap
-                    + ThumbnailStripView.previewRowHeight
-        )
+        #expect(view.preferredHeight == ThumbnailStripView.previewRowHeight)
     }
 
-    // Toggling the setting while the strip is open changes the row height under the layout
-    // owner, so it has to hear about it without an expansion tap.
-    @Test func togglingPreviewsWhileOpenReportsTheNewHeight() {
+    // Turning capture off under an open strip has to close it, and the layout owner has to
+    // hear the new height without an expansion tap.
+    @Test func turningPreviewsOffWhileOpenCollapsesAndReportsTheNewHeight() {
         let view = ThumbnailStripView()
         let recorder = StripRecorder()
         view.delegate = recorder
+        view.showsPreviews = true
         view.apply(state: threeSpaceState())
         view.setExpanded(true)
         let afterExpand = recorder.heightChanges
 
-        view.showsPreviews = true
+        view.showsPreviews = false
+        #expect(view.isExpanded == false)
+        #expect(view.preferredHeight == ThumbnailStripView.compactRowHeight)
         #expect(recorder.heightChanges == afterExpand + 1)
-        #expect(view.contentRowHeight == ThumbnailStripView.previewRowHeight)
     }
 
-    // Collapsed, the height does not depend on the tile shape, so a setting change while
-    // closed is not something the layout owner needs to animate.
+    // Closed, the row is compact whatever the setting says, so enabling capture while closed
+    // is not something the layout owner needs to animate.
     @Test func togglingPreviewsWhileClosedIsSilent() {
         let view = ThumbnailStripView()
         let recorder = StripRecorder()
@@ -354,17 +350,18 @@ struct ThumbnailStripViewTests {
 
         view.showsPreviews = true
         #expect(recorder.heightChanges == 0)
-        #expect(view.preferredHeight == ThumbnailStripView.collapsedHeight)
+        #expect(view.preferredHeight == ThumbnailStripView.compactRowHeight)
     }
 
     @Test func renderEmptyCollapses() {
         let view = ThumbnailStripView()
+        view.showsPreviews = true
         view.apply(state: threeSpaceState())
         view.setExpanded(true)
         view.renderEmpty()
 
         #expect(view.isExpanded == false)
-        #expect(view.preferredHeight == ThumbnailStripView.collapsedHeight)
+        #expect(view.preferredHeight == ThumbnailStripView.compactRowHeight)
         #expect(view.userSpaceCount == 0)
     }
 }

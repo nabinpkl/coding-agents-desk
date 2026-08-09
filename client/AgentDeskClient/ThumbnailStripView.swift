@@ -94,7 +94,21 @@ final class DisplayRailView: UIView {
 }
 
 // Spaces strip. Horizontal UICollectionView of one cell per non-fullscreen
-// user Space on the selected display, with two layout modes:
+// user Space on the selected display.
+//
+// Two tile shapes, chosen by the Space-previews setting and the strip's own open state:
+//
+// - Compact: 52x30 "D1 D2" pills. This is the strip at rest, and the only shape it takes
+//   when previews are off, because with capture disabled host-side the preview tile spends
+//   56pt drawing an empty box and a caption for a picture that will never arrive. The
+//   compact row is also the strip's bar: there is no label row stacked above it, so Desktop
+//   switching is never a tap deep and the leading chevron costs no vertical space.
+//
+// - Preview: the full 88x92 tile with image and two-row caption, shown only while the strip
+//   is open AND the host is capturing. The chevron that opens it is hidden entirely when it
+//   is not, so the pills get the whole row.
+//
+// Within either shape there are two layout modes:
 //
 // - Fits: all tiles fit in the strip's bounds. Spacing expands so the
 //   row spans from the strip's leading edge to its trailing edge.
@@ -150,10 +164,12 @@ final class ThumbnailStripView: UIView {
     static let compactRowHeight: CGFloat = 30
     static let defaultTileSpacing: CGFloat = 10
 
-    // Bar chrome, matching WindowPickerStripView so the two rows read as one system.
-    static let barHeight: CGFloat = 28
-    static let barRowGap: CGFloat = 4
-    static let collapsedHeight: CGFloat = barHeight
+    // The compact pill row IS the collapsed bar: there is no separate label row above it.
+    // A bar that only names the active Desktop would cost a row of its own to say less than
+    // the pills already say, and would put Desktop switching a tap deep. The chevron leads
+    // the row instead, so opening previews costs no vertical space at rest.
+    static let chevronWidth: CGFloat = 22
+    static let chevronGap: CGFloat = 4
 
     // False (default, toggle OFF) inverts the wire-level sign so
     // finger-right maps to the Space on the LEFT (scrollbar reading).
@@ -166,6 +182,9 @@ final class ThumbnailStripView: UIView {
     var showsPreviews: Bool = false {
         didSet {
             guard oldValue != showsPreviews else { return }
+            // Nothing to open into once capture stops, so an open strip closes with the
+            // setting rather than sitting on a row of empty preview tiles.
+            if !showsPreviews { isExpanded = false }
             applyTileMode()
         }
     }
@@ -224,15 +243,12 @@ final class ThumbnailStripView: UIView {
         return v
     }()
 
-    // Holds the collection view and the selection overlay below the bar. The overlay is
-    // positioned from collection-content coordinates, so keeping both inside one container
-    // means the bar's height never has to be folded into that math.
+    // Holds the collection view and the selection overlay. The overlay is positioned from
+    // collection-content coordinates, so keeping both inside one container means the
+    // chevron's width never has to be folded into that math.
     private let contentContainer = UIView()
-    private let barButton = UIControl()
-    private let barChevron = UIImageView()
-    private let barTitleLabel = UILabel()
-    private let barCountLabel = UILabel()
-    private var contentHeightConstraint: NSLayoutConstraint?
+    private let chevronButton = UIButton(type: .system)
+    private var chevronWidthConstraint: NSLayoutConstraint?
 
     private var orderedSpaces: [SpaceMetadata] = []
     private var activeSpaceId: UInt64?
@@ -284,63 +300,34 @@ final class ThumbnailStripView: UIView {
         // clipped rather than merely hidden: mid-animation it is partially on screen.
         clipsToBounds = true
 
-        barButton.translatesAutoresizingMaskIntoConstraints = false
-        barButton.layer.cornerRadius = 8
-        barButton.backgroundColor = .tertiarySystemFill
-        barButton.accessibilityIdentifier = "thumbnail-strip-bar"
-        barButton.isAccessibilityElement = true
-        barButton.accessibilityTraits = [.button]
-        barButton.addTarget(self, action: #selector(toggleExpansion), for: .touchUpInside)
-        addSubview(barButton)
-
-        barChevron.contentMode = .scaleAspectFit
-        barChevron.tintColor = .secondaryLabel
-        barChevron.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-        barChevron.translatesAutoresizingMaskIntoConstraints = false
-        barButton.addSubview(barChevron)
-
-        barTitleLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        barTitleLabel.textColor = .label
-        barTitleLabel.lineBreakMode = .byTruncatingTail
-        barTitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        barButton.addSubview(barTitleLabel)
-
-        barCountLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        barCountLabel.textColor = .secondaryLabel
-        barCountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        barCountLabel.translatesAutoresizingMaskIntoConstraints = false
-        barButton.addSubview(barCountLabel)
+        chevronButton.tintColor = .secondaryLabel
+        chevronButton.accessibilityIdentifier = "thumbnail-strip-disclosure"
+        chevronButton.translatesAutoresizingMaskIntoConstraints = false
+        chevronButton.addTarget(self, action: #selector(toggleExpansion), for: .touchUpInside)
+        addSubview(chevronButton)
 
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentContainer)
         contentContainer.addSubview(collectionView)
         contentContainer.addSubview(selectionOverlay)
 
-        let contentHeight = contentContainer.heightAnchor.constraint(equalToConstant: contentRowHeight)
-        contentHeightConstraint = contentHeight
+        let chevronWidth = chevronButton.widthAnchor.constraint(equalToConstant: Self.chevronWidth)
+        chevronWidthConstraint = chevronWidth
         NSLayoutConstraint.activate([
-            barButton.leadingAnchor.constraint(equalTo: leadingAnchor),
-            barButton.trailingAnchor.constraint(equalTo: trailingAnchor),
-            barButton.topAnchor.constraint(equalTo: topAnchor),
-            barButton.heightAnchor.constraint(equalToConstant: Self.barHeight),
+            chevronButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+            chevronButton.topAnchor.constraint(equalTo: topAnchor),
+            // Full-height rather than centred on the compact row: expanded, the chevron is
+            // the way back out, and a 22x30 target floating beside a 92pt tile row is easy
+            // to miss.
+            chevronButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+            chevronWidth,
 
-            barChevron.leadingAnchor.constraint(equalTo: barButton.leadingAnchor, constant: 2),
-            barChevron.centerYAnchor.constraint(equalTo: barButton.centerYAnchor),
-            barChevron.widthAnchor.constraint(equalToConstant: 14),
-
-            barTitleLabel.leadingAnchor.constraint(equalTo: barChevron.trailingAnchor, constant: 6),
-            barTitleLabel.centerYAnchor.constraint(equalTo: barButton.centerYAnchor),
-            barTitleLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: barCountLabel.leadingAnchor, constant: -8
+            contentContainer.leadingAnchor.constraint(
+                equalTo: chevronButton.trailingAnchor, constant: Self.chevronGap
             ),
-
-            barCountLabel.trailingAnchor.constraint(equalTo: barButton.trailingAnchor, constant: -2),
-            barCountLabel.centerYAnchor.constraint(equalTo: barButton.centerYAnchor),
-
-            contentContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
-            contentContainer.topAnchor.constraint(equalTo: barButton.bottomAnchor, constant: Self.barRowGap),
-            contentHeight,
+            contentContainer.topAnchor.constraint(equalTo: topAnchor),
+            contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             collectionView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
@@ -354,18 +341,16 @@ final class ThumbnailStripView: UIView {
 
         isHidden = true
         applyTileMode(notifyHeightChange: false)
-        applyExpansionToSubviews()
-        renderBar()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         // Recompute layout mode whenever bounds or tile count change.
-        let needsRelayout = lastBoundsWidth != bounds.width
+        let needsRelayout = lastBoundsWidth != contentContainer.bounds.width
             || lastTileCount != orderedSpaces.count
         if needsRelayout {
             applyLayoutMode()
-            lastBoundsWidth = bounds.width
+            lastBoundsWidth = contentContainer.bounds.width
             lastTileCount = orderedSpaces.count
             collectionView.layoutIfNeeded()
             recenterOnActive(animated: false)
@@ -382,14 +367,17 @@ final class ThumbnailStripView: UIView {
     //     at the edges of the visible window indicate "more exists".
     private func applyLayoutMode() {
         let count = orderedSpaces.count
-        guard count > 0, bounds.width > 0 else { return }
+        // The tile row is the container's width, not the strip's: the chevron takes a fixed
+        // bite out of the leading edge.
+        let available = contentContainer.bounds.width
+        guard count > 0, available > 0 else { return }
         layout.minimumLineSpacing = Self.defaultTileSpacing
         let totalAtDefault = CGFloat(count) * currentTileWidth
             + CGFloat(max(0, count - 1)) * Self.defaultTileSpacing
-        let fits = totalAtDefault <= bounds.width
+        let fits = totalAtDefault <= available
         if fits {
             // Center the tile block: equal inset on left and right.
-            let inset = max(0, (bounds.width - totalAtDefault) / 2)
+            let inset = max(0, (available - totalAtDefault) / 2)
             layout.sectionInset = UIEdgeInsets(top: 0, left: inset, bottom: 0, right: inset)
         } else {
             layout.sectionInset = .zero
@@ -403,27 +391,28 @@ final class ThumbnailStripView: UIView {
 
     // MARK: - Tile mode and expansion
 
-    var currentTileWidth: CGFloat { showsPreviews ? Self.tileWidth : Self.compactTileWidth }
-    var contentRowHeight: CGFloat { showsPreviews ? Self.previewRowHeight : Self.compactRowHeight }
+    // Preview tiles only when the host is actually capturing AND the strip is open. Every
+    // other combination is the compact pill row, which is also the strip at rest.
+    var showsPreviewTiles: Bool { showsPreviews && isExpanded }
+    var currentTileWidth: CGFloat { showsPreviewTiles ? Self.tileWidth : Self.compactTileWidth }
+    var contentRowHeight: CGFloat { showsPreviewTiles ? Self.previewRowHeight : Self.compactRowHeight }
 
-    // Collapsed height is the bar alone; expanded adds whichever tile row the previews
-    // setting selected. The layout owner reads this after every
-    // `thumbnailStripDidChangePreferredHeight`.
-    var preferredHeight: CGFloat {
-        isExpanded ? Self.barHeight + Self.barRowGap + contentRowHeight : Self.collapsedHeight
-    }
+    // The row is the whole strip, so its height IS the strip's height. Nothing is stacked
+    // above it: the pills stay on screen in both states and expanding only grows them into
+    // preview tiles.
+    var preferredHeight: CGFloat { contentRowHeight }
 
     private func applyTileMode(notifyHeightChange: Bool = true) {
+        let previous = layout.itemSize
         layout.itemSize = CGSize(width: currentTileWidth, height: contentRowHeight)
-        contentHeightConstraint?.constant = contentRowHeight
+        applyChevronState()
         collectionView.reloadData()
         applyLayoutMode()
         lastTileCount = orderedSpaces.count
         collectionView.layoutIfNeeded()
         recenterOnActive(animated: false)
         updateSelectionOverlayFrame(animated: false)
-        renderBar()
-        if notifyHeightChange, isExpanded {
+        if notifyHeightChange, previous.height != layout.itemSize.height {
             delegate?.thumbnailStripDidChangePreferredHeight(self)
         }
     }
@@ -433,49 +422,31 @@ final class ThumbnailStripView: UIView {
     }
 
     func setExpanded(_ expanded: Bool) {
-        guard expanded != isExpanded else { return }
-        isExpanded = expanded
-        applyExpansionToSubviews()
-        renderBar()
-        delegate?.thumbnailStripDidChangePreferredHeight(self)
+        // Opening is only meaningful when there are previews to open into; with capture off
+        // the expanded row would be the same tiles with an empty image box.
+        let target = expanded && showsPreviews
+        guard target != isExpanded else { return }
+        isExpanded = target
+        applyTileMode()
     }
 
-    private func applyExpansionToSubviews() {
-        // Hidden rather than merely clipped: a clipped collection view still hands its cells
-        // to VoiceOver, and its pan recognizer would keep emitting switchSpace frames for a
-        // row nobody can see.
-        contentContainer.isHidden = !isExpanded
-        barChevron.image = UIImage(systemName: isExpanded ? "chevron.down" : "chevron.right")
-        guard isExpanded else { return }
-        // Opening does not change the strip's width, so `layoutSubviews` sees no reason to
-        // relayout. Resync explicitly or the row opens with the active tile off-centre and
-        // the selection overlay parked where it was when the strip last closed.
-        applyLayoutMode()
-        collectionView.layoutIfNeeded()
-        recenterOnActive(animated: false)
-        updateSelectionOverlayFrame(animated: false)
-    }
-
-    private func renderBar() {
-        let title: String
-        if let idx = activeIndex, idx < orderedSpaces.count {
-            let key = String(orderedSpaces[idx].id)
-            title = SpaceAgentLabelResolver.resolve(
-                topWindow: topWindows[key],
-                fallback: "Desktop \(idx + 1)"
-            ).primary
-        } else {
-            title = "Desktops"
+    // Hidden, and zero-width, when there is nothing to disclose: the pills should have the
+    // full row rather than sit next to a dead control.
+    private func applyChevronState() {
+        let canExpand = showsPreviews
+        chevronButton.isHidden = !canExpand
+        if chevronWidthConstraint?.constant != (canExpand ? Self.chevronWidth : 0) {
+            chevronWidthConstraint?.constant = canExpand ? Self.chevronWidth : 0
+            // The tile row's available width just changed. `layoutSubviews` re-derives the
+            // fits/overflow split from the container's width, so let it run rather than
+            // computing the centering inset against the width the row had a moment ago.
+            setNeedsLayout()
         }
-        barTitleLabel.text = title
-        if let idx = activeIndex, orderedSpaces.count > 1 {
-            barCountLabel.text = "\(idx + 1) of \(orderedSpaces.count)"
-        } else {
-            barCountLabel.text = nil
-        }
-        barButton.accessibilityLabel = "Desktop switcher"
-        barButton.accessibilityValue = title
-        barButton.accessibilityHint = isExpanded ? "Closes the Desktop list." : "Opens the Desktop list."
+        chevronButton.setImage(
+            UIImage(systemName: isExpanded ? "chevron.down" : "chevron.right"),
+            for: .normal
+        )
+        chevronButton.accessibilityLabel = isExpanded ? "Hide Desktop previews" : "Show Desktop previews"
     }
 
     // MARK: - Public state surface
@@ -513,7 +484,6 @@ final class ThumbnailStripView: UIView {
         // Dock commit in the chain) skip the re-animation so the single
         // smooth glide started by previewActiveTransition isn't broken
         // into per-commit hops.
-        renderBar()
         if let pending = pendingPreviewIndex {
             if activeIndex == pending || countChanged {
                 pendingPreviewIndex = nil
@@ -547,7 +517,6 @@ final class ThumbnailStripView: UIView {
                 configureCell(cell, atIndex: ip.item)
             }
         }
-        renderBar()
     }
 
     func renderEmpty() {
@@ -562,7 +531,6 @@ final class ThumbnailStripView: UIView {
         previewClearWorkItem?.cancel()
         previewClearWorkItem = nil
         setExpanded(false)
-        renderBar()
     }
 
     // Predict the final tile for a tap-jump and slide the selection
@@ -681,7 +649,7 @@ final class ThumbnailStripView: UIView {
     fileprivate func configureCell(_ cell: ThumbnailTileCell, atIndex i: Int) {
         let space = orderedSpaces[i]
         let key = String(space.id)
-        guard showsPreviews else {
+        guard showsPreviewTiles else {
             // "D1", "D2". The agent label is deliberately dropped here rather than truncated
             // into a 52pt pill: a two-character Desktop number is legible, and half an app
             // name is not.
