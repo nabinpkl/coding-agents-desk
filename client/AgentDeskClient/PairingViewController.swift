@@ -55,6 +55,14 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // via UIScrollView transform; ADR-0008 dropped the host-side
     // sourceRect crop path in favour of native-pixel encoder density.
     var sinkScrollView: UIScrollView?
+    // The zoomed view inside that scroll view, sized to the picture rather than to the
+    // scroll's frame. Held explicitly because the difference between the two is now
+    // load-bearing for every cursor projection, and `subviews.first` also matches the
+    // scroll indicators.
+    var sinkContentView: UIView?
+    // Swapped for `sinkAspectConstraint` once a display arrives; see applySinkAspectRatio.
+    var sinkFillHeightConstraint: NSLayoutConstraint?
+    var sinkAspectConstraint: NSLayoutConstraint?
     static let sinkMaxZoomScale: CGFloat = 4.0
     static let sinkDoubleTapZoomScale: CGFloat = 2.0
     // ADR-0009 cursor-driven viewport pan. The client mirrors the host
@@ -311,6 +319,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             layoutReady: surfaceControlRail.bounds.width > 0
                 && surfaceControlRail.bounds.height > 0
         )
+        // The picture is sized from the scroll frame, so a rotation or a strip that just
+        // resized the video box changes how much empty frame is left to centre it in.
+        centerSinkContent()
     }
 
     @objc func applicationWillEnterForeground() {
@@ -760,6 +771,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             videoSink = nil
             sinkScrollView?.removeFromSuperview()
             sinkScrollView = nil
+            sinkContentView = nil
+            sinkFillHeightConstraint = nil
+            sinkAspectConstraint = nil
             mediaDiagnosticsLabel?.removeFromSuperview()
             mediaDiagnosticsLabel = nil
             hostStatusOverlay?.removeFromSuperview()

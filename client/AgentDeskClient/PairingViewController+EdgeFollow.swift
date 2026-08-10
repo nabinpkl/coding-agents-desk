@@ -8,10 +8,16 @@ import AgentDeskWire
 // scroll-view concerns and travel naturally with the EdgeFollow math.
 
 extension PairingViewController: UIScrollViewDelegate {
+    // The picture's unzoomed size. Zoom rides on the zooming view's transform, so `bounds`
+    // stays the rect every source-display point projects into, whatever the scale.
+    var sinkVideoSize: CGSize { sinkContentView?.bounds.size ?? .zero }
+
     @objc func handleSinkDoubleTap(_ gr: UITapGestureRecognizer) {
-        guard let scroll = sinkScrollView else { return }
+        guard let scroll = sinkScrollView, let sink = sinkContentView else { return }
         let target: CGFloat = scroll.zoomScale > 1.0 ? 1.0 : Self.sinkDoubleTapZoomScale
-        let point = gr.location(in: gr.view)
+        // zoom(to:) reads its rect in the zooming view's coordinates, which stopped being the
+        // scroll view's the moment the sink shrank to the picture.
+        let point = gr.location(in: sink)
         // Convert the visible-frame tap point to a content-coords rect
         // so iOS zooms centered on the user's finger, not the origin.
         let scale = target
@@ -29,9 +35,8 @@ extension PairingViewController: UIScrollViewDelegate {
     // MARK: - UIScrollViewDelegate
 
     public func viewForZooming(in scrollView: UIScrollView) -> UIView? {
-        // Only one subview at content level: the sink view.
         guard scrollView === sinkScrollView else { return nil }
-        return scrollView.subviews.first
+        return sinkContentView
     }
 
     // ADR-0009. The selected display rect drives both the cursor-model
@@ -59,6 +64,8 @@ extension PairingViewController: UIScrollViewDelegate {
         let isSameDisplay = display.id == activeDisplayIdMirror && newRect.size == activeDisplayRect.size
         activeDisplayRect = newRect
         activeDisplayIdMirror = display.id
+        // The sink is shaped by the display it is showing, so a new one reshapes it.
+        applySinkAspectRatio()
         if !isSameDisplay || cursorSourcePos == nil {
             pendingCursorRetarget = nil
             isManualViewportPanActive = false
@@ -204,7 +211,8 @@ extension PairingViewController: UIScrollViewDelegate {
         let next = EdgeFollow.contentOffset(
             forCursor: pos,
             displayBounds: activeDisplayRect,
-            sinkViewSize: scroll.bounds.size,
+            videoSize: sinkVideoSize,
+            viewportSize: scroll.bounds.size,
             zoomScale: scroll.zoomScale,
             currentOffset: scroll.contentOffset
         )
@@ -226,24 +234,21 @@ extension PairingViewController: UIScrollViewDelegate {
             cursorDotView?.isHidden = true
             return
         }
+        let video = sinkVideoSize
         guard let dot = cursorDotView,
               let scroll = sinkScrollView,
               let pos = cursorSourcePos,
               activeDisplayRect.width > 0,
               activeDisplayRect.height > 0,
-              scroll.bounds.width > 0 else {
+              video.width > 0,
+              video.height > 0 else {
             cursorDotView?.isHidden = true
             return
         }
-        let fitScale = min(
-            scroll.bounds.width / activeDisplayRect.width,
-            scroll.bounds.height / activeDisplayRect.height
-        )
-        let padX = (scroll.bounds.width - activeDisplayRect.width * fitScale) / 2
-        let padY = (scroll.bounds.height - activeDisplayRect.height * fitScale) / 2
-        // Position in sinkView coords (unaffected by zoom).
-        let sinkX = padX + pos.x * fitScale
-        let sinkY = padY + pos.y * fitScale
+        // Position in sinkView coords (unaffected by zoom). The sink is the picture, so this
+        // is a straight scale with no padding to step over.
+        let sinkX = pos.x * (video.width / activeDisplayRect.width)
+        let sinkY = pos.y * (video.height / activeDisplayRect.height)
         // Scale up by zoom and subtract the scroll offset to get viewport coords.
         let vpX = sinkX * scroll.zoomScale - scroll.contentOffset.x
         let vpY = sinkY * scroll.zoomScale - scroll.contentOffset.y
@@ -269,6 +274,9 @@ extension PairingViewController: UIScrollViewDelegate {
 
     public func scrollViewDidZoom(_ scrollView: UIScrollView) {
         guard scrollView === sinkScrollView else { return }
+        // Every zoom step changes how much empty frame is left around the picture, and the
+        // inset is what keeps it centred until it has grown enough to fill the frame.
+        centerSinkContent()
         updateCursorDot()
     }
 
@@ -288,7 +296,7 @@ extension PairingViewController: UIScrollViewDelegate {
            let anchor = PointerRetargeting.viewportPoint(
                forSource: source,
                displayBounds: activeDisplayRect,
-               sinkViewSize: scrollView.bounds.size,
+               videoSize: sinkVideoSize,
                zoomScale: scrollView.zoomScale,
                contentOffset: scrollView.contentOffset) {
             panFollowAnchor = anchor
@@ -328,7 +336,7 @@ extension PairingViewController: UIScrollViewDelegate {
             desktopState: lastDesktopState,
             displayId: activeDisplayIdMirror,
             displayBounds: activeDisplayRect,
-            sinkViewSize: scrollView.bounds.size,
+            videoSize: sinkVideoSize,
             zoomScale: scrollView.zoomScale,
             contentOffset: scrollView.contentOffset,
             contentSize: scrollView.contentSize,
@@ -392,7 +400,8 @@ extension PairingViewController: UIScrollViewDelegate {
                state: lastDesktopState,
                displayId: activeDisplayIdMirror,
                displayBounds: activeDisplayRect,
-               sinkViewSize: scrollView.bounds.size,
+               videoSize: sinkVideoSize,
+               viewportSize: scrollView.bounds.size,
                zoomScale: scrollView.zoomScale,
                contentOffset: scrollView.contentOffset,
                lastSentHostPoint: lastSentPanFollowHostPoint

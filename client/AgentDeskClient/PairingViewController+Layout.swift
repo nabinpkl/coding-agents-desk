@@ -40,13 +40,38 @@ extension PairingViewController {
 
         // Inner constraints (sink view inside the scroll) are
         // orientation-invariant; activate immediately.
+        //
+        // The sink is the PICTURE, not the scroll's frame. Sizing it to the frame put the
+        // aspect-fit black bars inside the zoomable content, so they magnified along with
+        // the video and the bottom bar became a floor no amount of scrolling could pass.
+        // Fitted to the display's aspect instead, zoom has nothing to grow but pixels, and
+        // the picture eats into the empty frame until it fills it.
+        //
+        // The scroll view centres content smaller than its frame via `centerSinkContent`.
+        let fillWidth = sinkView.widthAnchor.constraint(
+            equalTo: scroll.frameLayoutGuide.widthAnchor
+        )
+        // Yields to the aspect ratio when a tall display would otherwise overflow the frame.
+        fillWidth.priority = UILayoutPriority(999)
+        let fillHeight = sinkView.heightAnchor.constraint(
+            equalTo: scroll.frameLayoutGuide.heightAnchor
+        )
+        sinkFillHeightConstraint = fillHeight
         NSLayoutConstraint.activate([
             sinkView.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
             sinkView.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
             sinkView.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             sinkView.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
-            sinkView.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor),
-            sinkView.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor)
+            fillWidth,
+            sinkView.widthAnchor.constraint(
+                lessThanOrEqualTo: scroll.frameLayoutGuide.widthAnchor
+            ),
+            sinkView.heightAnchor.constraint(
+                lessThanOrEqualTo: scroll.frameLayoutGuide.heightAnchor
+            ),
+            // Until a display arrives there is no aspect to fit, so the sink keeps the frame's
+            // shape. `applySinkAspectRatio` swaps this for the real ratio on first state.
+            fillHeight
         ])
 
         // The scroll's own position and extent are orientation-variant and belong to the
@@ -63,6 +88,10 @@ extension PairingViewController {
         videoDoubleTapZoomRecognizer = doubleTap
 
         sinkScrollView = scroll
+        sinkContentView = sinkView
+        // A display may already be known from a previous sink, in which case the sink should
+        // arrive at the right shape rather than snapping to it on the next state push.
+        applySinkAspectRatio()
         if reconcileSessionLayout() {
             attachVideoTouchRecognizers()
         }
@@ -323,6 +352,66 @@ extension PairingViewController {
         // set that is not installed.
         currentIsLandscape = nil
         currentUsesFullLayout = nil
+    }
+
+    /// Size the sink to the active display's shape, so the scrollable content is the picture
+    /// and nothing else.
+    ///
+    /// Idempotent, and safe to call before a display is known: without one the sink keeps the
+    /// scroll frame's shape, which is what it looked like before any of this mattered.
+    func applySinkAspectRatio() {
+        guard let sinkView = sinkContentView else { return }
+        let display = activeDisplayRect
+        guard display.width > 0, display.height > 0 else { return }
+        let ratio = display.height / display.width
+        if let existing = sinkAspectConstraint, existing.multiplier == ratio { return }
+        sinkAspectConstraint?.isActive = false
+        // Multipliers are immutable, so a changed display means a new constraint rather than
+        // an edited one.
+        let aspect = sinkView.heightAnchor.constraint(
+            equalTo: sinkView.widthAnchor, multiplier: ratio
+        )
+        sinkAspectConstraint = aspect
+        sinkFillHeightConstraint?.isActive = false
+        aspect.isActive = true
+        centerSinkContent()
+    }
+
+    /// Keep the picture centred in the scroll view while it is smaller than the frame.
+    ///
+    /// A scroll view pins undersized content to its origin, which would drop the whole
+    /// picture against the top edge and pile all the empty space underneath. The inset is
+    /// also what the cursor math clamps against, so it has exactly one producer here.
+    func centerSinkContent() {
+        guard let scroll = sinkScrollView else { return }
+        scroll.layoutIfNeeded()
+        let inset = UIEdgeInsets(
+            top: max(0, (scroll.bounds.height - scroll.contentSize.height) / 2),
+            left: max(0, (scroll.bounds.width - scroll.contentSize.width) / 2),
+            bottom: max(0, (scroll.bounds.height - scroll.contentSize.height) / 2),
+            right: max(0, (scroll.bounds.width - scroll.contentSize.width) / 2)
+        )
+        if scroll.contentInset != inset {
+            scroll.contentInset = inset
+        }
+        // The inset moves the valid offset range, so an offset that was resting correctly
+        // before can be stranded after a rotation or a layout-mode swap. Only re-pin while
+        // nothing is being driven: rubber-band overscroll and zoom bounce are deliberately
+        // outside the range, and clamping mid-gesture would flatten them.
+        guard !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating,
+              !scroll.isZooming, !scroll.isZoomBouncing else { return }
+        let rangeX = EdgeFollow.offsetRange(
+            contentExtent: scroll.contentSize.width, viewportExtent: scroll.bounds.width
+        )
+        let rangeY = EdgeFollow.offsetRange(
+            contentExtent: scroll.contentSize.height, viewportExtent: scroll.bounds.height
+        )
+        let clamped = CGPoint(
+            x: min(max(rangeX.min, scroll.contentOffset.x), rangeX.max),
+            y: min(max(rangeY.min, scroll.contentOffset.y), rangeY.max)
+        )
+        guard clamped != scroll.contentOffset else { return }
+        scroll.contentOffset = clamped
     }
 
     /// The sink's arrangement while the control shell is gone, which is the reconnect window.

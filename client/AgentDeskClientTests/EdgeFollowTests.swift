@@ -7,84 +7,78 @@ struct EdgeFollowTests {
     // The point-spaced "rough Retina MBP" display used throughout. 1.54
     // aspect, similar to the user's actual workstation.
     private static let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
-    // Sink view sized like the iPhone's video band: ~393 points wide
-    // by ~219 points tall. Aspect 1.79 means the sink is wider than the
-    // display, so the video is pillarboxed (padX > 0, padY = 0 when
-    // height-constrained; let aspect-fit do its thing).
-    private static let sink = CGSize(width: 393, height: 219)
+    // The scroll view's window, sized like the iPhone's video band: ~393 points wide by ~219
+    // tall. Its 1.79 aspect is wider than the display's 1.54, so the picture cannot fill it
+    // horizontally and the scroll view pillarboxes it with a centring inset.
+    private static let viewport = CGSize(width: 393, height: 219)
+    // The scrollable content, which is the picture and nothing else: the display fitted into
+    // the window, exactly as the sink view's constraints size it.
+    private static let video: CGSize = {
+        let fit = min(viewport.width / display.width, viewport.height / display.height)
+        return CGSize(width: display.width * fit, height: display.height * fit)
+    }()
+    private static let insetX = (viewport.width - video.width) / 2
 
     @Test func cursorInSafeBandLeavesOffsetUnchanged() {
-        let currentOffset = CGPoint(x: 50, y: 30)
-        // Display centre maps to roughly sink centre at zoom 2; well
-        // inside the safe band relative to currentOffset.
-        let next = EdgeFollow.contentOffset(
-            forCursor: CGPoint(x: Self.display.midX, y: Self.display.midY),
-            displayBounds: Self.display,
-            sinkViewSize: Self.sink,
-            zoomScale: 2.0,
-            currentOffset: currentOffset
-        )
         // Centre cursor at zoom 2 should leave the centred view alone.
         let centredOffset = CGPoint(
-            x: Self.sink.width * 2 / 2 - Self.sink.width / 2,
-            y: Self.sink.height * 2 / 2 - Self.sink.height / 2
+            x: Self.video.width * 2 / 2 - Self.viewport.width / 2,
+            y: Self.video.height * 2 / 2 - Self.viewport.height / 2
         )
         let nextSafe = EdgeFollow.contentOffset(
             forCursor: CGPoint(x: Self.display.midX, y: Self.display.midY),
             displayBounds: Self.display,
-            sinkViewSize: Self.sink,
+            videoSize: Self.video,
+            viewportSize: Self.viewport,
             zoomScale: 2.0,
             currentOffset: centredOffset
         )
         #expect(nextSafe == centredOffset)
-        _ = next
     }
 
     @Test func cursorAtRightEdgePullsOffsetForward() {
-        // Cursor at the source display's right edge, zoom 2x, current
-        // offset at left. The viewport must shift right so the cursor
-        // lands at the right-margin boundary. The pillarbox padding to
-        // the right of the video means the cursor at display.maxX does
-        // not land at the absolute right of the content; it lands at
-        // (padX + display.width * fitScale) * zoom.
+        // Cursor at the source display's right edge, zoom 2x, current offset at left. The
+        // window must shift right to bring the cursor back inside the margin; the display's
+        // right edge is the content's right edge now that there is no padding beyond it, so
+        // that pull runs out of content and lands at the scrollable maximum.
         let next = EdgeFollow.contentOffset(
             forCursor: CGPoint(x: Self.display.maxX, y: Self.display.midY),
             displayBounds: Self.display,
-            sinkViewSize: Self.sink,
+            videoSize: Self.video,
+            viewportSize: Self.viewport,
             zoomScale: 2.0,
             currentOffset: .zero
         )
-        let fitScale = min(Self.sink.width / Self.display.width, Self.sink.height / Self.display.height)
-        let padX = (Self.sink.width - Self.display.width * fitScale) / 2
-        let cursorContentX = (padX + Self.display.width * fitScale) * 2.0
-        let marginX = Self.sink.width * 0.12
-        let expected = cursorContentX - (Self.sink.width - marginX)
-        #expect(abs(next.x - expected) < 0.5)
+        let range = EdgeFollow.offsetRange(
+            contentExtent: Self.video.width * 2, viewportExtent: Self.viewport.width
+        )
+        #expect(abs(next.x - range.max) < 0.5)
+        #expect(range.max > 0)
     }
 
     @Test func cursorAtLeftEdgePullsOffsetBack() {
         let next = EdgeFollow.contentOffset(
             forCursor: CGPoint(x: 0, y: Self.display.midY),
             displayBounds: Self.display,
-            sinkViewSize: Self.sink,
+            videoSize: Self.video,
+            viewportSize: Self.viewport,
             zoomScale: 2.0,
             currentOffset: CGPoint(x: 200, y: 0)
         )
-        let fitScale = min(Self.sink.width / Self.display.width, Self.sink.height / Self.display.height)
-        let padX = (Self.sink.width - Self.display.width * fitScale) / 2
-        let cursorContentX = padX * 2.0
-        let marginX = Self.sink.width * 0.12
-        let expected = cursorContentX - marginX
-        // expected may be negative (pillarbox padding less than margin);
-        // clamped to 0 by the helper.
-        #expect(abs(next.x - max(0, expected)) < 0.5)
+        // The display's left edge is the content's left edge, so pulling the margin past it
+        // clamps to the start of the scrollable range.
+        let range = EdgeFollow.offsetRange(
+            contentExtent: Self.video.width * 2, viewportExtent: Self.viewport.width
+        )
+        #expect(abs(next.x - range.min) < 0.5)
     }
 
     @Test func cursorBeyondTopPullsOffsetBackToZero() {
         let next = EdgeFollow.contentOffset(
             forCursor: CGPoint(x: Self.display.midX, y: 0),
             displayBounds: Self.display,
-            sinkViewSize: Self.sink,
+            videoSize: Self.video,
+            viewportSize: Self.viewport,
             zoomScale: 2.0,
             currentOffset: CGPoint(x: 100, y: 100)
         )
@@ -95,31 +89,64 @@ struct EdgeFollowTests {
         let next = EdgeFollow.contentOffset(
             forCursor: CGPoint(x: Self.display.midX, y: Self.display.maxY),
             displayBounds: Self.display,
-            sinkViewSize: Self.sink,
+            videoSize: Self.video,
+            viewportSize: Self.viewport,
             zoomScale: 2.0,
             currentOffset: .zero
         )
-        let maxOffsetY = Self.sink.height * 2 - Self.sink.height
-        #expect(next.y == maxOffsetY)
+        #expect(next.y == Self.video.height * 2 - Self.viewport.height)
     }
 
-    @Test func zoomOneClampsOffsetToZero() {
-        // At zoom 1 contentSize == sinkSize so no panning possible.
+    // The picture is narrower than the window here, so at zoom 1 it is centred rather than
+    // parked at the origin, and the resting offset is the negative of that inset. Vertically
+    // it already fills the window, so that axis rests at zero.
+    @Test func zoomOneRestsAtTheCentringOffset() {
         let next = EdgeFollow.contentOffset(
             forCursor: CGPoint(x: Self.display.maxX, y: Self.display.maxY),
             displayBounds: Self.display,
-            sinkViewSize: Self.sink,
+            videoSize: Self.video,
+            viewportSize: Self.viewport,
             zoomScale: 1.0,
             currentOffset: .zero
         )
-        #expect(next == .zero)
+        #expect(abs(next.x - -Self.insetX) < 0.001)
+        #expect(next.y == 0)
+    }
+
+    // The whole point of the change: zooming has to consume the empty band rather than
+    // magnify it, so the inset shrinks as the picture grows and is gone once it fills.
+    @Test func zoomingConsumesTheCentringInsetInsteadOfScalingIt() {
+        let atRest = EdgeFollow.offsetRange(
+            contentExtent: Self.video.width, viewportExtent: Self.viewport.width
+        )
+        let zoomed = EdgeFollow.offsetRange(
+            contentExtent: Self.video.width * 1.1, viewportExtent: Self.viewport.width
+        )
+        // Both ends move toward zero: less empty band to centre in.
+        #expect(zoomed.min > atRest.min)
+        #expect(atRest.min == atRest.max)
+
+        let fillScale = Self.viewport.width / Self.video.width
+        let filled = EdgeFollow.offsetRange(
+            contentExtent: Self.video.width * fillScale, viewportExtent: Self.viewport.width
+        )
+        #expect(abs(filled.min) < 0.001)
+        #expect(abs(filled.max) < 0.001)
+
+        // Past that the picture is bigger than the window and the range opens up.
+        let past = EdgeFollow.offsetRange(
+            contentExtent: Self.video.width * fillScale * 2, viewportExtent: Self.viewport.width
+        )
+        #expect(past.min == 0)
+        #expect(abs(past.max - Self.viewport.width) < 0.001)
     }
 
     @Test func degenerateDisplayReturnsCurrentOffset() {
         let next = EdgeFollow.contentOffset(
             forCursor: .zero,
             displayBounds: .zero,
-            sinkViewSize: Self.sink,
+            videoSize: Self.video,
+            viewportSize: Self.viewport,
             zoomScale: 2.0,
             currentOffset: CGPoint(x: 50, y: 50)
         )
@@ -178,13 +205,13 @@ struct EdgeFollowTests {
         let offset = CGPoint(x: 150, y: 90)          // inside scrollable range
 
         let anchor = PointerRetargeting.viewportPoint(
-            forSource: source, displayBounds: bounds, sinkViewSize: sink,
+            forSource: source, displayBounds: bounds, videoSize: sink,
             zoomScale: zoom, contentOffset: offset)
         #expect(anchor != nil)
 
         let back = PointerRetargeting.panFollowRetarget(
             anchorViewportPoint: anchor!, state: state, displayId: "d1",
-            displayBounds: bounds, sinkViewSize: sink, zoomScale: zoom,
+            displayBounds: bounds, videoSize: sink, viewportSize: sink, zoomScale: zoom,
             contentOffset: offset)
         #expect(back != nil)
         #expect(abs(back!.sourcePoint.x - source.x) < 0.001)
@@ -202,7 +229,7 @@ struct EdgeFollowTests {
                                 y: sink.height * zoom - sink.height)
         let r = PointerRetargeting.panFollowRetarget(
             anchorViewportPoint: anchor, state: state, displayId: "d1",
-            displayBounds: bounds, sinkViewSize: sink, zoomScale: zoom,
+            displayBounds: bounds, videoSize: sink, viewportSize: sink, zoomScale: zoom,
             contentOffset: maxOffset)!
         // Centre reaches W - W/2z = 1000 - 250 = 750, NOT the 999 edge.
         #expect(abs(r.sourcePoint.x - 750) < 0.5)
@@ -220,7 +247,7 @@ struct EdgeFollowTests {
         let over = CGPoint(x: maxOffset.x + 44, y: maxOffset.y + 44)
         let r = PointerRetargeting.panFollowRetarget(
             anchorViewportPoint: anchor, state: state, displayId: "d1",
-            displayBounds: bounds, sinkViewSize: sink, zoomScale: zoom,
+            displayBounds: bounds, videoSize: sink, viewportSize: sink, zoomScale: zoom,
             contentOffset: over)!
         #expect(abs(r.sourcePoint.x - 750) < 0.5)
         #expect(abs(r.sourcePoint.y - 450) < 0.5)
@@ -235,7 +262,7 @@ struct EdgeFollowTests {
         let over = CGPoint(x: -44, y: -44)          // past the 0 boundary
         let r = PointerRetargeting.panFollowRetarget(
             anchorViewportPoint: anchor, state: state, displayId: "d1",
-            displayBounds: bounds, sinkViewSize: sink, zoomScale: zoom,
+            displayBounds: bounds, videoSize: sink, viewportSize: sink, zoomScale: zoom,
             contentOffset: over)!
         #expect(abs(r.sourcePoint.x - 250) < 0.5)
         #expect(abs(r.sourcePoint.y - 150) < 0.5)
@@ -247,7 +274,7 @@ struct EdgeFollowTests {
         let state = Self.singleDisplayState(id: "d1", width: 1000, height: 600, originX: 0, originY: 0)
         #expect(PointerRetargeting.panFollowRetarget(
             anchorViewportPoint: .zero, state: state, displayId: "d1",
-            displayBounds: bounds, sinkViewSize: sink, zoomScale: 1.0,
+            displayBounds: bounds, videoSize: sink, viewportSize: sink, zoomScale: 1.0,
             contentOffset: .zero) == nil)
     }
 
@@ -266,7 +293,8 @@ struct EdgeFollowTests {
             state: state,
             displayId: "d1",
             displayBounds: bounds,
-            sinkViewSize: sink,
+            videoSize: sink,
+            viewportSize: sink,
             zoomScale: 2,
             contentOffset: CGPoint(x: 200, y: 120),
             lastSentHostPoint: CGPoint(x: 350, y: 350)
@@ -292,7 +320,8 @@ struct EdgeFollowTests {
             state: state,
             displayId: "d1",
             displayBounds: bounds,
-            sinkViewSize: sink,
+            videoSize: sink,
+            viewportSize: sink,
             zoomScale: 2,
             contentOffset: CGPoint(x: 200, y: 120),
             lastSentHostPoint: CGPoint(x: 600, y: 500)
@@ -345,7 +374,7 @@ struct EdgeFollowTests {
                 desktopState: state,
                 displayId: "d1",
                 displayBounds: bounds,
-                sinkViewSize: sink,
+                videoSize: sink,
                 zoomScale: 2.0,
                 contentOffset: CGPoint(x: -40, y: 0),
                 contentSize: CGSize(width: 800, height: 480),
@@ -387,7 +416,7 @@ struct EdgeFollowTests {
                 desktopState: state,
                 displayId: "d1",
                 displayBounds: bounds,
-                sinkViewSize: sink,
+                videoSize: sink,
                 zoomScale: 2.0,
                 contentOffset: CGPoint(x: -40, y: 0),
                 contentSize: CGSize(width: 800, height: 480),
@@ -408,7 +437,7 @@ struct EdgeFollowTests {
                 desktopState: state,
                 displayId: "d1",
                 displayBounds: bounds,
-                sinkViewSize: sink,
+                videoSize: sink,
                 zoomScale: 2.0,
                 contentOffset: .zero,
                 contentSize: CGSize(width: 800, height: 480),
@@ -438,7 +467,7 @@ struct EdgeFollowTests {
                 desktopState: state,
                 displayId: "d1",
                 displayBounds: bounds,
-                sinkViewSize: sink,
+                videoSize: sink,
                 zoomScale: 2.0,
                 contentOffset: CGPoint(x: 10, y: 0),
                 contentSize: CGSize(width: 800, height: 480),

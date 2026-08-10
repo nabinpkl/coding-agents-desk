@@ -9,81 +9,87 @@ import AgentDeskWire
 // the host's UIScrollView should adopt so the cursor stays inside a
 // safe band.
 //
-// The visible region is constrained to the cropped slice of the
-// aspect-fit video frame at the current zoom scale. Aspect-fit
-// letterbox / pillarbox padding is part of the sink-view's content but
-// not the source-display rect, so the math has to account for that
-// offset before applying zoom.
+// The scrollable content is the video and nothing else: the sink view is sized to the
+// aspect-fit picture rather than to the scroll view's frame, so there is no letterbox or
+// pillarbox padding baked into the content for the cursor math to step over. What the
+// picture does not cover is empty scroll-view frame, which the scroll view fills with a
+// centring inset, and which zooming eats into as the picture grows.
+//
+// That makes the video rect and the window rect two different things, and every function
+// here needs both: the video decides where a source point lands, the window decides how far
+// it can be scrolled.
 enum EdgeFollow {
+    // Offset range a UIScrollView will hold for this content, honouring the symmetric
+    // centring inset it gets while the content is smaller than the window. Below that size
+    // the range collapses to the single centred offset.
+    static func offsetRange(
+        contentExtent: CGFloat,
+        viewportExtent: CGFloat
+    ) -> (min: CGFloat, max: CGFloat) {
+        let inset = max(0, (viewportExtent - contentExtent) / 2)
+        let lower = -inset
+        return (lower, max(lower, contentExtent - viewportExtent + inset))
+    }
+
     // edgeMargin is a fraction of the visible band. 0.12 = the cursor
     // can sit anywhere except the outer 12% on any side before the
     // viewport starts following.
     static func contentOffset(
         forCursor cursorSourcePos: CGPoint,
         displayBounds: CGRect,
-        sinkViewSize: CGSize,
+        videoSize: CGSize,
+        viewportSize: CGSize,
         zoomScale: CGFloat,
         currentOffset: CGPoint,
         edgeMargin: CGFloat = 0.12
     ) -> CGPoint {
         guard displayBounds.width > 0,
               displayBounds.height > 0,
-              sinkViewSize.width > 0,
-              sinkViewSize.height > 0,
+              videoSize.width > 0,
+              videoSize.height > 0,
+              viewportSize.width > 0,
+              viewportSize.height > 0,
               zoomScale > 0 else {
             return currentOffset
         }
 
-        // Aspect-fit scale of the source display into the sink view.
-        let fitScale = min(
-            sinkViewSize.width / displayBounds.width,
-            sinkViewSize.height / displayBounds.height
-        )
-        let videoWidth = displayBounds.width * fitScale
-        let videoHeight = displayBounds.height * fitScale
-        // Pillarbox / letterbox padding inside the sink view at zoom 1.
-        let padX = (sinkViewSize.width - videoWidth) / 2
-        let padY = (sinkViewSize.height - videoHeight) / 2
+        // Source display point -> content point. The sink is the picture, so this is the
+        // whole mapping; there is no padding term.
+        let scaleX = videoSize.width / displayBounds.width
+        let scaleY = videoSize.height / displayBounds.height
+        let cursorContentX = cursorSourcePos.x * scaleX * zoomScale
+        let cursorContentY = cursorSourcePos.y * scaleY * zoomScale
 
-        // Cursor position in content coords (after zoom).
-        let cursorContentX = (padX + cursorSourcePos.x * fitScale) * zoomScale
-        let cursorContentY = (padY + cursorSourcePos.y * fitScale) * zoomScale
-
-        // Safe band inside the visible region: the cursor can sit
-        // anywhere inside [marginX, sinkW - marginX] in viewport coords
-        // without the viewport panning.
-        let marginX = sinkViewSize.width * edgeMargin
-        let marginY = sinkViewSize.height * edgeMargin
+        // Safe band inside the window: the cursor can sit anywhere inside
+        // [margin, viewport - margin] in viewport coords without the viewport panning.
+        let marginX = viewportSize.width * edgeMargin
+        let marginY = viewportSize.height * edgeMargin
 
         var nextOffsetX = currentOffset.x
         var nextOffsetY = currentOffset.y
 
-        // If cursor in viewport coords (cursorContent - currentOffset)
-        // lies outside [marginX, sinkW - marginX], shift the offset to
-        // pull the cursor back onto the margin boundary.
         let cursorViewportX = cursorContentX - currentOffset.x
         if cursorViewportX < marginX {
             nextOffsetX = cursorContentX - marginX
-        } else if cursorViewportX > sinkViewSize.width - marginX {
-            nextOffsetX = cursorContentX - (sinkViewSize.width - marginX)
+        } else if cursorViewportX > viewportSize.width - marginX {
+            nextOffsetX = cursorContentX - (viewportSize.width - marginX)
         }
 
         let cursorViewportY = cursorContentY - currentOffset.y
         if cursorViewportY < marginY {
             nextOffsetY = cursorContentY - marginY
-        } else if cursorViewportY > sinkViewSize.height - marginY {
-            nextOffsetY = cursorContentY - (sinkViewSize.height - marginY)
+        } else if cursorViewportY > viewportSize.height - marginY {
+            nextOffsetY = cursorContentY - (viewportSize.height - marginY)
         }
 
-        // Clamp to scrollable range. At zoomScale = 1 contentSize equals
-        // sinkViewSize so the max offset is 0; at zoom > 1 the difference
-        // grows linearly.
-        let contentW = sinkViewSize.width * zoomScale
-        let contentH = sinkViewSize.height * zoomScale
-        let maxOffsetX = max(0, contentW - sinkViewSize.width)
-        let maxOffsetY = max(0, contentH - sinkViewSize.height)
-        nextOffsetX = min(max(0, nextOffsetX), maxOffsetX)
-        nextOffsetY = min(max(0, nextOffsetY), maxOffsetY)
+        let rangeX = offsetRange(
+            contentExtent: videoSize.width * zoomScale, viewportExtent: viewportSize.width
+        )
+        let rangeY = offsetRange(
+            contentExtent: videoSize.height * zoomScale, viewportExtent: viewportSize.height
+        )
+        nextOffsetX = min(max(rangeX.min, nextOffsetX), rangeX.max)
+        nextOffsetY = min(max(rangeY.min, nextOffsetY), rangeY.max)
 
         return CGPoint(x: nextOffsetX, y: nextOffsetY)
     }
@@ -149,7 +155,9 @@ struct PanFollowStepInput: Equatable {
     let desktopState: DesktopState?
     let displayId: String?
     let displayBounds: CGRect
-    let sinkViewSize: CGSize
+    // The picture's unzoomed size, which is the sink view's size. `contentSize` below is the
+    // same rect after zoom, as the scroll view reports it.
+    let videoSize: CGSize
     let zoomScale: CGFloat
     let contentOffset: CGPoint
     let contentSize: CGSize
@@ -185,20 +193,15 @@ enum PointerRetargeting {
     static func viewportPoint(
         forSource source: CGPoint,
         displayBounds: CGRect,
-        sinkViewSize: CGSize,
+        videoSize: CGSize,
         zoomScale: CGFloat,
         contentOffset: CGPoint
     ) -> CGPoint? {
         guard displayBounds.width > 0, displayBounds.height > 0,
-              sinkViewSize.width > 0, sinkViewSize.height > 0,
+              videoSize.width > 0, videoSize.height > 0,
               zoomScale > 0 else { return nil }
-        let fitScale = min(sinkViewSize.width / displayBounds.width,
-                           sinkViewSize.height / displayBounds.height)
-        guard fitScale > 0 else { return nil }
-        let padX = (sinkViewSize.width - displayBounds.width * fitScale) / 2
-        let padY = (sinkViewSize.height - displayBounds.height * fitScale) / 2
-        let contentX = (padX + source.x * fitScale) * zoomScale
-        let contentY = (padY + source.y * fitScale) * zoomScale
+        let contentX = source.x * (videoSize.width / displayBounds.width) * zoomScale
+        let contentY = source.y * (videoSize.height / displayBounds.height) * zoomScale
         return CGPoint(x: contentX - contentOffset.x, y: contentY - contentOffset.y)
     }
 
@@ -215,7 +218,8 @@ enum PointerRetargeting {
         state: DesktopState?,
         displayId: String?,
         displayBounds: CGRect,
-        sinkViewSize: CGSize,
+        videoSize: CGSize,
+        viewportSize: CGSize,
         zoomScale: CGFloat,
         contentOffset: CGPoint
     ) -> CursorViewportRetarget? {
@@ -224,34 +228,38 @@ enum PointerRetargeting {
               let display = state.displays.first(where: { $0.id == displayId }),
               displayBounds.width > 0,
               displayBounds.height > 0,
-              sinkViewSize.width > 0,
-              sinkViewSize.height > 0,
+              videoSize.width > 0,
+              videoSize.height > 0,
+              viewportSize.width > 0,
+              viewportSize.height > 0,
               zoomScale > 1.0 else {
             return nil
         }
-        let fitScale = min(sinkViewSize.width / displayBounds.width,
-                           sinkViewSize.height / displayBounds.height)
-        guard fitScale > 0 else { return nil }
-        let padX = (sinkViewSize.width - displayBounds.width * fitScale) / 2
-        let padY = (sinkViewSize.height - displayBounds.height * fitScale) / 2
-        let maxOffsetX = max(0, sinkViewSize.width * zoomScale - sinkViewSize.width)
-        let maxOffsetY = max(0, sinkViewSize.height * zoomScale - sinkViewSize.height)
+        let rangeX = EdgeFollow.offsetRange(
+            contentExtent: videoSize.width * zoomScale, viewportExtent: viewportSize.width
+        )
+        let rangeY = EdgeFollow.offsetRange(
+            contentExtent: videoSize.height * zoomScale, viewportExtent: viewportSize.height
+        )
 
         // Per-axis: interior reconcile of the fixed anchor, clamped to the
         // scrollable range. Boundary cursor movement is relative input, not a
         // second absolute retarget.
-        func axis(anchor: CGFloat, offset: CGFloat, maxOffset: CGFloat,
-                  pad: CGFloat) -> CGFloat {
-            let clamped = min(max(0, offset), maxOffset)
-            let sink = (anchor + clamped) / zoomScale
-            return (sink - pad) / fitScale
+        func axis(
+            anchor: CGFloat,
+            offset: CGFloat,
+            range: (min: CGFloat, max: CGFloat),
+            scale: CGFloat
+        ) -> CGFloat {
+            let clamped = min(max(range.min, offset), range.max)
+            return (anchor + clamped) / zoomScale / scale
         }
 
         let source = CGPoint(
-            x: axis(anchor: anchor.x, offset: contentOffset.x, maxOffset: maxOffsetX,
-                    pad: padX),
-            y: axis(anchor: anchor.y, offset: contentOffset.y, maxOffset: maxOffsetY,
-                    pad: padY))
+            x: axis(anchor: anchor.x, offset: contentOffset.x, range: rangeX,
+                    scale: videoSize.width / displayBounds.width),
+            y: axis(anchor: anchor.y, offset: contentOffset.y, range: rangeY,
+                    scale: videoSize.height / displayBounds.height))
         let clamped = EdgeFollow.advanceCursor(
             from: source, delta: .zero, displayBounds: displayBounds)
         return CursorViewportRetarget(
@@ -271,7 +279,8 @@ enum PointerRetargeting {
         state: DesktopState?,
         displayId: String?,
         displayBounds: CGRect,
-        sinkViewSize: CGSize,
+        videoSize: CGSize,
+        viewportSize: CGSize,
         zoomScale: CGFloat,
         contentOffset: CGPoint,
         lastSentHostPoint: CGPoint?
@@ -281,7 +290,8 @@ enum PointerRetargeting {
             state: state,
             displayId: displayId,
             displayBounds: displayBounds,
-            sinkViewSize: sinkViewSize,
+            videoSize: videoSize,
+            viewportSize: viewportSize,
             zoomScale: zoomScale,
             contentOffset: contentOffset
         ) else { return nil }
@@ -304,13 +314,21 @@ enum PointerRetargeting {
         panTranslation: CGPoint,
         panVelocity: CGPoint
     ) -> PanFollowEdgeProjection {
-        let maxOffsetX = max(0, contentSize.width - viewportSize.width)
-        let maxOffsetY = max(0, contentSize.height - viewportSize.height)
+        // Against the range the scroll view will actually hold, not against zero: while the
+        // picture is smaller than the window the resting offset is the negative centring
+        // inset, and reading that as overscroll would put the axis into edge-push the moment
+        // a drag began.
+        let rangeX = EdgeFollow.offsetRange(
+            contentExtent: contentSize.width, viewportExtent: viewportSize.width
+        )
+        let rangeY = EdgeFollow.offsetRange(
+            contentExtent: contentSize.height, viewportExtent: viewportSize.height
+        )
         var axes: PanFollowOverscrollAxes = []
-        if contentOffset.x < 0 || contentOffset.x > maxOffsetX {
+        if contentOffset.x < rangeX.min || contentOffset.x > rangeX.max {
             axes.insert(.x)
         }
-        if contentOffset.y < 0 || contentOffset.y > maxOffsetY {
+        if contentOffset.y < rangeY.min || contentOffset.y > rangeY.max {
             axes.insert(.y)
         }
         return panFollowEdgeProjection(
@@ -347,7 +365,8 @@ enum PointerRetargeting {
             state: input.desktopState,
             displayId: input.displayId,
             displayBounds: input.displayBounds,
-            sinkViewSize: input.sinkViewSize,
+            videoSize: input.videoSize,
+            viewportSize: input.viewportSize,
             zoomScale: input.zoomScale,
             contentOffset: input.contentOffset
         ) else { return nil }
