@@ -277,7 +277,6 @@ final class ThumbnailStripView: UIView {
     // position. Drag progress is measured relative to this.
     private var activeRestingOffsetX: CGFloat = 0
     private var lastBoundsWidth: CGFloat = 0
-    private var lastBoundsHeight: CGFloat = 0
     private var lastTileCount: Int = -1
     // Height last handed to the delegate. `preferredHeight` is derived from two independent
     // inputs (open state, tile shape), so the change test compares the reported value rather
@@ -315,9 +314,10 @@ final class ThumbnailStripView: UIView {
     }
 
     private func configure() {
-        // The fill belongs to the strip, not to the closed bar, so opening grows one
-        // continuous surface instead of swapping a bar for an unbacked row of tiles.
-        backgroundColor = .secondarySystemFill
+        // The fill belongs to the strip rather than the bar control, so the open row is one
+        // continuous surface instead of tiles floating on nothing. Closed there is nothing
+        // in it to back, and a full-width empty band reads as a label that failed to load,
+        // so the fill is applied per state in applyExpansionChrome.
         layer.cornerRadius = 8
         accessibilityIdentifier = "thumbnail-strip"
         isUserInteractionEnabled = true
@@ -387,25 +387,29 @@ final class ThumbnailStripView: UIView {
         applyTileMode(notifyHeightChange: false)
     }
 
-    // The row is only as tall as its tiles once the expand or collapse animation has landed.
-    // Everything that reads layout attributes waits for that, because a flow layout asked for
-    // an 88x92 tile inside a 20pt-tall collection view answers with nonsense.
-    private var isRowSettled: Bool {
-        isExpanded && abs(contentContainer.bounds.height - contentRowHeight) < 0.5
+    // The row's resting layout, computed rather than read back. Nothing here depends on the
+    // strip's height, which is the only thing the expand animation moves, so this is already
+    // truthful while the strip is still closed. See ThumbnailStripGeometry.
+    private var rowGeometry: ThumbnailStripGeometry {
+        ThumbnailStripGeometry(
+            tileCount: orderedSpaces.count,
+            tileWidth: currentTileWidth,
+            tileHeight: contentRowHeight,
+            spacing: Self.defaultTileSpacing,
+            viewportWidth: contentContainer.bounds.width
+        )
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Recompute layout mode whenever bounds or tile count change. Height matters as much
-        // as width here: it is the axis the expand animation moves along, and the pass where
-        // it lands is the one that puts the selection indicator on the active tile.
+        // Recompute layout mode whenever the row's width or tile count change. Height is not
+        // an input: it is the axis the expand animation moves along, and the row math is
+        // deliberately independent of it.
         let needsRelayout = lastBoundsWidth != contentContainer.bounds.width
-            || lastBoundsHeight != contentContainer.bounds.height
             || lastTileCount != orderedSpaces.count
         if needsRelayout {
             applyLayoutMode()
             lastBoundsWidth = contentContainer.bounds.width
-            lastBoundsHeight = contentContainer.bounds.height
             lastTileCount = orderedSpaces.count
             collectionView.layoutIfNeeded()
             recenterOnActive(animated: false)
@@ -418,25 +422,15 @@ final class ThumbnailStripView: UIView {
     //     block via sectionInset. Two desktops sit side-by-side in the
     //     middle; five desktops are still tight in the middle with
     //     extra empty space on either side.
-    //   - Overflow: default 8pt spacing; row scrolls; partial-cut tiles
-    //     at the edges of the visible window indicate "more exists".
+    //   - Overflow: sectionInset collapses to zero; the row scrolls, and
+    //     partial-cut tiles at the edges indicate "more exists".
     private func applyLayoutMode() {
-        let count = orderedSpaces.count
-        // The tile row is the container's width, not the strip's: the chevron takes a fixed
-        // bite out of the leading edge.
-        let available = contentContainer.bounds.width
-        guard count > 0, available > 0 else { return }
-        layout.minimumLineSpacing = Self.defaultTileSpacing
-        let totalAtDefault = CGFloat(count) * currentTileWidth
-            + CGFloat(max(0, count - 1)) * Self.defaultTileSpacing
-        let fits = totalAtDefault <= available
-        if fits {
-            // Center the tile block: equal inset on left and right.
-            let inset = max(0, (available - totalAtDefault) / 2)
-            layout.sectionInset = UIEdgeInsets(top: 0, left: inset, bottom: 0, right: inset)
-        } else {
-            layout.sectionInset = .zero
-        }
+        let geometry = rowGeometry
+        guard geometry.isUsable else { return }
+        layout.minimumLineSpacing = geometry.spacing
+        layout.sectionInset = UIEdgeInsets(
+            top: 0, left: geometry.sectionInset, bottom: 0, right: geometry.sectionInset
+        )
         layout.invalidateLayout()
         // Scroll stays enabled in both modes. In fits mode, drags
         // bounce off the contentSize edges and snap back to 0 on
@@ -470,6 +464,9 @@ final class ThumbnailStripView: UIView {
         updateSelectionOverlayFrame(animated: false)
         lastReportedHeight = preferredHeight
         if notifyHeightChange, previous != preferredHeight {
+            // The indicator is already on the active tile above, before the layout owner has
+            // been told to grow us, so the height animation reveals it in position instead of
+            // moving it.
             delegate?.thumbnailStripDidChangePreferredHeight(self)
         }
     }
@@ -486,9 +483,12 @@ final class ThumbnailStripView: UIView {
 
     private func applyExpansionChrome() {
         // Closed, the bar spans the strip so the whole sliver is the target. Open, it yields
-        // everything past the chevron column to the tiles.
+        // everything past the chevron column to the tiles. It stays transparent either way:
+        // closed, the chevron alone is the visible control, so the row is not a wide empty
+        // band and the generous target costs nothing to look at.
         barTrailingConstraint?.isActive = !isExpanded
         barWidthConstraint?.isActive = isExpanded
+        backgroundColor = isExpanded ? .secondarySystemFill : .clear
         // Hidden rather than merely off-screen: a closed strip must not eat taps meant for
         // the surface below it, and the row is clipped mid-animation either way.
         contentContainer.isHidden = !isExpanded
@@ -596,29 +596,18 @@ final class ThumbnailStripView: UIView {
     // chain stalls so the overlay always resyncs to truth eventually.
     func previewActiveTransition(toIndex targetIdx: Int, duration: TimeInterval) {
         guard targetIdx >= 0, targetIdx < orderedSpaces.count else { return }
-        // Closed or mid-animation there is no indicator on screen to glide, and the layout
-        // attributes it would glide to are not final yet.
-        guard isRowSettled, bounds.width > 0 else { return }
-        collectionView.layoutIfNeeded()
-        guard let attrs = collectionView.layoutAttributesForItem(
-            at: IndexPath(item: targetIdx, section: 0)
-        ) else { return }
+        // Closed there is no indicator on screen to glide.
+        let geometry = rowGeometry
+        guard isExpanded, geometry.isUsable else { return }
 
-        let target = attrs.frame.midX - collectionView.bounds.width / 2
-        let maxOffset = max(0, collectionView.contentSize.width - collectionView.bounds.width)
-        let clampedOffset = max(0, min(target, maxOffset))
+        let clampedOffset = geometry.restingOffsetX(for: targetIdx)
         activeRestingOffsetX = clampedOffset
 
         // Glide the scroll position (overflow mode) and overlay frame
         // in the same animation block so both motions share a curve
         // and finish together. In fits mode clampedOffset matches the
         // current contentOffset so setContentOffset is a no-op.
-        let targetFrame = CGRect(
-            x: attrs.frame.origin.x - clampedOffset,
-            y: attrs.frame.origin.y,
-            width: attrs.frame.size.width,
-            height: attrs.frame.size.height
-        )
+        let targetFrame = geometry.tileFrame(at: targetIdx, offsetBy: clampedOffset)
         let needsScroll = abs(collectionView.contentOffset.x - clampedOffset) >= 0.5
         if needsScroll {
             isProgrammaticScroll = true
@@ -682,21 +671,25 @@ final class ThumbnailStripView: UIView {
     // mode the math collapses naturally: contentSize.width <=
     // bounds.width so maxOffset == 0 and the clamp lands at 0.
     private func recenterOnActive(animated: Bool) {
-        guard isRowSettled, let idx = activeIndex, bounds.width > 0 else { return }
-        guard let attrs = collectionView.layoutAttributesForItem(
-            at: IndexPath(item: idx, section: 0)
-        ) else { return }
+        let geometry = rowGeometry
+        guard isExpanded, geometry.isUsable, let idx = activeIndex, idx < geometry.tileCount
+        else { return }
         // Center the active cell in the visible window, clamped to
         // valid scroll bounds (UICollectionView clamps itself when
         // we hand it a target).
-        let target = attrs.frame.midX - collectionView.bounds.width / 2
-        let maxOffset = max(0, collectionView.contentSize.width - collectionView.bounds.width)
-        let clamped = max(0, min(target, maxOffset))
+        let clamped = geometry.restingOffsetX(for: idx)
         activeRestingOffsetX = clamped
         if abs(collectionView.contentOffset.x - clamped) < 0.5 { return }
         isProgrammaticScroll = true
-        collectionView.setContentOffset(CGPoint(x: clamped, y: 0), animated: animated)
-        if !animated {
+        if animated {
+            collectionView.setContentOffset(CGPoint(x: clamped, y: 0), animated: true)
+        } else {
+            // Opening runs a height animation on our behalf, and a bare offset assignment
+            // taken while it is in flight inherits it, drifting away from the indicator that
+            // is already in place. Landing on the resting offset is not a motion.
+            UIView.performWithoutAnimation {
+                collectionView.setContentOffset(CGPoint(x: clamped, y: 0), animated: false)
+            }
             isProgrammaticScroll = false
         }
     }
@@ -734,39 +727,20 @@ final class ThumbnailStripView: UIView {
     // user drags. That stationary behaviour is what produces the
     // half-on-current / half-on-next overlap as cells scroll past.
     private func updateSelectionOverlayFrame(animated: Bool) {
-        // Nothing derived from the row's geometry is trustworthy until the strip has finished
-        // growing to hold it. Opening sets the tile size immediately but the height animates
-        // over the next 0.2s, so an overlay frame computed now comes from a flow layout whose
-        // collection view is still the closed height, and lands between tiles rather than on
-        // one. Hide until settled; the layout pass at the end of the animation places it.
-        guard isRowSettled else {
-            selectionOverlay.isHidden = true
-            return
-        }
-        guard let idx = activeIndex,
-              let attrs = collectionView.layoutAttributesForItem(
-                at: IndexPath(item: idx, section: 0)
-              )
+        let geometry = rowGeometry
+        guard isExpanded, geometry.isUsable, let idx = activeIndex, idx < geometry.tileCount
         else {
             selectionOverlay.isHidden = true
             return
         }
-        // Cell frame is in collection view's content coords. Convert
-        // to strip coords by subtracting the offset at which the
-        // active cell will REST, not the live contentOffset.x. The
-        // live offset is often mid-animation when apply(state:) calls
-        // us (the user's bounce is still decelerating, or
-        // recenterOnActive just kicked off setContentOffset(animated:
-        // true)), so reading it produces a frame that lines up with
-        // the cell only at the start of the animation, not at
-        // settlement. activeRestingOffsetX is the destination.
-        let cellFrame = attrs.frame
-        let target = CGRect(
-            x: cellFrame.origin.x - activeRestingOffsetX,
-            y: cellFrame.origin.y,
-            width: cellFrame.size.width,
-            height: cellFrame.size.height
-        )
+        // Computed from the row's own numbers rather than the flow layout's answer, so it is
+        // right at the instant the strip starts opening instead of one animation later. The
+        // offset subtracted is the one at which the active cell will REST, not the live
+        // contentOffset.x: the live offset is often mid-animation when apply(state:) calls us
+        // (the user's bounce is still decelerating, or recenterOnActive just kicked off
+        // setContentOffset(animated: true)), so reading it produces a frame that lines up with
+        // the cell only at the start of the animation, not at settlement.
+        let target = geometry.tileFrame(at: idx, offsetBy: activeRestingOffsetX)
         let apply = {
             self.selectionOverlay.frame = target
             self.selectionOverlay.isHidden = false
@@ -774,7 +748,10 @@ final class ThumbnailStripView: UIView {
         if animated {
             UIView.animate(withDuration: 0.25, animations: apply)
         } else {
-            apply()
+            // Placing the indicator is not a motion. Opening does its work inside a height
+            // animation, and a bare frame assignment there inherits it, which is seen as the
+            // indicator sliding in from wherever it last sat.
+            UIView.performWithoutAnimation(apply)
         }
     }
 
@@ -955,12 +932,11 @@ extension ThumbnailStripView: UICollectionViewDelegate {
         }
         let targetIdx = max(0, min(orderedSpaces.count - 1, activeIdx + step))
 
-        if let attrs = collectionView.layoutAttributesForItem(
-            at: IndexPath(item: targetIdx, section: 0)
-        ) {
-            let maxOffset = max(0, collectionView.contentSize.width - collectionView.bounds.width)
-            let landing = max(0, min(attrs.frame.midX - collectionView.bounds.width / 2, maxOffset))
-            targetContentOffset.pointee = CGPoint(x: landing, y: 0)
+        let geometry = rowGeometry
+        if geometry.isUsable, targetIdx < geometry.tileCount {
+            targetContentOffset.pointee = CGPoint(
+                x: geometry.restingOffsetX(for: targetIdx), y: 0
+            )
         }
 
         if step == 0 {
