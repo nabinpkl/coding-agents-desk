@@ -96,17 +96,22 @@ final class DisplayRailView: UIView {
 // Spaces strip. Horizontal UICollectionView of one cell per non-fullscreen
 // user Space on the selected display.
 //
-// Two tile shapes, chosen by the Space-previews setting and the strip's own open state:
+// The strip is on-demand. At rest it is a 26pt bar carrying nothing but a leading chevron;
+// opening it grows that same bar into the tile row, with the chevron still leading and now
+// the way back out. Nothing is stacked: the bar does not become a second row above the
+// tiles, so opening costs exactly the tile row and closing gives all of it back.
 //
-// - Compact: 52x30 "D1 D2" pills. This is the strip at rest, and the only shape it takes
-//   when previews are off, because with capture disabled host-side the preview tile spends
-//   56pt drawing an empty box and a caption for a picture that will never arrive. The
-//   compact row is also the strip's bar: there is no label row stacked above it, so Desktop
-//   switching is never a tap deep and the leading chevron costs no vertical space.
+// The open row takes one of two tile shapes, chosen by the Space-previews setting:
 //
-// - Preview: the full 88x92 tile with image and two-row caption, shown only while the strip
-//   is open AND the host is capturing. The chevron that opens it is hidden entirely when it
-//   is not, so the pills get the whole row.
+// - Compact: 52x30 "D1 D2" pills. The shape when previews are off, because with capture
+//   disabled host-side the preview tile spends 56pt drawing an empty box and a caption for
+//   a picture that will never arrive.
+//
+// - Preview: the full 88x92 tile with image and two-row caption, when the host is capturing.
+//
+// Closed, the tiles are gone, so tap-to-jump and swipe-to-commit are unavailable until the
+// strip is opened. That is the deliberate cost of the bar: Desktop switching from the strip
+// is on demand, and the trackpad's own Space gestures are unaffected.
 //
 // Within either shape there are two layout modes:
 //
@@ -164,10 +169,11 @@ final class ThumbnailStripView: UIView {
     static let compactRowHeight: CGFloat = 30
     static let defaultTileSpacing: CGFloat = 10
 
-    // The compact pill row IS the collapsed bar: there is no separate label row above it.
-    // A bar that only names the active Desktop would cost a row of its own to say less than
-    // the pills already say, and would put Desktop switching a tap deep. The chevron leads
-    // the row instead, so opening previews costs no vertical space at rest.
+    // The closed bar. Tall enough to be a comfortable target across its full width (the whole
+    // bar toggles, not just the chevron glyph) and short enough to read as a sliver.
+    static let barHeight: CGFloat = 26
+    // The chevron leads the row in both states, so the disclosure control costs no vertical
+    // space: open, it sits beside the tiles rather than above them.
     static let chevronWidth: CGFloat = 22
     static let chevronGap: CGFloat = 4
 
@@ -179,12 +185,12 @@ final class ThumbnailStripView: UIView {
     // Mirrors SettingsStore.showSpacePreviews, which gates thumbnail CAPTURE host-side.
     // Default false to match that setting's own default, so a strip that is built before the
     // first settings push does not flash preview-shaped tiles it will never fill.
+    // Chooses the shape of the OPEN row only. It does not gate opening: closed is a bar in
+    // both modes, and open is a useful row in both (pills without capture, preview tiles
+    // with it). Flipping it while open swaps the tiles in place and re-reports the height.
     var showsPreviews: Bool = false {
         didSet {
             guard oldValue != showsPreviews else { return }
-            // Nothing to open into once capture stops, so an open strip closes with the
-            // setting rather than sitting on a row of empty preview tiles.
-            if !showsPreviews { isExpanded = false }
             applyTileMode()
         }
     }
@@ -245,10 +251,15 @@ final class ThumbnailStripView: UIView {
 
     // Holds the collection view and the selection overlay. The overlay is positioned from
     // collection-content coordinates, so keeping both inside one container means the
-    // chevron's width never has to be folded into that math.
+    // chevron's width never has to be folded into that math. Its leading inset is a fixed
+    // constant rather than a chain off the bar, because the bar's own width moves.
     private let contentContainer = UIView()
-    private let chevronButton = UIButton(type: .system)
-    private var chevronWidthConstraint: NSLayoutConstraint?
+    // The disclosure control. Closed it spans the strip, so the whole bar is the target;
+    // open it shrinks to the chevron column at the leading edge and the tiles take the rest.
+    private let barButton = UIControl()
+    private let chevronView = UIImageView()
+    private var barTrailingConstraint: NSLayoutConstraint?
+    private var barWidthConstraint: NSLayoutConstraint?
 
     private var orderedSpaces: [SpaceMetadata] = []
     private var activeSpaceId: UInt64?
@@ -261,6 +272,10 @@ final class ThumbnailStripView: UIView {
     private var activeRestingOffsetX: CGFloat = 0
     private var lastBoundsWidth: CGFloat = 0
     private var lastTileCount: Int = -1
+    // Height last handed to the delegate. `preferredHeight` is derived from two independent
+    // inputs (open state, tile shape), so the change test compares the reported value rather
+    // than any one of them.
+    private var lastReportedHeight: CGFloat = ThumbnailStripView.barHeight
     // Set by previewActiveTransition for the duration of a multi-step
     // tap-jump chain. While non-nil, apply(state:) skips its overlay
     // re-animation so the in-flight single glide isn't interrupted by
@@ -296,34 +311,49 @@ final class ThumbnailStripView: UIView {
         backgroundColor = .clear
         accessibilityIdentifier = "thumbnail-strip"
         isUserInteractionEnabled = true
-        // The tile row sits below the strip's own height while collapsed, so it has to be
-        // clipped rather than merely hidden: mid-animation it is partially on screen.
+        // Opening unhides the full-height tile row before the strip has finished growing to
+        // hold it, so the overhang has to be clipped for the duration of the animation.
         clipsToBounds = true
-
-        chevronButton.tintColor = .secondaryLabel
-        chevronButton.accessibilityIdentifier = "thumbnail-strip-disclosure"
-        chevronButton.translatesAutoresizingMaskIntoConstraints = false
-        chevronButton.addTarget(self, action: #selector(toggleExpansion), for: .touchUpInside)
-        addSubview(chevronButton)
 
         contentContainer.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentContainer)
         contentContainer.addSubview(collectionView)
         contentContainer.addSubview(selectionOverlay)
 
-        let chevronWidth = chevronButton.widthAnchor.constraint(equalToConstant: Self.chevronWidth)
-        chevronWidthConstraint = chevronWidth
-        NSLayoutConstraint.activate([
-            chevronButton.leadingAnchor.constraint(equalTo: leadingAnchor),
-            chevronButton.topAnchor.constraint(equalTo: topAnchor),
-            // Full-height rather than centred on the compact row: expanded, the chevron is
-            // the way back out, and a 22x30 target floating beside a 92pt tile row is easy
-            // to miss.
-            chevronButton.bottomAnchor.constraint(equalTo: bottomAnchor),
-            chevronWidth,
+        // Added after the container so the closed bar sits above the (hidden) tile row.
+        barButton.translatesAutoresizingMaskIntoConstraints = false
+        barButton.accessibilityIdentifier = "thumbnail-strip-disclosure"
+        barButton.layer.cornerRadius = 6
+        barButton.addTarget(self, action: #selector(toggleExpansion), for: .touchUpInside)
+        addSubview(barButton)
 
+        chevronView.tintColor = .secondaryLabel
+        chevronView.contentMode = .center
+        chevronView.translatesAutoresizingMaskIntoConstraints = false
+        barButton.addSubview(chevronView)
+
+        let barTrailing = barButton.trailingAnchor.constraint(equalTo: trailingAnchor)
+        let barWidth = barButton.widthAnchor.constraint(equalToConstant: Self.chevronWidth)
+        barTrailingConstraint = barTrailing
+        barWidthConstraint = barWidth
+        barTrailing.isActive = true
+        NSLayoutConstraint.activate([
+            barButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+            barButton.topAnchor.constraint(equalTo: topAnchor),
+            // Full-height rather than centred on the bar's own height: open, the chevron is
+            // the way back out, and a 22x26 target floating beside a 92pt tile row is easy
+            // to miss.
+            barButton.bottomAnchor.constraint(equalTo: bottomAnchor),
+
+            chevronView.leadingAnchor.constraint(equalTo: barButton.leadingAnchor),
+            chevronView.widthAnchor.constraint(equalToConstant: Self.chevronWidth),
+            chevronView.topAnchor.constraint(equalTo: barButton.topAnchor),
+            chevronView.bottomAnchor.constraint(equalTo: barButton.bottomAnchor),
+
+            // Fixed inset, not a chain off the bar: the bar spans the strip while closed,
+            // and anchoring the row to its trailing edge would collapse the row to nothing.
             contentContainer.leadingAnchor.constraint(
-                equalTo: chevronButton.trailingAnchor, constant: Self.chevronGap
+                equalTo: leadingAnchor, constant: Self.chevronWidth + Self.chevronGap
             ),
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentContainer.topAnchor.constraint(equalTo: topAnchor),
@@ -391,28 +421,28 @@ final class ThumbnailStripView: UIView {
 
     // MARK: - Tile mode and expansion
 
-    // Preview tiles only when the host is actually capturing AND the strip is open. Every
-    // other combination is the compact pill row, which is also the strip at rest.
+    // Preview tiles only when the strip is open AND the host is actually capturing. Closed,
+    // the row is not on screen at all, so it is sized for the cheaper shape.
     var showsPreviewTiles: Bool { showsPreviews && isExpanded }
     var currentTileWidth: CGFloat { showsPreviewTiles ? Self.tileWidth : Self.compactTileWidth }
     var contentRowHeight: CGFloat { showsPreviewTiles ? Self.previewRowHeight : Self.compactRowHeight }
 
-    // The row is the whole strip, so its height IS the strip's height. Nothing is stacked
-    // above it: the pills stay on screen in both states and expanding only grows them into
-    // preview tiles.
-    var preferredHeight: CGFloat { contentRowHeight }
+    // Closed the strip is the bar and nothing else; open it is exactly the tile row, since
+    // the bar becomes that row's leading chevron rather than a band above it.
+    var preferredHeight: CGFloat { isExpanded ? contentRowHeight : Self.barHeight }
 
     private func applyTileMode(notifyHeightChange: Bool = true) {
-        let previous = layout.itemSize
+        let previous = lastReportedHeight
         layout.itemSize = CGSize(width: currentTileWidth, height: contentRowHeight)
-        applyChevronState()
+        applyExpansionChrome()
         collectionView.reloadData()
         applyLayoutMode()
         lastTileCount = orderedSpaces.count
         collectionView.layoutIfNeeded()
         recenterOnActive(animated: false)
         updateSelectionOverlayFrame(animated: false)
-        if notifyHeightChange, previous.height != layout.itemSize.height {
+        lastReportedHeight = preferredHeight
+        if notifyHeightChange, previous != preferredHeight {
             delegate?.thumbnailStripDidChangePreferredHeight(self)
         }
     }
@@ -422,31 +452,28 @@ final class ThumbnailStripView: UIView {
     }
 
     func setExpanded(_ expanded: Bool) {
-        // Opening is only meaningful when there are previews to open into; with capture off
-        // the expanded row would be the same tiles with an empty image box.
-        let target = expanded && showsPreviews
-        guard target != isExpanded else { return }
-        isExpanded = target
+        guard expanded != isExpanded else { return }
+        isExpanded = expanded
         applyTileMode()
     }
 
-    // Hidden, and zero-width, when there is nothing to disclose: the pills should have the
-    // full row rather than sit next to a dead control.
-    private func applyChevronState() {
-        let canExpand = showsPreviews
-        chevronButton.isHidden = !canExpand
-        if chevronWidthConstraint?.constant != (canExpand ? Self.chevronWidth : 0) {
-            chevronWidthConstraint?.constant = canExpand ? Self.chevronWidth : 0
-            // The tile row's available width just changed. `layoutSubviews` re-derives the
-            // fits/overflow split from the container's width, so let it run rather than
-            // computing the centering inset against the width the row had a moment ago.
-            setNeedsLayout()
-        }
-        chevronButton.setImage(
-            UIImage(systemName: isExpanded ? "chevron.down" : "chevron.right"),
-            for: .normal
+    private func applyExpansionChrome() {
+        // Closed, the bar spans the strip so the whole sliver is the target. Open, it yields
+        // everything past the chevron column to the tiles.
+        barTrailingConstraint?.isActive = !isExpanded
+        barWidthConstraint?.isActive = isExpanded
+        barButton.backgroundColor = isExpanded ? .clear : .secondarySystemFill
+        // Hidden rather than merely off-screen: a closed strip must not eat taps meant for
+        // the surface below it, and the row is clipped mid-animation either way.
+        contentContainer.isHidden = !isExpanded
+        chevronView.image = UIImage(
+            systemName: isExpanded ? "chevron.down" : "chevron.right"
         )
-        chevronButton.accessibilityLabel = isExpanded ? "Hide Desktop previews" : "Show Desktop previews"
+        barButton.accessibilityLabel = isExpanded ? "Hide Desktops" : "Show Desktops"
+        // The tile row's available width can change with the bar. `layoutSubviews` re-derives
+        // the fits/overflow split from the container's width, so let it run rather than
+        // computing the centering inset against the width the row had a moment ago.
+        setNeedsLayout()
     }
 
     // MARK: - Public state surface
