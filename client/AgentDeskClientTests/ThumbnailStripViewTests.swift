@@ -309,7 +309,7 @@ struct ThumbnailStripViewTests {
         #expect(view.isExpanded)
         #expect(view.showsPreviewTiles == false)
         #expect(view.currentTileWidth == ThumbnailStripView.compactTileWidth)
-        #expect(view.preferredHeight == ThumbnailStripView.compactRowHeight)
+        #expect(view.preferredHeight == ThumbnailStripView.compactRowHeight + ThumbnailStripView.rowVerticalPadding * 2)
         #expect(recorder.heightChanges == 1)
     }
 
@@ -321,7 +321,7 @@ struct ThumbnailStripViewTests {
 
         #expect(view.showsPreviewTiles)
         #expect(view.currentTileWidth == ThumbnailStripView.tileWidth)
-        #expect(view.preferredHeight == ThumbnailStripView.previewRowHeight)
+        #expect(view.preferredHeight == ThumbnailStripView.previewRowHeight + ThumbnailStripView.rowVerticalPadding * 2)
     }
 
     @Test func closingReturnsToTheBarHeight() {
@@ -353,7 +353,7 @@ struct ThumbnailStripViewTests {
 
         view.showsPreviews = false
         #expect(view.isExpanded)
-        #expect(view.preferredHeight == ThumbnailStripView.compactRowHeight)
+        #expect(view.preferredHeight == ThumbnailStripView.compactRowHeight + ThumbnailStripView.rowVerticalPadding * 2)
         #expect(recorder.heightChanges == afterOpen + 1)
     }
 

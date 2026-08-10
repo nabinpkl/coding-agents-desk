@@ -99,7 +99,9 @@ final class DisplayRailView: UIView {
 // The strip is on-demand. At rest it is a 26pt bar carrying nothing but a leading chevron;
 // opening it grows that same bar into the tile row, with the chevron still leading and now
 // the way back out. Nothing is stacked: the bar does not become a second row above the
-// tiles, so opening costs exactly the tile row and closing gives all of it back.
+// tiles, so opening costs exactly the tile row and closing gives all of it back. The fill
+// is the strip's own, so the two states are one surface growing, not a bar swapped for a
+// row of loose tiles.
 //
 // The open row takes one of two tile shapes, chosen by the Space-previews setting:
 //
@@ -172,6 +174,10 @@ final class ThumbnailStripView: UIView {
     // The closed bar. Tall enough to be a comfortable target across its full width (the whole
     // bar toggles, not just the chevron glyph) and short enough to read as a sliver.
     static let barHeight: CGFloat = 26
+    // Breathing room above and below the open tile row. Without it the row is flush against
+    // the strip's clipped edges and the active tile's 1.5pt selection border is shaved off
+    // top and bottom, which reads as the blue box being cut in half.
+    static let rowVerticalPadding: CGFloat = 3
     // The chevron leads the row in both states, so the disclosure control costs no vertical
     // space: open, it sits beside the tiles rather than above them.
     static let chevronWidth: CGFloat = 22
@@ -271,6 +277,7 @@ final class ThumbnailStripView: UIView {
     // position. Drag progress is measured relative to this.
     private var activeRestingOffsetX: CGFloat = 0
     private var lastBoundsWidth: CGFloat = 0
+    private var lastBoundsHeight: CGFloat = 0
     private var lastTileCount: Int = -1
     // Height last handed to the delegate. `preferredHeight` is derived from two independent
     // inputs (open state, tile shape), so the change test compares the reported value rather
@@ -308,7 +315,10 @@ final class ThumbnailStripView: UIView {
     }
 
     private func configure() {
-        backgroundColor = .clear
+        // The fill belongs to the strip, not to the closed bar, so opening grows one
+        // continuous surface instead of swapping a bar for an unbacked row of tiles.
+        backgroundColor = .secondarySystemFill
+        layer.cornerRadius = 8
         accessibilityIdentifier = "thumbnail-strip"
         isUserInteractionEnabled = true
         // Opening unhides the full-height tile row before the strip has finished growing to
@@ -320,10 +330,10 @@ final class ThumbnailStripView: UIView {
         contentContainer.addSubview(collectionView)
         contentContainer.addSubview(selectionOverlay)
 
-        // Added after the container so the closed bar sits above the (hidden) tile row.
+        // Added after the container so the closed bar sits above the (hidden) tile row. It
+        // carries no fill of its own in either state; the strip behind it is the bar.
         barButton.translatesAutoresizingMaskIntoConstraints = false
         barButton.accessibilityIdentifier = "thumbnail-strip-disclosure"
-        barButton.layer.cornerRadius = 6
         barButton.addTarget(self, action: #selector(toggleExpansion), for: .touchUpInside)
         addSubview(barButton)
 
@@ -356,8 +366,12 @@ final class ThumbnailStripView: UIView {
                 equalTo: leadingAnchor, constant: Self.chevronWidth + Self.chevronGap
             ),
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
-            contentContainer.topAnchor.constraint(equalTo: topAnchor),
-            contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+            contentContainer.topAnchor.constraint(
+                equalTo: topAnchor, constant: Self.rowVerticalPadding
+            ),
+            contentContainer.bottomAnchor.constraint(
+                equalTo: bottomAnchor, constant: -Self.rowVerticalPadding
+            ),
 
             collectionView.leadingAnchor.constraint(equalTo: contentContainer.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: contentContainer.trailingAnchor),
@@ -373,14 +387,25 @@ final class ThumbnailStripView: UIView {
         applyTileMode(notifyHeightChange: false)
     }
 
+    // The row is only as tall as its tiles once the expand or collapse animation has landed.
+    // Everything that reads layout attributes waits for that, because a flow layout asked for
+    // an 88x92 tile inside a 20pt-tall collection view answers with nonsense.
+    private var isRowSettled: Bool {
+        isExpanded && abs(contentContainer.bounds.height - contentRowHeight) < 0.5
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
-        // Recompute layout mode whenever bounds or tile count change.
+        // Recompute layout mode whenever bounds or tile count change. Height matters as much
+        // as width here: it is the axis the expand animation moves along, and the pass where
+        // it lands is the one that puts the selection indicator on the active tile.
         let needsRelayout = lastBoundsWidth != contentContainer.bounds.width
+            || lastBoundsHeight != contentContainer.bounds.height
             || lastTileCount != orderedSpaces.count
         if needsRelayout {
             applyLayoutMode()
             lastBoundsWidth = contentContainer.bounds.width
+            lastBoundsHeight = contentContainer.bounds.height
             lastTileCount = orderedSpaces.count
             collectionView.layoutIfNeeded()
             recenterOnActive(animated: false)
@@ -427,9 +452,11 @@ final class ThumbnailStripView: UIView {
     var currentTileWidth: CGFloat { showsPreviewTiles ? Self.tileWidth : Self.compactTileWidth }
     var contentRowHeight: CGFloat { showsPreviewTiles ? Self.previewRowHeight : Self.compactRowHeight }
 
-    // Closed the strip is the bar and nothing else; open it is exactly the tile row, since
-    // the bar becomes that row's leading chevron rather than a band above it.
-    var preferredHeight: CGFloat { isExpanded ? contentRowHeight : Self.barHeight }
+    // Closed the strip is the bar and nothing else; open it is the tile row plus its padding,
+    // since the bar becomes that row's leading chevron rather than a band above it.
+    var preferredHeight: CGFloat {
+        isExpanded ? contentRowHeight + Self.rowVerticalPadding * 2 : Self.barHeight
+    }
 
     private func applyTileMode(notifyHeightChange: Bool = true) {
         let previous = lastReportedHeight
@@ -462,7 +489,6 @@ final class ThumbnailStripView: UIView {
         // everything past the chevron column to the tiles.
         barTrailingConstraint?.isActive = !isExpanded
         barWidthConstraint?.isActive = isExpanded
-        barButton.backgroundColor = isExpanded ? .clear : .secondarySystemFill
         // Hidden rather than merely off-screen: a closed strip must not eat taps meant for
         // the surface below it, and the row is clipped mid-animation either way.
         contentContainer.isHidden = !isExpanded
@@ -570,7 +596,9 @@ final class ThumbnailStripView: UIView {
     // chain stalls so the overlay always resyncs to truth eventually.
     func previewActiveTransition(toIndex targetIdx: Int, duration: TimeInterval) {
         guard targetIdx >= 0, targetIdx < orderedSpaces.count else { return }
-        guard bounds.width > 0 else { return }
+        // Closed or mid-animation there is no indicator on screen to glide, and the layout
+        // attributes it would glide to are not final yet.
+        guard isRowSettled, bounds.width > 0 else { return }
         collectionView.layoutIfNeeded()
         guard let attrs = collectionView.layoutAttributesForItem(
             at: IndexPath(item: targetIdx, section: 0)
@@ -654,7 +682,7 @@ final class ThumbnailStripView: UIView {
     // mode the math collapses naturally: contentSize.width <=
     // bounds.width so maxOffset == 0 and the clamp lands at 0.
     private func recenterOnActive(animated: Bool) {
-        guard let idx = activeIndex, bounds.width > 0 else { return }
+        guard isRowSettled, let idx = activeIndex, bounds.width > 0 else { return }
         guard let attrs = collectionView.layoutAttributesForItem(
             at: IndexPath(item: idx, section: 0)
         ) else { return }
@@ -706,6 +734,15 @@ final class ThumbnailStripView: UIView {
     // user drags. That stationary behaviour is what produces the
     // half-on-current / half-on-next overlap as cells scroll past.
     private func updateSelectionOverlayFrame(animated: Bool) {
+        // Nothing derived from the row's geometry is trustworthy until the strip has finished
+        // growing to hold it. Opening sets the tile size immediately but the height animates
+        // over the next 0.2s, so an overlay frame computed now comes from a flow layout whose
+        // collection view is still the closed height, and lands between tiles rather than on
+        // one. Hide until settled; the layout pass at the end of the animation places it.
+        guard isRowSettled else {
+            selectionOverlay.isHidden = true
+            return
+        }
         guard let idx = activeIndex,
               let attrs = collectionView.layoutAttributesForItem(
                 at: IndexPath(item: idx, section: 0)
