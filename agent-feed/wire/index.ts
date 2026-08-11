@@ -29,6 +29,7 @@ export type {
   ProjectsPayload,
   SessionsPayload,
   TimelineEnvelope,
+  TimelineMessage,
   WireErrorPayload,
   WireStreamError,
 } from "./http.ts";

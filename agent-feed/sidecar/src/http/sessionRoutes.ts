@@ -27,6 +27,7 @@ import type {
   EventMode,
   TranscriptSourceId,
 } from "../transcripts/sources/transcriptTypes.ts";
+import type { EventsPage, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
 import {
   encodeServerSentEvent,
   jsonResponse,
@@ -139,15 +140,21 @@ async function sessionSnapshotStream(
   });
 }
 
-async function paginatedEvents(
+/**
+ * One page of a transcript-backed session, or null when no such session is known.
+ *
+ * Exported because the composite timeline endpoint seeds its snapshot from the same
+ * read: two ways to page one transcript is exactly the drift this arc is removing.
+ */
+export async function readTranscriptPage(
   source: TranscriptSourceId,
   sessionId: string,
   offset: number,
   limit: number,
   mode: EventMode,
-): Promise<Response> {
+): Promise<EventsPage | null> {
   const session = findSession(source, sessionId);
-  if (!session) return jsonResponse({ error: "session not found" }, 404);
+  if (!session) return null;
   acquireIndex(source, sessionId);
   try {
     const events = await readEvents(
@@ -158,7 +165,7 @@ async function paginatedEvents(
       limit,
       mode,
     );
-    return jsonResponse({
+    return {
       events,
       // Per mode, so the panel's paging arithmetic is in the same units as the
       // indices it just received.
@@ -168,10 +175,22 @@ async function paginatedEvents(
       sequence: getEventCount(source, sessionId, mode),
       runState: "idle",
       queue: { steer: 0, followUp: 0 },
-    });
+    };
   } finally {
     releaseIndex(source, sessionId);
   }
+}
+
+async function paginatedEvents(
+  source: TranscriptSourceId,
+  sessionId: string,
+  offset: number,
+  limit: number,
+  mode: EventMode,
+): Promise<Response> {
+  const page = await readTranscriptPage(source, sessionId, offset, limit, mode);
+  if (!page) return jsonResponse({ error: "session not found" }, 404);
+  return jsonResponse(page);
 }
 
 async function rawEvent(
@@ -207,6 +226,113 @@ async function rawEvent(
   }
 }
 
+/**
+ * Follows one transcript-backed session from `after`, backfilling everything the
+ * index already holds and then streaming rows as the file grows. Returns the
+ * teardown, or null when no such session is known.
+ *
+ * Transport-free -- it hands envelopes to a callback rather than writing SSE -- so
+ * the plain `/stream` route and the composite `/timeline` endpoint follow a
+ * transcript through the same code rather than through two copies of the watcher,
+ * the backfill arithmetic, and the mode-skipping rule.
+ */
+export function subscribeTranscriptTimeline(
+  source: TranscriptSourceId,
+  sessionId: string,
+  after: number,
+  mode: EventMode,
+  handlers: {
+    onEnvelope: (envelope: TimelineEnvelope) => void;
+    onError: (message: string) => void;
+  },
+): (() => void) | null {
+  const session = findSession(source, sessionId);
+  if (!session) return null;
+  let cancelled = false;
+  let unsubscribeEvents: (() => void) | null = null;
+  const fail = (error: unknown): void => {
+    handlers.onError(error instanceof Error ? error.message : String(error));
+  };
+  // Occupancy rides every event message instead of getting a message type of
+  // its own: the thread stream already pushes once per event, so the panel's
+  // meter goes live with no extra plumbing and the host decodes one optional
+  // field. Read per write rather than captured, so it is never stale.
+  const writeEvent = (event: ActivityEvent): void => {
+    handlers.onEnvelope({
+      kind: "upsert",
+      sequence: event.index + 1,
+      mode,
+      events: [event],
+      windowStart: event.index,
+      total: event.index + 1,
+      runState: "idle",
+      queue: { steer: 0, followUp: 0 },
+      usage: getSessionUsage(source, sessionId),
+    });
+  };
+  // A stream is opened for ONE mode, so a machinery line is not an event this
+  // subscriber has: it is skipped rather than renumbered, and the nice indices
+  // stay contiguous exactly as the index assigned them.
+  const onNotice = ({ event, niceIndex }: EventNotice): void => {
+    if (mode === "raw") {
+      writeEvent({ ...event, otherModeIndex: niceIndex });
+      return;
+    }
+    if (niceIndex === null) return;
+    writeEvent({ ...event, index: niceIndex, otherModeIndex: event.index });
+  };
+  acquireIndex(source, sessionId);
+  const watcher = chokidar.watch(session.transcriptPath, {
+    ignoreInitial: true,
+    persistent: true,
+    awaitWriteFinish: false,
+  });
+  const sync = (): void => {
+    void syncIndex(source, sessionId, session.transcriptPath).catch(fail);
+  };
+  watcher.on("add", sync);
+  watcher.on("change", sync);
+  watcher.on("error", fail);
+  void (async () => {
+    await ensureIndexed(source, sessionId, session.transcriptPath);
+    if (cancelled) {
+      discardIndexIfUnused(source, sessionId);
+      return;
+    }
+    const total = getEventCount(source, sessionId, mode);
+    if (after < total) {
+      const backfill = await readEvents(
+        source,
+        sessionId,
+        session.transcriptPath,
+        after,
+        total - after,
+        mode,
+      );
+      if (cancelled) {
+        discardIndexIfUnused(source, sessionId);
+        return;
+      }
+      for (const event of backfill) writeEvent(event);
+    }
+    unsubscribeEvents = subscribeEvents(source, sessionId, onNotice);
+    await syncIndex(source, sessionId, session.transcriptPath);
+    if (cancelled) discardIndexIfUnused(source, sessionId);
+  })().catch((error) => {
+    if (cancelled) {
+      discardIndexIfUnused(source, sessionId);
+      return;
+    }
+    fail(error);
+  });
+  return () => {
+    cancelled = true;
+    unsubscribeEvents?.();
+    void watcher.close();
+    releaseIndex(source, sessionId);
+  };
+}
+
 function eventStream(
   request: Request,
   server: Parameters<RouteHandler>[2],
@@ -215,97 +341,15 @@ function eventStream(
   after: number,
   mode: EventMode,
 ): Response {
-  const session = findSession(source, sessionId);
-  if (!session) return jsonResponse({ error: "session not found" }, 404);
+  if (!findSession(source, sessionId)) {
+    return jsonResponse({ error: "session not found" }, 404);
+  }
   return startServerSentEventStream(request, server, (write) => {
-    let cancelled = false;
-    let unsubscribeEvents: (() => void) | null = null;
-    // Occupancy rides every event message instead of getting a message type of
-    // its own: the thread stream already pushes once per event, so the panel's
-    // meter goes live with no extra plumbing and the host decodes one optional
-    // field. Read per write rather than captured, so it is never stale.
-    const writeEvent = (event: ActivityEvent): void => {
-      write(encodeServerSentEvent({
-        kind: "upsert",
-        sequence: event.index + 1,
-        mode,
-        events: [event],
-        windowStart: event.index,
-        total: event.index + 1,
-        runState: "idle",
-        queue: { steer: 0, followUp: 0 },
-        usage: getSessionUsage(source, sessionId),
-      }));
-    };
-    // A stream is opened for ONE mode, so a machinery line is not an event this
-    // subscriber has: it is skipped rather than renumbered, and the nice indices
-    // stay contiguous exactly as the index assigned them.
-    const onNotice = ({ event, niceIndex }: EventNotice): void => {
-      if (mode === "raw") {
-        writeEvent({ ...event, otherModeIndex: niceIndex });
-        return;
-      }
-      if (niceIndex === null) return;
-      writeEvent({ ...event, index: niceIndex, otherModeIndex: event.index });
-    };
-    acquireIndex(source, sessionId);
-    const watcher = chokidar.watch(session.transcriptPath, {
-      ignoreInitial: true,
-      persistent: true,
-      awaitWriteFinish: false,
+    const stop = subscribeTranscriptTimeline(source, sessionId, after, mode, {
+      onEnvelope: (envelope) => write(encodeServerSentEvent(envelope)),
+      onError: (message) => write(encodeServerSentEvent({ error: message })),
     });
-    const sync = (): void => {
-      void syncIndex(source, sessionId, session.transcriptPath).catch((error) => {
-        write(encodeServerSentEvent({
-          error: error instanceof Error ? error.message : String(error),
-        }));
-      });
-    };
-    watcher.on("add", sync);
-    watcher.on("change", sync);
-    watcher.on("error", (error) => {
-      write(encodeServerSentEvent({ error: String(error) }));
-    });
-    void (async () => {
-      await ensureIndexed(source, sessionId, session.transcriptPath);
-      if (cancelled) {
-        discardIndexIfUnused(source, sessionId);
-        return;
-      }
-      const total = getEventCount(source, sessionId, mode);
-      if (after < total) {
-        const backfill = await readEvents(
-          source,
-          sessionId,
-          session.transcriptPath,
-          after,
-          total - after,
-          mode,
-        );
-        if (cancelled) {
-          discardIndexIfUnused(source, sessionId);
-          return;
-        }
-        for (const event of backfill) writeEvent(event);
-      }
-      unsubscribeEvents = subscribeEvents(source, sessionId, onNotice);
-      await syncIndex(source, sessionId, session.transcriptPath);
-      if (cancelled) discardIndexIfUnused(source, sessionId);
-    })().catch((error) => {
-      if (cancelled) {
-        discardIndexIfUnused(source, sessionId);
-        return;
-      }
-      write(encodeServerSentEvent({
-        error: error instanceof Error ? error.message : String(error),
-      }));
-    });
-    return () => {
-      cancelled = true;
-      unsubscribeEvents?.();
-      void watcher.close();
-      releaseIndex(source, sessionId);
-    };
+    return () => stop?.();
   });
 }
 

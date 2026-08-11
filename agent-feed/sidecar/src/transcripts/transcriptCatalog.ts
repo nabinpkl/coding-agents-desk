@@ -472,6 +472,27 @@ function computeActivity(lastEventAt: number, lastTurnClosed: boolean): Bin {
   return "cold";
 }
 
+/**
+ * What a session can do, resolved the one way.
+ *
+ * A transcript session is read-only unless a live mirror answers for it, in which
+ * case it also streams; a Pi session takes its backend's word and falls back to the
+ * static Pi table. Exported because the timeline endpoint decides which streams to
+ * open from exactly these flags, and a second copy of this rule would be free to
+ * disagree with what the session list published.
+ */
+export function sessionCapabilities(
+  source: SourceId,
+  sessionId: string,
+  resolveAgentSession?: AgentSessionDescriptorResolver,
+): AgentSessionCapabilities {
+  const descriptor = resolveAgentSession?.(source, sessionId);
+  if (source === "pi") return descriptor?.capabilities ?? PI_AGENT_CAPABILITIES;
+  return descriptor?.capabilities.canStreamLive
+    ? { ...TRANSCRIPT_CAPABILITIES, canStreamLive: true }
+    : TRANSCRIPT_CAPABILITIES;
+}
+
 export async function probeSession(
   session: Session,
   resolveAgentSession?: AgentSessionDescriptorResolver,
@@ -490,7 +511,7 @@ export async function probeSession(
       title: compactTitle(session.title) ?? session.sessionId,
       lastEventAt,
       activity: descriptor?.activity ?? computeActivity(lastEventAt, true),
-      capabilities: descriptor?.capabilities ?? PI_AGENT_CAPABILITIES,
+      capabilities: sessionCapabilities(session.source, session.sessionId, resolveAgentSession),
     };
   }
   const adapter = session.source === "claude" ? claudeAdapter : codexAdapter;
@@ -499,9 +520,11 @@ export async function probeSession(
   const live = session.source === "claude" || session.source === "codex"
     ? resolveAgentSession?.(session.source, session.sessionId)
     : undefined;
-  const capabilities = live?.capabilities.canStreamLive
-    ? { ...TRANSCRIPT_CAPABILITIES, canStreamLive: true }
-    : TRANSCRIPT_CAPABILITIES;
+  const capabilities = sessionCapabilities(
+    session.source,
+    session.sessionId,
+    resolveAgentSession,
+  );
   let metadata: Awaited<ReturnType<typeof stat>>;
   try {
     metadata = await stat(session.transcriptPath);

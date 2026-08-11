@@ -9,6 +9,7 @@ import { createAgentRoutes } from "./http/agentRoutes.ts";
 import { handleProjectRoutes } from "./http/projectRoutes.ts";
 import type { RouteHandler } from "./http/route.ts";
 import { createSessionRoutes } from "./http/sessionRoutes.ts";
+import { createTimelineRoutes } from "./http/timelineRoutes.ts";
 import { state } from "./transcripts/transcriptState.ts";
 import {
   getSnapshot,
@@ -45,12 +46,16 @@ backends.register(claudeLive);
 // with the same registration contract as the claude live mirror.
 const codexLive = new CodexLiveBackend();
 backends.register(codexLive);
+const resolveBackend = (id: string) => backends.get(id);
+const describeAgentSession = (source: string, sessionId: string) =>
+  backends.get(source)?.describeSession(sessionId);
 const routes: RouteHandler[] = [
   handleProjectRoutes,
-  createAgentRoutes((id) => backends.get(id)),
-  createSessionRoutes((source, sessionId) =>
-    backends.get(source)?.describeSession(sessionId)
-  ),
+  createAgentRoutes(resolveBackend),
+  // Ahead of the session routes so `/timeline` is matched before their
+  // catch-all rejection of unknown `/api/sessions/` paths.
+  createTimelineRoutes(resolveBackend, describeAgentSession),
+  createSessionRoutes(describeAgentSession),
 ];
 const SHUTDOWN_GRACE_MS = 500;
 

@@ -62,6 +62,28 @@ export interface TimelineEnvelope {
 }
 
 /**
+ * One message of `GET /api/sessions/{source}/{sessionId}/timeline?mode=`.
+ *
+ * The composite subscription. Opening a thread used to mean four coordinated
+ * requests -- probe the page count, fetch the last window, follow the durable
+ * stream from that window's sequence, and open the live-tail and extension-UI
+ * streams if the session's capabilities warranted them -- with whoever opened them
+ * responsible for keeping a stale subscription's callbacks from being believed.
+ * That is the sidecar's own knowledge (its page size, its sequence numbering, its
+ * capability table), so it belongs on one stream the sidecar orchestrates.
+ *
+ * `timeline` carries the opening window and every later revision of it, discriminated
+ * by the envelope's own `kind`. `tail` is the live in-flight message, with `null`
+ * meaning the tail is over. `ui` is an extension-UI prompt. `error` is non-fatal
+ * unless the stream also ends.
+ */
+export type TimelineMessage =
+  | { type: "timeline"; envelope: TimelineEnvelope }
+  | { type: "tail"; event: ActivityEvent | null }
+  | { type: "ui"; event: AgentUiEvent }
+  | { type: "error"; error: WireErrorPayload["error"] };
+
+/**
  * `POST /api/agent-sessions` (201) -- the created session's descriptor.
  *
  * `source` is a bare string rather than the `SourceId` union: a backend registers itself under a
