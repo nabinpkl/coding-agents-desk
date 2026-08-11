@@ -6,6 +6,9 @@
     "moduleDetection": "force",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
+    // For the shared contract fixture, which is JSON so that one document can be read by both the
+    // sidecar's tests and the panel's rather than restated as a literal in each.
+    "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "strict": true,

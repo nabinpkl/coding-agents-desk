@@ -486,6 +486,11 @@ build-agent-webview:
     mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"
     echo "build-agent-webview: DONE"
 
+# Three-owner fitness: the sidecar owns the feed's model, the panel owns the view, Swift owns
+# transport and native authority and names no payload field.
+agent-feed-fitness:
+    sh '{{justfile_directory()}}/tools/agent-feed-fitness.sh'
+
 # Serve the Agent Panel from Vite so editing TSX needs no Swift compile.
 #
 # Two surfaces, one server. For the Mac host's webview, export the origin this prints and relaunch
@@ -854,7 +859,7 @@ dom-mirror-e2e: ext-stamp
 # the client simulator tests, which need a booted simulator and dominate the
 # wall-clock (sim boot plus ~18s run). Run those with `just sim-test`, or run
 # everything with `just check-all`.
-check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar-check agent-panel-web-check build-tools-check ensure-pty-runtime-placeholder workspace-ide-fitness terminal-web-check
+check variant="stable": ensure-agent-feed-sidecar-placeholder agent-feed-sidecar-check agent-panel-web-check agent-feed-fitness build-tools-check ensure-pty-runtime-placeholder workspace-ide-fitness terminal-web-check
     #!/usr/bin/env bash
     set -euo pipefail
     sh tools/media-architecture-guard.sh

@@ -129,3 +129,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0092 | Restore every standalone tool window through one Desktop placement authority | accepted | 2026-08-02 |
 | ADR-0093 | Let the DOM declare the window drag region | accepted | 2026-08-04 |
 | ADR-0094 | Stream and drive one window instead of the whole Desktop | accepted | 2026-08-07 |
+| ADR-0095 | Relay the agent feed instead of restating it in Swift | accepted | 2026-08-11 |

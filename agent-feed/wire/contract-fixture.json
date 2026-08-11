@@ -1,0 +1,172 @@
+{
+  "_comment": [
+    "One document, two readers. The sidecar's test asserts its routes emit exactly these bodies;",
+    "the panel's test parses these same bodies through its transport and data source and asserts",
+    "the view sees them.",
+    "",
+    "It is deliberately one file rather than a fixture per side. What hid the last wire drift was",
+    "exactly that: each side had its own fixture, each side's tests passed, and the two shapes",
+    "disagreed in production. A single document cannot disagree with itself, so a change that",
+    "breaks the contract fails on whichever side did not intend it."
+  ],
+  "projects": {
+    "projects": [
+      {
+        "projectPath": "/Users/dev/projects/agent-desk",
+        "displayName": "agent-desk",
+        "sourceCounts": { "claude": 2, "pi": 1 },
+        "sessionCount": 3,
+        "lastEventAt": 1750000000
+      }
+    ]
+  },
+  "sessions": {
+    "projectPath": "/Users/dev/projects/agent-desk",
+    "sessions": [
+      {
+        "sessionId": "s1",
+        "source": "pi",
+        "title": "wire the relay",
+        "lastEventAt": 1750000000,
+        "activity": "ready",
+        "capabilities": {
+          "modes": ["nice"],
+          "canSend": true,
+          "canSteer": true,
+          "canAbort": true,
+          "canFetchRaw": false,
+          "canOpenTerminal": false,
+          "supportsExtensionUi": true,
+          "canStreamLive": false
+        }
+      }
+    ]
+  },
+  "timelineSnapshot": {
+    "type": "timeline",
+    "envelope": {
+      "kind": "snapshot",
+      "sequence": 2,
+      "mode": "nice",
+      "events": [
+        {
+          "id": "e0",
+          "index": 0,
+          "revision": 0,
+          "phase": "complete",
+          "ts": 0,
+          "type": "user",
+          "blocks": [{ "kind": "text", "text": "hello" }]
+        },
+        {
+          "id": "e1",
+          "index": 1,
+          "revision": 0,
+          "phase": "complete",
+          "ts": 1,
+          "type": "assistant",
+          "blocks": [{ "kind": "text", "text": "hi" }]
+        }
+      ],
+      "windowStart": 0,
+      "total": 2,
+      "runState": "idle",
+      "queue": { "steer": 0, "followUp": 0 },
+      "usage": null
+    }
+  },
+  "timelineUpsert": {
+    "type": "timeline",
+    "envelope": {
+      "kind": "upsert",
+      "sequence": 3,
+      "mode": "nice",
+      "events": [
+        {
+          "id": "e2",
+          "index": 2,
+          "revision": 1,
+          "phase": "streaming",
+          "ts": 2,
+          "type": "assistant",
+          "blocks": [{ "kind": "text", "text": "thinking" }]
+        }
+      ],
+      "windowStart": 0,
+      "total": 3,
+      "runState": "running",
+      "queue": { "steer": 1, "followUp": 0 },
+      "usage": { "current": 1200, "limit": 200000, "updatedAt": 1750000001, "model": "opus" }
+    }
+  },
+  "timelineTail": {
+    "type": "tail",
+    "event": {
+      "id": "tail-1",
+      "index": 3,
+      "revision": 4,
+      "phase": "streaming",
+      "ts": 3,
+      "type": "assistant",
+      "blocks": [{ "kind": "text", "text": "partial" }]
+    }
+  },
+  "timelineUi": {
+    "type": "ui",
+    "event": {
+      "type": "request",
+      "request": {
+        "requestId": "ui-1",
+        "kind": "select",
+        "title": "Pick one",
+        "options": ["one", "two"],
+        "expectsResponse": true
+      }
+    }
+  },
+  "timelineError": {
+    "type": "error",
+    "error": { "code": "stream-dropped", "message": "the backend stopped", "retryable": true }
+  },
+  "eventsPage": {
+    "events": [
+      {
+        "id": "e0",
+        "index": 0,
+        "revision": 0,
+        "phase": "complete",
+        "ts": 0,
+        "type": "user",
+        "blocks": [{ "kind": "text", "text": "hello" }]
+      }
+    ],
+    "total": 2,
+    "mode": "nice",
+    "usage": null,
+    "sequence": 2,
+    "runState": "idle",
+    "queue": { "steer": 0, "followUp": 0 }
+  },
+  "sessionDescriptor": {
+    "sessionId": "s2",
+    "source": "pi",
+    "projectPath": "/Users/dev/projects/agent-desk",
+    "title": "New session",
+    "lastEventAt": 1750000002,
+    "activity": "ready",
+    "capabilities": {
+      "modes": ["nice"],
+      "canSend": true,
+      "canSteer": true,
+      "canAbort": true,
+      "canFetchRaw": false,
+      "canOpenTerminal": false,
+      "supportsExtensionUi": true,
+      "canStreamLive": false
+    }
+  },
+  "commandReceipt": { "requestId": "send-1", "delivery": "immediate" },
+  "errorPayload": {
+    "error": { "code": "session-not-found", "message": "no session pi/s9", "retryable": false }
+  }
+}
