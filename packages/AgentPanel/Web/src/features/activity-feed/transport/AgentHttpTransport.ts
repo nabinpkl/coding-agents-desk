@@ -216,7 +216,17 @@ export class RelayHttpTransport implements AgentHttpTransport {
 
   private receive(message: unknown): void {
     const frame = relayFrame(message);
-    if (!frame) return;
+    if (!frame) {
+      // Dropping an unknown frame is correct -- this channel also carries the host's
+      // native-authority replies, which are not ours. But a frame that CARRIES a rid we are
+      // waiting on and still does not parse is a relay we no longer understand, and staying
+      // quiet about it is how a whole silenced direction looks exactly like an idle one.
+      const rid = (message as { rid?: unknown } | null)?.rid;
+      if (typeof rid === "string" && this.transfers.has(rid)) {
+        console.error("[AgentHttpTransport] unrecognised relay frame for", rid, message);
+      }
+      return;
+    }
     const transfer = this.transfers.get(frame.rid);
     // A frame for a rid we cancelled is expected, not an error: cancel and the relay's last
     // frames cross in flight. Frames for no rid at all are expected too: the same channel carries

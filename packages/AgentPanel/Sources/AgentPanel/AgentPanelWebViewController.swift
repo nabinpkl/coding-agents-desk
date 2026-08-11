@@ -35,6 +35,13 @@ public final class AgentPanelWebViewController: NSObject, WebPanelMessageSink {
     public var webView: WKWebView { core.webView }
     public weak var transport: (any AgentPanelTransport)?
 
+    /// Fires when the page starts navigating, including a reload. A container holding per-page
+    /// state the page named itself uses this to drop it; see `WebPanelWebViewController`.
+    public var onNavigationStart: (@MainActor () -> Void)? {
+        get { core.onNavigationStart }
+        set { core.onNavigationStart = newValue }
+    }
+
     public init(
         transport: (any AgentPanelTransport)?,
         resources: AgentPanelResourceLocator = AgentPanelResourceLocator(),

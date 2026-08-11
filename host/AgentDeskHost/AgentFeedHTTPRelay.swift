@@ -31,8 +31,13 @@ final class AgentFeedHTTPRelay: @unchecked Sendable {
         self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-relay")
     }
 
-    /// Abandons every in-flight transfer. Called when the panel goes away or the
-    /// session is torn down: the panel re-issues what it still wants.
+    /// Abandons every in-flight transfer. Called when the panel goes away, the session
+    /// is torn down, or the page navigates: the panel re-issues what it still wants.
+    ///
+    /// The navigation case is not optional. A reloaded page starts its request ids over
+    /// at one, so without this its first requests collide with the previous page's
+    /// abandoned ones, are refused as duplicates, and the panel retries forever against
+    /// slots held by a page that no longer exists.
     func reset() {
         let handles = queue.sync { () -> [SidecarStreamHandle] in
             let values = Array(transfers.values)
@@ -61,15 +66,26 @@ final class AgentFeedHTTPRelay: @unchecked Sendable {
             return
         }
 
-        let admitted: Bool = queue.sync {
-            guard transfers[request.rid] == nil else { return false }
-            guard transfers.count < AgentFeedRelay.maximumConcurrentTransfers else { return false }
+        // Two different refusals, told apart, because they mean opposite things: a full
+        // relay is backpressure, a duplicate id is a panel that lost track of what it
+        // already asked for. Reporting both as "too many in flight" sends the reader
+        // looking at the concurrency limit for a bug that is not there.
+        enum Admission { case ok, duplicate, full }
+        let admission: Admission = queue.sync {
+            guard transfers[request.rid] == nil else { return .duplicate }
+            guard transfers.count < AgentFeedRelay.maximumConcurrentTransfers else { return .full }
             // Reserved before the transfer exists so two requests arriving together
             // cannot both see room for the last slot.
             transfers[request.rid] = .reservation
-            return true
+            return .ok
         }
-        guard admitted else {
+        switch admission {
+        case .ok:
+            break
+        case .duplicate:
+            fail(rid: request.rid, reason: "request \(request.rid) is already in flight")
+            return
+        case .full:
             fail(rid: request.rid, reason: "too many agent-feed transfers in flight")
             return
         }

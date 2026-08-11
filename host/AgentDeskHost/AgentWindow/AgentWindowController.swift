@@ -258,6 +258,10 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
                     self?.panelController?.deliver(rawJSON: json)
                 }
             })
+            // A reloaded page picks its request ids from one again, so the previous page's
+            // transfers have to go with it or the new page's first requests are refused as
+            // duplicates of streams nobody is reading.
+            controller.onNavigationStart = { [weak relay] in relay?.reset() }
             self.panelController = controller
             self.relay = relay
 

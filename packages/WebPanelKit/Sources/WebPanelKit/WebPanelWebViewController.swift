@@ -25,6 +25,14 @@ public final class WebPanelWebViewController: NSObject {
     public let webView: WKWebView
     public weak var messageSink: (any WebPanelMessageSink)?
 
+    /// Fires when the page starts navigating, including a reload.
+    ///
+    /// The delivery queue's own `markNotReady` is the same edge, but a container often has
+    /// per-page state of its own outside this controller -- in-flight work keyed by ids the
+    /// page chose, which a reloaded page will choose again -- and nothing else tells it the
+    /// page it was talking to is gone.
+    public var onNavigationStart: (@MainActor () -> Void)?
+
     private let contract: WebPanelContract
     private let additionalMessageHandlers: [String: WebPanelScriptMessageHandler]
     private let logger: Logger
@@ -213,6 +221,7 @@ extension WebPanelWebViewController: WKNavigationDelegate {
     ) {
         Task { @MainActor [weak self] in
             self?.deliveryQueue?.markNotReady()
+            self?.onNavigationStart?()
         }
     }
 

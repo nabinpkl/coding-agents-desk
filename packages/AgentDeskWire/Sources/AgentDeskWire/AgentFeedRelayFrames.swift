@@ -18,6 +18,14 @@ import Foundation
 /// environment, so model-authored bash cannot reach the control API. Handing that
 /// token to a page that renders agent-authored markdown would undo it. The relay
 /// holds the token; the webview never sees it.
+///
+/// Every frame below carries its tag under the key `t`, spelled that way because the
+/// channel it shares decodes by `t` everywhere: `WebPanelWebViewController` reads
+/// `body["t"]` from the panel, the panel's `relayFrame` reads `t` from the host, and
+/// the client forwards by the `t` prefix rule. Spelling it `type` here encodes a frame
+/// no reader recognises, and because an unrecognised frame is DROPPED rather than
+/// refused -- deliberately, since this channel also carries native-authority replies
+/// -- the whole downstream direction goes silent with no error on either side.
 public enum AgentFeedRelay {
     /// What a request may address. This allow-list is the security boundary that
     /// keeps the relay from being an open local proxy, so it is deliberately narrow:
@@ -91,7 +99,8 @@ public struct AgentFeedRelayRequest: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, rid, method, path, body, stream
+        case type = "t"
+        case rid, method, path, body, stream
     }
 }
 
@@ -105,7 +114,8 @@ public struct AgentFeedRelayCancel: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, rid
+        case type = "t"
+        case rid
     }
 }
 
@@ -121,7 +131,8 @@ public struct AgentFeedRelayHead: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, rid, status
+        case type = "t"
+        case rid, status
     }
 }
 
@@ -154,7 +165,8 @@ public struct AgentFeedRelayChunk: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, rid, seq, data, complete
+        case type = "t"
+        case rid, seq, data, complete
     }
 }
 
@@ -168,7 +180,8 @@ public struct AgentFeedRelayEnd: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, rid
+        case type = "t"
+        case rid
     }
 }
 
@@ -184,6 +197,7 @@ public struct AgentFeedRelayError: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, rid, reason
+        case type = "t"
+        case rid, reason
     }
 }

@@ -83,6 +83,24 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     try roundTrip(AgentFeedRelayError(rid: "r-2", reason: "transfer-timeout"))
 }
 
+/// A round trip cannot catch the tag's spelling, because both of its ends are this same Swift
+/// type. The reader that matters is JavaScript, it matches on `t`, and it DROPS a frame it does
+/// not recognise rather than refusing it -- deliberately, since this channel also carries the
+/// host's native-authority replies. So a frame tagged under any other key silences the entire
+/// host-to-panel direction with no error logged on either side. This asserts the bytes.
+@Test func agentFeedRelayFramesTagThemselvesUnderTheKeyThePanelReads() throws {
+    func tag(of frame: some Encodable) throws -> String? {
+        let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(frame))
+        return (object as? [String: Any])?["t"] as? String
+    }
+    #expect(try tag(of: AgentFeedRelayRequest(rid: "r", method: "GET", path: "/api/x")) == "agent-http-req")
+    #expect(try tag(of: AgentFeedRelayCancel(rid: "r")) == "agent-http-cancel")
+    #expect(try tag(of: AgentFeedRelayHead(rid: "r", status: 200)) == "agent-http-head")
+    #expect(try tag(of: AgentFeedRelayChunk(rid: "r", seq: 0, data: "{}", complete: true)) == "agent-http-chunk")
+    #expect(try tag(of: AgentFeedRelayEnd(rid: "r")) == "agent-http-end")
+    #expect(try tag(of: AgentFeedRelayError(rid: "r", reason: "x")) == "agent-http-err")
+}
+
 @Test func agentFeedRelayPathPolicyRefusesAnythingButTheSidecarsOwnAPI() {
     #expect(AgentFeedRelay.PathPolicy.allows(path: "/api/projects/stream"))
     #expect(AgentFeedRelay.PathPolicy.allows(path: "/api/sessions/pi/s/events/3/raw"))
