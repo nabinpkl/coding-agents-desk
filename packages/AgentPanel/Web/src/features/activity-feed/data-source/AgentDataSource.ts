@@ -1,20 +1,20 @@
 import type { ActivityEvent, TokenUsage } from "../useSessionEventsStream";
+import type { EventMode } from "@agentdesk/agent-feed-wire";
 
 export type AgentSource = string;
 
 /**
- * Which view of a transcript to read.
+ * Which view of a transcript to read: `raw` is every line in file order, the
+ * fidelity guarantee; `nice` omits harness machinery and renumbers what is left
+ * contiguously from 0. Declared by the sidecar (see agent-feed/wire).
  *
- * `raw` is every line in file order, the fidelity guarantee. `nice` omits harness
- * machinery and renumbers what is left contiguously from 0.
- *
- * Part of the session reference rather than a per-call argument because an event
- * index is mode-relative: the same integer names a different line in the two views,
- * so every call that carries an index has to carry the mode too, and a data source
- * that could be asked for one mode's page while holding the other's buffer would
- * silently mix them.
+ * It sits on the session reference rather than being a per-call argument because an
+ * event index is mode-relative: the same integer names a different line in the two
+ * views, so every call that carries an index has to carry the mode too, and a data
+ * source that could be asked for one mode's page while holding the other's buffer
+ * would silently mix them.
  */
-export type EventMode = "raw" | "nice";
+export type { EventMode } from "@agentdesk/agent-feed-wire";
 
 export interface SessionReference {
   source: AgentSource;

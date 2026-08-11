@@ -1,27 +1,21 @@
 import type {
   ActivityBlock,
   ActivityEvent,
-  EventMode,
   ParsedLine,
 } from "../transcripts/sources/transcriptTypes.ts";
+import type {
+  AgentQueueState,
+  AgentRunState,
+  TimelineEnvelope,
+} from "@agentdesk/agent-feed-wire";
 
-export type AgentRunState = "idle" | "running" | "ended" | "error";
-
-export interface AgentQueueState {
-  steer: number;
-  followUp: number;
-}
-
-export interface TimelineEnvelope {
-  kind: "snapshot" | "upsert" | "state";
-  sequence: number;
-  mode: EventMode;
-  events: ActivityEvent[];
-  windowStart: number;
-  total: number;
-  runState: AgentRunState;
-  queue: AgentQueueState;
-}
+// The projection produces these, the HTTP layer publishes them verbatim, and the
+// Agent Panel parses them from the same declaration. See agent-feed/wire.
+export type {
+  AgentQueueState,
+  AgentRunState,
+  TimelineEnvelope,
+} from "@agentdesk/agent-feed-wire";
 
 type ProjectionEvent = ParsedLine & {
   id: string;

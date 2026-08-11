@@ -25,23 +25,11 @@ import type {
   Session,
   SourceId,
 } from "./sources/transcriptTypes.ts";
+import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 
-export interface ProjectSummary {
-  projectPath: string;
-  displayName: string;
-  sourceCounts: Record<string, number>;
-  sessionCount: number;
-  lastEventAt: number;
-}
-
-export interface SessionSummary {
-  sessionId: string;
-  source: SourceId;
-  title: string;
-  lastEventAt: number;
-  activity: Bin;
-  capabilities: AgentSessionCapabilities;
-}
+// What the catalog publishes on /api/projects and /api/sessions, declared once in
+// agent-feed/wire and parsed by the Agent Panel from that same declaration.
+export type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 
 const HEADER_PROBE_BYTES = 32 * 1024;
 const SUMMARY_TITLE_CHARACTERS = 240;

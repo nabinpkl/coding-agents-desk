@@ -1,27 +1,25 @@
 import type { ActivityEvent, EventMode } from "../transcripts/sources/transcriptTypes.ts";
 import type { AgentRunState, AgentQueueState, TimelineEnvelope } from "./liveAgentProjection.ts";
+import type {
+  AgentCommandReceipt,
+  AgentSessionCapabilities,
+  AgentSessionDescriptor,
+  AgentUiEvent,
+} from "@agentdesk/agent-feed-wire";
 
-export interface AgentSessionCapabilities {
-  modes: EventMode[];
-  canSend: boolean;
-  canSteer: boolean;
-  canAbort: boolean;
-  canFetchRaw: boolean;
-  canOpenTerminal: boolean;
-  supportsExtensionUi: boolean;
-  /** True when the session has a live, network-observed delta stream (claude live source). */
-  canStreamLive: boolean;
-}
-
-export interface AgentSessionDescriptor {
-  sessionId: string;
-  source: string;
-  projectPath: string;
-  title: string;
-  lastEventAt: number;
-  activity: "live" | "ready" | "paused" | "cold";
-  capabilities: AgentSessionCapabilities;
-}
+// Everything a backend publishes about itself, or that a command answers with,
+// crosses the HTTP boundary unchanged, so it is declared once in agent-feed/wire
+// and re-exported here. What stays local is what never leaves this process: the
+// backend interface, its error classes, and the page shape the HTTP layer
+// decorates before publishing.
+export type {
+  AgentCommandReceipt,
+  AgentSessionCapabilities,
+  AgentSessionDescriptor,
+  AgentUiEvent,
+  AgentUiRequest,
+  AgentUiRequestKind,
+} from "@agentdesk/agent-feed-wire";
 
 export interface AgentTimelinePage {
   events: ActivityEvent[];
@@ -33,31 +31,6 @@ export interface AgentTimelinePage {
 }
 
 export type AgentMessageDelivery = "next" | "steer";
-
-export interface AgentCommandReceipt {
-  requestId: string;
-  delivery: "immediate" | "followUp" | "steer" | "abort";
-}
-
-export type AgentUiRequestKind = "select" | "confirm" | "input" | "editor" | "notify" | "status" | "widget";
-
-export interface AgentUiRequest {
-  requestId: string;
-  kind: AgentUiRequestKind;
-  title?: string;
-  message?: string;
-  options?: string[];
-  placeholder?: string;
-  prefill?: string;
-  level?: "info" | "warning" | "error";
-  key?: string;
-  lines?: string[];
-  expectsResponse: boolean;
-}
-
-export type AgentUiEvent =
-  | { type: "request"; request: AgentUiRequest }
-  | { type: "dismiss"; requestId: string };
 
 export type AgentUiResponseResult = "accepted" | "already-resolved" | "not-found" | "invalid";
 

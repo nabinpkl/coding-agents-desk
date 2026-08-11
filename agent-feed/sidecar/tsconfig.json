@@ -13,7 +13,14 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
-    "types": ["bun"]
+    "types": ["bun"],
+    // The one definition of everything that crosses the HTTP boundary, shared with the Agent
+    // Panel. Types only, so every import of it is erased and neither project bundles it.
+    "paths": {
+      "@agentdesk/agent-feed-wire": ["../wire/index.ts"]
+    }
   },
-  "include": ["src/**/*.ts"]
+  // The wire module is typechecked here rather than in both consumers: one owner for the check,
+  // and this project's lib is the stricter of the two.
+  "include": ["src/**/*.ts", "../wire/**/*.ts"]
 }

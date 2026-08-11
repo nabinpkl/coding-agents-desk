@@ -1,16 +1,30 @@
-// Canonical, source-agnostic types. The Claude and Codex adapters emit these
-// shapes; everything above the adapter (event index, catalog, HTTP/SSE,
-// Agent Panel) consumes only these.
+// The adapter seam: each adapter knows its own JSONL layout and translates one
+// line into an optional ActivityEvent plus whatever state that line updates --
+// turn boundary, title, cwd, context occupancy, and whether the nice view keeps
+// it. The sidecar owns catalog watching, on-demand byte indexing, and streaming.
 //
-// The seam: each adapter knows its own JSONL layout and translates one line
-// into an optional ActivityEvent plus whatever state that line updates -- turn
-// boundary, title, cwd, context occupancy, and whether the nice view keeps it.
-// The sidecar owns catalog watching, on-demand byte indexing, and streaming.
+// The shapes an adapter EMITS are the wire contract and live in
+// `agent-feed/wire`, one definition shared with the Agent Panel; they are
+// re-exported here so adapters keep importing their types from one place. What
+// stays local is what never leaves this process: the per-line result the
+// adapter hands back, and the on-disk session record with its transcript path.
 //
 // Liveness is never stored. A selected-project probe combines transcript
 // recency with the latest bounded turn signal and derives the bin at read time.
 
-export type SourceId = 'claude' | 'codex' | 'pi';
+import type { ParsedLine, SourceId, TokenUsage, EventCacheHit } from "@agentdesk/agent-feed-wire";
+
+export type {
+  ActivityBlock,
+  ActivityEvent,
+  Bin,
+  EventCacheHit,
+  EventMode,
+  ParsedLine,
+  SourceId,
+  TokenUsage,
+} from "@agentdesk/agent-feed-wire";
+
 export type TranscriptSourceId = Exclude<SourceId, 'pi'>;
 
 export interface Header {
@@ -21,80 +35,13 @@ export interface Header {
   title?: string;
 }
 
-export interface ActivityBlock {
-  kind: 'text' | 'tool_use' | 'tool_result' | 'reasoning' | 'compaction' | 'metadata' | 'plain' | 'raw';
-  label?: string;
-  text?: string;
-  tool?: string;
-  summary?: string;
-  // Raw tool_use input. Carried so the Agent Panel can render richer views
-  // (e.g. unified diffs for Edit) without re-fetching the transcript.
-  input?: Record<string, unknown>;
-  preview?: string;
-  // Set on tool_result blocks whose preview was capped by the adapter.
-  // hiddenChars = bytes the sidecar dropped; hiddenLines = newline count in
-  // the dropped portion. UI surfaces both as a "+N lines / +M chars" footer.
-  hiddenChars?: number;
-  hiddenLines?: number;
-  // Pairing key linking a tool_use to its tool_result. Codex carries this
-  // as `call_id` on both function_call and function_call_output payloads;
-  // Claude carries `id` on tool_use and `tool_use_id` on tool_result. The
-  // adapter normalizes both to this single field so the Agent Panel can group
-  // a call and its response without source-branching.
-  callId?: string;
-}
-
-export interface ParsedLine {
-  ts: number;
-  type: 'user' | 'assistant' | 'reasoning' | 'system';
-  blocks: ActivityBlock[];
-  /**
-   * Stable Anthropic message id (`msg_...`) when the harness/source records one.
-   * The live stream names it on `message_start` and the durable transcript on
-   * the assistant record's `message.id`, which is how the viewer can tell "the
-   * live tail is now present in the durable transcript" and drop the tail
-   * instead of duplicating it.
-   */
-  messageId?: string;
-  /**
-   * Per-turn prompt cache summary, attached to the turn's last visible row so the
-   * panel can render a cache-hit badge next to the output it belongs to.
-   * `cached` is the input tokens served from the prompt cache and `input` is the
-   * whole prompt (cached + freshly encoded). Semantics are source-adapted:
-   * Codex reports `cached_input_tokens` on its `token_count` line (which is
-   * machinery, so the read path re-stamps it onto the preceding content event),
-   * Claude reports `cache_read_input_tokens` on the assistant message itself.
-   */
-  cacheHit?: EventCacheHit;
-}
-
-/**
- * One turn's prompt-cache accounting, in tokens. Both numbers are counts of the
- * same prompt, so `cached / input` is the fraction served from cache.
- */
-export interface EventCacheHit {
-  cached: number;
-  input: number;
-}
-
-export interface ActivityEvent extends ParsedLine {
-  // Stable identity across replacement updates. Transcript-backed events derive
-  // this from their raw JSONL line; live providers retain one id while content
-  // streams and increase `revision` instead of appending partial duplicates.
-  id: string;
-  // Position in the mode this event was read in.
-  index: number;
-  revision: number;
-  phase: 'streaming' | 'complete';
-  // Position of the same line in the OTHER mode, or null when it has none -- a
-  // machinery line read in raw mode is absent from the nice view entirely.
-  //
-  // Carried so the panel can switch modes without losing the viewer's place: the
-  // index it is looking at means a different line in the other view, and this is
-  // the only translation available without a round trip. Absent on events read
-  // through a path that does not resolve it.
-  otherModeIndex?: number | null;
-}
+// Whether the nice view lets a line through. `machinery` means everything the
+// line would render is a harness state dump or a value a later record of the same
+// kind supersedes; `content` is everything a person wrote, a model produced, or a
+// tool did. Content is the DEFAULT, so a record type a future harness release
+// invents shows up as an unfamiliar row rather than silently vanishing. See
+// lineClass.ts for the rule and the per-source tables.
+export type LineClass = 'content' | 'machinery';
 
 // Per-line result. Any field may be absent.
 //   event:      emit as an ActivityEvent (drives activity feed + snippet)
@@ -105,46 +52,6 @@ export interface ActivityEvent extends ParsedLine {
 //               Absent on lines that say nothing about turn state.
 //   title:      session-title update parsed from a transcript line (Claude
 //               emits ai-title lines mid-session).
-// Latest known context-window occupancy for the session. `current` is the
-// number of tokens in the most recent prompt the model actually processed
-// (Claude: assistant.message.usage input + cache_creation + cache_read +
-// output; Codex: event_msg.token_count info.last_token_usage.total_tokens).
-// Compaction is implicit: post-compaction turns report a smaller `current`
-// automatically.
-//
-// `limit` arrives RESOLVED. Codex publishes `model_context_window` in the
-// transcript; Claude does not, so the adapter resolves it from the config table
-// keyed on `message.model`. Either way the panel receives one shape and holds no
-// model knowledge of its own. Null means this build has no window for the model,
-// and the meter shows a count with no bar rather than a guessed fraction.
-//
-// `model` is absent on lines that name no model -- Codex `token_count` records,
-// and Claude lines the harness marked `<synthetic>`. Such a line still reports
-// occupancy, so the session-level merge carries the last known model and limit
-// forward instead of blanking the meter (124 Codex records in this project
-// publish occupancy with no window).
-export interface TokenUsage {
-  current: number;
-  limit: number | null;
-  updatedAt: number;
-  model?: string;
-}
-
-// Whether the nice view lets a line through. `machinery` means everything the
-// line would render is a harness state dump or a value a later record of the same
-// kind supersedes; `content` is everything a person wrote, a model produced, or a
-// tool did. Content is the DEFAULT, so a record type a future harness release
-// invents shows up as an unfamiliar row rather than silently vanishing. See
-// lineClass.ts for the rule and the per-source tables.
-export type LineClass = 'content' | 'machinery';
-
-// Which view of a transcript an index, count, page or stream addresses.
-//   raw  -- every line, in file order. The fidelity guarantee.
-//   nice -- content lines only, renumbered contiguously from 0.
-// Event indices are mode-relative, so a mode has to travel with every request
-// that names one: the same integer means different lines in the two views.
-export type EventMode = 'raw' | 'nice';
-
 export interface LineResult {
   event?: ParsedLine;
   turnClosed?: boolean;
@@ -165,6 +72,9 @@ export interface LineResult {
 // One observed session, from any source. The shape is the same across
 // sources; `source` discriminates so the renderer can pick a brand mark or
 // gate source-specific UI affordances (e.g. tmux attach is Claude-only).
+//
+// Local, not wire: `transcriptPath` is a path on the host's disk, and the
+// catalog projects this into a `SessionSummary` before anything is published.
 export interface Session {
   sessionId: string;
   source: SourceId;
@@ -177,8 +87,6 @@ export interface Session {
   gitBranch?: string;
   entrypoint?: string;
 }
-
-export type Bin = 'live' | 'ready' | 'paused' | 'cold';
 
 // Adapters own only source-specific JSONL parsing. Catalog discovery and
 // metadata reads live outside this interface so inventory cannot accidentally
