@@ -37,19 +37,37 @@ public final class WebPanelWebViewController: NSObject {
     /// so a blank or erroring panel is never debugged blind.
     static let diagnosticsHandlerName = "webPanelLog"
 
+    /// - Parameter developmentOrigin: When set, the panel loads from this origin instead of the
+    ///   bundled assets, and no scheme handler is installed. This is how a dev server's page --
+    ///   and its hot module replacement -- reaches the webview: the bridge does not care what
+    ///   origin the page came from, because message handlers and `callAsyncJavaScript` are
+    ///   origin-independent and the delivery global is installed by the page itself.
     public init(
         contract: WebPanelContract,
         resourceRootDirectory: URL?,
         messageSink: (any WebPanelMessageSink)?,
         additionalUserScripts: [WKUserScript] = [],
         additionalMessageHandlers: [String: WebPanelScriptMessageHandler] = [:],
-        logSubsystem: String = "com.example.agentdesk.WebPanelKit"
+        logSubsystem: String = "com.example.agentdesk.WebPanelKit",
+        developmentOrigin: URL? = nil
     ) throws {
-        guard let rootDirectory = resourceRootDirectory else {
-            throw InitializationError.missingResourceRoot
-        }
-        guard let requestURL = contract.indexRequestURL else {
-            throw InitializationError.invalidRequestURL
+        // A dev origin serves its own assets, so there is no root to resolve and nothing for the
+        // scheme handler to do. Demanding one anyway would make the override unusable in exactly
+        // the case it exists for: a tree whose bundled build is stale or absent.
+        let rootDirectory: URL?
+        let requestURL: URL
+        if let developmentOrigin {
+            rootDirectory = nil
+            requestURL = developmentOrigin
+        } else {
+            guard let resolved = resourceRootDirectory else {
+                throw InitializationError.missingResourceRoot
+            }
+            guard let bundled = contract.indexRequestURL else {
+                throw InitializationError.invalidRequestURL
+            }
+            rootDirectory = resolved
+            requestURL = bundled
         }
         for name in additionalMessageHandlers.keys {
             // A collision would shadow the shadowed channel's messages silently, and a panel whose
@@ -67,10 +85,12 @@ public final class WebPanelWebViewController: NSObject {
         for script in additionalUserScripts {
             contentController.addUserScript(script)
         }
-        configuration.setURLSchemeHandler(
-            WebPanelSchemeHandler(rootDirectory: rootDirectory),
-            forURLScheme: contract.scheme
-        )
+        if let rootDirectory {
+            configuration.setURLSchemeHandler(
+                WebPanelSchemeHandler(rootDirectory: rootDirectory),
+                forURLScheme: contract.scheme
+            )
+        }
         let createdWebView = WebPanelWebView(frame: .zero, configuration: configuration)
 
         self.webView = createdWebView

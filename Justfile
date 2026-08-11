@@ -124,6 +124,10 @@ apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
 agent_feed_sidecar_dir := justfile_directory() + "/agent-feed/sidecar"
 # AgentDesk-owned Vite source for the shared AgentPanel webview.
 agent_panel_web_dir := justfile_directory() + "/packages/AgentPanel/Web"
+# The env var that points the panel's webview at a dev server instead of its bundled build.
+# Mirrors AgentPanelWebViewController.developmentOriginVariable; a second spelling would be a
+# build that looks live and is not.
+agent_panel_origin_var := "AGENTDESK_AGENT_PANEL_ORIGIN"
 # Source directory for the AgentDesk-owned Rust PTY manager (moved in from the
 # agent-workspace-ide donor under R34). Override only for out-of-tree experiments.
 pty_manager_dir := env_var_or_default("AGENTDESK_PTY_MANAGER_DIR", justfile_directory() + "/terminal/pty-manager")
@@ -481,6 +485,29 @@ build-agent-webview:
       "$WEB/dist" "$OUT" --preserve .gitkeep
     mkdir -p '{{stamps_dir}}'; printf '%s\n' "$HASH" > "$STAMP"
     echo "build-agent-webview: DONE"
+
+# Serve the Agent Panel from Vite so editing TSX needs no Swift compile.
+#
+# Two surfaces, one server. For the Mac host's webview, export the origin this prints and relaunch
+# the host: the panel loads from Vite and hot module replacement is live, so a TSX edit lands
+# without a rebuild. For a plain browser, open the printed URL; that leg also needs
+# AGENT_FEED_CONTROL_TOKEN and AGENTDESK_AGENT_FEED_ORIGIN in the environment, because the browser
+# has no relay to attach the sidecar's bearer header for it.
+#
+# The dev origin is NOT a fallback: with it set, the host serves only from Vite, and if Vite is not
+# up the panel fails to load rather than quietly showing the bundled build.
+agent-webview-dev port="5173":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    WEB='{{agent_panel_web_dir}}'
+    node '{{justfile_directory()}}/tools/build-system/ensure-js-dependencies.mjs' \
+      agent-panel "$WEB" '{{justfile_directory()}}/.build/js-dependencies'
+    echo "agent-webview-dev: point the host at this and relaunch it:"
+    echo ""
+    echo "  export {{agent_panel_origin_var}}=http://127.0.0.1:{{port}}"
+    echo "  just host-run-dev dev"
+    echo ""
+    cd "$WEB" && bun run dev --port '{{port}}' --strictPort
 
 agent-panel-web-check:
     #!/usr/bin/env bash
