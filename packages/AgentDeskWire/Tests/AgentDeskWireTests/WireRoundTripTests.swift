@@ -59,94 +59,42 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
     #expect(decoded.payload == payload)
 }
 
-@Test func liveAgentCommandsTimelineAndExtensionUIRoundTrip() throws {
-    try roundTrip(AgentSessionCreate(
-        requestId: "create-1",
-        source: "pi",
-        projectPath: "/project"
+@Test func agentFeedRelayFramesRoundTripWithoutNamingAPayloadField() throws {
+    // The feed's model used to be restated here in abbreviated keys; it travels as an opaque
+    // body now. What this asserts is the envelope AROUND that body, which is the only part of
+    // the feed the wire still has an opinion about.
+    try roundTrip(AgentFeedRelayRequest(
+        rid: "r-1",
+        method: "GET",
+        path: "/api/sessions/pi/session/timeline?mode=nice",
+        stream: true
     ))
-    try roundTrip(AgentSessionSend(
-        requestId: "send-1",
-        source: "pi",
-        sessionId: "session",
-        text: "hello",
-        delivery: "steer"
+    try roundTrip(AgentFeedRelayRequest(
+        rid: "r-2",
+        method: "POST",
+        path: "/api/agent-sessions",
+        body: #"{"source":"pi","projectPath":"/project"}"#
     ))
-    try roundTrip(AgentSessionAbort(
-        requestId: "abort-1",
-        source: "pi",
-        sessionId: "session"
-    ))
-    try roundTrip(AgentCommandReceipt(
-        requestId: "create-1",
-        source: "pi",
-        sessionId: "session",
-        delivery: "created",
-        session: AgentSessionSummary(
-            sessionId: "session",
-            source: "pi",
-            title: "New session",
-            lastEventAt: 10,
-            activity: "ready",
-            capabilities: AgentSessionCapabilities(
-                modes: ["nice"],
-                canSend: true,
-                canSteer: true,
-                canAbort: true,
-                canFetchRaw: false,
-                canOpenTerminal: false,
-                supportsExtensionUI: true
-            )
-        )
-    ))
-    try roundTrip(AgentCommandError(
-        requestId: "send-1",
-        code: "request-conflict",
-        message: "request id was reused",
-        retryable: false
-    ))
-    try roundTrip(AgentThreadChunk(
-        source: "pi",
-        sessionId: "session",
-        events: [ActivityEvent(
-            id: "assistant-1",
-            index: 0,
-            revision: 2,
-            phase: "streaming",
-            ts: 1,
-            type: "assistant",
-            blocks: [ActivityBlock(kind: "text", text: "hel")]
-        )],
-        windowStart: 0,
-        total: 1,
-        isLive: true,
-        mode: "nice",
-        kind: "upsert",
-        sequence: 4,
-        runState: "running",
-        queueSteer: 1,
-        queueFollowUp: 2
-    ))
-    try roundTrip(AgentExtensionUIRequest(
-        source: "pi",
-        sessionId: "session",
-        requestId: "ui-1",
-        kind: "select",
-        title: "Choose",
-        options: ["one", "two"],
-        expectsResponse: true
-    ))
-    try roundTrip(AgentExtensionUIResponse(
-        source: "pi",
-        sessionId: "session",
-        requestId: "ui-1",
-        value: .object(["choice": .string("two")])
-    ))
-    try roundTrip(AgentExtensionUIDismissed(
-        source: "pi",
-        sessionId: "session",
-        requestId: "ui-1"
-    ))
+    try roundTrip(AgentFeedRelayCancel(rid: "r-1"))
+    try roundTrip(AgentFeedRelayHead(rid: "r-1", status: 200))
+    try roundTrip(AgentFeedRelayChunk(rid: "r-1", seq: 0, data: #"{"type":"snap"#, complete: false))
+    try roundTrip(AgentFeedRelayChunk(rid: "r-1", seq: 1, data: #"shot"}"#, complete: true))
+    try roundTrip(AgentFeedRelayEnd(rid: "r-2"))
+    try roundTrip(AgentFeedRelayError(rid: "r-2", reason: "transfer-timeout"))
+}
+
+@Test func agentFeedRelayPathPolicyRefusesAnythingButTheSidecarsOwnAPI() {
+    #expect(AgentFeedRelay.PathPolicy.allows(path: "/api/projects/stream"))
+    #expect(AgentFeedRelay.PathPolicy.allows(path: "/api/sessions/pi/s/events/3/raw"))
+    // Each of these is a way to turn "reach the sidecar" into "reach whatever the host can
+    // reach", which is the one thing this relay must never become.
+    #expect(!AgentFeedRelay.PathPolicy.allows(path: "/health"))
+    #expect(!AgentFeedRelay.PathPolicy.allows(path: "/api/../secrets"))
+    #expect(!AgentFeedRelay.PathPolicy.allows(path: "http://evil.example/api/x"))
+    #expect(!AgentFeedRelay.PathPolicy.allows(path: "//evil.example/api/x"))
+    #expect(!AgentFeedRelay.PathPolicy.allows(path: #"/api/\..\etc"#))
+    #expect(AgentFeedRelay.PathPolicy.allows(method: "get"))
+    #expect(!AgentFeedRelay.PathPolicy.allows(method: "DELETE"))
 }
 
 @Test func clientScreenshotContractsRoundTrip() throws {
