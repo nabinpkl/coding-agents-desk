@@ -63,6 +63,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // Swapped for `sinkAspectConstraint` once a display arrives; see applySinkAspectRatio.
     var sinkFillHeightConstraint: NSLayoutConstraint?
     var sinkAspectConstraint: NSLayoutConstraint?
+    // Zero while the rail has nothing to draw; see updateDisplayRailHeight.
+    var displayRailHeightConstraint: NSLayoutConstraint?
     static let sinkMaxZoomScale: CGFloat = 4.0
     static let sinkDoubleTapZoomScale: CGFloat = 2.0
     // ADR-0009 cursor-driven viewport pan. The client mirrors the host

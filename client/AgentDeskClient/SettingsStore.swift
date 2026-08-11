@@ -66,6 +66,8 @@ final class SettingsStore: @unchecked Sendable {
         static let agentSayVoiceLanguage = "agentDesk.agentSayVoiceLanguage"
         static let agentSayVoiceIdentifier = "agentDesk.agentSayVoiceIdentifier"
         static let diagnosticScreenshotsEnabled = "agentDesk.diagnosticScreenshotsEnabled"
+        static let spacesStripExpanded = "agentDesk.spacesStripExpanded"
+        static let windowPickerStripExpanded = "agentDesk.windowPickerStripExpanded"
     }
 
     // iOS HIG / QuickType bar standard is 44pt; key chiclets at 36pt
@@ -356,6 +358,25 @@ final class SettingsStore: @unchecked Sendable {
             }
             postChange()
         }
+    }
+
+    // Whether each strip sits open. Remembered across launches so a disclosure the user set
+    // once is not re-set every session. Defaults differ because the two strips are used
+    // differently: switching Desktops is the constant act, so the Spaces row is open by
+    // default, while picking a window to watch is occasional and its row stays closed until
+    // asked for.
+    //
+    // Neither setter posts changedNotification. That notification means "resend the client
+    // config and re-derive strip visibility", and a disclosure tap changes nothing the host
+    // needs to know; posting it would push a ClientConfig frame per tap.
+    var spacesStripExpanded: Bool {
+        get { defaults.object(forKey: Key.spacesStripExpanded) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Key.spacesStripExpanded) }
+    }
+
+    var windowPickerStripExpanded: Bool {
+        get { defaults.object(forKey: Key.windowPickerStripExpanded) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: Key.windowPickerStripExpanded) }
     }
 
     private func postChange() {

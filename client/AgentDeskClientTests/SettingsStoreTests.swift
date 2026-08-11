@@ -70,6 +70,40 @@ struct SettingsStoreTests {
         #expect(defaults.object(forKey: "agentDesk.diagnosticScreenshotsEnabled") as? Bool == true)
     }
 
+    // Switching Desktops is the constant act and picking a window is the occasional one, so
+    // the two strips rest in opposite states until the user says otherwise.
+    @Test func stripDisclosureDefaultsDifferPerStrip() {
+        let store = SettingsStore(defaults: isolatedDefaults())
+
+        #expect(store.spacesStripExpanded)
+        #expect(store.windowPickerStripExpanded == false)
+    }
+
+    @Test func stripDisclosurePersistsWithoutPostingChange() async {
+        let defaults = isolatedDefaults()
+        let store = SettingsStore(defaults: defaults)
+        var observed = false
+        let observer = NotificationCenter.default.addObserver(
+            forName: SettingsStore.changedNotification,
+            object: store,
+            queue: nil
+        ) { _ in
+            observed = true
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        store.spacesStripExpanded = false
+        store.windowPickerStripExpanded = true
+
+        #expect(store.spacesStripExpanded == false)
+        #expect(store.windowPickerStripExpanded)
+        #expect(defaults.object(forKey: "agentDesk.spacesStripExpanded") as? Bool == false)
+        #expect(defaults.object(forKey: "agentDesk.windowPickerStripExpanded") as? Bool == true)
+        // A disclosure tap is not a host-visible setting; posting would push a ClientConfig
+        // frame per tap.
+        #expect(observed == false)
+    }
+
     @Test func fixedConstrainedMediaProfileIsRepresentableAndAtomic() {
         let defaults = isolatedDefaults()
         let store = SettingsStore(defaults: defaults)

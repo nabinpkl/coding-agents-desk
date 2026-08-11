@@ -387,6 +387,7 @@ struct ThumbnailStripViewTests {
 private final class StripRecorder: ThumbnailStripViewDelegate {
     private(set) var events: [NormalizedInput] = []
     private(set) var heightChanges = 0
+    private(set) var toggles: [Bool] = []
     func thumbnailStrip(_ view: ThumbnailStripView, didTapStepDelta delta: Int) {}
     func thumbnailStrip(_ view: ThumbnailStripView, didLongPressSpaceId spaceId: UInt64) {}
     func thumbnailStrip(_ view: ThumbnailStripView, didProduce input: NormalizedInput) {
@@ -394,5 +395,8 @@ private final class StripRecorder: ThumbnailStripViewDelegate {
     }
     func thumbnailStripDidChangePreferredHeight(_ view: ThumbnailStripView) {
         heightChanges += 1
+    }
+    func thumbnailStripDidToggleExpansion(_ view: ThumbnailStripView) {
+        toggles.append(view.isExpanded)
     }
 }

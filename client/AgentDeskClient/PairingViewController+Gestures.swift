@@ -44,6 +44,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         desktopStateTask?.cancel()
         guard let channel = pairingClient.activeInputChannel else { return }
         displayRailView.renderEmpty()
+        updateDisplayRailHeight()
         thumbnailStripView.renderEmpty()
         windowPickerStripView.renderEmpty()
         desktopStateTask = Task { [weak self, channel] in
@@ -54,6 +55,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
                         ?? state.activeDisplayId
                         ?? state.displays.first?.id
                     self?.displayRailView.apply(state: state)
+                    self?.updateDisplayRailHeight()
                     self?.thumbnailStripView.apply(state: state)
                     self?.windowPickerStripView.apply(state: state)
                     self?.refreshThumbnailStripVisibility()
@@ -399,12 +401,25 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         displayRailView.isHidden = displayRailView.displayCount <= 1
         thumbnailStripView.isHidden = thumbnailStripView.userSpaceCount <= 1
         windowPickerStripView.isHidden = windowPickerStripView.isEmptyAndIdle
-        if thumbnailStripView.isHidden {
-            thumbnailStripView.setExpanded(false)
-        }
-        if windowPickerStripView.isHidden {
-            windowPickerStripView.setExpanded(false)
-        }
+        // Coming back into view restores the remembered disclosure rather than leaving the
+        // collapsed state that hiding imposed. The stored value only ever moves on a bar tap,
+        // so re-asserting it on every state push is a no-op once it matches.
+        thumbnailStripView.setExpanded(
+            thumbnailStripView.isHidden ? false : SettingsStore.shared.spacesStripExpanded
+        )
+        windowPickerStripView.setExpanded(
+            windowPickerStripView.isHidden ? false : SettingsStore.shared.windowPickerStripExpanded
+        )
+    }
+
+    // Only a deliberate tap is remembered; every other collapse above is the layout owner
+    // reclaiming space and must not overwrite what the user chose.
+    func thumbnailStripDidToggleExpansion(_ view: ThumbnailStripView) {
+        SettingsStore.shared.spacesStripExpanded = view.isExpanded
+    }
+
+    func windowPickerDidToggleExpansion(_ view: WindowPickerStripView) {
+        SettingsStore.shared.windowPickerStripExpanded = view.isExpanded
     }
 
     // Whether the host should be producing the window list at all. Same condition as strip

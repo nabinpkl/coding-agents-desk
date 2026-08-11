@@ -8,6 +8,11 @@ protocol WindowPickerStripViewDelegate: AnyObject {
     // The strip's `preferredHeight` changed. The height constraint lives with the layout
     // owner, so expansion has to be reported rather than self-applied.
     func windowPickerDidChangePreferredHeight(_ view: WindowPickerStripView)
+    // The user changed the disclosure, by tapping the bar or by picking a window. Distinct
+    // from the height report because the strip is also collapsed by the layout owner
+    // (keyboard up, strip hidden, teardown), and only a deliberate change should be
+    // remembered as the preferred resting state.
+    func windowPickerDidToggleExpansion(_ view: WindowPickerStripView)
 }
 
 // Flat horizontal strip of app icons, one per watchable window, sitting directly under the
@@ -41,13 +46,21 @@ final class WindowPickerStripView: UIView {
     // Icon plus a little breathing room; the badge overlaps the icon corner rather than
     // claiming its own height, so the tile row stays one tile tall.
     static let tileRowHeight: CGFloat = tileSize + 8
-    // The bar is the whole strip when collapsed. Short, because it is a label with a hit
-    // target rather than a control cluster, and it spans the full width so the tap target is
-    // large in the axis that matters.
+    // The bar is the whole strip when collapsed: a sliver carrying a chevron and the window
+    // glyph that says which strip this is. It spans the full width so the tap target is large
+    // in the axis that matters.
     static let barHeight: CGFloat = 28
-    static let tileRowGap: CGFloat = 4
+    // Chevron plus the identifying glyph. Open, the bar shrinks to this column and the tiles
+    // take the rest of the row, so the disclosure control costs no vertical band of its own.
+    static let chevronWidth: CGFloat = 16
+    static let iconWidth: CGFloat = 20
+    static let leadColumnWidth: CGFloat = chevronWidth + iconWidth
+    static let leadColumnGap: CGFloat = 4
+    static let rowVerticalPadding: CGFloat = 4
     static let collapsedHeight: CGFloat = barHeight
-    static let expandedHeight: CGFloat = barHeight + tileRowGap + tileRowHeight
+    // The tile row alone. It used to be the row plus a label band above it, which spent 32pt
+    // restating what the video and the icon already say.
+    static let expandedHeight: CGFloat = tileRowHeight + rowVerticalPadding * 2
 
     private var windows: [WindowSummary] = []
     private var icons: [String: UIImage] = [:]
@@ -67,8 +80,9 @@ final class WindowPickerStripView: UIView {
 
     private let barButton = UIControl()
     private let barChevron = UIImageView()
-    private let barTitleLabel = UILabel()
-    private let barCountLabel = UILabel()
+    private let barIcon = UIImageView()
+    private var barTrailingConstraint: NSLayoutConstraint?
+    private var barWidthConstraint: NSLayoutConstraint?
 
     private lazy var collectionView: UICollectionView = {
         let cv = UICollectionView(frame: .zero, collectionViewLayout: layout)
@@ -101,56 +115,61 @@ final class WindowPickerStripView: UIView {
         clipsToBounds = true
 
         barButton.translatesAutoresizingMaskIntoConstraints = false
-        barButton.layer.cornerRadius = 8
-        barButton.layer.borderWidth = 1
         barButton.accessibilityIdentifier = "window-picker-bar"
         barButton.isAccessibilityElement = true
         barButton.accessibilityTraits = [.button]
         barButton.addTarget(self, action: #selector(toggleExpansion), for: .touchUpInside)
         addSubview(barButton)
 
-        barChevron.contentMode = .scaleAspectFit
+        barChevron.contentMode = .center
         barChevron.tintColor = .secondaryLabel
         barChevron.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
         barChevron.translatesAutoresizingMaskIntoConstraints = false
         barButton.addSubview(barChevron)
 
-        barTitleLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        barTitleLabel.textColor = .label
-        barTitleLabel.lineBreakMode = .byTruncatingTail
-        barTitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        barButton.addSubview(barTitleLabel)
-
-        barCountLabel.font = .systemFont(ofSize: 11, weight: .regular)
-        barCountLabel.textColor = .secondaryLabel
-        barCountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        barCountLabel.translatesAutoresizingMaskIntoConstraints = false
-        barButton.addSubview(barCountLabel)
+        // Two closed slivers stacked one above the other are indistinguishable by a chevron
+        // alone, so each carries the glyph for what it opens.
+        barIcon.contentMode = .center
+        barIcon.tintColor = .secondaryLabel
+        barIcon.image = UIImage(systemName: "macwindow")
+        barIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+        barIcon.translatesAutoresizingMaskIntoConstraints = false
+        barButton.addSubview(barIcon)
 
         addSubview(collectionView)
+
+        let barTrailing = barButton.trailingAnchor.constraint(equalTo: trailingAnchor)
+        let barWidth = barButton.widthAnchor.constraint(equalToConstant: Self.leadColumnWidth)
+        barTrailingConstraint = barTrailing
+        barWidthConstraint = barWidth
+        barTrailing.isActive = true
         NSLayoutConstraint.activate([
             barButton.leadingAnchor.constraint(equalTo: leadingAnchor),
-            barButton.trailingAnchor.constraint(equalTo: trailingAnchor),
             barButton.topAnchor.constraint(equalTo: topAnchor),
-            barButton.heightAnchor.constraint(equalToConstant: Self.barHeight),
+            // Full height rather than the bar's own: open, this column is the way back out,
+            // and a short target beside a 52pt tile row is easy to miss.
+            barButton.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            barChevron.leadingAnchor.constraint(equalTo: barButton.leadingAnchor, constant: 2),
-            barChevron.centerYAnchor.constraint(equalTo: barButton.centerYAnchor),
-            barChevron.widthAnchor.constraint(equalToConstant: 14),
+            barChevron.leadingAnchor.constraint(equalTo: barButton.leadingAnchor),
+            barChevron.widthAnchor.constraint(equalToConstant: Self.chevronWidth),
+            barChevron.topAnchor.constraint(equalTo: barButton.topAnchor),
+            barChevron.bottomAnchor.constraint(equalTo: barButton.bottomAnchor),
 
-            barTitleLabel.leadingAnchor.constraint(equalTo: barChevron.trailingAnchor, constant: 6),
-            barTitleLabel.centerYAnchor.constraint(equalTo: barButton.centerYAnchor),
-            barTitleLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: barCountLabel.leadingAnchor, constant: -8
+            barIcon.leadingAnchor.constraint(equalTo: barChevron.trailingAnchor),
+            barIcon.widthAnchor.constraint(equalToConstant: Self.iconWidth),
+            barIcon.topAnchor.constraint(equalTo: barButton.topAnchor),
+            barIcon.bottomAnchor.constraint(equalTo: barButton.bottomAnchor),
+
+            // Fixed inset rather than a chain off the bar: the bar spans the strip while
+            // closed, and anchoring the row to its trailing edge would collapse it to nothing.
+            collectionView.leadingAnchor.constraint(
+                equalTo: leadingAnchor, constant: Self.leadColumnWidth + Self.leadColumnGap
             ),
-
-            barCountLabel.trailingAnchor.constraint(equalTo: barButton.trailingAnchor, constant: -2),
-            barCountLabel.centerYAnchor.constraint(equalTo: barButton.centerYAnchor),
-
-            collectionView.leadingAnchor.constraint(equalTo: leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            collectionView.topAnchor.constraint(equalTo: barButton.bottomAnchor, constant: Self.tileRowGap),
-            collectionView.heightAnchor.constraint(equalToConstant: Self.tileRowHeight)
+            collectionView.topAnchor.constraint(equalTo: topAnchor, constant: Self.rowVerticalPadding),
+            collectionView.bottomAnchor.constraint(
+                equalTo: bottomAnchor, constant: -Self.rowVerticalPadding
+            )
         ])
         isHidden = true
         renderBar()
@@ -198,6 +217,7 @@ final class WindowPickerStripView: UIView {
 
     @objc private func toggleExpansion() {
         setExpanded(!isExpanded)
+        delegate?.windowPickerDidToggleExpansion(self)
     }
 
     func setExpanded(_ expanded: Bool) {
@@ -209,6 +229,13 @@ final class WindowPickerStripView: UIView {
     }
 
     private func applyExpansionToSubviews() {
+        // Closed, the bar spans the strip so the whole sliver is the target. Open, it yields
+        // everything past the lead column to the tiles, and the strip itself carries the fill.
+        barTrailingConstraint?.isActive = !isExpanded
+        barWidthConstraint?.isActive = isExpanded
+        backgroundColor = isExpanded ? .secondarySystemFill : .clear
+        // Hidden rather than merely off-screen: a closed strip must not eat taps meant for the
+        // surface below it.
         collectionView.isHidden = !isExpanded
         barChevron.image = UIImage(systemName: isExpanded ? "chevron.down" : "chevron.right")
     }
@@ -224,18 +251,12 @@ final class WindowPickerStripView: UIView {
         } else {
             title = "Whole Desktop"
         }
-        barTitleLabel.text = title
-        barCountLabel.text = windows.isEmpty ? nil : "\(windows.count) windows"
-        // Narrowed to one window is the state worth seeing at a glance from the collapsed
-        // bar, because it is the state where the trackpad is view-only and the phone is not
-        // showing the rest of the Mac.
+        // Narrowed to one window is the state worth seeing at a glance from the closed strip,
+        // because it is the state where the trackpad is view-only and the phone is not showing
+        // the rest of the Mac. With the label row gone the glyph carries it: tinted means one
+        // window, grey means the whole desktop.
         let narrowed = selectedWindowId != nil
-        barButton.backgroundColor = narrowed
-            ? UIColor.tintColor.withAlphaComponent(0.16)
-            : .tertiarySystemFill
-        barButton.layer.borderColor = narrowed
-            ? UIColor.tintColor.cgColor
-            : UIColor.clear.cgColor
+        barIcon.tintColor = narrowed ? .tintColor : .secondaryLabel
         barChevron.tintColor = narrowed ? .tintColor : .secondaryLabel
         barButton.accessibilityLabel = "Window picker"
         barButton.accessibilityValue = title
@@ -251,7 +272,8 @@ final class WindowPickerStripView: UIView {
     // Test affordances.
     var renderedTileCount: Int { windows.count + 1 }
     var currentSelection: UInt32? { selectedWindowId }
-    var barTitleText: String? { barTitleLabel.text }
+    // The target's name has no visible label any more, so accessibility is where it lives.
+    var barTitleText: String? { barButton.accessibilityValue }
 }
 
 extension WindowPickerStripView: UICollectionViewDataSource {
@@ -291,6 +313,10 @@ extension WindowPickerStripView: UICollectionViewDelegate {
         // tap was an act of dismissal as much as of selection, and leaving the tiles open
         // would make it read as ignored.
         setExpanded(false)
+        // A pick-close is the user choosing a resting state as much as a bar tap is, so it is
+        // remembered too. Without this the next DesktopState push would re-open the row the
+        // user just dismissed.
+        delegate?.windowPickerDidToggleExpansion(self)
         guard target != selectedWindowId else { return }
         selectedWindowId = target
         collectionView.reloadData()

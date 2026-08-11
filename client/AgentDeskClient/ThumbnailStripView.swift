@@ -148,6 +148,10 @@ protocol ThumbnailStripViewDelegate: AnyObject {
     // setting swapping the tile shape. Same seam as the window picker below it: the height
     // constraint belongs to the layout owner.
     func thumbnailStripDidChangePreferredHeight(_ view: ThumbnailStripView)
+    // The user tapped the bar. Distinct from the height report because the strip is also
+    // collapsed by the layout owner (keyboard up, strip hidden, teardown), and only a
+    // deliberate tap should be remembered as the preferred resting state.
+    func thumbnailStripDidToggleExpansion(_ view: ThumbnailStripView)
 }
 
 @MainActor
@@ -178,10 +182,12 @@ final class ThumbnailStripView: UIView {
     // the strip's clipped edges and the active tile's 1.5pt selection border is shaved off
     // top and bottom, which reads as the blue box being cut in half.
     static let rowVerticalPadding: CGFloat = 3
-    // The chevron leads the row in both states, so the disclosure control costs no vertical
-    // space: open, it sits beside the tiles rather than above them.
-    static let chevronWidth: CGFloat = 22
-    static let chevronGap: CGFloat = 4
+    // The chevron and the identifying glyph lead the row in both states, so the disclosure
+    // control costs no vertical space: open, they sit beside the tiles rather than above them.
+    static let chevronWidth: CGFloat = 16
+    static let iconWidth: CGFloat = 20
+    static let leadColumnWidth: CGFloat = chevronWidth + iconWidth
+    static let leadColumnGap: CGFloat = 4
 
     // False (default, toggle OFF) inverts the wire-level sign so
     // finger-right maps to the Space on the LEFT (scrollbar reading).
@@ -256,14 +262,15 @@ final class ThumbnailStripView: UIView {
     }()
 
     // Holds the collection view and the selection overlay. The overlay is positioned from
-    // collection-content coordinates, so keeping both inside one container means the
-    // chevron's width never has to be folded into that math. Its leading inset is a fixed
+    // collection-content coordinates, so keeping both inside one container means the lead
+    // column's width never has to be folded into that math. Its leading inset is a fixed
     // constant rather than a chain off the bar, because the bar's own width moves.
     private let contentContainer = UIView()
     // The disclosure control. Closed it spans the strip, so the whole bar is the target;
-    // open it shrinks to the chevron column at the leading edge and the tiles take the rest.
+    // open it shrinks to the lead column at the leading edge and the tiles take the rest.
     private let barButton = UIControl()
     private let chevronView = UIImageView()
+    private let barIcon = UIImageView()
     private var barTrailingConstraint: NSLayoutConstraint?
     private var barWidthConstraint: NSLayoutConstraint?
 
@@ -339,19 +346,34 @@ final class ThumbnailStripView: UIView {
 
         chevronView.tintColor = .secondaryLabel
         chevronView.contentMode = .center
+        chevronView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 11, weight: .semibold
+        )
         chevronView.translatesAutoresizingMaskIntoConstraints = false
         barButton.addSubview(chevronView)
 
+        // Two closed slivers stacked one above the other are indistinguishable by a chevron
+        // alone, so each carries the glyph for what it opens: desktops here, a window in the
+        // picker below.
+        barIcon.contentMode = .center
+        barIcon.tintColor = .secondaryLabel
+        barIcon.image = UIImage(systemName: "rectangle.3.group")
+        barIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
+            pointSize: 12, weight: .regular
+        )
+        barIcon.translatesAutoresizingMaskIntoConstraints = false
+        barButton.addSubview(barIcon)
+
         let barTrailing = barButton.trailingAnchor.constraint(equalTo: trailingAnchor)
-        let barWidth = barButton.widthAnchor.constraint(equalToConstant: Self.chevronWidth)
+        let barWidth = barButton.widthAnchor.constraint(equalToConstant: Self.leadColumnWidth)
         barTrailingConstraint = barTrailing
         barWidthConstraint = barWidth
         barTrailing.isActive = true
         NSLayoutConstraint.activate([
             barButton.leadingAnchor.constraint(equalTo: leadingAnchor),
             barButton.topAnchor.constraint(equalTo: topAnchor),
-            // Full-height rather than centred on the bar's own height: open, the chevron is
-            // the way back out, and a 22x26 target floating beside a 92pt tile row is easy
+            // Full-height rather than centred on the bar's own height: open, this column is
+            // the way back out, and a 36x26 target floating beside a 92pt tile row is easy
             // to miss.
             barButton.bottomAnchor.constraint(equalTo: bottomAnchor),
 
@@ -360,10 +382,15 @@ final class ThumbnailStripView: UIView {
             chevronView.topAnchor.constraint(equalTo: barButton.topAnchor),
             chevronView.bottomAnchor.constraint(equalTo: barButton.bottomAnchor),
 
+            barIcon.leadingAnchor.constraint(equalTo: chevronView.trailingAnchor),
+            barIcon.widthAnchor.constraint(equalToConstant: Self.iconWidth),
+            barIcon.topAnchor.constraint(equalTo: barButton.topAnchor),
+            barIcon.bottomAnchor.constraint(equalTo: barButton.bottomAnchor),
+
             // Fixed inset, not a chain off the bar: the bar spans the strip while closed,
             // and anchoring the row to its trailing edge would collapse the row to nothing.
             contentContainer.leadingAnchor.constraint(
-                equalTo: leadingAnchor, constant: Self.chevronWidth + Self.chevronGap
+                equalTo: leadingAnchor, constant: Self.leadColumnWidth + Self.leadColumnGap
             ),
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentContainer.topAnchor.constraint(
@@ -473,6 +500,7 @@ final class ThumbnailStripView: UIView {
 
     @objc private func toggleExpansion() {
         setExpanded(!isExpanded)
+        delegate?.thumbnailStripDidToggleExpansion(self)
     }
 
     func setExpanded(_ expanded: Bool) {
@@ -483,9 +511,9 @@ final class ThumbnailStripView: UIView {
 
     private func applyExpansionChrome() {
         // Closed, the bar spans the strip so the whole sliver is the target. Open, it yields
-        // everything past the chevron column to the tiles. It stays transparent either way:
-        // closed, the chevron alone is the visible control, so the row is not a wide empty
-        // band and the generous target costs nothing to look at.
+        // everything past the lead column to the tiles. It stays transparent either way:
+        // closed, the chevron and glyph alone are the visible control, so the row is not a
+        // wide empty band and the generous target costs nothing to look at.
         barTrailingConstraint?.isActive = !isExpanded
         barWidthConstraint?.isActive = isExpanded
         backgroundColor = isExpanded ? .secondarySystemFill : .clear

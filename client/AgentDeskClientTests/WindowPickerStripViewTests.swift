@@ -11,6 +11,7 @@ struct WindowPickerStripViewTests {
     private final class Recorder: WindowPickerStripViewDelegate {
         var selections: [UInt32?] = []
         var heightChanges = 0
+        var toggles: [Bool] = []
 
         func windowPicker(_ view: WindowPickerStripView, didSelectWindowId windowId: UInt32?) {
             selections.append(windowId)
@@ -18,6 +19,10 @@ struct WindowPickerStripViewTests {
 
         func windowPickerDidChangePreferredHeight(_ view: WindowPickerStripView) {
             heightChanges += 1
+        }
+
+        func windowPickerDidToggleExpansion(_ view: WindowPickerStripView) {
+            toggles.append(view.isExpanded)
         }
     }
 
@@ -87,13 +92,17 @@ struct WindowPickerStripViewTests {
         #expect(view.currentSelection == nil)
     }
 
-    @Test func expandedHeightIsBarPlusTileRow() {
+    // Open, the strip is the tile row and nothing else: the chevron and glyph move into the
+    // row's leading column rather than sitting in a band above it, so the label row's height
+    // is not part of the expanded strip.
+    @Test func expandedHeightIsTheTileRowAlone() {
         #expect(
             WindowPickerStripView.expandedHeight
-                == WindowPickerStripView.barHeight
-                    + WindowPickerStripView.tileRowGap
-                    + WindowPickerStripView.tileRowHeight
+                == WindowPickerStripView.tileRowHeight
+                    + WindowPickerStripView.rowVerticalPadding * 2
         )
         #expect(WindowPickerStripView.collapsedHeight == WindowPickerStripView.barHeight)
+        #expect(WindowPickerStripView.expandedHeight < WindowPickerStripView.barHeight
+            + WindowPickerStripView.tileRowHeight)
     }
 }

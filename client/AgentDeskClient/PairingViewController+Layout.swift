@@ -257,6 +257,14 @@ extension PairingViewController {
         )
         windowPickerStripHeightConstraint = windowPickerHeight
 
+        // The rail hides itself below two displays, and a hidden view still holds its
+        // constrained height. Left at a hard 32 it reserved a band of black between the video
+        // and the Spaces bar on every single-display Mac, which is the common case.
+        let displayRailHeight = displayRailView.heightAnchor.constraint(
+            equalToConstant: Self.displayRailVisibleHeight
+        )
+        displayRailHeightConstraint = displayRailHeight
+
         let bottomConstraint = buttonRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
         buttonRowBottomConstraint = bottomConstraint
         let heightConstraint = buttonRow.heightAnchor.constraint(
@@ -277,7 +285,7 @@ extension PairingViewController {
             // each strip's `preferredHeight` through the delegate seam, so the full-cell
             // sizing that a preview tile needs (image + two-row caption) lives with the
             // strip that knows whether it is drawing one.
-            displayRailView.heightAnchor.constraint(equalToConstant: 32),
+            displayRailHeight,
             thumbnailStripHeight,
             windowPickerHeight,
 
@@ -354,6 +362,19 @@ extension PairingViewController {
         currentUsesFullLayout = nil
     }
 
+    static let displayRailVisibleHeight: CGFloat = 32
+
+    /// Collapse the display rail when it has nothing to draw.
+    ///
+    /// `DisplayRailView` hides itself below two displays, but hiding does not release the
+    /// height an external constraint gave it. The rail sits directly under the video, so the
+    /// reserved band reads as black between the picture and the Spaces bar.
+    func updateDisplayRailHeight() {
+        let height = displayRailView.displayCount > 1 ? Self.displayRailVisibleHeight : 0
+        guard displayRailHeightConstraint?.constant != height else { return }
+        displayRailHeightConstraint?.constant = height
+    }
+
     /// Size the sink to the active display's shape, so the scrollable content is the picture
     /// and nothing else.
     ///
@@ -364,7 +385,16 @@ extension PairingViewController {
         let display = activeDisplayRect
         guard display.width > 0, display.height > 0 else { return }
         let ratio = display.height / display.width
-        if let existing = sinkAspectConstraint, existing.multiplier == ratio { return }
+        // Matching the multiplier is not enough to skip the work: a reconnect mounts a new
+        // sink view with its own required fill-height constraint, and the cached aspect
+        // constraint still belongs to the sink that went away. Skipping on the multiplier
+        // alone left the new sink filling the scroll frame, which put the padding back inside
+        // the zoomable content where no amount of zoom could close it.
+        if let existing = sinkAspectConstraint,
+           existing.firstItem === sinkView,
+           existing.multiplier == ratio {
+            return
+        }
         sinkAspectConstraint?.isActive = false
         // Multipliers are immutable, so a changed display means a new constraint rather than
         // an edited one.
@@ -641,6 +671,7 @@ extension PairingViewController {
         dictationButton.removeFromSuperview()
         displayRailView.removeFromSuperview()
         displayRailView.renderEmpty()
+        updateDisplayRailHeight()
         thumbnailStripView.removeFromSuperview()
         thumbnailStripView.renderEmpty()
         windowPickerStripView.removeFromSuperview()
