@@ -50,19 +50,10 @@ protocol InputChannel: AnyObject, Sendable {
     func sendScreenshotChunk(_ chunk: ClientScreenshotChunk) async throws
     func sendScreenshotError(_ error: ClientScreenshotError) async throws
 
-    // Agent requests encode shared t-tagged types on the authenticated input lane.
-    func sendAgentProjectsWatch(_ request: AgentProjectsWatch) async throws
-    func sendAgentProjectsUnwatch(_ request: AgentProjectsUnwatch) async throws
-    func sendAgentProjectSessionsWatch(_ request: AgentProjectSessionsWatch) async throws
-    func sendAgentProjectSessionsUnwatch(_ request: AgentProjectSessionsUnwatch) async throws
-    func sendAgentThreadSubscribe(_ request: AgentThreadSubscribe) async throws
-    func sendAgentThreadLoadOlder(_ request: AgentThreadLoadOlder) async throws
-    func sendAgentThreadUnsubscribe(_ request: AgentThreadUnsubscribe) async throws
-    func sendAgentRawEventRequest(_ request: AgentRawEventRequest) async throws
-    func sendAgentSessionCreate(_ request: AgentSessionCreate) async throws
-    func sendAgentSessionSend(_ request: AgentSessionSend) async throws
-    func sendAgentSessionAbort(_ request: AgentSessionAbort) async throws
-    func sendAgentExtensionUIResponse(_ response: AgentExtensionUIResponse) async throws
+    // Agent-feed requests are relayed to the host's sidecar without this side reading a field of
+    // them: one request tag and one cancel tag, whatever the feed grows next.
+    func sendAgentHTTPRequest(_ request: AgentFeedRelayRequest) async throws
+    func sendAgentHTTPCancel(_ request: AgentFeedRelayCancel) async throws
     func sendAgentTerminal(_ message: AgentTerminalClientMessage) async throws
     func sendWorkspaceTerminal(_ message: WorkspaceTerminalClientMessage) async throws
     // Claude Desktop composer sync. Carried on this lane like the agent requests above, but answered by

@@ -154,7 +154,7 @@ struct AgentWindowZoomTests {
 
     @Test func theWindowAnswersTheChordAndScalesTheFeed() async throws {
         let controller = AgentWindowController(
-            sidecarClient: FakeSidecarClient(),
+            relayClient: InertRelayClient(),
             initialFrame: CGRect(x: 80, y: 120, width: 480, height: 720)
         )
         controller.show()
@@ -187,7 +187,7 @@ struct AgentWindowZoomTests {
 
     @Test func theFeedWebviewCarriesTheZoomItWasBuiltAt() async throws {
         let controller = AgentWindowController(
-            sidecarClient: FakeSidecarClient(),
+            relayClient: InertRelayClient(),
             initialFrame: CGRect(x: 80, y: 120, width: 480, height: 720)
         )
         controller.show()
@@ -217,7 +217,7 @@ struct AgentWindowZoomTests {
     @Test func bothHalvesOfTheWindowMoveTogether() async throws {
         let terminal = FakeAgentWindowTerminalController()
         let controller = AgentWindowController(
-            sidecarClient: FakeSidecarClient(),
+            relayClient: InertRelayClient(),
             terminalControllerForTesting: terminal,
             initialFrame: CGRect(x: 80, y: 120, width: 480, height: 720)
         )
@@ -241,7 +241,7 @@ struct AgentWindowZoomTests {
         let terminal = FakeAgentWindowTerminalController()
         var reported: [Int] = []
         let controller = AgentWindowController(
-            sidecarClient: FakeSidecarClient(),
+            relayClient: InertRelayClient(),
             terminalControllerForTesting: terminal,
             initialFrame: CGRect(x: 80, y: 120, width: 480, height: 720),
             initialZoomStep: 4

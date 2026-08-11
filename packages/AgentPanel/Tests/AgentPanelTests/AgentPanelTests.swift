@@ -50,45 +50,54 @@ struct AgentPanelTests {
         }
     }
 
-    @Test func requestDecoderPreservesCurrentAgentFeedContract() {
+    /// The decoder's whole job for a relayed request: carry it, do not read it.
+    ///
+    /// It bounds the request id, because that id keys an in-flight transfer in the host. It does
+    /// NOT vet the path -- `AgentFeedRelay.PathPolicy` is the one allow-list and the one security
+    /// boundary, and a second copy here would be free to disagree with the one that executes.
+    @Test func requestDecoderCarriesARelayedRequestWithoutReadingIt() {
         #expect(
             AgentPanelRequest.decode(
-                tag: "agent-projects-watch",
-                body: ["sub": "projects-1"]
-            ) == .projectsWatch(subscriptionId: "projects-1")
+                tag: "agent-http-req",
+                body: ["rid": "r1", "method": "GET", "path": "/api/projects"]
+            ) == .httpRequest(rid: "r1", method: "GET", path: "/api/projects", body: nil, stream: false)
         )
         #expect(
             AgentPanelRequest.decode(
-                tag: "agent-project-sessions-watch",
-                body: ["sub": "sessions-1", "pp": "/project"]
-            ) == .projectSessionsWatch(
-                subscriptionId: "sessions-1",
-                projectPath: "/project"
+                tag: "agent-http-req",
+                body: [
+                    "rid": "r2",
+                    "method": "POST",
+                    "path": "/api/sessions/pi/s1/message",
+                    "body": #"{"text":"hello"}"#,
+                    "stream": true,
+                ]
+            ) == .httpRequest(
+                rid: "r2",
+                method: "POST",
+                path: "/api/sessions/pi/s1/message",
+                body: #"{"text":"hello"}"#,
+                stream: true
             )
         )
         #expect(
-            AgentPanelRequest.decode(
-                tag: "agent-thread-sub",
-                body: ["sid": "session-1", "src": "codex"]
-            ) == .threadSubscribe(source: "codex", sessionId: "session-1", mode: .raw)
+            AgentPanelRequest.decode(tag: "agent-http-cancel", body: ["rid": "r1"])
+                == .httpCancel(rid: "r1")
         )
-        #expect(
-            AgentPanelRequest.decode(
-                tag: "agent-thread-older",
-                body: ["src": "claude", "sid": "session-1", "bi": 100, "lim": 25]
-            ) == .threadLoadOlder(
-                source: "claude",
-                sessionId: "session-1",
-                beforeIndex: 100,
-                limit: 25,
-                mode: .raw
-            )
-        )
-        #expect(AgentPanelRequest.decode(tag: "agent-thread-sub", body: [:]) == nil)
+        // An unbounded or malformed request id is refused: it keys a host-side transfer.
         #expect(AgentPanelRequest.decode(
-            tag: "agent-thread-sub",
-            body: ["sid": "session-1"]
+            tag: "agent-http-req",
+            body: ["rid": "", "method": "GET", "path": "/api/projects"]
         ) == nil)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-http-req",
+            body: ["rid": String(repeating: "r", count: 129), "method": "GET", "path": "/api/x"]
+        ) == nil)
+        #expect(AgentPanelRequest.decode(
+            tag: "agent-http-req",
+            body: ["rid": "r1", "method": "GET"]
+        ) == nil)
+        #expect(AgentPanelRequest.decode(tag: "agent-http-cancel", body: [:]) == nil)
         #expect(AgentPanelRequest.decode(tag: "future-message", body: [:]) == nil)
     }
 
@@ -304,116 +313,6 @@ struct AgentPanelTests {
         #expect(AgentPanelRequest.decode(
             tag: "agent-window-question-action",
             body: ["rid": "action-3", "sid": session, "k": "answer"]
-        ) == nil)
-    }
-
-    @Test func requestDecoderAcceptsProviderNeutralSourcesAndRejectsInvalidIdentifiers() {
-        for tag in ["agent-thread-sub", "agent-thread-unsub"] {
-            #expect(AgentPanelRequest.decode(
-                tag: tag,
-                body: ["sid": "session-1", "src": "gemini"]
-            ) != nil)
-        }
-        #expect(AgentPanelRequest.decode(
-            tag: "agent-thread-older",
-            body: ["src": "Invalid Source", "sid": "session-1", "bi": 100, "lim": 25]
-        ) == nil)
-        #expect(AgentPanelRequest.decode(
-            tag: "agent-raw-event-get",
-            body: ["rid": "r1", "src": "../pi", "sid": "s1", "ei": 9]
-        ) == nil)
-    }
-
-    /// The host turns this pair into `offset = max(0, bi - lim)` / `limit = bi - offset`, so an
-    /// out-of-range pair reaches the sidecar as a negative limit and a 400 the panel shows as a
-    /// thread error. The decoder is the boundary that has to refuse it.
-    @Test func requestDecoderRejectsAnOutOfRangeOlderPage() {
-        #expect(AgentPanelRequest.decode(
-            tag: "agent-thread-older",
-            body: ["src": "claude", "sid": "session-1", "bi": -1, "lim": 25]
-        ) == nil)
-        #expect(AgentPanelRequest.decode(
-            tag: "agent-thread-older",
-            body: ["src": "claude", "sid": "session-1", "bi": 100, "lim": 0]
-        ) == nil)
-        #expect(AgentPanelRequest.decode(
-            tag: "agent-thread-older",
-            body: ["src": "claude", "sid": "session-1", "bi": 100, "lim": -25]
-        ) == nil)
-        // The first page a thread asks for starts at index 0 with a full window.
-        #expect(AgentPanelRequest.decode(
-            tag: "agent-thread-older",
-            body: ["src": "claude", "sid": "session-1", "bi": 0, "lim": 1]
-        ) == .threadLoadOlder(
-            source: "claude",
-            sessionId: "session-1",
-            beforeIndex: 0,
-            limit: 1,
-            mode: .raw
-        ))
-    }
-
-    /// A mode decides what an event index MEANS, so the same integer names a different line in the two
-    /// views. An absent mode is the fidelity view, which is what every caller meant before modes
-    /// existed; a present but unrecognized one is refused, because guessing would answer with indices
-    /// counted in a view the caller did not ask for and nothing downstream could tell.
-    @Test func requestDecoderDefaultsAnAbsentModeToRawAndRefusesAnUnknownOne() {
-        #expect(AgentPanelRequest.decode(
-            tag: "agent-thread-sub",
-            body: ["sid": "session-1", "src": "codex", "md": "nice"]
-        ) == .threadSubscribe(source: "codex", sessionId: "session-1", mode: .nice))
-        #expect(AgentPanelRequest.decode(
-            tag: "agent-thread-older",
-            body: ["src": "claude", "sid": "session-1", "bi": 100, "lim": 25, "md": "nice"]
-        ) == .threadLoadOlder(
-            source: "claude",
-            sessionId: "session-1",
-            beforeIndex: 100,
-            limit: 25,
-            mode: .nice
-        ))
-        #expect(AgentPanelRequest.decode(
-            tag: "agent-raw-event-get",
-            body: ["rid": "r1", "src": "codex", "sid": "s1", "ei": 9, "md": "nice"]
-        ) == .rawEvent(
-            requestId: "r1",
-            source: "codex",
-            sessionId: "s1",
-            eventIndex: 9,
-            mode: .nice
-        ))
-
-        for body: [String: Any] in [
-            ["sid": "session-1", "src": "codex", "md": "pretty"],
-            ["sid": "session-1", "src": "codex", "md": ""],
-            ["sid": "session-1", "src": "codex", "md": 3],
-        ] {
-            #expect(AgentPanelRequest.decode(tag: "agent-thread-sub", body: body) == nil)
-        }
-        #expect(AgentPanelRequest.decode(
-            tag: "agent-thread-older",
-            body: ["src": "claude", "sid": "session-1", "bi": 100, "lim": 25, "md": "pretty"]
-        ) == nil)
-        #expect(AgentPanelRequest.decode(
-            tag: "agent-raw-event-get",
-            body: ["rid": "r1", "src": "codex", "sid": "s1", "ei": 9, "md": "pretty"]
-        ) == nil)
-    }
-
-    @Test func requestDecoderPreservesRawEventIdentity() {
-        #expect(AgentPanelRequest.decode(
-            tag: "agent-raw-event-get",
-            body: ["rid": "r1", "src": "codex", "sid": "s1", "ei": 9]
-        ) == .rawEvent(
-            requestId: "r1",
-            source: "codex",
-            sessionId: "s1",
-            eventIndex: 9,
-            mode: .raw
-        ))
-        #expect(AgentPanelRequest.decode(
-            tag: "agent-raw-event-get",
-            body: ["rid": "", "src": "codex", "sid": "s1", "ei": 9]
         ) == nil)
     }
 

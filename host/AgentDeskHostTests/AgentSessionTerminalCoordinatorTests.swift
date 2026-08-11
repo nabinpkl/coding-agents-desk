@@ -961,79 +961,9 @@ private actor BlockingFirstCloseTerminalCoordinator: AgentSessionTerminalCoordin
 private struct SessionsSidecarClient: SidecarClient, @unchecked Sendable {
     let snapshot: AgentFeedSessionsSnapshot
 
-    func fetchProjects() async throws -> AgentFeedProjectsSnapshot {
-        AgentFeedProjectsSnapshot(projects: [])
-    }
-
     func fetchSessions(projectPath: String) async throws -> AgentFeedSessionsSnapshot {
         snapshot
     }
-
-    func fetchEventsPage(
-        source: String,
-        sessionId: String,
-        offset: Int,
-        limit: Int,
-        mode: AgentFeedEventMode
-    ) async throws -> AgentFeedEventsPage {
-        AgentFeedEventsPage(events: [], total: 0)
-    }
-
-    func fetchRawEvent(
-        source: String,
-        sessionId: String,
-        eventIndex: Int,
-        mode: AgentFeedEventMode
-    ) async throws -> String {
-        ""
-    }
-
-    func openProjectsStream(
-        onSnapshot: @escaping @Sendable (AgentFeedProjectsSnapshot) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle {
-        SidecarStreamHandle(task: Task {})
-    }
-
-    func openSessionsStream(
-        projectPath: String,
-        onSnapshot: @escaping @Sendable (AgentFeedSessionsSnapshot) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle {
-        SidecarStreamHandle(task: Task {})
-    }
-
-    func openEventStream(
-        source: String,
-        sessionId: String,
-        afterSequence: Int,
-        mode: AgentFeedEventMode,
-        onEnvelope: @escaping @Sendable (AgentFeedTimelineEnvelope) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle {
-        SidecarStreamHandle(task: Task {})
-    }
-
-    func openClaudeLiveStream(
-        source: String,
-        sessionId: String,
-        afterSequence: Int,
-        mode: AgentFeedEventMode,
-        onEnvelope: @escaping @Sendable (AgentFeedTimelineEnvelope) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle {
-        SidecarStreamHandle(task: Task {})
-    }
-
-    func fetchClaudeLiveEventsPage(source: String, sessionId: String, offset: Int, limit: Int, mode: AgentFeedEventMode) async throws -> AgentFeedEventsPage {
-        AgentFeedEventsPage(events: [], total: 0)
-    }
-
-    func createSession(requestId: String, source: String, projectPath: String) async throws -> AgentFeedSessionSummary { throw SidecarClientError.server("unsupported") }
-    func sendMessage(requestId: String, source: String, sessionId: String, text: String, delivery: String) async throws -> AgentFeedCommandReceipt { throw SidecarClientError.server("unsupported") }
-    func abortSession(requestId: String, source: String, sessionId: String) async throws -> AgentFeedCommandReceipt { throw SidecarClientError.server("unsupported") }
-    func openExtensionUIStream(source: String, sessionId: String, onEvent: @escaping @Sendable (AgentFeedExtensionUIEvent) -> Void, onError: @escaping @Sendable (Error) -> Void) -> SidecarStreamHandle { SidecarStreamHandle(task: Task {}) }
-    func respondToExtensionUI(source: String, sessionId: String, requestId: String, value: AgentJSONValue) async throws -> AgentFeedCommandReceipt { throw SidecarClientError.server("unsupported") }
 }
 
 private actor FakeAgentSessionTerminalLivenessChecker: AgentSessionTerminalLivenessChecking {

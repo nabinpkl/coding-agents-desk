@@ -13,7 +13,6 @@ import PtyClientSwift
 enum AgentPanelLaneRouting: Sendable {
     static let nativeInterceptedTypes: Set<String> = [
         "agent-say",                       // native TTS speech banner
-        "agent-raw-event-part",           // client-side fragment reassembly
         "agent-terminal-ready",           // native agent-terminal lifecycle
         "agent-terminal-ended",
         "agent-terminal-error",
@@ -125,9 +124,6 @@ private struct Channels {
     /// `evaluateLivenessProbe`.
     private let livenessWatch = OSAllocatedUnfairLock(initialState: LivenessWatch())
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
-    private let rawEventReassembly = OSAllocatedUnfairLock<AgentRawEventReassembler>(
-        initialState: AgentRawEventReassembler()
-    )
     private var datagramReceiveTask: Task<Void, Never>?
     private var inputReceiveTask: Task<Void, Never>?
     private var agentReceiveTask: Task<Void, Never>?
@@ -354,52 +350,12 @@ private struct Channels {
 
     // MARK: - Agent-feed subscription sends (carried on the `.agent` role)
 
-    func sendAgentProjectsWatch(_ request: AgentProjectsWatch) async throws {
+    func sendAgentHTTPRequest(_ request: AgentFeedRelayRequest) async throws {
         try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
     }
 
-    func sendAgentProjectsUnwatch(_ request: AgentProjectsUnwatch) async throws {
+    func sendAgentHTTPCancel(_ request: AgentFeedRelayCancel) async throws {
         try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
-
-    func sendAgentProjectSessionsWatch(_ request: AgentProjectSessionsWatch) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
-
-    func sendAgentProjectSessionsUnwatch(_ request: AgentProjectSessionsUnwatch) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
-
-    func sendAgentThreadSubscribe(_ request: AgentThreadSubscribe) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
-
-    func sendAgentThreadLoadOlder(_ request: AgentThreadLoadOlder) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
-
-    func sendAgentThreadUnsubscribe(_ request: AgentThreadUnsubscribe) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
-
-    func sendAgentRawEventRequest(_ request: AgentRawEventRequest) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
-
-    func sendAgentSessionCreate(_ request: AgentSessionCreate) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
-
-    func sendAgentSessionSend(_ request: AgentSessionSend) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
-
-    func sendAgentSessionAbort(_ request: AgentSessionAbort) async throws {
-        try await QuicSessionStreamIO.send(request, role: .agent, on: agentStream)
-    }
-
-    func sendAgentExtensionUIResponse(_ response: AgentExtensionUIResponse) async throws {
-        try await QuicSessionStreamIO.send(response, role: .agent, on: agentStream)
     }
 
     func sendAgentTerminal(_ message: AgentTerminalClientMessage) async throws {
@@ -755,19 +711,6 @@ private struct Channels {
                 if !Self.dispatchAgentTerminalPayload(data, to: agentTerminalContinuation) {
                     logger.error("agent lane agent terminal push decode failed")
                 }
-            case "agent-raw-event-part":
-                guard let part = try? JSONDecoder().decode(AgentRawEventPart.self, from: data) else {
-                    logger.error("agent lane raw event part decode failed")
-                    return
-                }
-                let (outcome, needsCleanup) = rawEventReassembly.withLock { reassembler in
-                    let isNew = !reassembler.containsTransfer(part.transferId)
-                    return (reassembler.accept(part), isNew)
-                }
-                handleRawEventReassembly(outcome)
-                if needsCleanup, case .pending = outcome {
-                    scheduleRawEventCleanup()
-                }
             default:
                 break
             }
@@ -787,38 +730,6 @@ private struct Channels {
         }
         let closure = onAgentPush
         Task { @MainActor in closure?(json) }
-    }
-
-    private func handleRawEventReassembly(_ outcome: AgentRawEventReassembler.Outcome) {
-        switch outcome {
-        case .pending:
-            return
-        case .complete(let response):
-            if let data = try? JSONEncoder().encode(response) {
-                deliverAgentPush(data)
-            }
-        case .rejected(let error, let cause):
-            logger.error("raw event transfer rejected cause=\(String(describing: cause), privacy: .public)")
-            if let data = try? JSONEncoder().encode(error) {
-                deliverAgentPush(data)
-            }
-        }
-    }
-
-    private func scheduleRawEventCleanup() {
-        Task { [weak self] in
-            try? await Task.sleep(for: .seconds(AgentRawEventLimits.transferTimeout))
-            guard let self else { return }
-            let errors = rawEventReassembly.withLock { reassembler in
-                reassembler.expire()
-            }
-            for error in errors {
-                logger.error("raw event transfer expired sessionId=\(error.sessionId, privacy: .public) eventIndex=\(error.eventIndex, privacy: .public)")
-                if let data = try? JSONEncoder().encode(error) {
-                    deliverAgentPush(data)
-                }
-            }
-        }
     }
 
     @discardableResult

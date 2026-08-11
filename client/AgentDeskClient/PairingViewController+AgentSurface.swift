@@ -604,30 +604,10 @@ extension PairingViewController {
         Task {
             do {
                 switch request {
-                case .projectsWatch(let request):
-                    try await channel.sendAgentProjectsWatch(request)
-                case .projectsUnwatch(let request):
-                    try await channel.sendAgentProjectsUnwatch(request)
-                case .projectSessionsWatch(let request):
-                    try await channel.sendAgentProjectSessionsWatch(request)
-                case .projectSessionsUnwatch(let request):
-                    try await channel.sendAgentProjectSessionsUnwatch(request)
-                case .threadSubscribe(let sub):
-                    try await channel.sendAgentThreadSubscribe(sub)
-                case .threadLoadOlder(let older):
-                    try await channel.sendAgentThreadLoadOlder(older)
-                case .threadUnsubscribe(let unsub):
-                    try await channel.sendAgentThreadUnsubscribe(unsub)
-                case .rawEvent(let request):
-                    try await channel.sendAgentRawEventRequest(request)
-                case .sessionCreate(let request):
-                    try await channel.sendAgentSessionCreate(request)
-                case .sessionSend(let request):
-                    try await channel.sendAgentSessionSend(request)
-                case .sessionAbort(let request):
-                    try await channel.sendAgentSessionAbort(request)
-                case .extensionUIResponse(let response):
-                    try await channel.sendAgentExtensionUIResponse(response)
+                case .http(let request):
+                    try await channel.sendAgentHTTPRequest(request)
+                case .httpCancel(let request):
+                    try await channel.sendAgentHTTPCancel(request)
                 case .questionWatch(let request):
                     try await channel.sendAgentWindowQuestionWatch(request)
                 case .questionUnwatch(let request):

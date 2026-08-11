@@ -276,7 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // before provisioning completes.
     private var voiceEngineSidecar: VoiceEngineSidecar?
     // Bridge between the sidecar and the active session's input lane.
-    private var agentFeedBridge: AgentFeedBridge?
+    private var agentFeedRelay: AgentFeedHTTPRelay?
     private lazy var agentSessionTerminalCoordinator: AgentSessionTerminalCoordinator = {
         let sidecar = agentFeedSidecar
         return AgentSessionTerminalCoordinator(
@@ -664,7 +664,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let desktopSwitcher = WorkspaceDesktopSwitcher(spaces: spacesProvider)
         let agentWindows = AgentWindowRegistry(
             store: AgentWindowPresentationStore(url: Config.agentWindowPresentationsURL),
-            sidecarClient: HttpSidecarClient(endpointProvider: { [weak sidecar] in
+            relayClient: HttpSidecarClient(endpointProvider: { [weak sidecar] in
                 await sidecar?.endpoint(waitingUpTo: Config.agentFeedSidecarReadyWaitSeconds)
             }),
             terminalCoordinator: agentSessionTerminalCoordinator,
@@ -1600,13 +1600,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 lane?.pushAgentTerminal(message)
             }
         }
-        // Wire the agent-feed bridge: construct it from the sidecar base URL and a send closure that
+        // Wire the agent-feed relay: construct it from the sidecar base URL and a send closure that
         // pushes already-encoded data back down the agent lane.
-        // Cancel any prior bridge's in-flight SSE streams before replacing it on a lane re-attach
-        // (session resume), so the previous bridge's stream Tasks do not keep iterating the sidecar
+        // Cancel any prior relay's in-flight transfers before replacing it on a lane re-attach
+        // (session resume), so the previous relay's stream Tasks do not keep iterating the sidecar
         // byte stream.
-        agentFeedBridge?.reset()
-        // Wire the bridge UNCONDITIONALLY, even if the sidecar is not ready right now. The sidecar
+        agentFeedRelay?.reset()
+        // Wire the relay UNCONDITIONALLY, even if the sidecar is not ready right now. The sidecar
         // can be mid-restart at the moment a session attaches (a ~1s window); the sidecar base URL
         // is resolved lazily per request, so a subscribe that arrives once the sidecar is back
         // succeeds, and one that arrives while it is still down fails transiently and the client
@@ -1615,10 +1615,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let httpClient = HttpSidecarClient(endpointProvider: { [weak sidecar] in
             await sidecar?.endpoint(waitingUpTo: Config.agentFeedSidecarReadyWaitSeconds)
         })
-        let bridge = AgentFeedBridge(client: httpClient, send: { [weak lane] data in
+        let relay = AgentFeedHTTPRelay(client: httpClient, send: { [weak lane] data in
             lane?.pushAgentData(data)
         })
-        agentFeedBridge = bridge
+        agentFeedRelay = relay
         let composer = agentWindowComposerCoordinator
         let composerLogger = agentComposerLogger
         let route: (AgentPanelRequest?) -> Void = { request in
@@ -1628,32 +1628,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             composer.handle(request, from: composerSink)
         }
-        lane.agentRequestHandler = { [weak bridge] request in
+        lane.agentRequestHandler = { [weak relay] request in
             switch request {
-            case .projectsWatch(let request):
-                bridge?.handleProjectsWatch(request)
-            case .projectsUnwatch(let request):
-                bridge?.handleProjectsUnwatch(request)
-            case .projectSessionsWatch(let request):
-                bridge?.handleProjectSessionsWatch(request)
-            case .projectSessionsUnwatch(let request):
-                bridge?.handleProjectSessionsUnwatch(request)
-            case .threadSubscribe(let msg):
-                bridge?.handleThreadSubscribe(msg)
-            case .threadLoadOlder(let msg):
-                bridge?.handleThreadLoadOlder(msg)
-            case .threadUnsubscribe(let msg):
-                bridge?.handleThreadUnsubscribe(msg)
-            case .rawEvent(let msg):
-                bridge?.handleRawEvent(msg)
-            case .sessionCreate(let msg):
-                bridge?.handleSessionCreate(msg)
-            case .sessionSend(let msg):
-                bridge?.handleSessionSend(msg)
-            case .sessionAbort(let msg):
-                bridge?.handleSessionAbort(msg)
-            case .extensionUIResponse(let msg):
-                bridge?.handleExtensionUIResponse(msg)
+            case .http(let request):
+                relay?.handleRequest(request)
+            case .httpCancel(let request):
+                relay?.handleCancel(request)
             case .terminal(let message):
                 Task {
                     await terminalPushBindingTask.value

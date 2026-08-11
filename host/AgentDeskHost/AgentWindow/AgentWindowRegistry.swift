@@ -93,7 +93,7 @@ final class AgentWindowRegistry {
 
     convenience init(
         store: AgentWindowPresentationStore,
-        sidecarClient: any SidecarClient,
+        relayClient: any AgentFeedRelayClient,
         terminalCoordinator: any AgentSessionTerminalCoordinating,
         terminalTombstoneLimit: Int,
         makeTerminalPtyClient: @escaping @MainActor () -> PtyClient,
@@ -114,7 +114,7 @@ final class AgentWindowRegistry {
             },
             controllerFactory: { id, placement, zoomStep, endpoint, onClosed in
                 AgentWindowController(
-                    sidecarClient: sidecarClient,
+                    relayClient: relayClient,
                     localTerminalEndpoint: endpoint,
                     terminalPtyClient: makeTerminalPtyClient(),
                     initialPlacement: placement,

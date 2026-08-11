@@ -17,7 +17,7 @@ private final class AgentPanelWindow: NSPanel {
 /// One macOS Agents window hosted directly on the Mac, backed by the host-owned transcript sidecar
 /// through `AgentPanel`. It composes the shared webview above an optional
 /// native web terminal pane and routes both through host-owned bridges. Feed requests flow webview ->
-/// `AgentPanelBridgeTransport` -> `AgentFeedBridge` -> sidecar. Terminal intent flows through the
+/// `AgentPanelBridgeTransport` -> `AgentFeedHTTPRelay` -> sidecar. Terminal intent flows through the
 /// local Agent-session coordinator and attaches the deterministic leased PTY below the shrinking feed.
 @MainActor
 final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowControlling {
@@ -25,7 +25,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     static let webViewAccessibilityIdentifier = "agents-webview"
     static let unavailableAccessibilityIdentifier = "agents-unavailable"
 
-    private let sidecarClient: any SidecarClient
+    private let relayClient: any AgentFeedRelayClient
     private let placementCoordinator: DesktopWindowPlacementCoordinator?
     /// Host-wide, not window-owned: every Agents window and every paired phone writes Claude Desktop
     /// composers through the same serializer. This window is one addressed sink on it.
@@ -46,7 +46,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     private var pressMonitor: Any?
     private var panelController: AgentPanelWebViewController?
     private var transport: AgentPanelBridgeTransport?
-    private var bridge: AgentFeedBridge?
+    private var relay: AgentFeedHTTPRelay?
     private var splitView: AgentWindowSplitView?
     private var titlebarLayout: AgentWindowTitlebarLayout?
     private var terminalController: (any AgentWindowTerminalControlling)?
@@ -57,7 +57,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     private var zoom: PanelWindowZoom
 
     init(
-        sidecarClient: any SidecarClient,
+        relayClient: any AgentFeedRelayClient,
         localTerminalEndpoint: AgentSessionTerminalEndpoint? = nil,
         terminalPtyClient: PtyClient? = nil,
         terminalControllerForTesting: (any AgentWindowTerminalControlling)? = nil,
@@ -69,7 +69,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         initialZoomStep: Int = 0,
         onClosed: (@MainActor () -> Void)? = nil
     ) {
-        self.sidecarClient = sidecarClient
+        self.relayClient = relayClient
         self.composerCoordinator = composerCoordinator
         self.composerSinkID = composerSinkID
         self.localTerminalEndpoint = localTerminalEndpoint
@@ -202,7 +202,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
     }
 
     private func finishStop() {
-        bridge?.reset()
+        relay?.reset()
         // Drops this window's composer watches with it. The coordinator outlives the window, so a
         // closed one left attached would keep re-resolving its sessions against the process table
         // forever, and keep the poll timer alive with no surface to answer.
@@ -213,7 +213,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
         window = nil
         panelController = nil
         transport = nil
-        bridge = nil
+        relay = nil
         splitView = nil
         titlebarLayout = nil
         terminalController = nil
@@ -249,17 +249,17 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
                     },
                 ]
             )
-            // The bridge pushes already-encoded agent-feed JSON; deliver it into the webview on the
+            // The relay pushes already-encoded agent-feed JSON; deliver it into the webview on the
             // main actor. The closure is @Sendable and may fire on a sidecar background Task, so it
             // hops to MainActor before touching the controller.
-            let bridge = AgentFeedBridge(client: sidecarClient, rawEventDeliveryMode: .direct, send: { [weak self] data in
+            let relay = AgentFeedHTTPRelay(client: relayClient, send: { [weak self] data in
                 let json = String(decoding: data, as: UTF8.self)
                 Task { @MainActor [weak self] in
                     self?.panelController?.deliver(rawJSON: json)
                 }
             })
             self.panelController = controller
-            self.bridge = bridge
+            self.relay = relay
 
             let webView = controller.webView
             webView.setAccessibilityIdentifier(Self.webViewAccessibilityIdentifier)
@@ -315,7 +315,7 @@ final class AgentWindowController: NSObject, NSWindowDelegate, AgentWindowContro
                 Task { @MainActor in self?.panelController?.deliver(rawJSON: json) }
             }
             let transport = AgentPanelBridgeTransport(
-                bridge: bridge,
+                relay: relay,
                 onTerminalIntent: { [weak self] intent in
                     self?.terminalController?.handle(intent)
                 },

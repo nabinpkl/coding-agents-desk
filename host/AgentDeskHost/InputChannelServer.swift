@@ -17,18 +17,10 @@ enum ClientScreenshotChannelUpdate: Equatable, Sendable {
 
 // Agent request message routed to the caller via agentRequestHandler.
 enum AgentFeedRequest: Sendable {
-    case projectsWatch(AgentProjectsWatch)
-    case projectsUnwatch(AgentProjectsUnwatch)
-    case projectSessionsWatch(AgentProjectSessionsWatch)
-    case projectSessionsUnwatch(AgentProjectSessionsUnwatch)
-    case threadSubscribe(AgentThreadSubscribe)
-    case threadLoadOlder(AgentThreadLoadOlder)
-    case threadUnsubscribe(AgentThreadUnsubscribe)
-    case rawEvent(AgentRawEventRequest)
-    case sessionCreate(AgentSessionCreate)
-    case sessionSend(AgentSessionSend)
-    case sessionAbort(AgentSessionAbort)
-    case extensionUIResponse(AgentExtensionUIResponse)
+    // One relayed sidecar request and its cancel. The host reads no field of these beyond the path
+    // it must vet, so a feed that grows an endpoint or a field does not grow this enum.
+    case http(AgentFeedRelayRequest)
+    case httpCancel(AgentFeedRelayCancel)
     case terminal(AgentTerminalClientMessage)
     // Claude Desktop composer sync. Carried on this lane like any other panel request, but answered by
     // the host's own Accessibility path rather than the sidecar, so the caller routes these past the
@@ -425,57 +417,13 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             } else {
                 logger.error("client-screenshot-error decode failed")
             }
-        case "agent-projects-watch":
-            if let msg = try? JSONDecoder().decode(AgentProjectsWatch.self, from: data) {
-                agentRequestHandler?(.projectsWatch(msg))
+        case "agent-http-req":
+            if let msg = try? JSONDecoder().decode(AgentFeedRelayRequest.self, from: data) {
+                agentRequestHandler?(.http(msg))
             }
-        case "agent-projects-unwatch":
-            if let msg = try? JSONDecoder().decode(AgentProjectsUnwatch.self, from: data) {
-                agentRequestHandler?(.projectsUnwatch(msg))
-            }
-        case "agent-project-sessions-watch":
-            if let msg = try? JSONDecoder().decode(AgentProjectSessionsWatch.self, from: data) {
-                agentRequestHandler?(.projectSessionsWatch(msg))
-            }
-        case "agent-project-sessions-unwatch":
-            if let msg = try? JSONDecoder().decode(AgentProjectSessionsUnwatch.self, from: data) {
-                agentRequestHandler?(.projectSessionsUnwatch(msg))
-            }
-        case "agent-thread-sub":
-            logger.debug("input lane agent-thread-sub received fp=\(self.fingerprint.rawValue, privacy: .public)")
-            if let msg = try? JSONDecoder().decode(AgentThreadSubscribe.self, from: data) {
-                agentRequestHandler?(.threadSubscribe(msg))
-            }
-        case "agent-thread-older":
-            logger.debug("input lane agent-thread-older received fp=\(self.fingerprint.rawValue, privacy: .public)")
-            if let msg = try? JSONDecoder().decode(AgentThreadLoadOlder.self, from: data) {
-                agentRequestHandler?(.threadLoadOlder(msg))
-            }
-        case "agent-thread-unsub":
-            logger.debug("input lane agent-thread-unsub received fp=\(self.fingerprint.rawValue, privacy: .public)")
-            if let msg = try? JSONDecoder().decode(AgentThreadUnsubscribe.self, from: data) {
-                agentRequestHandler?(.threadUnsubscribe(msg))
-            }
-        case "agent-raw-event-get":
-            logger.debug("input lane agent-raw-event-get received fp=\(self.fingerprint.rawValue, privacy: .public)")
-            if let msg = try? JSONDecoder().decode(AgentRawEventRequest.self, from: data) {
-                agentRequestHandler?(.rawEvent(msg))
-            }
-        case "agent-session-create":
-            if let msg = try? JSONDecoder().decode(AgentSessionCreate.self, from: data) {
-                agentRequestHandler?(.sessionCreate(msg))
-            }
-        case "agent-session-send":
-            if let msg = try? JSONDecoder().decode(AgentSessionSend.self, from: data) {
-                agentRequestHandler?(.sessionSend(msg))
-            }
-        case "agent-session-abort":
-            if let msg = try? JSONDecoder().decode(AgentSessionAbort.self, from: data) {
-                agentRequestHandler?(.sessionAbort(msg))
-            }
-        case "agent-extension-ui-response":
-            if let msg = try? JSONDecoder().decode(AgentExtensionUIResponse.self, from: data) {
-                agentRequestHandler?(.extensionUIResponse(msg))
+        case "agent-http-cancel":
+            if let msg = try? JSONDecoder().decode(AgentFeedRelayCancel.self, from: data) {
+                agentRequestHandler?(.httpCancel(msg))
             }
         case "agent-window-input-watch":
             if let msg = try? JSONDecoder().decode(AgentWindowInputWatch.self, from: data) {

@@ -114,53 +114,13 @@ final class AgentLaneServer: AgentDataPushing, @unchecked Sendable {
             return
         }
         switch header.type {
-        case "agent-projects-watch":
-            if let msg = try? JSONDecoder().decode(AgentProjectsWatch.self, from: data) {
-                agentRequestHandler?(.projectsWatch(msg))
+        case "agent-http-req":
+            if let msg = try? JSONDecoder().decode(AgentFeedRelayRequest.self, from: data) {
+                agentRequestHandler?(.http(msg))
             }
-        case "agent-projects-unwatch":
-            if let msg = try? JSONDecoder().decode(AgentProjectsUnwatch.self, from: data) {
-                agentRequestHandler?(.projectsUnwatch(msg))
-            }
-        case "agent-project-sessions-watch":
-            if let msg = try? JSONDecoder().decode(AgentProjectSessionsWatch.self, from: data) {
-                agentRequestHandler?(.projectSessionsWatch(msg))
-            }
-        case "agent-project-sessions-unwatch":
-            if let msg = try? JSONDecoder().decode(AgentProjectSessionsUnwatch.self, from: data) {
-                agentRequestHandler?(.projectSessionsUnwatch(msg))
-            }
-        case "agent-thread-sub":
-            if let msg = try? JSONDecoder().decode(AgentThreadSubscribe.self, from: data) {
-                agentRequestHandler?(.threadSubscribe(msg))
-            }
-        case "agent-thread-older":
-            if let msg = try? JSONDecoder().decode(AgentThreadLoadOlder.self, from: data) {
-                agentRequestHandler?(.threadLoadOlder(msg))
-            }
-        case "agent-thread-unsub":
-            if let msg = try? JSONDecoder().decode(AgentThreadUnsubscribe.self, from: data) {
-                agentRequestHandler?(.threadUnsubscribe(msg))
-            }
-        case "agent-raw-event-get":
-            if let msg = try? JSONDecoder().decode(AgentRawEventRequest.self, from: data) {
-                agentRequestHandler?(.rawEvent(msg))
-            }
-        case "agent-session-create":
-            if let msg = try? JSONDecoder().decode(AgentSessionCreate.self, from: data) {
-                agentRequestHandler?(.sessionCreate(msg))
-            }
-        case "agent-session-send":
-            if let msg = try? JSONDecoder().decode(AgentSessionSend.self, from: data) {
-                agentRequestHandler?(.sessionSend(msg))
-            }
-        case "agent-session-abort":
-            if let msg = try? JSONDecoder().decode(AgentSessionAbort.self, from: data) {
-                agentRequestHandler?(.sessionAbort(msg))
-            }
-        case "agent-extension-ui-response":
-            if let msg = try? JSONDecoder().decode(AgentExtensionUIResponse.self, from: data) {
-                agentRequestHandler?(.extensionUIResponse(msg))
+        case "agent-http-cancel":
+            if let msg = try? JSONDecoder().decode(AgentFeedRelayCancel.self, from: data) {
+                agentRequestHandler?(.httpCancel(msg))
             }
         case "agent-window-input-watch":
             if let msg = try? JSONDecoder().decode(AgentWindowInputWatch.self, from: data) {

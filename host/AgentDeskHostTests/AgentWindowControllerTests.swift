@@ -45,7 +45,7 @@ struct AgentWindowControllerTests {
     @Test func showBuildsAnAccessibilityIdentifiedAgentsWindow() throws {
         let initialFrame = CGRect(x: 80, y: 120, width: 480, height: 720)
         let controller = AgentWindowController(
-            sidecarClient: FakeSidecarClient(),
+            relayClient: InertRelayClient(),
             initialFrame: initialFrame
         )
         #expect(controller.windowForTesting == nil)
@@ -85,7 +85,7 @@ struct AgentWindowControllerTests {
         terminal.suspendClose = true
         var closeCount = 0
         let controller = AgentWindowController(
-            sidecarClient: FakeSidecarClient(),
+            relayClient: InertRelayClient(),
             terminalControllerForTesting: terminal,
             onClosed: { closeCount += 1 }
         )
@@ -106,7 +106,7 @@ struct AgentWindowControllerTests {
     @Test func stopDetachesTheTerminalWithoutEndingItAndTearsDownTheWindow() async {
         let terminal = FakeAgentWindowTerminalController()
         let controller = AgentWindowController(
-            sidecarClient: FakeSidecarClient(),
+            relayClient: InertRelayClient(),
             terminalControllerForTesting: terminal
         )
         controller.show()
@@ -125,7 +125,7 @@ struct AgentWindowControllerTests {
     @Test func resumingATerminalBuildsTheWindowAndReplaysTheStoredAttachment() {
         let terminal = FakeAgentWindowTerminalController()
         let controller = AgentWindowController(
-            sidecarClient: FakeSidecarClient(),
+            relayClient: InertRelayClient(),
             terminalControllerForTesting: terminal
         )
         let attachment = AgentWindowTerminalAttachment(
@@ -148,7 +148,7 @@ struct AgentWindowControllerTests {
     @Test func panelAndNativeTerminalControlsExposeStableAccessibilityIdentifiers() throws {
         let terminal = FakeAgentWindowTerminalController()
         let controller = AgentWindowController(
-            sidecarClient: FakeSidecarClient(),
+            relayClient: InertRelayClient(),
             terminalControllerForTesting: terminal
         )
         controller.show()

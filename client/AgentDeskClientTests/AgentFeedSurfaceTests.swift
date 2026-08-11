@@ -6,130 +6,38 @@ import AgentPanel
 
 @testable import AgentDeskClient
 
+/// The phone's part in the agent feed is transport, and these assert exactly that much.
+///
+/// The suite this replaces checked field-by-field that a panel request became the matching wire
+/// struct, for thirteen request types. There is one relayed request type now and the phone copies
+/// it, so what is left worth asserting is the routing split: relayed requests go to the lane, and
+/// native-authority requests never do.
 @MainActor
 struct AgentFeedSurfaceTests {
-    @Test func bridgesVisibilityRequestsExactly() {
+    @Test func carriesARelayedRequestWithoutEditingIt() {
         #expect(
-            AgentFeedRequest(.projectsWatch(subscriptionId: "p-1"))
-                == .projectsWatch(AgentProjectsWatch(subscriptionId: "p-1"))
-        )
-        #expect(
-            AgentFeedRequest(.projectsUnwatch(subscriptionId: "p-1"))
-                == .projectsUnwatch(AgentProjectsUnwatch(subscriptionId: "p-1"))
-        )
-        #expect(
-            AgentFeedRequest(.projectSessionsWatch(
-                subscriptionId: "s-1",
-                projectPath: "/project"
-            )) == .projectSessionsWatch(AgentProjectSessionsWatch(
-                subscriptionId: "s-1",
-                projectPath: "/project"
+            AgentFeedRequest(.httpRequest(
+                rid: "r1",
+                method: "POST",
+                path: "/api/sessions/pi/s1/message",
+                body: #"{"text":"hello"}"#,
+                stream: false
+            )) == .http(AgentFeedRelayRequest(
+                rid: "r1",
+                method: "POST",
+                path: "/api/sessions/pi/s1/message",
+                body: #"{"text":"hello"}"#,
+                stream: false
             ))
         )
         #expect(
-            AgentFeedRequest(.projectSessionsUnwatch(subscriptionId: "s-1"))
-                == .projectSessionsUnwatch(
-                    AgentProjectSessionsUnwatch(subscriptionId: "s-1")
-                )
+            AgentFeedRequest(.httpCancel(rid: "r1")) == .httpCancel(AgentFeedRelayCancel(rid: "r1"))
         )
     }
 
-    @Test func bridgesThreadAndRawIdentityExactly() {
-        #expect(
-            AgentFeedRequest(.threadSubscribe(
-                source: "claude",
-                sessionId: "same",
-                mode: .raw
-            )) == .threadSubscribe(AgentThreadSubscribe(
-                source: "claude",
-                sessionId: "same",
-                mode: "raw"
-            ))
-        )
-        #expect(
-            AgentFeedRequest(.threadLoadOlder(
-                source: "codex",
-                sessionId: "same",
-                beforeIndex: 50,
-                limit: 25,
-                mode: .raw
-            )) == .threadLoadOlder(AgentThreadLoadOlder(
-                source: "codex",
-                sessionId: "same",
-                beforeIndex: 50,
-                limit: 25,
-                mode: "raw"
-            ))
-        )
-        #expect(
-            AgentFeedRequest(.threadUnsubscribe(
-                source: "codex",
-                sessionId: "same"
-            )) == .threadUnsubscribe(AgentThreadUnsubscribe(
-                source: "codex",
-                sessionId: "same"
-            ))
-        )
-        #expect(
-            AgentFeedRequest(.rawEvent(
-                requestId: "raw",
-                source: "claude",
-                sessionId: "same",
-                eventIndex: 7,
-                mode: .raw
-            )) == .rawEvent(AgentRawEventRequest(
-                requestId: "raw",
-                source: "claude",
-                sessionId: "same",
-                eventIndex: 7,
-                mode: "raw"
-            ))
-        )
-    }
-
-    @Test func bridgesLiveAgentCommandsAndExtensionResponsesExactly() {
-        #expect(AgentFeedRequest(.createSession(
-            requestId: "create-1",
-            source: "pi",
-            projectPath: "/project"
-        )) == .sessionCreate(AgentSessionCreate(
-            requestId: "create-1",
-            source: "pi",
-            projectPath: "/project"
-        )))
-        #expect(AgentFeedRequest(.send(
-            requestId: "send-1",
-            source: "pi",
-            sessionId: "session",
-            text: "hello",
-            delivery: "steer"
-        )) == .sessionSend(AgentSessionSend(
-            requestId: "send-1",
-            source: "pi",
-            sessionId: "session",
-            text: "hello",
-            delivery: "steer"
-        )))
-        #expect(AgentFeedRequest(.abort(
-            requestId: "abort-1",
-            source: "pi",
-            sessionId: "session"
-        )) == .sessionAbort(AgentSessionAbort(
-            requestId: "abort-1",
-            source: "pi",
-            sessionId: "session"
-        )))
-        #expect(AgentFeedRequest(.extensionUIResponse(
-            source: "pi",
-            sessionId: "session",
-            requestId: "ui-1",
-            value: .bool(true)
-        )) == .extensionUIResponse(AgentExtensionUIResponse(
-            source: "pi",
-            sessionId: "session",
-            requestId: "ui-1",
-            value: .bool(true)
-        )))
+    /// The AskUserQuestion frames press buttons in another application's window, so they stay
+    /// typed and bounded all the way across rather than riding the opaque relay.
+    @Test func keepsTheQuestionMirrorTyped() {
         #expect(AgentFeedRequest(.questionWatch(
             subscriptionId: "q-1",
             sessionId: "session"
@@ -176,16 +84,18 @@ struct AgentFeedSurfaceTests {
         var received: [AgentFeedRequest] = []
         surface.onAgentRequest = { received.append($0) }
 
-        surface.sendAgentPanelRequest(.projectsWatch(subscriptionId: "p"))
-        surface.sendAgentPanelRequest(.threadUnsubscribe(
-            source: "codex",
-            sessionId: "s"
+        surface.sendAgentPanelRequest(.httpRequest(
+            rid: "r1",
+            method: "GET",
+            path: "/api/projects",
+            body: nil,
+            stream: false
         ))
+        surface.sendAgentPanelRequest(.httpCancel(rid: "r1"))
         surface.sendAgentPanelRequest(.questionWatch(
             subscriptionId: "q",
             sessionId: "s"
         ))
-        surface.sendAgentPanelRequest(.questionUnwatch(subscriptionId: "q"))
         surface.sendAgentPanelRequest(.questionAction(
             requestId: "a",
             sessionId: "s",
@@ -196,16 +106,18 @@ struct AgentFeedSurfaceTests {
         ))
 
         #expect(received == [
-            .projectsWatch(AgentProjectsWatch(subscriptionId: "p")),
-            .threadUnsubscribe(AgentThreadUnsubscribe(
-                source: "codex",
-                sessionId: "s"
+            .http(AgentFeedRelayRequest(
+                rid: "r1",
+                method: "GET",
+                path: "/api/projects",
+                body: nil,
+                stream: false
             )),
+            .httpCancel(AgentFeedRelayCancel(rid: "r1")),
             .questionWatch(AgentWindowQuestionWatch(
                 subscriptionId: "q",
                 sessionId: "s"
             )),
-            .questionUnwatch(AgentWindowQuestionUnwatch(subscriptionId: "q")),
             .questionAction(AgentWindowQuestionAction(
                 requestId: "a",
                 sessionId: "s",
@@ -250,13 +162,13 @@ struct AgentFeedSurfaceTests {
         surface.deliverForTesting = { delivered.append($0) }
         surface.resumeAfterReconnectForTesting = { resumeCount += 1 }
 
-        surface.deliver(rawJSON: #"{"t":"agent-projects","sub":"p","p":[]}"#)
-        surface.deliver(rawJSON: #"{"t":"agent-extension-ui-dismissed","src":"pi","sid":"session","rid":"ui-1"}"#)
+        surface.deliver(rawJSON: #"{"t":"agent-http-head","rid":"r1","status":200}"#)
+        surface.deliver(rawJSON: #"{"t":"agent-http-end","rid":"r1"}"#)
         surface.resumeAfterSessionReconnect()
 
         #expect(delivered == [
-            #"{"t":"agent-projects","sub":"p","p":[]}"#,
-            #"{"t":"agent-extension-ui-dismissed","src":"pi","sid":"session","rid":"ui-1"}"#,
+            #"{"t":"agent-http-head","rid":"r1","status":200}"#,
+            #"{"t":"agent-http-end","rid":"r1"}"#,
         ])
         #expect(resumeCount == 1)
     }

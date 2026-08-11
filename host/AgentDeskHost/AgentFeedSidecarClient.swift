@@ -7,146 +7,6 @@ struct AgentFeedSidecarEndpoint: Sendable {
     let controlToken: String
 }
 
-struct AgentFeedActivityBlock: Codable {
-    let kind: String
-    let label: String?
-    let text: String?
-    let tool: String?
-    let summary: String?
-    let preview: String?
-    let callId: String?
-    let input: [String: AgentJSONValue]?
-    let hiddenChars: Int?
-    let hiddenLines: Int?
-
-    init(kind: String, label: String? = nil, text: String? = nil, tool: String? = nil, summary: String? = nil, preview: String? = nil, callId: String? = nil, input: [String: AgentJSONValue]? = nil, hiddenChars: Int? = nil, hiddenLines: Int? = nil) {
-        self.kind = kind
-        self.label = label
-        self.text = text
-        self.tool = tool
-        self.summary = summary
-        self.preview = preview
-        self.callId = callId
-        self.input = input
-        self.hiddenChars = hiddenChars
-        self.hiddenLines = hiddenLines
-    }
-}
-
-/// Latest context-window occupancy for a session. `limit` arrives already resolved by the sidecar
-/// (Codex publishes it, Claude's comes from the sidecar's model table), so nothing on this side holds
-/// model knowledge; nil means the sidecar has no window for the model and the panel shows a bare
-/// count rather than a guessed fraction.
-struct AgentFeedTokenUsage: Codable {
-    let current: Int
-    let limit: Int?
-    let updatedAt: Double
-    let model: String?
-}
-
-struct AgentFeedActivityEvent: Codable {
-    let id: String
-    let index: Int
-    let revision: Int
-    let phase: String
-    let ts: Double
-    let type: String
-    let blocks: [AgentFeedActivityBlock]
-    /// Position of the same line in the other mode, or nil when it has none. See the wire
-    /// `ActivityEvent.otherModeIndex`.
-    let otherModeIndex: Int?
-    /// Stable Anthropic message id, shared with the live mirror for handoff.
-    let messageId: String?
-    /// Per-turn prompt-cache summary (long-key form of the wire `EventCacheHit`).
-    let cacheHit: AgentFeedEventCacheHit?
-    /// Occupancy as of this event. Session state, not event state: it rides the per-event stream
-    /// message because that stream already fires once per event, so the meter goes live without a
-    /// message type of its own.
-    let usage: AgentFeedTokenUsage?
-
-    init(
-        id: String,
-        index: Int,
-        revision: Int,
-        phase: String,
-        ts: Double,
-        type: String,
-        blocks: [AgentFeedActivityBlock],
-        otherModeIndex: Int? = nil,
-        messageId: String? = nil,
-        cacheHit: AgentFeedEventCacheHit? = nil,
-        usage: AgentFeedTokenUsage? = nil
-    ) {
-        self.id = id
-        self.index = index
-        self.revision = revision
-        self.phase = phase
-        self.ts = ts
-        self.type = type
-        self.blocks = blocks
-        self.otherModeIndex = otherModeIndex
-        self.messageId = messageId
-        self.cacheHit = cacheHit
-        self.usage = usage
-    }
-}
-
-/// One turn's prompt-cache accounting in tokens; the long-key sidecar form of `EventCacheHit`.
-struct AgentFeedEventCacheHit: Codable {
-    let cached: Int
-    let input: Int
-
-    init(cached: Int, input: Int) {
-        self.cached = cached
-        self.input = input
-    }
-}
-
-struct AgentFeedEventsPage {
-    let events: [AgentFeedActivityEvent]
-    let total: Int
-    let usage: AgentFeedTokenUsage?
-    let sequence: Int
-    let runState: String
-    let queueSteer: Int
-    let queueFollowUp: Int
-
-    init(events: [AgentFeedActivityEvent], total: Int, usage: AgentFeedTokenUsage? = nil, sequence: Int = 0, runState: String = "idle", queueSteer: Int = 0, queueFollowUp: Int = 0) {
-        self.events = events
-        self.total = total
-        self.usage = usage
-        self.sequence = sequence
-        self.runState = runState
-        self.queueSteer = queueSteer
-        self.queueFollowUp = queueFollowUp
-    }
-}
-
-struct AgentFeedProjectSourceCounts: Codable {
-    let values: [String: Int]
-
-    init(values: [String: Int]) {
-        self.values = values
-    }
-
-    init(from decoder: Decoder) throws {
-        values = try decoder.singleValueContainer().decode([String: Int].self)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        try container.encode(values)
-    }
-}
-
-struct AgentFeedProjectSummary: Codable {
-    let projectPath: String
-    let displayName: String
-    let sourceCounts: AgentFeedProjectSourceCounts
-    let sessionCount: Int
-    let lastEventAt: Double
-}
-
 struct AgentFeedSessionSummary: Codable {
     let sessionId: String
     let source: String
@@ -169,66 +29,12 @@ struct AgentFeedSessionCapabilities: Codable {
     var canStreamLive: Bool? = nil
 }
 
-struct AgentFeedQueueState: Codable {
-    let steer: Int
-    let followUp: Int
-}
-
-struct AgentFeedTimelineEnvelope: Codable {
-    let kind: String
-    let sequence: Int
-    let mode: String
-    let events: [AgentFeedActivityEvent]
-    let windowStart: Int
-    let total: Int
-    let runState: String
-    let queue: AgentFeedQueueState
-    let usage: AgentFeedTokenUsage?
-}
-
-struct AgentFeedCommandReceipt: Codable {
-    let requestId: String
-    let delivery: String
-}
-
-struct AgentFeedExtensionUIRequest: Codable, Sendable {
-    let requestId: String
-    let kind: String
-    let title: String?
-    let message: String?
-    let options: [String]?
-    let placeholder: String?
-    let prefill: String?
-    let level: String?
-    let key: String?
-    let lines: [String]?
-    let expectsResponse: Bool
-}
-
-struct AgentFeedExtensionUIEvent: Codable, Sendable {
-    let type: String
-    let request: AgentFeedExtensionUIRequest?
-    let requestId: String?
-}
-
-struct AgentFeedCommandErrorEnvelope: Codable {
-    struct Detail: Codable {
-        let code: String
-        let message: String
-        let requestId: String?
-        let retryable: Bool
-    }
-    let error: Detail
-}
-
-struct AgentFeedProjectsSnapshot: Codable {
-    let projects: [AgentFeedProjectSummary]
-}
 
 struct AgentFeedSessionsSnapshot: Codable {
     let projectPath: String
     let sessions: [AgentFeedSessionSummary]
 }
+
 
 final class SidecarStreamHandle: @unchecked Sendable {
     private let task: Task<Void, Never>
@@ -242,71 +48,17 @@ final class SidecarStreamHandle: @unchecked Sendable {
     }
 }
 
-/// Which view of a transcript a sidecar call addresses. Event indices are mode-relative, so this
-/// travels with every call that names one.
-enum AgentFeedEventMode: String, Sendable {
-    case raw
-    case nice
-}
 
+/// What NATIVE host code asks the sidecar, and the whole of it.
+///
+/// This used to name thirteen endpoints and every payload shape behind them, which
+/// put the agent-feed model in Swift a second time and made a field addition a
+/// compile. The feed reaches the sidecar through `AgentFeedRelayClient` now, so what
+/// is left here is the one call the host itself makes: the terminal coordinator asks
+/// which sessions a project has, because opening a terminal for a session is native
+/// authority and not something a webview asks for.
 protocol SidecarClient: Sendable {
-    func fetchProjects() async throws -> AgentFeedProjectsSnapshot
     func fetchSessions(projectPath: String) async throws -> AgentFeedSessionsSnapshot
-    func fetchEventsPage(
-        source: String,
-        sessionId: String,
-        offset: Int,
-        limit: Int,
-        mode: AgentFeedEventMode
-    ) async throws -> AgentFeedEventsPage
-    func fetchRawEvent(
-        source: String,
-        sessionId: String,
-        eventIndex: Int,
-        mode: AgentFeedEventMode
-    ) async throws -> String
-    func openProjectsStream(
-        onSnapshot: @escaping @Sendable (AgentFeedProjectsSnapshot) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle
-    func openSessionsStream(
-        projectPath: String,
-        onSnapshot: @escaping @Sendable (AgentFeedSessionsSnapshot) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle
-    func openEventStream(
-        source: String,
-        sessionId: String,
-        afterSequence: Int,
-        mode: AgentFeedEventMode,
-        onEnvelope: @escaping @Sendable (AgentFeedTimelineEnvelope) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle
-    func openClaudeLiveStream(
-        source: String,
-        sessionId: String,
-        afterSequence: Int,
-        mode: AgentFeedEventMode,
-        onEnvelope: @escaping @Sendable (AgentFeedTimelineEnvelope) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle
-    func fetchClaudeLiveEventsPage(
-        source: String,
-        sessionId: String,
-        offset: Int,
-        limit: Int,
-        mode: AgentFeedEventMode
-    ) async throws -> AgentFeedEventsPage
-    func createSession(requestId: String, source: String, projectPath: String) async throws -> AgentFeedSessionSummary
-    func sendMessage(requestId: String, source: String, sessionId: String, text: String, delivery: String) async throws -> AgentFeedCommandReceipt
-    func abortSession(requestId: String, source: String, sessionId: String) async throws -> AgentFeedCommandReceipt
-    func openExtensionUIStream(
-        source: String,
-        sessionId: String,
-        onEvent: @escaping @Sendable (AgentFeedExtensionUIEvent) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle
-    func respondToExtensionUI(source: String, sessionId: String, requestId: String, value: AgentJSONValue) async throws -> AgentFeedCommandReceipt
 }
 
 final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
@@ -405,6 +157,7 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
             resolvingAgainstBaseURL: false
         )
         components?.queryItems = query.isEmpty ? nil : query
+
         guard let url = components?.url else { throw SidecarClientError.badURL }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -420,13 +173,6 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         return try JSONDecoder().decode(type, from: data)
     }
 
-    func fetchProjects() async throws -> AgentFeedProjectsSnapshot {
-        try await fetchJSON(
-            AgentFeedProjectsSnapshot.self,
-            request: try await request(path: "/api/projects")
-        )
-    }
-
     func fetchSessions(projectPath: String) async throws -> AgentFeedSessionsSnapshot {
         try await fetchJSON(
             AgentFeedSessionsSnapshot.self,
@@ -437,251 +183,68 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         )
     }
 
-    func fetchEventsPage(
-        source: String,
-        sessionId: String,
-        offset: Int,
-        limit: Int,
-        mode: AgentFeedEventMode
-    ) async throws -> AgentFeedEventsPage {
-        struct Envelope: Decodable {
-            let events: [AgentFeedActivityEvent]
-            let total: Int
-            let usage: AgentFeedTokenUsage?
-            let sequence: Int
-            let runState: String
-            let queue: AgentFeedQueueState
-        }
-        let envelope = try await fetchJSON(
-            Envelope.self,
-            request: try await request(
-                path: "/api/sessions/\(source)/\(sessionId)/events",
-                query: [
-                    URLQueryItem(name: "offset", value: String(offset)),
-                    URLQueryItem(name: "limit", value: String(limit)),
-                    URLQueryItem(name: "mode", value: mode.rawValue),
-                ]
-            )
-        )
-        return AgentFeedEventsPage(
-            events: envelope.events,
-            total: envelope.total,
-            usage: envelope.usage,
-            sequence: envelope.sequence,
-            runState: envelope.runState,
-            queueSteer: envelope.queue.steer,
-            queueFollowUp: envelope.queue.followUp
-        )
-    }
-
-    func fetchRawEvent(
-        source: String,
-        sessionId: String,
-        eventIndex: Int,
-        mode: AgentFeedEventMode
-    ) async throws -> String {
-        let request = try await request(
-            path: "/api/sessions/\(source)/\(sessionId)/events/\(eventIndex)/raw",
-            query: [URLQueryItem(name: "mode", value: mode.rawValue)]
-        )
-        let (data, response) = try await session.data(for: request)
-        try validateHTTP(response, url: request.url)
-        guard data.count <= 100 * 1024 * 1024 else {
-            throw SidecarClientError.server("raw event exceeds 100 MiB")
-        }
-        guard let text = String(data: data, encoding: .utf8) else {
-            throw SidecarClientError.server("raw event is not valid UTF-8 text")
-        }
-        return text
-    }
-
-    func openProjectsStream(
-        onSnapshot: @escaping @Sendable (AgentFeedProjectsSnapshot) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle {
-        openJSONStream(
-            request: { try await self.request(path: "/api/projects/stream") },
-            type: AgentFeedProjectsSnapshot.self,
-            onValue: onSnapshot,
-            onError: onError
-        )
-    }
-
-    func openSessionsStream(
-        projectPath: String,
-        onSnapshot: @escaping @Sendable (AgentFeedSessionsSnapshot) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle {
-        openJSONStream(
-            request: {
-                try await self.request(
-                    path: "/api/sessions/stream",
-                    query: [URLQueryItem(name: "projectPath", value: projectPath)]
-                )
-            },
-            type: AgentFeedSessionsSnapshot.self,
-            onValue: onSnapshot,
-            onError: onError
-        )
-    }
-
-    func openEventStream(
-        source: String,
-        sessionId: String,
-        afterSequence: Int,
-        mode: AgentFeedEventMode,
-        onEnvelope: @escaping @Sendable (AgentFeedTimelineEnvelope) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle {
-        openJSONStream(
-            request: {
-                try await self.request(
-                    path: "/api/sessions/\(source)/\(sessionId)/stream",
-                    query: [
-                        URLQueryItem(name: "since", value: String(afterSequence)),
-                        URLQueryItem(name: "mode", value: mode.rawValue),
-                    ]
-                )
-            },
-            type: AgentFeedTimelineEnvelope.self,
-            onValue: onEnvelope,
-            onError: onError
-        )
-    }
-
-    func openClaudeLiveStream(
-        source: String,
-        sessionId: String,
-        afterSequence: Int,
-        mode: AgentFeedEventMode,
-        onEnvelope: @escaping @Sendable (AgentFeedTimelineEnvelope) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle {
-        openJSONStream(
-            request: {
-                try await self.request(
-                    path: "/api/agent-sessions/\(source)/\(sessionId)/stream",
-                    query: [
-                        URLQueryItem(name: "since", value: String(afterSequence)),
-                        URLQueryItem(name: "mode", value: mode.rawValue),
-                    ]
-                )
-            },
-            type: AgentFeedTimelineEnvelope.self,
-            onValue: onEnvelope,
-            onError: onError
-        )
-    }
-
-    func fetchClaudeLiveEventsPage(
-        source: String,
-        sessionId: String,
-        offset: Int,
-        limit: Int,
-        mode: AgentFeedEventMode
-    ) async throws -> AgentFeedEventsPage {
-        struct Envelope: Decodable {
-            let events: [AgentFeedActivityEvent]
-            let total: Int
-            let usage: AgentFeedTokenUsage?
-            let sequence: Int
-            let runState: String
-            let queue: AgentFeedQueueState
-        }
-        let envelope = try await fetchJSON(
-            Envelope.self,
-            request: try await request(
-                path: "/api/agent-sessions/\(source)/\(sessionId)/events",
-                query: [
-                    URLQueryItem(name: "offset", value: String(offset)),
-                    URLQueryItem(name: "limit", value: String(limit)),
-                    URLQueryItem(name: "mode", value: mode.rawValue),
-                ]
-            )
-        )
-        return AgentFeedEventsPage(
-            events: envelope.events,
-            total: envelope.total,
-            usage: envelope.usage,
-            sequence: envelope.sequence,
-            runState: envelope.runState,
-            queueSteer: envelope.queue.steer,
-            queueFollowUp: envelope.queue.followUp
-        )
-    }
-
-    func createSession(requestId: String, source: String, projectPath: String) async throws -> AgentFeedSessionSummary {
-        struct Body: Encodable { let requestId: String; let source: String; let projectPath: String }
-        return try await postJSON(AgentFeedSessionSummary.self, path: "/api/agent-sessions", body: Body(requestId: requestId, source: source, projectPath: projectPath))
-    }
-
-    func sendMessage(requestId: String, source: String, sessionId: String, text: String, delivery: String) async throws -> AgentFeedCommandReceipt {
-        struct Body: Encodable { let requestId: String; let text: String; let delivery: String }
-        return try await postJSON(AgentFeedCommandReceipt.self, path: "/api/agent-sessions/\(source)/\(sessionId)/messages", body: Body(requestId: requestId, text: text, delivery: delivery))
-    }
-
-    func abortSession(requestId: String, source: String, sessionId: String) async throws -> AgentFeedCommandReceipt {
-        struct Body: Encodable { let requestId: String }
-        return try await postJSON(AgentFeedCommandReceipt.self, path: "/api/agent-sessions/\(source)/\(sessionId)/abort", body: Body(requestId: requestId))
-    }
-
-    func openExtensionUIStream(
-        source: String,
-        sessionId: String,
-        onEvent: @escaping @Sendable (AgentFeedExtensionUIEvent) -> Void,
-        onError: @escaping @Sendable (Error) -> Void
-    ) -> SidecarStreamHandle {
-        openJSONStream(
-            request: { try await self.request(path: "/api/agent-sessions/\(source)/\(sessionId)/ui/stream") },
-            type: AgentFeedExtensionUIEvent.self,
-            onValue: onEvent,
-            onError: onError
-        )
-    }
-
-    func respondToExtensionUI(
-        source: String,
-        sessionId: String,
-        requestId: String,
-        value: AgentJSONValue
-    ) async throws -> AgentFeedCommandReceipt {
-        struct Body: Encodable { let value: AgentJSONValue }
-        return try await postJSON(
-            AgentFeedCommandReceipt.self,
-            path: "/api/agent-sessions/\(source)/\(sessionId)/ui/\(requestId)",
-            body: Body(value: value)
-        )
-    }
-
-    private func postJSON<Value: Decodable, Body: Encodable>(_ type: Value.Type, path: String, body: Body) async throws -> Value {
-        let data = try JSONEncoder().encode(body)
-        let outbound = try await request(path: path, method: "POST", body: data)
-        let (responseData, response) = try await session.data(for: outbound)
-        guard let http = response as? HTTPURLResponse else { throw SidecarClientError.badStatusCode }
-        guard (200..<300).contains(http.statusCode) else {
-            if let envelope = try? JSONDecoder().decode(AgentFeedCommandErrorEnvelope.self, from: responseData) {
-                throw SidecarClientError.command(
-                    code: envelope.error.code,
-                    message: envelope.error.message,
-                    requestId: envelope.error.requestId,
-                    retryable: envelope.error.retryable
-                )
-            }
-            try validateHTTP(response, url: outbound.url)
+    private func validateHTTP(_ response: URLResponse, url: URL?) throws {
+        guard let http = response as? HTTPURLResponse else {
             throw SidecarClientError.badStatusCode
         }
-        return try JSONDecoder().decode(type, from: responseData)
+        guard (200..<300).contains(http.statusCode) else {
+            logger.error("sidecar HTTP \(http.statusCode, privacy: .public) url=\(url?.absoluteString ?? "unknown", privacy: .public)")
+            throw SidecarClientError.badStatusCode
+        }
     }
 
-    // `url` is resolved inside the task, not by the caller, because resolving it
-    // may mean waiting for a sidecar that is still starting. Opening a stream
-    // stays synchronous -- the caller gets a cancellable handle immediately -- and
-    // the wait costs the first snapshot some latency instead of costing the
-    // subscription its life.
-    private func openJSONStream<Value: Decodable & Sendable>(
-        request: @escaping @Sendable () async throws -> URLRequest,
-        type: Value.Type,
-        onValue: @escaping @Sendable (Value) -> Void,
+}
+
+// MARK: - Relay transport
+
+extension HttpSidecarClient: AgentFeedRelayClient {
+    /// One request, delivered whole.
+    ///
+    /// Whole rather than streamed because the caller is going to chunk it anyway to
+    /// fit the lane, and because a response that arrives in one piece cannot be half
+    /// delivered when the transfer fails midway.
+    func perform(
+        method: String,
+        path: String,
+        body: Data?,
+        onResponse: @escaping @Sendable (Int, Data) -> Void,
+        onError: @escaping @Sendable (Error) -> Void
+    ) -> SidecarStreamHandle {
+        let session = self.session
+        let task = Task<Void, Never> {
+            do {
+                var outbound = try await relayRequest(method: method, path: path, body: body)
+                outbound.timeoutInterval = AgentFeedRelay.transferTimeout
+                guard !Task.isCancelled else { return }
+                let (data, response) = try await session.data(for: outbound)
+                guard !Task.isCancelled else { return }
+                guard let http = response as? HTTPURLResponse else {
+                    onError(SidecarClientError.badStatusCode)
+                    return
+                }
+                // A non-2xx status is RELAYED, not raised: the sidecar's own error body
+                // says more than any status this layer could invent, and the panel is
+                // the thing that knows whether a 404 on this path is fatal.
+                onResponse(http.statusCode, data)
+            } catch is CancellationError {
+                return
+            } catch {
+                if !Task.isCancelled { onError(error) }
+            }
+        }
+        return SidecarStreamHandle(task: task)
+    }
+
+    /// Follows a server-sent event stream, delivering each message's payload verbatim.
+    ///
+    /// The URL is resolved inside the task, not by the caller, because resolving it may
+    /// mean waiting for a sidecar that is still starting. Subscribing stays synchronous
+    /// -- the caller gets a cancellable handle immediately -- so arriving early costs
+    /// the first message some latency instead of costing the subscription its life.
+    func subscribe(
+        path: String,
+        onOpen: @escaping @Sendable (Int) -> Void,
+        onMessage: @escaping @Sendable (String) -> Void,
         onError: @escaping @Sendable (Error) -> Void
     ) -> SidecarStreamHandle {
         let session = streamSession
@@ -692,35 +255,24 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
             // Runs on cancellation too: `cancel()` unblocks the byte loop, which leaves this scope.
             defer { Self.report(census.closed(), to: logger) }
             do {
-                let resolved = try await request()
+                let outbound = try await relayRequest(method: "GET", path: path, body: nil)
                 guard !Task.isCancelled else { return }
-                let (bytes, response) = try await session.bytes(for: resolved)
-                guard let http = response as? HTTPURLResponse,
-                      (200..<300).contains(http.statusCode) else {
+                let (bytes, response) = try await session.bytes(for: outbound)
+                guard let http = response as? HTTPURLResponse else {
                     onError(SidecarClientError.badStatusCode)
                     return
                 }
+                onOpen(http.statusCode)
+                guard (200..<300).contains(http.statusCode) else { return }
                 for try await line in bytes.lines {
                     guard !Task.isCancelled else { return }
                     guard line.hasPrefix("data:") else { continue }
                     let payload = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
                     if payload.isEmpty { continue }
+                    // The sidecar's shutdown notice. Ends the subscription quietly; the
+                    // panel re-subscribes when the sidecar is back.
                     if payload == "\"shutdown\"" { return }
-                    guard let data = payload.data(using: .utf8) else {
-                        onError(SidecarClientError.server("stream emitted non-UTF-8 data"))
-                        return
-                    }
-                    let decoder = JSONDecoder()
-                    if let envelope = try? decoder.decode(AgentFeedCommandErrorEnvelope.self, from: data) {
-                        onError(SidecarClientError.command(
-                            code: envelope.error.code,
-                            message: envelope.error.message,
-                            requestId: envelope.error.requestId,
-                            retryable: envelope.error.retryable
-                        ))
-                        return
-                    }
-                    onValue(try decoder.decode(type, from: data))
+                    onMessage(payload)
                 }
                 if !Task.isCancelled {
                     onError(SidecarClientError.server("stream ended unexpectedly"))
@@ -734,14 +286,27 @@ final class HttpSidecarClient: SidecarClient, @unchecked Sendable {
         return SidecarStreamHandle(task: task)
     }
 
-    private func validateHTTP(_ response: URLResponse, url: URL?) throws {
-        guard let http = response as? HTTPURLResponse else {
-            throw SidecarClientError.badStatusCode
+    /// Builds a request for an already-validated relay path.
+    ///
+    /// `path` carries its own query, so it is parsed rather than appended as a path
+    /// component -- `appendingPathComponent` would escape the `?` and turn a query into
+    /// part of the path. The caller has already checked the path against
+    /// `AgentFeedRelay.PathPolicy`; this resolves it against the sidecar's base URL,
+    /// which is what confines it to the sidecar even if that check ever missed something.
+    private func relayRequest(method: String, path: String, body: Data?) async throws -> URLRequest {
+        let endpoint = try await currentEndpoint()
+        guard let url = URL(string: path, relativeTo: endpoint.baseURL),
+              url.host == endpoint.baseURL.host,
+              url.port == endpoint.baseURL.port,
+              url.scheme == endpoint.baseURL.scheme else {
+            throw SidecarClientError.badURL
         }
-        guard (200..<300).contains(http.statusCode) else {
-            logger.error("sidecar HTTP \(http.statusCode, privacy: .public) url=\(url?.absoluteString ?? "unknown", privacy: .public)")
-            throw SidecarClientError.badStatusCode
-        }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.httpBody = body
+        request.setValue("Bearer \(endpoint.controlToken)", forHTTPHeaderField: "Authorization")
+        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        return request
     }
 }
 
@@ -762,3 +327,4 @@ enum SidecarClientError: LocalizedError, Equatable {
         }
     }
 }
+

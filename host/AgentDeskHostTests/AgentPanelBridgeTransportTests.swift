@@ -5,93 +5,72 @@ import AgentPanel
 
 @testable import AgentDeskHost
 
+/// What the Mac Agents window's transport owes: route each panel request to the one thing that
+/// answers it, and carry a relayed request through without editing it.
+///
+/// This used to assert per-endpoint field mapping, because the transport rewrote every payload into
+/// a second set of Swift structs. It rewrites nothing now, so what is left to get wrong is the
+/// routing.
 @MainActor
 struct AgentPanelBridgeTransportTests {
-    @Test func visibilityRequestsDriveTheSharedBridge() async throws {
-        let fake = FakeSidecarClient()
-        fake.projects = AgentFeedProjectsSnapshot(projects: [])
-        fake.sessions = AgentFeedSessionsSnapshot(
-            projectPath: "/project",
-            sessions: []
+    @Test func aRelayedRequestReachesTheSidecarUnedited() async throws {
+        let client = TransportRelayClient()
+        let sink = CapturingSink()
+        let transport = AgentPanelBridgeTransport(
+            relay: AgentFeedHTTPRelay(client: client, send: sink.accept)
         )
-        let sink = CapturingSink()
-        let bridge = AgentFeedBridge(client: fake, send: sink.accept)
-        let transport = AgentPanelBridgeTransport(bridge: bridge)
 
-        transport.sendAgentPanelRequest(.projectsWatch(subscriptionId: "p-1"))
-        fake.pushProjects()
-        await waitFor { sink.count == 1 }
-        let projectPush = try sink.decode(AgentProjectsPush.self, at: 0)
-        #expect(projectPush.subscriptionId == "p-1")
-
-        transport.sendAgentPanelRequest(.projectsUnwatch(subscriptionId: "p-1"))
-        transport.sendAgentPanelRequest(.projectSessionsWatch(
-            subscriptionId: "s-1",
-            projectPath: "/project"
+        transport.sendAgentPanelRequest(.httpRequest(
+            rid: "r1",
+            method: "POST",
+            path: "/api/sessions/pi/s1/message",
+            body: #"{"text":"hello"}"#,
+            stream: false
         ))
-        fake.pushSessions()
-        await waitFor { sink.count == 2 }
-        let sessionPush = try sink.decode(AgentProjectSessionsPush.self, at: 1)
-        #expect(sessionPush.subscriptionId == "s-1")
-        #expect(sessionPush.projectPath == "/project")
+
+        #expect(client.performed.count == 1)
+        #expect(client.performed.first?.method == "POST")
+        #expect(client.performed.first?.path == "/api/sessions/pi/s1/message")
+        #expect(client.performed.first?.body == Data(#"{"text":"hello"}"#.utf8))
     }
 
-    @Test func threadRequestsPreserveSourceAndSessionIdentity() async throws {
-        let fake = FakeSidecarClient()
-        fake.eventsPage = AgentFeedEventsPage(events: [], total: 10)
+    @Test func aSubscriptionOpensAStreamRatherThanAOneShotRequest() async throws {
+        let client = TransportRelayClient()
         let sink = CapturingSink()
-        let bridge = AgentFeedBridge(client: fake, send: sink.accept)
-        let transport = AgentPanelBridgeTransport(bridge: bridge)
+        let transport = AgentPanelBridgeTransport(
+            relay: AgentFeedHTTPRelay(client: client, send: sink.accept)
+        )
 
-        transport.sendAgentPanelRequest(.threadSubscribe(
-            source: "codex",
-            sessionId: "same",
-            mode: .nice
+        transport.sendAgentPanelRequest(.httpRequest(
+            rid: "r1",
+            method: "GET",
+            path: "/api/sessions/claude/s1/timeline?mode=nice",
+            body: nil,
+            stream: true
         ))
-        await waitFor { sink.count == 1 }
-        transport.sendAgentPanelRequest(.threadLoadOlder(
-            source: "codex",
-            sessionId: "same",
-            beforeIndex: 5,
-            limit: 3,
-            mode: .nice
-        ))
-        await waitFor { sink.count == 2 }
-        let chunk = try sink.decode(AgentThreadChunk.self, at: 1)
-        #expect(chunk.source == "codex")
-        #expect(chunk.sessionId == "same")
-        // The mode has to reach the sidecar AND come back on the chunk. The page's
-        // indices are counted in it, so a chunk that did not say which view it
-        // answers could be merged into the other one after a toggle with every row
-        // off by the number of omitted lines before it.
-        #expect(fake.eventRequests.last?.mode == .nice)
-        #expect(chunk.mode == "nice")
-    }
-
-    @Test func anUnknownModeIsRefusedRatherThanGuessed() async throws {
-        let fake = FakeSidecarClient()
-        let sink = CapturingSink()
-        let bridge = AgentFeedBridge(client: fake, send: sink.accept)
-
-        bridge.handleThreadSubscribe(AgentThreadSubscribe(
-            source: "codex",
-            sessionId: "session",
-            mode: "pretty"
+        transport.sendAgentPanelRequest(.httpCancel(rid: "r1"))
+        // The slot the cancelled subscription held is free, so a second one is admitted.
+        transport.sendAgentPanelRequest(.httpRequest(
+            rid: "r2",
+            method: "GET",
+            path: "/api/projects/watch",
+            body: nil,
+            stream: true
         ))
 
-        await waitFor { sink.count == 1 }
-        let error = try sink.decode(AgentThreadError.self, at: 0)
-        #expect(error.reason == "invalid mode")
-        #expect(fake.eventRequests.isEmpty)
+        #expect(client.performed.isEmpty)
+        #expect(client.subscribed == [
+            "/api/sessions/claude/s1/timeline?mode=nice",
+            "/api/projects/watch",
+        ])
     }
 
     @Test func terminalIntentsRemainNative() {
-        let fake = FakeSidecarClient()
+        let client = TransportRelayClient()
         var received: [AgentPanelTerminalIntent] = []
         let sink = CapturingSink()
-        let bridge = AgentFeedBridge(client: fake, send: sink.accept)
         let transport = AgentPanelBridgeTransport(
-            bridge: bridge,
+            relay: AgentFeedHTTPRelay(client: client, send: sink.accept),
             onTerminalIntent: { received.append($0) }
         )
         let context = AgentPanelTerminalContext(
@@ -112,15 +91,77 @@ struct AgentPanelBridgeTransportTests {
 
         #expect(received.count == 3)
         #expect(sink.count == 0)
+        #expect(client.performed.isEmpty)
     }
 
-    private func waitFor(
-        _ predicate: @escaping @Sendable () -> Bool
-    ) async {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-        while ContinuousClock.now < deadline {
-            if predicate() { return }
-            try? await Task.sleep(for: .milliseconds(5))
-        }
+    /// Composer sync and the question mirror write into another application's window through
+    /// Accessibility. Routing one of them at the sidecar would send a keystroke nowhere and leave
+    /// the panel believing it landed.
+    @Test func nativeAuthorityRequestsNeverReachTheRelay() {
+        let client = TransportRelayClient()
+        var received: [AgentPanelRequest] = []
+        let sink = CapturingSink()
+        let transport = AgentPanelBridgeTransport(
+            relay: AgentFeedHTTPRelay(client: client, send: sink.accept),
+            onWindowInput: { received.append($0) }
+        )
+
+        transport.sendAgentPanelRequest(.windowInputWatch(subscriptionId: "w-1", sessionId: "s1"))
+        transport.sendAgentPanelRequest(.windowInputSubmit(requestId: "r-1", sessionId: "s1", text: "hi"))
+        transport.sendAgentPanelRequest(.questionAction(
+            requestId: "r-2",
+            sessionId: "s1",
+            kind: .submit,
+            optionIndex: nil,
+            desired: nil,
+            otherText: nil
+        ))
+
+        #expect(received.count == 3)
+        #expect(client.performed.isEmpty)
+        #expect(client.subscribed.isEmpty)
+        #expect(sink.count == 0)
+    }
+}
+
+/// A sidecar transport that records what the relay asked of it and never answers.
+private final class TransportRelayClient: AgentFeedRelayClient, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _performed: [(method: String, path: String, body: Data?)] = []
+    private var _subscribed: [String] = []
+
+    var performed: [(method: String, path: String, body: Data?)] {
+        lock.lock(); defer { lock.unlock() }
+        return _performed
+    }
+
+    var subscribed: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return _subscribed
+    }
+
+    func perform(
+        method: String,
+        path: String,
+        body: Data?,
+        onResponse: @escaping @Sendable (Int, Data) -> Void,
+        onError: @escaping @Sendable (Error) -> Void
+    ) -> SidecarStreamHandle {
+        lock.lock()
+        _performed.append((method, path, body))
+        lock.unlock()
+        return SidecarStreamHandle(task: Task {})
+    }
+
+    func subscribe(
+        path: String,
+        onOpen: @escaping @Sendable (Int) -> Void,
+        onMessage: @escaping @Sendable (String) -> Void,
+        onError: @escaping @Sendable (Error) -> Void
+    ) -> SidecarStreamHandle {
+        lock.lock()
+        _subscribed.append(path)
+        lock.unlock()
+        return SidecarStreamHandle(task: Task {})
     }
 }

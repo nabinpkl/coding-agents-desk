@@ -7,12 +7,6 @@ public enum AgentPanelAgentSource: String, Equatable, Sendable {
     case codex
 }
 
-public enum AgentPanelUIValue: Equatable, Sendable {
-    case null
-    case bool(Bool)
-    case string(String)
-}
-
 /// The interaction a panel wants performed against the AskUserQuestion panel in a Claude Desktop window.
 ///
 /// Mirrors `AgentWindowQuestionActionKind` on the wire; the webview decoder validates the raw string so
@@ -26,18 +20,6 @@ public enum AgentPanelQuestionActionKind: String, Equatable, Sendable {
     case skip
     case dismiss
     case viewOptions = "view-options"
-}
-
-/// Which view of a transcript a request addresses: `raw` is every line in file order, `nice` is
-/// content lines only, renumbered contiguously.
-///
-/// Validated at the decoder for the same reason as the harness name, and with more at stake: an
-/// event index is mode-relative, so the SAME integer names a different line in the two views.
-/// Defaulting an unrecognized value to `raw` would answer a nice-mode request with raw-mode indices,
-/// and every index in the reply would address the wrong line with nothing to signal it.
-public enum AgentPanelEventMode: String, Equatable, Sendable {
-    case raw
-    case nice
 }
 
 public struct AgentPanelTerminalContext: Equatable, Sendable {
@@ -59,30 +41,19 @@ public enum AgentPanelTerminalIntent: Equatable, Sendable {
 }
 
 public enum AgentPanelRequest: Equatable, Sendable {
-    case projectsWatch(subscriptionId: String)
-    case projectsUnwatch(subscriptionId: String)
-    case projectSessionsWatch(subscriptionId: String, projectPath: String)
-    case projectSessionsUnwatch(subscriptionId: String)
-    case threadSubscribe(source: String, sessionId: String, mode: AgentPanelEventMode)
-    case threadLoadOlder(
-        source: String,
-        sessionId: String,
-        beforeIndex: Int,
-        limit: Int,
-        mode: AgentPanelEventMode
-    )
-    case threadUnsubscribe(source: String, sessionId: String)
-    case rawEvent(
-        requestId: String,
-        source: String,
-        sessionId: String,
-        eventIndex: Int,
-        mode: AgentPanelEventMode
-    )
-    case createSession(requestId: String, source: String, projectPath: String)
-    case send(requestId: String, source: String, sessionId: String, text: String, delivery: String)
-    case abort(requestId: String, source: String, sessionId: String)
-    case extensionUIResponse(source: String, sessionId: String, requestId: String, value: AgentPanelUIValue)
+    /// One request against the agent-feed sidecar, relayed verbatim.
+    ///
+    /// This case names no endpoint and no field, which is the point: the sidecar owns the
+    /// model and the panel owns the view, and adding a field to either is not a change to
+    /// this enum. What travels is a path and, for a POST, an already-serialized body.
+    ///
+    /// The path is NOT vetted here. `AgentFeedRelay.PathPolicy` is the single allow-list
+    /// and the security boundary; a second copy in this decoder would be free to disagree
+    /// with the one that actually executes the request.
+    case httpRequest(rid: String, method: String, path: String, body: String?, stream: Bool)
+    /// Abandons an in-flight relayed request, including a subscription. Replaces every
+    /// per-type unwatch the feed used to carry.
+    case httpCancel(rid: String)
     case terminal(AgentPanelTerminalIntent)
     case windowInputWatch(subscriptionId: String, sessionId: String)
     case windowInputUnwatch(subscriptionId: String)
@@ -108,94 +79,24 @@ public enum AgentPanelRequest: Equatable, Sendable {
 
     public static func decode(tag: String, body: [String: Any]) -> AgentPanelRequest? {
         switch tag {
-        case "agent-projects-watch":
-            guard let subscriptionId = nonemptyString(body["sub"]) else { return nil }
-            return .projectsWatch(subscriptionId: subscriptionId)
-        case "agent-projects-unwatch":
-            guard let subscriptionId = nonemptyString(body["sub"]) else { return nil }
-            return .projectsUnwatch(subscriptionId: subscriptionId)
-        case "agent-project-sessions-watch":
-            guard let subscriptionId = nonemptyString(body["sub"]),
-                  let projectPath = nonemptyString(body["pp"]) else { return nil }
-            return .projectSessionsWatch(subscriptionId: subscriptionId, projectPath: projectPath)
-        case "agent-project-sessions-unwatch":
-            guard let subscriptionId = nonemptyString(body["sub"]) else { return nil }
-            return .projectSessionsUnwatch(subscriptionId: subscriptionId)
-        case "agent-thread-sub":
-            guard let source = feedSource(body["src"]),
-                  let sessionId = nonemptyString(body["sid"]),
-                  let mode = eventMode(body["md"]) else { return nil }
-            return .threadSubscribe(source: source, sessionId: sessionId, mode: mode)
-        case "agent-thread-older":
-            // Both bounds are enforced here because the host derives the sidecar page from them as
-            // `offset = max(0, bi - lim)` / `limit = bi - offset`. A negative `bi` or a non-positive
-            // `lim` therefore produces a negative sidecar limit, which comes back as an HTTP 400 the
-            // panel surfaces as a thread error. The window the page can cover is still bounded
-            // downstream by `bi` and the sidecar's own limit cap, so no upper bound belongs here.
-            guard let source = feedSource(body["src"]),
-                  let sessionId = nonemptyString(body["sid"]),
-                  let beforeIndex = body["bi"] as? Int,
-                  beforeIndex >= 0,
-                  let limit = body["lim"] as? Int,
-                  limit >= 1,
-                  let mode = eventMode(body["md"]) else {
-                return nil
-            }
-            return .threadLoadOlder(
-                source: source,
-                sessionId: sessionId,
-                beforeIndex: beforeIndex,
-                limit: limit,
-                mode: mode
+        case "agent-http-req":
+            // Shape only. The body is passed through as the panel serialized it, and the
+            // path is checked by the relay, which is the one place that can be right about
+            // what a path may address.
+            guard let rid = requestIdentifier(body["rid"]),
+                  let method = nonemptyString(body["method"]),
+                  let path = nonemptyString(body["path"]) else { return nil }
+            let requestBody = body["body"] as? String
+            return .httpRequest(
+                rid: rid,
+                method: method,
+                path: path,
+                body: requestBody,
+                stream: body["stream"] as? Bool ?? false
             )
-        case "agent-thread-unsub":
-            guard let source = feedSource(body["src"]),
-                  let sessionId = nonemptyString(body["sid"]) else {
-                return nil
-            }
-            return .threadUnsubscribe(source: source, sessionId: sessionId)
-        case "agent-raw-event-get":
-            guard let requestId = body["rid"] as? String,
-                  !requestId.isEmpty,
-                  let source = feedSource(body["src"]),
-                  let sessionId = nonemptyString(body["sid"]),
-                  let eventIndex = body["ei"] as? Int,
-                  eventIndex >= 0,
-                  let mode = eventMode(body["md"]) else {
-                return nil
-            }
-            return .rawEvent(
-                requestId: requestId,
-                source: source,
-                sessionId: sessionId,
-                eventIndex: eventIndex,
-                mode: mode
-            )
-        case "agent-session-create":
-            guard let requestId = requestIdentifier(body["rid"]),
-                  let source = feedSource(body["src"]),
-                  let projectPath = nonemptyString(body["pp"]) else { return nil }
-            return .createSession(requestId: requestId, source: source, projectPath: projectPath)
-        case "agent-session-send":
-            guard let requestId = requestIdentifier(body["rid"]),
-                  let source = feedSource(body["src"]),
-                  let sessionId = nonemptyString(body["sid"]),
-                  let text = body["tx"] as? String,
-                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  let delivery = body["del"] as? String,
-                  delivery == "next" || delivery == "steer" else { return nil }
-            return .send(requestId: requestId, source: source, sessionId: sessionId, text: text, delivery: delivery)
-        case "agent-session-abort":
-            guard let requestId = requestIdentifier(body["rid"]),
-                  let source = feedSource(body["src"]),
-                  let sessionId = nonemptyString(body["sid"]) else { return nil }
-            return .abort(requestId: requestId, source: source, sessionId: sessionId)
-        case "agent-extension-ui-response":
-            guard let requestId = requestIdentifier(body["rid"]),
-                  let source = feedSource(body["src"]),
-                  let sessionId = nonemptyString(body["sid"]),
-                  let value = uiValue(body["v"]) else { return nil }
-            return .extensionUIResponse(source: source, sessionId: sessionId, requestId: requestId, value: value)
+        case "agent-http-cancel":
+            guard let rid = requestIdentifier(body["rid"]) else { return nil }
+            return .httpCancel(rid: rid)
         case "agent-window-input-watch":
             // Bounded, unlike the sidecar watches above: this subscription id keys an entry in the
             // host's re-resolve loop, which scans the live process table on a timer until it is
@@ -303,14 +204,6 @@ public enum AgentPanelRequest: Equatable, Sendable {
         return AgentPanelAgentSource(rawValue: value)
     }
 
-    private static func feedSource(_ value: Any?) -> String? {
-        guard let value = nonemptyString(value),
-              value.range(of: #"^[a-z][a-z0-9-]{0,31}$"#, options: .regularExpression) != nil else {
-            return nil
-        }
-        return value
-    }
-
     private static func requestIdentifier(_ value: Any?) -> String? {
         guard let value = nonemptyString(value) else { return nil }
         return AgentPanelWindowInputBounds.identifier(value)
@@ -318,28 +211,12 @@ public enum AgentPanelRequest: Equatable, Sendable {
 
     /// A session id used to ADDRESS A WINDOW, rather than to name a sidecar transcript.
     ///
-    /// The sidecar paths above accept any nonempty string because the sidecar validates its own ids. This
-    /// one is compared against the live process table to find the window that owns the session, so it is
-    /// bounded and charset-restricted here: an unbounded value would be scanned against every process's
-    /// argv on every re-resolve.
+    /// A relayed request carries whatever id the sidecar validates for itself. This one is compared
+    /// against the live process table to find the window that owns the session, so it is bounded and
+    /// charset-restricted here: an unbounded value would be scanned against every process's argv on
+    /// every re-resolve.
     private static func sessionIdentifier(_ value: Any?) -> String? {
         requestIdentifier(value)
-    }
-
-    private static func uiValue(_ value: Any?) -> AgentPanelUIValue? {
-        if value is NSNull { return .null }
-        if let value = value as? Bool { return .bool(value) }
-        if let value = value as? String { return .string(value) }
-        return nil
-    }
-
-    /// An ABSENT mode means `raw`, which is the fidelity view and the behavior every caller had
-    /// before modes existed. A PRESENT but unrecognized mode is rejected: the caller meant something
-    /// specific and we cannot tell what, and guessing renumbers every index in the reply.
-    private static func eventMode(_ value: Any?) -> AgentPanelEventMode? {
-        guard let value else { return .raw }
-        guard let raw = value as? String, !raw.isEmpty else { return nil }
-        return AgentPanelEventMode(rawValue: raw)
     }
 
     private static func decodeTerminalIntent(

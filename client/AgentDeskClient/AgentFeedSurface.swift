@@ -335,95 +335,30 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
 /// The client's agent request type carried over the QUIC input lane. Bridged from the AgentPanel
 /// package's `AgentPanelRequest`, whose webview-message decoding is authoritative and tested in the
 /// package (`requestDecoderPreservesCurrentAgentFeedContract`).
+///
+/// Two natures, and the split is deliberate. A relayed sidecar call carries a path and an opaque
+/// body: the phone reads no field of it, so adding one to the feed is not a change to this file.
+/// The AskUserQuestion cases are native authority -- they press buttons in another application's
+/// window -- so they stay typed and bounded all the way across.
 enum AgentFeedRequest: Equatable {
-    case projectsWatch(AgentProjectsWatch)
-    case projectsUnwatch(AgentProjectsUnwatch)
-    case projectSessionsWatch(AgentProjectSessionsWatch)
-    case projectSessionsUnwatch(AgentProjectSessionsUnwatch)
-    case threadSubscribe(AgentThreadSubscribe)
-    case threadLoadOlder(AgentThreadLoadOlder)
-    case threadUnsubscribe(AgentThreadUnsubscribe)
-    case rawEvent(AgentRawEventRequest)
-    case sessionCreate(AgentSessionCreate)
-    case sessionSend(AgentSessionSend)
-    case sessionAbort(AgentSessionAbort)
-    case extensionUIResponse(AgentExtensionUIResponse)
+    case http(AgentFeedRelayRequest)
+    case httpCancel(AgentFeedRelayCancel)
     case questionWatch(AgentWindowQuestionWatch)
     case questionUnwatch(AgentWindowQuestionUnwatch)
     case questionAction(AgentWindowQuestionAction)
 
     init(_ request: AgentPanelRequest) {
         switch request {
-        case .projectsWatch(let subscriptionId):
-            self = .projectsWatch(AgentProjectsWatch(subscriptionId: subscriptionId))
-        case .projectsUnwatch(let subscriptionId):
-            self = .projectsUnwatch(AgentProjectsUnwatch(subscriptionId: subscriptionId))
-        case .projectSessionsWatch(let subscriptionId, let projectPath):
-            self = .projectSessionsWatch(AgentProjectSessionsWatch(
-                subscriptionId: subscriptionId,
-                projectPath: projectPath
+        case .httpRequest(let rid, let method, let path, let body, let stream):
+            self = .http(AgentFeedRelayRequest(
+                rid: rid,
+                method: method,
+                path: path,
+                body: body,
+                stream: stream
             ))
-        case .projectSessionsUnwatch(let subscriptionId):
-            self = .projectSessionsUnwatch(AgentProjectSessionsUnwatch(subscriptionId: subscriptionId))
-        case .threadSubscribe(let source, let sessionId, let mode):
-            self = .threadSubscribe(AgentThreadSubscribe(
-                source: source,
-                sessionId: sessionId,
-                mode: mode.rawValue
-            ))
-        case .threadLoadOlder(let source, let sessionId, let beforeIndex, let limit, let mode):
-            self = .threadLoadOlder(AgentThreadLoadOlder(
-                source: source,
-                sessionId: sessionId,
-                beforeIndex: beforeIndex,
-                limit: limit,
-                mode: mode.rawValue
-            ))
-        case .threadUnsubscribe(let source, let sessionId):
-            self = .threadUnsubscribe(AgentThreadUnsubscribe(
-                source: source,
-                sessionId: sessionId
-            ))
-        case .rawEvent(let requestId, let source, let sessionId, let eventIndex, let mode):
-            self = .rawEvent(AgentRawEventRequest(
-                requestId: requestId,
-                source: source,
-                sessionId: sessionId,
-                eventIndex: eventIndex,
-                mode: mode.rawValue
-            ))
-        case .createSession(let requestId, let source, let projectPath):
-            self = .sessionCreate(AgentSessionCreate(
-                requestId: requestId,
-                source: source,
-                projectPath: projectPath
-            ))
-        case .send(let requestId, let source, let sessionId, let text, let delivery):
-            self = .sessionSend(AgentSessionSend(
-                requestId: requestId,
-                source: source,
-                sessionId: sessionId,
-                text: text,
-                delivery: delivery
-            ))
-        case .abort(let requestId, let source, let sessionId):
-            self = .sessionAbort(AgentSessionAbort(
-                requestId: requestId,
-                source: source,
-                sessionId: sessionId
-            ))
-        case .extensionUIResponse(let source, let sessionId, let requestId, let value):
-            let wireValue: AgentJSONValue = switch value {
-            case .null: .null
-            case .bool(let value): .bool(value)
-            case .string(let value): .string(value)
-            }
-            self = .extensionUIResponse(AgentExtensionUIResponse(
-                source: source,
-                sessionId: sessionId,
-                requestId: requestId,
-                value: wireValue
-            ))
+        case .httpCancel(let rid):
+            self = .httpCancel(AgentFeedRelayCancel(rid: rid))
         case .questionWatch(let subscriptionId, let sessionId):
             self = .questionWatch(AgentWindowQuestionWatch(
                 subscriptionId: subscriptionId,
