@@ -1,17 +1,16 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { CornerDownLeft, List, LoaderCircle, PanelLeft, Send, Square, Terminal as TerminalIcon, X } from "lucide-react";
+import type { AgentUiRequest, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
 import type {
-  AgentExtensionUIRequest,
   AgentTerminalContext,
   AgentTerminalRequest,
   AgentTerminalStatus,
-  BridgeDataSource,
-  BridgeProject,
-  BridgeSessionSummary,
+  HostActionsClient,
   QuestionPanelStatus,
   WindowComposerStatus,
-} from "../features/activity-feed/data-source/BridgeDataSource";
-import { WindowComposerError, WindowQuestionError } from "../features/activity-feed/data-source/BridgeDataSource";
+} from "../features/activity-feed/data-source/HostActionsClient";
+import { WindowComposerError, WindowQuestionError } from "../features/activity-feed/data-source/HostActionsClient";
 import type { AgentSessionControlState, EventMode } from "../features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "../features/activity-feed/data-source/AgentDataSourceContext";
 import { ActivityFeed } from "../features/activity-feed/ActivityFeed";
@@ -111,12 +110,21 @@ function retryDelayMs(attempt: number): number {
 }
 
 interface SelectedThread {
-  project: BridgeProject;
-  session: BridgeSessionSummary;
+  project: ProjectSummary;
+  session: SessionSummary;
 }
 
+/**
+ * The panel's two collaborators, kept apart because they are different systems.
+ *
+ * `feed` is the sidecar reached over HTTP: projects, threads, transcripts, commands. `host` is the
+ * Mac's native authority reached by postMessage: another application's text fields, its question
+ * panel, and the PTY. Handing the view one merged object would let a future call reach the second
+ * while believing it was talking to the first.
+ */
 interface Props {
-  bridge: BridgeDataSource;
+  feed: SidecarDataSource;
+  host: HostActionsClient;
 }
 
 type TerminalState =
@@ -143,9 +151,9 @@ function sameRequest(
   );
 }
 
-export function App({ bridge }: Props) {
+export function App({ feed, host }: Props) {
   const [selectedThread, setSelectedThread] = useState<SelectedThread | null>(null);
-  const [projects, setProjects] = useState<BridgeProject[]>([]);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loadingLayer, setLoadingLayer] = useState(true);
   const [layerError, setLayerError] = useState<string | null>(null);
   const [terminal, setTerminal] = useState<TerminalState>({ kind: "idle" });
@@ -165,7 +173,7 @@ export function App({ bridge }: Props) {
   // feed owns the event stream the mirror's content derives from) and rendered by
   // the composer band below the transcript.
   const [openQuestion, setOpenQuestion] = useState<OpenAskUserQuestion | null>(null);
-  const [extensionUI, setExtensionUI] = useState<AgentExtensionUIRequest[]>([]);
+  const [extensionUI, setExtensionUI] = useState<AgentUiRequest[]>([]);
   const { compact, hoverCapable } = useSidebarEnvironment();
   const [sidebarPreferences, setSidebarPreferences] = useState(loadSidebarPreferences);
   const [hoverPreviewOpen, setHoverPreviewOpen] = useState(false);
@@ -239,7 +247,7 @@ export function App({ bridge }: Props) {
       setRetrying(false);
       consecutiveFailures.current = 0;
     };
-    const stop = bridge.subscribeProjects((snapshot) => {
+    const stop = feed.subscribeProjects((snapshot) => {
       setProjects(snapshot);
       onLoaded();
     }, onError);
@@ -247,7 +255,7 @@ export function App({ bridge }: Props) {
       if (timer !== undefined) clearTimeout(timer);
       stop?.();
     };
-  }, [bridge, retryNonce]);
+  }, [feed, retryNonce]);
 
   useEffect(() => {
     if (projects.length === 0) return;
@@ -269,7 +277,7 @@ export function App({ bridge }: Props) {
 
   useEffect(
     () =>
-      bridge.subscribeTerminalStatus((status) => {
+      host.subscribeTerminalStatus((status) => {
         setTerminal((current) => {
           const request = terminalRequest(current);
           if (!request || !sameRequest(request, status)) return current;
@@ -294,27 +302,22 @@ export function App({ bridge }: Props) {
           }
         });
       }),
-    [bridge],
+    [host],
   );
 
+  // Extension-UI prompts arrive on the open thread's own stream, so they need no session filter
+  // here and cannot outlive the thread that asked them: leaving a thread closes the stream, and
+  // `openSession` clears whatever was still on screen.
   useEffect(
-    () => bridge.subscribeExtensionUI((event) => {
+    () => feed.subscribeExtensionUI((event) => {
       if (event.type === "dismiss") {
-        setExtensionUI((current) => current.filter((item) => !(
-          item.source === event.source &&
-          item.sessionId === event.sessionId &&
-          item.requestId === event.requestId
-        )));
+        setExtensionUI((current) => current.filter((item) => item.requestId !== event.requestId));
         return;
       }
       const request = event.request;
       setExtensionUI((current) => {
         const next = [
-          ...current.filter((item) => !(
-          item.source === request.source &&
-          item.sessionId === request.sessionId &&
-          item.requestId === request.requestId
-          )),
+          ...current.filter((item) => item.requestId !== request.requestId),
           request,
         ];
         const prompts = next.filter((item) => item.expectsResponse);
@@ -322,7 +325,7 @@ export function App({ bridge }: Props) {
         return [...notices, ...prompts];
       });
     }),
-    [bridge],
+    [feed],
   );
 
   const setSidebarOpen = useCallback((open: boolean) => {
@@ -400,14 +403,14 @@ export function App({ bridge }: Props) {
       terminal.kind === "loading" ||
       terminal.kind === "ready"
     ) {
-      bridge.closeTerminal(request);
+      host.closeTerminal(request);
     }
-    bridge.endTerminalContext(request);
+    host.endTerminalContext(request);
     setTerminal({ kind: "idle" });
-  }, [bridge, terminal]);
+  }, [host, terminal]);
 
   const openSession = useCallback(
-    (project: BridgeProject, session: BridgeSessionSummary) => {
+    (project: ProjectSummary, session: SessionSummary) => {
       if (selectedThread) endCurrentTerminalContext();
       setEventMode((current) => session.capabilities.modes.includes(current)
         ? current
@@ -432,12 +435,12 @@ export function App({ bridge }: Props) {
       source: selectedThread.session.source,
       sessionId: selectedThread.session.sessionId,
     };
-    const request = bridge.createTerminalRequest(context);
+    const request = host.createTerminalRequest(context);
     setTerminal({ kind: "loading", request });
-    bridge.openTerminal(request);
-  }, [bridge, selectedThread]);
+    host.openTerminal(request);
+  }, [host, selectedThread]);
 
-  const createPiSession = useCallback(async (project: BridgeProject) => {
+  const createPiSession = useCallback(async (project: ProjectSummary) => {
     if (creatingProjectPath) return;
     setCreatingProjectPath(project.projectPath);
     setCreationErrors((current) => {
@@ -446,18 +449,26 @@ export function App({ bridge }: Props) {
       return next;
     });
     try {
-      const receipt = await bridge.createSession(project.projectPath, "pi");
-      if (!receipt.session) {
-        throw new Error("created session response did not include a session descriptor");
-      }
-      openSession(project, receipt.session);
+      const created = await feed.createSession(project.projectPath, "pi");
+      // Everything but the source comes from the descriptor, because the sidecar decides the
+      // title, timestamps, and capabilities. The source is the one we asked for: the descriptor
+      // widens it to a bare string so a backend can register an identifier neither side's build
+      // knows, and this call site is not that case.
+      openSession(project, {
+        sessionId: created.sessionId,
+        source: "pi",
+        title: created.title,
+        lastEventAt: created.lastEventAt,
+        activity: created.activity,
+        capabilities: created.capabilities,
+      });
     } catch (error) {
       const message = String((error as Error).message ?? error);
       setCreationErrors((current) => new Map(current).set(project.projectPath, message));
     } finally {
       setCreatingProjectPath(null);
     }
-  }, [bridge, creatingProjectPath, openSession]);
+  }, [feed, creatingProjectPath, openSession]);
 
   const sendPrompt = useCallback(async (text: string, delivery: "next" | "steer") => {
     if (!selectedThread || commandPending || !text.trim()) return;
@@ -465,7 +476,7 @@ export function App({ bridge }: Props) {
     setCommandPending(true);
     setCommandError(null);
     try {
-      await bridge.sendMessage(selectedThread.session, trimmed, delivery);
+      await feed.sendMessage(selectedThread.session, trimmed, delivery);
     } catch (error) {
       setCommandError(String((error as Error).message ?? error));
       // Rethrow so the composer that owns the draft only clears it on success.
@@ -473,30 +484,30 @@ export function App({ bridge }: Props) {
     } finally {
       setCommandPending(false);
     }
-  }, [bridge, commandPending, selectedThread]);
+  }, [feed, commandPending, selectedThread]);
 
   const abortRun = useCallback(async () => {
     if (!selectedThread || commandPending) return;
     setCommandPending(true);
     setCommandError(null);
     try {
-      await bridge.abortSession(selectedThread.session);
+      await feed.abortSession(selectedThread.session);
     } catch (error) {
       setCommandError(String((error as Error).message ?? error));
     } finally {
       setCommandPending(false);
     }
-  }, [bridge, commandPending, selectedThread]);
+  }, [feed, commandPending, selectedThread]);
 
   const closeTerminal = useCallback(() => {
     const request = terminalRequest(terminal);
     if (!request) return;
-    bridge.closeTerminal(request);
+    host.closeTerminal(request);
     setTerminal({ kind: "closing", request });
-  }, [bridge, terminal]);
+  }, [host, terminal]);
 
   const sidebarProps = {
-    bridge,
+    feed,
     projects,
     loading: loadingLayer,
     error: layerError,
@@ -510,11 +521,11 @@ export function App({ bridge }: Props) {
     expandedProjectPaths,
     onToggleProject: toggleProject,
     onSelectSession: openSession,
-    onCreatePiSession: (project: BridgeProject) => void createPiSession(project),
+    onCreatePiSession: (project: ProjectSummary) => void createPiSession(project),
   };
 
   return (
-    <DataSourceProvider source={bridge}>
+    <DataSourceProvider source={feed}>
       <div className="relative flex h-dvh min-w-0 bg-background text-foreground">
         <FontSizeRoot />
         {usesModalSidebar ? (
@@ -614,14 +625,13 @@ export function App({ bridge }: Props) {
               </div>
             )}
           </main>
-          {selectedThread?.session.capabilities.supportsExtensionUI ? (
+          {selectedThread?.session.capabilities.supportsExtensionUi ? (
             <ExtensionUISurface
-              requests={extensionUI.filter((request) =>
-                request.source === selectedThread.session.source && request.sessionId === selectedThread.session.sessionId)}
+              requests={extensionUI}
               onRespond={async (request, value) => {
                 setCommandError(null);
                 try {
-                  await bridge.respondToExtensionUI(request, value);
+                  await feed.respondToExtensionUI(selectedThread.session, request.requestId, value);
                 } catch (error) {
                   setCommandError(String((error as Error).message ?? error));
                   throw error;
@@ -641,7 +651,7 @@ export function App({ bridge }: Props) {
           {selectedThread ? (
             <SessionComposer
               key={selectedThread.session.sessionId}
-              bridge={bridge}
+              host={host}
               session={selectedThread.session}
               state={sessionState}
               usage={sessionUsage}
@@ -670,7 +680,7 @@ function harnessName(source: "claude" | "codex"): string {
 }
 
 function SessionComposer({
-  bridge,
+  host,
   session,
   state,
   usage,
@@ -680,8 +690,8 @@ function SessionComposer({
   onSendMessage,
   onAbort,
 }: {
-  bridge: BridgeDataSource;
-  session: BridgeSessionSummary;
+  host: HostActionsClient;
+  session: SessionSummary;
   state: AgentSessionControlState;
   usage: TokenUsage | null;
   pending: boolean;
@@ -706,11 +716,11 @@ function SessionComposer({
   // The hook is inert -- and never subscribes -- for every other source, so
   // hook order here never varies. Codex reads are free on any Desktop, so it
   // skips the off-Desktop bring-and-move-back round trip Claude's windows need.
-  const windowComposer = useWindowComposer(bridge, sessionId, windowBand, isCodex ? "Codex" : "Claude", isCodex);
+  const windowComposer = useWindowComposer(host, sessionId, windowBand, isCodex ? "Codex" : "Claude", isCodex);
   // The AskUserQuestion mirror is Claude-only too, and only while the feed says a
   // question is open. Its content comes from the transcript JSON; the hook adds
   // the focus-gated watch for live state and the press actions.
-  const questionPanel = useClaudeWindowQuestion(bridge, sessionId, isClaude && question != null, question);
+  const questionPanel = useClaudeWindowQuestion(host, sessionId, isClaude && question != null, question);
 
   // The harness band (Pi) composes against local draft state; the window
   // band (Claude/Codex) composes against the live window's text.
@@ -970,7 +980,7 @@ type ComposerAction = {
  * updates it while idle. Enter stays the one explicit action.
  */
 function useWindowComposer(
-  bridge: BridgeDataSource,
+  host: HostActionsClient,
   sessionId: string,
   active: boolean,
   windowName: string,
@@ -1047,17 +1057,17 @@ function useWindowComposer(
   // draft stays so nothing is lost, and the next edit retries.
   const push = useCallback(async () => {
     try {
-      await bridge.syncWindowComposer(sessionId, draftRef.current);
+      await host.syncWindowComposer(sessionId, draftRef.current);
     } catch (failure) {
       reportFailure(failure);
     }
-  }, [bridge, reportFailure, sessionId]);
+  }, [host, reportFailure, sessionId]);
 
   const load = useCallback(async () => {
     setPending(true);
     setError(null);
     try {
-      const text = await bridge.readWindowComposer(sessionId);
+      const text = await host.readWindowComposer(sessionId);
       // Adopt only when no keystroke landed while the read was in flight: the
       // window's text is older than a draft the user typed in the meantime, and
       // replacing the draft would delete what they just wrote.
@@ -1069,11 +1079,11 @@ function useWindowComposer(
     } finally {
       setPending(false);
     }
-  }, [adopt, bridge, reportFailure, sessionId]);
+  }, [adopt, host, reportFailure, sessionId]);
 
   const submitWindow = useCallback(
-    () => run(() => bridge.submitWindowComposer(sessionId, draftRef.current)),
-    [bridge, run, sessionId],
+    () => run(() => host.submitWindowComposer(sessionId, draftRef.current)),
+    [host, run, sessionId],
   );
 
   // The focus-gated watch: subscribing makes the host's forced status prefill
@@ -1082,7 +1092,7 @@ function useWindowComposer(
   useEffect(() => {
     if (!active || !focused) return;
     roundTripDone.current = false;
-    return bridge.subscribeWindowComposer(sessionId, (next) => {
+    return host.subscribeWindowComposer(sessionId, (next) => {
       setStatus(next);
       if (next.composerText === null) return;
       if (!edited.current) {
@@ -1104,7 +1114,7 @@ function useWindowComposer(
         void load();
       }
     });
-  }, [active, bridge, focused, freeReads, load, sessionId, setDraftBoth]);
+  }, [active, host, focused, freeReads, load, sessionId, setDraftBoth]);
 
   // Debounced auto-sync: every edit while focused pushes the full value 500ms
   // after the last keystroke. Clearing the field is an edit too, so deletions
@@ -1172,7 +1182,7 @@ function useWindowComposer(
  * arriving between keystrokes cannot clobber them.
  */
 function useClaudeWindowQuestion(
-  bridge: BridgeDataSource,
+  host: HostActionsClient,
   sessionId: string,
   active: boolean,
   question: OpenAskUserQuestion | null,
@@ -1258,8 +1268,8 @@ function useClaudeWindowQuestion(
 
   useEffect(() => {
     if (!active) return;
-    return bridge.subscribeWindowQuestion(sessionId, adoptFromStatus);
-  }, [active, adoptFromStatus, bridge, sessionId]);
+    return host.subscribeWindowQuestion(sessionId, adoptFromStatus);
+  }, [active, adoptFromStatus, host, sessionId]);
 
   const selectOption = useCallback(
     (index: number) => {
@@ -1269,13 +1279,13 @@ function useClaudeWindowQuestion(
         setSelected((current) =>
           desired ? [...current, index] : current.filter((entry) => entry !== index),
         );
-        void run(() => bridge.selectQuestionOption(sessionId, index, desired));
+        void run(() => host.selectQuestionOption(sessionId, index, desired));
       } else {
         setSelected([index]);
-        void run(() => bridge.selectQuestionOption(sessionId, index, true));
+        void run(() => host.selectQuestionOption(sessionId, index, true));
       }
     },
-    [bridge, question?.multiSelect, run, sessionId],
+    [host, question?.multiSelect, run, sessionId],
   );
 
   // The automatic push behind every Other keystroke, debounced like the composer's
@@ -1284,7 +1294,7 @@ function useClaudeWindowQuestion(
   const pushOther = useCallback(async () => {
     const sent = otherTextRef.current;
     try {
-      const result = await bridge.setQuestionOther(sessionId, sent);
+      const result = await host.setQuestionOther(sessionId, sent);
       // An edit during flight superseded this push; adopting the stale echo would
       // clobber the newer text. Keep the status, drop the stale text.
       if (otherTextRef.current === sent) {
@@ -1295,7 +1305,7 @@ function useClaudeWindowQuestion(
     } catch (failure) {
       reportFailure(failure);
     }
-  }, [adoptFromResult, bridge, reportFailure, sessionId]);
+  }, [adoptFromResult, host, reportFailure, sessionId]);
 
   const changeOther = useCallback(
     (text: string) => {
@@ -1326,21 +1336,21 @@ function useClaudeWindowQuestion(
   }, [otherChecked, pushOther]);
 
   const submit = useCallback(
-    () => run(() => bridge.submitQuestion(sessionId)),
-    [bridge, run, sessionId],
+    () => run(() => host.submitQuestion(sessionId)),
+    [host, run, sessionId],
   );
   const skip = useCallback(
-    () => run(() => bridge.skipQuestion(sessionId)),
-    [bridge, run, sessionId],
+    () => run(() => host.skipQuestion(sessionId)),
+    [host, run, sessionId],
   );
   const dismiss = useCallback(
-    () => run(() => bridge.dismissQuestion(sessionId)),
-    [bridge, run, sessionId],
+    () => run(() => host.dismissQuestion(sessionId)),
+    [host, run, sessionId],
   );
   const toggleOptions = useCallback(() => {
     setOptionsExpanded((current) => !current);
-    void run(() => bridge.toggleQuestionOptions(sessionId));
-  }, [bridge, run, sessionId]);
+    void run(() => host.toggleQuestionOptions(sessionId));
+  }, [host, run, sessionId]);
 
   // Mirror-composer discipline: only a KNOWN reason disables the controls; before
   // any status they stay usable so the watch (and its forced read) can start.
@@ -1544,9 +1554,9 @@ function ExtensionUISurface({
   onRespond,
   onDismiss,
 }: {
-  requests: AgentExtensionUIRequest[];
-  onRespond: (request: AgentExtensionUIRequest, value: string | boolean | null) => Promise<void>;
-  onDismiss: (request: AgentExtensionUIRequest) => void;
+  requests: AgentUiRequest[];
+  onRespond: (request: AgentUiRequest, value: string | boolean | null) => Promise<void>;
+  onDismiss: (request: AgentUiRequest) => void;
 }) {
   const request = requests.find((candidate) => candidate.expectsResponse) ?? requests.at(-1);
   if (!request) return null;
@@ -1569,8 +1579,8 @@ function ExtensionUIPrompt({
   request,
   onRespond,
 }: {
-  request: AgentExtensionUIRequest;
-  onRespond: (request: AgentExtensionUIRequest, value: string | boolean | null) => Promise<void>;
+  request: AgentUiRequest;
+  onRespond: (request: AgentUiRequest, value: string | boolean | null) => Promise<void>;
 }) {
   const [value, setValue] = useState(request.prefill ?? "");
   const [pending, setPending] = useState(false);

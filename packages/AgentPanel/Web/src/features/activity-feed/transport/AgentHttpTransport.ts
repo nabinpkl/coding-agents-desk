@@ -17,6 +17,8 @@
  *     same header. Same paths, same responses, no relay.
  */
 
+import type { HostBridge } from "../data-source/HostBridge";
+
 /** One relayed response, as it arrives. */
 export interface TransportResponse {
   status: number;
@@ -95,12 +97,6 @@ function relayFrame(message: unknown): RelayFrame | null {
   return message as RelayFrame;
 }
 
-/** What the relay transport needs of its host: post a frame, hear frames back. */
-export interface RelayChannel {
-  post(frame: unknown): void;
-  onFrame(callback: (frame: unknown) => void): () => void;
-}
-
 /** One in-flight request's reassembly state. */
 interface Transfer {
   status: number | null;
@@ -126,8 +122,8 @@ export class RelayHttpTransport implements AgentHttpTransport {
   private readonly transfers = new Map<string, Transfer>();
   private readonly detach: () => void;
 
-  constructor(private readonly channel: RelayChannel) {
-    this.detach = channel.onFrame((message) => this.receive(message));
+  constructor(private readonly channel: HostBridge) {
+    this.detach = channel.onHostMessage((message) => this.receive(message));
   }
 
   /** Abandons every in-flight request. Each one fails so no caller waits forever. */
@@ -202,7 +198,7 @@ export class RelayHttpTransport implements AgentHttpTransport {
       onDone: () => {},
       onFail: options.onFail,
     });
-    this.channel.post({
+    this.channel.postToHost({
       t: "agent-http-req",
       rid,
       method: options.method,
@@ -215,7 +211,7 @@ export class RelayHttpTransport implements AgentHttpTransport {
 
   private cancel(rid: string): void {
     if (!this.transfers.delete(rid)) return;
-    this.channel.post({ t: "agent-http-cancel", rid });
+    this.channel.postToHost({ t: "agent-http-cancel", rid });
   }
 
   private receive(message: unknown): void {
@@ -223,7 +219,8 @@ export class RelayHttpTransport implements AgentHttpTransport {
     if (!frame) return;
     const transfer = this.transfers.get(frame.rid);
     // A frame for a rid we cancelled is expected, not an error: cancel and the relay's last
-    // frames cross in flight.
+    // frames cross in flight. Frames for no rid at all are expected too: the same channel carries
+    // the host's native-authority replies, which `HostActionsClient` reads.
     if (!transfer) return;
 
     switch (frame.t) {
@@ -262,39 +259,6 @@ export class RelayHttpTransport implements AgentHttpTransport {
     this.transfers.delete(rid);
     transfer.onFail(reason);
   }
-}
-
-/** The WKWebView's channel: post to the host's message handler, hear its injected deliveries. */
-export function webkitRelayChannel(): RelayChannel {
-  return {
-    post(frame) {
-      window.webkit?.messageHandlers?.agentFeed?.postMessage(frame);
-    },
-    onFrame(callback) {
-      return hostDeliveries(callback);
-    },
-  };
-}
-
-/** Callbacks fed by the single global entry point the host calls. */
-const deliveryCallbacks = new Set<(frame: unknown) => void>();
-
-function hostDeliveries(callback: (frame: unknown) => void): () => void {
-  if (window.__agentFeedDeliver === undefined) {
-    window.__agentFeedDeliver = (frame: unknown) => {
-      for (const registered of deliveryCallbacks) {
-        try {
-          registered(frame);
-        } catch (error) {
-          console.error("[AgentHttpTransport] delivery callback threw", error);
-        }
-      }
-    };
-  }
-  deliveryCallbacks.add(callback);
-  return () => {
-    deliveryCallbacks.delete(callback);
-  };
 }
 
 /**

@@ -1,0 +1,205 @@
+/**
+ * What the data source owns: the sidecar's routes, and turning one timeline stream into the
+ * handler callbacks the viewer speaks.
+ *
+ * Everything it used to own besides that -- correlation, buffering, capability-driven fan-out of
+ * four coordinated subscriptions -- moved to the transport below it and the sidecar above it, so
+ * there is nothing here to test but the calls themselves and the one translation.
+ */
+
+import { describe, expect, it } from "vitest";
+import { SidecarDataSource, SidecarError } from "./SidecarDataSource";
+import { FakeHttpTransport } from "../transport/FakeHttpTransport";
+import type { SessionEventsHandlers } from "./AgentDataSource";
+
+const SESSION = { source: "claude", sessionId: "sid-1", mode: "nice" as const };
+
+interface Recorder extends SessionEventsHandlers {
+  snapshots: unknown[];
+  events: unknown[];
+  usages: unknown[];
+  tails: unknown[];
+  errors: string[];
+}
+
+function handlers(): Recorder {
+  const sink: Recorder = {
+    snapshots: [],
+    events: [],
+    usages: [],
+    tails: [],
+    errors: [],
+    onSnapshot: (snapshot) => sink.snapshots.push(snapshot),
+    onEvent: (activityEvent) => sink.events.push(activityEvent),
+    onUsage: (usage) => sink.usages.push(usage),
+    onLiveTail: (activityEvent) => sink.tails.push(activityEvent),
+    onError: () => sink.errors.push("failed"),
+  };
+  return sink;
+}
+
+function event(index: number) {
+  return {
+    id: `e${index}`,
+    index,
+    revision: 0,
+    phase: "complete" as const,
+    ts: 1000 + index,
+    type: "assistant" as const,
+    blocks: [{ kind: "text" as const, text: `line ${index}` }],
+  };
+}
+
+describe("SidecarDataSource", () => {
+  it("names the session and mode in the path, since an index means nothing without them", async () => {
+    const transport = new FakeHttpTransport();
+    transport.defaultResponse = {
+      status: 200,
+      body: JSON.stringify({ events: [event(0)], total: 1, usage: null }),
+    };
+    const source = new SidecarDataSource(transport);
+
+    await source.fetchEventsPage(SESSION, 40, 20);
+
+    expect(transport.requests.at(-1)?.path).toBe(
+      "/api/sessions/claude/sid-1/events?offset=40&limit=20&mode=nice",
+    );
+  });
+
+  it("opens one stream for a thread, not four", () => {
+    const transport = new FakeHttpTransport();
+    const source = new SidecarDataSource(transport);
+
+    source.subscribeSessionEvents(SESSION, 0, handlers());
+
+    expect(transport.subscriptions.map((open) => open.path)).toEqual([
+      "/api/sessions/claude/sid-1/timeline?mode=nice",
+    ]);
+  });
+
+  it("routes a snapshot envelope to onSnapshot and a later one to onEvent", () => {
+    const transport = new FakeHttpTransport();
+    const source = new SidecarDataSource(transport);
+    const sink = handlers();
+    source.subscribeSessionEvents(SESSION, 0, sink);
+
+    transport.deliver("timeline", {
+      type: "timeline",
+      envelope: {
+        kind: "snapshot",
+        sequence: 10,
+        mode: "nice",
+        events: [event(0)],
+        windowStart: 4,
+        total: 11,
+        runState: "running",
+        queue: { steer: 1, followUp: 2 },
+        usage: { current: 100, limit: 200, updatedAt: 5 },
+      },
+    });
+    transport.deliver("timeline", {
+      type: "timeline",
+      envelope: {
+        kind: "upsert",
+        sequence: 11,
+        mode: "nice",
+        events: [event(1)],
+        windowStart: 4,
+        total: 12,
+        runState: "running",
+        queue: { steer: 1, followUp: 2 },
+      },
+    });
+
+    expect(sink.snapshots).toEqual([
+      {
+        events: [event(0)],
+        total: 11,
+        usage: { current: 100, limit: 200, updatedAt: 5 },
+        windowStart: 4,
+        state: { sequence: 10, runState: "running", queue: { steer: 1, followUp: 2 } },
+      },
+    ]);
+    expect(sink.events).toEqual([event(1)]);
+    // The second envelope carried no usage, so the meter is not blanked between readings.
+    expect(sink.usages).toEqual([{ current: 100, limit: 200, updatedAt: 5 }]);
+  });
+
+  it("passes the live tail and its end through", () => {
+    const transport = new FakeHttpTransport();
+    const source = new SidecarDataSource(transport);
+    const sink = handlers();
+    source.subscribeSessionEvents(SESSION, 0, sink);
+
+    transport.deliver("timeline", { type: "tail", event: event(2) });
+    transport.deliver("timeline", { type: "tail", event: null });
+
+    expect(sink.tails).toEqual([event(2), null]);
+  });
+
+  it("delivers extension UI from the thread's own stream", () => {
+    const transport = new FakeHttpTransport();
+    const source = new SidecarDataSource(transport);
+    const seen: unknown[] = [];
+    source.subscribeExtensionUI((uiEvent) => seen.push(uiEvent));
+    source.subscribeSessionEvents(SESSION, 0, handlers());
+
+    const request = { requestId: "q1", kind: "confirm" as const, expectsResponse: true };
+    transport.deliver("timeline", { type: "ui", event: { type: "request", request } });
+
+    expect(seen).toEqual([{ type: "request", request }]);
+  });
+
+  it("keeps the sidecar's error code rather than flattening it into a failure", async () => {
+    const transport = new FakeHttpTransport();
+    transport.defaultResponse = {
+      status: 409,
+      body: JSON.stringify({ error: { code: "unsupported-mode", message: "no nice view" } }),
+    };
+    const source = new SidecarDataSource(transport);
+
+    await expect(source.fetchEventsPage(SESSION, 0, 10)).rejects.toThrow(
+      expect.objectContaining({ code: "unsupported-mode", status: 409 }) as Error,
+    );
+  });
+
+  it("returns a raw transcript line as text, without a JSON round trip", async () => {
+    const transport = new FakeHttpTransport();
+    // Deliberately not valid JSON on its own terms as a body: the route answers text.
+    transport.defaultResponse = { status: 200, body: '{"type":"assistant"}' };
+    const source = new SidecarDataSource(transport);
+
+    const line = await source.fetchRawEvent(SESSION, 4);
+
+    expect(line).toBe('{"type":"assistant"}');
+    expect(transport.requests.at(-1)?.path).toBe(
+      "/api/sessions/claude/sid-1/events/4/raw?mode=nice",
+    );
+  });
+
+  it("sends a message to the session's own route with its delivery", async () => {
+    const transport = new FakeHttpTransport();
+    transport.defaultResponse = {
+      status: 202,
+      body: JSON.stringify({ requestId: "r1", delivery: "steer" }),
+    };
+    const source = new SidecarDataSource(transport);
+
+    const receipt = await source.sendMessage(SESSION, "stop that", "steer");
+
+    expect(transport.requests.at(-1)).toEqual({
+      method: "POST",
+      path: "/api/agent-sessions/claude/sid-1/messages",
+      body: { text: "stop that", delivery: "steer" },
+    });
+    expect(receipt.delivery).toBe("steer");
+  });
+
+  it("throws a typed error when the sidecar answers something that is not JSON", async () => {
+    const transport = new FakeHttpTransport();
+    transport.defaultResponse = { status: 200, body: "<html>gateway</html>" };
+    const source = new SidecarDataSource(transport);
+
+    await expect(source.createSession("/projects/alpha")).rejects.toBeInstanceOf(SidecarError);
+  });
+});

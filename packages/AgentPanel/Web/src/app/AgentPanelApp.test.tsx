@@ -1,20 +1,22 @@
 /**
  * Render tests for the webview App shell.
  *
- * These tests use a FakeHostBridge to drive the BridgeDataSource and assert
- * shell behavior: project expansion streams session previews, selecting a session
- * mounts the thread view, and the project tree remains available beside it.
+ * The App has two collaborators and these tests drive both: a FakeHttpTransport standing in for
+ * the sidecar behind `feed`, and a FakeHostBridge standing in for the Mac's native authority
+ * behind `host`. Keeping them apart in the test is the point -- a shell behaviour that reached
+ * the wrong one would pass against a single merged fake.
  *
  * ActivityFeed is mocked (it's a heavy virtualized component that depends on
- * ProseMirror/Milkdown) -- we assert that it is mounted and that the bridge
- * received an agent-thread-sub message, which is the behavioral signal that the
- * data layer wired up correctly.
+ * ProseMirror/Milkdown), so the signal that the data layer wired up correctly is that the feed
+ * mounted against the selected thread.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, waitFor, within } from "@testing-library/react";
-import { BridgeDataSource } from "../features/activity-feed/data-source/BridgeDataSource";
+import { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
+import { HostActionsClient } from "../features/activity-feed/data-source/HostActionsClient";
 import { FakeHostBridge } from "../features/activity-feed/data-source/HostBridge";
+import { FakeHttpTransport } from "../features/activity-feed/transport/FakeHttpTransport";
 import { storeSidebarPreferences } from "../features/sidebar/sidebarPreferences";
 import { App } from "./AgentPanelApp";
 
@@ -25,6 +27,7 @@ import { App } from "./AgentPanelApp";
 // Mock ActivityFeed so Milkdown/ProseMirror never loads in jsdom.
 vi.mock("../features/activity-feed/ActivityFeed", async () => {
   const { useEffect } = await import("react");
+  const { useDataSource } = await import("../features/activity-feed/data-source/AgentDataSourceContext");
   // A fixed occupancy report so tests can assert the context meter: 150k of a
   // 200k window is 75%.
   const FIXED_USAGE = { current: 150_000, limit: 200_000, updatedAt: 1, model: "claude-opus-5" };
@@ -42,6 +45,17 @@ vi.mock("../features/activity-feed/ActivityFeed", async () => {
       onUsage?: (usage: unknown) => void;
       onOpenQuestion?: (question: unknown) => void;
     }) => {
+      // The real feed opens the thread's stream, and extension-UI prompts ride it. A mock that
+      // rendered without opening it would leave the App listening to a stream nobody asked for.
+      const dataSource = useDataSource();
+      useEffect(
+        () => dataSource.subscribeSessionEvents(
+          { source, sessionId, mode: "nice" },
+          0,
+          { onEvent: () => {}, onSnapshot: () => {} },
+        ),
+        [dataSource, sessionId, source],
+      );
       useEffect(() => {
         onUsage?.(FIXED_USAGE);
       }, [onUsage, sessionId]);
@@ -93,49 +107,51 @@ vi.mock("../features/activity-feed/DiffBlock", () => ({
 // Fixture project data
 // ---------------------------------------------------------------------------
 
-// Abbreviated wire shape (matches SharedTypes.swift / BridgeDataSource wire layer).
+// The sidecar's own shapes, unabbreviated. There is no rename layer between here and the panel
+// any more, so a fixture that drifts from the sidecar fails rather than being translated.
 const FIXTURE_PROJECT_A = {
-  pp: "/projects/alpha",
-  dn: "Alpha Project",
-  sc: { claude: 1, codex: 1 },
-  sn: 2,
-  lea: Date.now() - 10_000,
+  projectPath: "/projects/alpha",
+  displayName: "Alpha Project",
+  sourceCounts: { claude: 1, codex: 1 },
+  sessionCount: 2,
+  lastEventAt: Date.now() - 10_000,
 };
 
 const FIXTURE_PROJECT_B = {
-  pp: "/projects/beta",
-  dn: "Beta Project",
-  sc: { claude: 1, codex: 0 },
-  sn: 1,
-  lea: Date.now() - 5_000,
+  projectPath: "/projects/beta",
+  displayName: "Beta Project",
+  sourceCounts: { claude: 1, codex: 0 },
+  sessionCount: 1,
+  lastEventAt: Date.now() - 5_000,
 };
 
 const FIXTURE_PROJECTS = [FIXTURE_PROJECT_A, FIXTURE_PROJECT_B];
 const READ_ONLY_CAPABILITIES = {
-  md: ["raw", "nice"],
-  snd: false,
-  str: false,
-  abt: false,
-  raw: true,
-  pty: true,
-  xui: false,
+  modes: ["raw", "nice"],
+  canSend: false,
+  canSteer: false,
+  canAbort: false,
+  canFetchRaw: true,
+  canOpenTerminal: true,
+  supportsExtensionUi: false,
+  canStreamLive: false,
 };
 const FIXTURE_SESSIONS = [
   {
-    sid: "sid-claude-01",
-    src: "claude" as const,
-    ttl: "Session Claude 01",
-    lea: Date.now() - 10_000,
-    ac: "live" as const,
-    cap: READ_ONLY_CAPABILITIES,
+    sessionId: "sid-claude-01",
+    source: "claude" as const,
+    title: "Session Claude 01",
+    lastEventAt: Date.now() - 10_000,
+    activity: "live" as const,
+    capabilities: READ_ONLY_CAPABILITIES,
   },
   {
-    sid: "sid-codex-01",
-    src: "codex" as const,
-    ttl: "Session Codex 01",
-    lea: Date.now() - 60_000,
-    ac: "ready" as const,
-    cap: READ_ONLY_CAPABILITIES,
+    sessionId: "sid-codex-01",
+    source: "codex" as const,
+    title: "Session Codex 01",
+    lastEventAt: Date.now() - 60_000,
+    activity: "ready" as const,
+    capabilities: READ_ONLY_CAPABILITIES,
   },
 ];
 
@@ -188,17 +204,23 @@ function firePointerEvent(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function setup() {
+/** `terminalIds` hands out request ids in order, for the tests that need to tell two apart. */
+function setup(terminalIds: string[] = []) {
   const fake = new FakeHostBridge();
+  const transport = new FakeHttpTransport();
+  const pending = [...terminalIds];
   let sequence = 0;
-  const bridge = new BridgeDataSource(fake, {
+  const host = new HostActionsClient(fake, {
     requestIDFactory: (prefix) =>
-      prefix === "terminal" ? "request-1" : `${prefix}-${++sequence}`,
+      prefix === "terminal"
+        ? pending.shift() ?? "request-1"
+        : `${prefix}-${++sequence}`,
   });
-  const { unmount } = render(<App bridge={bridge} />);
-  return { fake, bridge, unmount };
+  const { unmount } = render(<App feed={new SidecarDataSource(transport)} host={host} />);
+  return { fake, transport, host, unmount };
 }
 
+/** The newest subscription id the App posted for a native-authority watch. */
 function latestSubscription(fake: FakeHostBridge, type: string): string {
   const message = [...fake.posted]
     .reverse()
@@ -209,47 +231,59 @@ function latestSubscription(fake: FakeHostBridge, type: string): string {
   return message.sub;
 }
 
-function deliverProjects(fake: FakeHostBridge) {
-  const sub = latestSubscription(fake, "agent-projects-watch");
+function deliverProjects(transport: FakeHttpTransport) {
   act(() => {
-    fake.deliver({ t: "agent-projects", sub, p: FIXTURE_PROJECTS });
+    transport.deliver("/api/projects/stream", { projects: FIXTURE_PROJECTS });
   });
 }
 
-function deliverSessions(fake: FakeHostBridge) {
-  deliverProjectSessions(fake, FIXTURE_PROJECT_A.pp, FIXTURE_SESSIONS);
-}
-
-function latestProjectSessionsSubscription(fake: FakeHostBridge, projectPath: string): string {
-  const message = [...fake.posted]
-    .reverse()
-    .find((candidate) => {
-      const wire = candidate as { t?: string; pp?: string };
-      return wire.t === "agent-project-sessions-watch" && wire.pp === projectPath;
-    }) as { sub?: string } | undefined;
-  if (!message?.sub) throw new Error(`missing session subscription for ${projectPath}`);
-  return message.sub;
+function deliverSessions(transport: FakeHttpTransport) {
+  deliverProjectSessions(transport, FIXTURE_PROJECT_A.projectPath, FIXTURE_SESSIONS);
 }
 
 function deliverProjectSessions(
-  fake: FakeHostBridge,
+  transport: FakeHttpTransport,
   projectPath: string,
   sessions: typeof FIXTURE_SESSIONS | Array<Record<string, unknown>>,
 ) {
-  const sub = latestProjectSessionsSubscription(fake, projectPath);
   act(() => {
-    fake.deliver({
-      t: "agent-project-sessions",
-      sub,
-      pp: projectPath,
-      ss: sessions,
-    });
+    transport.deliver(`project=${encodeURIComponent(projectPath)}`, { projectPath, sessions });
   });
 }
 
-function openClaudeThread(fake: FakeHostBridge) {
-  deliverProjects(fake);
-  deliverSessions(fake);
+const PI_SESSION = {
+  sessionId: "pi-1",
+  source: "pi",
+  projectPath: FIXTURE_PROJECT_A.projectPath,
+  title: "SDK-authored Pi session",
+  lastEventAt: 123,
+  activity: "ready",
+  capabilities: {
+    modes: ["nice"],
+    canSend: true,
+    canSteer: true,
+    canAbort: true,
+    canFetchRaw: false,
+    canOpenTerminal: false,
+    supportsExtensionUi: true,
+    canStreamLive: true,
+  },
+};
+
+/** Clicks New Pi session and lets the sidecar answer with the descriptor the panel then opens. */
+async function createPiSession(transport: FakeHttpTransport) {
+  transport.responses.set("POST /api/agent-sessions", {
+    status: 201,
+    body: JSON.stringify(PI_SESSION),
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "New Pi session in Alpha Project" }));
+  });
+}
+
+function openClaudeThread(transport: FakeHttpTransport) {
+  deliverProjects(transport);
+  deliverSessions(transport);
   fireEvent.click(screen.getByText("Session Claude 01"));
 }
 
@@ -300,9 +334,9 @@ describe("App shell", () => {
   });
 
   it("renders fed projects with their source badges and session counts", () => {
-    const { fake, unmount } = setup();
+    const { transport, unmount } = setup();
 
-    deliverProjects(fake);
+    deliverProjects(transport);
 
     // Project names
     expect(screen.getByText("Alpha Project")).toBeInTheDocument();
@@ -322,35 +356,34 @@ describe("App shell", () => {
   });
 
   it("expands the newest project and streams its session preview", () => {
-    const { fake, unmount } = setup();
-    deliverProjects(fake);
+    const { transport, fake, unmount } = setup();
+    deliverProjects(transport);
 
     expect(screen.getByRole("button", { name: /^Alpha Project 2 sessions/ })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("button", { name: /^Beta Project 1 session/ })).toHaveAttribute("aria-expanded", "false");
-    expect(fake.posted).toContainEqual(expect.objectContaining({
-      t: "agent-project-sessions-watch",
-      pp: FIXTURE_PROJECT_A.pp,
-    }));
+    expect(transport.subscriptions.map((open) => open.path)).toContainEqual(
+      expect.stringContaining(`project=${encodeURIComponent(FIXTURE_PROJECT_A.projectPath)}`),
+    );
 
-    deliverSessions(fake);
+    deliverSessions(transport);
     expect(screen.getByText("Session Claude 01")).toBeInTheDocument();
     expect(screen.getByText("Session Codex 01")).toBeInTheDocument();
     unmount();
   });
 
   it("keeps several projects expanded with independent subscriptions", () => {
-    const { fake, unmount } = setup();
-    deliverProjects(fake);
-    deliverSessions(fake);
+    const { transport, fake, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
 
     fireEvent.click(screen.getByRole("button", { name: /^Beta Project 1 session/ }));
-    deliverProjectSessions(fake, FIXTURE_PROJECT_B.pp, [{
-      sid: "sid-beta-01",
-      src: "claude",
-      ttl: "Beta session",
-      lea: Date.now(),
-      ac: "ready",
-      cap: READ_ONLY_CAPABILITIES,
+    deliverProjectSessions(transport, FIXTURE_PROJECT_B.projectPath, [{
+      sessionId: "sid-beta-01",
+      source: "claude",
+      title: "Beta session",
+      lastEventAt: Date.now(),
+      activity: "ready",
+      capabilities: READ_ONLY_CAPABILITIES,
     }]);
 
     expect(screen.getByText("Session Claude 01")).toBeInTheDocument();
@@ -358,12 +391,15 @@ describe("App shell", () => {
     expect(screen.getByRole("button", { name: /^Alpha Project 2 sessions/ })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("button", { name: /^Beta Project 1 session/ })).toHaveAttribute("aria-expanded", "true");
 
-    const alphaSubscription = latestProjectSessionsSubscription(fake, FIXTURE_PROJECT_A.pp);
     fireEvent.click(screen.getByRole("button", { name: /^Alpha Project 2 sessions/ }));
-    expect(fake.posted).toContainEqual({
-      t: "agent-project-sessions-unwatch",
-      sub: alphaSubscription,
-    });
+    // Collapsing closes that project's stream and leaves the other open.
+    expect(
+      transport.subscriptions
+        .map((open) => open.path)
+        .filter((path) => path.startsWith("/api/sessions/stream")),
+    ).toEqual([
+      expect.stringContaining(`project=${encodeURIComponent(FIXTURE_PROJECT_B.projectPath)}`),
+    ]);
     expect(screen.queryByText("Session Claude 01")).not.toBeInTheDocument();
     expect(screen.getByText("Beta session")).toBeInTheDocument();
 
@@ -371,17 +407,17 @@ describe("App shell", () => {
   });
 
   it("shows three sessions first and reveals ten more per click", () => {
-    const { fake, unmount } = setup();
-    deliverProjects(fake);
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
     const manySessions = Array.from({ length: 24 }, (_, index) => ({
-      sid: `sid-${index + 1}`,
-      src: "codex",
-      ttl: `Session ${String(index + 1).padStart(2, "0")}`,
-      lea: Date.now() - index,
-      ac: "ready",
-      cap: READ_ONLY_CAPABILITIES,
+      sessionId: `sid-${index + 1}`,
+      source: "codex",
+      title: `Session ${String(index + 1).padStart(2, "0")}`,
+      lastEventAt: Date.now() - index,
+      activity: "ready",
+      capabilities: READ_ONLY_CAPABILITIES,
     }));
-    deliverProjectSessions(fake, FIXTURE_PROJECT_A.pp, manySessions);
+    deliverProjectSessions(transport, FIXTURE_PROJECT_A.projectPath, manySessions);
 
     expect(screen.getByText("Session 03")).toBeInTheDocument();
     expect(screen.queryByText("Session 04")).not.toBeInTheDocument();
@@ -394,7 +430,7 @@ describe("App shell", () => {
     expect(screen.getByText("Session 24")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Show .* more/ })).not.toBeInTheDocument();
 
-    deliverProjectSessions(fake, FIXTURE_PROJECT_A.pp, manySessions.slice(0, 2));
+    deliverProjectSessions(transport, FIXTURE_PROJECT_A.projectPath, manySessions.slice(0, 2));
     expect(screen.getByText("Session 02")).toBeInTheDocument();
     expect(screen.queryByText("Session 03")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Show .* more/ })).not.toBeInTheDocument();
@@ -403,8 +439,8 @@ describe("App shell", () => {
   });
 
   it("mounts the selected thread while keeping its project sessions visible", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
 
     const feed = screen.getByTestId("activity-feed");
     expect(feed).toHaveAttribute("data-session-id", "sid-claude-01");
@@ -419,16 +455,13 @@ describe("App shell", () => {
   });
 
   it("preserves expanded projects when project activity reorders the catalog", () => {
-    const { fake, unmount } = setup();
-    const projectSubscription = latestSubscription(fake, "agent-projects-watch");
-    deliverProjects(fake);
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
     fireEvent.click(screen.getByRole("button", { name: /^Beta Project 1 session/ }));
 
     act(() => {
-      fake.deliver({
-        t: "agent-projects",
-        sub: projectSubscription,
-        p: [FIXTURE_PROJECT_B, FIXTURE_PROJECT_A],
+      transport.deliver("/api/projects/stream", {
+        projects: [FIXTURE_PROJECT_B, FIXTURE_PROJECT_A],
       });
     });
 
@@ -439,9 +472,9 @@ describe("App shell", () => {
 
   it("uses a modal project drawer on compact view and restores focus after dismissal", async () => {
     installViewport({ compact: true, hoverCapable: false });
-    const { fake, unmount } = setup();
-    deliverProjects(fake);
-    deliverSessions(fake);
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
 
     const trigger = screen.getByRole("button", { name: "Open projects" });
     const drawer = screen.getByRole("dialog", { name: "Projects" });
@@ -471,7 +504,7 @@ describe("App shell", () => {
     installViewport({ compact: true, hoverCapable: true });
     storeSidebarPreferences({ open: false, width: 300 });
     const first = setup();
-    deliverProjects(first.fake);
+    deliverProjects(first.transport);
 
     const trigger = screen.getByRole("button", { name: "Pin projects sidebar" });
     expect(screen.queryByRole("complementary", { name: "Projects preview" })).not.toBeInTheDocument();
@@ -529,8 +562,8 @@ describe("App shell", () => {
   });
 
   it("gives the thread a header slot for its own controls", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
 
     expect(screen.getByTestId("activity-feed")).toHaveAttribute(
       "data-controls-host",
@@ -540,8 +573,8 @@ describe("App shell", () => {
   });
 
   it("drops the centring spacer so a long title uses the full row", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
 
     // The spacer opposite the back button existed only to centre the title, and
     // cost it 36px plus a gap -- enough to truncate real session titles.
@@ -556,8 +589,8 @@ describe("App shell", () => {
   });
 
   it("announces terminal progress without spending a row on it", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
 
     // Progress and ready are carried by the header icon; the sentence is for
@@ -578,8 +611,8 @@ describe("App shell", () => {
   });
 
   it("keeps failure and exit visible, because those need reading", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
 
     act(() => {
@@ -595,11 +628,11 @@ describe("App shell", () => {
   });
 
   it("shows the terminal launcher only on a thread", () => {
-    const { fake, unmount } = setup();
+    const { transport, unmount } = setup();
 
     expect(screen.queryByRole("button", { name: /open .* terminal/i })).not.toBeInTheDocument();
-    deliverProjects(fake);
-    deliverSessions(fake);
+    deliverProjects(transport);
+    deliverSessions(transport);
     expect(screen.queryByRole("button", { name: /open .* terminal/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Session Claude 01"));
@@ -608,8 +641,8 @@ describe("App shell", () => {
   });
 
   it("opens with exact context and enters loading until matching native status", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
 
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
 
@@ -634,8 +667,8 @@ describe("App shell", () => {
   });
 
   it("updates the band for matching error and ended status", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
 
     act(() => {
@@ -664,8 +697,8 @@ describe("App shell", () => {
   });
 
   it("keeps closing fenced from delayed ready and does not close twice on replacement", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
     act(() => {
       fake.deliver({
@@ -698,7 +731,9 @@ describe("App shell", () => {
   });
 
   it("posts close then context-ended before replacing the selected thread", () => {
-    const fake = new FakeHostBridge();
+    const { fake, transport, unmount } = setup();
+    // Patched after mount, which is enough: the message this watches for is posted by a click,
+    // and what the test asserts is that the feed is still mounted when it goes out.
     const observations: boolean[] = [];
     const originalPost = fake.postToHost.bind(fake);
     fake.postToHost = (message: unknown) => {
@@ -707,13 +742,7 @@ describe("App shell", () => {
       }
       originalPost(message);
     };
-    let sequence = 0;
-    const bridge = new BridgeDataSource(fake, {
-      requestIDFactory: (prefix) =>
-        prefix === "terminal" ? "request-1" : `${prefix}-${++sequence}`,
-    });
-    const { unmount } = render(<App bridge={bridge} />);
-    openClaudeThread(fake);
+    openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
 
     fireEvent.click(screen.getByText("Session Codex 01"));
@@ -742,17 +771,8 @@ describe("App shell", () => {
   });
 
   it("ends the old request before opening a replacement session", () => {
-    const ids = ["request-1", "request-2"];
-    const fake = new FakeHostBridge();
-    let sequence = 0;
-    const bridge = new BridgeDataSource(fake, {
-      requestIDFactory: (prefix) =>
-        prefix === "terminal"
-          ? ids.shift() ?? "unexpected"
-          : `${prefix}-${++sequence}`,
-    });
-    const { unmount } = render(<App bridge={bridge} />);
-    openClaudeThread(fake);
+    const { fake, transport, unmount } = setup(["request-1", "request-2"]);
+    openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
     fireEvent.click(screen.getByText("Session Codex 01"));
     fireEvent.click(screen.getByRole("button", { name: "Open Codex terminal" }));
@@ -774,17 +794,8 @@ describe("App shell", () => {
   });
 
   it("ignores stale ready after navigation and session replacement", () => {
-    const ids = ["request-1", "request-2"];
-    const fake = new FakeHostBridge();
-    let sequence = 0;
-    const bridge = new BridgeDataSource(fake, {
-      requestIDFactory: (prefix) =>
-        prefix === "terminal"
-          ? ids.shift() ?? "unexpected"
-          : `${prefix}-${++sequence}`,
-    });
-    const { unmount } = render(<App bridge={bridge} />);
-    openClaudeThread(fake);
+    const { fake, transport, unmount } = setup(["request-1", "request-2"]);
+    openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
     fireEvent.click(screen.getByText("Session Codex 01"));
     fireEvent.click(screen.getByRole("button", { name: "Open Codex terminal" }));
@@ -812,86 +823,72 @@ describe("App shell", () => {
   });
 
   it("creates a Pi session, sends through the composer, and answers extension UI", async () => {
-    const { fake, unmount } = setup();
-    deliverProjects(fake);
-    deliverSessions(fake);
+    const { transport, fake, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
 
-    fireEvent.click(screen.getByRole("button", { name: "New Pi session in Alpha Project" }));
-    const create = fake.posted.at(-1) as { rid: string };
-    await act(async () => {
-      fake.deliver({
-        t: "agent-command-receipt",
-        rid: create.rid,
-        src: "pi",
-        sid: "pi-1",
-        del: "created",
-        s: {
-          sid: "pi-1",
-          src: "pi",
-          ttl: "SDK-authored Pi session",
-          lea: 123,
-          ac: "ready",
-          cap: { md: ["nice"], snd: true, str: true, abt: true, raw: false, pty: false, xui: true },
-        },
-      });
-    });
+    await createPiSession(transport);
 
     expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-source", "pi");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("SDK-authored Pi session");
     expect(screen.queryByRole("button", { name: /Pi terminal/i })).not.toBeInTheDocument();
+    transport.responses.set("POST /api/agent-sessions/pi/pi-1/messages", {
+      status: 202,
+      body: JSON.stringify({ requestId: "r-send", delivery: "immediate" }),
+    });
     fireEvent.change(screen.getByRole("textbox", { name: "Message Pi" }), { target: { value: "Inspect the repo" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-    const send = fake.posted.at(-1) as { rid: string };
-    expect(send).toMatchObject({ t: "agent-session-send", src: "pi", sid: "pi-1", tx: "Inspect the repo", del: "next" });
     await act(async () => {
-      fake.deliver({ t: "agent-command-receipt", rid: send.rid, src: "pi", sid: "pi-1", del: "immediate" });
+      fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    });
+    expect(transport.requests.at(-1)).toEqual({
+      method: "POST",
+      path: "/api/agent-sessions/pi/pi-1/messages",
+      body: { text: "Inspect the repo", delivery: "next" },
     });
 
+    // Prompts ride the thread's own stream, so they cannot outlive the thread that asked them.
     act(() => {
-      fake.deliver({ t: "agent-extension-ui-request", src: "pi", sid: "pi-1", rid: "ui-1", k: "confirm", ttl: "Proceed?", m: "Run it", er: true });
+      transport.deliver("/timeline", {
+        type: "ui",
+        event: {
+          type: "request",
+          request: { requestId: "ui-1", kind: "confirm", title: "Proceed?", message: "Run it", expectsResponse: true },
+        },
+      });
       for (let index = 0; index < 12; index += 1) {
-        fake.deliver({
-          t: "agent-extension-ui-request", src: "pi", sid: "pi-1", rid: `notice-${index}`,
-          k: "status", key: "working", m: `Status ${index}`, er: false,
+        transport.deliver("/timeline", {
+          type: "ui",
+          event: {
+            type: "request",
+            request: { requestId: `notice-${index}`, kind: "status", key: "working", message: `Status ${index}`, expectsResponse: false },
+          },
         });
       }
     });
     expect(screen.getByRole("dialog", { name: "Proceed?" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
-    expect(fake.posted.at(-1)).toEqual({ t: "agent-extension-ui-response", src: "pi", sid: "pi-1", rid: "ui-1", v: true });
-    expect(screen.getByRole("button", { name: "Confirm" })).toBeDisabled();
+
+    transport.responses.set("POST /api/agent-sessions/pi/pi-1/ui/ui-1", { status: 200, body: "{}" });
     await act(async () => {
-      fake.deliver({ t: "agent-command-receipt", rid: "ui-1", src: "pi", sid: "pi-1", del: "ui" });
-      fake.deliver({ t: "agent-extension-ui-dismissed", src: "pi", sid: "pi-1", rid: "ui-1" });
+      fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    });
+    expect(transport.requests.at(-1)).toEqual({
+      method: "POST",
+      path: "/api/agent-sessions/pi/pi-1/ui/ui-1",
+      body: { value: true },
+    });
+    act(() => {
+      transport.deliver("/timeline", { type: "ui", event: { type: "dismiss", requestId: "ui-1" } });
     });
     expect(screen.queryByRole("dialog", { name: "Proceed?" })).not.toBeInTheDocument();
     unmount();
   });
 
   it("renders the message composer as a roomy, padded field rather than a single cramped row", async () => {
-    const { fake, unmount } = setup();
-    deliverProjects(fake);
-    deliverSessions(fake);
+    const { transport, fake, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
 
-    fireEvent.click(screen.getByRole("button", { name: "New Pi session in Alpha Project" }));
-    const create = fake.posted.at(-1) as { rid: string };
-    await act(async () => {
-      fake.deliver({
-        t: "agent-command-receipt",
-        rid: create.rid,
-        src: "pi",
-        sid: "pi-1",
-        del: "created",
-        s: {
-          sid: "pi-1",
-          src: "pi",
-          ttl: "SDK-authored Pi session",
-          lea: 123,
-          ac: "ready",
-          cap: { md: ["nice"], snd: true, str: true, abt: true, raw: false, pty: false, xui: true },
-        },
-      });
-    });
+    await createPiSession(transport);
 
     const field = screen.getByRole("textbox", { name: "Message Pi" }) as HTMLTextAreaElement;
     expect(field.className).toContain("min-h-12");
@@ -920,29 +917,11 @@ describe("App shell", () => {
     }
 
     try {
-      const { fake, unmount } = setup();
-      deliverProjects(fake);
-      deliverSessions(fake);
+      const { transport, fake, unmount } = setup();
+      deliverProjects(transport);
+      deliverSessions(transport);
 
-      fireEvent.click(screen.getByRole("button", { name: "New Pi session in Alpha Project" }));
-      const create = fake.posted.at(-1) as { rid: string };
-      await act(async () => {
-        fake.deliver({
-          t: "agent-command-receipt",
-          rid: create.rid,
-          src: "pi",
-          sid: "pi-1",
-          del: "created",
-          s: {
-            sid: "pi-1",
-            src: "pi",
-            ttl: "SDK-authored Pi session",
-            lea: 123,
-            ac: "ready",
-            cap: { md: ["nice"], snd: true, str: true, abt: true, raw: false, pty: false, xui: true },
-          },
-        });
-      });
+      await createPiSession(transport);
 
       const field = screen.getByRole("textbox", { name: "Message Pi" }) as HTMLTextAreaElement;
       fireEvent.change(field, { target: { value: "a draft long enough to wrap onto a second line" } });
@@ -974,14 +953,10 @@ describe("visibility subscriptions recover from failure", () => {
     // this the first failure was permanent: a restored Agents window that came up
     // one second before its sidecar showed "agent feed is not ready" for the whole
     // session, and only reopening the window cleared it.
-    const { fake, unmount } = setup();
-    const first = latestSubscription(fake, "agent-projects-watch");
+    const { transport, unmount } = setup();
+    const first = transport.subscriptions.at(-1);
     act(() => {
-      fake.deliver({
-        t: "agent-projects-error",
-        sub: first,
-        r: "agent feed is not ready",
-      });
+      transport.fail("/api/projects/stream", "agent feed is not ready");
     });
     expect(screen.getByRole("alert")).toHaveTextContent("agent feed is not ready");
     // And it says so, so the error does not read as a dead end.
@@ -990,67 +965,51 @@ describe("visibility subscriptions recover from failure", () => {
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    const second = latestSubscription(fake, "agent-projects-watch");
-    expect(second).not.toBe(first);
+    expect(transport.subscriptions.at(-1)).not.toBe(first);
 
     // The retry succeeds, and the error gives way to real content.
-    act(() => {
-      fake.deliver({ t: "agent-projects", sub: second, p: FIXTURE_PROJECTS });
-    });
+    deliverProjects(transport);
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByText("Alpha Project")).toBeInTheDocument();
     unmount();
   });
 
   it("backs off between attempts rather than asking once a second forever", () => {
-    const { fake, unmount } = setup();
-    const attempts = [latestSubscription(fake, "agent-projects-watch")];
+    const { transport, unmount } = setup();
+    const current = () => transport.subscriptions.at(-1);
+    const attempts = [current()];
     const failCurrent = () => {
-      act(() => {
-        fake.deliver({
-          t: "agent-projects-error",
-          sub: attempts[attempts.length - 1]!,
-          r: "agent feed is not ready",
-        });
-      });
+      act(() => void transport.fail("/api/projects/stream", "agent feed is not ready"));
     };
 
     failCurrent();
     act(() => void vi.advanceTimersByTime(1000));
-    attempts.push(latestSubscription(fake, "agent-projects-watch"));
+    attempts.push(current());
 
     // The second failure must wait longer than the first did.
     failCurrent();
     act(() => void vi.advanceTimersByTime(1000));
-    expect(latestSubscription(fake, "agent-projects-watch")).toBe(attempts[1]);
+    expect(current()).toBe(attempts[1]);
     act(() => void vi.advanceTimersByTime(1000));
-    attempts.push(latestSubscription(fake, "agent-projects-watch"));
+    attempts.push(current());
 
     expect(new Set(attempts).size).toBe(3);
     unmount();
   });
 
   it("drops an expanded project's pending retry when the project collapses", () => {
-    const { fake, unmount } = setup();
-    deliverProjects(fake);
-    const sessionsSub = latestProjectSessionsSubscription(fake, FIXTURE_PROJECT_A.pp);
-    act(() => {
-      fake.deliver({
-        t: "agent-project-sessions-error",
-        sub: sessionsSub,
-        pp: FIXTURE_PROJECT_A.pp,
-        r: "agent feed is not ready",
-      });
-    });
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    const alpha = `project=${encodeURIComponent(FIXTURE_PROJECT_A.projectPath)}`;
+    act(() => void transport.fail(alpha, "agent feed is not ready"));
     expect(screen.getByRole("alert")).toHaveTextContent("agent feed is not ready");
 
     fireEvent.click(screen.getByRole("button", { name: /^Alpha Project 2 sessions/ }));
-    const beforeWait = fake.posted.length;
     act(() => void vi.advanceTimersByTime(30_000));
-    const sessionWatchesAfter = fake.posted
-      .slice(beforeWait)
-      .filter((m) => (m as { t?: string }).t === "agent-project-sessions-watch");
-    expect(sessionWatchesAfter).toHaveLength(0);
+    // The collapsed project's retry was dropped with it, so nothing reopened its stream.
+    expect(transport.subscriptions.map((open) => open.path)).not.toContainEqual(
+      expect.stringContaining(alpha),
+    );
     unmount();
   });
 });
@@ -1093,8 +1052,8 @@ describe("Claude window composer field", () => {
   }
 
   it("is focusable before the first status, then disabled with the host's reason", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
 
     // Focusable before any status: the watch is focus-gated, so a field disabled "until a status
     // arrives" could never be focused and the status would never arrive.
@@ -1116,8 +1075,8 @@ describe("Claude window composer field", () => {
     // The host used to resolve this by picking the lowest-pid instance, which wrote into whichever
     // Claude launched first. Now it refuses and says so, and the viewer's fix -- close the session in
     // one of them -- has to be readable from the notice alone.
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     const { sub } = focusComposer(fake);
 
     deliverStatus(fake, sub, { en: false, r: "multiple-instances" });
@@ -1131,8 +1090,8 @@ describe("Claude window composer field", () => {
 
   it("prefills from the window on focus and auto-syncs every edit after a debounce", async () => {
     vi.useFakeTimers();
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     const { field, sub } = focusComposer(fake);
 
     deliverStatus(fake, sub, { tx: "half-written prompt" });
@@ -1162,8 +1121,8 @@ describe("Claude window composer field", () => {
 
   it("clearing the field is an edit, so deletions sync as the empty value", async () => {
     vi.useFakeTimers();
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     const { field, sub } = focusComposer(fake);
     deliverStatus(fake, sub, { tx: "text to delete" });
 
@@ -1180,8 +1139,8 @@ describe("Claude window composer field", () => {
   });
 
   it("blur flushes an unsynced edit and unwatches, stopping the host's poll", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     const { field, sub } = focusComposer(fake);
     deliverStatus(fake, sub, { tx: "" });
 
@@ -1202,8 +1161,8 @@ describe("Claude window composer field", () => {
   });
 
   it("an echo of our own write marks the field in sync; an independent edit then lands", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     const { field, sub } = focusComposer(fake);
     deliverStatus(fake, sub, { tx: "" });
 
@@ -1218,8 +1177,8 @@ describe("Claude window composer field", () => {
   });
 
   it("does not overwrite an in-flight edit with a status that arrives while typing", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     const { field, sub } = focusComposer(fake);
     deliverStatus(fake, sub, { tx: "" });
 
@@ -1235,8 +1194,8 @@ describe("Claude window composer field", () => {
 
   it("does not overwrite newer typing with a stale sync result that resolves late", async () => {
     vi.useFakeTimers();
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     const { field, sub } = focusComposer(fake);
     deliverStatus(fake, sub, { tx: "" });
 
@@ -1266,8 +1225,8 @@ describe("Claude window composer field", () => {
   });
 
   it("the Enter button actually sends by filling and pressing Return", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     const { field, sub } = focusComposer(fake);
     deliverStatus(fake, sub, { tx: "" });
 
@@ -1287,8 +1246,8 @@ describe("Claude window composer field", () => {
   });
 
   it("an off-Desktop window is prefilled by one automatic round trip", async () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     const { field, sub } = focusComposer(fake);
 
     deliverStatus(fake, sub, { cur: false });
@@ -1315,8 +1274,8 @@ describe("Claude window composer field", () => {
     // macOS has no public API for moving another application's window between Desktops, so without
     // yabai an off-Desktop composer is unreachable, full stop. The automatic round trip fails once
     // and the caption names the real fix rather than inviting an endless retry.
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     const { sub } = focusComposer(fake);
 
     deliverStatus(fake, sub, { cur: false });
@@ -1337,9 +1296,9 @@ describe("Claude window composer field", () => {
   });
 
   it("renders the shared band for Codex through the window composer", () => {
-    const { fake, unmount } = setup();
-    deliverProjects(fake);
-    deliverSessions(fake);
+    const { transport, fake, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
     fireEvent.click(screen.getByText("Session Codex 01"));
 
     // The composer UI is shared across sources, so Codex gets the same window
@@ -1368,9 +1327,9 @@ describe("Claude window composer field", () => {
   });
 
   it("does not send Codex on the off-Desktop round trip: its reads are always free", () => {
-    const { fake, unmount } = setup();
-    deliverProjects(fake);
-    deliverSessions(fake);
+    const { transport, fake, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
     fireEvent.click(screen.getByText("Session Codex 01"));
 
     // Codex Desktop materializes trees for every window on every Desktop, so the watch status always
@@ -1400,8 +1359,8 @@ describe("Claude window composer field", () => {
   });
 
   it("renders the composer as a roomy, padded field rather than a single cramped row", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     const { sub } = focusComposer(fake);
 
     deliverStatus(fake, sub, { tx: "" });
@@ -1420,8 +1379,8 @@ describe("Claude window composer field", () => {
   });
 
   it("shows the context meter below the composer's action row, not in the header", async () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
 
     // The meter is rendered by the composer band, which exists for every source;
     // the shell's header keeps only the feed's own controls.
@@ -1436,29 +1395,11 @@ describe("Claude window composer field", () => {
   });
 
   it("shows the context meter in the Pi composer band as well", async () => {
-    const { fake, unmount } = setup();
-    deliverProjects(fake);
-    deliverSessions(fake);
+    const { transport, fake, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
 
-    fireEvent.click(screen.getByRole("button", { name: "New Pi session in Alpha Project" }));
-    const create = fake.posted.at(-1) as { rid: string };
-    await act(async () => {
-      fake.deliver({
-        t: "agent-command-receipt",
-        rid: create.rid,
-        src: "pi",
-        sid: "pi-1",
-        del: "created",
-        s: {
-          sid: "pi-1",
-          src: "pi",
-          ttl: "SDK-authored Pi session",
-          lea: 123,
-          ac: "ready",
-          cap: { md: ["nice"], snd: true, str: true, abt: true, raw: false, pty: false, xui: true },
-        },
-      });
-    });
+    await createPiSession(transport);
 
     await waitFor(() =>
       expect(
@@ -1546,8 +1487,8 @@ describe("AskUserQuestion mirror", () => {
   }
 
   it("renders the panel from the feed JSON: question, options, Other, and every action", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     openQuestion(QUESTION);
 
     expect(screen.getByLabelText("Claude question")).toHaveTextContent(
@@ -1578,8 +1519,8 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("posts a select action on choice and adopts the post-action read-back", async () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     openQuestion(QUESTION);
 
     fireEvent.click(screen.getByRole("radio", { name: "Reuse 2026-08-03.1" }));
@@ -1612,8 +1553,8 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("renders multi-select as checkboxes and un-checks by pressing with the desired state", async () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     openQuestion(MULTI_QUESTION);
 
     expect(screen.getAllByRole("checkbox").length).toBeGreaterThanOrEqual(3);
@@ -1661,8 +1602,8 @@ describe("AskUserQuestion mirror", () => {
 
   it("debounces Other typing into an other action, and other-empty is a real intent", async () => {
     vi.useFakeTimers();
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     openQuestion(QUESTION);
 
     const other = screen.getByLabelText("Other answer");
@@ -1687,8 +1628,8 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("posts submit, skip, and dismiss with no payload", async () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     openQuestion(QUESTION);
     const sub = questionSubscription(fake);
     deliverQuestionStatus(fake, sub, { sel: [0], sb: true });
@@ -1739,8 +1680,8 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("adopts pre-checked selection from the window's live state", async () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     openQuestion(MULTI_QUESTION);
     const sub = questionSubscription(fake);
 
@@ -1753,8 +1694,8 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("hides the mirror when the host reports the panel is gone, and closes the watch", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     openQuestion(QUESTION);
     const sub = questionSubscription(fake);
 
@@ -1765,8 +1706,8 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("unwatches when the question closes in the feed", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     openQuestion(QUESTION);
     expect(questionSubscription(fake)).toBeTruthy();
 
@@ -1776,8 +1717,8 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("surfaces the host's reason when the window is unreachable", () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     openQuestion(QUESTION);
     const sub = questionSubscription(fake);
 
@@ -1791,8 +1732,8 @@ describe("AskUserQuestion mirror", () => {
   });
 
   it("shows the option description when View options is toggled", async () => {
-    const { fake, unmount } = setup();
-    openClaudeThread(fake);
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
     openQuestion(QUESTION);
 
     expect(screen.queryByText("Add a ledger entry for a new application release.")).toBeNull();

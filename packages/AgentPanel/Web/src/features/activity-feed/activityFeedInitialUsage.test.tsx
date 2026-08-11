@@ -2,8 +2,8 @@ import { useState } from "react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DataSourceProvider } from "./data-source/AgentDataSourceContext";
-import { BridgeDataSource } from "./data-source/BridgeDataSource";
-import { FakeHostBridge } from "./data-source/HostBridge";
+import { SidecarDataSource } from "./data-source/SidecarDataSource";
+import { FakeHttpTransport } from "./transport/FakeHttpTransport";
 import { ActivityFeed } from "./ActivityFeed";
 import { TokenMeter } from "./TokenMeter";
 import type { TokenUsage } from "./useSessionEventsStream";
@@ -29,16 +29,16 @@ beforeEach(() => {
 
 /**
  * Full-chain regression coverage for the initial meter value: the real
- * ActivityFeed + real useSessionEventsStream + real BridgeDataSource driven
- * by a host replay. Covers what the app-level tests cannot, because they mock
+ * ActivityFeed + real useSessionEventsStream + real SidecarDataSource driven
+ * by a scripted timeline stream. Covers what the app-level tests cannot, because they mock
  * ActivityFeed: the snapshot's occupancy must reach the composer band's meter
  * before any live upsert exists, and when the snapshot carries no structured
  * occupancy the transcript's own last reading must initialize it.
  */
 describe("initial usage, full feed chain", () => {
   it("mirrors the snapshot's occupancy up through ActivityFeed.onUsage", async () => {
-    const host = new FakeHostBridge();
-    const source = new BridgeDataSource(host);
+    const transport = new FakeHttpTransport();
+    const source = new SidecarDataSource(transport);
     let seen: TokenUsage | null = null;
 
     function Harness() {
@@ -64,21 +64,19 @@ describe("initial usage, full feed chain", () => {
     render(<Harness />);
 
     act(() => {
-      host.deliver({
-        t: "agent-thread-chunk",
-        src: "claude",
-        sid: "sid-1",
-        ev: [],
-        ws: 1368,
-        tot: 1468,
-        lv: false,
-        u: { cur: 125_219, lim: 200_000, ua: 1786093420166, mdl: "claude-opus-5" },
-        md: "nice",
-        k: "snapshot",
-        seq: 1468,
-        rs: "idle",
-        qs: 0,
-        qf: 0,
+      transport.deliver("sid-1", {
+        type: "timeline",
+        envelope: {
+          kind: "snapshot",
+          sequence: 1468,
+          mode: "nice",
+          events: [],
+          windowStart: 1368,
+          total: 1468,
+          runState: "idle",
+          queue: { steer: 0, followUp: 0 },
+          usage: { current: 125_219, limit: 200_000, updatedAt: 1786093420166, model: "claude-opus-5" },
+        },
       });
     });
 
@@ -89,8 +87,8 @@ describe("initial usage, full feed chain", () => {
   });
 
   it("initializes from the transcript's last reading when the snapshot carries none", async () => {
-    const host = new FakeHostBridge();
-    const source = new BridgeDataSource(host);
+    const transport = new FakeHttpTransport();
+    const source = new SidecarDataSource(transport);
     let seen: TokenUsage | null = null;
 
     function Harness() {
@@ -116,44 +114,44 @@ describe("initial usage, full feed chain", () => {
     render(<Harness />);
 
     act(() => {
-      host.deliver({
-        t: "agent-thread-chunk",
-        src: "claude",
-        sid: "sid-2",
-        ev: [
-          {
-            id: "claude:line:4",
-            i: 0,
-            xi: 0,
-            rev: 0,
-            ph: "complete",
-            ts: 1000,
-            tp: "user",
-            b: [{ k: "text", tx: "prompt" }],
-          },
-          {
-            id: "claude:line:11",
-            i: 1,
-            xi: 1,
-            rev: 0,
-            ph: "complete",
-            ts: 2000,
-            tp: "assistant",
-            b: [
-              { k: "text", tx: "answer" },
-              { k: "metadata", lb: "Token Usage", tx: "71,411 tokens" },
-            ],
-          },
-        ],
-        ws: 0,
-        tot: 2,
-        lv: false,
-        md: "nice",
-        k: "snapshot",
-        seq: 2,
-        rs: "idle",
-        qs: 0,
-        qf: 0,
+      transport.deliver("sid-2", {
+        type: "timeline",
+        envelope: {
+          kind: "snapshot",
+          sequence: 2,
+          mode: "nice",
+          events: [
+            {
+              id: "claude:line:4",
+              index: 0,
+              otherModeIndex: 0,
+              revision: 0,
+              phase: "complete",
+              ts: 1000,
+              type: "user",
+              blocks: [{ kind: "text", text: "prompt" }],
+            },
+            {
+              id: "claude:line:11",
+              index: 1,
+              otherModeIndex: 1,
+              revision: 0,
+              phase: "complete",
+              ts: 2000,
+              type: "assistant",
+              blocks: [
+                { kind: "text", text: "answer" },
+                { kind: "metadata", label: "Token Usage", text: "71,411 tokens" },
+              ],
+            },
+          ],
+          windowStart: 0,
+          total: 2,
+          runState: "idle",
+          queue: { steer: 0, followUp: 0 },
+          // No `usage` at all, which is the case this test exists for: the sidecar resolved none,
+          // so the transcript's own last reading has to initialize the meter.
+        },
       });
     });
 

@@ -1,271 +1,271 @@
 /**
- * Host-free fixture for the WKWebView bridge.
+ * A fake sidecar behind the real relay, so the panel can run with no host and no agents.
  *
- * Every visibility watch echoes its generated subscription ID. This keeps the
- * fixture on the same replacement-snapshot contract as the native host.
+ * It answers `agent-http-req` frames rather than standing in for the data source, which means
+ * fixture mode exercises the whole path the product uses: request correlation, chunk reassembly,
+ * subscription framing, and the wire shapes themselves. The previous fixture faked thirteen typed
+ * message pairs, so it could and did drift from the host it imitated; there is one envelope to
+ * imitate now, and it carries no field of anything the sidecar says.
  */
 
-type Source = "claude" | "codex";
+import type {
+  ActivityEvent,
+  EventMode,
+  ProjectSummary,
+  SessionSummary,
+  SourceId,
+  TimelineMessage,
+} from "@agentdesk/agent-feed-wire";
 
 const PROJECT_PATH = "/Users/dev/projects/agent-desk";
 
-export const FIXTURE_PROJECTS = [
+export const FIXTURE_PROJECTS: ProjectSummary[] = [
   {
-    pp: PROJECT_PATH,
-    dn: "AgentDesk",
-    sc: { cl: 1, co: 1 },
-    sn: 2,
-    lea: Date.now() - 60_000,
+    projectPath: PROJECT_PATH,
+    displayName: "AgentDesk",
+    sourceCounts: { claude: 1, codex: 1 },
+    sessionCount: 2,
+    lastEventAt: Date.now() - 60_000,
   },
   {
-    pp: "/Users/dev/projects/research-tool",
-    dn: "Research Tool",
-    sc: { cl: 0, co: 2 },
-    sn: 2,
-    lea: Date.now() - 900_000,
-  },
-];
-
-export const FIXTURE_SESSIONS = [
-  {
-    sid: "session-claude-001",
-    src: "claude" as const,
-    ttl: "Implement webview Vite bundle",
-    lea: Date.now() - 60_000,
-    ac: "live" as const,
-    cap: {
-      md: ["raw", "nice"] as const,
-      snd: true,
-      str: true,
-      abt: true,
-      raw: true,
-      pty: true,
-      xui: true,
-    },
-  },
-  {
-    sid: "session-codex-001",
-    src: "codex" as const,
-    ttl: "Fix TypeScript errors in BridgeDataSource",
-    lea: Date.now() - 300_000,
-    ac: "ready" as const,
-    cap: {
-      md: ["raw", "nice"] as const,
-      snd: true,
-      str: true,
-      abt: true,
-      raw: true,
-      pty: true,
-      xui: false,
-    },
+    projectPath: "/Users/dev/projects/research-tool",
+    displayName: "Research Tool",
+    sourceCounts: { claude: 0, codex: 2 },
+    sessionCount: 2,
+    lastEventAt: Date.now() - 900_000,
   },
 ];
 
-type Mode = "raw" | "nice";
+export const FIXTURE_SESSIONS: SessionSummary[] = [
+  {
+    sessionId: "session-claude-001",
+    source: "claude",
+    title: "Implement webview Vite bundle",
+    lastEventAt: Date.now() - 60_000,
+    activity: "live",
+    capabilities: {
+      modes: ["raw", "nice"],
+      canSend: true,
+      canSteer: true,
+      canAbort: true,
+      canFetchRaw: true,
+      canOpenTerminal: true,
+      supportsExtensionUi: true,
+      canStreamLive: true,
+    },
+  },
+  {
+    sessionId: "session-codex-001",
+    source: "codex",
+    title: "Fix TypeScript errors in the panel data source",
+    lastEventAt: Date.now() - 300_000,
+    activity: "ready",
+    capabilities: {
+      modes: ["raw", "nice"],
+      canSend: true,
+      canSteer: true,
+      canAbort: true,
+      canFetchRaw: true,
+      canOpenTerminal: true,
+      supportsExtensionUi: false,
+      canStreamLive: false,
+    },
+  },
+];
 
 /**
  * The thread's lines in file order, tagged with whether the nice view keeps them.
  *
- * One list, both views derived from it, because that is how the sidecar works: the
- * nice view is this list filtered and renumbered, and every index the panel receives
- * is counted in the view it asked for. A fixture that hardcoded two lists could
- * disagree with itself about which line index 4 is, which is exactly the failure the
- * real index has to avoid.
+ * One list, both views derived from it, because that is how the sidecar works: the nice view is
+ * this list filtered and renumbered, and every index the panel receives is counted in the view it
+ * asked for. A fixture that hardcoded two lists could disagree with itself about which line index
+ * 4 is, which is exactly the failure the real index has to avoid.
  */
 interface FixtureLine {
   /** Present when the nice view omits this line. */
   machinery?: true;
   age: number;
-  tp: "user" | "assistant" | "reasoning" | "system";
-  b: Array<Record<string, unknown>>;
+  type: ActivityEvent["type"];
+  blocks: ActivityEvent["blocks"];
 }
 
 const FIXTURE_LINES: FixtureLine[] = [
   {
     age: 200_000,
-    tp: "user",
-    b: [
-      {
-        k: "text",
-        tx: "Please implement the webview Vite bundle for the iPhone surface.",
-      },
+    type: "user",
+    blocks: [
+      { kind: "text", text: "Please implement the webview Vite bundle for the iPhone surface." },
     ],
   },
   {
     age: 195_000,
-    tp: "assistant",
-    b: [
-      { k: "text", tx: "I’ll set up the Vite toolchain and create the webview app." },
-      { k: "tool_use", tl: "Write", ci: "call-001", sm: "vite.webview.config.ts" },
+    type: "assistant",
+    blocks: [
+      { kind: "text", text: "I’ll set up the Vite toolchain and create the webview app." },
+      { kind: "tool_use", tool: "Write", callId: "call-001", summary: "vite.webview.config.ts" },
     ],
   },
-  // Harness state dumps, which is what the nice view exists to drop. Together they
-  // are 42% of a real Claude transcript and 26% of a Codex one; the fixture had
-  // none, so the only host-free surface for judging this panel could not show what
-  // the mode toggle does.
+  // Harness state dumps, which is what the nice view exists to drop. Together they are 42% of a
+  // real Claude transcript and 26% of a Codex one; the fixture had none, so the only host-free
+  // surface for judging this panel could not show what the mode toggle does.
   {
     machinery: true,
     age: 194_000,
-    tp: "system",
-    b: [
-      { k: "metadata", lb: "Token Usage", tx: "41,220 / 200,000 tokens" },
-      { k: "raw" },
+    type: "system",
+    blocks: [
+      { kind: "metadata", label: "Token Usage", text: "41,220 / 200,000 tokens" },
+      { kind: "raw" },
     ],
   },
   {
     machinery: true,
     age: 193_000,
-    tp: "system",
-    b: [
-      // `Hook`, not `Attachment`: the adapter labels these by subtype now, which is
-      // what made 978 diagnostics rows findable among 4,891 hook dumps.
+    type: "system",
+    blocks: [
+      // `Hook`, not `Attachment`: the adapter labels these by subtype now, which is what made 978
+      // diagnostics rows findable among 4,891 hook dumps.
       {
-        k: "metadata",
-        lb: "Hook",
-        tx: '{"exitCode":0,"stdout":"","hookName":"PostToolUse"}',
+        kind: "metadata",
+        label: "Hook",
+        text: '{"exitCode":0,"stdout":"","hookName":"PostToolUse"}',
       },
-      { k: "raw" },
+      { kind: "raw" },
     ],
   },
-  // A shell call carrying the state metadata the adapters append to nearly every
-  // assistant line. Exercises the Raw drawer and the command code block: the summary
-  // is deliberately wider than a phone row, and `input` is absent here exactly as
-  // the iOS wire delivers it.
+  // A shell call carrying the state metadata the adapters append to nearly every assistant line.
+  // Exercises the Raw drawer and the command code block: the summary is deliberately wider than a
+  // phone row, and `input` is absent here exactly as the iOS wire delivers it.
   {
     age: 190_000,
-    tp: "assistant",
-    b: [
+    type: "assistant",
+    blocks: [
       {
-        k: "tool_use",
-        tl: "Bash",
-        ci: "call-002",
-        sm: 'ls && echo "---TASKS---" && ls tasks 2>/dev/null | head -30 && git log --oneline --decorate | head -40',
+        kind: "tool_use",
+        tool: "Bash",
+        callId: "call-002",
+        summary: 'ls && echo "---TASKS---" && ls tasks 2>/dev/null | head -30 && git log --oneline --decorate | head -40',
       },
-      { k: "metadata", lb: "Token Usage", tx: "68,272 tokens" },
-      { k: "metadata", lb: "Stop Reason", tx: "tool_use" },
-      { k: "metadata", lb: "Working Directory", tx: PROJECT_PATH },
-      { k: "raw" },
+      { kind: "metadata", label: "Token Usage", text: "68,272 tokens" },
+      { kind: "metadata", label: "Stop Reason", text: "tool_use" },
+      { kind: "metadata", label: "Working Directory", text: PROJECT_PATH },
+      { kind: "raw" },
     ],
   },
-  // Claude delivers a tool result as its own user line, again with the appended
-  // metadata. It pairs into the call above rather than taking a row of its own.
+  // Claude delivers a tool result as its own user line, again with the appended metadata. It pairs
+  // into the call above rather than taking a row of its own.
   {
     age: 188_000,
-    tp: "user",
-    b: [
+    type: "user",
+    blocks: [
       {
-        k: "tool_result",
-        ci: "call-002",
-        pv: "AGENTS.md\nPRD.md\nSPEC.md\n---TASKS---\n2026-07-18-v12-complete-jsonl-activity-feed.md",
+        kind: "tool_result",
+        callId: "call-002",
+        preview: "AGENTS.md\nPRD.md\nSPEC.md\n---TASKS---\n2026-07-18-v12-complete-jsonl-activity-feed.md",
       },
-      { k: "metadata", lb: "Working Directory", tx: PROJECT_PATH },
-      { k: "raw" },
+      { kind: "metadata", label: "Working Directory", text: PROJECT_PATH },
+      { kind: "raw" },
     ],
   },
-  // A run of tool work with nothing between it, which is what the nice view folds
-  // into one row. Tool calls and their output are 54 of every 100 rows in this
-  // project's largest Codex session, and a fixture without a run of them could not
-  // show what clustering does.
+  // A run of tool work with nothing between it, which is what the nice view folds into one row.
+  // Tool calls and their output are 54 of every 100 rows in this project's largest Codex session,
+  // and a fixture without a run of them could not show what clustering does.
   {
     age: 186_000,
-    tp: "assistant",
-    b: [{ k: "tool_use", tl: "Read", ci: "call-003", sm: "Read AgentPanelApp.tsx" }],
+    type: "assistant",
+    blocks: [{ kind: "tool_use", tool: "Read", callId: "call-003", summary: "Read AgentPanelApp.tsx" }],
   },
   {
     age: 185_000,
-    tp: "user",
-    b: [{ k: "tool_result", ci: "call-003", pv: "export function App() {" }],
+    type: "user",
+    blocks: [{ kind: "tool_result", callId: "call-003", preview: "export function App() {" }],
   },
   {
     age: 184_000,
-    tp: "assistant",
-    b: [{ k: "tool_use", tl: "Edit", ci: "call-004", sm: "Edit AgentPanelApp.tsx" }],
+    type: "assistant",
+    blocks: [{ kind: "tool_use", tool: "Edit", callId: "call-004", summary: "Edit AgentPanelApp.tsx" }],
   },
   {
     age: 183_000,
-    tp: "user",
-    b: [{ k: "tool_result", ci: "call-004", pv: "applied" }],
+    type: "user",
+    blocks: [{ kind: "tool_result", callId: "call-004", preview: "applied" }],
   },
   {
     age: 182_000,
-    tp: "assistant",
-    b: [{ k: "tool_use", tl: "Read", ci: "call-005", sm: "Read fixture.ts" }],
+    type: "assistant",
+    blocks: [{ kind: "tool_use", tool: "Read", callId: "call-005", summary: "Read fixture.ts" }],
   },
-  // A skill activation inside the run, which never folds: it changes what the agent
-  // is doing, and hiding it would hide the line that explains the next twenty.
+  // A skill activation inside the run, which never folds: it changes what the agent is doing, and
+  // hiding it would hide the line that explains the next twenty.
   {
     age: 181_000,
-    tp: "assistant",
-    b: [{ k: "tool_use", tl: "Skill", ci: "call-006", sm: "Skill codebase-onboarding" }],
+    type: "assistant",
+    blocks: [{ kind: "tool_use", tool: "Skill", callId: "call-006", summary: "Skill codebase-onboarding" }],
   },
   {
     age: 180_000,
-    tp: "assistant",
-    b: [{ k: "tool_use", tl: "Grep", ci: "call-007", sm: 'pattern "buildFeedLayout"' }],
+    type: "assistant",
+    blocks: [{ kind: "tool_use", tool: "Grep", callId: "call-007", summary: 'pattern "buildFeedLayout"' }],
   },
   {
     age: 179_000,
-    tp: "assistant",
-    b: [{ k: "tool_use", tl: "Bash", ci: "call-008", sm: "just check" }],
+    type: "assistant",
+    blocks: [{ kind: "tool_use", tool: "Bash", callId: "call-008", summary: "just check" }],
   },
   {
     machinery: true,
     age: 150_000,
-    tp: "system",
-    b: [
-      { k: "metadata", lb: "Mode", tx: '{"mode":"acceptEdits"}' },
-      { k: "raw" },
+    type: "system",
+    blocks: [
+      { kind: "metadata", label: "Mode", text: '{"mode":"acceptEdits"}' },
+      { kind: "raw" },
     ],
   },
   // Context compaction, carrying the same appended metadata.
   {
     age: 120_000,
-    tp: "system",
-    b: [
-      { k: "compaction" },
-      { k: "metadata", lb: "Working Directory", tx: PROJECT_PATH },
-      { k: "raw" },
+    type: "system",
+    blocks: [
+      { kind: "compaction" },
+      { kind: "metadata", label: "Working Directory", text: PROJECT_PATH },
+      { kind: "raw" },
     ],
   },
-  // An assistant answer with the structure these actually have: a heading, a
-  // paragraph under it, and a nested heading. The fixture rendered no heading at
-  // all, so the one host-free surface for judging this panel could not show the
-  // heading-to-body scale -- which is the thing that goes wrong when the body
-  // size moves, because headings are sized in `em` and follow it.
+  // An assistant answer with the structure these actually have: a heading, a paragraph under it,
+  // and a nested heading. The fixture rendered no heading at all, so the one host-free surface for
+  // judging this panel could not show the heading-to-body scale -- which is the thing that goes
+  // wrong when the body size moves, because headings are sized in `em` and follow it.
   {
     age: 104_000,
-    tp: "assistant",
-    b: [
+    type: "assistant",
+    blocks: [
       {
-        k: "text",
-        tx: "## To see it\n\nThe running host still has the earlier build, so neither the size nor the leading is in it yet. Both need a rebuild.\n\n### What a pass should confirm\n\nBoth saved windows come back at their remembered frames.",
+        kind: "text",
+        text: "## To see it\n\nThe running host still has the earlier build, so neither the size nor the leading is in it yet. Both need a rebuild.\n\n### What a pass should confirm\n\nBoth saved windows come back at their remembered frames.",
       },
     ],
   },
-  // A reasoning trace, with the bolded topic line these routinely open with. The
-  // fixture had no reasoning event at all, which is how reasoning came to be the one
-  // content kind rendered as raw text.
+  // A reasoning trace, with the bolded topic line these routinely open with. The fixture had no
+  // reasoning event at all, which is how reasoning came to be the one content kind rendered as
+  // raw text.
   {
     age: 100_000,
-    tp: "reasoning",
-    b: [
+    type: "reasoning",
+    blocks: [
       {
-        k: "reasoning",
-        tx: "**Adjusting skip parameter handling**\n\nThe offset is clamped before paging, so a negative `beforeIndex` can never reach the reader.",
+        kind: "reasoning",
+        text: "**Adjusting skip parameter handling**\n\nThe offset is clamped before paging, so a negative `beforeIndex` can never reach the reader.",
       },
     ],
   },
 ];
 
 /**
- * Renumber the fixture lines for one view, the way the sidecar's two indices do.
+ * Renumbers the fixture lines for one view, the way the sidecar's two indices do.
  *
- * Raw keeps every line and reports each one's nice index (null for machinery); nice
- * keeps only content and reports each one's raw index. Both derived from the single
- * list above, so the fixture cannot disagree with itself about which line an index
- * names -- which is exactly the failure the real index has to avoid.
+ * Raw keeps every line and reports each one's nice index (null for machinery); nice keeps only
+ * content and reports each one's raw index.
  */
-function fixtureEvents(mode: Mode) {
+function fixtureEvents(mode: EventMode): ActivityEvent[] {
   const now = Date.now();
   let niceIndex = 0;
   const rows = FIXTURE_LINES.map((line, rawIndex) => ({
@@ -276,68 +276,20 @@ function fixtureEvents(mode: Mode) {
   return rows
     .filter(({ line }) => mode === "raw" || !line.machinery)
     .map(({ line, rawIndex, niceIndex: nice }) => ({
-      i: mode === "raw" ? rawIndex : nice!,
-      xi: mode === "raw" ? nice : rawIndex,
+      id: `fixture-${rawIndex}`,
+      index: mode === "raw" ? rawIndex : nice!,
+      otherModeIndex: mode === "raw" ? nice : rawIndex,
+      revision: 0,
+      phase: "complete" as const,
       ts: now - line.age,
-      tp: line.tp,
-      b: line.b,
+      type: line.type,
+      blocks: line.blocks,
     }));
-}
-
-function makeFixtureSeedChunk(source: Source, sessionId: string, mode: Mode) {
-  const events = fixtureEvents(mode);
-  return {
-    t: "agent-thread-chunk",
-    src: source,
-    sid: sessionId,
-    md: mode,
-    ev: events,
-    ws: 0,
-    // One past the seed, because a live chunk follows.
-    tot: events.length + 1,
-    lv: false,
-    // Occupancy on the seed. Claude publishes no window in the transcript, so the
-    // sidecar resolves it; this is the resolved shape the panel actually sees.
-    u: { cur: 68_272, lim: 200_000, ua: Date.now() - 190_000, mdl: "claude-opus-5" },
-  };
-}
-
-function makeFixtureLiveChunk(source: Source, sessionId: string, mode: Mode) {
-  // Appended after the seed, so its index is counted in the requested view exactly as
-  // the sidecar's live subscriber counts it.
-  const seedCount = fixtureEvents(mode).length;
-  const rawCount = FIXTURE_LINES.length;
-  return {
-    t: "agent-thread-chunk",
-    src: source,
-    sid: sessionId,
-    md: mode,
-    ev: [
-      {
-        i: seedCount,
-        xi: mode === "raw" ? seedCount - (rawCount - seedCount) : rawCount,
-        ts: Date.now(),
-        tp: "assistant" as const,
-        b: [
-          {
-            k: "text" as const,
-            tx: "The layered webview contract is connected.",
-          },
-        ],
-      },
-    ],
-    ws: seedCount,
-    tot: seedCount + 1,
-    lv: true,
-    // A later, larger reading on the live chunk, so the fixture exercises the
-    // thing the whole stage is for: the meter moving without a reload.
-    u: { cur: 152_940, lim: 200_000, ua: Date.now(), mdl: "claude-opus-5" },
-  };
 }
 
 const FIXTURE_RAW_LINE = JSON.stringify({
   type: "assistant",
-  cwd: "/Users/dev/projects/agent-desk",
+  cwd: PROJECT_PATH,
   message: {
     stop_reason: "tool_use",
     usage: { input_tokens: 68_272, output_tokens: 412 },
@@ -345,80 +297,173 @@ const FIXTURE_RAW_LINE = JSON.stringify({
   },
 });
 
+// ---------------------------------------------------------------------------
+// The fake sidecar
+// ---------------------------------------------------------------------------
+
+/** What one request answers with: a status, then zero or more messages, then an end. */
+interface FixtureRoute {
+  status: number;
+  /** Each entry is one complete message: a whole body for a request, one event for a stream. */
+  messages: Array<{ delay: number; payload: string }>;
+  /** Streams stay open after their scripted messages; one-shot requests end. */
+  keepOpen?: boolean;
+}
+
+function timeline(mode: EventMode): FixtureRoute {
+  const events = fixtureEvents(mode);
+  const snapshot: TimelineMessage = {
+    type: "timeline",
+    envelope: {
+      kind: "snapshot",
+      sequence: events.length,
+      mode,
+      events,
+      windowStart: 0,
+      // One past the seed, because a live chunk follows.
+      total: events.length + 1,
+      runState: "running",
+      queue: { steer: 0, followUp: 0 },
+      // Occupancy on the seed. Claude publishes no window in the transcript, so the sidecar
+      // resolves it; this is the resolved shape the panel actually sees.
+      usage: { current: 68_272, limit: 200_000, updatedAt: Date.now() - 190_000, model: "claude-opus-5" },
+    },
+  };
+  const appended: TimelineMessage = {
+    type: "timeline",
+    envelope: {
+      kind: "upsert",
+      sequence: events.length + 1,
+      mode,
+      events: [
+        {
+          id: "fixture-live",
+          index: events.length,
+          otherModeIndex: null,
+          revision: 0,
+          phase: "complete",
+          ts: Date.now(),
+          type: "assistant",
+          blocks: [{ kind: "text", text: "The layered webview contract is connected." }],
+        },
+      ],
+      windowStart: 0,
+      total: events.length + 1,
+      runState: "idle",
+      queue: { steer: 0, followUp: 0 },
+      // A later, larger reading on the appended envelope, so the fixture exercises the thing the
+      // whole stage is for: the meter moving without a reload.
+      usage: { current: 152_940, limit: 200_000, updatedAt: Date.now(), model: "claude-opus-5" },
+    },
+  };
+  return {
+    status: 200,
+    keepOpen: true,
+    messages: [
+      { delay: 40, payload: JSON.stringify(snapshot) },
+      { delay: 120, payload: JSON.stringify(appended) },
+    ],
+  };
+}
+
+/** Resolves one request path to its canned answer, or null for 404. */
+function route(method: string, path: string): FixtureRoute | null {
+  const [pathname, query = ""] = path.split("?");
+  const parameters = new URLSearchParams(query);
+  const mode: EventMode = parameters.get("mode") === "nice" ? "nice" : "raw";
+
+  if (pathname === "/api/projects/stream") {
+    return {
+      status: 200,
+      keepOpen: true,
+      messages: [{ delay: 30, payload: JSON.stringify({ projects: FIXTURE_PROJECTS }) }],
+    };
+  }
+  if (pathname === "/api/sessions/stream") {
+    const projectPath = parameters.get("project");
+    const sessions = projectPath === PROJECT_PATH ? FIXTURE_SESSIONS : [];
+    return {
+      status: 200,
+      keepOpen: true,
+      messages: [{ delay: 30, payload: JSON.stringify({ projectPath, sessions }) }],
+    };
+  }
+  if (pathname?.endsWith("/timeline")) return timeline(mode);
+  if (pathname?.endsWith("/raw")) {
+    return { status: 200, messages: [{ delay: 30, payload: FIXTURE_RAW_LINE }] };
+  }
+  if (method === "POST") {
+    // Commands are accepted and do nothing. The fixture has no agent to run them.
+    return {
+      status: 202,
+      messages: [{ delay: 20, payload: JSON.stringify({ requestId: "fixture", delivery: "immediate" }) }],
+    };
+  }
+  return null;
+}
+
+/**
+ * Installs the fake sidecar as the page's message handler.
+ *
+ * Must run before the transport is constructed: the transport picks its backend by whether this
+ * handler exists.
+ */
 export function installFixture(): void {
+  const open = new Set<string>();
+
+  const deliver = (frame: unknown) => window.__agentFeedDeliver?.(frame);
+
+  const answer = (rid: string, method: string, path: string) => {
+    const answered = route(method, path);
+    if (!answered) {
+      deliver({ t: "agent-http-head", rid, status: 404 });
+      deliver({
+        t: "agent-http-chunk",
+        rid,
+        seq: 0,
+        data: JSON.stringify({ error: { code: "not-found", message: `no fixture for ${path}` } }),
+        complete: true,
+      });
+      deliver({ t: "agent-http-end", rid });
+      return;
+    }
+    setTimeout(() => {
+      if (!open.has(rid)) return;
+      deliver({ t: "agent-http-head", rid, status: answered.status });
+    }, 10);
+    let sequence = 0;
+    for (const message of answered.messages) {
+      const seq = sequence++;
+      setTimeout(() => {
+        if (!open.has(rid)) return;
+        deliver({ t: "agent-http-chunk", rid, seq, data: message.payload, complete: true });
+      }, message.delay);
+    }
+    if (answered.keepOpen) return;
+    const last = answered.messages.at(-1)?.delay ?? 10;
+    setTimeout(() => {
+      if (!open.delete(rid)) return;
+      deliver({ t: "agent-http-end", rid });
+    }, last + 5);
+  };
+
   (window as Window & {
     webkit: {
-      messageHandlers: {
-        agentFeed: { postMessage: (message: unknown) => void };
-      };
+      messageHandlers: { agentFeed: { postMessage: (message: unknown) => void } };
     };
   }).webkit = {
     messageHandlers: {
       agentFeed: {
         postMessage: (message: unknown) => {
-          const value = message as {
-            t?: string;
-            sub?: string;
-            pp?: string;
-            src?: Source;
-            sid?: string;
-            rid?: string;
-            ei?: number;
-            md?: Mode;
-          };
-          switch (value.t) {
-            case "agent-projects-watch":
-              if (!value.sub) return;
-              setTimeout(() => {
-                window.__agentFeedDeliver?.({
-                  t: "agent-projects",
-                  sub: value.sub,
-                  p: FIXTURE_PROJECTS,
-                });
-              }, 30);
-              break;
-            case "agent-project-sessions-watch":
-              if (!value.sub || !value.pp) return;
-              setTimeout(() => {
-                window.__agentFeedDeliver?.({
-                  t: "agent-project-sessions",
-                  sub: value.sub,
-                  pp: value.pp,
-                  ss: value.pp === PROJECT_PATH ? FIXTURE_SESSIONS : [],
-                });
-              }, 30);
-              break;
-            case "agent-thread-sub": {
-              if (!value.src || !value.sid) return;
-              // Absent means raw, the same rule this field follows at every real
-              // boundary it crosses.
-              const mode: Mode = value.md === "nice" ? "nice" : "raw";
-              setTimeout(() => {
-                window.__agentFeedDeliver?.(
-                  makeFixtureSeedChunk(value.src!, value.sid!, mode),
-                );
-                setTimeout(() => {
-                  window.__agentFeedDeliver?.(
-                    makeFixtureLiveChunk(value.src!, value.sid!, mode),
-                  );
-                }, 80);
-              }, 40);
-              break;
-            }
-            case "agent-raw-event-get":
-              if (!value.rid || !value.src || !value.sid) return;
-              setTimeout(() => {
-                window.__agentFeedDeliver?.({
-                  t: "agent-raw-event",
-                  rid: value.rid,
-                  src: value.src,
-                  sid: value.sid,
-                  ei: value.ei ?? 0,
-                  tx: FIXTURE_RAW_LINE,
-                });
-              }, 30);
-              break;
+          const frame = message as { t?: string; rid?: string; method?: string; path?: string };
+          if (!frame.rid) return;
+          if (frame.t === "agent-http-cancel") {
+            open.delete(frame.rid);
+            return;
           }
+          if (frame.t !== "agent-http-req" || !frame.path) return;
+          open.add(frame.rid);
+          answer(frame.rid, frame.method ?? "GET", frame.path);
         },
       },
     },

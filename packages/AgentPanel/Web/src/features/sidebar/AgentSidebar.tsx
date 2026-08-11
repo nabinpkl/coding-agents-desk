@@ -11,11 +11,8 @@ import {
   useState,
   type RefObject,
 } from "react";
-import type {
-  BridgeDataSource,
-  BridgeProject,
-  BridgeSessionSummary,
-} from "../activity-feed/data-source/BridgeDataSource";
+import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
 
 const INITIAL_SESSION_COUNT = 3;
 const SESSION_BATCH_SIZE = 10;
@@ -25,8 +22,8 @@ function retryDelayMs(attempt: number): number {
 }
 
 interface AgentSidebarProps {
-  bridge: BridgeDataSource;
-  projects: BridgeProject[];
+  feed: SidecarDataSource;
+  projects: ProjectSummary[];
   loading: boolean;
   error: string | null;
   retrying: boolean;
@@ -36,8 +33,8 @@ interface AgentSidebarProps {
   creationErrors: ReadonlyMap<string, string>;
   expandedProjectPaths: ReadonlySet<string>;
   onToggleProject: (projectPath: string) => void;
-  onSelectSession: (project: BridgeProject, session: BridgeSessionSummary) => void;
-  onCreatePiSession: (project: BridgeProject) => void;
+  onSelectSession: (project: ProjectSummary, session: SessionSummary) => void;
+  onCreatePiSession: (project: ProjectSummary) => void;
   onClose?: () => void;
   ownsWindowTitlebar?: boolean;
 }
@@ -78,7 +75,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
             {props.projects.map((project) => (
               <ProjectSidebarItem
                 key={project.projectPath}
-                bridge={props.bridge}
+                feed={props.feed}
                 project={project}
                 expanded={props.expandedProjectPaths.has(project.projectPath)}
                 active={props.selectedProjectPath === project.projectPath}
@@ -169,7 +166,7 @@ export function AgentSidebarDialog({
 }
 
 function ProjectSidebarItem({
-  bridge,
+  feed,
   project,
   expanded,
   active,
@@ -180,15 +177,15 @@ function ProjectSidebarItem({
   onSelectSession,
   onCreatePiSession,
 }: {
-  bridge: BridgeDataSource;
-  project: BridgeProject;
+  feed: SidecarDataSource;
+  project: ProjectSummary;
   expanded: boolean;
   active: boolean;
   selectedSessionKey: string | null;
   creating: boolean;
   creationError: string | null;
   onToggle: () => void;
-  onSelectSession: (session: BridgeSessionSummary) => void;
+  onSelectSession: (session: SessionSummary) => void;
   onCreatePiSession: () => void;
 }) {
   const regionId = useId();
@@ -243,7 +240,7 @@ function ProjectSidebarItem({
       {expanded ? (
         <div id={regionId} role="region" aria-label={`${displayName} sessions`}>
           <ProjectSessionPreview
-            bridge={bridge}
+            feed={feed}
             projectPath={project.projectPath}
             selectedSessionKey={selectedSessionKey}
             onSelect={onSelectSession}
@@ -255,17 +252,17 @@ function ProjectSidebarItem({
 }
 
 function ProjectSessionPreview({
-  bridge,
+  feed,
   projectPath,
   selectedSessionKey,
   onSelect,
 }: {
-  bridge: BridgeDataSource;
+  feed: SidecarDataSource;
   projectPath: string;
   selectedSessionKey: string | null;
-  onSelect: (session: BridgeSessionSummary) => void;
+  onSelect: (session: SessionSummary) => void;
 }) {
-  const [sessions, setSessions] = useState<BridgeSessionSummary[]>([]);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
@@ -278,7 +275,7 @@ function ProjectSessionPreview({
     setLoading(sessions.length === 0);
     setError(null);
     setRetrying(false);
-    const stop = bridge.subscribeProjectSessions(
+    const stop = feed.subscribeProjectSessions(
       projectPath,
       (snapshot) => {
         setSessions(snapshot);
@@ -299,7 +296,7 @@ function ProjectSessionPreview({
       if (timer !== undefined) clearTimeout(timer);
       stop();
     };
-  }, [bridge, projectPath, retryNonce]);
+  }, [feed, projectPath, retryNonce]);
 
   if (loading) return <InlineStatus>Loading sessions…</InlineStatus>;
   if (error) return <SidebarError message={`Sessions unavailable: ${error}`} retrying={retrying} compact />;
