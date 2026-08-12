@@ -9,10 +9,23 @@ import { resolveLang, SHIKI_THEMES, useHighlighter } from "./highlighter";
 // highlighter loads. Highlighting only recolors tokens, so the swap does not
 // change the row's measured height — the property the virtualized feed relies
 // on. Chrome (language label + copy button) is plain shadcn-style markup.
-export function CodeBlock({ code, lang }: { code: string; lang: string }) {
+//
+// `highlight` is false for a fence that has not closed yet. A partial snippet
+// tokenizes differently on every reveal tick (an unterminated string, a half-typed
+// keyword), so highlighting one recolors it thirty times a second; the plain <pre>
+// is the same text without the strobe, and the real colors arrive when it lands.
+export function CodeBlock({
+  code,
+  lang,
+  highlight = true,
+}: {
+  code: string;
+  lang: string;
+  highlight?: boolean;
+}) {
   const hl = useHighlighter();
   const html = useMemo(() => {
-    if (!hl) return null;
+    if (!hl || !highlight) return null;
     try {
       return hl.codeToHtml(code, {
         lang: resolveLang(lang),
@@ -22,7 +35,7 @@ export function CodeBlock({ code, lang }: { code: string; lang: string }) {
     } catch {
       return null;
     }
-  }, [hl, code, lang]);
+  }, [hl, code, lang, highlight]);
 
   return (
     <div className="agent-panel-code">

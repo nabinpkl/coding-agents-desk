@@ -532,7 +532,7 @@ function Block({
           className="leading-(--agent-panel-prose-leading) text-foreground"
           style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
         >
-          <Markdown content={revealedText} />
+          <Markdown content={revealedText} streaming={isStreamingProse} />
         </div>
       );
     }
@@ -655,7 +655,7 @@ function Block({
           fontWeight: 450,
         }}
       >
-        <Markdown content={revealedText} />
+        <Markdown content={revealedText} streaming={isStreamingProse} />
       </div>
     );
   }
