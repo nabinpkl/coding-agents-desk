@@ -136,6 +136,24 @@ agent_panel_dev_log := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_LOG", "/tmp
 # The dev server's TLS material, keyed to this Mac's MagicDNS name. Under .build because it is
 # generated per machine and the key must never be committed.
 agent_panel_dev_tls_dir := justfile_directory() + "/.build/agent-panel-dev-tls"
+# The env var carrying the sidecar's control token. Mirrors Config.agentFeedControlTokenVariable
+# on the host and the name the sidecar reads at startup; one spelling, because a second one is a
+# host that mints a token nothing else knows.
+agent_feed_token_var := "AGENT_FEED_CONTROL_TOKEN"
+# The control token for the CURRENT dev server, and the reason the plain-browser leg works.
+#
+# A browser has no relay to attach the sidecar's bearer header, so Vite's /api proxy attaches it --
+# which means the dev server needs a token the host's sidecar will accept. The host normally mints
+# one per spawn and keeps it in memory, where nothing else can reach it, so the direction is
+# inverted here: whoever starts the dev server mints the token, and the host adopts it.
+#
+# On disk because the dev server outlives the launch that started it and is reused by every later
+# one, so the value has to survive in something both can read. Written 0600 under gitignored
+# .build, and removed by agent-webview-dev-stop. The tradeoff is real and worth stating: while a
+# dev server is up, any process running as this user can read the token and drive the sidecar's
+# control API, which is not true of a host that minted its own. The relay's own guarantee is
+# untouched -- the token still never enters the page, on any surface.
+agent_panel_dev_token_file := justfile_directory() + "/.build/agent-panel-dev/control-token"
 # Source directory for the AgentDesk-owned Rust PTY manager (moved in from the
 # agent-workspace-ide donor under R34). Override only for out-of-tree experiments.
 pty_manager_dir := env_var_or_default("AGENTDESK_PTY_MANAGER_DIR", justfile_directory() + "/terminal/pty-manager")
@@ -534,12 +552,19 @@ agent-webview-dev-cert:
 # the phone's certificate is loaded there is no http on it for the Mac to keep using, and the Mac
 # reaching its own tailnet name is the smaller cost of the two. Everything the panel actually DOES
 # still goes through each host's own relay, so one page origin does not mean one sidecar.
-agent-webview-dev-ensure port=agent_panel_dev_port:
+#
+# `feed_origin` is where this server's /api proxy sends the plain-browser leg, and it is the ONE
+# thing here that is per-host-tier rather than shared: a browser has no relay, so it reaches the
+# sidecar through Vite. One server means one target, so the browser leg follows whichever host
+# started the server. Launch the other tier's host and its webview and phone are unaffected -- they
+# go through their own relay -- but a browser tab still talks to the first one's sidecar.
+agent-webview-dev-ensure port=agent_panel_dev_port feed_origin="http://127.0.0.1:7682":
     #!/usr/bin/env bash
     set -euo pipefail
     ROOT='{{justfile_directory()}}'
     WEB='{{agent_panel_web_dir}}'
     LOG='{{agent_panel_dev_log}}'
+    TOKEN_FILE='{{agent_panel_dev_token_file}}'
     NAME="$(sh "$ROOT/tools/tailnet-dns-name.sh")"
     ORIGIN="https://$NAME:{{port}}"
     # `/@vite/client` rather than `/`, because this asks a narrower question: not "is something
@@ -548,6 +573,14 @@ agent-webview-dev-ensure port=agent_panel_dev_port:
     serving() { curl -fs -o /dev/null --max-time 4 "$ORIGIN/@vite/client"; }
     if serving; then
         echo "agent-webview-dev: already serving at $ORIGIN" >&2
+        # Its token, if it has one, stays untouched: the file belongs to the running server, and
+        # rewriting it here would hand the host a value that server never had. A server from before
+        # this file existed has none, which costs only the browser leg and is worth one line rather
+        # than a restart that would drop the phone's panel and every HMR connection.
+        if [ ! -s "$TOKEN_FILE" ]; then
+            echo "  it predates the shared sidecar token, so a plain browser tab will not load" >&2
+            echo "  data from it. 'just agent-webview-dev-stop' then relaunch to fix that." >&2
+        fi
         echo "$ORIGIN"
         exit 0
     fi
@@ -557,6 +590,13 @@ agent-webview-dev-ensure port=agent_panel_dev_port:
     # is handed a two-line "origin" it can only refuse -- which it does, loudly, on both surfaces.
     node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies" >&2
     : > "$LOG"
+    # Minted here rather than by the host, because this server outlives the launch that started it
+    # and every later launch reuses it: the token has to belong to the server's lifetime, not to one
+    # host process. The host reads this file and spawns its sidecar with the same value, so a
+    # browser tab and the webview end up talking to one sidecar with one capability.
+    mkdir -p "$(dirname "$TOKEN_FILE")"
+    TOKEN="$(openssl rand -hex 32)"
+    ( umask 077; printf '%s' "$TOKEN" > "$TOKEN_FILE" )
     # Detached, because the launch that called this outlives it and a dev server that died with the
     # recipe would make every launch the last one that worked.
     (
@@ -564,6 +604,8 @@ agent-webview-dev-ensure port=agent_panel_dev_port:
         AGENTDESK_AGENT_PANEL_HOST="$NAME" \
         AGENTDESK_AGENT_PANEL_TLS_CERT="$CERT.crt" \
         AGENTDESK_AGENT_PANEL_TLS_KEY="$CERT.key" \
+        AGENTDESK_AGENT_FEED_ORIGIN='{{feed_origin}}' \
+        {{agent_feed_token_var}}="$TOKEN" \
         nohup bun run dev --port '{{port}}' --strictPort </dev/null >>"$LOG" 2>&1 &
     )
     for _ in $(seq 1 100); do
@@ -582,18 +624,18 @@ agent-webview-dev-ensure port=agent_panel_dev_port:
 # Serve the Agent Panel from Vite in the FOREGROUND, with its log on your terminal.
 #
 # Host launches start this server themselves (see agent-webview-dev-ensure), so reach for this one
-# when you want to watch it, or for the plain-browser leg: that leg needs AGENT_FEED_CONTROL_TOKEN
-# and AGENTDESK_AGENT_FEED_ORIGIN in the environment, because a browser has no relay to attach the
-# sidecar's bearer header for it, and the token is minted per sidecar spawn so it can only be
-# exported after the host is up.
+# when you want to watch its log on your own terminal. It mints the same control token that one
+# does, into the same file, so the plain-browser leg works either way -- the host launched after it
+# adopts the token and the /api proxy can then answer a browser that has no relay of its own.
 #
 # The dev origin is NOT a fallback: with it set, the host serves only from Vite, and if Vite is not
 # up the panel fails to load rather than quietly showing the bundled build.
-agent-webview-dev port=agent_panel_dev_port:
+agent-webview-dev port=agent_panel_dev_port feed_origin="http://127.0.0.1:7682":
     #!/usr/bin/env bash
     set -euo pipefail
     ROOT='{{justfile_directory()}}'
     WEB='{{agent_panel_web_dir}}'
+    TOKEN_FILE='{{agent_panel_dev_token_file}}'
     NAME="$(sh "$ROOT/tools/tailnet-dns-name.sh")"
     ORIGIN="https://$NAME:{{port}}"
     # Refuse rather than let --strictPort fail with a bare EADDRINUSE: the likely occupant is the
@@ -606,19 +648,80 @@ agent-webview-dev port=agent_panel_dev_port:
     fi
     CERT="$(just agent-webview-dev-cert)"
     node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies"
+    mkdir -p "$(dirname "$TOKEN_FILE")"
+    TOKEN="$(openssl rand -hex 32)"
+    ( umask 077; printf '%s' "$TOKEN" > "$TOKEN_FILE" )
     echo "agent-webview-dev: serving at $ORIGIN"
     echo "  hosts launched from here point at it automatically ({{agent_panel_origin_var}}),"
     echo "  and each host tells its attached phones to load from it too"
+    echo "  a host launched from here also adopts this server's sidecar token,"
+    echo "  which is what lets a plain browser tab load data through /api"
     echo ""
     cd "$WEB"
     AGENTDESK_AGENT_PANEL_HOST="$NAME" \
     AGENTDESK_AGENT_PANEL_TLS_CERT="$CERT.crt" \
     AGENTDESK_AGENT_PANEL_TLS_KEY="$CERT.key" \
+    AGENTDESK_AGENT_FEED_ORIGIN='{{feed_origin}}' \
+    {{agent_feed_token_var}}="$TOKEN" \
     bun run dev --port '{{port}}' --strictPort
 
 # Stop whatever holds the panel dev-server port. The next host launch starts a fresh one.
+#
+# The token goes with the server that owned it. Left behind it would be a value the next host
+# adopts and no dev server shares, which is the one failure this whole path cannot see: the webview
+# legs keep working, and only a browser tab reports it, as a 401 nothing explains.
 agent-webview-dev-stop port=agent_panel_dev_port:
+    #!/usr/bin/env bash
+    set -euo pipefail
     sh '{{justfile_directory()}}/tools/reclaim-port.sh' "agent panel dev server" '{{port}}'
+    rm -f '{{agent_panel_dev_token_file}}'
+
+# Whether a PLAIN BROWSER tab at the dev origin can actually load data.
+#
+# Worth its own recipe because this is the one leg that can fail silently in a way nothing else
+# notices: the Mac panel and the phone reach the sidecar through their own relay, so they keep
+# working perfectly while a browser tab shows an empty feed. The usual cause is a host that was
+# launched before its dev server, or one that adopted a token from a server since replaced.
+agent-webview-dev-status port=agent_panel_dev_port:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    NAME="$(sh '{{justfile_directory()}}/tools/tailnet-dns-name.sh')"
+    ORIGIN="https://$NAME:{{port}}"
+    # Retried, because the honest sequence is `host-run && agent-webview-dev-status` and the two
+    # do not finish together: `host-run` returns when the app is launched, and the sidecar binds
+    # its port a second or two later. Until it does, the proxy has nothing to reach and answers
+    # 5xx -- a real failure code for a host that is merely still starting. Only that shape is
+    # retried; a 200 is done and a 401 is a token disagreement that waiting cannot fix.
+    for _ in $(seq 1 15); do
+        CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$ORIGIN/api/projects" || echo 000)"
+        case "$CODE" in
+            5*) sleep 1 ;;
+            *) break ;;
+        esac
+    done
+    case "$CODE" in
+        200)
+            echo "browser leg OK: $ORIGIN loads its own data"
+            ;;
+        401)
+            echo "browser leg UNAUTHORIZED: the dev server's token is not the one this host's" >&2
+            echo "  sidecar accepts. Relaunch the host so it adopts the running server's token," >&2
+            echo "  or 'just agent-webview-dev-stop' and relaunch to get a matching pair." >&2
+            exit 1
+            ;;
+        000)
+            echo "no dev server answering at $ORIGIN. Start one with a host launch," >&2
+            echo "  or 'just agent-webview-dev' to watch it." >&2
+            exit 1
+            ;;
+        *)
+            echo "browser leg still answered $CODE at $ORIGIN/api/projects, which is neither a" >&2
+            echo "  working feed nor an auth failure. A 5xx here outlasted the sidecar's startup" >&2
+            echo "  window, so the sidecar is not listening on the port this server proxies to." >&2
+            echo "  Its log: {{agent_panel_dev_log}}" >&2
+            exit 1
+            ;;
+    esac
 
 agent-panel-web-check:
     #!/usr/bin/env bash
@@ -1298,6 +1401,11 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live": build-age
         PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
         EXTRA=()
     fi
+    # Resolved here, above every reader, because the panel block below now needs the effective
+    # value too: it tells the dev server which sidecar to proxy a browser tab to, and a tier
+    # default that ignored the override would point that tab at the wrong host's feed.
+    FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
+    VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
     if [ "${AGENTDESK_AX_AUTOMATION_ENABLED:-0}" != "0" ]; then
         EXTRA+=(INFOPLIST_KEY_LSUIElement=NO)
     fi
@@ -1336,7 +1444,7 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live": build-age
         # non-zero substitution status even under `set -e`: a dev server that failed to come up
         # would launch the host with an EMPTY origin, which is the bundled panel wearing the live
         # one's name -- the exact silent fallback this default is supposed to make impossible.
-        PANEL_ORIGIN="$(just agent-webview-dev-ensure)"
+        PANEL_ORIGIN="$(just agent-webview-dev-ensure '{{agent_panel_dev_port}}' "http://127.0.0.1:$FEEDPORT")"
         # Checked rather than trusted, because that value travels by stdout: anything else in the
         # recipe that prints lands in it, and the host answers a malformed origin by refusing to
         # build its panel at all -- on the Mac AND on every attached phone. Caught here it is one
@@ -1346,6 +1454,14 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live": build-age
             *) echo "ERROR: agent-webview-dev-ensure printed more than an origin: $PANEL_ORIGIN" >&2; exit 1 ;;
         esac
         export {{agent_panel_origin_var}}="$PANEL_ORIGIN"
+        # Adopt the dev server's control token instead of letting the host mint its own, so a
+        # browser tab loading this same origin can reach the sidecar through Vite's /api proxy.
+        # Only the browser leg needs this: the Mac webview and the phone go through the relay,
+        # which holds the token natively and never hands it to the page.
+        if [ -s '{{agent_panel_dev_token_file}}' ]; then
+            DEV_FEED_TOKEN="$(cat '{{agent_panel_dev_token_file}}')"
+            export {{agent_feed_token_var}}="$DEV_FEED_TOKEN"
+        fi
     fi
     just prepare-pty-runtime "{{variant}}"
     sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
@@ -1392,8 +1508,6 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live": build-age
         [ "${#HOST_PORT_PIDS[@]}" -gt 0 ] && kill_host_pids "${HOST_PORT_PIDS[@]}"
         [ "${#STRANGER_PORT_PIDS[@]}" -gt 0 ] && kill -9 "${STRANGER_PORT_PIDS[@]}" 2>/dev/null || true
     fi
-    FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
-    VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
     sh tools/reclaim-port.sh "agent-feed sidecar" "$FEEDPORT"
     sh tools/reclaim-port.sh "voice sidecar" "$VOICEPORT"
     sleep 1
@@ -1459,6 +1573,11 @@ host-run variant="stable" panel="live": build-agent-feed-sidecar build-agent-web
         PTY_VAULT_SOCKET='{{host_support_dir}}/pty-vault.sock'
         EXTRA=()
     fi
+    # Resolved here, above every reader, because the panel block below now needs the effective
+    # value too: it tells the dev server which sidecar to proxy a browser tab to, and a tier
+    # default that ignored the override would point that tab at the wrong host's feed.
+    FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
+    VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
     if [ "${AGENTDESK_AX_AUTOMATION_ENABLED:-0}" != "0" ]; then
         EXTRA+=(INFOPLIST_KEY_LSUIElement=NO)
     fi
@@ -1494,7 +1613,7 @@ host-run variant="stable" panel="live": build-agent-feed-sidecar build-agent-web
         # non-zero substitution status even under `set -e`: a dev server that failed to come up
         # would launch the host with an EMPTY origin, which is the bundled panel wearing the live
         # one's name -- the exact silent fallback this default is supposed to make impossible.
-        PANEL_ORIGIN="$(just agent-webview-dev-ensure)"
+        PANEL_ORIGIN="$(just agent-webview-dev-ensure '{{agent_panel_dev_port}}' "http://127.0.0.1:$FEEDPORT")"
         # Checked rather than trusted, because that value travels by stdout: anything else in the
         # recipe that prints lands in it, and the host answers a malformed origin by refusing to
         # build its panel at all -- on the Mac AND on every attached phone. Caught here it is one
@@ -1504,6 +1623,14 @@ host-run variant="stable" panel="live": build-agent-feed-sidecar build-agent-web
             *) echo "ERROR: agent-webview-dev-ensure printed more than an origin: $PANEL_ORIGIN" >&2; exit 1 ;;
         esac
         export {{agent_panel_origin_var}}="$PANEL_ORIGIN"
+        # Adopt the dev server's control token instead of letting the host mint its own, so a
+        # browser tab loading this same origin can reach the sidecar through Vite's /api proxy.
+        # Only the browser leg needs this: the Mac webview and the phone go through the relay,
+        # which holds the token natively and never hands it to the page.
+        if [ -s '{{agent_panel_dev_token_file}}' ]; then
+            DEV_FEED_TOKEN="$(cat '{{agent_panel_dev_token_file}}')"
+            export {{agent_feed_token_var}}="$DEV_FEED_TOKEN"
+        fi
     fi
     just prepare-pty-runtime "{{variant}}"
     sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
@@ -1548,8 +1675,6 @@ host-run variant="stable" panel="live": build-agent-feed-sidecar build-agent-web
         [ "${#HOST_PORT_PIDS[@]}" -gt 0 ] && kill_host_pids "${HOST_PORT_PIDS[@]}"
         [ "${#STRANGER_PORT_PIDS[@]}" -gt 0 ] && kill -9 "${STRANGER_PORT_PIDS[@]}" 2>/dev/null || true
     fi
-    FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
-    VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
     sh tools/reclaim-port.sh "agent-feed sidecar" "$FEEDPORT"
     sh tools/reclaim-port.sh "voice sidecar" "$VOICEPORT"
     sleep 1

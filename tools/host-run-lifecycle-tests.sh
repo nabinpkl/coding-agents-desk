@@ -102,8 +102,17 @@ assert_contains "$stable_release" \
 # landed (ADR-0096), and a second spelling of the URL would have kept the old one working right up
 # until it silently pointed at nothing.
 assert_contains "$stable_release" \
-    'PANEL_ORIGIN="$(just agent-webview-dev-ensure)"' \
+    'PANEL_ORIGIN="$(just agent-webview-dev-ensure ' \
     'a live panel launch must take its origin from the dev server it started'
+# The dev server proxies a plain browser tab to a sidecar, and which one is per host tier. Passing
+# the resolved FEEDPORT rather than letting the recipe default keeps a browser tab pointed at the
+# host that started the server instead of at whatever the stable tier happens to be.
+assert_contains "$stable_release" \
+    'just agent-webview-dev-ensure '"'"'5173'"'"' "http://127.0.0.1:$FEEDPORT"' \
+    'a live panel launch must tell the dev server which sidecar to proxy to'
+assert_contains "$dev_debug" \
+    'just agent-webview-dev-ensure '"'"'5173'"'"' "http://127.0.0.1:$FEEDPORT"' \
+    'the dev launch must tell the dev server which sidecar to proxy to'
 # The two-step assign-then-export is load-bearing, not style. `export VAR="$(cmd)"` returns export's
 # own status, so a dev server that failed to start would sail past `set -e` and launch the host with
 # an empty origin -- a bundled panel presenting as the live one. This actually happened.
@@ -124,6 +133,31 @@ ensure="$(just --dry-run agent-webview-dev-ensure 2>&1)"
 assert_contains "$ensure" \
     'ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies" >&2' \
     'the dependency check must not write to the stdout that carries the origin'
+
+# The plain-browser leg. A browser has no relay to attach the sidecar's bearer header, so the dev
+# server's own /api proxy attaches it -- which only works if the server and the sidecar share a
+# token. The server starts first and outlives every launch, so it mints, and the host adopts.
+#
+# Asserted on the wiring because the failure is invisible from everywhere else: the Mac webview and
+# the phone go through the relay, so they keep working while a browser tab silently shows nothing.
+assert_contains "$ensure" \
+    'AGENT_FEED_CONTROL_TOKEN="$TOKEN"' \
+    'the dev server must carry the token its /api proxy attaches for a browser'
+assert_contains "$ensure" \
+    'umask 077' \
+    'the token file must not be world-readable'
+for launch in "$stable_release" "$dev_debug"; do
+    assert_contains "$launch" \
+        'export AGENT_FEED_CONTROL_TOKEN="$DEV_FEED_TOKEN"' \
+        'a live panel launch must adopt the dev server token rather than let the host mint one'
+done
+stop="$(just --dry-run agent-webview-dev-stop 2>&1)"
+assert_contains "$stop" \
+    '/.build/agent-panel-dev/control-token' \
+    'stopping the dev server must take its token with it'
+assert_contains "$(cat "$(dirname "$0")/launch-env.sh")" \
+    'AGENT_FEED_CONTROL_TOKEN' \
+    'the adopted token must reach a host launched by open, which inherits launchd, not the shell'
 assert_contains "$dev_debug" \
     "if [ 'live' = live ]" \
     'Debug launch must serve the panel live by default'

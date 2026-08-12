@@ -130,7 +130,7 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         // process can schedule its own restart.
         restartScheduled = false
 
-        let controlToken = Self.makeControlToken()
+        let controlToken = Self.controlTokenForSpawn()
         tokenLock.lock()
         token = controlToken
         tokenLock.unlock()
@@ -141,10 +141,14 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         // Process.environment replaces the whole child env, which would strip
         // PATH/HOME and break transcript discovery. Inherit
         // the parent env and override only ours.
-        proc.environment = ProcessInfo.processInfo.environment.merging([
+        //
+        // From the sanitized base like every other child, then the capability put back explicitly.
+        // This is the ONE process that is supposed to have it, so it says so rather than relying on
+        // an inheritance that the stripper would otherwise have to make an exception for.
+        proc.environment = Config.childProcessEnvironment.merging([
             "AGENT_FEED_PORT": String(port),
             "AGENT_FEED_HOST": "127.0.0.1",
-            "AGENT_FEED_CONTROL_TOKEN": controlToken,
+            Config.agentFeedControlTokenVariable: controlToken,
         ]) { _, new in new }
         // Keep catalog and snapshot timing observable in the host unified log
         // without inheriting the host process's stdio descriptors.
@@ -317,6 +321,13 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         outputPipe?.fileHandleForReading.readabilityHandler = nil
         outputPipe = nil
         outputBuffer = ""
+    }
+
+    /// The capability this spawn hands the sidecar: an adopted one when a dev launch supplied it,
+    /// a fresh mint otherwise. Read per spawn rather than once, so a supervised restart keeps
+    /// whichever answer the launch chose instead of silently reverting to a mint mid-session.
+    private static func controlTokenForSpawn() -> String {
+        Config.agentFeedSidecarControlTokenOverride ?? makeControlToken()
     }
 
     private static func makeControlToken() -> String {

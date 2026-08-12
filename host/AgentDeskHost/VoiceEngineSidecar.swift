@@ -190,7 +190,7 @@ final class VoiceEngineSidecar: @unchecked Sendable {
         if importTraceEnabled {
             overrides["PYTHONPROFILEIMPORTTIME"] = "2"
         }
-        proc.environment = ProcessInfo.processInfo.environment
+        proc.environment = Config.childProcessEnvironment
             .merging(overrides) { _, new in new }
         // Dispatch onto our serial queue: Process invokes terminationHandler on
         // its own internal queue, but handleTermination reads+mutates stopped

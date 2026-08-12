@@ -100,6 +100,26 @@ only be set before the webview exists and switching back to bundled has nowhere 
   opts both surfaces out.
 - Neutral, because "which panel code is this" is now a property of the host, not of how the phone
   was launched. Two phones on one host always agree; the same phone on two hosts may not.
+- Bad, because making a plain browser tab work at this origin inverts who owns the sidecar's
+  control token. A browser has no relay to attach the bearer header, so the dev server's `/api`
+  proxy attaches it, which requires the server and the sidecar to share one. The host cannot supply
+  it -- it mints per spawn and holds the value in memory, deliberately unreachable -- and the server
+  outlives every launch that reuses it, so the server mints into `0600
+  .build/agent-panel-dev/control-token` and the host adopts it
+  (`Config.agentFeedSidecarControlTokenOverride`). The cost is exactly the property the mint was
+  protecting: while a dev server is up, anything running as this user can read that file and drive
+  the control API. Accepted because it is confined to a dev server's lifetime and removed with it,
+  and because the guarantee that actually bounds the blast radius is untouched -- the token still
+  never enters the page, on any surface, so agent-authored markdown cannot reach it however the
+  page was served.
+- Bad, because that adoption is order-dependent in a way only one surface reports. A host launched
+  before its dev server, or against a server left over from an older tree, mints its own token and
+  the two disagree; the Mac webview and the phone keep working through the relay, and only a browser
+  tab shows the failure, as an empty feed. `just agent-webview-dev-status` exists to answer that
+  question directly, and the ensure step says so on stderr when it reuses a tokenless server.
+- Neutral, because one dev server means one `/api` target, so a browser tab follows whichever host
+  tier started the server. The webview and phone legs are unaffected: they reach their own host's
+  sidecar through their own relay, which is why one page origin never meant one sidecar.
 
 ### Confirmation
 
@@ -110,6 +130,12 @@ silently reverted would break nothing visible; every surface would still launch 
 panel, just not the code being edited. Env delivery coming back would be worse than that: it works
 perfectly on the cabled dev client an agent is most likely to test with, and does nothing at all
 for the TestFlight install that motivated this.
+
+The same file asserts the token wiring, for the same reason: that the dev server carries the token
+its proxy attaches, that the file it writes is not world-readable, that both host launches adopt it
+rather than minting, that stopping the server removes it, and that it survives `open`'s launchd
+environment. Every one of those can break while the Mac and the phone keep working perfectly, so
+none of them has a felt symptom to catch it.
 
 The felt confirmation is the acceptance test: edit a TSX file, and watch it change in the Mac
 window and on the phone without either being rebuilt -- then force-quit the phone app, open it from

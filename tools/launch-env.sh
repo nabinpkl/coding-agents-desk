@@ -1,6 +1,13 @@
 #!/usr/bin/env sh
 set -eu
 
+# Variables to hand a host launched by `open`, which inherits launchd's environment rather than the
+# shell's. Set just before the launch and unset just after, so the window in which any other process
+# started on this Mac would inherit them is about a second wide.
+#
+# Nearly all are AGENTDESK_-prefixed knobs. AGENT_FEED_CONTROL_TOKEN is the exception, and it is not
+# a knob: it is the sidecar capability the panel's dev server minted, which the host adopts instead
+# of minting its own so a plain browser tab can reach the same sidecar (ADR-0096).
 fixed_names='
 AGENTDESK_AUTO_APPROVE
 AGENTDESK_DEV_ITERATION_RUN
@@ -47,6 +54,7 @@ AGENTDESK_OWNED_MEDIA_NORMAL_MAX_UNACKED_FRAMES
 AGENTDESK_OWNED_MEDIA_BEHIND_MAX_UNACKED_FRAMES
 AGENTDESK_SPACE_AGENT_LAYOUT
 AGENTDESK_AGENT_PANEL_ORIGIN
+AGENT_FEED_CONTROL_TOKEN
 AGENTDESK_VOICE_UV_PATH
 AGENTDESK_VOICE_PROJECT_DIR
 AGENTDESK_VOICE_SIDECAR_PORT

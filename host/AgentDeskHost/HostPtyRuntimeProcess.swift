@@ -443,7 +443,9 @@ final class HostPtyRuntimeProcess: @unchecked Sendable {
         let process = Process()
         process.executableURL = binaryURL
         process.arguments = arguments
-        process.environment = ProcessInfo.processInfo.environment
+        // Sanitized rather than inherited whole: terminal shells descend from here, and an agent's
+        // bash tool runs in one, so the agent-feed capability must not travel down this branch.
+        process.environment = Config.childProcessEnvironment
         // One file per launch, not per component. Sharing a name meant the outgoing generation, the
         // candidate, and its replacement all held descriptors to the same path: truncating at launch
         // did nothing to the older processes' offsets, so the file interleaved three generations and
