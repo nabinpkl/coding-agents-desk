@@ -4,6 +4,42 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agent Feed</title>
+    <!--
+      The panel's background, inline, so the FIRST paint is already the right colour.
+
+      `styles.css` is imported from `main.tsx`, so it is not a stylesheet the document knows
+      about at parse time: in dev it arrives as a JS-injected <style> only after the module
+      graph has come over the network -- from the tailnet, on the phone. Until then the
+      document has no background and paints white. That is the flash. The bundled build turns
+      the import into a <link> and closes most of the gap, but not the part before it loads,
+      and a `loadPanel` switch to the dev origin re-opens it on a panel that is already on
+      screen.
+
+      These two values are the light and dark `--background` from src/app/styles.css, which
+      `body` applies via `bg-background`. They are a second copy on purpose -- the first paint
+      cannot wait for the first copy -- and criticalBackground.test.ts fails if they drift.
+    -->
+    <style>
+      /* Declared here, and therefore ahead of every layer Tailwind declares later, so the real
+         stylesheet outranks this one the moment it lands. A stale copy can then only cost a
+         brief wrong-coloured frame; it can never hold the wrong background on a loaded panel. */
+      @layer critical {
+        :root {
+          color-scheme: light dark;
+        }
+        html,
+        body {
+          margin: 0;
+          background: oklch(1 0 0);
+        }
+        @media (prefers-color-scheme: dark) {
+          html,
+          body {
+            background: oklch(0.22 0 0);
+          }
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

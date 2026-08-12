@@ -1,3 +1,8 @@
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 import Foundation
 import WebKit
 import os
@@ -103,6 +108,20 @@ public final class WebPanelWebViewController: NSObject {
             )
         }
         let createdWebView = WebPanelWebView(frame: .zero, configuration: configuration)
+        // What WebKit paints before the document has a background of its own: on the first load,
+        // and again on every `loadPanel` switch, which happens under a panel already on screen.
+        // Left alone it is white, and a dark panel blinks white each time it navigates.
+        //
+        // A system colour rather than the panel's own token, because the token lives in CSS and a
+        // second copy of it here would be a copy in another language that nothing checks. This is
+        // a backdrop for the frames before the page paints, so following the system appearance is
+        // both close enough and automatically right in either theme. The page's real background
+        // arrives inline in its own <head>, which is what actually closes the gap.
+        #if os(macOS)
+        createdWebView.underPageBackgroundColor = .textBackgroundColor
+        #else
+        createdWebView.underPageBackgroundColor = .systemBackground
+        #endif
 
         self.webView = createdWebView
         self.messageSink = messageSink
