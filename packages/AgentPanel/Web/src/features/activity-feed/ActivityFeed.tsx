@@ -244,6 +244,20 @@ export function ActivityFeed({
     });
   }, [pause]);
 
+  // The live tail's own collapse state, deliberately NOT a member of `collapsed`.
+  //
+  // Those are transcript indices. The tail's index is a position in the sidecar's live
+  // projection -- a different space entirely, counted per session from the mirror's
+  // first row, where the transcript counts lines. On a live thread the two overlap
+  // constantly (a tail at 418 while the transcript is at 2965), so sharing the set made
+  // collapsing one unrelated row hundreds of messages back also collapse the message
+  // being written. One boolean, because the tail is one row.
+  const [liveTailCollapsed, setLiveTailCollapsed] = useState(false);
+  const toggleLiveTail = useCallback(() => {
+    pause();
+    setLiveTailCollapsed((previous) => !previous);
+  }, [pause]);
+
   const collapseAll = useCallback(() => {
     pause();
     setCollapsed(new Set(allEventIds));
@@ -274,7 +288,7 @@ export function ActivityFeed({
     estimateSize: (i) => {
       const it = rowItems[i];
       if (!it) return 88;
-      if (it.kind === "tail") return 88;
+      if (it.kind === "tail") return liveTailCollapsed ? 32 : 88;
       // A folded cluster is always one line, whatever it holds.
       if (it.kind === "cluster") return 32;
       if (collapsed.has(it.ev.index)) return 32;
@@ -502,12 +516,13 @@ export function ActivityFeed({
                   <LiveTailRow
                     ev={it.ev}
                     ctx={rowContext}
-                    // A live event has no transcript position, so it collapses
-                    // under the index the mirror carries (-1), which no durable
-                    // row can hold. The durable row that takes the message over
-                    // arrives under its own index, expanded.
-                    isCollapsed={collapsed.has(it.ev.index)}
-                    onToggle={() => toggleEvent(it.ev.index)}
+                    // Its own state, not a member of `collapsed`: the index this
+                    // event carries counts rows in the sidecar's live projection,
+                    // not lines in the transcript, so it is not a key those share.
+                    // The durable row that takes the message over arrives under its
+                    // own transcript index, expanded.
+                    isCollapsed={liveTailCollapsed}
+                    onToggle={toggleLiveTail}
                   />
                 ) : it.kind === "cluster" ? (
                   <ClusterRow
