@@ -1,5 +1,6 @@
+import chokidar from "chokidar";
 import { stat } from "node:fs/promises";
-import { state } from "./transcriptState.ts";
+import { state, type TranscriptFollow } from "./transcriptState.ts";
 import { adapterFor } from "./sources/sourceAdapters.ts";
 import { sessionKey } from "./transcriptCatalog.ts";
 import { mergeUsage } from "./usageState.ts";
@@ -59,7 +60,12 @@ function dropIndexState(key: string, options: { keepBuild?: boolean } = {}): voi
   state.indexedSizes.delete(key);
   state.indexed.delete(key);
   state.sessionUsage.delete(key);
-  if (!options.keepBuild) state.indexBuilds.delete(key);
+  if (!options.keepBuild) {
+    state.indexBuilds.delete(key);
+    // Paired with the build entry, not with the index data: it is a request made OF
+    // an in-flight build, so it is meaningless once that build is forgotten.
+    state.indexResyncs.delete(key);
+  }
 }
 
 /**
@@ -222,39 +228,51 @@ async function buildOrSyncIndex(
   const key = sessionKey(source, sessionId);
   const inflight = state.indexBuilds.get(key);
   if (inflight) {
+    // Joining the running build is not enough on its own: it measured the file when
+    // it started, so anything appended since is outside the pass this caller is
+    // about to await. Ask it for another look before it settles. Without this the
+    // caller returns an index that stops short of the change it was told about, and
+    // waits for a filesystem event that already happened.
+    state.indexResyncs.add(key);
     await inflight;
     return;
   }
   const build = (async () => {
-    let metadata: Awaited<ReturnType<typeof stat>>;
-    try {
-      metadata = await stat(transcriptPath);
-    } catch {
-      return;
-    }
-    let startOffset = state.indexedSizes.get(key) ?? 0;
-    if (metadata.size < startOffset) {
-      dropIndexState(key, { keepBuild: true });
-      startOffset = 0;
-    }
-    if (metadata.size > startOffset) {
-      const adapter = adapterFor(source);
-      const committed = await scanFrom(
-        key,
-        adapter,
-        transcriptPath,
-        startOffset,
-        metadata.size,
-      );
-      state.indexedSizes.set(key, committed);
-    }
-    state.indexed.add(key);
+    // Re-measures on each pass. The flag is cleared at the top so a request arriving
+    // DURING a pass schedules the next one rather than being cleared by it.
+    do {
+      state.indexResyncs.delete(key);
+      let metadata: Awaited<ReturnType<typeof stat>>;
+      try {
+        metadata = await stat(transcriptPath);
+      } catch {
+        return;
+      }
+      let startOffset = state.indexedSizes.get(key) ?? 0;
+      if (metadata.size < startOffset) {
+        dropIndexState(key, { keepBuild: true });
+        startOffset = 0;
+      }
+      if (metadata.size > startOffset) {
+        const adapter = adapterFor(source);
+        const committed = await scanFrom(
+          key,
+          adapter,
+          transcriptPath,
+          startOffset,
+          metadata.size,
+        );
+        state.indexedSizes.set(key, committed);
+      }
+      state.indexed.add(key);
+    } while (state.indexResyncs.has(key));
   })();
   state.indexBuilds.set(key, build);
   try {
     await build;
   } finally {
     state.indexBuilds.delete(key);
+    state.indexResyncs.delete(key);
   }
 }
 
@@ -288,6 +306,69 @@ export function releaseIndex(source: TranscriptSourceId, sessionId: string): voi
   }
   state.indexReferences.delete(key);
   dropIndexState(key);
+}
+
+/**
+ * Follows a transcript for as long as anyone is reading it, and keeps its index
+ * alive for the same span. Returns the release.
+ *
+ * One watch per file, not one per reader. Everything under this line was already
+ * shared per session -- the index is refcounted, the parse is deduped through
+ * `indexBuilds`, and parsed events fan out through `subscribeEvents` -- so a second
+ * viewer of one thread cost nothing except the `chokidar.watch` each subscription
+ * opened for itself, which is the one thing that was per-reader. Two agent windows
+ * on the same session now share this.
+ *
+ * `onError` is per follower because a shared watcher has no single subscriber to
+ * report to, and a watch that dies quietly is indistinguishable from a session that
+ * stopped writing.
+ */
+export function followTranscript(
+  source: TranscriptSourceId,
+  sessionId: string,
+  transcriptPath: string,
+  onError: (error: unknown) => void,
+): () => void {
+  const key = sessionKey(source, sessionId);
+  acquireIndex(source, sessionId);
+  let follow = state.transcriptFollows.get(key);
+  if (!follow) {
+    const watcher = chokidar.watch(transcriptPath, {
+      ignoreInitial: true,
+      persistent: true,
+      awaitWriteFinish: false,
+    });
+    const entry: TranscriptFollow = { watcher, handlers: new Set() };
+    const report = (error: unknown): void => {
+      for (const handler of entry.handlers) handler(error);
+    };
+    const sync = (): void => {
+      void syncIndex(source, sessionId, transcriptPath).catch(report);
+    };
+    watcher.on("add", sync);
+    watcher.on("change", sync);
+    watcher.on("error", report);
+    state.transcriptFollows.set(key, entry);
+    follow = entry;
+  }
+  // A fresh closure per follower, so identical handlers never collapse into one Set
+  // entry and take another follower's slot with them.
+  const handler = (error: unknown): void => onError(error);
+  follow.handlers.add(handler);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const current = state.transcriptFollows.get(key);
+    if (current) {
+      current.handlers.delete(handler);
+      if (current.handlers.size === 0) {
+        state.transcriptFollows.delete(key);
+        void current.watcher.close();
+      }
+    }
+    releaseIndex(source, sessionId);
+  };
 }
 
 export function resetIndex(source: TranscriptSourceId, sessionId: string): void {

@@ -9,6 +9,19 @@ export interface OpenStream {
   teardown: () => void;
 }
 
+/**
+ * The one watch on a transcript file, and everyone reading through it.
+ *
+ * Refcounted by `handlers.size` rather than a separate counter: every follower
+ * registers exactly one error handler, so the two cannot come apart. The handlers
+ * exist because a shared watcher has no single subscriber to fail to, and a watch
+ * that dies silently looks exactly like a session that stopped writing.
+ */
+export interface TranscriptFollow {
+  watcher: FSWatcher;
+  handlers: Set<(error: unknown) => void>;
+}
+
 export interface TranscriptState {
   sessions: Map<string, Session>;
   subscribers: Set<(snapshot: Session[]) => void>;
@@ -29,7 +42,15 @@ export interface TranscriptState {
   indexedSizes: Map<string, number>;
   indexed: Set<string>;
   indexBuilds: Map<string, Promise<void>>;
+  // Sessions whose file grew while their index build was already running. That
+  // build started from the size it saw when it began, so those bytes are outside
+  // it; the flag makes it look again before it settles rather than leaving them
+  // for the next filesystem event, which -- now that there is one watcher per
+  // file instead of one per reader -- may not come.
+  indexResyncs: Set<string>;
   indexReferences: Map<string, number>;
+  // One watch per followed transcript, shared by every reader of it.
+  transcriptFollows: Map<string, TranscriptFollow>;
   // Latest context-window occupancy per indexed session, folded line by line as
   // the index is built and extended. Lives here rather than in the catalog
   // because the indexing pass is the one place that already reads every line;
@@ -51,7 +72,9 @@ export const state: TranscriptState = {
   indexedSizes: new Map(),
   indexed: new Set(),
   indexBuilds: new Map(),
+  indexResyncs: new Set(),
   indexReferences: new Map(),
+  transcriptFollows: new Map(),
   sessionUsage: new Map(),
   eventSubscribers: new Map(),
   openStreams: new Set(),

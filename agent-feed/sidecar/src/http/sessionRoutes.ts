@@ -1,8 +1,8 @@
-import chokidar from "chokidar";
 import {
   acquireIndex,
   discardIndexIfUnused,
   ensureIndexed,
+  followTranscript,
   getEventCount,
   getSessionUsage,
   readEventRaw,
@@ -281,18 +281,10 @@ export function subscribeTranscriptTimeline(
     if (niceIndex === null) return;
     writeEvent({ ...event, index: niceIndex, otherModeIndex: event.index });
   };
-  acquireIndex(source, sessionId);
-  const watcher = chokidar.watch(session.transcriptPath, {
-    ignoreInitial: true,
-    persistent: true,
-    awaitWriteFinish: false,
-  });
-  const sync = (): void => {
-    void syncIndex(source, sessionId, session.transcriptPath).catch(fail);
-  };
-  watcher.on("add", sync);
-  watcher.on("change", sync);
-  watcher.on("error", fail);
+  // The watch and the index reference are one thing here: the index is what this
+  // reads and the watch is what keeps it current, and both are shared with every
+  // other reader of the same transcript.
+  const unfollow = followTranscript(source, sessionId, session.transcriptPath, fail);
   void (async () => {
     await ensureIndexed(source, sessionId, session.transcriptPath);
     if (cancelled) {
@@ -328,8 +320,7 @@ export function subscribeTranscriptTimeline(
   return () => {
     cancelled = true;
     unsubscribeEvents?.();
-    void watcher.close();
-    releaseIndex(source, sessionId);
+    unfollow();
   };
 }
 

@@ -6,11 +6,13 @@ import {
   acquireIndex,
   discardIndexIfUnused,
   ensureIndexed,
+  followTranscript,
   getEventCount,
   niceInsertionPoint,
   readEventRaw,
   readEvents,
   releaseIndex,
+  syncIndex,
   translateEventIndex,
 } from "./eventIndex.ts";
 import { state } from "./transcriptState.ts";
@@ -27,8 +29,11 @@ afterEach(async () => {
   state.indexedSizes.clear();
   state.indexed.clear();
   state.indexBuilds.clear();
+  state.indexResyncs.clear();
   state.indexReferences.clear();
   state.sessionUsage.clear();
+  for (const follow of state.transcriptFollows.values()) await follow.watcher.close();
+  state.transcriptFollows.clear();
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -227,6 +232,55 @@ describe("nice mode", () => {
     // translate to -- the caller decides what to do about that, not this.
     expect(translateEventIndex(source, sessionId, 13, "raw")).toBeNull();
     expect(translateEventIndex(source, sessionId, 999, "nice")).toBeNull();
+    releaseIndex(source, sessionId);
+  });
+});
+
+describe("following a transcript", () => {
+  test("readers of one transcript share a single watch and one index reference each", async () => {
+    const transcriptPath = await interleavedTranscript();
+    const key = sessionKey(source, sessionId);
+
+    const releaseFirst = followTranscript(source, sessionId, transcriptPath, () => {});
+    const releaseSecond = followTranscript(source, sessionId, transcriptPath, () => {});
+    // Two agent windows on one thread: two readers, two index references, one watch.
+    expect(state.transcriptFollows.size).toBe(1);
+    expect(state.indexReferences.get(key)).toBe(2);
+
+    releaseFirst();
+    // The watch outlives the first reader, because the second is still reading.
+    expect(state.transcriptFollows.size).toBe(1);
+    expect(state.indexReferences.get(key)).toBe(1);
+    // A release that runs twice must not take the surviving reader's slot with it.
+    releaseFirst();
+    expect(state.transcriptFollows.size).toBe(1);
+    expect(state.indexReferences.get(key)).toBe(1);
+
+    releaseSecond();
+    expect(state.transcriptFollows.size).toBe(0);
+    expect(state.indexReferences.has(key)).toBe(false);
+  });
+
+  test("a sync that joins a running build asks it for another pass", async () => {
+    const transcriptPath = await interleavedTranscript();
+    const key = sessionKey(source, sessionId);
+    acquireIndex(source, sessionId);
+
+    // The build promise is registered synchronously, so the second call below is
+    // guaranteed to find it in flight. What it cannot assert deterministically is
+    // that the extra pass READ new bytes -- the running pass measures the file after
+    // any synchronous append this test could make, so it would cover them anyway.
+    // What is pinned here is the mechanism: the join registers a request, and the
+    // build consumes it rather than leaving it set for the next caller to inherit.
+    const building = ensureIndexed(source, sessionId, transcriptPath);
+    expect(state.indexBuilds.has(key)).toBe(true);
+    const joining = syncIndex(source, sessionId, transcriptPath);
+    expect(state.indexResyncs.has(key)).toBe(true);
+
+    await Promise.all([building, joining]);
+    expect(state.indexResyncs.has(key)).toBe(false);
+    expect(state.indexBuilds.has(key)).toBe(false);
+    expect(getEventCount(source, sessionId)).toBe(36);
     releaseIndex(source, sessionId);
   });
 });
