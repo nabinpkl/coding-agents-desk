@@ -107,12 +107,14 @@ function EventHeading({
   isCollapsed,
   onToggle,
   showCacheHits,
+  isLive,
 }: {
   ev: ActivityEvent;
   role: DisplayRole;
   isCollapsed: boolean;
   onToggle: () => void;
   showCacheHits: boolean;
+  isLive: boolean;
 }) {
   const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : null;
   return (
@@ -120,8 +122,14 @@ function EventHeading({
       type="button"
       onClick={onToggle}
       aria-expanded={!isCollapsed}
-      aria-label={isCollapsed ? "expand event" : "collapse event"}
-      title={when ? `#${ev.index} · ${when}` : `#${ev.index}`}
+      // The live state rides the label rather than a visible band, so it is
+      // announced without spending a line. The pulse below is its sighted twin.
+      aria-label={
+        (isCollapsed ? "expand event" : "collapse event") + (isLive ? ", streaming" : "")
+      }
+      // A live row has no transcript position yet, so it says what it is instead
+      // of naming an index that would read as `#-1`.
+      title={isLive ? "streaming" : when ? `#${ev.index} · ${when}` : `#${ev.index}`}
       className="float-left mt-[0.15em] mr-[0.4em] flex items-center gap-[0.2em] rounded-sm text-left transition-colors hover:bg-foreground/5"
     >
       <ChevronRight
@@ -132,6 +140,16 @@ function EventHeading({
         aria-hidden
       />
       <span className={CHIP_CLASS + ROLE_STYLES[role]}>{role}</span>
+      {/* The ONLY thing a still-streaming row shows that a landed one does not.
+          Inline and sub-chip sized, so when the transcript takes the message over
+          and the dot goes away, one line loses a few pixels of width and nothing
+          moves vertically. */}
+      {isLive ? (
+        <span
+          className="ml-[0.15em] inline-block size-[0.45em] shrink-0 animate-pulse rounded-full bg-primary"
+          aria-hidden
+        />
+      ) : null}
       {showCacheHits && ev.cacheHit ? <CacheBadge cacheHit={ev.cacheHit} /> : null}
     </button>
   );
@@ -204,16 +222,25 @@ function EventRowShell({
   isCollapsed,
   onToggle,
   ctx,
+  isLive = false,
 }: {
   ev: ActivityEvent;
   role: DisplayRole;
   isCollapsed: boolean;
   onToggle: () => void;
   ctx: EventRowContext;
+  isLive?: boolean;
 }) {
   return (
     <div className="flow-root">
-      <EventHeading ev={ev} role={role} isCollapsed={isCollapsed} onToggle={onToggle} showCacheHits={ctx.showCacheHits} />
+      <EventHeading
+        ev={ev}
+        role={role}
+        isCollapsed={isCollapsed}
+        onToggle={onToggle}
+        showCacheHits={ctx.showCacheHits}
+        isLive={isLive}
+      />
       {isCollapsed ? <CollapsedPreview ev={ev} /> : <EventBody ev={ev} ctx={ctx} />}
     </div>
   );
@@ -252,7 +279,7 @@ export function UserRow({
 }
 
 export function SegmentEventRow({
-  ev, ctx, isFirst, isLast, isCollapsed, onToggle, isHighlighted,
+  ev, ctx, isFirst, isLast, isCollapsed, onToggle, isHighlighted, isLive = false,
 }: {
   ev: ActivityEvent;
   ctx: EventRowContext;
@@ -261,6 +288,8 @@ export function SegmentEventRow({
   isCollapsed: boolean;
   onToggle: () => void;
   isHighlighted: boolean;
+  /** Still arriving: adds a pulse to the heading and changes nothing else. */
+  isLive?: boolean;
 }) {
   const role = displayRole(ev);
   const wrapperClass =
@@ -281,9 +310,49 @@ export function SegmentEventRow({
           isCollapsed={isCollapsed}
           onToggle={onToggle}
           ctx={ctx}
+          isLive={isLive}
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * The live in-flight assistant message, appended after the durable rows until the
+ * transcript carries the same `messageId` and the durable row takes it over.
+ *
+ * Deliberately the SAME component a landed message renders in, with one pulsing dot
+ * as the entire difference. It used to be its own card: a primary-tinted border, a
+ * STREAMING band above the text, prose as pre-wrapped source, tools as `-> Bash`. So
+ * the handoff re-chromed the row, re-rendered the same prose as Markdown, and
+ * relabelled every tool call -- reflowing the paragraph the reader was in the middle
+ * of, at the one moment they were reading it. Nothing about the message changed there;
+ * only its renderer did. One renderer means the shape a message arrives in is the
+ * shape it keeps, and the handoff is invisible.
+ *
+ * Its own rounded band rather than a continuation of the segment run above it: joining
+ * that run would mean re-measuring the row above every time a turn starts and ends,
+ * which is a layout shift bought to avoid a border radius.
+ */
+export function LiveTailRow({
+  ev, ctx, isCollapsed, onToggle,
+}: {
+  ev: ActivityEvent;
+  ctx: EventRowContext;
+  isCollapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <SegmentEventRow
+      ev={ev}
+      ctx={ctx}
+      isFirst
+      isLast
+      isCollapsed={isCollapsed}
+      onToggle={onToggle}
+      isHighlighted={false}
+      isLive
+    />
   );
 }
 
@@ -434,6 +503,13 @@ function Block({
     // contains markdown (headings, code fences, lists, tables) that should
     // render rather than show as raw source. User text and tool textual
     // payloads stay plain so escaping characters survive.
+    //
+    // Rendered as Markdown WHILE STREAMING too, which costs something real: a
+    // paragraph break is invisible until the second newline of its `\n\n` lands,
+    // so two paragraphs read joined for about one token. The live tail used to
+    // render pre-wrapped source to avoid exactly that -- and paid for it at the
+    // handoff, where the whole message re-rendered as Markdown under the reader.
+    // A one-token joined break beats a full reflow of the paragraph being read.
     if (eventType === "assistant" && b.text) {
       return (
 <div

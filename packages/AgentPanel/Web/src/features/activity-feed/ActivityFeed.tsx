@@ -6,12 +6,10 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDown, ChevronRight, FoldVertical, UnfoldVertical } from "lucide-react";
 import {
   useSessionEventsStream,
-  type ActivityBlock,
   type ActivityEvent,
   type TokenUsage,
 } from "./useSessionEventsStream";
 import { useStickToBottom } from "./useStickToBottom";
-import { useProgressiveText } from "./streamingText";
 import {
   buildFeedLayout,
   displayRole,
@@ -29,6 +27,7 @@ import {
 import {
   ClusterRow,
   CompactionRow,
+  LiveTailRow,
   ROLE_BORDER,
   ROLE_STYLES,
   SegmentEventRow,
@@ -500,7 +499,16 @@ export function ActivityFeed({
                 }}
               >
                 {it.kind === "tail" ? (
-                  <LiveTailRow ev={it.ev} />
+                  <LiveTailRow
+                    ev={it.ev}
+                    ctx={rowContext}
+                    // A live event has no transcript position, so it collapses
+                    // under the index the mirror carries (-1), which no durable
+                    // row can hold. The durable row that takes the message over
+                    // arrives under its own index, expanded.
+                    isCollapsed={collapsed.has(it.ev.index)}
+                    onToggle={() => toggleEvent(it.ev.index)}
+                  />
                 ) : it.kind === "cluster" ? (
                   <ClusterRow
                     events={it.events}
@@ -578,66 +586,6 @@ export function ActivityFeed({
       ) : null}
     </div>
   );
-}
-
-// The live in-flight assistant message, shown as one appended row until the
-// durable transcript contains its `messageId` (then the hook clears it and the
-// durable rows take over). Rendered standalone so it can never inherit the
-// durable row machinery; the text reveals progressively while streaming.
-export function LiveTailRow({ ev }: { ev: ActivityEvent }) {
-  return (
-    <div className="px-[0.55em] py-[0.4em]">
-      <div className="rounded-md border border-primary/40 bg-primary/5 px-[0.6em] py-[0.5em]">
-        <div className="mb-1.5 flex items-center gap-1.5 text-muted-foreground">
-          <span className="inline-block size-1.5 animate-pulse rounded-full bg-primary" aria-hidden />
-          <span className="text-(length:--agent-panel-fs-tile-chip,12px) font-mono uppercase tracking-wider">
-            streaming
-          </span>
-        </div>
-        {ev.blocks.map((block, index) => (
-          <LiveTailBlock key={index} block={block} streaming={ev.phase === "streaming"} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function LiveTailBlock({ block, streaming }: { block: ActivityBlock; streaming: boolean }) {
-  // Called unconditionally (rules of hooks): reveal only applies to streaming
-  // prose, but the hook count must not vary by block kind across renders.
-  const revealed = useProgressiveText(
-    block.kind === "text" ? (block.text ?? "") : "",
-    streaming,
-  );
-  if (block.kind === "text" && block.text) {
-    // While streaming, render plain pre-wrapped text (not Markdown) so the
-    // transcript's paragraph and line breaks stay visible the moment their
-    // newline characters stream in — Markdown collapses blank lines until an
-    // entire `\n\n` boundary is complete, which would read as one paragraph.
-    return (
-      <div
-        className="whitespace-pre-wrap break-words leading-(--agent-panel-prose-leading) text-foreground"
-        style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
-      >
-        {revealed}
-      </div>
-    );
-  }
-  if (block.kind === "reasoning" && block.text) {
-    // Pre-wrap too: reasoning streams with the same paragraph/line breaks, and
-    // collapsing them would read as one run-on paragraph while streaming.
-    return (
-      <div className="whitespace-pre-wrap break-words text-muted-foreground/70 italic">
-        {block.text}
-      </div>
-    );
-  }
-  if (block.kind === "tool_use" && block.tool) {
-    return (
-      <div className="text-muted-foreground">→ {block.tool}</div>
-    );
-  }
-  return null;
 }
 
 // Compact pinned header for the most recent USER event the viewer scrolled

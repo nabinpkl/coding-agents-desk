@@ -362,8 +362,88 @@ function timeline(mode: EventMode): FixtureRoute {
     messages: [
       { delay: 40, payload: JSON.stringify(snapshot) },
       { delay: 120, payload: JSON.stringify(appended) },
+      ...liveTurn(mode, events.length + 1),
     ],
   };
+}
+
+/**
+ * A whole streaming turn, then the transcript taking it over.
+ *
+ * The fixture could show every durable shape and no live one, which left the row a
+ * reader actually watches -- the one still arriving -- judgeable only against a real
+ * agent. It matters most for exactly the thing this row is built around: the message
+ * grows, gains a tool call, completes, and is replaced by its durable self, and none
+ * of that may move the paragraph being read.
+ *
+ * Written as growing whole texts rather than deltas because that is what the mirror
+ * publishes: it accumulates into its blocks and republishes the message each time.
+ */
+function liveTurn(mode: EventMode, sequence: number): Array<{ delay: number; payload: string }> {
+  const prose = [
+    "Reading the",
+    "Reading the failing line. The **replacement** did not match, so",
+    "Reading the failing line. The **replacement** did not match, so the file on disk\nstill has its original text.\n\nChecking whether the excerpt strips the leading tab.",
+  ];
+  const tail = (blocks: ActivityEvent["blocks"], phase: "streaming" | "complete"): TimelineMessage => ({
+    type: "tail",
+    event: {
+      id: "fixture-tail",
+      index: -1,
+      otherModeIndex: null,
+      revision: 0,
+      phase,
+      ts: Date.now(),
+      type: "assistant",
+      messageId: "msg_fixture_tail",
+      blocks,
+    },
+  });
+  const withTool = [{ kind: "text" as const, text: prose[2]! }, {
+    kind: "tool_use" as const,
+    tool: "Read",
+    summary: "packages/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx",
+    callId: "fixture-call",
+  }];
+  // Absolute from the moment the stream opens, not gaps between messages: the
+  // fixture arms one timer per message off a single open, so a "delay" read as a
+  // gap would fire the end of the turn before its beginning.
+  return [
+    ...prose.map((text, step) => ({
+      delay: 900 + step * 700,
+      payload: JSON.stringify(tail([{ kind: "text", text }], "streaming")),
+    })),
+    { delay: 3_000, payload: JSON.stringify(tail(withTool, "streaming")) },
+    { delay: 3_700, payload: JSON.stringify(tail(withTool, "complete")) },
+    // The handoff: the same message, now a transcript line. The panel drops the tail
+    // on the messageId match, so the two never appear at once.
+    {
+      delay: 4_400,
+      payload: JSON.stringify({
+        type: "timeline",
+        envelope: {
+          kind: "upsert",
+          sequence: sequence + 1,
+          mode,
+          events: [{
+            id: "fixture-tail-durable",
+            index: sequence,
+            otherModeIndex: null,
+            revision: 0,
+            phase: "complete",
+            ts: Date.now(),
+            type: "assistant",
+            messageId: "msg_fixture_tail",
+            blocks: withTool,
+          }],
+          windowStart: 0,
+          total: sequence + 1,
+          runState: "idle",
+          queue: { steer: 0, followUp: 0 },
+        },
+      } satisfies TimelineMessage),
+    },
+  ];
 }
 
 /** Resolves one request path to its canned answer, or null for 404. */
