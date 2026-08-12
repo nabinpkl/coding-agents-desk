@@ -201,24 +201,31 @@ private final class FrameSink: @unchecked Sendable {
         lock.unlock()
     }
 
-    private func decoded<T: Decodable>(_ type: T.Type) -> [T] {
-        lock.lock()
-        let snapshot = frames
-        lock.unlock()
-        return snapshot.compactMap { try? JSONDecoder().decode(type, from: $0) }
-    }
-
     /// Decoding is by tag, because every frame decodes as any other with matching fields --
     /// an end frame is a prefix of an error frame.
+    ///
+    /// An unreadable frame is REPORTED, not skipped. Skipping is how this sink came to claim the
+    /// relay had emitted nothing: when the wire moved its tag from `type` to `t`, every frame
+    /// stopped decoding here, `try?` turned that into an empty array, and eight tests blamed the
+    /// relay for a change in the envelope. The two that assert no error was sent were worse off --
+    /// they passed, for exactly the same reason, because nothing is also no errors.
     private func tagged<T: Decodable>(_ tag: String, as type: T.Type) -> [T] {
         lock.lock()
         let snapshot = frames
         lock.unlock()
         return snapshot.compactMap { data in
-            guard let header = try? JSONDecoder().decode(Tag.self, from: data), header.type == tag else {
+            let json = String(decoding: data, as: UTF8.self)
+            guard let header = try? JSONDecoder().decode(Tag.self, from: data) else {
+                Issue.record("relay frame is not tagged under `t`, so no reader can route it: \(json)")
                 return nil
             }
-            return try? JSONDecoder().decode(type, from: data)
+            guard header.type == tag else { return nil }
+            do {
+                return try JSONDecoder().decode(type, from: data)
+            } catch {
+                Issue.record("frame tagged \(tag) does not decode as \(type): \(json)")
+                return nil
+            }
         }
     }
 
@@ -227,7 +234,21 @@ private final class FrameSink: @unchecked Sendable {
     func ends() -> [AgentFeedRelayEnd] { tagged("agent-http-end", as: AgentFeedRelayEnd.self) }
     func errors() -> [AgentFeedRelayError] { tagged("agent-http-err", as: AgentFeedRelayError.self) }
 
-    private struct Tag: Decodable { let type: String }
+    /// Reads a frame's tag and nothing else, so a frame can be routed before it is decoded as
+    /// anything in particular.
+    ///
+    /// The key is `t`, not `type`. That is the whole point of the spelling: the tag shares a
+    /// channel every reader matches `t` on, and `AgentFeedRelayFrames.swift` explains at length
+    /// why any other key silences the host-to-panel direction. It is restated here because
+    /// `CodingKeys` takes a literal, and it is pinned against the real encoding by
+    /// `agentFeedRelayFramesTagThemselvesUnderTheKeyThePanelReads` in AgentDeskWire's own tests.
+    private struct Tag: Decodable {
+        let type: String
+
+        enum CodingKeys: String, CodingKey {
+            case type = "t"
+        }
+    }
 }
 
 /// A sidecar transport that records what it was asked for and answers on command.
