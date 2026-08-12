@@ -133,6 +133,9 @@ agent_panel_origin_var := "AGENTDESK_AGENT_PANEL_ORIGIN"
 # either way, and it reaches its own tier's sidecar through that host's relay, not through Vite.
 agent_panel_dev_port := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_PORT", "5173")
 agent_panel_dev_log := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_LOG", "/tmp/agentdesk-agent-panel-dev.log")
+# The dev server's TLS material, keyed to this Mac's MagicDNS name. Under .build because it is
+# generated per machine and the key must never be committed.
+agent_panel_dev_tls_dir := justfile_directory() + "/.build/agent-panel-dev-tls"
 # Source directory for the AgentDesk-owned Rust PTY manager (moved in from the
 # agent-workspace-ide donor under R34). Override only for out-of-tree experiments.
 pty_manager_dir := env_var_or_default("AGENTDESK_PTY_MANAGER_DIR", justfile_directory() + "/terminal/pty-manager")
@@ -496,41 +499,80 @@ build-agent-webview:
 agent-feed-fitness:
     sh '{{justfile_directory()}}/tools/agent-feed-fitness.sh'
 
-# Bring the panel's Vite dev server up if it is not already, and say nothing else.
+# Issue (or renew) the panel dev server's TLS certificate for this Mac's MagicDNS name.
+#
+# Tailscale gets a publicly trusted certificate for the name from Let's Encrypt, which is the
+# whole trick behind the phone's HMR loop: the iPhone client ships to a daily driver through
+# TestFlight, so an App Transport Security exception opened for dev convenience is exactly the kind
+# that survives into a release build. A real certificate needs no exception (ADR-0096).
+#
+# Idempotent by --min-validity: an existing certificate with more than a week left is reused, and
+# `tailscale cert` only goes to the CA when it is not. Note the name enters public Certificate
+# Transparency logs, as any publicly trusted certificate does.
+#
+# Prints the path PREFIX on stdout; the two files are that plus `.crt` and `.key`. Everything the
+# command itself has to say goes to stderr, so a caller can read the prefix straight out of it.
+agent-webview-dev-cert:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    NAME="$(sh '{{justfile_directory()}}/tools/tailnet-dns-name.sh')"
+    DIR='{{agent_panel_dev_tls_dir}}'
+    mkdir -p "$DIR"
+    tailscale cert --min-validity 168h \
+      --cert-file "$DIR/$NAME.crt" --key-file "$DIR/$NAME.key" "$NAME" >&2
+    echo "$DIR/$NAME"
+
+# Bring the panel's Vite dev server up if it is not already. Prints its origin, and nothing else.
 #
 # This is what makes the live panel the DEFAULT rather than a thing you remember to set up: every
-# host launch calls it, an already-running server is reused, and a server that cannot come up fails
-# the launch instead of letting it start against an origin nothing is serving. That last part is the
-# whole reason this is a wait-and-verify loop and not a bare `&`: the dev origin is not a fallback,
-# so a host launched while Vite is still binding gets a panel that never loads.
+# host and client launch calls it, an already-running server is reused, and a server that cannot
+# come up fails the launch instead of letting it start against an origin nothing is serving. That
+# last part is the whole reason this is a wait-and-verify loop and not a bare `&': the dev origin is
+# not a fallback, so a launch that races Vite's binding gets a panel that never loads.
+#
+# One https origin serves both surfaces. Not a preference: TLS is a property of the port, so once
+# the phone's certificate is loaded there is no http on it for the Mac to keep using, and the Mac
+# reaching its own tailnet name is the smaller cost of the two. Everything the panel actually DOES
+# still goes through each host's own relay, so one page origin does not mean one sidecar.
 agent-webview-dev-ensure port=agent_panel_dev_port:
     #!/usr/bin/env bash
     set -euo pipefail
     ROOT='{{justfile_directory()}}'
     WEB='{{agent_panel_web_dir}}'
     LOG='{{agent_panel_dev_log}}'
+    NAME="$(sh "$ROOT/tools/tailnet-dns-name.sh")"
+    ORIGIN="https://$NAME:{{port}}"
     # `/@vite/client` rather than `/`, because this asks a narrower question: not "is something
     # listening on this port" but "is that something a Vite dev server". Anything else holding the
-    # port is a problem to report, not a server to point the host at.
-    serving() { curl -fs -o /dev/null --max-time 2 "http://127.0.0.1:{{port}}/@vite/client"; }
+    # port is a problem to report, not a server to point a launch at.
+    serving() { curl -fs -o /dev/null --max-time 4 "$ORIGIN/@vite/client"; }
     if serving; then
-        echo "agent-webview-dev: already serving on {{port}}"
+        echo "agent-webview-dev: already serving at $ORIGIN" >&2
+        echo "$ORIGIN"
         exit 0
     fi
+    CERT="$(just agent-webview-dev-cert)"
     node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies"
     : > "$LOG"
-    # Detached, because the host launch that called this outlives it and a dev server that dies
-    # with the recipe would make every launch the last one that worked.
-    ( cd "$WEB" && nohup bun run dev --port '{{port}}' --strictPort </dev/null >>"$LOG" 2>&1 & )
+    # Detached, because the launch that called this outlives it and a dev server that died with the
+    # recipe would make every launch the last one that worked.
+    (
+        cd "$WEB"
+        AGENTDESK_AGENT_PANEL_HOST="$NAME" \
+        AGENTDESK_AGENT_PANEL_TLS_CERT="$CERT.crt" \
+        AGENTDESK_AGENT_PANEL_TLS_KEY="$CERT.key" \
+        nohup bun run dev --port '{{port}}' --strictPort </dev/null >>"$LOG" 2>&1 &
+    )
     for _ in $(seq 1 100); do
         if serving; then
-            echo "agent-webview-dev: serving on {{port}} (log: $LOG)"
+            echo "agent-webview-dev: serving at $ORIGIN (log: $LOG)" >&2
+            echo "$ORIGIN"
             exit 0
         fi
         sleep 0.2
     done
-    echo "ERROR: no Vite dev server on {{port}} after 20s. Its output is in $LOG." >&2
-    echo "       The panel would load from nothing, so this launch stops here. Run the host with" >&2
+    echo "ERROR: no Vite dev server at $ORIGIN after 20s. Its output is in $LOG." >&2
+    echo "       The panel would load from nothing, so this launch stops here. Pass" >&2
     echo "       'panel=bundled' to use the built webview instead." >&2
     exit 1
 
@@ -547,21 +589,28 @@ agent-webview-dev-ensure port=agent_panel_dev_port:
 agent-webview-dev port=agent_panel_dev_port:
     #!/usr/bin/env bash
     set -euo pipefail
+    ROOT='{{justfile_directory()}}'
     WEB='{{agent_panel_web_dir}}'
+    NAME="$(sh "$ROOT/tools/tailnet-dns-name.sh")"
+    ORIGIN="https://$NAME:{{port}}"
     # Refuse rather than let --strictPort fail with a bare EADDRINUSE: the likely occupant is the
-    # server a host launch started, and the reason you are running this one by hand is usually an
+    # server a launch started, and the reason you are running this one by hand is usually an
     # environment that one does not have.
-    if curl -fs -o /dev/null --max-time 2 "http://127.0.0.1:{{port}}/@vite/client"; then
-        echo "a Vite dev server is already on {{port}}, probably started by a host launch." >&2
+    if curl -fs -o /dev/null --max-time 4 "$ORIGIN/@vite/client"; then
+        echo "a Vite dev server is already at $ORIGIN, probably started by a host or client launch." >&2
         echo "Run 'just agent-webview-dev-stop' first to replace it with this one." >&2
         exit 1
     fi
-    node '{{justfile_directory()}}/tools/build-system/ensure-js-dependencies.mjs' \
-      agent-panel "$WEB" '{{justfile_directory()}}/.build/js-dependencies'
-    echo "agent-webview-dev: serving on http://127.0.0.1:{{port}}"
-    echo "  hosts launched from here point at it automatically ({{agent_panel_origin_var}})"
+    CERT="$(just agent-webview-dev-cert)"
+    node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies"
+    echo "agent-webview-dev: serving at $ORIGIN"
+    echo "  hosts and clients launched from here point at it automatically ({{agent_panel_origin_var}})"
     echo ""
-    cd "$WEB" && bun run dev --port '{{port}}' --strictPort
+    cd "$WEB"
+    AGENTDESK_AGENT_PANEL_HOST="$NAME" \
+    AGENTDESK_AGENT_PANEL_TLS_CERT="$CERT.crt" \
+    AGENTDESK_AGENT_PANEL_TLS_KEY="$CERT.key" \
+    bun run dev --port '{{port}}' --strictPort
 
 # Stop whatever holds the panel dev-server port. The next host launch starts a fresh one.
 agent-webview-dev-stop port=agent_panel_dev_port:
@@ -1278,8 +1327,7 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live": build-age
         *) echo "ERROR: panel must be 'live' or 'bundled', got '{{panel}}'" >&2; exit 64 ;;
     esac
     if [ '{{panel}}' = live ] && [ -z "$(printenv '{{agent_panel_origin_var}}' || true)" ]; then
-        just agent-webview-dev-ensure
-        export {{agent_panel_origin_var}}="http://127.0.0.1:{{agent_panel_dev_port}}"
+        export {{agent_panel_origin_var}}="$(just agent-webview-dev-ensure)"
     fi
     just prepare-pty-runtime "{{variant}}"
     sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
@@ -1424,8 +1472,7 @@ host-run variant="stable" panel="live": build-agent-feed-sidecar build-agent-web
         *) echo "ERROR: panel must be 'live' or 'bundled', got '{{panel}}'" >&2; exit 64 ;;
     esac
     if [ '{{panel}}' = live ] && [ -z "$(printenv '{{agent_panel_origin_var}}' || true)" ]; then
-        just agent-webview-dev-ensure
-        export {{agent_panel_origin_var}}="http://127.0.0.1:{{agent_panel_dev_port}}"
+        export {{agent_panel_origin_var}}="$(just agent-webview-dev-ensure)"
     fi
     just prepare-pty-runtime "{{variant}}"
     sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
@@ -1642,7 +1689,7 @@ client-reinstall-release:
 # launches the iPhone client with the URL as a CommandLine argument so
 # SceneDelegate routes it via handleIncomingPairingURL. The user just runs
 # this; no menubar click, no camera, no manual paste.
-pair-iphone variant="stable":
+pair-iphone variant="stable" panel="live":
     #!/usr/bin/env bash
     set -euo pipefail
     # dev client pairs with the dev host, which writes its pair URL under its own
@@ -1651,6 +1698,20 @@ pair-iphone variant="stable":
     # (ADR-0038), matching the dev host default set by host-run. devicectl apps get env
     # not argv, so the client reads AGENTDESK_DOM_MIRROR_ENABLED via the CHILD prefix.
     if [ "{{variant}}" = "dev" ]; then HOST_DD='{{host_dev_derived_data}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_DD='{{derived_data}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    # The panel's code comes from the same live server the Mac uses, reached over the tailnet, so a
+    # TSX edit lands on the PHONE with no client rebuild and no reinstall. It rides an env var
+    # because devicectl apps get env and not argv -- and because that is also the safety property:
+    # a client started from the home screen, or installed by TestFlight, has no env to read and so
+    # always runs its own bundled build. There is no ATS exception behind this and there must not
+    # be one; the server is reached under a publicly trusted certificate (ADR-0096).
+    case '{{panel}}' in
+        live|bundled) ;;
+        *) echo "ERROR: panel must be 'live' or 'bundled', got '{{panel}}'" >&2; exit 64 ;;
+    esac
+    PANEL_ENV=()
+    if [ '{{panel}}' = live ]; then
+        PANEL_ENV=(DEVICECTL_CHILD_{{agent_panel_origin_var}}="$(just agent-webview-dev-ensure)")
+    fi
     HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "$PAIR_URL"
@@ -1659,7 +1720,7 @@ pair-iphone variant="stable":
     i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
-    URL="$(cat "$PAIR_URL")"; env DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --terminate-existing "$BID"
+    URL="$(cat "$PAIR_URL")"; env DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" ${DOM_ENV[@]+"${DOM_ENV[@]}"} ${PANEL_ENV[@]+"${PANEL_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --terminate-existing "$BID"
 
 # Ask the running host to collect durable client diagnostics and write them under
 # /tmp. Uses the active QUIC input lane first and falls back to the foreground
@@ -1839,12 +1900,26 @@ client-debug-bundle variant="stable":
 # the app exits and tees stdout/stderr to {{iphone_console_log}}. Owned-media stderr
 # tracing is enabled so packet-repair diagnostics have a path separate from iOS
 # unified logging. variant: stable (default) | dev.
-iphone-console-run variant="stable":
+iphone-console-run variant="stable" panel="live":
     #!/usr/bin/env bash
     set -euo pipefail
     # dev also enables the Chrome DOM mirror on the client (ADR-0038), matching the dev
     # host default; devicectl apps get env not argv, so it rides the CHILD prefix.
     if [ "{{variant}}" = "dev" ]; then HOST_DD='{{host_dev_derived_data}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_DD='{{derived_data}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
+    # The panel's code comes from the same live server the Mac uses, reached over the tailnet, so a
+    # TSX edit lands on the PHONE with no client rebuild and no reinstall. It rides an env var
+    # because devicectl apps get env and not argv -- and because that is also the safety property:
+    # a client started from the home screen, or installed by TestFlight, has no env to read and so
+    # always runs its own bundled build. There is no ATS exception behind this and there must not
+    # be one; the server is reached under a publicly trusted certificate (ADR-0096).
+    case '{{panel}}' in
+        live|bundled) ;;
+        *) echo "ERROR: panel must be 'live' or 'bundled', got '{{panel}}'" >&2; exit 64 ;;
+    esac
+    PANEL_ENV=()
+    if [ '{{panel}}' = live ]; then
+        PANEL_ENV=(DEVICECTL_CHILD_{{agent_panel_origin_var}}="$(just agent-webview-dev-ensure)")
+    fi
     HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "$PAIR_URL" "{{iphone_console_log}}"
@@ -1853,7 +1928,7 @@ iphone-console-run variant="stable":
     i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
-    URL="$(cat "$PAIR_URL")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; env DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
+    URL="$(cat "$PAIR_URL")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; env DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" ${DOM_ENV[@]+"${DOM_ENV[@]}"} ${PANEL_ENV[@]+"${PANEL_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
 # R130 physical acceptance path. Updates the Release client in place and launches it
 # with an attached console without starting, pairing, or waiting for the host.
@@ -2015,13 +2090,13 @@ dom-mirror-device-run-dev:
 # itself now, so these composites no longer pre-build them -- the phone agent
 # surface serves real projects/threads, not a build placeholder.
 #
-# The two legs pick up panel code differently, and the difference is not a choice: the Mac host
-# loads the panel from Vite, so a TSX edit reaches it live; the phone links the bundled webview,
-# which these composites rebuild and reinstall, so an edit reaches it on the next run. The phone
-# cannot take the live origin -- App Transport Security refuses http to a tailnet address, and the
-# client ships to a daily driver (ADR-0095). These composites stay arg-free, as the note above says:
-# to put the Mac on the same footing as the phone, which is what a run judging the shipped webview
-# wants, run the legs directly -- `just host-run stable bundled` then the client leg.
+# BOTH legs pick panel code up live now, from one https origin on the tailnet (ADR-0096): the Mac
+# host and the phone client each load the panel from the same Vite server, so a TSX edit reaches
+# both with no rebuild, no reinstall, and no re-pair. The bundled webview these composites build and
+# install is what the phone falls back to whenever it is NOT launched from here -- from the home
+# screen, or from TestFlight -- so it still has to be current, which is why the build stays.
+# These composites remain arg-free, as the note above says: to judge the shipped webview instead,
+# run the legs directly -- `just host-run stable bundled` then `just pair-iphone stable bundled`.
 fresh-install:
     just host-run
     just client-install-release

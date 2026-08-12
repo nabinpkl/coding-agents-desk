@@ -97,12 +97,13 @@ assert_contains "$dev_debug" \
 assert_contains "$stable_release" \
     "if [ 'live' = live ]" \
     'Release launch must serve the panel live by default'
+# The origin is taken FROM the step that brought the server up, rather than composed again here.
+# Composed again is how the two drift: the scheme changed from http to https when the phone leg
+# landed (ADR-0096), and a second spelling of the URL would have kept the old one working right up
+# until it silently pointed at nothing.
 assert_contains "$stable_release" \
-    'just agent-webview-dev-ensure' \
-    'a live panel launch must bring the dev server up first, not assume it'
-assert_contains "$stable_release" \
-    'export AGENTDESK_AGENT_PANEL_ORIGIN="http://127.0.0.1:5173"' \
-    'a live panel launch must point the host at the dev server it started'
+    'export AGENTDESK_AGENT_PANEL_ORIGIN="$(just agent-webview-dev-ensure)"' \
+    'a live panel launch must take its origin from the dev server it started'
 assert_contains "$dev_debug" \
     "if [ 'live' = live ]" \
     'Debug launch must serve the panel live by default'
@@ -111,5 +112,29 @@ bundled="$(just --dry-run host-run stable bundled 2>&1)"
 assert_contains "$bundled" \
     "if [ 'bundled' = live ]" \
     'panel=bundled must leave the origin unset so the bundled webview is what loads'
+
+# The phone gets the same live panel, over the tailnet (ADR-0096). It reaches the client as an
+# environment variable through devicectl, which is also what keeps it away from the daily driver:
+# an app launched from the home screen has no environment to read. Asserting the CHILD prefix
+# matters because without it devicectl keeps the variable for itself and the client sees nothing,
+# which looks exactly like a client that ignored it.
+for launch in 'pair-iphone stable' 'iphone-console-run stable'; do
+    # shellcheck disable=SC2086
+    phone="$(just --dry-run $launch 2>&1)"
+    assert_contains "$phone" \
+        "if [ 'live' = live ]" \
+        "$launch must serve the panel live by default"
+    assert_contains "$phone" \
+        'DEVICECTL_CHILD_AGENTDESK_AGENT_PANEL_ORIGIN="$(just agent-webview-dev-ensure)"' \
+        "$launch must pass the live origin to the client, under the devicectl child prefix"
+    assert_contains "$phone" \
+        '${PANEL_ENV[@]+"${PANEL_ENV[@]}"} xcrun devicectl' \
+        "$launch must actually put the panel environment on the launch"
+done
+
+phone_bundled="$(just --dry-run pair-iphone stable bundled 2>&1)"
+assert_contains "$phone_bundled" \
+    "if [ 'bundled' = live ]" \
+    'panel=bundled must leave the client on its own bundled webview'
 
 printf 'host run lifecycle tests passed\n'

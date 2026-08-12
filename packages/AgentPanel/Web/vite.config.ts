@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
@@ -12,6 +13,29 @@ import { defineConfig } from "vite";
 const sidecarOrigin = process.env.AGENTDESK_AGENT_FEED_ORIGIN ?? "http://127.0.0.1:7682";
 const controlToken = process.env.AGENT_FEED_CONTROL_TOKEN;
 
+/**
+ * The tailnet name this server answers to, and the certificate proving it is that name.
+ *
+ * Both are per-machine, so the Justfile derives them and passes them in. Together they are what
+ * lets the PHONE load the panel from here: iOS refuses cleartext HTTP to a tailnet address, and
+ * `NSAllowsLocalNetworking` does not cover 100.64/10, so the only way in without an ATS exception
+ * in an app that ships to a daily driver is real TLS under a publicly trusted certificate.
+ * Tailscale issues exactly that for the MagicDNS name (ADR-0096).
+ *
+ * TLS is all-or-nothing for the port, which is why there is one origin and not two: with a
+ * certificate loaded, `http://127.0.0.1:5173` stops working, so the Mac uses the same https name
+ * the phone does rather than each surface having its own idea of where the panel lives.
+ */
+const tailnetHost = process.env.AGENTDESK_AGENT_PANEL_HOST;
+const tlsCertificate = process.env.AGENTDESK_AGENT_PANEL_TLS_CERT;
+const tlsKey = process.env.AGENTDESK_AGENT_PANEL_TLS_KEY;
+// Read now rather than handing Vite the paths, so a missing or unreadable certificate fails here,
+// naming the file, instead of surfacing as a phone that cannot load a page.
+const https =
+  tlsCertificate && tlsKey
+    ? { cert: readFileSync(tlsCertificate), key: readFileSync(tlsKey) }
+    : undefined;
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   base: "./",
@@ -20,11 +44,16 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    // Bound to every interface rather than loopback only, so the Mac host's webview and an
-    // ordinary browser on another machine reach the same server. The phone is NOT one of those
-    // surfaces: loading this over http from a tailnet address is refused by App Transport
-    // Security, so the phone keeps the bundled build (ADR-0095).
+    // Bound to every interface rather than loopback only, so the Mac host's webview, the phone
+    // over the tailnet, and an ordinary browser all reach the same server.
     host: true,
+    https,
+    // Only matters when this server is run by hand without a certificate. Vite's host check exists
+    // to stop DNS rebinding, and it installs the middleware only when `https` is unset -- a
+    // certificate is the stronger form of the same guarantee, since a rebound name cannot complete
+    // the handshake. So under TLS this line is inert, and without TLS it is what lets the MagicDNS
+    // name through a check that recognises only localhost and bare IPs on its own.
+    allowedHosts: tailnetHost ? [tailnetHost] : [],
     hmr: {
       // Left to the default, which is "connect back to whatever host the page loaded from" -- the
       // reason one server works for localhost and a LAN address with no per-surface config. Set

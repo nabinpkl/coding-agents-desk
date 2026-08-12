@@ -103,11 +103,12 @@ consulted at all, so a dev server that is down fails to load rather than quietly
 - Neutral, because the client's downstream path was already field-agnostic: `deliverAgentPush`
   forwards `agent-*` frames verbatim by prefix, and `agent-http-*` is not in
   `nativeInterceptedTypes`, so no client change was needed.
-- Neutral, because the HMR loop is Mac-only. The same controller runs on the phone, but loading
-  `http://<tailnet-ip>:5173` there needs an App Transport Security exception
-  (`NSAllowsLocalNetworking` does not cover a tailnet address) or a cert the phone trusts. The
-  client ships to a daily driver through TestFlight and an ATS hole opened for dev convenience is
-  the kind that survives into release, so the phone keeps the bundled build.
+- Neutral, because the HMR loop was Mac-only at first: the same controller runs on the phone, but
+  loading `http://<tailnet-ip>:5173` there is refused by App Transport Security
+  (`NSAllowsLocalNetworking` does not cover a tailnet address), and the client ships to a daily
+  driver through TestFlight, where an ATS hole opened for dev convenience is the kind that survives
+  into release. ADR-0096 extends the loop to the phone without one, by serving the dev origin over
+  TLS under a Tailscale-issued certificate for the MagicDNS name.
 - Neutral, because the host still names one sidecar path. The terminal handoff asks whether a
   session is live before taking its PTY over, which is a capability decision rather than a view of
   the feed, so it keeps a typed call.
