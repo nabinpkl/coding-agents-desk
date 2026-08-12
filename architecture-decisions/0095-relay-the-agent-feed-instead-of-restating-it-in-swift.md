@@ -87,6 +87,12 @@ consulted at all, so a dev server that is down fails to load rather than quietly
 - Good, because ~2,100 lines of shape-only Swift and 13 hardcoded endpoints are deleted;
   `AgentFeedBridge` (852 lines) became a ~150-line relay.
 - Good, because the panel serves from Vite with HMR, so a TSX edit lands without a Swift compile.
+  This is the default rather than a setup step: `host-run` and `host-run-dev` start the dev server
+  if it is not up, wait for it to answer, and point the launched host at it. A loop nobody has to
+  remember to turn on is the only kind that survives, and the alternative -- an origin exported by
+  hand -- fails in the direction that looks like success, a host quietly running the bundled build
+  while you edit source that reaches nothing. The launch refuses to proceed if the server cannot
+  come up, for the same reason the override itself is not a fallback.
 - Bad, because one ordered lane now carries both feed updates and large raw-event bodies, so a big
   transfer can delay feed latency. Interleaving by `rid` and a 1MB chunk bound are the mitigation;
   this is the risk to measure first if the feed feels slow under a large fetch.
@@ -118,8 +124,13 @@ panel request tag is neither the relay nor a native capability.
 data source parses them into what the view renders. One fixture, not two, because per-side fixtures
 are what hid the last drift.
 
-The felt confirmation is the acceptance test for the whole change: with the dev origin set, edit a
-TSX file and see it change with no rebuild.
+`tools/host-run-lifecycle-tests.sh` (in `just check`) asserts the live panel is what both host
+launches choose by default, and that `panel=bundled` leaves the origin unset. A default that
+silently reverted would break nothing visible -- the host would launch and the panel would load,
+just not the code being edited.
+
+The felt confirmation is the acceptance test for the whole change: edit a TSX file and see it change
+in the running host with no rebuild.
 
 ## Links
 

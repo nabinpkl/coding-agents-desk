@@ -128,6 +128,11 @@ agent_panel_web_dir := justfile_directory() + "/packages/AgentPanel/Web"
 # Mirrors AgentPanelWebViewController.developmentOriginVariable; a second spelling would be a
 # build that looks live and is not.
 agent_panel_origin_var := "AGENTDESK_AGENT_PANEL_ORIGIN"
+# Where the panel's Vite dev server listens, and where its output goes when a host launch starts
+# it rather than a human. One port for both host variants on purpose: the panel is the same code
+# either way, and it reaches its own tier's sidecar through that host's relay, not through Vite.
+agent_panel_dev_port := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_PORT", "5173")
+agent_panel_dev_log := env_var_or_default("AGENTDESK_AGENT_PANEL_DEV_LOG", "/tmp/agentdesk-agent-panel-dev.log")
 # Source directory for the AgentDesk-owned Rust PTY manager (moved in from the
 # agent-workspace-ide donor under R34). Override only for out-of-tree experiments.
 pty_manager_dir := env_var_or_default("AGENTDESK_PTY_MANAGER_DIR", justfile_directory() + "/terminal/pty-manager")
@@ -491,28 +496,76 @@ build-agent-webview:
 agent-feed-fitness:
     sh '{{justfile_directory()}}/tools/agent-feed-fitness.sh'
 
-# Serve the Agent Panel from Vite so editing TSX needs no Swift compile.
+# Bring the panel's Vite dev server up if it is not already, and say nothing else.
 #
-# Two surfaces, one server. For the Mac host's webview, export the origin this prints and relaunch
-# the host: the panel loads from Vite and hot module replacement is live, so a TSX edit lands
-# without a rebuild. For a plain browser, open the printed URL; that leg also needs
-# AGENT_FEED_CONTROL_TOKEN and AGENTDESK_AGENT_FEED_ORIGIN in the environment, because the browser
-# has no relay to attach the sidecar's bearer header for it.
+# This is what makes the live panel the DEFAULT rather than a thing you remember to set up: every
+# host launch calls it, an already-running server is reused, and a server that cannot come up fails
+# the launch instead of letting it start against an origin nothing is serving. That last part is the
+# whole reason this is a wait-and-verify loop and not a bare `&`: the dev origin is not a fallback,
+# so a host launched while Vite is still binding gets a panel that never loads.
+agent-webview-dev-ensure port=agent_panel_dev_port:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ROOT='{{justfile_directory()}}'
+    WEB='{{agent_panel_web_dir}}'
+    LOG='{{agent_panel_dev_log}}'
+    # `/@vite/client` rather than `/`, because this asks a narrower question: not "is something
+    # listening on this port" but "is that something a Vite dev server". Anything else holding the
+    # port is a problem to report, not a server to point the host at.
+    serving() { curl -fs -o /dev/null --max-time 2 "http://127.0.0.1:{{port}}/@vite/client"; }
+    if serving; then
+        echo "agent-webview-dev: already serving on {{port}}"
+        exit 0
+    fi
+    node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies"
+    : > "$LOG"
+    # Detached, because the host launch that called this outlives it and a dev server that dies
+    # with the recipe would make every launch the last one that worked.
+    ( cd "$WEB" && nohup bun run dev --port '{{port}}' --strictPort </dev/null >>"$LOG" 2>&1 & )
+    for _ in $(seq 1 100); do
+        if serving; then
+            echo "agent-webview-dev: serving on {{port}} (log: $LOG)"
+            exit 0
+        fi
+        sleep 0.2
+    done
+    echo "ERROR: no Vite dev server on {{port}} after 20s. Its output is in $LOG." >&2
+    echo "       The panel would load from nothing, so this launch stops here. Run the host with" >&2
+    echo "       'panel=bundled' to use the built webview instead." >&2
+    exit 1
+
+# Serve the Agent Panel from Vite in the FOREGROUND, with its log on your terminal.
+#
+# Host launches start this server themselves (see agent-webview-dev-ensure), so reach for this one
+# when you want to watch it, or for the plain-browser leg: that leg needs AGENT_FEED_CONTROL_TOKEN
+# and AGENTDESK_AGENT_FEED_ORIGIN in the environment, because a browser has no relay to attach the
+# sidecar's bearer header for it, and the token is minted per sidecar spawn so it can only be
+# exported after the host is up.
 #
 # The dev origin is NOT a fallback: with it set, the host serves only from Vite, and if Vite is not
 # up the panel fails to load rather than quietly showing the bundled build.
-agent-webview-dev port="5173":
+agent-webview-dev port=agent_panel_dev_port:
     #!/usr/bin/env bash
     set -euo pipefail
     WEB='{{agent_panel_web_dir}}'
+    # Refuse rather than let --strictPort fail with a bare EADDRINUSE: the likely occupant is the
+    # server a host launch started, and the reason you are running this one by hand is usually an
+    # environment that one does not have.
+    if curl -fs -o /dev/null --max-time 2 "http://127.0.0.1:{{port}}/@vite/client"; then
+        echo "a Vite dev server is already on {{port}}, probably started by a host launch." >&2
+        echo "Run 'just agent-webview-dev-stop' first to replace it with this one." >&2
+        exit 1
+    fi
     node '{{justfile_directory()}}/tools/build-system/ensure-js-dependencies.mjs' \
       agent-panel "$WEB" '{{justfile_directory()}}/.build/js-dependencies'
-    echo "agent-webview-dev: point the host at this and relaunch it:"
-    echo ""
-    echo "  export {{agent_panel_origin_var}}=http://127.0.0.1:{{port}}"
-    echo "  just host-run-dev dev"
+    echo "agent-webview-dev: serving on http://127.0.0.1:{{port}}"
+    echo "  hosts launched from here point at it automatically ({{agent_panel_origin_var}})"
     echo ""
     cd "$WEB" && bun run dev --port '{{port}}' --strictPort
+
+# Stop whatever holds the panel dev-server port. The next host launch starts a fresh one.
+agent-webview-dev-stop port=agent_panel_dev_port:
+    sh '{{justfile_directory()}}/tools/reclaim-port.sh' "agent panel dev server" '{{port}}'
 
 agent-panel-web-check:
     #!/usr/bin/env bash
@@ -1172,7 +1225,7 @@ prepare-pty-runtime variant="stable": build-pty-runtime
 host-debug:
     lldb --wait-for --attach-name AgentDeskHost
 
-host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
+host-run-dev variant="stable" install_live_bridge="true" panel="live": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
     # Like host-run, this builds the real bundled artifacts (agent sidecar + webview,
@@ -1215,6 +1268,19 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
             done
         done
     }
+    # The panel is served live by DEFAULT: Vite comes up before anything is torn down, and the
+    # launched host loads its panel from there, so a TSX edit lands in the running host with no
+    # rebuild and no relaunch. `panel=bundled` opts out, which is what a run judging the SHIPPED
+    # webview wants -- with the dev origin set, the bundled tree is not consulted at all. An origin
+    # already in the environment is left alone: an operator pointing at their own server means it.
+    case '{{panel}}' in
+        live|bundled) ;;
+        *) echo "ERROR: panel must be 'live' or 'bundled', got '{{panel}}'" >&2; exit 64 ;;
+    esac
+    if [ '{{panel}}' = live ] && [ -z "$(printenv '{{agent_panel_origin_var}}' || true)" ]; then
+        just agent-webview-dev-ensure
+        export {{agent_panel_origin_var}}="http://127.0.0.1:{{agent_panel_dev_port}}"
+    fi
     just prepare-pty-runtime "{{variant}}"
     sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
     # Kill both build configurations of THIS variant. LaunchServices treats Debug
@@ -1308,7 +1374,11 @@ host-run-dev variant="stable" install_live_bridge="true": build-agent-feed-sidec
 # gesture/voice webview + voice-server source), so every launch reflects the latest
 # code instead of stale staged binaries. Composites therefore no longer pre-build
 # these before calling host-run.
-host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
+#
+# `panel` (live | bundled) selects where the Agent Panel's code comes from. Live is the default and
+# starts the Vite dev server if it is not already up, so a TSX edit changes the running host with
+# no rebuild. Choose bundled to judge the webview as it actually ships.
+host-run variant="stable" panel="live": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
     # DOM mirror is baked on by default (see host-run-dev); no enable override injected here.
@@ -1346,6 +1416,17 @@ host-run variant="stable": build-agent-feed-sidecar build-agent-webview build-ge
             done
         done
     }
+    # Live panel by default, same as host-run-dev; see the note there. Release changes nothing about
+    # this: the Vite origin decides where the panel's code comes from, the build configuration
+    # decides how fast the host's own Swift runs, and they are independent axes.
+    case '{{panel}}' in
+        live|bundled) ;;
+        *) echo "ERROR: panel must be 'live' or 'bundled', got '{{panel}}'" >&2; exit 64 ;;
+    esac
+    if [ '{{panel}}' = live ] && [ -z "$(printenv '{{agent_panel_origin_var}}' || true)" ]; then
+        just agent-webview-dev-ensure
+        export {{agent_panel_origin_var}}="http://127.0.0.1:{{agent_panel_dev_port}}"
+    fi
     just prepare-pty-runtime "{{variant}}"
     sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
     # Kill both build configurations of THIS variant. LaunchServices treats Debug
@@ -1933,6 +2014,14 @@ dom-mirror-device-run-dev:
 # gesture/voice webview + voice-server source) are built by host-run / host-run-dev
 # itself now, so these composites no longer pre-build them -- the phone agent
 # surface serves real projects/threads, not a build placeholder.
+#
+# The two legs pick up panel code differently, and the difference is not a choice: the Mac host
+# loads the panel from Vite, so a TSX edit reaches it live; the phone links the bundled webview,
+# which these composites rebuild and reinstall, so an edit reaches it on the next run. The phone
+# cannot take the live origin -- App Transport Security refuses http to a tailnet address, and the
+# client ships to a daily driver (ADR-0095). These composites stay arg-free, as the note above says:
+# to put the Mac on the same footing as the phone, which is what a run judging the shipped webview
+# wants, run the legs directly -- `just host-run stable bundled` then the client leg.
 fresh-install:
     just host-run
     just client-install-release

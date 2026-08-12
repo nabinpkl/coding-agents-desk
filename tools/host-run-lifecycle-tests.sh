@@ -89,4 +89,27 @@ assert_contains "$dev_debug" \
     'ERROR: newly built host did not launch' \
     'dev launch must fail when the exact new executable is absent'
 
+# The live panel is the DEFAULT, on the Release daily driver as much as on the Debug twin. This is
+# asserted on the substituted guard rather than on behaviour, because a dry run is the only place
+# the chosen default is visible without launching a host. `panel` defaulting back to bundled would
+# not fail anything else: the host would launch, the panel would load, and a TSX edit would simply
+# stop reaching it -- the silent regression this exists to catch.
+assert_contains "$stable_release" \
+    "if [ 'live' = live ]" \
+    'Release launch must serve the panel live by default'
+assert_contains "$stable_release" \
+    'just agent-webview-dev-ensure' \
+    'a live panel launch must bring the dev server up first, not assume it'
+assert_contains "$stable_release" \
+    'export AGENTDESK_AGENT_PANEL_ORIGIN="http://127.0.0.1:5173"' \
+    'a live panel launch must point the host at the dev server it started'
+assert_contains "$dev_debug" \
+    "if [ 'live' = live ]" \
+    'Debug launch must serve the panel live by default'
+
+bundled="$(just --dry-run host-run stable bundled 2>&1)"
+assert_contains "$bundled" \
+    "if [ 'bundled' = live ]" \
+    'panel=bundled must leave the origin unset so the bundled webview is what loads'
+
 printf 'host run lifecycle tests passed\n'
