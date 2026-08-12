@@ -102,8 +102,17 @@ assert_contains "$stable_release" \
 # landed (ADR-0096), and a second spelling of the URL would have kept the old one working right up
 # until it silently pointed at nothing.
 assert_contains "$stable_release" \
-    'export AGENTDESK_AGENT_PANEL_ORIGIN="$(just agent-webview-dev-ensure)"' \
+    'PANEL_ORIGIN="$(just agent-webview-dev-ensure)"' \
     'a live panel launch must take its origin from the dev server it started'
+# The two-step assign-then-export is load-bearing, not style. `export VAR="$(cmd)"` returns export's
+# own status, so a dev server that failed to start would sail past `set -e` and launch the host with
+# an empty origin -- a bundled panel presenting as the live one. This actually happened.
+assert_not_contains "$stable_release" \
+    'export AGENTDESK_AGENT_PANEL_ORIGIN="$(just' \
+    'the origin must not be exported straight from a command substitution'
+assert_not_contains "$dev_debug" \
+    'export AGENTDESK_AGENT_PANEL_ORIGIN="$(just' \
+    'the origin must not be exported straight from a command substitution'
 assert_contains "$dev_debug" \
     "if [ 'live' = live ]" \
     'Debug launch must serve the panel live by default'

@@ -1329,7 +1329,12 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live": build-age
         *) echo "ERROR: panel must be 'live' or 'bundled', got '{{panel}}'" >&2; exit 64 ;;
     esac
     if [ '{{panel}}' = live ] && [ -z "$(printenv '{{agent_panel_origin_var}}' || true)" ]; then
-        export {{agent_panel_origin_var}}="$(just agent-webview-dev-ensure)"
+        # Assigned on its own line before being exported, because `export VAR="$(cmd)"` swallows a
+        # non-zero substitution status even under `set -e`: a dev server that failed to come up
+        # would launch the host with an EMPTY origin, which is the bundled panel wearing the live
+        # one's name -- the exact silent fallback this default is supposed to make impossible.
+        PANEL_ORIGIN="$(just agent-webview-dev-ensure)"
+        export {{agent_panel_origin_var}}="$PANEL_ORIGIN"
     fi
     just prepare-pty-runtime "{{variant}}"
     sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
@@ -1474,7 +1479,12 @@ host-run variant="stable" panel="live": build-agent-feed-sidecar build-agent-web
         *) echo "ERROR: panel must be 'live' or 'bundled', got '{{panel}}'" >&2; exit 64 ;;
     esac
     if [ '{{panel}}' = live ] && [ -z "$(printenv '{{agent_panel_origin_var}}' || true)" ]; then
-        export {{agent_panel_origin_var}}="$(just agent-webview-dev-ensure)"
+        # Assigned on its own line before being exported, because `export VAR="$(cmd)"` swallows a
+        # non-zero substitution status even under `set -e`: a dev server that failed to come up
+        # would launch the host with an EMPTY origin, which is the bundled panel wearing the live
+        # one's name -- the exact silent fallback this default is supposed to make impossible.
+        PANEL_ORIGIN="$(just agent-webview-dev-ensure)"
+        export {{agent_panel_origin_var}}="$PANEL_ORIGIN"
     fi
     just prepare-pty-runtime "{{variant}}"
     sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
