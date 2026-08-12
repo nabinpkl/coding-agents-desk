@@ -166,13 +166,41 @@ export class RelayHttpTransport implements AgentHttpTransport {
   }
 
   subscribe(path: string, handlers: SubscribeHandlers): () => void {
+    // A stream that opened with an error status is not a stream, and saying nothing about it is
+    // the worst of the three options: the sidecar answers a bad request with a 4xx whose body is
+    // a coded error, that body reaches `onMessage` looking like data, every subscriber ignores it
+    // for not having the shape it wanted, and the panel waits forever on a request that was
+    // ANSWERED. The `fetch` backend does not have this problem -- `EventSource` treats a non-2xx
+    // open as an error -- so this is also what makes the two backends behave alike.
+    let failedWith: number | null = null;
     const rid = this.open(path, {
       method: "GET",
       stream: true,
-      onStatus: (status) => handlers.onOpen?.(status),
-      onComplete: (message) => handlers.onMessage(message),
+      onStatus: (status) => {
+        if (status >= 200 && status < 300) {
+          handlers.onOpen?.(status);
+          return;
+        }
+        failedWith = status;
+      },
+      onComplete: (message) => {
+        if (failedWith === null) {
+          handlers.onMessage(message);
+          return;
+        }
+        // The body is passed through rather than parsed: what the code means is the data
+        // source's business, and this layer knowing would be the restatement this whole
+        // transport exists to avoid.
+        this.cancel(rid);
+        handlers.onError(`sidecar answered ${failedWith}: ${message}`);
+      },
       onFail: (reason) => handlers.onError(reason),
     });
+    // An error response with an empty body ends without ever completing a message, so the end of
+    // the transfer is the last chance to report it.
+    this.transfers.get(rid)!.onDone = () => {
+      if (failedWith !== null) handlers.onError(`sidecar answered ${failedWith}`);
+    };
     return () => this.cancel(rid);
   }
 

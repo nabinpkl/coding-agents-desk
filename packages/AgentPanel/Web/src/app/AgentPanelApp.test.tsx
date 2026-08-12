@@ -247,7 +247,7 @@ function deliverProjectSessions(
   sessions: typeof FIXTURE_SESSIONS | Array<Record<string, unknown>>,
 ) {
   act(() => {
-    transport.deliver(`project=${encodeURIComponent(projectPath)}`, { projectPath, sessions });
+    transport.deliver(`projectPath=${encodeURIComponent(projectPath)}`, { projectPath, sessions });
   });
 }
 
@@ -362,7 +362,7 @@ describe("App shell", () => {
     expect(screen.getByRole("button", { name: /^Alpha Project 2 sessions/ })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("button", { name: /^Beta Project 1 session/ })).toHaveAttribute("aria-expanded", "false");
     expect(transport.subscriptions.map((open) => open.path)).toContainEqual(
-      expect.stringContaining(`project=${encodeURIComponent(FIXTURE_PROJECT_A.projectPath)}`),
+      expect.stringContaining(`projectPath=${encodeURIComponent(FIXTURE_PROJECT_A.projectPath)}`),
     );
 
     deliverSessions(transport);
@@ -398,7 +398,7 @@ describe("App shell", () => {
         .map((open) => open.path)
         .filter((path) => path.startsWith("/api/sessions/stream")),
     ).toEqual([
-      expect.stringContaining(`project=${encodeURIComponent(FIXTURE_PROJECT_B.projectPath)}`),
+      expect.stringContaining(`projectPath=${encodeURIComponent(FIXTURE_PROJECT_B.projectPath)}`),
     ]);
     expect(screen.queryByText("Session Claude 01")).not.toBeInTheDocument();
     expect(screen.getByText("Beta session")).toBeInTheDocument();
@@ -1000,7 +1000,7 @@ describe("visibility subscriptions recover from failure", () => {
   it("drops an expanded project's pending retry when the project collapses", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
-    const alpha = `project=${encodeURIComponent(FIXTURE_PROJECT_A.projectPath)}`;
+    const alpha = `projectPath=${encodeURIComponent(FIXTURE_PROJECT_A.projectPath)}`;
     act(() => void transport.fail(alpha, "agent feed is not ready"));
     expect(screen.getByRole("alert")).toHaveTextContent("agent feed is not ready");
 

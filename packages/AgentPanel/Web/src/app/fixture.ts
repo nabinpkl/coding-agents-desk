@@ -380,7 +380,10 @@ function route(method: string, path: string): FixtureRoute | null {
     };
   }
   if (pathname === "/api/sessions/stream") {
-    const projectPath = parameters.get("project");
+    // `projectPath`, because that is what the sidecar's route reads. This fixture stands in for
+    // the sidecar, so a name invented here is a name the real route will refuse -- and it will
+    // refuse it with a 400 the whole test suite is happy to never see.
+    const projectPath = parameters.get("projectPath");
     const sessions = projectPath === PROJECT_PATH ? FIXTURE_SESSIONS : [];
     return {
       status: 200,

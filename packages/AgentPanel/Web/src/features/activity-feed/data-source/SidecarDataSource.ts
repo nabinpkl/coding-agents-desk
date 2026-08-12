@@ -118,7 +118,7 @@ export class SidecarDataSource implements AgentDataSource {
     onError?: (reason: string) => void,
   ): () => void {
     return this.transport.subscribe(
-      `/api/sessions/stream?project=${encodeURIComponent(projectPath)}`,
+      `/api/sessions/stream?projectPath=${encodeURIComponent(projectPath)}`,
       {
         onMessage: (payload) => {
           const message = JSON.parse(payload) as { sessions?: SessionSummary[] };
