@@ -2,7 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      The scale is PINNED, which is what makes this an app panel on the phone rather than a page.
+
+      Three symptoms, one cause. Left open, WebKit gives the panel a zoom range of its own on top
+      of a document that already fills the viewport exactly: `styles.css` locks html/body/#root to
+      100% height with `overflow: hidden`, so nothing here can scroll or spill sideways on its own.
+      Every horizontal pan the phone offers therefore comes from a scale other than 1, and so does
+      every "it came up too big". The webview also starts its first navigation at `frame: .zero`
+      (WebPanelWebViewController loads in `init`, before the container adds it), so `device-width`
+      resolves against no width at all and the real bounds arrive afterwards -- with the range open,
+      WebKit is free to settle that at a scale instead of a relayout. Pinned, it has no choice.
+
+      macOS ignores the viewport meta entirely, so this costs the Mac panel nothing. Pinch is not
+      the panel's text-size affordance either: the feed's own font-size control drives the
+      `--agent-panel-fs-*` tokens, which resize text without resizing the chrome around it.
+
+      The other two iOS-embedded webviews in this repo already do this -- WorkspaceIDE with
+      `user-scalable=no`, BrowserProjection with `minimum-scale=1, maximum-scale=1`. This panel
+      predates the phone (ADR-0095, ADR-0096 put it there) and never got either. Both spellings are
+      here because they are not honoured by the same engines.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no"
+    />
     <title>Agent Feed</title>
     <!--
       The panel's background, inline, so the FIRST paint is already the right colour.
