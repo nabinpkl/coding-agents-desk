@@ -552,7 +552,10 @@ agent-webview-dev-ensure port=agent_panel_dev_port:
         exit 0
     fi
     CERT="$(just agent-webview-dev-cert)"
-    node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies"
+    # stdout of this recipe IS the origin, so everything else here goes to stderr. Without the
+    # redirect the dependency check's own chatter is prepended to the captured value and the host
+    # is handed a two-line "origin" it can only refuse -- which it does, loudly, on both surfaces.
+    node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies" >&2
     : > "$LOG"
     # Detached, because the launch that called this outlives it and a dev server that died with the
     # recipe would make every launch the last one that worked.
@@ -1334,6 +1337,14 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live": build-age
         # would launch the host with an EMPTY origin, which is the bundled panel wearing the live
         # one's name -- the exact silent fallback this default is supposed to make impossible.
         PANEL_ORIGIN="$(just agent-webview-dev-ensure)"
+        # Checked rather than trusted, because that value travels by stdout: anything else in the
+        # recipe that prints lands in it, and the host answers a malformed origin by refusing to
+        # build its panel at all -- on the Mac AND on every attached phone. Caught here it is one
+        # failed launch naming the culprit.
+        case "$PANEL_ORIGIN" in
+            https://*) ;;
+            *) echo "ERROR: agent-webview-dev-ensure printed more than an origin: $PANEL_ORIGIN" >&2; exit 1 ;;
+        esac
         export {{agent_panel_origin_var}}="$PANEL_ORIGIN"
     fi
     just prepare-pty-runtime "{{variant}}"
@@ -1484,6 +1495,14 @@ host-run variant="stable" panel="live": build-agent-feed-sidecar build-agent-web
         # would launch the host with an EMPTY origin, which is the bundled panel wearing the live
         # one's name -- the exact silent fallback this default is supposed to make impossible.
         PANEL_ORIGIN="$(just agent-webview-dev-ensure)"
+        # Checked rather than trusted, because that value travels by stdout: anything else in the
+        # recipe that prints lands in it, and the host answers a malformed origin by refusing to
+        # build its panel at all -- on the Mac AND on every attached phone. Caught here it is one
+        # failed launch naming the culprit.
+        case "$PANEL_ORIGIN" in
+            https://*) ;;
+            *) echo "ERROR: agent-webview-dev-ensure printed more than an origin: $PANEL_ORIGIN" >&2; exit 1 ;;
+        esac
         export {{agent_panel_origin_var}}="$PANEL_ORIGIN"
     fi
     just prepare-pty-runtime "{{variant}}"

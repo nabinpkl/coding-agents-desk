@@ -113,6 +113,17 @@ assert_not_contains "$stable_release" \
 assert_not_contains "$dev_debug" \
     'export AGENTDESK_AGENT_PANEL_ORIGIN="$(just' \
     'the origin must not be exported straight from a command substitution'
+assert_contains "$stable_release" \
+    'ERROR: agent-webview-dev-ensure printed more than an origin' \
+    'a launch must check the captured origin instead of trusting stdout'
+
+# The ensure recipe passes the origin by printing it, so anything else it runs must not print to
+# stdout. The dependency check did, once, and the two-line result reached the host as an origin it
+# could only refuse -- breaking the Mac panel and every attached phone at the same time.
+ensure="$(just --dry-run agent-webview-dev-ensure 2>&1)"
+assert_contains "$ensure" \
+    'ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies" >&2' \
+    'the dependency check must not write to the stdout that carries the origin'
 assert_contains "$dev_debug" \
     "if [ 'live' = live ]" \
     'Debug launch must serve the panel live by default'
