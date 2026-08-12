@@ -526,7 +526,13 @@ export function App({ feed, host }: Props) {
 
   return (
     <DataSourceProvider source={feed}>
-      <div className="relative flex h-dvh min-w-0 bg-background text-foreground">
+      {/* The horizontal safe area is spent here, once, because everything that touches a side edge
+          is inside: the pinned sidebar, the header, the transcript, the composer. It is zero in
+          portrait and on the Mac; it is the notch in landscape, which the shell hands the page
+          rather than reserving (see index.html's `viewport-fit=cover`). The drawer is the one
+          surface this cannot reach -- it renders in the top layer, outside this tree, and pays its
+          own. */}
+      <div className="relative flex h-dvh min-w-0 bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground">
         <FontSizeRoot />
         {usesModalSidebar ? (
           <AgentSidebarDialog
@@ -560,7 +566,13 @@ export function App({ feed, host }: Props) {
           </HoverSidebarPreview>
         ) : null}
 
-        <div className="flex min-w-0 flex-1 flex-col pb-[env(safe-area-inset-bottom)]">
+        {/* The bottom safe area is spent here rather than in whichever band happens to be last,
+            because that band varies -- composer, extension notice, terminal notice, or nothing at
+            all on the empty state -- and an inset owned by four components drifts. `bg-card` is
+            what shows through in the strip it holds back, so the band above it reads as reaching
+            the physical edge instead of floating above a gap; `main` therefore states its own
+            background rather than inheriting this one. */}
+        <div className="flex min-w-0 flex-1 flex-col bg-card pb-[env(safe-area-inset-bottom)]">
           <header
             data-window-drag
             className={`flex min-h-11 shrink-0 items-center gap-1 border-b border-border bg-card px-1.5${
@@ -599,7 +611,7 @@ export function App({ feed, host }: Props) {
           {/* ActivityFeed remains the only thread scroll owner. The sidebar has
               its own scroller, so sticky transcript headers and virtualization
               still read the same scrollTop they did before this shell changed. */}
-          <main className="min-h-0 flex-1 overflow-hidden">
+          <main className="min-h-0 flex-1 overflow-hidden bg-background">
             {selectedThread ? (
               <div
                 key={`${selectedThread.session.sessionId}:${eventMode}`}

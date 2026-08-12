@@ -3,7 +3,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * On iOS the panel is an app surface inside a native shell, not a page, so its scale is pinned.
+ * On iOS the panel is an app surface inside a native shell, not a page: its scale is pinned, and it
+ * takes the display's edges rather than letting WebKit hold them back.
  *
  * The argument for pinning is in `index.html`, and it rests on something in another file: the
  * document is locked to the viewport by `styles.css`, so it can neither scroll nor spill sideways
@@ -11,6 +12,11 @@ import { describe, expect, it } from "vitest";
  * than 1 -- which pinning removes. Both halves are asserted here because either one alone is not
  * the invariant: unpin the meta and pinch comes back, unlock the document and the meta is pinning
  * a page that can now genuinely overflow.
+ *
+ * `viewport-fit=cover` has a second half too, and it lives in the components: covering without
+ * spending `env(safe-area-inset-*)` is strictly worse than not covering, because the composer ends
+ * up under the home indicator instead of merely above a mismatched band. That half is asserted
+ * against the rendered shell in `AgentPanelApp.test.tsx`, where the elements actually exist.
  */
 // From the package root rather than `import.meta.url`, which Vite rewrites to a non-file URL.
 const html = readFileSync(resolve(process.cwd(), "index.html"), "utf8");
@@ -20,7 +26,7 @@ const css = readFileSync(resolve(process.cwd(), "src/app/styles.css"), "utf8");
 // pattern that only matches the one-line spelling would go quiet the moment someone reformats it.
 const viewport = /<meta name="viewport" content="([^"]+)"/.exec(html.replace(/\s+/g, " "))?.[1];
 
-describe("viewport scale", () => {
+describe("viewport meta", () => {
   it("lays out at the device's width", () => {
     expect(viewport).toBeDefined();
     expect(viewport).toContain("width=device-width");
@@ -33,6 +39,12 @@ describe("viewport scale", () => {
     expect(viewport).toContain("user-scalable=no");
     expect(viewport).toContain("minimum-scale=1");
     expect(viewport).toContain("maximum-scale=1");
+  });
+
+  it("takes the edges instead of letting WebKit reserve them", () => {
+    // Without this, WebKit insets the layout viewport by the webview's safe area and paints the
+    // strip it kept in `underPageBackgroundColor` -- black in dark mode, under a card that is not.
+    expect(viewport).toContain("viewport-fit=cover");
   });
 
   it("keeps the document itself unscrollable, which is what the pin assumes", () => {

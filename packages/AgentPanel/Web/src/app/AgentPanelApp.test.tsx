@@ -1745,3 +1745,56 @@ describe("AskUserQuestion mirror", () => {
     unmount();
   });
 });
+
+/**
+ * The other half of `viewport-fit=cover` (asserted in viewportMeta.test.ts).
+ *
+ * Covering hands the page edges the shell would otherwise have reserved, so the page has to pay for
+ * them. Unpaid, this is not a cosmetic regression but a worse one than never covering: the composer
+ * and the drawer's last project sit under the home indicator, where the system takes the touch.
+ *
+ * Asserted as classes rather than computed padding because jsdom resolves `env()` to nothing, and
+ * on every surface but the phone these are legitimately zero. What is being pinned is that each
+ * edge still has an owner -- and specifically WHICH owner, since the reason they sit where they do
+ * is that the alternatives drift: the bottom band varies with the thread's state, and the drawer
+ * renders in the top layer where the shell's own padding cannot reach it.
+ */
+describe("safe area insets", () => {
+  afterEach(restoreViewport);
+
+  it("spends the horizontal inset once, on the shell every edge-touching surface is inside", () => {
+    const { unmount } = setup();
+    const column = screen.getByRole("banner").parentElement!;
+    const shell = column.parentElement!;
+
+    expect(shell.className).toContain("pl-[env(safe-area-inset-left)]");
+    expect(shell.className).toContain("pr-[env(safe-area-inset-right)]");
+    unmount();
+  });
+
+  it("spends the bottom inset on the column, not on whichever band happens to be last", () => {
+    const { unmount } = setup();
+    const column = screen.getByRole("banner").parentElement!;
+
+    expect(column.className).toContain("pb-[env(safe-area-inset-bottom)]");
+    // The strip it holds back shows the column's own background, so the band above reads as
+    // reaching the edge. That only works while `main` states its background instead of inheriting.
+    expect(column.className).toContain("bg-card");
+    expect(screen.getByRole("main").className).toContain("bg-background");
+    unmount();
+  });
+
+  it("makes the phone drawer pay its own, being outside the shell that pays for the rest", () => {
+    installViewport({ compact: true, hoverCapable: false });
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+
+    const drawer = screen.getByRole("dialog", { name: "Projects" });
+    expect(drawer.className).toContain("pl-[env(safe-area-inset-left)]");
+    // Inside the scroller, so the last project can be scrolled clear of the home indicator rather
+    // than the list simply stopping short of it.
+    const scroller = drawer.querySelector(".overflow-y-auto")!;
+    expect(scroller.className).toContain("pb-[env(safe-area-inset-bottom)]");
+    unmount();
+  });
+});

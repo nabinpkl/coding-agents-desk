@@ -63,7 +63,10 @@ export function AgentSidebar(props: AgentSidebarProps) {
         ) : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      {/* The bottom safe area is padding INSIDE the scroller, not a shorter scroller: the list keeps
+          the full height and gains scrollable room past its last row, so the row the home indicator
+          would sit on can be scrolled clear of it. Zero everywhere but the phone drawer. */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">
         {props.loading ? (
           <SidebarStatus>Loading projects…</SidebarStatus>
         ) : props.error ? (
@@ -142,11 +145,16 @@ export function AgentSidebarDialog({
     globalThis.requestAnimationFrame?.(() => triggerRef.current?.focus());
   };
 
+  // The drawer is the compact-layout project navigation, so it only ever renders on the phone,
+  // where it is also the one surface the app shell's safe-area padding cannot reach: `showModal`
+  // puts it in the top layer, a sibling of the tree that pays for the edges. It sits against the
+  // leading edge, so it pays for that one itself; the bottom is paid inside, by the scroller, so
+  // the list can still be scrolled through the strip the home indicator sits on.
   return (
     <dialog
       ref={dialogRef}
       aria-label="Projects"
-      className="agent-sidebar-dialog fixed inset-y-0 left-0 m-0 h-dvh max-h-none w-[min(88vw,320px)] max-w-none border-0 border-r border-border bg-card p-0 text-foreground shadow-2xl"
+      className="agent-sidebar-dialog fixed inset-y-0 left-0 m-0 h-dvh max-h-none w-[min(88vw,320px)] max-w-none border-0 border-r border-border bg-card p-0 pl-[env(safe-area-inset-left)] text-foreground shadow-2xl"
       onClose={closeAndRestoreFocus}
       onCancel={(event) => {
         event.preventDefault();

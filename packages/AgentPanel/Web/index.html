@@ -22,10 +22,22 @@
       `user-scalable=no`, BrowserProjection with `minimum-scale=1, maximum-scale=1`. This panel
       predates the phone (ADR-0095, ADR-0096 put it there) and never got either. Both spellings are
       here because they are not honoured by the same engines.
+
+      `viewport-fit=cover` hands the panel the edges the shell leaves it, and the page pays for them
+      in padding rather than letting WebKit hold them back. Without it WebKit insets the layout
+      viewport by the webview's own safe area and paints what it reserved in `underPageBackgroundColor`
+      -- pure black in dark mode, against a card at oklch(0.205), so the composer sat on a black band
+      above the home indicator. With it, the composer's own background reaches the physical edge and
+      the inset moves into `env(safe-area-inset-*)`, which AgentPanelApp and the project drawer spend
+      as padding: bottom for the home indicator, left and right for the landscape notch.
+
+      Only the edges the shell actually gives up appear there. The container pins the surface to the
+      safe-area top (PairingViewController+AgentSurface), so `env(safe-area-inset-top)` is zero and
+      the header needs nothing -- covering does not put it under the status bar.
     -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no"
+      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
     <title>Agent Feed</title>
     <!--
