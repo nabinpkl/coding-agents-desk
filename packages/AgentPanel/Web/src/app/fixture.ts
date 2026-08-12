@@ -380,6 +380,15 @@ function timeline(mode: EventMode): FixtureRoute {
  * publishes: it accumulates into its blocks and republishes the message each time.
  */
 function liveTurn(mode: EventMode, sequence: number): Array<{ delay: number; payload: string }> {
+  // A turn that thinks before it answers, because that is the shape most turns
+  // have and the one the row is hardest to get right for: the reasoning is most
+  // of what is on screen, and it has to reveal the way the prose under it does
+  // rather than land in phrase-sized jumps beside it.
+  const reasoning = [
+    "**Checking the excerpt** The line",
+    "**Checking the excerpt** The line numbers come from the reader, not the file, so",
+    "**Checking the excerpt** The line numbers come from the reader, not the file, so a match written against them was never going to find anything.",
+  ];
   const prose = [
     "Reading the",
     "Reading the failing line. The **replacement** did not match, so",
@@ -399,7 +408,8 @@ function liveTurn(mode: EventMode, sequence: number): Array<{ delay: number; pay
       blocks,
     },
   });
-  const withTool = [{ kind: "text" as const, text: prose[2]! }, {
+  const thought = (step: number) => ({ kind: "reasoning" as const, text: reasoning[step]! });
+  const withTool = [thought(2), { kind: "text" as const, text: prose[2]! }, {
     kind: "tool_use" as const,
     tool: "Read",
     summary: "packages/AgentPanel/Web/src/features/activity-feed/ActivityFeed.tsx",
@@ -409,16 +419,22 @@ function liveTurn(mode: EventMode, sequence: number): Array<{ delay: number; pay
   // fixture arms one timer per message off a single open, so a "delay" read as a
   // gap would fire the end of the turn before its beginning.
   return [
-    ...prose.map((text, step) => ({
+    ...reasoning.map((_, step) => ({
       delay: 900 + step * 700,
-      payload: JSON.stringify(tail([{ kind: "text", text }], "streaming")),
+      payload: JSON.stringify(tail([thought(step)], "streaming")),
     })),
-    { delay: 3_000, payload: JSON.stringify(tail(withTool, "streaming")) },
-    { delay: 3_700, payload: JSON.stringify(tail(withTool, "complete")) },
+    // The trace stops growing where the answer starts, exactly as the backends
+    // publish it: one message whose blocks accumulate, not two messages.
+    ...prose.map((text, step) => ({
+      delay: 3_000 + step * 700,
+      payload: JSON.stringify(tail([thought(2), { kind: "text", text }], "streaming")),
+    })),
+    { delay: 5_100, payload: JSON.stringify(tail(withTool, "streaming")) },
+    { delay: 5_800, payload: JSON.stringify(tail(withTool, "complete")) },
     // The handoff: the same message, now a transcript line. The panel drops the tail
     // on the messageId match, so the two never appear at once.
     {
-      delay: 4_400,
+      delay: 6_500,
       payload: JSON.stringify({
         type: "timeline",
         envelope: {

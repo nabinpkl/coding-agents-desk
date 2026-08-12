@@ -66,6 +66,28 @@ describe("LiveTailRow", () => {
     expect(screen.getByText(/Hello streaming world/)).toBeDefined();
   });
 
+  // On a thinking-heavy turn the trace is most of what is on the row, so a trace
+  // that snapped while the prose beside it typed read as a glitch. Both reveal.
+  it("reveals a streaming reasoning trace the same way it reveals prose", () => {
+    vi.useFakeTimers();
+    const { container } = renderLive(
+      tail([
+        { kind: "reasoning", text: "Weighing the two readings of the excerpt" },
+        { kind: "text", text: "Reading the failing line" },
+      ]),
+    );
+    // Mid-reveal both are partial: neither has arrived whole while the other types.
+    act(() => vi.advanceTimersByTime(33));
+    expect(container.textContent).not.toContain("Weighing the two readings of the excerpt");
+
+    for (let i = 0; i < 200; i++) {
+      act(() => vi.advanceTimersByTime(33));
+      if (container.textContent?.includes("Weighing the two readings of the excerpt")) break;
+    }
+    expect(container.textContent).toContain("Weighing the two readings of the excerpt");
+    expect(container.textContent).toContain("Reading the failing line");
+  });
+
   it("renders a completed live message at full text", () => {
     const complete = tail([{ kind: "text", text: "Done" }]);
     complete.phase = "complete";

@@ -17,7 +17,7 @@ import {
 } from "./activityDisplayItems";
 import type { ActivityBlock, ActivityEvent, EventCacheHit } from "./useSessionEventsStream";
 import type { SessionReference } from "./data-source/AgentDataSource";
-import { useProgressiveText } from "./streamingText";
+import { markdownSafePrefix, useProgressiveText } from "./streamingText";
 
 /** What every row and block needs from the feed, bundled to stop prop drift. */
 export interface EventRowContext {
@@ -185,7 +185,12 @@ function EventBody({ ev, ctx }: { ev: ActivityEvent; ctx: EventRowContext }) {
         // heading rather than beside it. Clearing keeps them below it instead of
         // overlapping. Once content extends past the heading's height this is a
         // no-op, so later blocks are unaffected.
-        <div key={index} className={isFlowBlock(block) ? undefined : "clear-left"}>
+        //
+        // Keyed by kind as well as position: one reveal position lives inside the
+        // block, and a slot that changed kind would hand a reasoning trace the
+        // cursor prose left behind, showing a prefix of it until the catch-up
+        // caught up. The kind is stable in practice, so this remounts nothing.
+        <div key={`${index}-${block.kind}`} className={isFlowBlock(block) ? undefined : "clear-left"}>
           <Block
             b={block}
             ctx={ctx}
@@ -492,12 +497,23 @@ function Block({
   phase?: ActivityEvent["phase"];
 }) {
   // Call the hook unconditionally so a stream of revisions keeps one reveal
-  // position: assistant prose reveals progressively while streaming, and
+  // position: the model's own prose reveals progressively while streaming, and
   // anything else snaps to full text.
-  const revealedText = useProgressiveText(
-    b.kind === "text" ? (b.text ?? "") : "",
-    b.kind === "text" && eventType === "assistant" && phase === "streaming",
-  );
+  //
+  // Reasoning reveals on the same terms as prose. It is the thinnest text on the
+  // row on purpose, but a trace that lands in phrase-sized jumps reads as a
+  // glitch rather than as de-emphasis -- and on a thinking-heavy turn it is most
+  // of what is on screen, so it was the jumping half of a row whose other half
+  // typed. User text and tool payloads are excluded: they are not being written
+  // as we watch, and revealing them would animate a paste.
+  const isModelProse =
+    b.kind === "reasoning" || (b.kind === "text" && eventType === "assistant");
+  const isStreamingProse = isModelProse && phase === "streaming";
+  const revealed = useProgressiveText(isModelProse ? (b.text ?? "") : "", isStreamingProse);
+  // Held back to a boundary that renders, so a cut inside `**` never shows its own
+  // markup on the way past. Only while streaming: a finished message with an
+  // unmatched marker renders exactly as the model wrote it.
+  const revealedText = isStreamingProse ? markdownSafePrefix(revealed) : revealed;
   if (b.kind === "text") {
     // Assistant text is the model's prose response; it conventionally
     // contains markdown (headings, code fences, lists, tables) that should
@@ -639,7 +655,7 @@ function Block({
           fontWeight: 450,
         }}
       >
-        <Markdown content={b.text} />
+        <Markdown content={revealedText} />
       </div>
     );
   }

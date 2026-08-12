@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import { useProgressiveText } from "./streamingText";
+import { markdownSafePrefix, useProgressiveText } from "./streamingText";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -57,5 +57,42 @@ describe("useProgressiveText", () => {
       if (view.result.current.length === "a longer message indeed".length) break;
     }
     expect(view.result.current).toBe("a longer message indeed");
+  });
+});
+
+describe("markdownSafePrefix", () => {
+  test("hides a marker whose closer has not arrived", () => {
+    // The case that put asterisks on screen: a reasoning trace opening bolded.
+    expect(markdownSafePrefix("**Checking the e")).toBe("");
+    expect(markdownSafePrefix("Done. **Then")).toBe("Done. ");
+    expect(markdownSafePrefix("A `value")).toBe("A ");
+    // A trailing run has no content behind it yet, so waiting costs nothing.
+    expect(markdownSafePrefix("Done. **")).toBe("Done. ");
+  });
+
+  test("passes through text whose markers are closed", () => {
+    expect(markdownSafePrefix("**Topic** and the rest")).toBe("**Topic** and the rest");
+    expect(markdownSafePrefix("A `value` here")).toBe("A `value` here");
+    expect(markdownSafePrefix("plain words")).toBe("plain words");
+  });
+
+  test("leaves a list bullet alone", () => {
+    // A line-leading `*` is a bullet, not an opener; cutting at one would hide the
+    // item rather than its marker.
+    expect(markdownSafePrefix("* one\n* two")).toBe("* one\n* two");
+  });
+
+  test("stops holding text back once the opener is far behind", () => {
+    // An unmatched marker that old is a literal asterisk, not a closer still coming,
+    // and hiding everything after it would stall the reveal for the rest of the run.
+    const stale = `a ** ${"word ".repeat(60)}end`;
+    expect(markdownSafePrefix(stale)).toBe(stale);
+  });
+
+  test("leaves an open fence to the renderer", () => {
+    // marked closes a dangling fence itself and renders the block, so the code
+    // arrives steadily; counting backticks across the fence would cut inside it.
+    const open = "here:\n```ts\nconst x = 1";
+    expect(markdownSafePrefix(open)).toBe(open);
   });
 });
