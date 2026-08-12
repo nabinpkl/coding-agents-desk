@@ -260,7 +260,8 @@ extension PairingViewController {
     // MARK: - Lazy webview creation
 
     // Creates the hidden AgentFeedSurface (full-bleed under the overlaid control
-    // rail, starting at the top safe area) and wires both bridge directions,
+    // rail, starting at the top safe area and ending at the keyboard) and wires
+    // both bridge directions,
     // pulling the live channel and transport at call time. A nil
     // channel (not yet connected) is tolerated: the surface is still created so
     // the UI does not crash, and the inbound closure no-ops until a channel is
@@ -275,7 +276,21 @@ extension PairingViewController {
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = true
         hostContentView.addSubview(surface)
-        constrainSurfaceUnderControlRail(surface, bottomAnchor: view.bottomAnchor)
+        // Ends at the keyboard, like every other surface here that contains a text field: the
+        // terminal below, and both Workspace surfaces. This one was the exception, and the cost was
+        // not a covered composer -- WebKit will not leave a focused field under the keyboard, so
+        // with the webview still at full height it scrolled its own scroll view to lift the
+        // composer clear, carrying the header and the transcript up and off the top. Shrinking the
+        // surface puts the composer above the keyboard by layout, so there is nothing to scroll to
+        // and nothing moves.
+        //
+        // The controller's guide, not the surface's own. `UIKeyboardLayoutGuide` is only meaningful
+        // on a view in a window, and the surface is built before it is added to one: hanging the
+        // always-present panel off the surface's guide collapsed it to zero height and kept the
+        // surface alive past its own teardown. This view is in a window for the whole app's life.
+        // The surface's internal guide keeps its terminal work, where the constraint only binds
+        // once a terminal is open and on screen.
+        constrainSurfaceUnderControlRail(surface, bottomAnchor: view.keyboardLayoutGuide.topAnchor)
         agentSurface = surface
         let transport = pairingClient.activeSessionTransport
         agentSurfaceBoundTransport = transport
