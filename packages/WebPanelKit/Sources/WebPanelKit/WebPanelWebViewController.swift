@@ -34,6 +34,11 @@ public final class WebPanelWebViewController: NSObject {
     public var onNavigationStart: (@MainActor () -> Void)?
 
     private let contract: WebPanelContract
+    /// Where the bundled build lives, or nil when this panel was built without one.
+    private let bundledRequestURL: URL?
+    /// What is on screen now, so a switch that changes nothing does not reload the page under a
+    /// panel that is mid-conversation with its host.
+    private var loadedURL: URL
     private let additionalMessageHandlers: [String: WebPanelScriptMessageHandler]
     private let logger: Logger
     private var deliveryQueue: WebPanelDeliveryQueue?
@@ -45,11 +50,16 @@ public final class WebPanelWebViewController: NSObject {
     /// so a blank or erroring panel is never debugged blind.
     static let diagnosticsHandlerName = "webPanelLog"
 
-    /// - Parameter developmentOrigin: When set, the panel loads from this origin instead of the
-    ///   bundled assets, and no scheme handler is installed. This is how a dev server's page --
-    ///   and its hot module replacement -- reaches the webview: the bridge does not care what
-    ///   origin the page came from, because message handlers and `callAsyncJavaScript` are
-    ///   origin-independent and the delivery global is installed by the page itself.
+    /// - Parameter developmentOrigin: When set, the panel's FIRST load comes from this origin
+    ///   instead of the bundled assets. This is how a dev server's page -- and its hot module
+    ///   replacement -- reaches the webview: the bridge does not care what origin the page came
+    ///   from, because message handlers and `callAsyncJavaScript` are origin-independent and the
+    ///   delivery global is installed by the page itself.
+    ///
+    ///   Which source is live is not fixed at init, because on the phone it cannot be: the client
+    ///   starts before it has heard from its host, and the host is the only one that knows whether
+    ///   a dev server is up (ADR-0096). So the scheme handler is installed whenever a bundled root
+    ///   exists, even when starting from an origin, and `loadPanel(origin:)` switches later.
     public init(
         contract: WebPanelContract,
         resourceRootDirectory: URL?,
@@ -59,23 +69,16 @@ public final class WebPanelWebViewController: NSObject {
         logSubsystem: String = "com.example.agentdesk.WebPanelKit",
         developmentOrigin: URL? = nil
     ) throws {
-        // A dev origin serves its own assets, so there is no root to resolve and nothing for the
-        // scheme handler to do. Demanding one anyway would make the override unusable in exactly
-        // the case it exists for: a tree whose bundled build is stale or absent.
-        let rootDirectory: URL?
-        let requestURL: URL
-        if let developmentOrigin {
-            rootDirectory = nil
-            requestURL = developmentOrigin
-        } else {
-            guard let resolved = resourceRootDirectory else {
-                throw InitializationError.missingResourceRoot
-            }
-            guard let bundled = contract.indexRequestURL else {
-                throw InitializationError.invalidRequestURL
-            }
-            rootDirectory = resolved
-            requestURL = bundled
+        // A dev origin serves its own assets, so a missing bundled root is survivable when one is
+        // set -- that is the case the override exists for, a tree whose bundled build is stale or
+        // absent. Without an origin there is nothing else to show, so it is an error.
+        let rootDirectory = resourceRootDirectory
+        let bundledURL = rootDirectory == nil ? nil : contract.indexRequestURL
+        guard rootDirectory != nil || developmentOrigin != nil else {
+            throw InitializationError.missingResourceRoot
+        }
+        guard let requestURL = developmentOrigin ?? bundledURL else {
+            throw InitializationError.invalidRequestURL
         }
         for name in additionalMessageHandlers.keys {
             // A collision would shadow the shadowed channel's messages silently, and a panel whose
@@ -104,6 +107,8 @@ public final class WebPanelWebViewController: NSObject {
         self.webView = createdWebView
         self.messageSink = messageSink
         self.contract = contract
+        self.bundledRequestURL = bundledURL
+        self.loadedURL = requestURL
         self.additionalMessageHandlers = additionalMessageHandlers
         self.logger = Logger(subsystem: logSubsystem, category: "web-panel-js")
         super.init()
@@ -143,6 +148,29 @@ public final class WebPanelWebViewController: NSObject {
         ))
         createdWebView.navigationDelegate = self
         createdWebView.load(URLRequest(url: requestURL))
+    }
+
+    /// Point the panel at a dev origin, or back at the bundled build with nil.
+    ///
+    /// Reloading is the whole mechanism, not a side effect: the page is the panel, so changing
+    /// where its code comes from means loading it again. Everything downstream of that already
+    /// handles a reload -- the delivery queue marks itself not ready, `onNavigationStart` lets the
+    /// container drop per-page state, and the fresh page re-subscribes.
+    ///
+    /// A request that would change nothing is ignored, because the host re-states the origin on
+    /// every attach and a reconnect must not throw away a live thread to arrive at the page it is
+    /// already showing.
+    public func loadPanel(origin: URL?) {
+        guard let target = origin ?? bundledRequestURL else {
+            // Asking for bundled when there is no bundled build. Not survivable by navigating
+            // somewhere else, so the current page stays and the reason is said out loud.
+            logger.error("web panel: asked for the bundled build, which this panel was built without")
+            return
+        }
+        guard target != loadedURL else { return }
+        logger.notice("web panel: loading from \(target.absoluteString, privacy: .public)")
+        loadedURL = target
+        webView.load(URLRequest(url: target))
     }
 
     public func deliver(rawJSON: String) {

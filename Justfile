@@ -604,7 +604,8 @@ agent-webview-dev port=agent_panel_dev_port:
     CERT="$(just agent-webview-dev-cert)"
     node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-panel "$WEB" "$ROOT/.build/js-dependencies"
     echo "agent-webview-dev: serving at $ORIGIN"
-    echo "  hosts and clients launched from here point at it automatically ({{agent_panel_origin_var}})"
+    echo "  hosts launched from here point at it automatically ({{agent_panel_origin_var}}),"
+    echo "  and each host tells its attached phones to load from it too"
     echo ""
     cd "$WEB"
     AGENTDESK_AGENT_PANEL_HOST="$NAME" \
@@ -1319,9 +1320,10 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live": build-age
     }
     # The panel is served live by DEFAULT: Vite comes up before anything is torn down, and the
     # launched host loads its panel from there, so a TSX edit lands in the running host with no
-    # rebuild and no relaunch. `panel=bundled` opts out, which is what a run judging the SHIPPED
-    # webview wants -- with the dev origin set, the bundled tree is not consulted at all. An origin
-    # already in the environment is left alone: an operator pointing at their own server means it.
+    # rebuild and no relaunch. This is also the ONLY place the choice is made for the phone: the
+    # host states this origin to every client that attaches, so `panel=bundled` opts both surfaces
+    # out and is what a run judging the SHIPPED webview wants. An origin already in the environment
+    # is left alone: an operator pointing at their own server means it.
     case '{{panel}}' in
         live|bundled) ;;
         *) echo "ERROR: panel must be 'live' or 'bundled', got '{{panel}}'" >&2; exit 64 ;;
@@ -1689,7 +1691,7 @@ client-reinstall-release:
 # launches the iPhone client with the URL as a CommandLine argument so
 # SceneDelegate routes it via handleIncomingPairingURL. The user just runs
 # this; no menubar click, no camera, no manual paste.
-pair-iphone variant="stable" panel="live":
+pair-iphone variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
     # dev client pairs with the dev host, which writes its pair URL under its own
@@ -1698,20 +1700,11 @@ pair-iphone variant="stable" panel="live":
     # (ADR-0038), matching the dev host default set by host-run. devicectl apps get env
     # not argv, so the client reads AGENTDESK_DOM_MIRROR_ENABLED via the CHILD prefix.
     if [ "{{variant}}" = "dev" ]; then HOST_DD='{{host_dev_derived_data}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_DD='{{derived_data}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
-    # The panel's code comes from the same live server the Mac uses, reached over the tailnet, so a
-    # TSX edit lands on the PHONE with no client rebuild and no reinstall. It rides an env var
-    # because devicectl apps get env and not argv -- and because that is also the safety property:
-    # a client started from the home screen, or installed by TestFlight, has no env to read and so
-    # always runs its own bundled build. There is no ATS exception behind this and there must not
-    # be one; the server is reached under a publicly trusted certificate (ADR-0096).
-    case '{{panel}}' in
-        live|bundled) ;;
-        *) echo "ERROR: panel must be 'live' or 'bundled', got '{{panel}}'" >&2; exit 64 ;;
-    esac
-    PANEL_ENV=()
-    if [ '{{panel}}' = live ]; then
-        PANEL_ENV=(DEVICECTL_CHILD_{{agent_panel_origin_var}}="$(just agent-webview-dev-ensure)")
-    fi
+    # Nothing here selects the panel's code. The HOST states its dev origin to the phone on every
+    # agent-lane attach, so the phone picks up a TSX edit with no client rebuild and no reinstall,
+    # and gets told again after a close and reopen. That has to come over the wire rather than from
+    # a launch env, because the install that must work is the one from TestFlight, which has no
+    # environment at all (ADR-0096).
     HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "$PAIR_URL"
@@ -1720,7 +1713,7 @@ pair-iphone variant="stable" panel="live":
     i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
-    URL="$(cat "$PAIR_URL")"; env DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" ${DOM_ENV[@]+"${DOM_ENV[@]}"} ${PANEL_ENV[@]+"${PANEL_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --terminate-existing "$BID"
+    URL="$(cat "$PAIR_URL")"; env DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --terminate-existing "$BID"
 
 # Ask the running host to collect durable client diagnostics and write them under
 # /tmp. Uses the active QUIC input lane first and falls back to the foreground
@@ -1900,26 +1893,15 @@ client-debug-bundle variant="stable":
 # the app exits and tees stdout/stderr to {{iphone_console_log}}. Owned-media stderr
 # tracing is enabled so packet-repair diagnostics have a path separate from iOS
 # unified logging. variant: stable (default) | dev.
-iphone-console-run variant="stable" panel="live":
+iphone-console-run variant="stable":
     #!/usr/bin/env bash
     set -euo pipefail
     # dev also enables the Chrome DOM mirror on the client (ADR-0038), matching the dev
     # host default; devicectl apps get env not argv, so it rides the CHILD prefix.
     if [ "{{variant}}" = "dev" ]; then HOST_DD='{{host_dev_derived_data}}'; BID='{{client_dev_bundle_id}}'; PAIR_URL='{{host_dev_last_pair_url_path}}'; DOM_ENV=(DEVICECTL_CHILD_AGENTDESK_DOM_MIRROR_ENABLED=1); else HOST_DD='{{derived_data}}'; BID='{{client_bundle_id}}'; PAIR_URL='{{last_pair_url_path}}'; DOM_ENV=(); fi
-    # The panel's code comes from the same live server the Mac uses, reached over the tailnet, so a
-    # TSX edit lands on the PHONE with no client rebuild and no reinstall. It rides an env var
-    # because devicectl apps get env and not argv -- and because that is also the safety property:
-    # a client started from the home screen, or installed by TestFlight, has no env to read and so
-    # always runs its own bundled build. There is no ATS exception behind this and there must not
-    # be one; the server is reached under a publicly trusted certificate (ADR-0096).
-    case '{{panel}}' in
-        live|bundled) ;;
-        *) echo "ERROR: panel must be 'live' or 'bundled', got '{{panel}}'" >&2; exit 64 ;;
-    esac
-    PANEL_ENV=()
-    if [ '{{panel}}' = live ]; then
-        PANEL_ENV=(DEVICECTL_CHILD_{{agent_panel_origin_var}}="$(just agent-webview-dev-ensure)")
-    fi
+    # Nothing here selects the panel's code; the host states its dev origin over the agent lane on
+    # every attach, so a TSX edit reaches the phone with no client rebuild and survives a close and
+    # reopen. See pair-iphone and ADR-0096.
     HOST_PID="$(pgrep -f "$HOST_DD/Build/Products/.*/{{host_process_suffix}}" | head -1 || true)"
     test -n "$HOST_PID" || { echo "host not running; just host-run first"; exit 1; }
     rm -f "$PAIR_URL" "{{iphone_console_log}}"
@@ -1928,7 +1910,7 @@ iphone-console-run variant="stable" panel="live":
     i=0; while [ ! -s "$PAIR_URL" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
     test -s "$PAIR_URL" || { echo "host did not write pairing URL"; exit 1; }
     echo "URL: <redacted; delivered to client>"
-    URL="$(cat "$PAIR_URL")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; env DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" ${DOM_ENV[@]+"${DOM_ENV[@]}"} ${PANEL_ENV[@]+"${PANEL_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
+    URL="$(cat "$PAIR_URL")"; VIDEO="${AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED:-1}"; env DEVICECTL_CHILD_AGENTDESK_LAUNCH_URL="$URL" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_STDERR_TRACE="1" DEVICECTL_CHILD_AGENTDESK_OWNED_MEDIA_VIDEO_MOTION_ENABLED="$VIDEO" ${DOM_ENV[@]+"${DOM_ENV[@]}"} xcrun devicectl device process launch --device {{ios_device}} --console --terminate-existing "$BID" 2>&1 | tee "{{iphone_console_log}}"
 
 # R130 physical acceptance path. Updates the Release client in place and launches it
 # with an attached console without starting, pairing, or waiting for the host.
@@ -2092,11 +2074,13 @@ dom-mirror-device-run-dev:
 #
 # BOTH legs pick panel code up live now, from one https origin on the tailnet (ADR-0096): the Mac
 # host and the phone client each load the panel from the same Vite server, so a TSX edit reaches
-# both with no rebuild, no reinstall, and no re-pair. The bundled webview these composites build and
-# install is what the phone falls back to whenever it is NOT launched from here -- from the home
-# screen, or from TestFlight -- so it still has to be current, which is why the build stays.
-# These composites remain arg-free, as the note above says: to judge the shipped webview instead,
-# run the legs directly -- `just host-run stable bundled` then `just pair-iphone stable bundled`.
+# both with no rebuild, no reinstall, and no re-pair. The HOST decides this for both surfaces and
+# states it to the phone on every attach, so the phone leg has no panel argument and a phone
+# launched from the home screen or installed by TestFlight gets the live panel too, as long as it
+# is paired to a host launched with one. The bundled webview these composites build and install is
+# still what a phone falls back to when its host has none, so it still has to be current, which is
+# why the build stays. These composites remain arg-free: to judge the shipped webview instead, run
+# the host leg directly -- `just host-run stable bundled`, then pair as usual.
 fresh-install:
     just host-run
     just client-install-release

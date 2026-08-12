@@ -113,28 +113,22 @@ assert_contains "$bundled" \
     "if [ 'bundled' = live ]" \
     'panel=bundled must leave the origin unset so the bundled webview is what loads'
 
-# The phone gets the same live panel, over the tailnet (ADR-0096). It reaches the client as an
-# environment variable through devicectl, which is also what keeps it away from the daily driver:
-# an app launched from the home screen has no environment to read. Asserting the CHILD prefix
-# matters because without it devicectl keeps the variable for itself and the client sees nothing,
-# which looks exactly like a client that ignored it.
+# The phone gets the same live panel over the tailnet, but NOT from its launch environment
+# (ADR-0096). The host states the origin over the agent lane on every attach, because the install
+# that has to work is the TestFlight one, which has no environment at all -- and because restating
+# it is what makes the phone survive a close and reopen with nothing remembered. So the assertion
+# here is the negative: a launch that carries the origin as an env var is the old mechanism coming
+# back, and it would work perfectly on a cabled dev client while silently doing nothing for the
+# install that motivated this.
 for launch in 'pair-iphone stable' 'iphone-console-run stable'; do
     # shellcheck disable=SC2086
     phone="$(just --dry-run $launch 2>&1)"
+    assert_not_contains "$phone" \
+        'AGENTDESK_AGENT_PANEL_ORIGIN' \
+        "$launch must not deliver the panel origin through the launch environment"
     assert_contains "$phone" \
-        "if [ 'live' = live ]" \
-        "$launch must serve the panel live by default"
-    assert_contains "$phone" \
-        'DEVICECTL_CHILD_AGENTDESK_AGENT_PANEL_ORIGIN="$(just agent-webview-dev-ensure)"' \
-        "$launch must pass the live origin to the client, under the devicectl child prefix"
-    assert_contains "$phone" \
-        '${PANEL_ENV[@]+"${PANEL_ENV[@]}"} xcrun devicectl' \
-        "$launch must actually put the panel environment on the launch"
+        'xcrun devicectl device process launch' \
+        "$launch must still launch the client"
 done
-
-phone_bundled="$(just --dry-run pair-iphone stable bundled 2>&1)"
-assert_contains "$phone_bundled" \
-    "if [ 'bundled' = live ]" \
-    'panel=bundled must leave the client on its own bundled webview'
 
 printf 'host run lifecycle tests passed\n'

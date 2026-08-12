@@ -12,12 +12,16 @@ would have to load `http://<tailnet-ip>:5173`, App Transport Security refuses cl
 tailnet address (`NSAllowsLocalNetworking` does not cover 100.64/10), and the client ships to a
 daily driver through TestFlight, where an ATS exception opened for dev convenience is the kind that
 survives into release. So the Mac got a no-rebuild loop and the phone kept a rebuild-and-reinstall
-one, for the same TSX file. This touches `packages/AgentPanel/Web/vite.config.ts`, the launch
-recipes in `Justfile`, and nothing in Swift.
+one, for the same TSX file. And the phone's loop has a requirement the Mac's does not: it must hold
+across an app close and reopen, and it must work on a client installed from TestFlight, not only on
+a cabled dev build. This touches `packages/AgentPanel/Web/vite.config.ts`, the launch recipes in
+`Justfile`, the agent lane on both sides, and `WebPanelWebViewController`.
 
 ## Decision Drivers
 
 - The phone must pick up a panel edit without a client rebuild, install, or re-pair.
+- It must hold across an app close and reopen, and it must work on a TestFlight install, which is
+  how the daily driver gets the client. Release governs the compiled Swift, not the runtime TS.
 - No ATS exception in the client. The stable client is a daily driver installed from TestFlight.
 - The sidecar's control token stays out of the page, which is why the relay exists at all
   (ADR-0095); where the page's CODE comes from must not change where its DATA comes from.
@@ -47,20 +51,37 @@ for the phone ends http on that port for the Mac; rather than run two servers, b
 the same https name. The Mac pays a dependency on its own tailnet name resolving, which for a
 product whose every other leg is the tailnet is not a new one.
 
-The origin reaches the client as an environment variable through `devicectl`, which is also the
-safety property and not merely the mechanism: a client launched from the home screen or installed
-by TestFlight has no environment to read, so the daily driver always runs its own bundled build. No
-Swift changed for any of this. `AgentPanelWebViewController` already read the variable, and the
-panel already chooses its transport by whether a native message handler is present rather than by
-its own origin, so a phone loading from Vite still reaches the sidecar through the host's relay and
-the token still never enters the page.
+**The origin reaches the client over the wire, pushed by the host on every agent-lane attach**, as
+an `agent-panel-origin` frame carrying the origin string or nothing for the bundled build. The
+first cut delivered it as an environment variable through `devicectl`, which fails the requirement
+outright: a client installed by TestFlight or launched from the home screen has no environment, and
+those are exactly the launches that have to work. Nothing device-local can replace it either, since
+there would be nothing to seed the device-local copy from.
+
+Restating it per attach is also why the phone survives a close and reopen without remembering
+anything. There is no persisted origin to go stale, and no way for the phone and the Mac to
+disagree about which code is live: the host that serves the panel is the host that says where it
+is, and a phone that reconnects to a host launched without a live panel is told so and returns to
+the bundled build.
+
+The client applies a stricter rule than the Mac and refuses any origin that is not `https`. ATS
+would refuse a cleartext load anyway; refusing it in our own code turns a webview that silently
+never loads into one logged line. Swift changed only to move and apply the value:
+`AgentPanelWebViewController` gained a runtime `loadPanel(origin:)` where it previously chose once
+at init. The panel already chooses its transport by whether a native message handler is present
+rather than by its own origin, so a phone loading from Vite still reaches the sidecar through the
+host's relay and the token still never enters the page.
+
+This reverses one line of ADR-0095: the bundled tree IS consulted on a dev-origin build now, and
+its scheme handler is always installed, because `WKWebViewConfiguration.setURLSchemeHandler` can
+only be set before the webview exists and switching back to bundled has nowhere to go without it.
 
 ### Consequences
 
 - Good, because one edit to one TSX file now reaches the Mac panel and the phone panel at once,
   with no build, no install, and no re-pair on either.
-- Good, because the client's Info.plist stays free of ATS keys, and the thing that keeps the daily
-  driver safe is the absence of an environment rather than the correctness of a variant check.
+- Good, because the client's Info.plist stays free of ATS keys, and the client refuses a non-https
+  origin itself rather than relying on ATS to refuse it silently.
 - Good, because there is one dev origin, so "which code is the panel running" has one answer on
   both surfaces.
 - Bad, because a live-panel launch now depends on tailscaled being up and MagicDNS resolving, where
@@ -70,19 +91,29 @@ the token still never enters the page.
   trusted certificate does. The name was already registered in Tailscale's DNS.
 - Neutral, because the certificate expires. `--min-validity 168h` re-issues on the launch that
   first sees less than a week left, so renewal is a consequence of running, not a chore.
-- Neutral, because a phone launched with the live origin and a phone launched from the home screen
-  now render the panel from different code. That difference is the safety property, but it does
-  mean "it works on my phone" needs to say which launch.
+- Bad, because the daily driver now takes panel code from its host by default, including the
+  TestFlight install. That is the requirement, not an accident: the whole point is that the phone
+  which has to work is the one nothing device-local can reach. The cost is that a `host-run` whose
+  dev server dies mid-session leaves the phone's panel broken until the server is back, where a
+  bundled panel would have kept working. The Mac's panel is broken in exactly the same way at the
+  same moment, so it is visible rather than a phone-only mystery, and `panel=bundled` on the host
+  opts both surfaces out.
+- Neutral, because "which panel code is this" is now a property of the host, not of how the phone
+  was launched. Two phones on one host always agree; the same phone on two hosts may not.
 
 ### Confirmation
 
-`tools/host-run-lifecycle-tests.sh` (in `just check`) asserts that both host launches and both
-iPhone launches choose the live panel by default, and that `panel=bundled` leaves the origin unset.
-A default that silently reverted would break nothing visible -- every surface would still launch and
-still render a panel, just not the code being edited.
+`tools/host-run-lifecycle-tests.sh` (in `just check`) asserts that both host launches choose the
+live panel by default, that `panel=bundled` leaves the origin unset, and -- the negative that
+matters -- that neither iPhone launch carries the origin in its environment. A default that
+silently reverted would break nothing visible; every surface would still launch and still render a
+panel, just not the code being edited. Env delivery coming back would be worse than that: it works
+perfectly on the cabled dev client an agent is most likely to test with, and does nothing at all
+for the TestFlight install that motivated this.
 
 The felt confirmation is the acceptance test: edit a TSX file, and watch it change in the Mac
-window and on the phone without either being rebuilt.
+window and on the phone without either being rebuilt -- then force-quit the phone app, open it from
+the home screen, and see the edit still there.
 
 ## Pros and Cons of the Options
 

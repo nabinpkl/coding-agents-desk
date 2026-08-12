@@ -650,6 +650,7 @@ extension PairingViewController {
         startThumbnailsObservation()
         startWindowListObservation()
         startAgentSayObservation()
+        startAgentPanelOriginObservation()
         startCursorObservation()
         startTextInputFocusObservation()
         startHostAvailabilityObservation()

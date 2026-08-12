@@ -17,7 +17,10 @@ struct AgentPanelLaneRoutingTests {
         #expect(AgentPanelLaneRouting.isPanelProtocol("agent-window-input-result"))
     }
 
+    // Raw-event fragments stopped being a native concern when the relay took over chunking
+    // (ADR-0095): they are ordinary relayed frames now and belong on the forwarded side.
     @Test func durableAndFeedFramesRemainPanelProtocol() {
+        #expect(AgentPanelLaneRouting.isPanelProtocol("agent-raw-event-part"))
         #expect(AgentPanelLaneRouting.isPanelProtocol("agent-thread-chunk"))
         #expect(AgentPanelLaneRouting.isPanelProtocol("agent-thread-error"))
         #expect(AgentPanelLaneRouting.isPanelProtocol("agent-projects"))
@@ -36,7 +39,7 @@ struct AgentPanelLaneRoutingTests {
 
     @Test func nativeInterceptedAgentTypesAreNotForwarded() {
         #expect(!AgentPanelLaneRouting.isPanelProtocol("agent-say"))
-        #expect(!AgentPanelLaneRouting.isPanelProtocol("agent-raw-event-part"))
+        #expect(!AgentPanelLaneRouting.isPanelProtocol("agent-panel-origin"))
         #expect(!AgentPanelLaneRouting.isPanelProtocol("agent-terminal-ready"))
         #expect(!AgentPanelLaneRouting.isPanelProtocol("agent-terminal-ended"))
         #expect(!AgentPanelLaneRouting.isPanelProtocol("agent-terminal-error"))

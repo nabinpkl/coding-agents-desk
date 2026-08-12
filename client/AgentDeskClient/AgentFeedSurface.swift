@@ -285,6 +285,48 @@ final class AgentFeedSurface: UIView, AgentPanelTransport, AgentFeedTerminalLife
         panelController?.deliver(rawJSON: rawJSON)
     }
 
+    /// Points the panel at the host's dev server, or back at the bundled build.
+    ///
+    /// The host states this on every attach, so it arrives again after an app relaunch or a
+    /// reconnect and the phone never has to remember it. A rejected origin leaves the panel where
+    /// it is rather than blanking it.
+    func applyPanelOrigin(_ push: AgentPanelOriginPush) {
+        switch Self.panelOrigin(from: push.origin) {
+        case .bundled:
+            panelController?.loadPanel(origin: nil)
+        case .live(let url):
+            panelController?.loadPanel(origin: url)
+        case .refused:
+            logger.error(
+                "agent-feed: refused panel origin \(push.origin ?? "", privacy: .public)"
+            )
+        }
+    }
+
+    enum PanelOriginDecision: Equatable {
+        case bundled
+        case live(URL)
+        case refused
+    }
+
+    /// Absent means the bundled build, which is an instruction and not a refusal.
+    ///
+    /// Only https is accepted. iOS App Transport Security refuses cleartext to a tailnet address
+    /// anyway, so an http origin could only ever produce a blank panel; refusing it here makes that
+    /// a logged refusal instead of a webview that silently never loads.
+    static func panelOrigin(from raw: String?) -> PanelOriginDecision {
+        guard let raw, !raw.trimmingCharacters(in: .whitespaces).isEmpty else { return .bundled }
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        guard
+            let url = URL(string: trimmed),
+            url.scheme?.lowercased() == "https",
+            url.host != nil
+        else {
+            return .refused
+        }
+        return .live(url)
+    }
+
     func resumeAfterSessionReconnect() {
         if let resumeAfterReconnectForTesting {
             resumeAfterReconnectForTesting()

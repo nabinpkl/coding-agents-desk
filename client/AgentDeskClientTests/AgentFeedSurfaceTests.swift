@@ -172,4 +172,44 @@ struct AgentFeedSurfaceTests {
         ])
         #expect(resumeCount == 1)
     }
+
+    /// The host states where the panel's code comes from; this side decides what it will load.
+    ///
+    /// http is the case worth pinning: ATS refuses cleartext to a tailnet address, so accepting one
+    /// would produce a panel that never loads and never says why, which is indistinguishable from a
+    /// dead dev server. The Mac accepts http from its own launch environment, so the two sides
+    /// deliberately do not share this rule.
+    @Test func refusesAPanelOriginThatIsNotHTTPS() {
+        #expect(
+            AgentFeedSurface.panelOrigin(from: "https://mac.example.ts.net:5173")
+                == .live(URL(string: "https://mac.example.ts.net:5173")!)
+        )
+        #expect(AgentFeedSurface.panelOrigin(from: nil) == .bundled)
+        #expect(AgentFeedSurface.panelOrigin(from: "   ") == .bundled)
+        #expect(AgentFeedSurface.panelOrigin(from: "http://mac.example.ts.net:5173") == .refused)
+        #expect(AgentFeedSurface.panelOrigin(from: "file:///tmp/panel") == .refused)
+        #expect(AgentFeedSurface.panelOrigin(from: "https://") == .refused)
+        #expect(AgentFeedSurface.panelOrigin(from: "not a url") == .refused)
+    }
+
+    /// The tag is what routes this frame on both sides, and it is spelled by hand in the host's
+    /// push, this client's intercept list, and the wire struct. A drift there is a phone that
+    /// silently stays on its bundled build.
+    @Test func panelOriginPushKeepsItsTag() throws {
+        let encoded = try JSONEncoder().encode(AgentPanelOriginPush(origin: "https://mac.example.ts.net:5173"))
+        let tag = try #require(
+            (try JSONSerialization.jsonObject(with: encoded) as? [String: Any])?["t"] as? String
+        )
+        #expect(tag == "agent-panel-origin")
+        #expect(AgentPanelLaneRouting.nativeInterceptedTypes.contains(tag))
+        #expect(!AgentPanelLaneRouting.isPanelProtocol(tag))
+
+        let round = try JSONDecoder().decode(AgentPanelOriginPush.self, from: encoded)
+        #expect(round.origin == "https://mac.example.ts.net:5173")
+        let bundled = try JSONDecoder().decode(
+            AgentPanelOriginPush.self,
+            from: JSONEncoder().encode(AgentPanelOriginPush(origin: nil))
+        )
+        #expect(bundled.origin == nil)
+    }
 }

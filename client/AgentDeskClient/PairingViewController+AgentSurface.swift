@@ -43,6 +43,17 @@ extension PairingViewController {
         nonisolated(unsafe) static var workspaceSurfaceTask: UInt8 = 0
         nonisolated(unsafe) static var workspaceSurfaceGeneration: UInt8 = 0
         nonisolated(unsafe) static var workspaceSurfaceBoundSession: UInt8 = 0
+        nonisolated(unsafe) static var panelOrigin: UInt8 = 0
+    }
+
+    /// Associated objects hold references, so the pushed value travels in a class box rather than
+    /// relying on a struct being bridged.
+    private final class AgentPanelOriginBinding {
+        let push: AgentPanelOriginPush
+
+        init(_ push: AgentPanelOriginPush) {
+            self.push = push
+        }
     }
 
     private final class AgentSurfaceTransportBinding {
@@ -56,6 +67,27 @@ extension PairingViewController {
     var agentSurface: AgentFeedSurface? {
         get { objc_getAssociatedObject(self, &Keys.agentSurface) as? AgentFeedSurface }
         set { objc_setAssociatedObject(self, &Keys.agentSurface, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+
+    /// The last panel origin the host stated, kept because the surface is created lazily and the
+    /// host states this at attach, which is usually before the user ever opens the agent view.
+    /// Held for the session only: the host restates it on the next attach, so nothing here has to
+    /// survive a relaunch (ADR-0096).
+    private var latestPanelOrigin: AgentPanelOriginPush? {
+        get { (objc_getAssociatedObject(self, &Keys.panelOrigin) as? AgentPanelOriginBinding)?.push }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &Keys.panelOrigin,
+                newValue.map(AgentPanelOriginBinding.init),
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
+    func applyPanelOrigin(_ push: AgentPanelOriginPush) {
+        latestPanelOrigin = push
+        agentSurface?.applyPanelOrigin(push)
     }
 
     var agentTerminalLifecycleRouter: AgentFeedTerminalLifecycleRouter {
@@ -284,6 +316,12 @@ extension PairingViewController {
         // reads activeInputChannel live on each send.
         pairingClient.onAgentPush = { [weak surface] json in
             surface?.deliver(rawJSON: json)
+        }
+
+        // The host states the panel origin at attach, which is normally long before this surface
+        // exists, so the stated value is applied at creation rather than only on arrival.
+        if let push = latestPanelOrigin {
+            surface.applyPanelOrigin(push)
         }
 
         view.bringSubviewToFront(surfaceControlRail)

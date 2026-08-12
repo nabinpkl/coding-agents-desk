@@ -143,6 +143,36 @@ public struct AgentSayPush: Codable, Equatable, Sendable {
     }
 }
 
+/// Host -> client: where the Agent Panel's own code should be loaded from.
+///
+/// Pushed once on every attach, so it is a statement of the current answer rather than an event.
+/// That is what makes it survive a client relaunch without the client storing anything: the phone
+/// starts on its bundled build, hears the answer when it attaches, and switches if it differs.
+///
+/// It has to come over the wire rather than from the client's environment, because the install that
+/// most needs it -- a TestFlight daily driver -- is launched by the user and has no environment to
+/// read. The host is the right authority anyway: a dev origin is only useful while the host that
+/// serves the feed is up, so "which panel code" and "which host" should not be able to disagree
+/// (ADR-0096).
+///
+/// `origin` nil means the bundled build. A client MUST refuse anything but an https origin: this
+/// names where executable code for a privileged webview comes from, and it arrives from a paired
+/// host over an authenticated lane, which is the bound on it.
+public struct AgentPanelOriginPush: Codable, Equatable, Sendable {
+    public let type: String
+    public let origin: String?
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case type = "t"
+        case origin
+    }
+
+    public init(origin: String?) {
+        self.type = "agent-panel-origin"
+        self.origin = origin
+    }
+}
+
 public enum CursorKind: String, Codable, Equatable, Sendable {
     case arrow
     case ibeam

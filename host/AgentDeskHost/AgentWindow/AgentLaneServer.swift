@@ -59,6 +59,14 @@ final class AgentLaneServer: AgentDataPushing, @unchecked Sendable {
         }
     }
 
+    func pushAgentPanelOrigin(_ push: AgentPanelOriginPush) {
+        do {
+            pushAgentData(try JSONEncoder().encode(push))
+        } catch {
+            logger.error("agent lane panel-origin encode failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     private func enqueuePayload(_ payload: Data) {
         sendChain.withLock { tail in
             let prior = tail

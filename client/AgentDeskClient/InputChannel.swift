@@ -26,6 +26,9 @@ protocol InputChannel: AnyObject, Sendable {
     var topWindowsUpdates: AsyncStream<[String: SpaceTopWindow]> { get }
     var windowListUpdates: AsyncStream<WindowListPush> { get }
     var agentSayUpdates: AsyncStream<AgentSayPush> { get }
+    // Which build the agent panel loads. Pushed by the host on every attach rather than read from
+    // this side's environment, because a TestFlight install has no environment (ADR-0096).
+    var agentPanelOriginUpdates: AsyncStream<AgentPanelOriginPush> { get }
     var cursorUpdates: AsyncStream<CursorImagePush> { get }
     var cursorReconciliationUpdates: AsyncStream<CursorReconciliationUpdate> { get }
     var hostAvailabilityUpdates: AsyncStream<HostAvailabilityPush> { get }

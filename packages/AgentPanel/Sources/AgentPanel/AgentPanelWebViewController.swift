@@ -42,6 +42,15 @@ public final class AgentPanelWebViewController: NSObject, WebPanelMessageSink {
         set { core.onNavigationStart = newValue }
     }
 
+    /// Switch the panel between a dev origin and the bundled build. Nil means bundled.
+    ///
+    /// The phone reaches this from its host rather than from its own environment, because a client
+    /// installed by TestFlight has no environment to read and is exactly the install that has to
+    /// work (ADR-0096).
+    public func loadPanel(origin: URL?) {
+        core.loadPanel(origin: origin)
+    }
+
     public init(
         transport: (any AgentPanelTransport)?,
         resources: AgentPanelResourceLocator = AgentPanelResourceLocator(),
@@ -49,14 +58,21 @@ public final class AgentPanelWebViewController: NSObject, WebPanelMessageSink {
         additionalUserScripts: [WKUserScript] = [],
         additionalMessageHandlers: [String: AgentPanelScriptMessageHandler] = [:]
     ) throws {
-        let developmentOrigin = try Self.developmentOrigin(
-            ProcessInfo.processInfo.environment[Self.developmentOriginVariable]
-        )
-        // With a dev origin the bundled tree is not consulted at all, so a stale or fixture-only
-        // build is not an error here: the whole point of the override is to stop rebuilding it.
-        let rootDirectory = developmentOrigin == nil
-            ? try Self.servableRoot(resources.resolve(indexPath: contract.indexPath))
-            : nil
+        let developmentOrigin = try Self.launchDevelopmentOrigin()
+        // The bundled tree is resolved even when starting from a dev origin, because the panel can
+        // be switched between the two at runtime now (ADR-0096) and the switch has nowhere to go
+        // without it. A dev origin still excuses a stale or fixture-only build -- that is what the
+        // override is for -- so its absence is only fatal when there is no origin either.
+        let rootDirectory: URL?
+        do {
+            rootDirectory = try Self.servableRoot(resources.resolve(indexPath: contract.indexPath))
+        } catch {
+            guard developmentOrigin != nil else { throw error }
+            Logger(subsystem: Self.logSubsystem, category: "agent-panel").notice(
+                "agent-panel: no bundled build to fall back to, dev origin only"
+            )
+            rootDirectory = nil
+        }
         if let developmentOrigin {
             // A fresh Logger, not the instance one: `self` is off limits until `super.init()`.
             Logger(subsystem: Self.logSubsystem, category: "agent-panel").notice(
@@ -103,7 +119,7 @@ public final class AgentPanelWebViewController: NSObject, WebPanelMessageSink {
     /// One name, here, rather than a literal at each read: this is the only switch that changes
     /// where the panel's code comes from, and a second spelling of it would be a build that looks
     /// live and is not.
-    public static let developmentOriginVariable = "AGENTDESK_AGENT_PANEL_ORIGIN"
+    public nonisolated static let developmentOriginVariable = "AGENTDESK_AGENT_PANEL_ORIGIN"
 
     /// Parses the dev-origin override, refusing anything that is not an http(s) origin.
     ///
@@ -112,13 +128,21 @@ public final class AgentPanelWebViewController: NSObject, WebPanelMessageSink {
     /// would present the bundled build as the edited one, and the whole reason this exists is to
     /// know which code is running.
     ///
-    /// This is a MAC-side loop by decision (ADR-0095). The same controller runs on the phone, and
-    /// the phone would need an `http://<tailnet-ip>:5173` load, which App Transport Security
-    /// refuses: `NSAllowsLocalNetworking` does not cover a tailnet address, so the only ways
-    /// through are an arbitrary-loads exception or a cert the phone trusts. The client ships to a
-    /// daily driver through TestFlight, and an ATS hole opened for dev convenience is exactly the
-    /// kind that survives into a release build, so the phone keeps the bundled build and an http
-    /// origin set there simply fails to load.
+    /// http is accepted here because this parses a MAC-side launch environment, where a hand-run
+    /// server without a certificate is a reasonable thing to point at. The phone gets the same
+    /// origin over the wire and applies a stricter rule -- https only -- because App Transport
+    /// Security refuses cleartext to a tailnet address and no ATS exception is opened for a client
+    /// that ships to a daily driver through TestFlight (ADR-0096).
+    /// The dev origin this process was launched with, or nil for the bundled build.
+    ///
+    /// Public because the host does not only build its own panel from it: it states the same origin
+    /// to every attached phone over the wire, and the phone must be told by the machine actually
+    /// serving that code rather than guess (ADR-0096). One reader, so the two surfaces cannot
+    /// disagree about which build is live.
+    public nonisolated static func launchDevelopmentOrigin() throws -> URL? {
+        try developmentOrigin(ProcessInfo.processInfo.environment[developmentOriginVariable])
+    }
+
     nonisolated static func developmentOrigin(_ raw: String?) throws -> URL? {
         guard let raw, !raw.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespaces)

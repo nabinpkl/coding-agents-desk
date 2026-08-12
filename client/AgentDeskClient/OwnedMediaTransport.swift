@@ -16,6 +16,7 @@ enum AgentPanelLaneRouting: Sendable {
         "agent-terminal-ready",           // native agent-terminal lifecycle
         "agent-terminal-ended",
         "agent-terminal-error",
+        "agent-panel-origin",             // which build the panel webview loads (ADR-0096)
     ]
 
     static func isPanelProtocol(_ type: String) -> Bool {
@@ -82,6 +83,8 @@ private struct Channels {
     let windowListUpdates: AsyncStream<WindowListPush>
     private let agentSayContinuation: AsyncStream<AgentSayPush>.Continuation
     let agentSayUpdates: AsyncStream<AgentSayPush>
+    private let agentPanelOriginContinuation: AsyncStream<AgentPanelOriginPush>.Continuation
+    let agentPanelOriginUpdates: AsyncStream<AgentPanelOriginPush>
     private let cursorContinuation: AsyncStream<CursorImagePush>.Continuation
     let cursorUpdates: AsyncStream<CursorImagePush>
     private let cursorReconciliationContinuation: AsyncStream<CursorReconciliationUpdate>.Continuation
@@ -193,6 +196,9 @@ private struct Channels {
         var sayCont: AsyncStream<AgentSayPush>.Continuation!
         agentSayUpdates = AsyncStream { sayCont = $0 }
         agentSayContinuation = sayCont
+        var panelOriginCont: AsyncStream<AgentPanelOriginPush>.Continuation!
+        agentPanelOriginUpdates = AsyncStream { panelOriginCont = $0 }
+        agentPanelOriginContinuation = panelOriginCont
         var cursorCont: AsyncStream<CursorImagePush>.Continuation!
         cursorUpdates = AsyncStream { cursorCont = $0 }
         cursorContinuation = cursorCont
@@ -471,6 +477,7 @@ private struct Channels {
         topWindowsContinuation.finish()
         windowListContinuation.finish()
         agentSayContinuation.finish()
+        agentPanelOriginContinuation.finish()
         cursorContinuation.finish()
         cursorReconciliationContinuation.finish()
         hostAvailabilityContinuation.finish()
@@ -693,7 +700,8 @@ private struct Channels {
     }
 
     // The Agent panel protocol (.agent role). The client intercepts only the handful of frames the
-    // native shell must handle (speech, raw-event fragment reassembly, terminal lifecycle) and
+    // native shell must handle (speech, terminal lifecycle, and where the panel loads its code from
+    // -- the webview cannot be the one to decide that, since it is the thing being reloaded) and
     // forwards every other `agent-*` frame verbatim to the panel webview, which decodes by `t` and
     // ignores anything it does not yet know. New agent message types therefore never need a
     // per-type change here.
@@ -706,6 +714,12 @@ private struct Channels {
             case "agent-say":
                 if let push = try? JSONDecoder().decode(AgentSayPush.self, from: data) {
                     agentSayContinuation.yield(push)
+                }
+            case "agent-panel-origin":
+                if let push = try? JSONDecoder().decode(AgentPanelOriginPush.self, from: data) {
+                    agentPanelOriginContinuation.yield(push)
+                } else {
+                    logger.error("agent lane panel-origin push decode failed")
                 }
             case "agent-terminal-ready", "agent-terminal-ended", "agent-terminal-error":
                 if !Self.dispatchAgentTerminalPayload(data, to: agentTerminalContinuation) {

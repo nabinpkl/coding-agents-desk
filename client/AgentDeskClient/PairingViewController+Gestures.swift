@@ -115,6 +115,21 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         }
     }
 
+    // Where the agent panel's code comes from, stated by the host on every attach. Restarted with
+    // the other session observations because a reconnect brings a fresh channel, and the restated
+    // origin is what makes the panel survive an app relaunch without remembering anything.
+    func startAgentPanelOriginObservation() {
+        agentPanelOriginTask?.cancel()
+        guard let channel = pairingClient.activeInputChannel else { return }
+        agentPanelOriginTask = Task { [weak self, channel] in
+            for await push in channel.agentPanelOriginUpdates {
+                await MainActor.run {
+                    self?.applyPanelOrigin(push)
+                }
+            }
+        }
+    }
+
     func startAgentSayObservation() {
         agentSayTask?.cancel()
         guard let channel = pairingClient.activeInputChannel else { return }

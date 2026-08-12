@@ -224,6 +224,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var thumbnailsTask: Task<Void, Never>?
     var topWindowsTask: Task<Void, Never>?
     var windowListTask: Task<Void, Never>?
+    var agentPanelOriginTask: Task<Void, Never>?
     // nil = watching the whole selected display. Non-nil rides ClientConfig and makes the
     // host stream that window alone, view-only.
     var selectedWindowIdForClientConfig: UInt32?

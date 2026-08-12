@@ -1563,6 +1563,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    // Tells the phone where the agent panel's code comes from: this host's dev server, or the
+    // build bundled in the client.
+    //
+    // Stated on every attach rather than remembered by the client, because the client that has to
+    // work is the one installed from TestFlight, which has no environment to read and no way to be
+    // seeded (ADR-0096). Restating it also keeps the answer honest: a dev origin is only reachable
+    // while the host serving it is up, and this is the same host, so "which panel code" and "which
+    // host" cannot disagree, and a phone left pointing at a dead server corrects itself on the next
+    // attach.
+    private func pushAgentPanelOrigin(to lane: AgentLaneServer) {
+        let origin: URL?
+        do {
+            origin = try AgentPanelWebViewController.launchDevelopmentOrigin()
+        } catch {
+            // The Mac's own panel already refused this value at startup; saying it again here would
+            // be noise, and pushing nothing would leave the phone on the bundled build with no
+            // explanation for why the Mac is live and it is not.
+            signalingLogger.error(
+                "agent lane panel origin unusable: \(String(describing: error), privacy: .public)"
+            )
+            return
+        }
+        lane.pushAgentPanelOrigin(AgentPanelOriginPush(origin: origin?.absoluteString))
+    }
+
     // The client opened the Agent panel lane (`.agent` role) inside the session QUIC connection.
     // This is where the agent feed, composer sync, raw-event fragments, agent-terminal lifecycle,
     // and agent speech travel. The `.input` lane now carries native control frames only, so the
@@ -1571,6 +1596,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleAgentLaneReady(_ fingerprint: DeviceFingerprint, lane: AgentLaneServer) {
         signalingLogger.notice("agent lane ready fp=\(fingerprint.rawValue, privacy: .public)")
         sessions.attachAgentLane(lane, for: fingerprint)
+        pushAgentPanelOrigin(to: lane)
         // Composer sync answers on this lane but never enters the agent-feed bridge: it is a
         // host-local Accessibility action against Claude Desktop, and the bridge is a sidecar proxy.
         // The sink is keyed by device so a phone is told the outcome of its OWN writes only -- a
