@@ -1,0 +1,150 @@
+import {
+  canonicalProjectPath,
+  getSnapshot,
+  getWatcherState,
+  projectSummaries,
+  sessionSummaries,
+  subscribeCatalog,
+  type AgentSessionDescriptorResolver,
+} from "../transcripts/transcriptCatalog.ts";
+import type { Session } from "../transcripts/sources/transcriptTypes.ts";
+import {
+  encodeServerSentEvent,
+  jsonResponse,
+  startServerSentEventStream,
+} from "./httpResponses.ts";
+import type { RouteHandler } from "./route.ts";
+
+/**
+ * Which projects this surface has open, of the ones it asked for.
+ *
+ * A project that no longer canonicalizes is DROPPED rather than refused. Refusing
+ * would deadlock the surface: the requested set is whatever the reader last had
+ * expanded, and the only thing that would tell it a project is gone is the project
+ * list riding this very stream. So a directory deleted while its row was open would
+ * refuse the stream, the retry would ask for the same vanished path, and the sidebar
+ * would never learn why. Dropping it is self-correcting -- the project list on the
+ * next message no longer has it, the reader collapses the row, and the following
+ * subscription asks for a set that exists.
+ */
+async function requestedProjects(url: URL): Promise<string[]> {
+  // Repeated rather than comma-joined: a project path is a filesystem path, and a
+  // separator inside a value is a parsing bug waiting for the first directory that
+  // contains one.
+  const requested = [...new Set(url.searchParams.getAll("projectPath"))];
+  const resolved: string[] = [];
+  for (const path of requested) {
+    const canonical = await canonicalProjectPath(path);
+    if (canonical === path) resolved.push(canonical);
+    else console.warn(JSON.stringify({ event: "agent-feed-inventory-unknown-project", path }));
+  }
+  return resolved;
+}
+
+/**
+ * What a project's session list depends on, flattened for comparison.
+ *
+ * The catalog broadcasts on any change to any source, so most ticks change nothing
+ * this project's viewer would see. Comparing the inputs is what keeps a stream from
+ * re-emitting an identical list on every tick -- and it is compared per project, so a
+ * write in one project does not resend the others.
+ */
+function sessionsFingerprint(
+  sessions: Session[],
+  projectPath: string,
+  resolveAgentSession?: AgentSessionDescriptorResolver,
+): string {
+  return JSON.stringify(
+    sessions
+      .filter((session) => session.project === projectPath)
+      .map((session) => [
+        session.source,
+        session.sessionId,
+        session.lastEventAt,
+        session.title,
+        resolveAgentSession?.(session.source, session.sessionId)?.activity,
+      ]),
+  );
+}
+
+async function inventoryStream(
+  request: Request,
+  url: URL,
+  server: Parameters<RouteHandler>[2],
+  resolveAgentSession?: AgentSessionDescriptorResolver,
+): Promise<Response> {
+  const projectPaths = await requestedProjects(url);
+  return startServerSentEventStream(request, server, (write) => {
+    let projectsFingerprint: string | null = null;
+    const sessionFingerprints = new Map<string, string>();
+    // Per project, because a session list is read asynchronously: a later tick that
+    // finishes first must not overwrite the newer answer with the older one.
+    const generations = new Map<string, number>();
+
+    const pushProjects = (sessions: Session[]): void => {
+      const projects = projectSummaries(sessions);
+      const fingerprint = JSON.stringify(projects);
+      if (fingerprint === projectsFingerprint) return;
+      projectsFingerprint = fingerprint;
+      write(encodeServerSentEvent({ projects }));
+    };
+
+    const pushSessions = (sessions: Session[], projectPath: string): void => {
+      const fingerprint = sessionsFingerprint(sessions, projectPath, resolveAgentSession);
+      if (fingerprint === sessionFingerprints.get(projectPath)) return;
+      sessionFingerprints.set(projectPath, fingerprint);
+      const current = (generations.get(projectPath) ?? 0) + 1;
+      generations.set(projectPath, current);
+      void sessionSummaries(projectPath, resolveAgentSession).then((summaries) => {
+        if (generations.get(projectPath) !== current) return;
+        write(encodeServerSentEvent({ projectPath, sessions: summaries }));
+      }).catch((error) => {
+        write(encodeServerSentEvent({
+          error: error instanceof Error ? error.message : String(error),
+        }));
+      });
+    };
+
+    const push = (sessions = getSnapshot()): void => {
+      pushProjects(sessions);
+      for (const projectPath of projectPaths) pushSessions(sessions, projectPath);
+    };
+
+    push();
+    const unsubscribe = subscribeCatalog(push);
+    return () => {
+      // Bumped past every in-flight read so a late one cannot write to a torn-down stream.
+      for (const projectPath of projectPaths) {
+        generations.set(projectPath, (generations.get(projectPath) ?? 0) + 1);
+      }
+      unsubscribe();
+    };
+  });
+}
+
+/**
+ * The whole inventory a surface renders, on one stream.
+ *
+ * A panel with three projects expanded used to hold four connections: one for the
+ * project list and one per project. Every one of them rode the same catalog
+ * subscription and answered from the same snapshot, so the split bought nothing but
+ * connections -- and connections are the scarce thing, because the relay between the
+ * panel and this process admits a bounded number of them. Expanding a fourth project
+ * exhausted that budget, and the refusal landed on whichever request asked next.
+ *
+ * One stream per surface instead, parameterized by which projects that surface has
+ * open. The project list always rides it; each requested project's session list rides
+ * it too, named by `projectPath` so the reader can tell the two message shapes apart.
+ */
+export function createInventoryRoutes(
+  resolveAgentSession?: AgentSessionDescriptorResolver,
+): RouteHandler {
+  return (request, url, server) => {
+    if (request.method !== "GET") return undefined;
+    if (url.pathname !== "/api/inventory/stream") return undefined;
+    if (getWatcherState() !== "live") {
+      return jsonResponse({ error: "inventory-not-ready" }, 503);
+    }
+    return inventoryStream(request, url, server, resolveAgentSession);
+  };
+}

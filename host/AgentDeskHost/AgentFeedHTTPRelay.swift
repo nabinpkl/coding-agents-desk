@@ -23,7 +23,15 @@ final class AgentFeedHTTPRelay: @unchecked Sendable {
     private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).agent-feed-relay")
     /// In-flight transfers by request id. A transfer is removed when it ends, fails,
     /// or is cancelled, so this is also the concurrency count.
-    private var transfers: [String: SidecarStreamHandle] = [:]
+    ///
+    /// Each one remembers whether it is a subscription, because the two are budgeted
+    /// apart: a stream holds its slot for as long as the panel is looking at something,
+    /// a request holds one for as long as a body takes to copy.
+    private struct Transfer {
+        let handle: SidecarStreamHandle
+        let isStream: Bool
+    }
+    private var transfers: [String: Transfer] = [:]
 
     init(client: any AgentFeedRelayClient, send: @escaping @Sendable (Data) -> Void) {
         self.client = client
@@ -40,7 +48,7 @@ final class AgentFeedHTTPRelay: @unchecked Sendable {
     /// slots held by a page that no longer exists.
     func reset() {
         let handles = queue.sync { () -> [SidecarStreamHandle] in
-            let values = Array(transfers.values)
+            let values = transfers.values.map(\.handle)
             transfers.removeAll()
             return values
         }
@@ -71,12 +79,17 @@ final class AgentFeedHTTPRelay: @unchecked Sendable {
         // already asked for. Reporting both as "too many in flight" sends the reader
         // looking at the concurrency limit for a bug that is not there.
         enum Admission { case ok, duplicate, full }
+        let limit = request.stream
+            ? AgentFeedRelay.maximumConcurrentStreams
+            : AgentFeedRelay.maximumConcurrentRequests
         let admission: Admission = queue.sync {
             guard transfers[request.rid] == nil else { return .duplicate }
-            guard transfers.count < AgentFeedRelay.maximumConcurrentTransfers else { return .full }
+            guard transfers.values.filter({ $0.isStream == request.stream }).count < limit else {
+                return .full
+            }
             // Reserved before the transfer exists so two requests arriving together
             // cannot both see room for the last slot.
-            transfers[request.rid] = .reservation
+            transfers[request.rid] = Transfer(handle: .reservation, isStream: request.stream)
             return .ok
         }
         switch admission {
@@ -86,7 +99,15 @@ final class AgentFeedHTTPRelay: @unchecked Sendable {
             fail(rid: request.rid, reason: "request \(request.rid) is already in flight")
             return
         case .full:
-            fail(rid: request.rid, reason: "too many agent-feed transfers in flight")
+            // Logged, because this is the one refusal the panel cannot do anything about
+            // and the reader has no other way to see it: the panel reports it as an error
+            // in a list that will not load, with nothing on the host saying which budget
+            // ran out or what was holding it.
+            let kind = request.stream ? "subscriptions" : "requests"
+            logger.error(
+                "relay refused \(request.path, privacy: .public): \(limit, privacy: .public) concurrent \(kind, privacy: .public) already in flight"
+            )
+            fail(rid: request.rid, reason: "too many agent-feed \(kind) in flight")
             return
         }
 
@@ -124,13 +145,13 @@ final class AgentFeedHTTPRelay: @unchecked Sendable {
                 handle.cancel()
                 return
             }
-            transfers[rid] = handle
+            transfers[rid] = Transfer(handle: handle, isStream: request.stream)
         }
     }
 
     func handleCancel(_ cancel: AgentFeedRelayCancel) {
-        let handle = queue.sync { transfers.removeValue(forKey: cancel.rid) }
-        handle?.cancel()
+        let transfer = queue.sync { transfers.removeValue(forKey: cancel.rid) }
+        transfer?.handle.cancel()
     }
 
     private func finish(rid: String, with error: Error) {

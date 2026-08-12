@@ -58,13 +58,21 @@ public enum AgentFeedRelay {
         }
     }
 
-    /// How many relayed transfers may be in flight at once, and how long one may take.
+    /// How many relayed transfers may be in flight at once, budgeted separately for the
+    /// two kinds, and how long a one-shot may take.
     ///
-    /// Carried over from the raw-event transfer limits this relay subsumes. A raw event used to
-    /// have its own fragmenter, reassembler, and part frames on the wire because it was the one
-    /// payload big enough to need splitting; ordinary chunking covers it now, so what survives of
-    /// that machinery is these two numbers.
-    public static let maximumConcurrentTransfers = 4
+    /// One number used to cover both, carried over from the raw-event transfer limits this
+    /// relay subsumes -- a bound on how many megabyte bodies could be copied at once. But a
+    /// subscription is not a copy in progress: it is idle almost always, it costs a socket
+    /// rather than bandwidth, and unlike a one-shot it never ends on its own, which is why
+    /// `transferTimeout` was only ever applied to one of them. Sharing the number meant the
+    /// panel's resting subscriptions ate the budget a request needed, and the surface that
+    /// lost the race was told "too many transfers in flight" for asking a question.
+    ///
+    /// So: enough stream slots for what a surface holds open (its inventory, its thread, and
+    /// room to spare), and a separate allowance for the bodies actually being copied.
+    public static let maximumConcurrentStreams = 8
+    public static let maximumConcurrentRequests = 4
     public static let transferTimeout: TimeInterval = 30
 
     /// The largest body chunk a single frame carries.

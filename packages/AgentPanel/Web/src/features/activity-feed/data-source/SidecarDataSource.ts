@@ -97,32 +97,44 @@ export class SidecarDataSource implements AgentDataSource {
   // Inventory
   // ---------------------------------------------------------------------
 
-  /** Follows the project list. Returns unsubscribe. */
-  subscribeProjects(
-    onProjects: (projects: ProjectSummary[]) => void,
+  /**
+   * Follows the project list, and the session list of every project in `projectPaths`.
+   * Returns unsubscribe.
+   *
+   * One subscription for the whole sidebar, not one per project. The host relay admits
+   * a bounded number of concurrent subscriptions per surface, and the per-project
+   * streams spent that budget on connections that all carried the same catalog: a
+   * fourth expanded project used to exhaust it, and the refusal landed on whichever
+   * request asked next.
+   *
+   * Changing which projects are open means resubscribing, which is why the caller
+   * passes the whole set rather than adding to it: the sidecar reads the set when the
+   * stream opens, and one stream reopening costs one slot, never two.
+   */
+  subscribeInventory(
+    projectPaths: readonly string[],
+    handlers: {
+      onProjects: (projects: ProjectSummary[]) => void;
+      onSessions: (projectPath: string, sessions: SessionSummary[]) => void;
+    },
     onError?: (reason: string) => void,
   ): () => void {
-    return this.transport.subscribe("/api/projects/stream", {
-      onMessage: (payload) => {
-        const message = JSON.parse(payload) as { projects?: ProjectSummary[] };
-        if (message.projects) onProjects(message.projects);
-      },
-      onError: (reason) => onError?.(reason),
-    });
-  }
-
-  /** Follows one project's session list. Returns unsubscribe. */
-  subscribeProjectSessions(
-    projectPath: string,
-    onSessions: (sessions: SessionSummary[]) => void,
-    onError?: (reason: string) => void,
-  ): () => void {
+    const query = projectPaths
+      .map((path) => `projectPath=${encodeURIComponent(path)}`)
+      .join("&");
     return this.transport.subscribe(
-      `/api/sessions/stream?projectPath=${encodeURIComponent(projectPath)}`,
+      query ? `/api/inventory/stream?${query}` : "/api/inventory/stream",
       {
         onMessage: (payload) => {
-          const message = JSON.parse(payload) as { sessions?: SessionSummary[] };
-          if (message.sessions) onSessions(message.sessions);
+          const message = JSON.parse(payload) as {
+            projects?: ProjectSummary[];
+            projectPath?: string;
+            sessions?: SessionSummary[];
+          };
+          if (message.projects) handlers.onProjects(message.projects);
+          else if (message.projectPath && message.sessions) {
+            handlers.onSessions(message.projectPath, message.sessions);
+          }
         },
         onError: (reason) => onError?.(reason),
       },

@@ -289,34 +289,32 @@ SessionResumeProof     { proof }
 SessionRejected   { reason }   // reason includes "incompatible-protocol", "expired-resume"
 ```
 
-The Agent feed input-lane contract is visibility-scoped. Every project and project-session watch has
-a generated subscription ID echoed by pushes and errors so a response from a closed screen is
-ignored. Source plus session ID is required everywhere below the project layer:
+The Agent feed lane carries no feed-shaped frames. It relays HTTP: the panel names a path, the
+host attaches the sidecar's control token and copies bytes back, and neither side knows a field
+name. The per-endpoint watch/unwatch/push frames this section used to specify were retired with
+the bridge that owned them -- a field renamed on one side and restated on the other was the whole
+class of bug the relay removes.
 
 ```
-AgentProjectsWatch       { t: "agent-projects-watch", subscriptionId }
-AgentProjectsUnwatch     { t: "agent-projects-unwatch", subscriptionId }
-AgentProjects            { t: "agent-projects", subscriptionId, projects }
-AgentProjectsError       { t: "agent-projects-error", subscriptionId, reason }
-AgentProjectSessionsWatch   { t: "agent-project-sessions-watch", subscriptionId, projectPath }
-AgentProjectSessionsUnwatch { t: "agent-project-sessions-unwatch", subscriptionId }
-AgentProjectSessions        { t: "agent-project-sessions", subscriptionId, projectPath, sessions }
-AgentProjectSessionsError   { t: "agent-project-sessions-error", subscriptionId, projectPath, reason }
-AgentThreadSubscribe     { t: "agent-thread-sub", source, sessionId }
-AgentThreadUnsubscribe   { t: "agent-thread-unsub", source, sessionId }
-AgentThreadLoadOlder     { t: "agent-thread-older", source, sessionId, beforeIndex, limit }
+AgentFeedRelayRequest { t: "agent-http-req", rid, method, path, body?, stream }
+AgentFeedRelayCancel  { t: "agent-http-cancel", rid }
+AgentFeedRelayHead    { t: "agent-http-head", rid, status }
+AgentFeedRelayChunk   { t: "agent-http-chunk", rid, seq, data, complete }
+AgentFeedRelayEnd     { t: "agent-http-end", rid }
+AgentFeedRelayError   { t: "agent-http-err", rid, reason }
 ```
 
-The host-side loopback resources backing that contract are:
+Subscriptions and one-shot requests are admitted against separate concurrency budgets, because a
+subscription is idle for its whole life and a request is a body being copied.
+
+The sidecar resources a surface reaches through it are:
 
 ```
-GET /api/projects
-GET /api/projects/stream
+GET /api/inventory/stream?projectPath=<canonical-path>&projectPath=<canonical-path>
 GET /api/sessions?projectPath=<canonical-path>
-GET /api/sessions/stream?projectPath=<canonical-path>
 GET /api/sessions/:source/:sessionId/events
 GET /api/sessions/:source/:sessionId/events/:eventIndex/raw
-GET /api/sessions/:source/:sessionId/stream
+GET /api/sessions/:source/:sessionId/timeline?mode=
 ```
 
 Agent raw records use the fragmented input messages from ADR-0060. Historical thread pages carry only a Raw JSON marker:

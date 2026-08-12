@@ -121,14 +121,16 @@ describe("the shared wire contract", () => {
     const source = new SidecarDataSource(transport);
 
     const projects: unknown[] = [];
-    source.subscribeProjects((next) => projects.push(...next));
-    transport.deliver("/api/projects/stream", JSON.stringify(fixture.projects));
+    const sessions = new Map<string, unknown[]>();
+    // Both message shapes on the one stream, told apart by the keys the sidecar writes.
+    source.subscribeInventory([fixture.sessions.projectPath], {
+      onProjects: (next) => projects.push(...next),
+      onSessions: (projectPath, next) => sessions.set(projectPath, [...next]),
+    });
+    transport.deliver("/api/inventory/stream", JSON.stringify(fixture.projects));
+    transport.deliver("/api/inventory/stream", JSON.stringify(fixture.sessions));
     expect(projects).toEqual(fixture.projects.projects);
-
-    const sessions: unknown[] = [];
-    source.subscribeProjectSessions(fixture.sessions.projectPath, (next) => sessions.push(...next));
-    transport.deliver("/api/sessions/stream", JSON.stringify(fixture.sessions));
-    expect(sessions).toEqual(fixture.sessions.sessions);
+    expect(sessions.get(fixture.sessions.projectPath)).toEqual(fixture.sessions.sessions);
 
     transport.responses.set("GET /api/sessions/pi/s1/events?offset=0&limit=1&mode=nice", {
       status: 200,

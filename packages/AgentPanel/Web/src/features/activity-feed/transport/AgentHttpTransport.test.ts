@@ -47,7 +47,7 @@ describe("RelayHttpTransport", () => {
     const bridge = new FakeHostBridge();
     const transport = new RelayHttpTransport(bridge);
 
-    const first = transport.request("GET", "/api/projects");
+    const first = transport.request("GET", "/api/config");
     const firstRid = lastRequest(bridge).rid;
     const second = transport.request("GET", "/api/sessions");
     const secondRid = lastRequest(bridge).rid;
@@ -85,7 +85,7 @@ describe("RelayHttpTransport", () => {
     const bridge = new FakeHostBridge();
     const transport = new RelayHttpTransport(bridge);
 
-    const pending = transport.request("GET", "/api/projects");
+    const pending = transport.request("GET", "/api/config");
     const { rid } = lastRequest(bridge);
     bridge.deliver({ t: "agent-http-head", rid, status: 200 });
     bridge.deliver({ t: "agent-http-chunk", rid, seq: 0, data: "start", complete: false });
@@ -101,7 +101,7 @@ describe("RelayHttpTransport", () => {
     const messages: string[] = [];
     let opened: number | null = null;
 
-    transport.subscribe("/api/projects/stream", {
+    transport.subscribe("/api/inventory/stream", {
       onOpen: (status) => {
         opened = status;
       },
@@ -127,7 +127,7 @@ describe("RelayHttpTransport", () => {
     const transport = new RelayHttpTransport(bridge);
     const messages: string[] = [];
 
-    const stop = transport.subscribe("/api/projects/stream", {
+    const stop = transport.subscribe("/api/inventory/stream", {
       onMessage: (payload) => messages.push(payload),
       onError: () => {
         throw new Error("a cancelled subscription must not report an error");
@@ -156,7 +156,7 @@ describe("RelayHttpTransport", () => {
     const bridge = new FakeHostBridge();
     const transport = new RelayHttpTransport(bridge);
 
-    const pending = transport.request("GET", "/api/projects");
+    const pending = transport.request("GET", "/api/config");
     transport.dispose();
 
     await expect(pending).rejects.toThrow("transport disposed");
@@ -165,7 +165,7 @@ describe("RelayHttpTransport", () => {
   it("leaves frames for the host's own protocol alone", () => {
     const bridge = new FakeHostBridge();
     const transport = new RelayHttpTransport(bridge);
-    transport.subscribe("/api/projects/stream", {
+    transport.subscribe("/api/inventory/stream", {
       onMessage: () => {
         throw new Error("a native-authority reply is not a relay frame");
       },

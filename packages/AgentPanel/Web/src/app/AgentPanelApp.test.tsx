@@ -233,7 +233,7 @@ function latestSubscription(fake: FakeHostBridge, type: string): string {
 
 function deliverProjects(transport: FakeHttpTransport) {
   act(() => {
-    transport.deliver("/api/projects/stream", { projects: FIXTURE_PROJECTS });
+    transport.deliver("/api/inventory/stream", { projects: FIXTURE_PROJECTS });
   });
 }
 
@@ -392,14 +392,14 @@ describe("App shell", () => {
     expect(screen.getByRole("button", { name: /^Beta Project 1 session/ })).toHaveAttribute("aria-expanded", "true");
 
     fireEvent.click(screen.getByRole("button", { name: /^Alpha Project 2 sessions/ }));
-    // Collapsing closes that project's stream and leaves the other open.
-    expect(
-      transport.subscriptions
-        .map((open) => open.path)
-        .filter((path) => path.startsWith("/api/sessions/stream")),
-    ).toEqual([
-      expect.stringContaining(`projectPath=${encodeURIComponent(FIXTURE_PROJECT_B.projectPath)}`),
-    ]);
+    // Collapsing drops that project from the one inventory stream, which stays open for
+    // the other. However many projects are unfolded, there is exactly one subscription.
+    const inventory = transport.subscriptions
+      .map((open) => open.path)
+      .filter((path) => path.startsWith("/api/inventory/stream"));
+    expect(inventory).toHaveLength(1);
+    expect(inventory[0]).toContain(`projectPath=${encodeURIComponent(FIXTURE_PROJECT_B.projectPath)}`);
+    expect(inventory[0]).not.toContain(encodeURIComponent(FIXTURE_PROJECT_A.projectPath));
     expect(screen.queryByText("Session Claude 01")).not.toBeInTheDocument();
     expect(screen.getByText("Beta session")).toBeInTheDocument();
 
@@ -460,7 +460,7 @@ describe("App shell", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Beta Project 1 session/ }));
 
     act(() => {
-      transport.deliver("/api/projects/stream", {
+      transport.deliver("/api/inventory/stream", {
         projects: [FIXTURE_PROJECT_B, FIXTURE_PROJECT_A],
       });
     });
@@ -956,7 +956,7 @@ describe("visibility subscriptions recover from failure", () => {
     const { transport, unmount } = setup();
     const first = transport.subscriptions.at(-1);
     act(() => {
-      transport.fail("/api/projects/stream", "agent feed is not ready");
+      transport.fail("/api/inventory/stream", "agent feed is not ready");
     });
     expect(screen.getByRole("alert")).toHaveTextContent("agent feed is not ready");
     // And it says so, so the error does not read as a dead end.
@@ -979,7 +979,7 @@ describe("visibility subscriptions recover from failure", () => {
     const current = () => transport.subscriptions.at(-1);
     const attempts = [current()];
     const failCurrent = () => {
-      act(() => void transport.fail("/api/projects/stream", "agent feed is not ready"));
+      act(() => void transport.fail("/api/inventory/stream", "agent feed is not ready"));
     };
 
     failCurrent();
@@ -997,19 +997,25 @@ describe("visibility subscriptions recover from failure", () => {
     unmount();
   });
 
-  it("drops an expanded project's pending retry when the project collapses", () => {
+  it("retries once however many projects are expanded, and comes back asking for all of them", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
-    const alpha = `projectPath=${encodeURIComponent(FIXTURE_PROJECT_A.projectPath)}`;
-    act(() => void transport.fail(alpha, "agent feed is not ready"));
-    expect(screen.getByRole("alert")).toHaveTextContent("agent feed is not ready");
+    fireEvent.click(screen.getByRole("button", { name: /^Beta Project 1 session/ }));
+    const failed = transport.subscriptions.at(-1);
 
-    fireEvent.click(screen.getByRole("button", { name: /^Alpha Project 2 sessions/ }));
+    act(() => void transport.fail("/api/inventory/stream", "agent feed is not ready"));
+    expect(screen.getByRole("alert")).toHaveTextContent("agent feed is not ready");
     act(() => void vi.advanceTimersByTime(30_000));
-    // The collapsed project's retry was dropped with it, so nothing reopened its stream.
-    expect(transport.subscriptions.map((open) => open.path)).not.toContainEqual(
-      expect.stringContaining(alpha),
-    );
+
+    // One open subscription, still, and a different one: the whole inventory reopens
+    // once. Per-project streams meant an outage produced a retry storm sized by how
+    // much of the tree the reader had unfolded.
+    expect(transport.subscriptions).toHaveLength(1);
+    expect(transport.subscriptions.at(-1)).not.toBe(failed);
+    const reopened = transport.subscriptions.at(-1)!.path;
+    for (const project of [FIXTURE_PROJECT_A, FIXTURE_PROJECT_B]) {
+      expect(reopened).toContain(`projectPath=${encodeURIComponent(project.projectPath)}`);
+    }
     unmount();
   });
 });

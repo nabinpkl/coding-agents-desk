@@ -20,7 +20,6 @@ import {
   getSnapshot,
   getWatcherState,
   sessionSummaries,
-  subscribeCatalog,
   type AgentSessionDescriptorResolver,
 } from "../transcripts/transcriptCatalog.ts";
 import type {
@@ -28,17 +27,12 @@ import type {
   TranscriptSourceId,
 } from "../transcripts/sources/transcriptTypes.ts";
 import type { EventsPage, TimelineEnvelope } from "@agentdesk/agent-feed-wire";
-import {
-  encodeServerSentEvent,
-  jsonResponse,
-  startServerSentEventStream,
-} from "./httpResponses.ts";
+import { jsonResponse } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 
 const EVENT_ROUTE = /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/events$/i;
 const RAW_EVENT_ROUTE =
   /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/events\/(\d+)\/raw$/i;
-const STREAM_ROUTE = /^\/api\/sessions\/(claude|codex)\/([0-9a-f-]{36})\/stream$/i;
 
 function sourceId(value: string): TranscriptSourceId {
   return value.toLowerCase() as TranscriptSourceId;
@@ -92,51 +86,6 @@ async function sessionSnapshotResponse(
   return jsonResponse({
     projectPath: selected.projectPath,
     sessions: await sessionSummaries(selected.projectPath, resolveAgentSession),
-  });
-}
-
-async function sessionSnapshotStream(
-  request: Request,
-  url: URL,
-  server: Parameters<RouteHandler>[2],
-  resolveAgentSession?: AgentSessionDescriptorResolver,
-): Promise<Response> {
-  const selected = await selectedProject(url);
-  if ("response" in selected) return selected.response;
-  const projectPath = selected.projectPath;
-  return startServerSentEventStream(request, server, (write) => {
-    let generation = 0;
-    let fingerprint: string | null = null;
-    const push = (sessions = getSnapshot()): void => {
-      const nextFingerprint = JSON.stringify(
-        sessions
-          .filter((session) => session.project === projectPath)
-          .map((session) => [
-            session.source,
-            session.sessionId,
-            session.lastEventAt,
-            session.title,
-            resolveAgentSession?.(session.source, session.sessionId)?.activity,
-          ]),
-      );
-      if (nextFingerprint === fingerprint) return;
-      fingerprint = nextFingerprint;
-      const current = ++generation;
-      void sessionSummaries(projectPath, resolveAgentSession).then((sessions) => {
-        if (current !== generation) return;
-        write(encodeServerSentEvent({ projectPath, sessions }));
-      }).catch((error) => {
-        write(encodeServerSentEvent({
-          error: error instanceof Error ? error.message : String(error),
-        }));
-      });
-    };
-    push();
-    const unsubscribe = subscribeCatalog(push);
-    return () => {
-      generation += 1;
-      unsubscribe();
-    };
   });
 }
 
@@ -324,39 +273,16 @@ export function subscribeTranscriptTimeline(
   };
 }
 
-function eventStream(
-  request: Request,
-  server: Parameters<RouteHandler>[2],
-  source: TranscriptSourceId,
-  sessionId: string,
-  after: number,
-  mode: EventMode,
-): Response {
-  if (!findSession(source, sessionId)) {
-    return jsonResponse({ error: "session not found" }, 404);
-  }
-  return startServerSentEventStream(request, server, (write) => {
-    const stop = subscribeTranscriptTimeline(source, sessionId, after, mode, {
-      onEnvelope: (envelope) => write(encodeServerSentEvent(envelope)),
-      onError: (message) => write(encodeServerSentEvent({ error: message })),
-    });
-    return () => stop?.();
-  });
-}
-
 export function createSessionRoutes(
   resolveAgentSession?: AgentSessionDescriptorResolver,
 ): RouteHandler {
-  return (request, url, server) => {
+  return (request, url) => {
     if (request.method !== "GET") return undefined;
     if (getWatcherState() !== "live") {
       return jsonResponse({ error: "inventory-not-ready" }, 503);
     }
     if (url.pathname === "/api/sessions") {
       return sessionSnapshotResponse(url, resolveAgentSession);
-    }
-    if (url.pathname === "/api/sessions/stream") {
-      return sessionSnapshotStream(request, url, server, resolveAgentSession);
     }
 
     const mode = modeQuery(url);
@@ -376,23 +302,6 @@ export function createSessionRoutes(
     if (rawMatch) {
       if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
       return rawEvent(sourceId(rawMatch[1]!), rawMatch[2]!, Number(rawMatch[3]!), mode);
-    }
-
-    const streamMatch = STREAM_ROUTE.exec(url.pathname);
-    if (streamMatch) {
-      const after = integerQuery(url, "since", 0);
-      if (after === null) {
-        return jsonResponse({ error: "invalid since" }, 400);
-      }
-      if (mode === null) return jsonResponse({ error: "invalid mode" }, 400);
-      return eventStream(
-        request,
-        server,
-        sourceId(streamMatch[1]!),
-        streamMatch[2]!,
-        after,
-        mode,
-      );
     }
 
     if (url.pathname.startsWith("/api/sessions/")) {

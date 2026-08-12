@@ -28,7 +28,7 @@ import type {
 } from "./sources/transcriptTypes.ts";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 
-// What the catalog publishes on /api/projects and /api/sessions, declared once in
+// What the catalog publishes on /api/inventory and /api/sessions, declared once in
 // agent-feed/wire and parsed by the Agent Panel from that same declaration.
 export type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 

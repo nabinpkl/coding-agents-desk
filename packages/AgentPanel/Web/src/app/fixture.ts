@@ -372,24 +372,22 @@ function route(method: string, path: string): FixtureRoute | null {
   const parameters = new URLSearchParams(query);
   const mode: EventMode = parameters.get("mode") === "nice" ? "nice" : "raw";
 
-  if (pathname === "/api/projects/stream") {
-    return {
-      status: 200,
-      keepOpen: true,
-      messages: [{ delay: 30, payload: JSON.stringify({ projects: FIXTURE_PROJECTS }) }],
-    };
-  }
-  if (pathname === "/api/sessions/stream") {
-    // `projectPath`, because that is what the sidecar's route reads. This fixture stands in for
-    // the sidecar, so a name invented here is a name the real route will refuse -- and it will
-    // refuse it with a 400 the whole test suite is happy to never see.
-    const projectPath = parameters.get("projectPath");
-    const sessions = projectPath === PROJECT_PATH ? FIXTURE_SESSIONS : [];
-    return {
-      status: 200,
-      keepOpen: true,
-      messages: [{ delay: 30, payload: JSON.stringify({ projectPath, sessions }) }],
-    };
+  if (pathname === "/api/inventory/stream") {
+    // `projectPath`, repeated, because that is what the sidecar's route reads. This
+    // fixture stands in for the sidecar, so a name invented here is a name the real
+    // route will refuse -- and it will refuse it with a 400 the whole test suite is
+    // happy to never see.
+    const messages = [
+      { delay: 30, payload: JSON.stringify({ projects: FIXTURE_PROJECTS }) },
+      ...parameters.getAll("projectPath").map((projectPath) => ({
+        delay: 30,
+        payload: JSON.stringify({
+          projectPath,
+          sessions: projectPath === PROJECT_PATH ? FIXTURE_SESSIONS : [],
+        }),
+      })),
+    ];
+    return { status: 200, keepOpen: true, messages };
   }
   if (pathname?.endsWith("/timeline")) return timeline(mode);
   if (pathname?.endsWith("/raw")) {

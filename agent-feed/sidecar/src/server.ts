@@ -6,7 +6,7 @@ import {
 } from "./http/httpResponses.ts";
 import { authorizeApiRequest } from "./http/auth.ts";
 import { createAgentRoutes } from "./http/agentRoutes.ts";
-import { handleProjectRoutes } from "./http/projectRoutes.ts";
+import { createInventoryRoutes } from "./http/inventoryRoutes.ts";
 import type { RouteHandler } from "./http/route.ts";
 import { createSessionRoutes } from "./http/sessionRoutes.ts";
 import { createTimelineRoutes } from "./http/timelineRoutes.ts";
@@ -50,7 +50,7 @@ const resolveBackend = (id: string) => backends.get(id);
 const describeAgentSession = (source: string, sessionId: string) =>
   backends.get(source)?.describeSession(sessionId);
 const routes: RouteHandler[] = [
-  handleProjectRoutes,
+  createInventoryRoutes(describeAgentSession),
   createAgentRoutes(resolveBackend),
   // Ahead of the session routes so `/timeline` is matched before their
   // catch-all rejection of unknown `/api/sessions/` paths.

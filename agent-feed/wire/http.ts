@@ -13,12 +13,20 @@ import type {
   SessionSummary,
 } from "./session.ts";
 
-/** `GET /api/projects`, and each message of `GET /api/projects/stream`. */
+/**
+ * A surface's whole inventory arrives on one stream:
+ * `GET /api/inventory/stream?projectPath=<a>&projectPath=<b>`.
+ *
+ * The project list rides it unconditionally; each requested project's session list
+ * rides it too. A message is one or the other, told apart by which key it carries.
+ * `projectPath` repeats rather than joining on a separator, because these are
+ * filesystem paths.
+ */
 export interface ProjectsPayload {
   projects: ProjectSummary[];
 }
 
-/** `GET /api/sessions?projectPath=`, and each message of `GET /api/sessions/stream?projectPath=`. */
+/** An inventory-stream message, and the body of `GET /api/sessions?projectPath=`. */
 export interface SessionsPayload {
   projectPath: string;
   sessions: SessionSummary[];

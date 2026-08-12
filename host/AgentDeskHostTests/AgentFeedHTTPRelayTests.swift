@@ -14,7 +14,7 @@ import AgentDeskWire
 @Suite("agent-feed relay")
 struct AgentFeedHTTPRelayTests {
     @Test func refusesPathsOutsideTheSidecarAPI() {
-        #expect(AgentFeedRelay.PathPolicy.allows(path: "/api/projects"))
+        #expect(AgentFeedRelay.PathPolicy.allows(path: "/api/inventory/stream"))
         #expect(AgentFeedRelay.PathPolicy.allows(path: "/api/sessions/claude/s1/timeline?mode=nice"))
         // Everything a path could name other than the sidecar's own API.
         #expect(!AgentFeedRelay.PathPolicy.allows(path: "/health"))
@@ -126,12 +126,12 @@ struct AgentFeedHTTPRelayTests {
         #expect(sink.errors().isEmpty)
     }
 
-    @Test func moreConcurrentTransfersThanTheCapAreRefusedRatherThanQueued() async {
+    @Test func moreConcurrentSubscriptionsThanTheCapAreRefusedRatherThanQueued() async {
         let client = RecordingRelayClient()
         let sink = FrameSink()
         let relay = AgentFeedHTTPRelay(client: client, send: sink.accept)
 
-        for index in 0...AgentFeedRelay.maximumConcurrentTransfers {
+        for index in 0...AgentFeedRelay.maximumConcurrentStreams {
             relay.handleRequest(AgentFeedRelayRequest(
                 rid: "r\(index)",
                 method: "GET",
@@ -140,8 +140,48 @@ struct AgentFeedHTTPRelayTests {
             ))
         }
 
-        #expect(client.subscribed.count == AgentFeedRelay.maximumConcurrentTransfers)
-        #expect(sink.errors().map(\.rid) == ["r\(AgentFeedRelay.maximumConcurrentTransfers)"])
+        #expect(client.subscribed.count == AgentFeedRelay.maximumConcurrentStreams)
+        #expect(sink.errors().map(\.rid) == ["r\(AgentFeedRelay.maximumConcurrentStreams)"])
+    }
+
+    /// The failure this split exists to prevent: a surface's resting subscriptions used to
+    /// share one counter with its requests, so a panel that had opened enough of the tree
+    /// was refused when it asked a question -- and the message blamed a concurrency limit
+    /// nothing was actually contending for.
+    @Test func subscriptionsAtTheirCapDoNotRefuseAOneShotRequest() async {
+        let client = RecordingRelayClient()
+        let sink = FrameSink()
+        let relay = AgentFeedHTTPRelay(client: client, send: sink.accept)
+
+        for index in 0..<AgentFeedRelay.maximumConcurrentStreams {
+            relay.handleRequest(AgentFeedRelayRequest(
+                rid: "s\(index)",
+                method: "GET",
+                path: "/api/x",
+                stream: true
+            ))
+        }
+        relay.handleRequest(AgentFeedRelayRequest(rid: "r1", method: "GET", path: "/api/sessions"))
+
+        #expect(client.performed.count == 1)
+        #expect(sink.errors().isEmpty)
+    }
+
+    @Test func moreConcurrentRequestsThanTheCapAreRefusedRatherThanQueued() async {
+        let client = RecordingRelayClient()
+        let sink = FrameSink()
+        let relay = AgentFeedHTTPRelay(client: client, send: sink.accept)
+
+        for index in 0...AgentFeedRelay.maximumConcurrentRequests {
+            relay.handleRequest(AgentFeedRelayRequest(
+                rid: "r\(index)",
+                method: "GET",
+                path: "/api/sessions"
+            ))
+        }
+
+        #expect(client.performed.count == AgentFeedRelay.maximumConcurrentRequests)
+        #expect(sink.errors().map(\.rid) == ["r\(AgentFeedRelay.maximumConcurrentRequests)"])
     }
 
     @Test func resetAbandonsEveryInFlightTransfer() async {

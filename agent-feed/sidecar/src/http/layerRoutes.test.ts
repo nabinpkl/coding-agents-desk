@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { handleProjectRoutes } from "./projectRoutes.ts";
+import { createInventoryRoutes } from "./inventoryRoutes.ts";
 import { handleSessionRoutes } from "./sessionRoutes.ts";
 import { state } from "../transcripts/transcriptState.ts";
 
 const server = undefined as never;
 const sessionId = "11111111-1111-1111-1111-111111111111";
+const handleInventoryRoutes = createInventoryRoutes();
 
 afterEach(() => {
   state.sessions.clear();
@@ -12,10 +13,10 @@ afterEach(() => {
 });
 
 describe("layered inventory routes", () => {
-  test("returns inventory-not-ready while initial reconciliation is running", () => {
+  test("returns inventory-not-ready while initial reconciliation is running", async () => {
     state.watcherState = "reconciling";
-    const request = new Request("http://localhost/api/projects");
-    const response = handleProjectRoutes(request, new URL(request.url), server);
+    const request = new Request("http://localhost/api/inventory/stream");
+    const response = await handleInventoryRoutes(request, new URL(request.url), server);
 
     expect(response).toBeInstanceOf(Response);
     expect((response as Response).status).toBe(503);
@@ -37,9 +38,20 @@ describe("layered inventory routes", () => {
     expect(state.eventByteOffsets.size).toBe(0);
   });
 
-  test("does not retain the removed digest route", () => {
+  test("does not retain the routes the one inventory stream replaced", async () => {
     state.watcherState = "live";
-    const request = new Request("http://localhost/api/projects/digest");
-    expect(handleProjectRoutes(request, new URL(request.url), server)).toBeUndefined();
+    // The project list and the per-project session lists rode a connection each; both
+    // are now messages on `/api/inventory/stream`, and neither answers on its own path.
+    for (const path of ["/api/projects", "/api/projects/digest", "/api/projects/stream"]) {
+      const request = new Request(`http://localhost${path}`);
+      expect(await handleInventoryRoutes(request, new URL(request.url), server)).toBeUndefined();
+      expect(await handleSessionRoutes(request, new URL(request.url), server)).toBeUndefined();
+    }
+    // The per-session event stream went the same way, into the timeline endpoint.
+    for (const path of ["/api/sessions/stream", `/api/sessions/codex/${sessionId}/stream`]) {
+      const request = new Request(`http://localhost${path}`);
+      const response = await handleSessionRoutes(request, new URL(request.url), server);
+      expect((response as Response).status).toBe(400);
+    }
   });
 });

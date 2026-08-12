@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { CornerDownLeft, List, LoaderCircle, PanelLeft, Send, Square, Terminal as TerminalIcon, X } from "lucide-react";
 import type { AgentUiRequest, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
@@ -154,6 +154,12 @@ function sameRequest(
 export function App({ feed, host }: Props) {
   const [selectedThread, setSelectedThread] = useState<SelectedThread | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  // Every expanded project's sessions, owned here because they arrive on the same
+  // stream as the project list. The sidebar renders what is in here; it subscribes to
+  // nothing.
+  const [sessionsByProject, setSessionsByProject] = useState<Map<string, SessionSummary[]>>(
+    new Map(),
+  );
   const [loadingLayer, setLoadingLayer] = useState(true);
   const [layerError, setLayerError] = useState<string | null>(null);
   const [terminal, setTerminal] = useState<TerminalState>({ kind: "idle" });
@@ -178,6 +184,18 @@ export function App({ feed, host }: Props) {
   const [sidebarPreferences, setSidebarPreferences] = useState(loadSidebarPreferences);
   const [hoverPreviewOpen, setHoverPreviewOpen] = useState(false);
   const [expandedProjectPaths, setExpandedProjectPaths] = useState<Set<string>>(new Set());
+  // The subscription's identity, not merely its argument: expanding or collapsing a
+  // project reopens the inventory stream exactly once, and re-rendering for any other
+  // reason leaves the open stream alone. Joined on NUL, the one byte a POSIX path
+  // cannot contain, so the round trip cannot invent or lose a path.
+  const subscribedProjectKey = useMemo(
+    () => [...expandedProjectPaths].sort().join("\0"),
+    [expandedProjectPaths],
+  );
+  const subscribedProjectPaths = useMemo(
+    () => (subscribedProjectKey === "" ? [] : subscribedProjectKey.split("\0")),
+    [subscribedProjectKey],
+  );
   const drawerTriggerRef = useRef<HTMLButtonElement>(null);
   const initializedProjectExpansion = useRef(false);
   const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -228,13 +246,20 @@ export function App({ feed, host }: Props) {
   const [retryNonce, setRetryNonce] = useState(0);
   const [retrying, setRetrying] = useState(false);
   const consecutiveFailures = useRef(0);
+  // Whether this surface has ever been handed an inventory, which is what tells a
+  // reopened stream apart from a first one.
+  const deliveredInventory = useRef(false);
 
   useEffect(() => {
-    setLoadingLayer(true);
+    // Not on every resubscribe: expanding a project reopens this stream, and a sidebar
+    // that flipped back to "Loading projects" each time a row was unfolded would be
+    // reporting the transport's business as the reader's.
+    if (!deliveredInventory.current) setLoadingLayer(true);
     setLayerError(null);
     setRetrying(false);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onError = (reason: string) => {
+      deliveredInventory.current = false;
       setLayerError(reason);
       setLoadingLayer(false);
       setRetrying(true);
@@ -243,19 +268,25 @@ export function App({ feed, host }: Props) {
       timer = setTimeout(() => setRetryNonce((n) => n + 1), delay);
     };
     const onLoaded = () => {
+      deliveredInventory.current = true;
       setLoadingLayer(false);
       setRetrying(false);
       consecutiveFailures.current = 0;
     };
-    const stop = feed.subscribeProjects((snapshot) => {
-      setProjects(snapshot);
-      onLoaded();
+    const stop = feed.subscribeInventory(subscribedProjectPaths, {
+      onProjects: (snapshot) => {
+        setProjects(snapshot);
+        onLoaded();
+      },
+      onSessions: (projectPath, sessions) => {
+        setSessionsByProject((current) => new Map(current).set(projectPath, sessions));
+      },
     }, onError);
     return () => {
       if (timer !== undefined) clearTimeout(timer);
       stop?.();
     };
-  }, [feed, retryNonce]);
+  }, [feed, retryNonce, subscribedProjectPaths]);
 
   useEffect(() => {
     if (projects.length === 0) return;
@@ -270,6 +301,17 @@ export function App({ feed, host }: Props) {
       return next.size === current.size ? current : next;
     });
   }, [projects]);
+
+  // A collapsed project's sessions are no longer on the stream, so keeping them would
+  // be keeping a copy that nothing refreshes.
+  useEffect(() => {
+    setSessionsByProject((current) => {
+      const next = new Map(
+        [...current].filter(([projectPath]) => expandedProjectPaths.has(projectPath)),
+      );
+      return next.size === current.size ? current : next;
+    });
+  }, [expandedProjectPaths]);
 
   useEffect(() => () => {
     if (hoverCloseTimer.current !== null) clearTimeout(hoverCloseTimer.current);
@@ -507,8 +549,8 @@ export function App({ feed, host }: Props) {
   }, [host, terminal]);
 
   const sidebarProps = {
-    feed,
     projects,
+    sessionsByProject,
     loading: loadingLayer,
     error: layerError,
     retrying,

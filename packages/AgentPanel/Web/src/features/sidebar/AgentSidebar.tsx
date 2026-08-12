@@ -12,18 +12,22 @@ import {
   type RefObject,
 } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
-import type { SidecarDataSource } from "../activity-feed/data-source/SidecarDataSource";
 
 const INITIAL_SESSION_COUNT = 3;
 const SESSION_BATCH_SIZE = 10;
 
-function retryDelayMs(attempt: number): number {
-  return Math.min(1000 * 2 ** attempt, 15000);
-}
-
 interface AgentSidebarProps {
-  feed: SidecarDataSource;
   projects: ProjectSummary[];
+  /**
+   * Sessions for every expanded project, or no entry for one whose list has not
+   * arrived yet.
+   *
+   * Passed in rather than fetched here: the projects and all their sessions ride one
+   * stream, and a component that opened a subscription per expanded row is what made
+   * the number of open connections a function of how much of the tree the reader had
+   * unfolded.
+   */
+  sessionsByProject: ReadonlyMap<string, SessionSummary[]>;
   loading: boolean;
   error: string | null;
   retrying: boolean;
@@ -78,8 +82,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
             {props.projects.map((project) => (
               <ProjectSidebarItem
                 key={project.projectPath}
-                feed={props.feed}
                 project={project}
+                sessions={props.sessionsByProject.get(project.projectPath)}
                 expanded={props.expandedProjectPaths.has(project.projectPath)}
                 active={props.selectedProjectPath === project.projectPath}
                 selectedSessionKey={
@@ -174,8 +178,8 @@ export function AgentSidebarDialog({
 }
 
 function ProjectSidebarItem({
-  feed,
   project,
+  sessions,
   expanded,
   active,
   selectedSessionKey,
@@ -185,8 +189,8 @@ function ProjectSidebarItem({
   onSelectSession,
   onCreatePiSession,
 }: {
-  feed: SidecarDataSource;
   project: ProjectSummary;
+  sessions: SessionSummary[] | undefined;
   expanded: boolean;
   active: boolean;
   selectedSessionKey: string | null;
@@ -248,8 +252,7 @@ function ProjectSidebarItem({
       {expanded ? (
         <div id={regionId} role="region" aria-label={`${displayName} sessions`}>
           <ProjectSessionPreview
-            feed={feed}
-            projectPath={project.projectPath}
+            sessions={sessions}
             selectedSessionKey={selectedSessionKey}
             onSelect={onSelectSession}
           />
@@ -260,54 +263,22 @@ function ProjectSidebarItem({
 }
 
 function ProjectSessionPreview({
-  feed,
-  projectPath,
+  sessions,
   selectedSessionKey,
   onSelect,
 }: {
-  feed: SidecarDataSource;
-  projectPath: string;
+  sessions: SessionSummary[] | undefined;
   selectedSessionKey: string | null;
   onSelect: (session: SessionSummary) => void;
 }) {
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [retrying, setRetrying] = useState(false);
-  const [retryNonce, setRetryNonce] = useState(0);
+  // How much of a long list is unfolded is this row's own business, and it lives and
+  // dies with the row: collapsing a project unmounts this, so reopening it starts folded.
   const [visibleCount, setVisibleCount] = useState(INITIAL_SESSION_COUNT);
-  const consecutiveFailures = useRef(0);
 
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    setLoading(sessions.length === 0);
-    setError(null);
-    setRetrying(false);
-    const stop = feed.subscribeProjectSessions(
-      projectPath,
-      (snapshot) => {
-        setSessions(snapshot);
-        setLoading(false);
-        setRetrying(false);
-        consecutiveFailures.current = 0;
-      },
-      (reason) => {
-        setError(reason);
-        setLoading(false);
-        setRetrying(true);
-        const delay = retryDelayMs(consecutiveFailures.current);
-        consecutiveFailures.current += 1;
-        timer = setTimeout(() => setRetryNonce((current) => current + 1), delay);
-      },
-    );
-    return () => {
-      if (timer !== undefined) clearTimeout(timer);
-      stop();
-    };
-  }, [feed, projectPath, retryNonce]);
-
-  if (loading) return <InlineStatus>Loading sessions…</InlineStatus>;
-  if (error) return <SidebarError message={`Sessions unavailable: ${error}`} retrying={retrying} compact />;
+  // A failure has one home now, the inventory stream's, so there is no per-project
+  // error state here: an unreachable sidecar is reported once at the top of the list
+  // rather than once per expanded row.
+  if (!sessions) return <InlineStatus>Loading sessions…</InlineStatus>;
   if (sessions.length === 0) return <InlineStatus>No sessions</InlineStatus>;
 
   const visibleSessions = sessions.slice(0, visibleCount);
@@ -385,14 +356,12 @@ function InlineStatus({ children }: { children: string }) {
 function SidebarError({
   message,
   retrying,
-  compact = false,
 }: {
   message: string;
   retrying: boolean;
-  compact?: boolean;
 }) {
   return (
-    <div role="alert" className={`${compact ? "px-8 py-3" : "p-4"} text-(length:--agent-panel-fs-sidebar-meta,13px)`}>
+    <div role="alert" className="p-4 text-(length:--agent-panel-fs-sidebar-meta,13px)">
       <p className="text-destructive">{message}</p>
       {retrying ? (
         <span className="mt-1 flex items-center gap-1.5 text-muted-foreground">

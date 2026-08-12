@@ -102,7 +102,7 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
 }
 
 @Test func agentFeedRelayPathPolicyRefusesAnythingButTheSidecarsOwnAPI() {
-    #expect(AgentFeedRelay.PathPolicy.allows(path: "/api/projects/stream"))
+    #expect(AgentFeedRelay.PathPolicy.allows(path: "/api/inventory/stream"))
     #expect(AgentFeedRelay.PathPolicy.allows(path: "/api/sessions/pi/s/events/3/raw"))
     // Each of these is a way to turn "reach the sidecar" into "reach whatever the host can
     // reach", which is the one thing this relay must never become.
