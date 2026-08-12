@@ -182,6 +182,130 @@ test("the live stream is followed from the snapshot's sequence, so no row is sen
   await leave();
 });
 
+/**
+ * A backend that streams live, handing the test the projection listener the tail
+ * subscribes with so it can publish the envelope sequence a real turn produces.
+ */
+function liveBackend(recorded: Recorded): {
+  backend: AgentBackend;
+  publish: (envelope: TimelineEnvelope) => void;
+} {
+  const backend = fakeBackend(1, recorded);
+  const capabilities = { ...PI_CAPABILITIES, canStreamLive: true };
+  backend.describeSession = (sessionId) => ({
+    sessionId,
+    source: "pi",
+    projectPath: "/project",
+    title: sessionId,
+    lastEventAt: 0,
+    activity: "ready",
+    capabilities,
+  });
+  let listener: ((envelope: TimelineEnvelope) => void) | null = null;
+  backend.subscribe = async (_sessionId, afterSequence, onEnvelope) => {
+    recorded.subscribeCalls.push(afterSequence);
+    // The tail is the subscription that starts at zero; the timeline one resumes from
+    // the snapshot's sequence and must not be mistaken for it.
+    if (afterSequence === 0) listener = onEnvelope;
+    return () => recorded.stopped.push("timeline");
+  };
+  return { backend, publish: (envelope) => listener?.(envelope) };
+}
+
+function liveEnvelope(events: ActivityEvent[], sequence: number): TimelineEnvelope {
+  return {
+    kind: events.length === 0 ? "state" : "upsert",
+    sequence,
+    mode: "nice",
+    events,
+    windowStart: events[0]?.index ?? 0,
+    total: 1,
+    runState: "running",
+    queue: { steer: 0, followUp: 0 },
+  };
+}
+
+function liveRow(index: number, type: ActivityEvent["type"], phase: ActivityEvent["phase"]): ActivityEvent {
+  return { id: `live-${index}`, index, revision: 0, phase, ts: index, type, blocks: [] };
+}
+
+/** Every tail event a stream emitted, in order, `null` included. */
+function tailEvents(messages: TimelineMessage[]): Array<number | null> {
+  return messages
+    .filter((message) => message.type === "tail")
+    .map((message) => (message.type === "tail" ? (message.event?.index ?? null) : null));
+}
+
+test("opening the tail lands on the newest row the projection holds, not its oldest", async () => {
+  // The subscription opens by replaying what the projection already has, as one
+  // envelope carrying a window of rows. Reading its first row put a message that had
+  // already landed into the slot and left it there until the next delta.
+  const recorded = recorder();
+  const { backend, publish } = liveBackend(recorded);
+  const request = timelineRequest();
+  const response = (await routesFor(backend)(request, new URL(request.url), server)) as Response;
+  const reader = readMessages(response, 2);
+  await Bun.sleep(5);
+
+  publish(
+    liveEnvelope(
+      [liveRow(3, "assistant", "complete"), liveRow(4, "assistant", "streaming")],
+      1,
+    ),
+  );
+  const { messages, leave } = await reader;
+
+  expect(tailEvents(messages)).toEqual([4]);
+  await leave();
+});
+
+test("a run-state change does not blank the message being written", async () => {
+  // The projection publishes state changes as envelopes with no events at all. Reading
+  // their missing first event as "no tail" cleared the row mid-write on every queue move.
+  const recorded = recorder();
+  const { backend, publish } = liveBackend(recorded);
+  const request = timelineRequest();
+  const response = (await routesFor(backend)(request, new URL(request.url), server)) as Response;
+  // Three messages: the snapshot and two tails. A state envelope between them must not
+  // become a third tail, so the run that still carries the bug reads `[7, null]` here
+  // rather than hanging.
+  const reader = readMessages(response, 3);
+  await Bun.sleep(5);
+
+  publish(liveEnvelope([liveRow(7, "assistant", "streaming")], 1));
+  publish(liveEnvelope([], 2));
+  publish(liveEnvelope([{ ...liveRow(7, "assistant", "streaming"), revision: 1 }], 3));
+  const { messages, leave } = await reader;
+
+  expect(tailEvents(messages)).toEqual([7, 7]);
+  await leave();
+});
+
+test("a tool result revised after the next message started does not take the tail back", async () => {
+  // The shape a real turn produces: the turn's tool results are their own projection
+  // row, published from the follow-up request body, so a completed result row is still
+  // being revised after the next message has started streaming. Forwarding that
+  // revision put a loose RESULT block under the message being written, which then
+  // vanished on the next delta.
+  const recorded = recorder();
+  const { backend, publish } = liveBackend(recorded);
+  const request = timelineRequest();
+  const response = (await routesFor(backend)(request, new URL(request.url), server)) as Response;
+  // The snapshot plus the three tails a correct run emits; the run that carries the bug
+  // emits four and still resolves, on `[8, 9, 8]`.
+  const reader = readMessages(response, 4);
+  await Bun.sleep(5);
+
+  publish(liveEnvelope([liveRow(8, "user", "complete")], 1));
+  publish(liveEnvelope([liveRow(9, "assistant", "streaming")], 2));
+  publish(liveEnvelope([{ ...liveRow(8, "user", "complete"), revision: 1 }], 3));
+  publish(liveEnvelope([{ ...liveRow(9, "assistant", "streaming"), revision: 1 }], 4));
+  const { messages, leave } = await reader;
+
+  expect(tailEvents(messages)).toEqual([8, 9, 9]);
+  await leave();
+});
+
 test("extension UI opens for a session that serves it", async () => {
   const recorded = recorder();
   const { leave } = await openTimeline(routesFor(fakeBackend(1, recorded)));

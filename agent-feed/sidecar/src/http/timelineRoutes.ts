@@ -202,14 +202,35 @@ function timelineStream(options: {
       // it once it lands. Only a session whose backend advertises canStreamLive has
       // one, so this is a capability check rather than a source check.
       if (options.streamsLive && backend) {
+        // The tail is ONE row -- the message being written -- but it is drawn from a
+        // projection that is a whole live timeline, and its envelopes carry more than
+        // this slot can hold.
+        //
+        // A state-only envelope (a run-state or queue change) has no events at all,
+        // and forwarding its missing first event as `null` blanked the message
+        // mid-write every time the queue moved.
+        //
+        // And the projection keeps revising rows the newest one has already replaced:
+        // a turn's tool results are their own row, published when the follow-up
+        // request carries them, so a completed result row would arrive AFTER the next
+        // message had started streaming and take the slot back from it. On screen that
+        // was a loose RESULT block appearing under the message being written, then
+        // vanishing when the next delta arrived. Those rows are not lost by staying
+        // out of the tail: the transcript stream above already carries them, in order
+        // and paired with the call that produced them, and for a session with no
+        // transcript the projection reaches the viewer through that same stream.
+        let newestIndex = -1;
         hold(
           await backend
             .subscribe(sessionId, 0, (envelope) => {
-              const event = envelope.events[0];
-              emit({
-                type: "tail",
-                event: event ? { ...event, otherModeIndex: event.index } : null,
-              });
+              // The LAST row, not the first. A live upsert carries exactly one either
+              // way, but the subscription opens by replaying what the projection
+              // already holds, and reading that window's first row put the oldest
+              // message in the slot on every open.
+              const event = envelope.events.at(-1);
+              if (!event || event.index < newestIndex) return;
+              newestIndex = event.index;
+              emit({ type: "tail", event: { ...event, otherModeIndex: event.index } });
             })
             .catch(() => {
               // The mirror going away is not the thread failing: clear the tail so
