@@ -4,6 +4,19 @@
 // This file is intentionally dependency-free (no UIKit) so it can be compiled
 // into the test target directly — the repo tests production code via dual
 // target membership, not @testable linkage (see GestureTranslator.swift).
+/// Whether the Mac's pixels are wanted, as one value with two obligations.
+///
+/// `.none` means BOTH "tell the host to stop encoding" and "stop painting". A
+/// consumer that honours one and not the other is the bug this type exists to
+/// prevent, so neither case is named for a single consumer.
+enum VideoDemand: Equatable {
+    /// Frames are wanted, and painted as they arrive.
+    case live
+    /// No frames. The host stops producing them and the stage stops showing the
+    /// last one it received.
+    case none
+}
+
 enum ControlSurface {
     case control  // trackpad / display rail / keyboard (desktop pixel/video path)
     case agent    // AgentFeedSurface webview
@@ -119,13 +132,23 @@ extension ControlSurface {
         }
     }
 
-    /// Whether the host's video is on screen for this surface.
+    /// Whether this surface needs the Mac's pixels.
     ///
-    /// Only Control shows it. Every other surface is full-bleed and covers it
-    /// completely, so frames encoded and sent while one is open pay downlink and
-    /// Mac encode cost for pixels nobody sees. The host stops producing them for
-    /// this client while this is false.
-    var watchesHostVideo: Bool { self == .control }
+    /// The one home for that question, because it has two consumers that must
+    /// agree: the WIRE (the host stops encoding for this client when nothing
+    /// wants frames, so they cost no downlink and no Mac encode) and the SCREEN
+    /// (a stage with no frames arriving must not keep painting the last one).
+    ///
+    /// They used to be two facts. The wire read `watchesHostVideo`; the screen
+    /// read nothing at all, because the video's visibility was left to whatever
+    /// happened to cover it, on the theory that every non-Control surface is
+    /// full-bleed. That theory was false in exactly one of three layout modes --
+    /// split portrait pins the video to the raw view top while a surface pins to
+    /// the safe-area top -- so the host stopped encoding while the last decoded
+    /// frame sat frozen in the uncovered strip above every surface. Deriving both
+    /// consumers from one value is what makes that state unrepresentable rather
+    /// than fixed.
+    var videoDemand: VideoDemand { self == .control ? .live : .none }
 
     /// VoiceOver / Maestro accessibility label for the rail button. This is the product-facing surface
     /// name and the stable target used by accessibility-driven flows.

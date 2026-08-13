@@ -95,13 +95,13 @@ struct ControlSurfaceVisibilityTests {
         #expect(!v.keyboardInteractive)
     }
 
-    /// The host stops encoding for this client whenever this is false, so a
-    /// surface wrongly claiming to watch the video costs the whole downlink for
-    /// pixels its own webview is covering.
-    @Test func onlyControlWatchesTheHostVideo() {
-        #expect(ControlSurface.control.watchesHostVideo)
+    /// The host stops encoding for this client whenever this is `.none`, so a
+    /// surface wrongly demanding video costs the whole downlink for pixels its
+    /// own webview is covering.
+    @Test func onlyControlDemandsTheHostVideo() {
+        #expect(ControlSurface.control.videoDemand == .live)
         for surface in [ControlSurface.agent, .terminal, .browser, .workspace, .ide, .voice] {
-            #expect(!surface.watchesHostVideo)
+            #expect(surface.videoDemand == .none)
         }
     }
 

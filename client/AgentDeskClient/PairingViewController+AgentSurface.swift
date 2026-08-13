@@ -400,7 +400,6 @@ extension PairingViewController {
             }
         }
         applySurface(surface)
-        pushMediaViewerState()
 
         // Release this viewer whenever Browser is not the active surface. The host keeps capture
         // alive if another viewer remains active and restores native Chrome when the last releases.
@@ -501,6 +500,10 @@ extension PairingViewController {
     func applySurface(_ surface: ControlSurface) {
         let v = visibility(for: surface)
         hostContentView.isHidden = v.hostContentHidden
+        // Inside applySurface rather than beside it. Every caller used to follow
+        // this with its own `pushMediaViewerState()`, which is two statements
+        // that have to stay adjacent forever to stay correct.
+        applyVideoDemand(surface.videoDemand)
         if !v.keyboardInteractive {
             applyKeyboardPresentationIntent(.hide)
         }

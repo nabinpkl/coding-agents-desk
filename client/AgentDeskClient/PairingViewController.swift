@@ -583,16 +583,38 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         }
     }
 
-    /// Tells the host whether this client is looking at the video.
+    /// Applies the active surface's video demand to BOTH of its consumers.
     ///
-    /// Sent on every surface change and again whenever a session comes up, since
-    /// a fresh session's host assumes it is being watched and would otherwise
-    /// encode into a covered surface until the next switch. Best-effort: the
-    /// host defaults to sending, so a dropped message costs bandwidth, never a
-    /// black screen.
-    func pushMediaViewerState() {
+    /// The only place either one is set. Splitting them is what let the host stop
+    /// encoding while a frozen frame stayed on screen, so they move together or
+    /// not at all -- see `VideoDemand`.
+    ///
+    /// Idempotent, and called on every surface change and again whenever a
+    /// session comes up: a fresh session's host assumes it is being watched and
+    /// would otherwise encode into a covered surface until the next switch.
+    func applyVideoDemand(_ demand: VideoDemand) {
+        // The picture and the pointer drawn over it are one thing to show or
+        // hide. They are separate views only because the dot must not ride the
+        // sink's pinch-zoom.
+        let hidden = demand == .none
+        sinkScrollView?.isHidden = hidden
+        if hidden {
+            cursorDotView?.isHidden = true
+        } else {
+            // Not unhidden directly: the dot owns its own visibility (no cursor
+            // yet, or a window target that bakes the pointer into the capture),
+            // so it is asked to re-derive rather than told an answer.
+            updateCursorDot()
+        }
+        pushMediaViewerState(demand)
+    }
+
+    /// Tells the host whether this client is looking at the video. Best-effort:
+    /// the host defaults to sending, so a dropped message costs bandwidth, never
+    /// a black screen.
+    private func pushMediaViewerState(_ demand: VideoDemand) {
         guard let channel = pairingClient.activeInputChannel else { return }
-        let state = MediaViewerState(isWatchingVideo: activeControlSurface.watchesHostVideo)
+        let state = MediaViewerState(isWatchingVideo: demand == .live)
         if !state.isWatchingVideo {
             // The host stops encoding, so coming back is another wait for a
             // keyframe on a black surface. Same explanation as a fresh connect.
@@ -1042,7 +1064,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             if #available(iOS 26.0, *) {
                 terminalSurface?.connect(using: pairingClient.activeSessionTransport)
             }
-            pushMediaViewerState()
             scheduleMediaTransportStartIfNeeded()
         } else if preservesSuspendedSessionSurfaces {
             ClientDiagnostics.shared.setLiveAnnouncementSender(nil)
