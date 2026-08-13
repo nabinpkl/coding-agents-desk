@@ -350,9 +350,7 @@ agent-feed-sidecar-smoke: build-agent-feed-sidecar
     ROLLOUT_ROOT="$SMOKE_CODEX_HOME/sessions/2026/07/24"
     CONTROL_TOKEN="$(openssl rand -hex 32)"
     LOG_FILE="$SMOKE_ROOT/sidecar.log"
-    PROJECT_STREAM="$SMOKE_ROOT/projects.sse"
-    SESSION_STREAM="$SMOKE_ROOT/sessions.sse"
-    PROJECTS_JSON="$SMOKE_ROOT/projects.json"
+    INVENTORY_STREAM="$SMOKE_ROOT/inventory.sse"
     SESSIONS_JSON="$SMOKE_ROOT/sessions.json"
     CLAUDE_ONE=11111111-1111-1111-1111-111111111111
     CODEX_ONE=22222222-2222-2222-2222-222222222222
@@ -381,11 +379,9 @@ agent-feed-sidecar-smoke: build-agent-feed-sidecar
         AGENT_FEED_DISCOVERY_RESCAN_MS=1000 \
         "$BINARY" > "$LOG_FILE" 2>&1 &
     SPID=$!
-    PROJECT_STREAM_PID=
-    SESSION_STREAM_PID=
+    INVENTORY_STREAM_PID=
     cleanup() {
-        if [[ -n "$PROJECT_STREAM_PID" ]]; then kill "$PROJECT_STREAM_PID" 2>/dev/null || true; fi
-        if [[ -n "$SESSION_STREAM_PID" ]]; then kill "$SESSION_STREAM_PID" 2>/dev/null || true; fi
+        if [[ -n "$INVENTORY_STREAM_PID" ]]; then kill "$INVENTORY_STREAM_PID" 2>/dev/null || true; fi
         kill "$SPID" 2>/dev/null || true
         wait "$SPID" 2>/dev/null || true
         rm -rf "$SMOKE_ROOT"
@@ -398,40 +394,53 @@ agent-feed-sidecar-smoke: build-agent-feed-sidecar
     test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/config")" = "401"
     CFG=$(curl -sf -H "Authorization: Bearer $CONTROL_TOKEN" "http://127.0.0.1:$PORT/api/config")
     echo "agent-feed-sidecar-smoke: /api/config -> ${CFG}"
-    curl -sf -H "Authorization: Bearer $CONTROL_TOKEN" "http://127.0.0.1:$PORT/api/projects" -o "$PROJECTS_JSON"
-    PROJECTS_FILE="$PROJECTS_JSON" EXPECTED_PATH="$PROJECT_ONE" bun -e \
-        'const body=await Bun.file(process.env.PROJECTS_FILE).json();if(body.projects.length!==1||body.projects[0].projectPath!==process.env.EXPECTED_PATH||body.projects[0].sourceCounts.claude!==1||body.projects[0].sourceCounts.codex!==1)throw new Error(JSON.stringify(body));'
     curl -sfG -H "Authorization: Bearer $CONTROL_TOKEN" "http://127.0.0.1:$PORT/api/sessions" \
         --data-urlencode "projectPath=$PROJECT_ONE" -o "$SESSIONS_JSON"
     SESSIONS_FILE="$SESSIONS_JSON" bun -e \
         'const body=await Bun.file(process.env.SESSIONS_FILE).json();if(body.sessions.length!==2||!body.sessions.some((s)=>s.source==="claude")||!body.sessions.some((s)=>s.source==="codex"))throw new Error(JSON.stringify(body));'
-    test "$(curl -s -o /dev/null -w '%{http_code}' \
-        -H "Authorization: Bearer $CONTROL_TOKEN" \
-        "http://127.0.0.1:$PORT/api/projects/digest")" = "404"
     test "$(curl -sG -o /dev/null -w '%{http_code}' \
         -H "Authorization: Bearer $CONTROL_TOKEN" \
         "http://127.0.0.1:$PORT/api/sessions/claude/$CLAUDE_ONE/events" \
         --data-urlencode 'offset=invalid')" = "400"
 
-    curl -Ns --max-time 8 -H "Authorization: Bearer $CONTROL_TOKEN" "http://127.0.0.1:$PORT/api/projects/stream" > "$PROJECT_STREAM" &
-    PROJECT_STREAM_PID=$!
-    curl -NsG --max-time 8 -H "Authorization: Bearer $CONTROL_TOKEN" "http://127.0.0.1:$PORT/api/sessions/stream" \
-        --data-urlencode "projectPath=$PROJECT_ONE" > "$SESSION_STREAM" &
-    SESSION_STREAM_PID=$!
-    sleep 0.2
+    # One stream for the whole inventory, which is what a surface actually opens: the
+    # project list rides it unconditionally, and the session list of every project named
+    # by a projectPath parameter rides it too. This was two streams and a JSON probe until
+    # they were merged, and the connection budget between the panel and this process is
+    # why -- so a smoke that reopened the old split shape would be testing a surface no
+    # reader has.
+    #
+    # 20s rather than the 8 the two split streams had: this one connection now spans both
+    # wait loops, and each can spend 5s of its own. It is a hang stop, not a deadline --
+    # the trap kills the stream as soon as the assertions below are done.
+    curl -NsG --max-time 20 -H "Authorization: Bearer $CONTROL_TOKEN" \
+        "http://127.0.0.1:$PORT/api/inventory/stream" \
+        --data-urlencode "projectPath=$PROJECT_ONE" > "$INVENTORY_STREAM" &
+    INVENTORY_STREAM_PID=$!
+    # The opening messages, which are the same assertions the two probes made before the
+    # merge: the project list names project one with one session from each source, and
+    # project one's own list carries both of them.
+    for i in $(seq 1 100); do
+        if grep -q '"projects"' "$INVENTORY_STREAM" && grep -q '"sessions"' "$INVENTORY_STREAM"; then break; fi
+        sleep 0.05
+    done
+    INVENTORY_FILE="$INVENTORY_STREAM" EXPECTED_PATH="$PROJECT_ONE" bun -e \
+        'const text=await Bun.file(process.env.INVENTORY_FILE).text();const msgs=text.split("\n").filter((l)=>l.startsWith("data: ")).map((l)=>JSON.parse(l.slice(6)));const projects=msgs.find((m)=>m.projects);const sessions=msgs.find((m)=>m.projectPath===process.env.EXPECTED_PATH);if(!projects||projects.projects.length!==1||projects.projects[0].projectPath!==process.env.EXPECTED_PATH||projects.projects[0].sourceCounts.claude!==1||projects.projects[0].sourceCounts.codex!==1)throw new Error("projects: "+JSON.stringify(projects));if(!sessions||sessions.sessions.length!==2||!sessions.sessions.some((s)=>s.source==="claude")||!sessions.sessions.some((s)=>s.source==="codex"))throw new Error("sessions: "+JSON.stringify(sessions));'
+    # A new project and a new session in an existing one, which exercise the two message
+    # shapes the merged stream has to keep telling apart.
     printf '{"type":"user","sessionId":"%s","cwd":"%s","message":{"role":"user","content":"new project"}}\n' \
         "$CLAUDE_TWO" "$PROJECT_TWO" > "$CLAUDE_SLUG/$CLAUDE_TWO.jsonl"
     printf '{"type":"user","sessionId":"%s","cwd":"%s","message":{"role":"user","content":"new session"}}\n' \
         "$CLAUDE_THREE" "$PROJECT_ONE" > "$CLAUDE_SLUG/$CLAUDE_THREE.jsonl"
     for i in $(seq 1 100); do
-        if grep -q "$PROJECT_TWO" "$PROJECT_STREAM" && grep -q "$CLAUDE_THREE" "$SESSION_STREAM"; then break; fi
+        if grep -q "$PROJECT_TWO" "$INVENTORY_STREAM" && grep -q "$CLAUDE_THREE" "$INVENTORY_STREAM"; then break; fi
         sleep 0.05
     done
-    grep -q "$PROJECT_TWO" "$PROJECT_STREAM"
-    grep -q "$CLAUDE_THREE" "$SESSION_STREAM"
-    PROJECT_BYTES=$(wc -c < "$PROJECTS_JSON" | tr -d ' ')
+    grep -q "$PROJECT_TWO" "$INVENTORY_STREAM"
+    grep -q "$CLAUDE_THREE" "$INVENTORY_STREAM"
+    INVENTORY_BYTES=$(wc -c < "$INVENTORY_STREAM" | tr -d ' ')
     SESSION_BYTES=$(wc -c < "$SESSIONS_JSON" | tr -d ' ')
-    echo "agent-feed-sidecar-smoke: /api/projects -> ${PROJECT_BYTES} bytes"
+    echo "agent-feed-sidecar-smoke: /api/inventory/stream -> ${INVENTORY_BYTES} bytes"
     echo "agent-feed-sidecar-smoke: /api/sessions -> ${SESSION_BYTES} bytes"
     grep '"event":"agent-feed-' "$LOG_FILE"
     echo "agent-feed-sidecar-smoke: PASS"
@@ -687,13 +696,24 @@ agent-webview-dev-status port=agent_panel_dev_port:
     set -euo pipefail
     NAME="$(sh '{{justfile_directory()}}/tools/tailnet-dns-name.sh')"
     ORIGIN="https://$NAME:{{port}}"
+    # Probed on the inventory stream, which carries the whole surface's data since 469e7938
+    # put it on one connection. That commit removed /api/projects, which this probed until
+    # it started reporting a dead sidecar at a stack that was serving perfectly.
+    #
+    # A serving stream never ends on its own, so curl always exits on the timeout it was
+    # given and the timeout is the cost of the check, not a symptom. `|| true` rather than
+    # `|| echo 000`: curl has already printed the response code by then, and the echo would
+    # concatenate onto it and match no case below.
+    #
     # Retried, because the honest sequence is `host-run && agent-webview-dev-status` and the two
     # do not finish together: `host-run` returns when the app is launched, and the sidecar binds
     # its port a second or two later. Until it does, the proxy has nothing to reach and answers
     # 5xx -- a real failure code for a host that is merely still starting. Only that shape is
     # retried; a 200 is done and a 401 is a token disagreement that waiting cannot fix.
+    PROBE="$ORIGIN/api/inventory/stream"
     for _ in $(seq 1 15); do
-        CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$ORIGIN/api/projects" || echo 000)"
+        CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$PROBE" || true)"
+        CODE="${CODE:-000}"
         case "$CODE" in
             5*) sleep 1 ;;
             *) break ;;
@@ -715,10 +735,12 @@ agent-webview-dev-status port=agent_panel_dev_port:
             exit 1
             ;;
         *)
-            echo "browser leg still answered $CODE at $ORIGIN/api/projects, which is neither a" >&2
-            echo "  working feed nor an auth failure. A 5xx here outlasted the sidecar's startup" >&2
-            echo "  window, so the sidecar is not listening on the port this server proxies to." >&2
-            echo "  Its log: {{agent_panel_dev_log}}" >&2
+            echo "browser leg answered $CODE at $PROBE, which is neither a working feed nor an" >&2
+            echo "  auth failure. A 5xx outlasted the sidecar's startup window, so it is not" >&2
+            echo "  listening on the port this server proxies to. A 404 means this recipe is" >&2
+            echo "  probing a route the sidecar no longer serves -- check it against the" >&2
+            echo "  pathnames in agent-feed/sidecar/src/http/ before believing the stack is" >&2
+            echo "  broken. Its log: {{agent_panel_dev_log}}" >&2
             exit 1
             ;;
     esac
