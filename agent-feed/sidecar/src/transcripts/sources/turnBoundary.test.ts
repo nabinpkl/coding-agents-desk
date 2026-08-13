@@ -1,8 +1,12 @@
-// Adapter turn-boundary signals. Both adapters translate their own terminal
-// markers into the single `turnClosed` field on LineResult; the session probe folds
-// it into the selected-project activity probe, which derives the 'live'
-// bin from it at read time. These tests pin the per-line contract so a
-// harness transcript-format drift is caught at the adapter seam.
+// Adapter turn-boundary signals, as the transcript READER sees them: both adapters
+// translate their own terminal markers into the single `turnClosed` field on
+// LineResult, which the event index folds into a session's rendered turns. These
+// tests pin the per-line contract so a harness transcript-format drift is caught at
+// the adapter seam.
+//
+// The same rule is read a second way, from a bounded metadata read, to decide
+// whether a session row shows live. That path is pinned in boundedSessionRead.test.ts,
+// including that the two readers agree.
 
 import { expect, test } from 'bun:test';
 import { claudeAdapter } from './claudeTranscript.ts';

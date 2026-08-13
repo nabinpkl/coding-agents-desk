@@ -641,6 +641,32 @@ function promptText(ev: Record<string, unknown>): string | undefined {
 }
 
 /**
+ * The opening prompt of a session whose first record does not fit the head window.
+ *
+ * A queued command carries its whole payload on one line, and `/security-review`
+ * enqueues a file list, so that single record can be larger than the whole 32 KB
+ * edge. The window then holds one truncated line, `JSON.parse` refuses it, and the
+ * session has no title and no prompt left to fall back to -- it renders as its own
+ * UUID. Three sessions in this repo land there.
+ *
+ * The prompt is at the FRONT of that record though, so it is inside the window; only
+ * the closing brace is missing. So the string value is read directly rather than the
+ * object being repaired, because a truncated object cannot be repaired without
+ * guessing what was cut.
+ */
+function promptFromOversizedRecord(text: string): string | undefined {
+  const match = /"content":"((?:[^"\\]|\\.){0,400})/.exec(text);
+  if (!match?.[1]) return undefined;
+  // The capture can end mid-escape, which is not a valid string body. Drop the stub.
+  const body = match[1].replace(/\\u[0-9a-fA-F]{0,3}$|\\$/, '');
+  try {
+    return (JSON.parse(`"${body}"`) as string).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * What the catalog knows about a session without reading its body: the two 32 KB
  * edges, and everything the session list needs pulled out of them.
  *
@@ -662,6 +688,13 @@ async function readHeader(filePath: string): Promise<Header | null> {
         { start: metadata.size - HEADER_EDGE_BYTES, length: HEADER_EDGE_BYTES },
       ];
     const out: Header = {};
+    // Kept apart and ranked at the end rather than overwriting each other in file
+    // order, because file order gives the wrong answer: the harness re-emits its
+    // generated title as a session goes on, so a name the USER chose is routinely
+    // followed by a generated one, and last-write-wins would rename their session
+    // back for them.
+    let aiTitle: string | undefined;
+    let customTitle: string | undefined;
     for (const [index, range] of ranges.entries()) {
       // A small file is one range that is both edges, so it answers both
       // questions. A large one splits them, and each question has exactly one
@@ -672,7 +705,8 @@ async function readHeader(filePath: string): Promise<Header | null> {
       const isTail = index === ranges.length - 1;
       const buf = Buffer.alloc(range.length);
       const { bytesRead } = await fh.read(buf, 0, buf.length, range.start);
-      const lines = buf.toString('utf-8', 0, bytesRead).split('\n');
+      const window = buf.toString('utf-8', 0, bytesRead);
+      const lines = window.split('\n');
       // A window that starts mid-file almost certainly starts mid-line.
       if (range.start > 0) lines.shift();
       for (const line of lines) {
@@ -686,9 +720,9 @@ async function readHeader(filePath: string): Promise<Header | null> {
         if (typeof ev.cwd === 'string') out.cwd = ev.cwd;
         if (typeof ev.gitBranch === 'string') out.gitBranch = ev.gitBranch;
         if (typeof ev.entrypoint === 'string') out.entrypoint = ev.entrypoint;
-        if (typeof ev.aiTitle === 'string' && ev.aiTitle.trim()) out.title = ev.aiTitle.trim();
+        if (typeof ev.aiTitle === 'string' && ev.aiTitle.trim()) aiTitle = ev.aiTitle.trim();
         if (typeof ev.customTitle === 'string' && ev.customTitle.trim()) {
-          out.title = ev.customTitle.trim();
+          customTitle = ev.customTitle.trim();
         }
         // Last one in the window wins: this is the turn state as of the most
         // recent line that spoke to it.
@@ -698,7 +732,14 @@ async function readHeader(filePath: string): Promise<Header | null> {
         }
         if (isHead) out.firstPrompt ??= promptText(ev);
       }
+      // Nothing in the head window parsed and there was no line break in it: one
+      // record overran the whole window. What is visible of it is still its front,
+      // which is where the prompt is.
+      if (isHead && !out.firstPrompt && !window.includes('\n')) {
+        out.firstPrompt = promptFromOversizedRecord(window);
+      }
     }
+    out.title = customTitle ?? aiTitle;
     return out.cwd ? out : null;
   } finally {
     await fh.close();

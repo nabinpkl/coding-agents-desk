@@ -48,6 +48,12 @@ async function requestedProjects(url: URL): Promise<string[]> {
  * this project's viewer would see. Comparing the inputs is what keeps a stream from
  * re-emitting an identical list on every tick -- and it is compared per project, so a
  * write in one project does not resend the others.
+ *
+ * Every field a row renders is here, which is the property that has to hold: a fact
+ * the summary reads and this does not is a change the stream would silently swallow.
+ * The one thing not captured is the clock, and it never was -- an activity bin decays
+ * with age, so a row that ages out of `live` is republished by the next reconcile
+ * rather than at the instant it expires.
  */
 function sessionsFingerprint(
   sessions: Session[],
@@ -62,6 +68,8 @@ function sessionsFingerprint(
         session.sessionId,
         session.lastEventAt,
         session.title,
+        session.firstPrompt,
+        session.lastTurnClosed,
         resolveAgentSession?.(session.source, session.sessionId)?.activity,
       ]),
   );
@@ -77,9 +85,6 @@ async function inventoryStream(
   return startServerSentEventStream(request, server, (write) => {
     let projectsFingerprint: string | null = null;
     const sessionFingerprints = new Map<string, string>();
-    // Per project, because a session list is read asynchronously: a later tick that
-    // finishes first must not overwrite the newer answer with the older one.
-    const generations = new Map<string, number>();
 
     const pushProjects = (sessions: Session[]): void => {
       const projects = projectSummaries(sessions);
@@ -93,16 +98,13 @@ async function inventoryStream(
       const fingerprint = sessionsFingerprint(sessions, projectPath, resolveAgentSession);
       if (fingerprint === sessionFingerprints.get(projectPath)) return;
       sessionFingerprints.set(projectPath, fingerprint);
-      const current = (generations.get(projectPath) ?? 0) + 1;
-      generations.set(projectPath, current);
-      void sessionSummaries(projectPath, resolveAgentSession).then((summaries) => {
-        if (generations.get(projectPath) !== current) return;
-        write(encodeServerSentEvent({ projectPath, sessions: summaries }));
-      }).catch((error) => {
-        write(encodeServerSentEvent({
-          error: error instanceof Error ? error.message : String(error),
-        }));
-      });
+      write(encodeServerSentEvent({
+        projectPath,
+        // The snapshot this tick is about, rather than a fresh one: the fingerprint
+        // above was computed from it, so anything else could publish a list the
+        // comparison never saw.
+        sessions: sessionSummaries(projectPath, resolveAgentSession, sessions),
+      }));
     };
 
     const push = (sessions = getSnapshot()): void => {
@@ -111,14 +113,7 @@ async function inventoryStream(
     };
 
     push();
-    const unsubscribe = subscribeCatalog(push);
-    return () => {
-      // Bumped past every in-flight read so a late one cannot write to a torn-down stream.
-      for (const projectPath of projectPaths) {
-        generations.set(projectPath, (generations.get(projectPath) ?? 0) + 1);
-      }
-      unsubscribe();
-    };
+    return subscribeCatalog(push);
   });
 }
 

@@ -1,19 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-  appendFile,
-  mkdtemp,
-  mkdir,
-  realpath,
-  rm,
-  symlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   canonicalProjectPath,
   isClaudeSessionCandidate,
-  probeSession,
   projectSummaries,
   registerPiSession,
   sessionSummaries,
@@ -28,9 +19,8 @@ import { claudeAdapter } from "./sources/claudeTranscript.ts";
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
-  // Through stopCatalog rather than by hand: the probes and the memoized summaries
-  // are derived state that outlives a `state.sessions.clear()`, and two tests using
-  // the same session id would otherwise be answered from each other's readings.
+  // Through stopCatalog rather than by hand: it also stops the timers a test that
+  // started the catalog would otherwise leave running into the next one.
   await stopCatalog();
   state.sessions.clear();
   state.eventByteOffsets.clear();
@@ -47,6 +37,9 @@ function session(
   sessionId: string,
   project: string,
   lastEventAt: number,
+  // What the bounded metadata read put on the record when the session was
+  // discovered. The list is built from these and nothing else.
+  metadata: Partial<Pick<Session, "title" | "firstPrompt" | "lastTurnClosed">> = {},
 ): Session {
   return {
     source,
@@ -54,7 +47,14 @@ function session(
     project,
     transcriptPath: `/transcripts/${source}/${sessionId}.jsonl`,
     lastEventAt,
+    ...metadata,
   };
+}
+
+/** Puts a session in the catalog the way a reconcile would, and hands it back. */
+function observe(observed: Session): Session {
+  state.sessions.set(sessionKey(observed.source, observed.sessionId), observed);
+  return observed;
 }
 
 describe("transcript catalog identity", () => {
@@ -116,80 +116,85 @@ describe("transcript catalog identity", () => {
     expect(await canonicalProjectPath(project)).toBeNull();
   });
 
-  test("selected-project summaries do bounded parsing without retaining an event index", async () => {
+  // The guarantee this whole layer exists for, and the one worth outliving any
+  // later refactor of it. Asserted by deleting the transcripts first: if listing a
+  // project opened a single body, every row below would fall back to its id.
+  test("a project lists with its transcripts deleted, and indexes nothing", async () => {
     const root = await mkdtemp(join(tmpdir(), "agent-feed-sessions-"));
     temporaryDirectories.push(root);
     const project = join(root, "project");
-    const transcript = join(root, "11111111-1111-1111-1111-111111111111.jsonl");
     await mkdir(project);
-    await writeFile(
-      transcript,
-      `${JSON.stringify({
-        type: "user",
-        cwd: project,
-        timestamp: new Date().toISOString(),
-        message: { role: "user", content: "bounded session title" },
-      })}\n`,
-    );
-    const observed = session(
-      "claude",
-      "11111111-1111-1111-1111-111111111111",
-      project,
-      Date.now(),
-    );
-    observed.transcriptPath = transcript;
-    state.sessions.set(sessionKey(observed.source, observed.sessionId), observed);
+    const titled = observe(session("claude", "11111111-1111-1111-1111-111111111111", project, 2_000, {
+      title: "Refactor the catalog",
+      lastTurnClosed: false,
+    }));
+    observe(session("codex", "22222222-2222-2222-2222-222222222222", project, 1_000, {
+      firstPrompt: "fix the flaky test",
+    }));
+    expect(await Bun.file(titled.transcriptPath).exists()).toBeFalse();
 
-    const summaries = await sessionSummaries(project);
+    const summaries = sessionSummaries(project);
 
-    expect(summaries).toHaveLength(1);
-    expect(summaries[0]?.title).toBe("bounded session title");
+    expect(summaries.map((summary) => summary.title)).toEqual([
+      "Refactor the catalog",
+      "fix the flaky test",
+    ]);
     expect(state.eventByteOffsets.size).toBe(0);
     expect(state.indexed.size).toBe(0);
   });
 
-  test("prefers a custom title set beyond the bounded probe window", async () => {
-    const root = await mkdtemp(join(tmpdir(), "agent-feed-custom-title-"));
-    temporaryDirectories.push(root);
-    const project = join(root, "project");
-    const transcript = join(root, "11111111-1111-1111-1111-111111111111.jsonl");
-    await mkdir(project);
-    // The ai-title and custom-title lines sit in the MIDDLE of a file large
-    // enough that the bounded head/tail probe never sees them (matching the
-    // plutus-agent-eval transcript where they appear tens of KB in). The full
-    // title scan must find them and prefer the user-set custom title.
-    const headPad = JSON.stringify({ type: "assistant", message: { role: "assistant", content: "x".repeat(40000) } });
-    const aiTitle = JSON.stringify({ type: "ai-title", aiTitle: "Auto derived title", cwd: project });
-    const customTitle = JSON.stringify({ type: "custom-title", customTitle: "Plutus Agent Eval", cwd: project });
-    const tailPad = JSON.stringify({ type: "assistant", message: { role: "assistant", content: "y".repeat(40000) } });
-    await writeFile(transcript, `${headPad}\n${aiTitle}\n${customTitle}\n${tailPad}\n`);
-    const observed = session("claude", "11111111-1111-1111-1111-111111111111", project, Date.now());
-    observed.transcriptPath = transcript;
-    state.sessions.set(sessionKey(observed.source, observed.sessionId), observed);
-
-    const summaries = await sessionSummaries(project);
-
-    expect(summaries).toHaveLength(1);
-    expect(summaries[0]?.title).toBe("Plutus Agent Eval");
+  test("a session with neither a title nor a prompt renders as its id", () => {
+    const id = "11111111-1111-1111-1111-111111111111";
+    observe(session("claude", id, "/repo", 1_000));
+    expect(sessionSummaries("/repo")[0]?.title).toBe(id);
   });
 
-  test("uses the live Pi backend as the authority for activity and capabilities", async () => {
-    const root = await mkdtemp(join(tmpdir(), "agent-feed-pi-summary-"));
-    temporaryDirectories.push(root);
-    const project = join(root, "project");
-    const transcript = join(root, "11111111-1111-1111-1111-111111111111.jsonl");
-    await mkdir(project);
-    await writeFile(transcript, `${JSON.stringify({ type: "session" })}\n`);
-    const observed = session(
-      "pi",
-      "11111111-1111-1111-1111-111111111111",
-      project,
-      Date.now(),
-    );
-    observed.transcriptPath = transcript;
-    state.sessions.set(sessionKey(observed.source, observed.sessionId), observed);
+  // Pi records are registered by their backend rather than built by the catalog, so
+  // the row is the only place their title is guaranteed to pass through the rule.
+  test("a row never renders more title than fits, whoever registered the session", () => {
+    const project = "/repo";
+    registerPiSession({
+      sessionId: "22222222-2222-2222-2222-222222222222",
+      projectPath: project,
+      transcriptPath: "/transcripts/pi/22222222-2222-2222-2222-222222222222.jsonl",
+      title: "w".repeat(600),
+      lastEventAt: 3_000,
+    });
+    const title = sessionSummaries(project)[0]?.title ?? "";
+    expect(title).toHaveLength(240);
+    expect(title.endsWith("…")).toBeTrue();
+  });
 
-    const summaries = await sessionSummaries(project, (source, sessionId) => ({
+  test("newest first, and ties broken so the order does not wobble between reads", () => {
+    const project = "/repo";
+    observe(session("codex", "bbbbbbbb-2222-2222-2222-222222222222", project, 1_000));
+    observe(session("claude", "cccccccc-3333-3333-3333-333333333333", project, 1_000));
+    observe(session("claude", "aaaaaaaa-1111-1111-1111-111111111111", project, 5_000));
+    expect(sessionSummaries(project).map((summary) => summary.sessionId)).toEqual([
+      "aaaaaaaa-1111-1111-1111-111111111111",
+      "cccccccc-3333-3333-3333-333333333333",
+      "bbbbbbbb-2222-2222-2222-222222222222",
+    ]);
+  });
+
+  test("an open turn shows live only while the session is recent", () => {
+    const project = "/repo";
+    const recent = observe(session("claude", "11111111-1111-1111-1111-111111111111", project, Date.now(), {
+      lastTurnClosed: false,
+    }));
+    expect(sessionSummaries(project)[0]?.activity).toBe("live");
+
+    // The same record, unchanged, an hour later. Age is re-checked at read time, so
+    // a turn-state stamp that went stale cannot hold a cold session at live.
+    recent.lastEventAt = Date.now() - 60 * 60 * 1000;
+    expect(sessionSummaries(project)[0]?.activity).not.toBe("live");
+  });
+
+  test("uses the live Pi backend as the authority for activity and capabilities", () => {
+    const project = "/repo";
+    const observed = observe(session("pi", "11111111-1111-1111-1111-111111111111", project, Date.now()));
+
+    const summaries = sessionSummaries(project, (source, sessionId) => ({
       sessionId,
       source,
       projectPath: project,
@@ -230,82 +235,17 @@ describe("transcript catalog identity", () => {
     });
   });
 
-  test("a session is re-read only over the bytes it gained, and not at all when unchanged", async () => {
-    const root = await mkdtemp(join(tmpdir(), "agent-feed-probe-"));
-    temporaryDirectories.push(root);
-    const project = join(root, "project");
-    const transcript = join(root, "11111111-1111-1111-1111-111111111111.jsonl");
-    await mkdir(project);
-    await writeFile(
-      transcript,
-      `${JSON.stringify({
-        type: "user",
-        cwd: project,
-        timestamp: new Date().toISOString(),
-        message: { role: "user", content: "first prompt" },
-      })}\n`,
-    );
-    const observed = session(
-      "claude",
-      "11111111-1111-1111-1111-111111111111",
-      project,
-      1_000,
-    );
-    observed.transcriptPath = transcript;
-    state.sessions.set(sessionKey(observed.source, observed.sessionId), observed);
-
-    expect((await probeSession(observed)).title).toBe("first prompt");
-
-    // The catalog stamp moved, so the probe extends over the appended line. It keeps
-    // what it already parsed: the title below is only reachable from the new bytes,
-    // and the activity stamp only from the old ones.
-    await appendFile(
-      transcript,
-      `${JSON.stringify({ type: "custom-title", customTitle: "Named later", cwd: project })}\n`,
-    );
-    observed.lastEventAt = 2_000;
-    expect((await probeSession(observed)).title).toBe("Named later");
-
-    // The file is gone, and the stamp has not moved. A probe that re-read the
-    // transcript on every emission would fail here and fall back to the session id.
-    await rm(transcript);
-    expect((await probeSession(observed)).title).toBe("Named later");
-  });
-
-  test("one project's session list is computed once per catalog change, however many viewers ask", async () => {
-    const root = await mkdtemp(join(tmpdir(), "agent-feed-fanout-"));
-    temporaryDirectories.push(root);
-    const project = join(root, "project");
-    const transcript = join(root, "11111111-1111-1111-1111-111111111111.jsonl");
-    await mkdir(project);
-    await writeFile(transcript, `${JSON.stringify({ type: "user", cwd: project })}\n`);
-    const observed = session(
-      "claude",
-      "11111111-1111-1111-1111-111111111111",
-      project,
-      1_000,
-    );
-    observed.transcriptPath = transcript;
-    state.sessions.set(sessionKey(observed.source, observed.sessionId), observed);
-
-    // Two agent windows expanded on the same project. The second joins the first's
-    // work rather than starting a second pass over the same files, and it joins the
-    // promise, not the result, so arriving mid-read counts as joining.
-    const first = sessionSummaries(project);
-    expect(sessionSummaries(project)).toBe(first);
-    expect(await first).toHaveLength(1);
-    expect(sessionSummaries(project)).toBe(first);
-
-    // A catalog change is what makes the answer stale, and nothing else does.
+  test("a Pi session registered by its backend joins the list it belongs to", () => {
+    const project = "/repo";
+    observe(session("claude", "11111111-1111-1111-1111-111111111111", project, 1_000));
     registerPiSession({
       sessionId: "22222222-2222-2222-2222-222222222222",
       projectPath: project,
-      transcriptPath: join(root, "22222222-2222-2222-2222-222222222222.jsonl"),
+      transcriptPath: "/transcripts/pi/22222222-2222-2222-2222-222222222222.jsonl",
       title: "pi thread",
       lastEventAt: 3_000,
     });
-    const afterChange = sessionSummaries(project);
-    expect(afterChange).not.toBe(first);
-    expect(await afterChange).toHaveLength(2);
+    expect(sessionSummaries(project).map((summary) => summary.title))
+      .toEqual(["pi thread", "11111111-1111-1111-1111-111111111111"]);
   });
 });

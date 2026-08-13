@@ -85,7 +85,7 @@ async function sessionSnapshotResponse(
   if ("response" in selected) return selected.response;
   return jsonResponse({
     projectPath: selected.projectPath,
-    sessions: await sessionSummaries(selected.projectPath, resolveAgentSession),
+    sessions: sessionSummaries(selected.projectPath, resolveAgentSession),
   });
 }
 

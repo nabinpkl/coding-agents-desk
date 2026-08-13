@@ -19,21 +19,29 @@ import {
   codexAdapter,
   resolveStateDbPath,
 } from "./sources/codexTranscript.ts";
-import type {
-  Bin,
-  ParsedLine,
-  Session,
-  SourceAdapter,
-  SourceId,
-} from "./sources/transcriptTypes.ts";
+import type { Bin, Session, SourceId } from "./sources/transcriptTypes.ts";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 
 // What the catalog publishes on /api/inventory and /api/sessions, declared once in
 // agent-feed/wire and parsed by the Agent Panel from that same declaration.
 export type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 
-const SUMMARY_READ_BYTES = 1024 * 1024;
 const SUMMARY_TITLE_CHARACTERS = 240;
+/**
+ * How much of an opening prompt is allowed to stand in for a title.
+ *
+ * Shorter than a title's own cap because it is not one: a prompt can be a wall of
+ * pasted text, and a row that renders four lines of it is worse than the fallback
+ * it replaced.
+ */
+const PROMPT_TITLE_CHARACTERS = 120;
+/**
+ * How far back a Codex rollout is read to learn whether its last turn is open.
+ *
+ * Only ever asked for inside the live window, so this is a handful of files, not
+ * the project.
+ */
+const CODEX_TAIL_BYTES = 32 * 1024;
 const CLAUDE_SESSION_PATTERN = /^[0-9a-f-]{36}\.jsonl$/i;
 const ROLLOUT_PATTERN = /^rollout-[\d-]+T[\d-]+-([0-9a-f-]{36})\.jsonl$/i;
 /**
@@ -90,25 +98,19 @@ export function subscribeCatalog(listener: (sessions: Session[]) => void): () =>
 }
 
 /**
- * Which version of the catalog the derived views below were computed against.
+ * Which version of the catalog the project list was computed against.
  *
- * Everything a subscriber reads -- the project list, a project's session list -- is a
- * projection of one snapshot, identical for every subscriber. Keying the projections
- * on this counter is what makes them computed once per change instead of once per
- * change per subscriber, which is what they used to be.
+ * The project list is a fold over every session the catalog holds, so it is the one
+ * projection worth remembering between changes: N subscribers watching the same
+ * catalog compute it once rather than once each. A project's session list is not
+ * memoized -- it is a filter and a sort over records already in memory, and a cache
+ * in front of that would cost more in invalidation rules than it saves.
  */
 let catalogGeneration = 0;
 let projectSummariesMemo: { generation: number; value: ProjectSummary[] } | null = null;
-const sessionSummariesMemo = new Map<
-  string,
-  { generation: number; value: Promise<SessionSummary[]> }
->();
 
 function broadcast(): void {
   catalogGeneration += 1;
-  // Dropped rather than left to expire by generation, so a project that stops being
-  // watched stops being held here too.
-  sessionSummariesMemo.clear();
   projectSummariesMemo = null;
   const snapshot = getSnapshot();
   for (const listener of state.subscribers) {
@@ -133,12 +135,6 @@ function scheduleBroadcast(): void {
     broadcastTimer = null;
     broadcast();
   }, BROADCAST_COALESCE_MS);
-}
-
-/** Forgets everything derived for a session that left the catalog. */
-function forgetSession(key: string): void {
-  state.sessions.delete(key);
-  sessionProbes.delete(key);
 }
 
 async function canonicalDirectory(path: string): Promise<string | null> {
@@ -176,6 +172,8 @@ function makeSession(
     title?: string;
     gitBranch?: string;
     entrypoint?: string;
+    lastTurnClosed?: boolean;
+    firstPrompt?: string;
   } = {},
 ): Session {
   return {
@@ -185,7 +183,11 @@ function makeSession(
     transcriptPath,
     lastEventAt,
     ...metadata,
+    // Bounded on the way IN, not just on the way out. The catalog holds one of these
+    // per session -- 1290 of them on this machine -- and a prompt is arbitrary text a
+    // person pasted, so the record must not be the thing that grows with it.
     title: compactTitle(metadata.title),
+    firstPrompt: compactTitle(metadata.firstPrompt?.slice(0, PROMPT_TITLE_CHARACTERS)),
   };
 }
 
@@ -239,6 +241,8 @@ async function readClaudeCandidate(filePath: string): Promise<Session | null> {
     title: header.title,
     gitBranch: header.gitBranch,
     entrypoint: header.entrypoint,
+    lastTurnClosed: header.lastTurnClosed,
+    firstPrompt: header.firstPrompt,
   });
 }
 
@@ -252,7 +256,7 @@ async function reconcileClaude(): Promise<void> {
       .map((session) => [sessionKey(session.source, session.sessionId), session]),
   );
   for (const [key, session] of [...state.sessions]) {
-    if (session.source === "claude" && !next.has(key)) forgetSession(key);
+    if (session.source === "claude" && !next.has(key)) state.sessions.delete(key);
   }
   for (const [key, session] of next) state.sessions.set(key, session);
   console.log(JSON.stringify({
@@ -330,9 +334,19 @@ async function reconcileCodex(): Promise<void> {
     } catch {
       // A row whose rollout file is gone keeps the database's own stamp.
     }
+    // The one read in this function that touches a rollout, and the only place the
+    // catalog opens a transcript that SQLite could not answer for. Restricted to the
+    // live window because that is the only place the answer can change anything:
+    // outside it `computeActivity` decides from age alone. A stamp that later goes
+    // stale is harmless for the same reason -- age is re-checked at read time, so a
+    // stale "open" cannot keep a cold session showing live.
+    const lastTurnClosed = Date.now() - updatedAt < config.liveWindowMs
+      ? await codexAdapter.readTail(row.rollout_path, CODEX_TAIL_BYTES)
+      : undefined;
     return makeSession("codex", row.id, project, row.rollout_path, updatedAt, {
       title: row.title.trim() || undefined,
       gitBranch: row.git_branch ?? undefined,
+      lastTurnClosed,
     });
   }));
   const next = new Map(
@@ -341,7 +355,7 @@ async function reconcileCodex(): Promise<void> {
       .map((session) => [sessionKey(session.source, session.sessionId), session]),
   );
   for (const [key, session] of [...state.sessions]) {
-    if (session.source === "codex" && !next.has(key)) forgetSession(key);
+    if (session.source === "codex" && !next.has(key)) state.sessions.delete(key);
   }
   for (const [key, session] of next) state.sessions.set(key, session);
   console.log(JSON.stringify({
@@ -358,7 +372,7 @@ async function reconcilePi(): Promise<void> {
   const sessions = await scanPiSessions();
   const next = new Map(sessions.map((session) => [sessionKey("pi", session.sessionId), session]));
   for (const [key, session] of [...state.sessions]) {
-    if (session.source === "pi" && !next.has(key)) forgetSession(key);
+    if (session.source === "pi" && !next.has(key)) state.sessions.delete(key);
   }
   for (const [key, session] of next) state.sessions.set(key, session);
   console.log(JSON.stringify({
@@ -428,7 +442,7 @@ function attachSourceWatchers(): void {
       if (!sessionId) return;
       const key = sessionKey("claude", sessionId);
       if (session) state.sessions.set(key, session);
-      else forgetSession(key);
+      else state.sessions.delete(key);
       scheduleBroadcast();
     }).catch((error) => {
       console.error("agent feed Claude candidate reconcile failed", error);
@@ -544,13 +558,6 @@ function computeProjectSummaries(sessions: Session[]): ProjectSummary[] {
   return projects;
 }
 
-function firstText(event: ParsedLine): string | undefined {
-  for (const block of event.blocks) {
-    if (block.kind === "text" && block.text?.trim()) return block.text.trim();
-  }
-  return undefined;
-}
-
 function computeActivity(lastEventAt: number, lastTurnClosed: boolean): Bin {
   const age = Date.now() - lastEventAt;
   if (!lastTurnClosed && age < config.liveWindowMs) return "live";
@@ -581,120 +588,24 @@ export function sessionCapabilities(
 }
 
 /**
- * Everything a session summary needs from the transcript body, and how much of the
- * file it has been read out of.
+ * One session's row, from the record the catalog already holds.
  *
- * The summary used to be re-derived from scratch on every emission: the head window,
- * the tail window, and then the WHOLE file again for the title scan, per subscriber,
- * per catalog change. A running agent broadcasts per written line, so the cost of
- * showing a project's session list was its transcripts re-read end to end, repeatedly.
+ * Nothing here touches the disk. That is the whole point: this used to walk the
+ * transcript body -- every line of it, `JSON.parse` per line -- to recover a title
+ * and a turn state, so asking for a project's three most recent rows read all 305 of
+ * its transcripts end to end and took seven seconds. Both of those facts now ride the
+ * session record, put there by the bounded metadata read that discovered the session,
+ * so listing is a projection rather than a scan.
  *
- * Transcripts are append-only, so this is built once and extended by whatever was
- * appended since, which is the same shape the event index already uses one layer down.
+ * Title precedence: whatever the source calls the session, then its opening prompt,
+ * then its id. The prompt fallback exists because a titleless session would otherwise
+ * render as a UUID; the id is the last resort and its appearance in the list is the
+ * standing signal that a source stopped answering.
  */
-interface SessionProbe {
-  /** Bytes consumed so far. Always lands on a line boundary. */
-  scannedBytes: number;
-  /**
-   * The catalog stamp this probe is current for.
-   *
-   * The catalog is the one place that learns a session changed, so its record is what
-   * says whether this is stale. Matching means the file cannot have moved, and the
-   * probe is reused without so much as a `stat`.
-   */
-  lastEventAt: number;
-  title?: string;
-  customTitle?: string;
-  aiTitle?: string;
-  firstPrompt?: string;
-  lastUserPrompt?: string;
-  lastTurnClosed: boolean;
-}
-
-const sessionProbes = new Map<string, SessionProbe>();
-
-function applyProbeLine(adapter: SourceAdapter, probe: SessionProbe, line: string): void {
-  const parsed = adapter.processLine(line);
-  if (!parsed) return;
-  if (parsed.title?.trim()) {
-    const title = compactTitle(parsed.title);
-    // Claude Code shows a user-set custom title over the auto one, and either over
-    // whatever the header carried, so the three are kept apart and ranked at the end
-    // rather than overwriting each other in file order.
-    if (line.includes('"type":"custom-title"')) probe.customTitle = title;
-    else if (line.includes('"type":"ai-title"')) probe.aiTitle = title;
-    else probe.title = title;
-  }
-  if (parsed.turnClosed !== undefined) probe.lastTurnClosed = parsed.turnClosed;
-  if (parsed.event?.type === "user") {
-    const prompt = firstText(parsed.event);
-    if (prompt) {
-      probe.firstPrompt ??= compactTitle(prompt.slice(0, 120));
-      probe.lastUserPrompt = compactTitle(prompt);
-    }
-  }
-}
-
-/**
- * The session's probe, extended over whatever the transcript gained since it was
- * last read. Null when the file cannot be read at all.
- */
-async function readSessionProbe(session: Session): Promise<SessionProbe | null> {
-  const key = sessionKey(session.source, session.sessionId);
-  const existing = sessionProbes.get(key);
-  if (existing && existing.lastEventAt === session.lastEventAt) return existing;
-  let metadata: Awaited<ReturnType<typeof stat>>;
-  try {
-    metadata = await stat(session.transcriptPath);
-  } catch {
-    return null;
-  }
-  // A file shorter than what was read from it was rewritten, not appended to, and
-  // nothing carried forward from the old contents can be trusted.
-  const probe: SessionProbe = existing && metadata.size >= existing.scannedBytes
-    ? existing
-    : { scannedBytes: 0, lastEventAt: session.lastEventAt, lastTurnClosed: true };
-  probe.lastEventAt = session.lastEventAt;
-  const adapter = session.source === "claude" ? claudeAdapter : codexAdapter;
-  // Chunked, and only over complete lines: a partial trailing line is left unconsumed
-  // so the next pass reads it whole rather than parsing half of it and skipping the
-  // rest. Same walk the event index does, for the same reason.
-  let cursor = probe.scannedBytes;
-  let carry = new Uint8Array();
-  let carryStart = probe.scannedBytes;
-  const decoder = new TextDecoder();
-  while (cursor < metadata.size) {
-    const chunkEnd = Math.min(metadata.size, cursor + SUMMARY_READ_BYTES);
-    const chunk = await Bun.file(session.transcriptPath).slice(cursor, chunkEnd).bytes();
-    const combined = new Uint8Array(carry.byteLength + chunk.byteLength);
-    combined.set(carry, 0);
-    combined.set(chunk, carry.byteLength);
-    let lineStart = 0;
-    for (let index = 0; index < combined.byteLength; index += 1) {
-      if (combined[index] !== 0x0a) continue;
-      if (index > lineStart) {
-        applyProbeLine(adapter, probe, decoder.decode(combined.subarray(lineStart, index)));
-      }
-      lineStart = index + 1;
-    }
-    carry = combined.slice(lineStart);
-    carryStart += lineStart;
-    cursor = chunkEnd;
-  }
-  probe.scannedBytes = carryStart;
-  sessionProbes.set(key, probe);
-  return probe;
-}
-
-export async function probeSession(
+export function summarizeSession(
   session: Session,
   resolveAgentSession?: AgentSessionDescriptorResolver,
-): Promise<SessionSummary> {
-  const capabilities = sessionCapabilities(
-    session.source,
-    session.sessionId,
-    resolveAgentSession,
-  );
+): SessionSummary {
   // Every source resolves a descriptor the same way: a live backend answering for a
   // catalog session is what makes it live, whichever store the session came from.
   const live = resolveAgentSession?.(session.source, session.sessionId);
@@ -702,79 +613,57 @@ export async function probeSession(
   // it from the file itself during reconciliation, so a second reading taken at
   // emission time could only disagree with the one every other consumer is using.
   const lastEventAt = session.lastEventAt;
-  if (session.source === "pi") {
-    return {
-      sessionId: session.sessionId,
-      source: session.source,
-      title: compactTitle(session.title) ?? session.sessionId,
-      lastEventAt,
-      activity: live?.activity ?? computeActivity(lastEventAt, true),
-      capabilities,
-    };
-  }
-  const probe = await readSessionProbe(session);
-  if (!probe) {
-    return {
-      sessionId: session.sessionId,
-      source: session.source,
-      title: compactTitle(session.title) ?? session.sessionId,
-      lastEventAt,
-      activity: live?.activity === "live" ? "live" : computeActivity(lastEventAt, true),
-      capabilities,
-    };
-  }
   return {
     sessionId: session.sessionId,
     source: session.source,
-    title: probe.customTitle ?? probe.aiTitle ?? probe.title ?? compactTitle(session.title) ??
-      probe.firstPrompt ?? probe.lastUserPrompt ?? session.sessionId,
+    // Trimmed here and not only where the record was built, because not every record
+    // is built here: a Pi session registered by its backend arrives with whatever
+    // title that backend chose, and a row is not the place to find that out.
+    title: compactTitle(session.title) ?? compactTitle(session.firstPrompt) ??
+      session.sessionId,
     lastEventAt,
-    activity: live?.activity === "live"
-      ? "live"
-      : computeActivity(lastEventAt, probe.lastTurnClosed),
-    capabilities,
+    activity: summaryActivity(session, live),
+    capabilities: sessionCapabilities(
+      session.source,
+      session.sessionId,
+      resolveAgentSession,
+    ),
   };
 }
 
+/** Which bin a row lands in, given what the catalog knows and who is answering for it. */
+function summaryActivity(
+  session: Session,
+  live: AgentSessionDescriptor | undefined,
+): Bin {
+  // Pi takes its backend's word outright, including a non-live answer: the backend is
+  // the session's owner, not an observer of it.
+  if (session.source === "pi") return live?.activity ?? computeActivity(session.lastEventAt, true);
+  // For the transcript sources a live backend can only promote a row, never demote
+  // one, because a backend that has not heard of a session says nothing about it
+  // rather than saying it is idle.
+  if (live?.activity === "live") return "live";
+  // A source that could not answer cheaply left the turn state unset, which reads as
+  // closed: a session is not shown live on the strength of a missing fact.
+  return computeActivity(session.lastEventAt, session.lastTurnClosed ?? true);
+}
+
 /**
- * One project's session list for the current catalog.
+ * One project's session list, sorted the way it is rendered.
  *
- * Memoized on the generation like the project list, and for a stronger reason: every
- * viewer of a project asks the same question of the same files, and the answer cannot
- * differ between them. Two agent windows expanded on one project now share the work
- * instead of each doing it.
- *
- * The promise is what is stored, not the result, so callers that arrive while the
- * first one is still reading join it rather than starting a second pass.
+ * Takes the snapshot when the caller already has one -- the inventory stream is
+ * handed a snapshot per broadcast, and `getSnapshot()` sorts every session in the
+ * catalog to produce it, which is not work worth repeating per open project.
  */
 export function sessionSummaries(
   projectPath: string,
   resolveAgentSession?: AgentSessionDescriptorResolver,
-): Promise<SessionSummary[]> {
-  const memo = sessionSummariesMemo.get(projectPath);
-  if (memo?.generation === catalogGeneration) return memo.value;
-  const generation = catalogGeneration;
-  const value = computeSessionSummaries(projectPath, resolveAgentSession).catch((error) => {
-    // A failed read must not be remembered as this generation's answer, or the retry
-    // that follows it would be handed the same failure without touching the disk.
-    if (sessionSummariesMemo.get(projectPath)?.value === value) {
-      sessionSummariesMemo.delete(projectPath);
-    }
-    throw error;
-  });
-  sessionSummariesMemo.set(projectPath, { generation, value });
-  return value;
-}
-
-async function computeSessionSummaries(
-  projectPath: string,
-  resolveAgentSession?: AgentSessionDescriptorResolver,
-): Promise<SessionSummary[]> {
+  snapshot?: Session[],
+): SessionSummary[] {
   const startedAt = performance.now();
-  const sessions = getSnapshot().filter((session) => session.project === projectPath);
-  const summaries = await Promise.all(
-    sessions.map((session) => probeSession(session, resolveAgentSession)),
-  );
+  const summaries = (snapshot ?? getSnapshot())
+    .filter((session) => session.project === projectPath)
+    .map((session) => summarizeSession(session, resolveAgentSession));
   summaries.sort((left, right) =>
     right.lastEventAt - left.lastEventAt ||
     left.source.localeCompare(right.source) ||
@@ -863,8 +752,6 @@ export async function stopCatalog(): Promise<void> {
   for (const watcher of state.sourceWatchers) await watcher.close();
   state.sourceWatchers.length = 0;
   state.sessions.clear();
-  sessionProbes.clear();
-  sessionSummariesMemo.clear();
   projectSummariesMemo = null;
   state.watcherState = "idle";
 }

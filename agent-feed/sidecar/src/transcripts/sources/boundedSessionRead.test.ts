@@ -46,13 +46,16 @@ test('a title written at the end of a long session is still found', async () => 
   expect((await claudeAdapter.readHeader(path))?.title).toBe('Refactor the catalog');
 });
 
-test('a user-set title outranks the generated one', async () => {
-  const path = await transcript('c.jsonl', [
-    userLine('opening prompt'),
-    JSON.stringify({ type: 'ai-title', aiTitle: 'Generated' }),
-    JSON.stringify({ type: 'custom-title', customTitle: 'What I called it' }),
-  ]);
-  expect((await claudeAdapter.readHeader(path))?.title).toBe('What I called it');
+// Rank, not file order. The harness re-emits its generated title as a session goes
+// on, so in a real transcript the user's own name is routinely followed by a
+// generated one -- last-write-wins renamed their session back for them.
+test('a user-set title outranks the generated one, whichever was written last', async () => {
+  const ai = JSON.stringify({ type: 'ai-title', aiTitle: 'Generated' });
+  const custom = JSON.stringify({ type: 'custom-title', customTitle: 'What I called it' });
+  for (const order of [[ai, custom], [custom, ai]]) {
+    const path = await transcript('c.jsonl', [userLine('opening prompt'), ...order]);
+    expect((await claudeAdapter.readHeader(path))?.title).toBe('What I called it');
+  }
 });
 
 // The honest cost of a bounded read, pinned so it is a decision and not a
@@ -106,6 +109,34 @@ test('a queued command is a prompt even with no user record', async () => {
   ]);
   expect((await claudeAdapter.readHeader(path))?.firstPrompt)
     .toBe('Review this change for security vulnerabilities.');
+});
+
+// Three real sessions in this repo: `/security-review` enqueues a file list on one
+// line, and that line is bigger than the whole head window, so nothing in the window
+// parses and the row would otherwise render as a UUID.
+test('a first record too large for the window still yields its prompt', async () => {
+  const path = await transcript('c.jsonl', [
+    JSON.stringify({
+      type: 'queue-operation',
+      operation: 'enqueue',
+      cwd: CWD,
+      content: `Review this change for security vulnerabilities. ${'/some/path.ts '.repeat(5000)}`,
+    }),
+    // The cwd the header needs comes from the tail, as it does for these sessions.
+    JSON.stringify({ type: 'user', cwd: CWD, message: { role: 'user', content: 'later' } }),
+  ]);
+  const prompt = (await claudeAdapter.readHeader(path))?.firstPrompt ?? '';
+  expect(prompt.startsWith('Review this change for security vulnerabilities.')).toBeTrue();
+  // Bounded even though the record is not: only the front of it is ever wanted.
+  expect(prompt.length).toBeLessThan(500);
+});
+
+test('an oversized record with no prompt in it yields nothing rather than junk', async () => {
+  const path = await transcript('c.jsonl', [
+    JSON.stringify({ type: 'assistant', cwd: CWD, pad: 'z'.repeat(70000) }),
+    JSON.stringify({ type: 'user', cwd: CWD, message: { role: 'user', content: 'later' } }),
+  ]);
+  expect((await claudeAdapter.readHeader(path))?.firstPrompt).toBeUndefined();
 });
 
 test('a dequeue is not a prompt', async () => {
