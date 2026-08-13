@@ -435,16 +435,20 @@ enum Config {
         defaultValue: 1_000
     )
     // ADR-0030: video datagrams ride the authenticated session QUIC connection.
-    // ADR-0025 motion carrier: a frame's HEVC packets are sent in paced bursts so a
-    // large frame (170+ packets) does not flood the QUIC datagram send buffer in one
-    // tight loop. burstPacketCount packets go back-to-back, then a burstPauseUs gap.
-    static let ownedMediaDatagramBurstPacketCount = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PACKET_COUNT",
-        defaultValue: 32
-    )
-    static let ownedMediaDatagramBurstPauseUs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_DATAGRAM_BURST_PAUSE_US",
-        defaultValue: 1_000
+    //
+    // ADR-0098: how many bytes may leave back-to-back before `LinkSendPacer` starts pacing to
+    // the rung's budget. This is the anti-burst dial, and it is the one that decides whether a
+    // keyframe arrives as a lump or as a stream. The measured failure: 92 datagrams of a 96KB
+    // keyframe left in ~2ms under the fixed 32-packet/1ms grouping this replaces, filling a
+    // cellular queue that then took two seconds to drain.
+    //
+    // 16KB is ~15 packets at the 1050-byte payload size, well under the 170-packet flood the
+    // old grouping existed to prevent, and small enough that a keyframe is spread rather than
+    // dumped. It must stay above `MediaDatagramFramePacket.maxPayloadBytes` or every single
+    // packet would wait a full bucket.
+    static let ownedMediaSendPacerBurstBytes = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_SEND_PACER_BURST_BYTES",
+        defaultValue: 16_384
     )
     // ADR-0030: the media lane now shares one QUIC session with input/control, so
     // video admission must keep in-flight media bounded instead of filling the

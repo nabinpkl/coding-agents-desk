@@ -97,32 +97,5 @@ import Testing
     #expect(bp.bytesInFlight == 12_000)
 }
 
-// A1: the token bucket paces to the budget. Overspending drives the balance negative,
-// and the gate stays closed until elapsed time has refilled a positive balance, so a
-// big frame forces a proportionally longer wait before the next admission.
-@Test func sendPacerPacesToBudget() {
-    var pacer = GraphicsSendPacer(bytesPerSecond: 1_000, burstBytes: 1_000)
-    let full = pacer.canSend(nowNs: 0)             // full bucket
-    #expect(full)
-    pacer.consume(bytes: 1_500, nowNs: 0)          // overspend: tokens -> -500
-    let spent = pacer.canSend(nowNs: 0)            // negative balance, must wait
-    #expect(!spent)
-    let quarter = pacer.canSend(nowNs: 250_000_000)  // -500 + 250 = -250, still negative
-    #expect(!quarter)
-    let recovered = pacer.canSend(nowNs: 600_000_000)  // -500 + 600 = +100 > 0
-    #expect(recovered)
-}
-
-// A big frame drives tokens negative and the debt is repaid over time, so the next
-// frame waits longer than a small frame would, pacing the average to budget.
-@Test func sendPacerRepaysBigFrameDebtOverTime() {
-    var pacer = GraphicsSendPacer(bytesPerSecond: 1_000, burstBytes: 1_000)
-    pacer.consume(bytes: 1_000, nowNs: 0)          // empty the bucket
-    pacer.consume(bytes: 2_000, nowNs: 0)          // a 2KB frame: tokens to -2000, clamped to -burst
-    let debt = pacer.availableTokens(nowNs: 0)     // debt bounded at -burstBytes
-    #expect(debt == -1_000)
-    let halfSecond = pacer.canSend(nowNs: 500_000_000)  // 0.5s refills 500 -> still negative
-    #expect(!halfSecond)
-    let oneSecond = pacer.canSend(nowNs: 1_000_000_001) // ~1s repays the bounded debt
-    #expect(oneSecond)
-}
+// The token-bucket tests that lived here moved to LinkSendPacerTests.swift with the type
+// itself (ADR-0098). They were the only exercise it had while it sat here with no caller.

@@ -34,16 +34,11 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     // is restored at full resolution regardless of the video rung. One reusable
     // scaler (owns its own CIContext).
     private let videoScaler = OwnedMediaFrameScaler()
-    private let pacer = OwnedMediaDatagramSendPacer(
-        burstPacketCount: Config.ownedMediaDatagramBurstPacketCount,
-        burstPauseUs: Config.ownedMediaDatagramBurstPauseUs
-    )
-    private lazy var sendScheduler = OwnedMediaDatagramBurstScheduler(
-        pacer: pacer
-    ) { [weak self] packet in
-        guard let self else { return false }
-        return await self.sendPacket(packet)
-    }
+    // ADR-0098: the wire's rate governor. Built in `init` rather than lazily because it is
+    // touched from the encode drain and from the control-message path, and a lazy var's
+    // initialisation is not atomic; the closure captures the carrier directly so it needs no
+    // reference to a half-built self.
+    private let sendScheduler: OwnedMediaSendScheduler
     private let stateContinuation: AsyncStream<MediaConnectionState>.Continuation
     let connectionState: AsyncStream<MediaConnectionState>
     private let encodeGate = OSAllocatedUnfairLock<EncodeState>(initialState: EncodeState())
@@ -141,6 +136,33 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var stateCont: AsyncStream<MediaConnectionState>.Continuation!
         connectionState = AsyncStream { stateCont = $0 }
         stateContinuation = stateCont
+        // ADR-0098: the wire opens at the rung this connection will actually encode at, so a
+        // resumed connection's first frame is paced for the link it is resuming onto rather
+        // than for the ceiling it is not using. Builds its own Logger, as `pathObserver` does,
+        // because a class initialiser cannot hand `self` to a closure it is still building.
+        let sendLogger = Logger(subsystem: Config.logSubsystem, category: "owned-media")
+        // An immutable binding of the continuation: the `var` above cannot cross into the
+        // concurrent closure, and reading the stored property would need a `self` that does not
+        // exist until this assignment completes.
+        let sendFailure = stateCont!
+        sendScheduler = OwnedMediaSendScheduler(
+            pacer: LinkSendPacer(
+                bytesPerSecond: LinkSendPacer.bytesPerSecond(
+                    forKbps: resumeQualityTarget?.bitrateKbps ?? Config.ownedMediaBitrateKbps,
+                    headroom: Config.ownedMediaDataRateLimitRatio
+                ),
+                burstBytes: Double(Config.ownedMediaSendPacerBurstBytes)
+            )
+        ) { [datagrams] packet in
+            do {
+                try await datagrams.send(packet)
+                return true
+            } catch {
+                sendLogger.error("video datagram send failed: \(String(describing: error), privacy: .public)")
+                sendFailure.yield(.failed)
+                return false
+            }
+        }
         if let resumeQualityTarget {
             encodeGate.withLock { $0.mediaState.resumeQualityTarget(resumeQualityTarget) }
             // The reused encoder already holds these values, since it is the same object that
@@ -149,6 +171,8 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             // encoder paired with a carried target would otherwise silently disagree.
             encoder.updateBitrate(resumeQualityTarget.bitrateKbps)
             encoder.updateExpectedFrameRate(resumeQualityTarget.fps)
+            // The pacer was already opened at this rung above, so there is nothing to retarget
+            // here -- and `applyBitrate` is unavailable to an initialiser anyway.
             logger.notice("owned media quality resumed rung=\(resumeQualityTarget.rung.rawValue, privacy: .public) bitrateKbps=\(resumeQualityTarget.bitrateKbps, privacy: .public) fps=\(resumeQualityTarget.fps, privacy: .public) resolutionScale=\(resumeQualityTarget.resolutionScale, privacy: .public)")
         }
     }
@@ -219,7 +243,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         }
         guard let outcome else { return }
         if outcome.bitrateChanged {
-            encoder.updateBitrate(outcome.target.bitrateKbps)
+            applyBitrate(outcome.target.bitrateKbps)
         }
         if outcome.fpsChanged {
             encoder.updateExpectedFrameRate(outcome.target.fps)
@@ -773,14 +797,20 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         }
     }
 
-    private func sendPacket(_ packet: Data) async -> Bool {
-        do {
-            try await datagrams.send(packet)
-            return true
-        } catch {
-            logger.error("video datagram send failed: \(String(describing: error), privacy: .public)")
-            stateContinuation.yield(.failed)
-            return false
+    /// ADR-0098: the encoder's budget and the wire's budget are one decision, so they are made
+    /// in one place.
+    ///
+    /// They were three call sites setting only the encoder, which is how the wire ended up with
+    /// no budget at all: nothing named the omission, because there was nothing to omit from.
+    /// Routing both through here means a future rung change cannot move one without the other.
+    private func applyBitrate(_ kbps: Int) {
+        encoder.updateBitrate(kbps)
+        let bytesPerSecond = LinkSendPacer.bytesPerSecond(
+            forKbps: kbps,
+            headroom: Config.ownedMediaDataRateLimitRatio
+        )
+        Task { [sendScheduler] in
+            await sendScheduler.retarget(bytesPerSecond: bytesPerSecond)
         }
     }
 
@@ -939,7 +969,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         guard outcome.changed else { return }
         onQualityTargetChanged(outcome.target)
         if outcome.bitrateChanged {
-            encoder.updateBitrate(outcome.target.bitrateKbps)
+            applyBitrate(outcome.target.bitrateKbps)
             logger.notice("owned media video bitrate-step windowId=\(decision.observation.windowId, privacy: .public) target=\(outcome.target.bitrateKbps, privacy: .public)kbps rung=\(outcome.target.rung.rawValue, privacy: .public) reason=\(outcome.reason, privacy: .public) completed=\(completed, privacy: .public) expired=\(expired, privacy: .public)")
         }
         if outcome.resolutionChanged {

@@ -211,47 +211,6 @@ struct GraphicsBackpressure {
     }
 }
 
-// A1: token-bucket pacer that keeps the average wire send-rate near a byte budget.
-// The reliable graphics channel is ~2Mbps; fast scroll produces 100KB+ exposed-strip
-// frames that, ungated, sum to ~4x the link and saturate the send buffer until a
-// client-requested reset stripe's ack times out (the freeze cascade). The bucket
-// refills at the link budget and is debited by each frame's wire size, so a big
-// frame forces a longer wait before the next produce while small frames flow freely.
-// Cadence tracks the actual link instead of the unacked-frame count, which the
-// client drains too fast to ever signal real link saturation.
-struct GraphicsSendPacer {
-    let bytesPerSecond: Double
-    let burstBytes: Double
-    private var tokens: Double
-    private var lastAdvanceNs: UInt64?
-
-    init(bytesPerSecond: Double, burstBytes: Double) {
-        self.bytesPerSecond = max(1, bytesPerSecond)
-        self.burstBytes = max(0, burstBytes)
-        self.tokens = self.burstBytes
-    }
-
-    // Non-mutating peek of the balance at nowNs: the stored balance plus the budget
-    // accrued since the last consume. It does not advance the clock, so it is safe to
-    // call repeatedly (and from a Testing #expect autoclosure) without changing state.
-    func availableTokens(nowNs: UInt64) -> Double {
-        guard let last = lastAdvanceNs, nowNs > last else { return tokens }
-        let secs = Double(nowNs - last) / 1_000_000_000
-        return min(burstBytes, tokens + secs * bytesPerSecond)
-    }
-
-    // True when any positive budget remains. The frame's size is unknown before it
-    // is built, so admission only requires a positive balance; consume() then debits
-    // the real wire size, letting tokens go negative so the overshoot is repaid as a
-    // longer wait before the next admission.
-    func canSend(nowNs: UInt64) -> Bool { availableTokens(nowNs: nowNs) > 0 }
-
-    mutating func consume(bytes: Int, nowNs: UInt64) {
-        tokens = availableTokens(nowNs: nowNs)
-        lastAdvanceNs = nowNs
-        tokens -= Double(max(0, bytes))
-        // Bound the debt so one oversized frame cannot stall the pump for many
-        // seconds; recovery after any frame is at most burstBytes / bytesPerSecond.
-        if tokens < -burstBytes { tokens = -burstBytes }
-    }
-}
+// The token bucket that used to live here moved to `LinkSendPacer` (ADR-0098). It was written
+// for the reliable graphics channel ADR-0026 retired, sat here with tests and no caller, and now
+// governs the datagram video path that replaced that channel.
