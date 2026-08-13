@@ -9,8 +9,10 @@
 // stays local is what never leaves this process: the per-line result the
 // adapter hands back, and the on-disk session record with its transcript path.
 //
-// Liveness is never stored. A selected-project probe combines transcript
-// recency with the latest bounded turn signal and derives the bin at read time.
+// Liveness is never stored: the BIN depends on the clock, so it is derived at
+// read time from transcript recency plus the last turn signal. The turn signal
+// itself rides the session record, put there by the same bounded metadata read
+// that discovered the session. Listing sessions opens no transcript body.
 
 import type { ParsedLine, SourceId, TokenUsage, EventCacheHit } from "@agentdesk/agent-feed-wire";
 
@@ -27,12 +29,31 @@ export type {
 
 export type TranscriptSourceId = Exclude<SourceId, 'pi'>;
 
+// What a bounded metadata read yields about a session, without reading its body.
+//
+// Everything the session LIST renders comes from here. The read that produces it
+// is two 32 KB edges, and it already had to happen to learn `cwd`, so the fields
+// below are extracted from bytes that were in the buffer anyway.
 export interface Header {
   sessionId?: string;
   cwd?: string;
   gitBranch?: string;
   entrypoint?: string;
   title?: string;
+  /**
+   * Turn state as of the last boundary-bearing line in the TAIL edge, absent when
+   * that edge carries none.
+   *
+   * Only the tail contributes: a boundary read from the head of a large file
+   * describes the start of the session, not whether its turn is open now.
+   */
+  lastTurnClosed?: boolean;
+  /**
+   * The session's opening prompt, from the HEAD edge, for sessions that never got
+   * a title. The fallback exists because a titleless session would otherwise
+   * render as its own UUID.
+   */
+  firstPrompt?: string;
 }
 
 // Whether the nice view lets a line through. `machinery` means everything the
@@ -81,11 +102,18 @@ export interface Session {
   project: string;
   transcriptPath: string;
   lastEventAt: number;
-  // Codex carries a title in SQLite; Claude title lines are discovered by the
-  // bounded selected-project probe.
+  // Codex carries a title in SQLite, Pi in its header line, Claude in the bounded
+  // header read's two edges (`aiTitle` / `customTitle`).
   title?: string;
   gitBranch?: string;
   entrypoint?: string;
+  // The two fields the session list needs that are not identity. Carried on the
+  // record rather than derived per read, because the read that produced the rest
+  // of this record is the only one that should ever open the transcript to build
+  // a list. Both optional: a source that cannot answer cheaply leaves them unset
+  // and the summary falls back.
+  lastTurnClosed?: boolean;
+  firstPrompt?: string;
 }
 
 // Adapters own only source-specific JSONL parsing. Catalog discovery and

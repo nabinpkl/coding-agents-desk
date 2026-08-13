@@ -10,6 +10,7 @@
 //
 import { basename, join } from 'node:path';
 import { readdirSync } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { config } from '../../config.ts';
 import type {
   ActivityBlock,
@@ -279,6 +280,67 @@ const CODEX_EVENT_LABELS: Readonly<Record<string, string>> = {
   mcp_tool_call_end: 'MCP Tool Call',
 };
 
+/**
+ * The turn-boundary signal a line carries, or undefined when it carries none.
+ *
+ * One home for the rule because two readers need it: `processLine`, which feeds
+ * the event index, and `readTail`, which decides from a bounded read whether a
+ * session's last turn is still open. Two copies would be free to disagree about
+ * what "live" means, and both answers land on the same row.
+ *
+ * Every one of these three types is in CODEX_EVENT_LABELS, so the unlabeled
+ * early-return in `normalizedRecord` cannot swallow a boundary this reports.
+ */
+function turnClosedFor(
+  ev: { type?: string; payload?: Record<string, unknown> },
+): boolean | undefined {
+  if (ev.type !== 'event_msg') return undefined;
+  const eventType = ev.payload?.type;
+  if (eventType === 'task_started') return false;
+  if (eventType === 'task_complete' || eventType === 'turn_aborted') return true;
+  return undefined;
+}
+
+/**
+ * Turn state as of the end of a rollout, from a bounded read of its last bytes.
+ *
+ * Codex's inventory comes from SQLite, so unlike Claude nothing else opens the
+ * rollout file to build a session record -- this read is new work, and the
+ * catalog only asks for it for sessions inside the live window, where the answer
+ * can still change which bin the row lands in.
+ *
+ * Undefined when the window carries no boundary line, which the caller reads as
+ * "assume closed" rather than guessing from further back.
+ */
+async function readTail(filePath: string, bytes: number): Promise<boolean | undefined> {
+  let fh: Awaited<ReturnType<typeof open>>;
+  try { fh = await open(filePath, 'r'); } catch { return undefined; }
+  try {
+    const { size } = await fh.stat();
+    const start = Math.max(0, size - bytes);
+    const buf = Buffer.alloc(Math.min(size, bytes));
+    const { bytesRead } = await fh.read(buf, 0, buf.length, start);
+    const lines = buf.toString('utf-8', 0, bytesRead).split('\n');
+    // A window that starts mid-file almost certainly starts mid-line.
+    if (start > 0) lines.shift();
+    let closed: boolean | undefined;
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line);
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
+        // Last one in the window wins: this is the turn state as of the most
+        // recent line that spoke to it.
+        const next = turnClosedFor(parsed as { type?: string; payload?: Record<string, unknown> });
+        if (next !== undefined) closed = next;
+      } catch { continue; }
+    }
+    return closed;
+  } finally {
+    await fh.close();
+  }
+}
+
 const CODEX_TOP_LEVEL_LABELS: Readonly<Record<string, string>> = {
   session_meta: 'Session Metadata',
   turn_context: 'Turn Context',
@@ -378,8 +440,8 @@ function normalizedRecord(
     const label = CODEX_EVENT_LABELS[eventType];
     if (!label) return plain();
     const stateUpdates: Omit<LineResult, 'event'> = {};
-    if (eventType === 'task_started') stateUpdates.turnClosed = false;
-    if (eventType === 'task_complete' || eventType === 'turn_aborted') stateUpdates.turnClosed = true;
+    const closed = turnClosedFor(ev);
+    if (closed !== undefined) stateUpdates.turnClosed = closed;
     if (eventType === 'agent_reasoning' && typeof pe.text === 'string' && pe.text.trim()) {
       return finish('reasoning', [{ block: { kind: 'reasoning', text: pe.text.trim() }, raw: pe.text }], stateUpdates);
     }
@@ -545,11 +607,17 @@ async function extractBlockRaw(line: string, blockIndex: number): Promise<string
   return normalizedLine(line)?.rawBlocks[blockIndex]?.raw ?? null;
 }
 
-export const codexAdapter: SourceAdapter = {
+// `readTail` rides the concrete adapter rather than `SourceAdapter`, the same way
+// Claude's `readHeader` does: metadata reads stay off that interface on purpose,
+// so nothing that only has a `SourceAdapter` can reach for the disk.
+export const codexAdapter = {
   id: 'codex',
   processLine,
   snippetFor,
   extractBlockRaw,
+  readTail,
+} satisfies SourceAdapter & {
+  readTail(path: string, bytes: number): Promise<boolean | undefined>;
 };
 
 export { resolveStateDbPath };

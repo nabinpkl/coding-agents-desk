@@ -30,6 +30,27 @@ import { classifyClaudeLine } from './lineClass.ts';
 const PROJECTS_ROOT = config.claudeProjectsDirectory;
 const HEADER_EDGE_BYTES = 32 * 1024;
 
+/**
+ * The turn-boundary signal a line carries, or undefined when it carries none.
+ *
+ * One home for the rule because two readers need it: `processLine`, which feeds
+ * the event index, and `readHeader`, which decides from a bounded tail read
+ * whether a session's last turn is still open. Two copies would be free to
+ * disagree about what "live" means, and both answers land on the same row.
+ *
+ * A user message OPENS a turn, which is what makes a resumed session live again.
+ * An assistant message closes it only on `end_turn`. Every other record is silent
+ * on the question, which is why the absent case is undefined and not `true`.
+ */
+function turnClosedFor(ev: Record<string, unknown>): boolean | undefined {
+  if (ev.type === 'user') return false;
+  if (ev.type !== 'assistant') return undefined;
+  const message = ev.message && typeof ev.message === 'object' && !Array.isArray(ev.message)
+    ? ev.message as Record<string, unknown>
+    : {};
+  return message.stop_reason === 'end_turn';
+}
+
 // Bracketed strings the harness injects as user messages (interrupts,
 // caveats, etc). Not real user prose, so they are stripped from the rail
 // snippet but still surface as ActivityEvents.
@@ -460,10 +481,9 @@ function normalizedRecord(
   const semanticType = t === 'assistant' && contentBlocks.every(({ block }) => block.kind === 'reasoning')
     ? 'reasoning'
     : t;
-  // Turn-boundary signal per line. A user message opens a turn (handles
-  // resume: a finished session becomes open again when the user resumes).
-  // An assistant message closes the turn only on stop_reason end_turn.
-  const turnClosed = t === 'assistant' && message.stop_reason === 'end_turn';
+  // Turn-boundary signal per line. `t` is user or assistant by here, so the rule
+  // always has an answer; the `?? false` is for the type, not for a real case.
+  const turnClosed = turnClosedFor(ev) ?? false;
   // The Anthropic message id the live `/v1/messages` stream also names on
   // `message_start`, so the viewer can hand a streaming live tail off to the
   // durable transcript once it contains this same id.
@@ -578,6 +598,58 @@ async function extractBlockRaw(line: string, blockIndex: number): Promise<string
   return selected.raw;
 }
 
+/** The prose of a user message, whose content is either a string or a block list. */
+function userText(message: unknown): string | undefined {
+  if (typeof message === 'string') return message.trim() || undefined;
+  if (!message || typeof message !== 'object' || Array.isArray(message)) return undefined;
+  const content = (message as Record<string, unknown>).content;
+  if (typeof content === 'string') return content.trim() || undefined;
+  if (!Array.isArray(content)) return undefined;
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue;
+    const record = block as Record<string, unknown>;
+    if (record.type !== 'text') continue;
+    if (typeof record.text === 'string' && record.text.trim()) return record.text.trim();
+  }
+  return undefined;
+}
+
+/**
+ * The opening prompt a line carries, from the two records that can hold one.
+ *
+ * `user` is the ordinary case. `queue-operation`/`enqueue` is how a command that
+ * was queued rather than typed arrives, and for some sessions it is the ONLY
+ * record of the prompt: a `/security-review` run has no `user` line near its head
+ * at all, so without this branch those sessions render as their own UUID.
+ *
+ * A compaction summary is skipped. It is a resumed context rather than something
+ * a person asked for, and it is long, so it makes a uniquely bad title.
+ */
+function promptText(ev: Record<string, unknown>): string | undefined {
+  if (ev.type === 'user') {
+    if (ev.isCompactSummary === true) return undefined;
+    const text = userText(ev.message);
+    // The harness writes interrupts and caveats as user messages. They are not
+    // prose a person chose, so they are no more useful as a title than the id.
+    if (text && SYNTHETIC_USER_PATTERNS.some((pattern) => pattern.test(text))) return undefined;
+    return text;
+  }
+  if (ev.type === 'queue-operation' && ev.operation === 'enqueue') {
+    return typeof ev.content === 'string' ? ev.content.trim() || undefined : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * What the catalog knows about a session without reading its body: the two 32 KB
+ * edges, and everything the session list needs pulled out of them.
+ *
+ * The edge size is measured, not guessed. Across this repo's 119 Claude
+ * transcripts, 113 carry their title inside these two windows; of the six that do
+ * not, five have no title anywhere in the file, so a full scan finds nothing more.
+ * Widening to 64 KB recovers one session and 128 KB recovers none, which is why
+ * the answer to a missing title is `promptText` above rather than a bigger read.
+ */
 async function readHeader(filePath: string): Promise<Header | null> {
   let fh: Awaited<ReturnType<typeof open>>;
   try { fh = await open(filePath, 'r'); } catch { return null; }
@@ -590,21 +662,27 @@ async function readHeader(filePath: string): Promise<Header | null> {
         { start: metadata.size - HEADER_EDGE_BYTES, length: HEADER_EDGE_BYTES },
       ];
     const out: Header = {};
-    for (const range of ranges) {
+    for (const [index, range] of ranges.entries()) {
+      // A small file is one range that is both edges, so it answers both
+      // questions. A large one splits them, and each question has exactly one
+      // range that can answer it: the head knows how the session opened, the tail
+      // knows whether its turn is still open. Reading either from the wrong end
+      // gives a confident wrong answer.
+      const isHead = index === 0;
+      const isTail = index === ranges.length - 1;
       const buf = Buffer.alloc(range.length);
       const { bytesRead } = await fh.read(buf, 0, buf.length, range.start);
       const lines = buf.toString('utf-8', 0, bytesRead).split('\n');
+      // A window that starts mid-file almost certainly starts mid-line.
       if (range.start > 0) lines.shift();
       for (const line of lines) {
         if (!line) continue;
-        let ev: {
-          cwd?: string;
-          gitBranch?: string;
-          entrypoint?: string;
-          aiTitle?: string;
-          customTitle?: string;
-        };
-        try { ev = JSON.parse(line); } catch { continue; }
+        let ev: Record<string, unknown>;
+        try {
+          const parsed = JSON.parse(line);
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
+          ev = parsed as Record<string, unknown>;
+        } catch { continue; }
         if (typeof ev.cwd === 'string') out.cwd = ev.cwd;
         if (typeof ev.gitBranch === 'string') out.gitBranch = ev.gitBranch;
         if (typeof ev.entrypoint === 'string') out.entrypoint = ev.entrypoint;
@@ -612,6 +690,13 @@ async function readHeader(filePath: string): Promise<Header | null> {
         if (typeof ev.customTitle === 'string' && ev.customTitle.trim()) {
           out.title = ev.customTitle.trim();
         }
+        // Last one in the window wins: this is the turn state as of the most
+        // recent line that spoke to it.
+        if (isTail) {
+          const closed = turnClosedFor(ev);
+          if (closed !== undefined) out.lastTurnClosed = closed;
+        }
+        if (isHead) out.firstPrompt ??= promptText(ev);
       }
     }
     return out.cwd ? out : null;
