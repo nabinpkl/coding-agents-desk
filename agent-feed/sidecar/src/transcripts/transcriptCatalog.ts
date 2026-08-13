@@ -527,6 +527,39 @@ export function projectSummaries(sessions?: Session[]): ProjectSummary[] {
   return value;
 }
 
+/**
+ * Says so when deriving a view took long enough to mean something changed.
+ *
+ * Both derivations below are folds over records already in memory: the project list
+ * is 0.3 ms over 1237 sessions, a project's session list 1-2 ms over 305. They used
+ * to read transcripts and take seconds, which is why each one traced its own duration
+ * on every emission -- a number worth having when it was 7000. At single-digit
+ * milliseconds that same line fires up to 25 times a second per open project to
+ * report that nothing happened, which is how a log stops being read.
+ *
+ * So it reports the overrun instead of the duration. That keeps the one thing the
+ * trace was still good for, because the way a transcript body read gets back into
+ * this path is quietly, and 50 ms is roughly 25x the honest cost and 140x under what
+ * a single body read used to be.
+ */
+const VIEW_DERIVATION_BUDGET_MS = 50;
+
+function reportSlowDerivation(
+  event: string,
+  startedAt: number,
+  detail: Record<string, unknown>,
+): void {
+  const durationMs = performance.now() - startedAt;
+  if (durationMs < VIEW_DERIVATION_BUDGET_MS) return;
+  console.warn(JSON.stringify({
+    event,
+    durationMs: Math.round(durationMs * 100) / 100,
+    budgetMs: VIEW_DERIVATION_BUDGET_MS,
+    subscribers: state.subscribers.size,
+    ...detail,
+  }));
+}
+
 function computeProjectSummaries(sessions: Session[]): ProjectSummary[] {
   const startedAt = performance.now();
   const grouped = new Map<string, ProjectSummary>();
@@ -549,12 +582,9 @@ function computeProjectSummaries(sessions: Session[]): ProjectSummary[] {
   const projects = [...grouped.values()].sort((left, right) =>
     right.lastEventAt - left.lastEventAt || left.projectPath.localeCompare(right.projectPath)
   );
-  console.log(JSON.stringify({
-    event: "agent-feed-project-snapshot",
-    durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
+  reportSlowDerivation("agent-feed-project-snapshot-slow", startedAt, {
     projects: projects.length,
-    subscribers: state.subscribers.size,
-  }));
+  });
   return projects;
 }
 
@@ -669,13 +699,10 @@ export function sessionSummaries(
     left.source.localeCompare(right.source) ||
     left.sessionId.localeCompare(right.sessionId)
   );
-  console.log(JSON.stringify({
-    event: "agent-feed-session-snapshot",
+  reportSlowDerivation("agent-feed-session-snapshot-slow", startedAt, {
     projectPath,
-    durationMs: Math.round((performance.now() - startedAt) * 100) / 100,
     sessions: summaries.length,
-    subscribers: state.subscribers.size,
-  }));
+  });
   return summaries;
 }
 
