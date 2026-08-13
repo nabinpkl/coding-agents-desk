@@ -9,6 +9,28 @@
 
 .agent-panel-md {
   font-size: inherit;
+
+  /* The gap between any two block-level things in a message: paragraph to
+     paragraph, paragraph to list, prose to code fence.
+
+     One value because the rhythm must not depend on WHICH kind of block follows
+     which. Paragraphs used to sit at 0.3em against a 1.6 leading -- under a fifth
+     of a line, so a paragraph break read as a line break -- while a code fence
+     sat at 0.4em. Opening up only the paragraphs would have inverted that: prose
+     spaced further from prose than from the fence directly beneath it.
+
+     `em`, so it rides the tile font-size cascade like everything else here. */
+  --agent-panel-md-block-gap: 0.75em;
+}
+/* A fence or diagram is a SIBLING of the prose blocks, not a child of one, so the
+   prose-level edge reset below cannot reach it. Without this, a message that opens
+   or closes with a code block collapses that block's margin out through this
+   container and spaces the whole message away from its neighbours. */
+.agent-panel-md > :first-child {
+  margin-top: 0;
+}
+.agent-panel-md > :last-child {
+  margin-bottom: 0;
 }
 
 /* ---- prose ------------------------------------------------------------- */
@@ -27,7 +49,7 @@
   margin-bottom: 0;
 }
 .agent-panel-md__prose p {
-  margin: 0.3em 0;
+  margin: var(--agent-panel-md-block-gap) 0;
 }
 /* Headings are `em`, so they ride whatever `tile_other_text` is set to. When
    the body default went 14 -> 16 every heading grew by the same 14% and the
@@ -43,19 +65,19 @@
   font-size: 1.25em;
   line-height: 1.25;
   font-weight: 700;
-  margin: 0.6em 0 0.3em;
+  margin: calc(var(--agent-panel-md-block-gap) * 1.6) 0 0.35em;
 }
 .agent-panel-md__prose h2 {
   font-size: 1.15em;
   line-height: 1.3;
   font-weight: 700;
-  margin: 0.55em 0 0.3em;
+  margin: calc(var(--agent-panel-md-block-gap) * 1.5) 0 0.35em;
 }
 .agent-panel-md__prose h3 {
   font-size: 1.05em;
   line-height: 1.35;
   font-weight: 700;
-  margin: 0.5em 0 0.25em;
+  margin: calc(var(--agent-panel-md-block-gap) * 1.4) 0 0.3em;
 }
 .agent-panel-md__prose h4,
 .agent-panel-md__prose h5,
@@ -63,11 +85,11 @@
   font-size: 1em;
   line-height: 1.4;
   font-weight: 700;
-  margin: 0.45em 0 0.2em;
+  margin: calc(var(--agent-panel-md-block-gap) * 1.3) 0 0.3em;
 }
 .agent-panel-md__prose ul,
 .agent-panel-md__prose ol {
-  margin: 0.3em 0;
+  margin: var(--agent-panel-md-block-gap) 0;
   padding-left: 1.4em;
 }
 .agent-panel-md__prose ul {
@@ -83,7 +105,7 @@
   margin: 0.15em 0;
 }
 .agent-panel-md__prose blockquote {
-  margin: 0.4em 0;
+  margin: var(--agent-panel-md-block-gap) 0;
   padding-left: 0.8em;
   border-left: 2px solid var(--border);
   color: var(--muted-foreground);
@@ -103,7 +125,7 @@
 .agent-panel-md__prose hr {
   border: none;
   border-top: 1px solid var(--border);
-  margin: 0.6em 0;
+  margin: calc(var(--agent-panel-md-block-gap) * 1.5) 0;
 }
 .agent-panel-md__prose img {
   max-width: 100%;
@@ -112,7 +134,7 @@
 .agent-panel-md__prose table {
   border-collapse: collapse;
   font-size: inherit;
-  margin: 0.4em 0;
+  margin: var(--agent-panel-md-block-gap) 0;
   display: block;
   overflow-x: auto;
 }
@@ -130,7 +152,7 @@
 /* ---- code blocks (Shiki) ---------------------------------------------- */
 
 .agent-panel-code {
-  margin: 0.4em 0;
+  margin: var(--agent-panel-md-block-gap) 0;
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
@@ -202,7 +224,7 @@
 /* ---- mermaid ----------------------------------------------------------- */
 
 .agent-panel-mermaid {
-  margin: 0.4em 0;
+  margin: var(--agent-panel-md-block-gap) 0;
 }
 .agent-panel-mermaid__toggle {
   display: flex;
