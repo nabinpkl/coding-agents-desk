@@ -47,7 +47,7 @@ final class SettingsStore: @unchecked Sendable {
         static let cursorSpeed = "agentDesk.cursorSpeed"
         static let cursorAccel = "agentDesk.cursorAcceleration"
         static let scrollSpeed = "agentDesk.scrollSpeed"
-        static let scrollInverted = "agentDesk.scrollInverted"
+        static let naturalScrolling = "agentDesk.naturalScrolling"
         static let useMacOSSpacesDirection = "agentDesk.useMacOSSpacesDirection"
         static let accessoryContainerHeight = "agentDesk.accessoryContainerHeight"
         static let accessoryKeyHeight = "agentDesk.accessoryKeyHeight"
@@ -94,7 +94,7 @@ final class SettingsStore: @unchecked Sendable {
             cursorSpeed: CGFloat(cursorSpeed),
             cursorAcceleration: CGFloat(cursorAcceleration),
             scrollSpeed: CGFloat(scrollSpeed),
-            scrollInverted: scrollInverted
+            naturalScrolling: naturalScrolling
         )
     }
 
@@ -122,13 +122,17 @@ final class SettingsStore: @unchecked Sendable {
         }
     }
 
-    // Default false = natural scroll (finger up moves content up, matching
-    // iOS Safari). Setting to true flips the sign for traditional /
-    // mouse-wheel-style scrolling.
-    var scrollInverted: Bool {
-        get { defaults.bool(forKey: Key.scrollInverted) }
+    // On = the content follows the finger, as iOS and modern macOS do. Off = the traditional
+    // mouse-wheel model, a flick up moving content down.
+    //
+    // Default OFF, and stored under its own key rather than reusing the old inverted one: the
+    // two spellings mean opposite things, so a value written under the previous name would be
+    // read back as its own negation. Nothing migrates it -- a device that had the old setting
+    // starts from this default and the switch is one tap.
+    var naturalScrolling: Bool {
+        get { defaults.bool(forKey: Key.naturalScrolling) }
         set {
-            defaults.set(newValue, forKey: Key.scrollInverted)
+            defaults.set(newValue, forKey: Key.naturalScrolling)
             postChange()
         }
     }

@@ -229,13 +229,18 @@ struct GestureAcceleration: Sendable {
 // SettingsViewController via SettingsStore; PairingViewController copies
 // the whole struct onto the translator on each settings change.
 // 1.0 = default behavior; UI sliders cover 0.5x - 3.0x.
-// scrollInverted=true negates scroll dy so a finger flick up moves content
-// down (traditional / mouse-wheel-style). Default false = natural / iOS.
+// `naturalScrolling` is the iOS and modern-macOS convention: the content follows the finger,
+// so a flick up moves content up. Off is the traditional mouse-wheel model, where a flick up
+// moves content down. It is named for what it turns ON rather than what it inverts, because a
+// switch called "invert" has to be read against an unstated baseline to mean anything, and the
+// baseline is exactly what people disagree about.
+//
+// Default OFF. This drives a Mac, and the finger here is doing the job a wheel does.
 struct GestureTuning: Equatable, Sendable {
     var cursorSpeed: CGFloat = 1.0
     var cursorAcceleration: CGFloat = 1.0
     var scrollSpeed: CGFloat = 1.0
-    var scrollInverted: Bool = false
+    var naturalScrolling: Bool = false
 
     static let `default` = GestureTuning()
 }
@@ -569,7 +574,7 @@ final class GestureTranslator: NSObject {
                 0
             )
         case .vertical:
-            let sign: CGFloat = tuning.scrollInverted ? -1.0 : 1.0
+            let sign: CGFloat = tuning.naturalScrolling ? 1.0 : -1.0
             return (
                 0,
                 Float(delta.y * gain * tuning.scrollSpeed * sign)
@@ -581,7 +586,7 @@ final class GestureTranslator: NSObject {
             // The locked cases keep their existing behaviour rather than inheriting this:
             // the strip's horizontal drag has never been signed, and changing a shipped
             // surface is not this policy's business.
-            let sign: CGFloat = tuning.scrollInverted ? -1.0 : 1.0
+            let sign: CGFloat = tuning.naturalScrolling ? 1.0 : -1.0
             return (
                 Float(delta.x * gain * tuning.scrollSpeed * sign),
                 Float(delta.y * gain * tuning.scrollSpeed * sign)
@@ -633,7 +638,7 @@ final class GestureTranslator: NSObject {
             return
         }
         let gain = scrollAcceleration.scale(scrollSpeed(momentumVelocity))
-        let sign: CGFloat = tuning.scrollInverted ? -1.0 : 1.0
+        let sign: CGFloat = tuning.naturalScrolling ? 1.0 : -1.0
         // The tail has to be signed the same way the drag was, or a flick coasts back against
         // the direction that threw it. Which axes that covers is a property of the gesture
         // that started the momentum, not of the momentum itself, so it is captured at lift.

@@ -112,12 +112,12 @@ struct GestureTranslatorTests {
     // vertically and ignoring it horizontally would scroll one way as asked and the other way
     // as it pleased -- which is the defect this policy was added to fix.
     @Test func theDirectionPreferenceAppliesToBothFreeAxes() {
-        func firstScroll(inverted: Bool) -> (dx: Float, dy: Float)? {
+        func firstScroll(natural: Bool) -> (dx: Float, dy: Float)? {
             let recorder = InputRecorder()
             let translator = GestureTranslator()
             translator.delegate = recorder
             translator.tuning = GestureTuning(
-                cursorSpeed: 1, cursorAcceleration: 1, scrollSpeed: 1, scrollInverted: inverted
+                cursorSpeed: 1, cursorAcceleration: 1, scrollSpeed: 1, naturalScrolling: natural
             )
             translator.processScrollPan(state: .began, translation: .zero, axisPolicy: .free)
             translator.processScrollPan(
@@ -130,8 +130,8 @@ struct GestureTranslatorTests {
             return (dx, dy)
         }
 
-        let natural = firstScroll(inverted: false)
-        let flipped = firstScroll(inverted: true)
+        let natural = firstScroll(natural: true)
+        let flipped = firstScroll(natural: false)
         #expect(natural != nil)
         #expect(flipped != nil)
         #expect(natural?.dx == flipped.map { -$0.dx })
@@ -151,9 +151,13 @@ struct GestureTranslatorTests {
         // First .changed emits .began phase (drag start), second is .changed,
         // .ended emits a zero-delta .ended delimiter so macOS knows the touch
         // drag is over.
+        //
+        // dy comes back NEGATED because natural scrolling is off by default: a finger moving
+        // down the strip pushes the document up, the way a mouse wheel does. Turn the setting
+        // on and these are positive, which is what `theDirectionPreferenceApplies...` pins.
         #expect(recorder.events.count == 3)
-        #expect(recorder.events[0] == .scroll(dx: 0, dy: 13, phase: .began))
-        #expect(recorder.events[1] == .scroll(dx: 0, dy: 12, phase: .changed))
+        #expect(recorder.events[0] == .scroll(dx: 0, dy: -13, phase: .began))
+        #expect(recorder.events[1] == .scroll(dx: 0, dy: -12, phase: .changed))
         #expect(recorder.events[2] == .scroll(dx: 0, dy: 0, phase: .ended))
     }
 
@@ -332,8 +336,9 @@ struct GestureTranslatorTests {
         translator.processScrollPan(state: .changed, translation: CGPoint(x: 0, y: 13))
         translator.processScrollPan(state: .ended, translation: CGPoint(x: 0, y: 13))
 
+        // Negated by the default direction, as above.
         #expect(recorder.events == [
-            .scroll(dx: 0, dy: 13, phase: .began),
+            .scroll(dx: 0, dy: -13, phase: .began),
             .scroll(dx: 0, dy: 0, phase: .ended)
         ])
     }

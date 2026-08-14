@@ -99,7 +99,7 @@ final class SettingsViewController: UIViewController {
             rows: [
                 ("Speed", scrollSpeedLabel, scrollSpeedSlider)
             ],
-            switchRow: ("Invert direction", scrollDirectionSwitch)
+            switchRow: ("Natural scrolling", scrollDirectionSwitch)
         )
 
         let spacesSection = makeSection(
@@ -335,7 +335,7 @@ final class SettingsViewController: UIViewController {
         cursorSpeedSlider.value = Float(store.cursorSpeed)
         cursorAccelSlider.value = Float(store.cursorAcceleration)
         scrollSpeedSlider.value = Float(store.scrollSpeed)
-        scrollDirectionSwitch.isOn = store.scrollInverted
+        scrollDirectionSwitch.isOn = store.naturalScrolling
         spacesDirectionSwitch.isOn = store.useMacOSSpacesDirection
         showSpacePreviewsSwitch.isOn = store.showSpacePreviews
         crispOverlaySwitch.isOn = store.crispTextOverlayEnabled
@@ -395,7 +395,7 @@ final class SettingsViewController: UIViewController {
     }
 
     @objc private func scrollDirectionChanged() {
-        store.scrollInverted = scrollDirectionSwitch.isOn
+        store.naturalScrolling = scrollDirectionSwitch.isOn
     }
 
     @objc private func spacesDirectionChanged() {
