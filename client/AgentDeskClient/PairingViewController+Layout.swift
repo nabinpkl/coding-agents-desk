@@ -47,7 +47,8 @@ extension PairingViewController {
         // Fitted to the display's aspect instead, zoom has nothing to grow but pixels, and
         // the picture eats into the empty frame until it fills it.
         //
-        // The scroll view centres content smaller than its frame via `centerSinkContent`.
+        // Content smaller than the frame is placed by `alignSinkContent`: centred across,
+        // against the top down, so the empty band is under the picture rather than split.
         let fillWidth = sinkView.widthAnchor.constraint(
             equalTo: scroll.frameLayoutGuide.widthAnchor
         )
@@ -404,22 +405,35 @@ extension PairingViewController {
         sinkAspectConstraint = aspect
         sinkFillHeightConstraint?.isActive = false
         aspect.isActive = true
-        centerSinkContent()
+        alignSinkContent()
     }
 
-    /// Keep the picture centred in the scroll view while it is smaller than the frame.
+    /// Place the picture in the scroll view while it is smaller than the frame: centred
+    /// horizontally, against the top vertically.
     ///
-    /// A scroll view pins undersized content to its origin, which would drop the whole
-    /// picture against the top edge and pile all the empty space underneath. The inset is
-    /// also what the cursor math clamps against, so it has exactly one producer here.
-    func centerSinkContent() {
+    /// The two axes differ because the display does. Horizontally there is nothing to prefer.
+    /// Vertically the menu bar and every title bar are at the top, so the slack belongs
+    /// underneath -- see `ContentAlignment`. The split has exactly one producer, in
+    /// `EdgeFollow.insets`, because the same number is what the cursor math clamps against;
+    /// computing it twice is how the drawn pointer starts drifting from the real one.
+    func alignSinkContent() {
         guard let scroll = sinkScrollView else { return }
         scroll.layoutIfNeeded()
+        let horizontal = EdgeFollow.insets(
+            contentExtent: scroll.contentSize.width,
+            viewportExtent: scroll.bounds.width,
+            alignment: .centered
+        )
+        let vertical = EdgeFollow.insets(
+            contentExtent: scroll.contentSize.height,
+            viewportExtent: scroll.bounds.height,
+            alignment: .leading
+        )
         let inset = UIEdgeInsets(
-            top: max(0, (scroll.bounds.height - scroll.contentSize.height) / 2),
-            left: max(0, (scroll.bounds.width - scroll.contentSize.width) / 2),
-            bottom: max(0, (scroll.bounds.height - scroll.contentSize.height) / 2),
-            right: max(0, (scroll.bounds.width - scroll.contentSize.width) / 2)
+            top: vertical.near,
+            left: horizontal.near,
+            bottom: vertical.far,
+            right: horizontal.far
         )
         if scroll.contentInset != inset {
             scroll.contentInset = inset
@@ -431,10 +445,14 @@ extension PairingViewController {
         guard !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating,
               !scroll.isZooming, !scroll.isZoomBouncing else { return }
         let rangeX = EdgeFollow.offsetRange(
-            contentExtent: scroll.contentSize.width, viewportExtent: scroll.bounds.width
+            contentExtent: scroll.contentSize.width,
+            viewportExtent: scroll.bounds.width,
+            alignment: .centered
         )
         let rangeY = EdgeFollow.offsetRange(
-            contentExtent: scroll.contentSize.height, viewportExtent: scroll.bounds.height
+            contentExtent: scroll.contentSize.height,
+            viewportExtent: scroll.bounds.height,
+            alignment: .leading
         )
         let clamped = CGPoint(
             x: min(max(rangeX.min, scroll.contentOffset.x), rangeX.max),

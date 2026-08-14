@@ -276,7 +276,7 @@ extension PairingViewController: UIScrollViewDelegate {
         guard scrollView === sinkScrollView else { return }
         // Every zoom step changes how much empty frame is left around the picture, and the
         // inset is what keeps it centred until it has grown enough to fill the frame.
-        centerSinkContent()
+        alignSinkContent()
         updateCursorDot()
     }
 

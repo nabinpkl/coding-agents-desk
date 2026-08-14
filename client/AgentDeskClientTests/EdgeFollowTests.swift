@@ -50,7 +50,7 @@ struct EdgeFollowTests {
             currentOffset: .zero
         )
         let range = EdgeFollow.offsetRange(
-            contentExtent: Self.video.width * 2, viewportExtent: Self.viewport.width
+            contentExtent: Self.video.width * 2, viewportExtent: Self.viewport.width, alignment: .centered
         )
         #expect(abs(next.x - range.max) < 0.5)
         #expect(range.max > 0)
@@ -68,7 +68,7 @@ struct EdgeFollowTests {
         // The display's left edge is the content's left edge, so pulling the margin past it
         // clamps to the start of the scrollable range.
         let range = EdgeFollow.offsetRange(
-            contentExtent: Self.video.width * 2, viewportExtent: Self.viewport.width
+            contentExtent: Self.video.width * 2, viewportExtent: Self.viewport.width, alignment: .centered
         )
         #expect(abs(next.x - range.min) < 0.5)
     }
@@ -117,10 +117,10 @@ struct EdgeFollowTests {
     // magnify it, so the inset shrinks as the picture grows and is gone once it fills.
     @Test func zoomingConsumesTheCentringInsetInsteadOfScalingIt() {
         let atRest = EdgeFollow.offsetRange(
-            contentExtent: Self.video.width, viewportExtent: Self.viewport.width
+            contentExtent: Self.video.width, viewportExtent: Self.viewport.width, alignment: .centered
         )
         let zoomed = EdgeFollow.offsetRange(
-            contentExtent: Self.video.width * 1.1, viewportExtent: Self.viewport.width
+            contentExtent: Self.video.width * 1.1, viewportExtent: Self.viewport.width, alignment: .centered
         )
         // Both ends move toward zero: less empty band to centre in.
         #expect(zoomed.min > atRest.min)
@@ -128,14 +128,14 @@ struct EdgeFollowTests {
 
         let fillScale = Self.viewport.width / Self.video.width
         let filled = EdgeFollow.offsetRange(
-            contentExtent: Self.video.width * fillScale, viewportExtent: Self.viewport.width
+            contentExtent: Self.video.width * fillScale, viewportExtent: Self.viewport.width, alignment: .centered
         )
         #expect(abs(filled.min) < 0.001)
         #expect(abs(filled.max) < 0.001)
 
         // Past that the picture is bigger than the window and the range opens up.
         let past = EdgeFollow.offsetRange(
-            contentExtent: Self.video.width * fillScale * 2, viewportExtent: Self.viewport.width
+            contentExtent: Self.video.width * fillScale * 2, viewportExtent: Self.viewport.width, alignment: .centered
         )
         #expect(past.min == 0)
         #expect(abs(past.max - Self.viewport.width) < 0.001)
@@ -596,5 +596,90 @@ struct EdgeFollowTests {
 
         #expect(retarget?.displayId == "display-a")
         #expect(pending == nil)
+    }
+}
+
+// MARK: - Where the empty band goes
+//
+// The letterbox case: a landscape Mac on a portrait phone, where the picture is much shorter
+// than the window and the slack has to sit somewhere. Split evenly it sat half above the menu
+// bar, and zooming closed half of each band, so a strip stayed black above the menu bar until
+// the picture filled the frame outright. Biased to the top there is nothing above the menu
+// bar at any zoom, and what zoom closes is the band underneath.
+struct ContentAlignmentTests {
+    // 1512x982 fitted to a 393-wide window: 393x255, against a 500pt-tall window.
+    private static let display = CGRect(x: 0, y: 0, width: 1512, height: 982)
+    private static let viewport = CGSize(width: 393, height: 500)
+    private static let video = CGSize(width: 393, height: 393 * 982 / 1512)
+    private static var slack: CGFloat { viewport.height - video.height }
+
+    @Test func aLetterboxedPictureKeepsAllItsSlackBelow() {
+        let vertical = EdgeFollow.insets(
+            contentExtent: Self.video.height,
+            viewportExtent: Self.viewport.height,
+            alignment: .leading
+        )
+        #expect(Self.slack > 0)
+        #expect(vertical.near == 0)
+        #expect(vertical.far == Self.slack)
+    }
+
+    @Test func theHorizontalAxisStillSplitsItEvenly() {
+        let horizontal = EdgeFollow.insets(
+            contentExtent: 300, viewportExtent: 393, alignment: .centered
+        )
+        #expect(horizontal.near == horizontal.far)
+        // Written as CGFloat rather than as `(393 - 300) / 2`, which Swift evaluates as
+        // integer division and rounds to 46 before it ever reaches the comparison.
+        #expect(horizontal.near == CGFloat(93) / 2)
+    }
+
+    // The resting offset is what actually puts the menu bar against the top edge. Zero means
+    // the content origin is the window origin; the centred answer would be negative, which is
+    // the picture pushed down by half the band.
+    @Test func aTopBiasedPictureRestsAgainstTheTopEdge() {
+        let leading = EdgeFollow.offsetRange(
+            contentExtent: Self.video.height,
+            viewportExtent: Self.viewport.height,
+            alignment: .leading
+        )
+        #expect(leading.min == 0)
+        #expect(leading.max == 0)
+
+        let centred = EdgeFollow.offsetRange(
+            contentExtent: Self.video.height,
+            viewportExtent: Self.viewport.height,
+            alignment: .centered
+        )
+        #expect(centred.min == -Self.slack / 2)
+    }
+
+    // Zoom closes the band from the bottom, and the picture never leaves the top edge on the
+    // way. Under centring the top offset stayed negative the whole way up.
+    @Test func zoomClosesTheBandWithoutLiftingThePictureOffTheTop() {
+        for zoom in [1.0, 1.25, 1.5, 1.9] as [CGFloat] {
+            let range = EdgeFollow.offsetRange(
+                contentExtent: Self.video.height * zoom,
+                viewportExtent: Self.viewport.height,
+                alignment: .leading
+            )
+            #expect(range.min == 0)
+        }
+    }
+
+    // Once the picture is taller than the window there is no slack left, so both alignments
+    // have to agree -- otherwise the zoomed-in case would depend on a choice that no longer
+    // has anything to decide.
+    @Test func theTwoAlignmentsAgreeOnceThereIsNoSlack() {
+        let tall = Self.viewport.height * 2
+        let leading = EdgeFollow.offsetRange(
+            contentExtent: tall, viewportExtent: Self.viewport.height, alignment: .leading
+        )
+        let centred = EdgeFollow.offsetRange(
+            contentExtent: tall, viewportExtent: Self.viewport.height, alignment: .centered
+        )
+        #expect(leading == centred)
+        #expect(leading.min == 0)
+        #expect(leading.max == Self.viewport.height)
     }
 }

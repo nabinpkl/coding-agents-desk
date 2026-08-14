@@ -343,7 +343,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         )
         // The picture is sized from the scroll frame, so a rotation or a strip that just
         // resized the video box changes how much empty frame is left to centre it in.
-        centerSinkContent()
+        alignSinkContent()
     }
 
     @objc func applicationWillEnterForeground() {

@@ -18,17 +18,56 @@ import AgentDeskWire
 // That makes the video rect and the window rect two different things, and every function
 // here needs both: the video decides where a source point lands, the window decides how far
 // it can be scrolled.
+// How the empty frame around content smaller than the viewport is divided between the two
+// edges of one axis.
+//
+// Horizontal is centred: a picture narrower than its frame has no reason to prefer a side.
+//
+// Vertical is not, and this is a deliberate asymmetry. The Mac keeps its menu bar at the top
+// of the display, and every window its title bar, so the top of the picture is the part worth
+// seeing. Split evenly, zooming in closed half of each band and left a black strip above the
+// menu bar until the picture filled the frame outright. Biased to the top, the slack all sits
+// underneath, the menu bar is against the top edge at every zoom, and what zoom closes is the
+// band at the bottom -- which is also where the Desktop and window switchers now overlay.
+enum ContentAlignment: Equatable, Sendable {
+    case centered
+    case leading
+}
+
 enum EdgeFollow {
-    // Offset range a UIScrollView will hold for this content, honouring the symmetric
-    // centring inset it gets while the content is smaller than the window. Below that size
-    // the range collapses to the single centred offset.
+    // The empty frame on each side of an axis, as (near edge, far edge). Near is top or
+    // leading. There is exactly one producer of this split, because the scroll view's inset
+    // and every piece of cursor math that clamps against it have to agree: if they disagree,
+    // the drawn pointer and the real one drift apart by the difference.
+    static func insets(
+        contentExtent: CGFloat,
+        viewportExtent: CGFloat,
+        alignment: ContentAlignment
+    ) -> (near: CGFloat, far: CGFloat) {
+        let slack = max(0, viewportExtent - contentExtent)
+        switch alignment {
+        case .centered: return (slack / 2, slack / 2)
+        case .leading: return (0, slack)
+        }
+    }
+
+    // Offset range a UIScrollView will hold for this content, honouring the inset above.
+    // Below the viewport's size the range collapses to a single offset: the centred one, or
+    // zero when the content is pinned to the near edge.
+    //
+    // `alignment` has no default on purpose. Getting the vertical axis wrong here is not a
+    // compile error and not a visible one either -- it is a slow drift between where the
+    // cursor is drawn and where it actually is -- so every caller says which axis it is.
     static func offsetRange(
         contentExtent: CGFloat,
-        viewportExtent: CGFloat
+        viewportExtent: CGFloat,
+        alignment: ContentAlignment
     ) -> (min: CGFloat, max: CGFloat) {
-        let inset = max(0, (viewportExtent - contentExtent) / 2)
-        let lower = -inset
-        return (lower, max(lower, contentExtent - viewportExtent + inset))
+        let (near, far) = insets(
+            contentExtent: contentExtent, viewportExtent: viewportExtent, alignment: alignment
+        )
+        let lower = -near
+        return (lower, max(lower, contentExtent - viewportExtent + far))
     }
 
     // edgeMargin is a fraction of the visible band. 0.12 = the cursor
@@ -83,10 +122,14 @@ enum EdgeFollow {
         }
 
         let rangeX = offsetRange(
-            contentExtent: videoSize.width * zoomScale, viewportExtent: viewportSize.width
+            contentExtent: videoSize.width * zoomScale,
+            viewportExtent: viewportSize.width,
+            alignment: .centered
         )
         let rangeY = offsetRange(
-            contentExtent: videoSize.height * zoomScale, viewportExtent: viewportSize.height
+            contentExtent: videoSize.height * zoomScale,
+            viewportExtent: viewportSize.height,
+            alignment: .leading
         )
         nextOffsetX = min(max(rangeX.min, nextOffsetX), rangeX.max)
         nextOffsetY = min(max(rangeY.min, nextOffsetY), rangeY.max)
@@ -236,10 +279,14 @@ enum PointerRetargeting {
             return nil
         }
         let rangeX = EdgeFollow.offsetRange(
-            contentExtent: videoSize.width * zoomScale, viewportExtent: viewportSize.width
+            contentExtent: videoSize.width * zoomScale,
+            viewportExtent: viewportSize.width,
+            alignment: .centered
         )
         let rangeY = EdgeFollow.offsetRange(
-            contentExtent: videoSize.height * zoomScale, viewportExtent: viewportSize.height
+            contentExtent: videoSize.height * zoomScale,
+            viewportExtent: viewportSize.height,
+            alignment: .leading
         )
 
         // Per-axis: interior reconcile of the fixed anchor, clamped to the
@@ -315,14 +362,19 @@ enum PointerRetargeting {
         panVelocity: CGPoint
     ) -> PanFollowEdgeProjection {
         // Against the range the scroll view will actually hold, not against zero: while the
-        // picture is smaller than the window the resting offset is the negative centring
-        // inset, and reading that as overscroll would put the axis into edge-push the moment
-        // a drag began.
+        // picture is smaller than the window the resting offset is not zero either -- it is
+        // the negative inset across, and zero down only because that axis is pinned to the top
+        // -- and reading either as overscroll would put the axis into edge-push the moment a
+        // drag began.
         let rangeX = EdgeFollow.offsetRange(
-            contentExtent: contentSize.width, viewportExtent: viewportSize.width
+            contentExtent: contentSize.width,
+            viewportExtent: viewportSize.width,
+            alignment: .centered
         )
         let rangeY = EdgeFollow.offsetRange(
-            contentExtent: contentSize.height, viewportExtent: viewportSize.height
+            contentExtent: contentSize.height,
+            viewportExtent: viewportSize.height,
+            alignment: .leading
         )
         var axes: PanFollowOverscrollAxes = []
         if contentOffset.x < rangeX.min || contentOffset.x > rangeX.max {
