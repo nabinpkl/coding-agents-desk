@@ -651,7 +651,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                     describing: note.userInfo?[AVSampleBufferVideoRenderer.didFailToDecodeNotificationErrorKey]
                 )
                 MainActor.assumeIsolated {
-                    self?.noteRendererFailure(kind: "decode-failed", detail: detail)
+                    self?.noteDecodeFailure(detail: detail)
                 }
             }
         )
@@ -671,6 +671,27 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 }
             }
         )
+    }
+
+    /// The decoder could not decode a frame, which means its reference chain is broken.
+    ///
+    /// Nothing else in the system will notice. The host's long-term reference acknowledgements
+    /// are frame RECEIPT acknowledgements, so it reads this client as still holding a reference
+    /// it can no longer use and goes on encoding deltas against it. Measured on 2026-08-14: 132
+    /// consecutive undecodable frames, roughly twenty-two seconds of frozen picture, which
+    /// ended only because a rung change happened to alter the resolution -- the one remaining
+    /// thing that still forces a true keyframe. Recovery by coincidence is not recovery.
+    ///
+    /// `discardingReferences` is exactly the case: no previously acknowledged reference is
+    /// usable, so a resync answered with a delta would fail the same way and ask again. The
+    /// shared request point rate-limits, so a burst of failures costs one keyframe rather than
+    /// one each.
+    ///
+    /// Internal rather than private, and taking its clock, because the notification that drives
+    /// it is posted against a renderer a test cannot reach.
+    func noteDecodeFailure(detail: String, now: UInt64 = DispatchTime.now().uptimeNanoseconds) {
+        noteRendererFailure(kind: "decode-failed", detail: detail)
+        requestKeyframe(now: now, discardingReferences: true)
     }
 
     private func noteRendererFailure(kind: String, detail: String) {
