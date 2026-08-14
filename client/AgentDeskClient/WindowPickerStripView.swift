@@ -64,6 +64,10 @@ final class WindowPickerStripView: UIView {
     // Dead space between the glyph and the first tile, claimed by the bar as target area
     // rather than left beside a 20pt-wide control. See `barWidthConstraint`.
     static let leadColumnGap: CGFloat = 4
+    // Same reasoning as the Spaces strip above: closed, this can be lying on the Mac's own
+    // picture, and a full-strength glyph there reads as a defect in the video rather than as
+    // a control. Faint at rest, solid once opened.
+    static let collapsedBarAlpha: CGFloat = 0.45
     static let rowVerticalPadding: CGFloat = 4
     static let collapsedHeight: CGFloat = barHeight
     // The tile row alone. It used to be the row plus a label band above it, which spent 32pt
@@ -234,6 +238,7 @@ final class WindowPickerStripView: UIView {
         barTrailingConstraint?.isActive = !isExpanded
         barWidthConstraint?.isActive = isExpanded
         backgroundColor = isExpanded ? .secondarySystemFill : .clear
+        barButton.alpha = isExpanded ? 1.0 : Self.collapsedBarAlpha
         // Hidden rather than merely off-screen: a closed strip must not eat taps meant for the
         // surface below it.
         collectionView.isHidden = !isExpanded

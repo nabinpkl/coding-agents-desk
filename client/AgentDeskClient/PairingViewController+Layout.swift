@@ -557,26 +557,33 @@ extension PairingViewController {
             buttonRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             buttonRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
 
+            // Full-bleed: the video takes everything, so the switchers stack UPWARD from the
+            // button row and sit ON the picture rather than in a band beside it. The chrome
+            // stage is above the backdrop the video lives in, so overlaying costs nothing but
+            // this ordering. Collapsed they are two dimmed slivers; that dimming is what makes
+            // an overlay acceptable, and it lives with the strips (see `collapsedBarAlpha`).
             displayRailView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             displayRailView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            bandTopAtVideoBottom(),
+            displayRailView.bottomAnchor.constraint(equalTo: thumbnailStripView.topAnchor, constant: -4),
 
-            // Flush, as in portrait.
             thumbnailStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            thumbnailStripView.topAnchor.constraint(equalTo: displayRailView.bottomAnchor, constant: 4),
+            thumbnailStripView.bottomAnchor.constraint(equalTo: windowPickerStripView.topAnchor, constant: -4),
 
             windowPickerStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             windowPickerStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            windowPickerStripView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
 
             keyboardSurface.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
             keyboardSurface.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
 
             trackpadView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
             trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),
-            windowPickerStripView.topAnchor.constraint(equalTo: thumbnailStripView.bottomAnchor, constant: 4),
-
-            trackpadView.topAnchor.constraint(equalTo: windowPickerStripView.bottomAnchor, constant: 4),
+            // The trackpad and the scroll strip are never shown in a full-bleed layout, but
+            // their constraints still have to resolve. Collapsed onto the row's top edge
+            // rather than chained under the switchers, which would park a hidden view between
+            // the overlay and the button row and hand it whatever height was left over.
+            trackpadView.topAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
             trackpadView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
 
             scrollStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12)
@@ -634,9 +641,11 @@ extension PairingViewController {
             thumbnailStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
             thumbnailStripView.bottomAnchor.constraint(equalTo: windowPickerStripView.topAnchor, constant: -4),
 
+            // Above the button row, not the safe area's own bottom: full-bleed puts the row
+            // and the switchers in the same column, and the two would land on each other.
             windowPickerStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
             windowPickerStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
-            windowPickerStripView.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
+            windowPickerStripView.bottomAnchor.constraint(equalTo: buttonRow.topAnchor, constant: -8),
 
             trackpadView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
             trackpadView.trailingAnchor.constraint(equalTo: scrollStripView.leadingAnchor, constant: -8),

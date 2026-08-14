@@ -199,6 +199,12 @@ final class ThumbnailStripView: UIView {
     // Dead space between the glyph and the first tile. The bar claims it as target area (see
     // `barWidthConstraint`) rather than leaving a 20pt-wide control beside a full-height row.
     static let leadColumnGap: CGFloat = 4
+    // Closed, the strip can be sitting directly on the Mac's picture in a full-bleed layout.
+    // A full-strength glyph there reads as something wrong with the video rather than as a
+    // control, so the resting state is faint and only becomes solid once opened. Not so faint
+    // it stops being findable: this is the only way back to the Desktop switcher in a mode
+    // with no trackpad under it.
+    static let collapsedBarAlpha: CGFloat = 0.45
 
     // False (default, toggle OFF) inverts the wire-level sign so
     // finger-right maps to the Space on the LEFT (scrollbar reading).
@@ -519,6 +525,7 @@ final class ThumbnailStripView: UIView {
         barTrailingConstraint?.isActive = !isExpanded
         barWidthConstraint?.isActive = isExpanded
         backgroundColor = isExpanded ? .secondarySystemFill : .clear
+        barButton.alpha = isExpanded ? 1.0 : Self.collapsedBarAlpha
         // Hidden rather than merely off-screen: a closed strip must not eat taps meant for
         // the surface below it, and the row is clipped mid-animation either way.
         contentContainer.isHidden = !isExpanded

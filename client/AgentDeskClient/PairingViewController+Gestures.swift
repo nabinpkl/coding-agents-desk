@@ -400,8 +400,10 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // previews setting still gates host-side thumbnail capture (see
     // sendCurrentClientConfig) but no longer hides the strip.
     func refreshThumbnailStripVisibility() {
+        // Full-bleed no longer means "no switchers". They overlay the video instead, dimmed
+        // while collapsed, because a mode with no trackpad and no strips leaves no way to
+        // change Desktop or watched window at all -- and Pointer is exactly such a mode.
         guard isControlSurfaceActive(),
-              !SettingsStore.shared.videoLayoutMode.usesFullLayout,
               keyboardPresentationState != .shown
         else {
             displayRailView.isHidden = true
@@ -441,8 +443,9 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // visibility, so a phone that is looking at a full-screen Terminal or Agent surface is
     // not asking the Mac to enumerate windows for a picker nobody can see.
     func windowPickerDemandActive() -> Bool {
+        // Matches strip visibility above: the picker is on screen in every layout now, so the
+        // host has to keep producing the window list for it.
         isControlSurfaceActive()
-            && !SettingsStore.shared.videoLayoutMode.usesFullLayout
             && keyboardPresentationState != .shown
     }
 
