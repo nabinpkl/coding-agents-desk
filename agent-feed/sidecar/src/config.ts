@@ -1,4 +1,4 @@
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
@@ -119,6 +119,23 @@ export const config = {
   claudeProjectsDirectory: directoryEnvironment(
     "AGENT_FEED_CLAUDE_PROJECTS_DIR",
     join(userHomeDirectory, ".claude", "projects"),
+  ),
+  // The harness's own pid -> session registry. Each `<pid>.json` names the session a
+  // running Claude process is serving, which is the only bridge between a transcript on
+  // disk and a live process able to own background shells (ADR-0099).
+  claudeSessionsDirectory: directoryEnvironment(
+    "AGENT_FEED_CLAUDE_SESSIONS_DIR",
+    join(userHomeDirectory, ".claude", "sessions"),
+  ),
+  // Where the harness parks a background task's stdout capture, as
+  // `<root>/<project-slug>/<session-id>/tasks/<task-id>.output`.
+  //
+  // Read as a FENCE, never as a path builder. A running task's output path comes from the
+  // kernel (the task shell's own fd 1) and a finished one's from the harness's tool_result
+  // text; this value only answers "is that path where it should be" before we open it.
+  claudeTaskRoot: directoryEnvironment(
+    "AGENT_FEED_CLAUDE_TASK_ROOT",
+    `/private/tmp/claude-${userInfo().uid}`,
   ),
   codexHomeDirectory: directoryEnvironment(
     "AGENT_FEED_CODEX_HOME",

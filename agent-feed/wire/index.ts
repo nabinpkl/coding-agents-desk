@@ -20,6 +20,15 @@ export type {
 } from "./session.ts";
 
 export type {
+  BackgroundTask,
+  BackgroundTaskKind,
+  BackgroundTaskProgress,
+  BackgroundTaskSnapshot,
+  BackgroundTaskState,
+  RunningBackgroundTask,
+} from "./tasks.ts";
+
+export type {
   AgentCommandReceipt,
   AgentSessionDescriptor,
   AgentUiEvent,
