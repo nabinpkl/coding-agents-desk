@@ -222,8 +222,15 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // on the video surface while video touch input is active. See
     // PairingViewController+VideoTouch.swift.
     let remoteInputModeControl = RemoteInputModeControl()
+    // On the picture: Touch mode's absolute tap and drag, which mean "the host point under
+    // this finger" and so have nothing to say about the letterbox.
     var videoTouchScrollRecognizer: UIPanGestureRecognizer?
     var videoTouchTapRecognizer: UITapGestureRecognizer?
+    // On the scroll view: pointer mode's relative drag, its tap, and its two-finger scroll.
+    // None of the three asks what is under the finger, so all three work on the black bands
+    // the picture does not cover.
+    var videoPointerPanRecognizer: UIPanGestureRecognizer?
+    var videoPointerTapRecognizer: UITapGestureRecognizer?
     var videoTwoFingerScrollRecognizer: UIPanGestureRecognizer?
     var videoDoubleTapZoomRecognizer: UITapGestureRecognizer?
     // The resolved gesture routing for the current mode. Written by applyVideoTouchState and

@@ -186,8 +186,38 @@ struct VideoTouchGestureConfigTests {
             keyboardIsShown: false
         )
         #expect(config.oneFingerPanBinding == .pointerMove)
-        #expect(config.videoTouchTapRecognizerEnabled)
         #expect(config.twoFingerRemoteScrollEnabled)
+    }
+
+    // The two taps are separate recognizers on separate views, and exactly one is ever live.
+    // Touch mode's is bound to the picture because it means "the host point under this
+    // finger". Pointer mode's is bound to the whole video surface, because it means "click
+    // where the pointer is" and so has an answer on the black letterbox bands too -- which on
+    // a landscape Mac shown on a portrait phone are most of the surface.
+    @Test func exactlyOneTapSurfaceIsLivePerMode() {
+        let pointer = videoTouchGestureConfig(
+            videoTouchEnabled: true,
+            layoutMode: .pointer,
+            keyboardIsShown: false
+        )
+        #expect(pointer.pointerTapRecognizerEnabled)
+        #expect(pointer.videoTouchTapRecognizerEnabled == false)
+
+        let touch = videoTouchGestureConfig(
+            videoTouchEnabled: true,
+            layoutMode: .full,
+            keyboardIsShown: false
+        )
+        #expect(touch.videoTouchTapRecognizerEnabled)
+        #expect(touch.pointerTapRecognizerEnabled == false)
+
+        let off = videoTouchGestureConfig(
+            videoTouchEnabled: false,
+            layoutMode: .asIs,
+            keyboardIsShown: false
+        )
+        #expect(off.videoTouchTapRecognizerEnabled == false)
+        #expect(off.pointerTapRecognizerEnabled == false)
     }
 
     // The mode is a video-input mode by definition. If the Touch switch could still strip its
@@ -200,7 +230,7 @@ struct VideoTouchGestureConfigTests {
                 keyboardIsShown: false
             )
             #expect(config.oneFingerPanBinding == .pointerMove)
-            #expect(config.videoTouchTapRecognizerEnabled)
+            #expect(config.pointerTapRecognizerEnabled)
             #expect(config.tapRetargetsCursor == false)
         }
     }

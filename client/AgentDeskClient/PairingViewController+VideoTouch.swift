@@ -168,18 +168,32 @@ final class RemoteInputModeControl: UIControl {
 //   must NOT resolve the touch point -- see `handleVideoTouchTap`.
 extension PairingViewController {
 
-    // Installs Touch mode recognizers on the video sink content view. Called
-    // from showTrackpad after the sink is mounted. Idempotent: removes any
-    // prior instances first so a reconnect re-attaches cleanly.
+    // Installs the video's input recognizers. Called from showTrackpad after the sink is
+    // mounted. Idempotent: removes any prior instances first so a reconnect re-attaches
+    // cleanly.
+    //
+    // They go on two different views, and which one is not a detail.
+    //
+    // Touch mode's tap and drag are ABSOLUTE -- they mean "the host point under this finger"
+    // -- so they belong to the picture, and a touch on the letterbox is a touch on nothing.
+    // The sink is sized to the aspect-fit picture rather than the frame (see `mountSinkView`),
+    // so the black bands above and below are scroll-view frame the picture never covers.
+    //
+    // Pointer mode's are RELATIVE. A drag is travel and a tap is a click where the pointer
+    // already is; neither asks what is under the finger. Binding them to the picture would
+    // make the black bands dead for no reason, and on a landscape Mac shown on a portrait
+    // phone those bands are most of the surface. They go on the scroll view, which spans the
+    // letterbox too.
     func attachVideoTouchRecognizers() {
-        guard let sinkView = videoSink?.view else { return }
-        if let existing = videoTouchScrollRecognizer {
+        guard let sinkView = videoSink?.view, let scroll = sinkScrollView else { return }
+        for existing in [
+            videoTouchScrollRecognizer,
+            videoPointerPanRecognizer,
+            videoTwoFingerScrollRecognizer
+        ].compactMap({ $0 }) {
             existing.view?.removeGestureRecognizer(existing)
         }
-        if let existing = videoTouchTapRecognizer {
-            existing.view?.removeGestureRecognizer(existing)
-        }
-        if let existing = videoTwoFingerScrollRecognizer {
+        for existing in [videoTouchTapRecognizer, videoPointerTapRecognizer].compactMap({ $0 }) {
             existing.view?.removeGestureRecognizer(existing)
         }
         // Standard pan (NOT InstantPanGestureRecognizer): it waits for a few px
@@ -211,12 +225,38 @@ extension PairingViewController {
             tap.require(toFail: doubleTap)
         }
 
-        // Pointer mode's scroll surface. One finger is the pointer there and the local
+        // --- Pointer mode, on the whole surface including the letterbox ---
+
+        let pointerPan = UIPanGestureRecognizer(
+            target: self,
+            action: #selector(handleVideoPointerPanGesture(_:))
+        )
+        pointerPan.minimumNumberOfTouches = 1
+        pointerPan.maximumNumberOfTouches = 1
+
+        let pointerTap = UITapGestureRecognizer(
+            target: self,
+            action: #selector(handleVideoPointerTap(_:))
+        )
+        pointerTap.numberOfTouchesRequired = 1
+        pointerTap.numberOfTapsRequired = 1
+        pointerTap.delaysTouchesBegan = false
+        pointerTap.delaysTouchesEnded = false
+        if let dismissKeyboardTap {
+            pointerTap.require(toFail: dismissKeyboardTap)
+        }
+        if let doubleTap = videoDoubleTapZoomRecognizer {
+            pointerTap.require(toFail: doubleTap)
+        }
+
+        // Pointer mode's scroll gesture. One finger is the pointer there and the local
         // viewport pan is off, so this is the only pan left on two fingers -- it contends
         // with the scroll view's pinch, and deliberately does not recognize alongside it:
         // a drag that also zoomed, or a pinch that also scrolled the Mac, is worse than
         // having to lift and start again. Fingers held apart at a steady distance read as a
-        // drag; fingers changing distance read as a pinch.
+        // drag; fingers changing distance read as a pinch. On the scroll view for the same
+        // reason as the rest of pointer mode: scrolling the Mac does not care what pixel the
+        // fingers landed on.
         let twoFingerScroll = UIPanGestureRecognizer(
             target: self,
             action: #selector(handleVideoTwoFingerScroll(_:))
@@ -227,24 +267,41 @@ extension PairingViewController {
         sinkView.isUserInteractionEnabled = true
         sinkView.addGestureRecognizer(pan)
         sinkView.addGestureRecognizer(tap)
-        sinkView.addGestureRecognizer(twoFingerScroll)
+        scroll.addGestureRecognizer(pointerPan)
+        scroll.addGestureRecognizer(pointerTap)
+        scroll.addGestureRecognizer(twoFingerScroll)
         videoTouchScrollRecognizer = pan
         videoTouchTapRecognizer = tap
+        videoPointerPanRecognizer = pointerPan
+        videoPointerTapRecognizer = pointerTap
         videoTwoFingerScrollRecognizer = twoFingerScroll
         applyVideoTouchState()
     }
 
-    // One finger on the video. Which of the three things it means is the mode's decision, made
-    // once in `videoTouchGestureConfig` rather than re-derived from settings on every frame of
-    // a 120Hz drag.
+    // One finger on the PICTURE. Only Touch mode's remote scroll lives here now; pointer mode
+    // has its own recognizer on the scroll view so the letterbox works too. The binding is
+    // still consulted rather than assumed, because it is what decided this recognizer was the
+    // enabled one.
     @objc func handleVideoTouchScroll(_ gesture: UIPanGestureRecognizer) {
-        switch videoGestureConfig?.oneFingerPanBinding ?? .none {
-        case .none:
-            return
-        case .pointerMove:
-            handleVideoPointerPan(gesture)
-        case .remoteScroll:
-            handleVideoRemoteScrollPan(gesture)
+        guard videoGestureConfig?.oneFingerPanBinding == .remoteScroll else { return }
+        handleVideoRemoteScrollPan(gesture)
+    }
+
+    // One finger anywhere on the video surface, letterbox included.
+    @objc func handleVideoPointerPanGesture(_ gesture: UIPanGestureRecognizer) {
+        guard videoGestureConfig?.oneFingerPanBinding == .pointerMove else { return }
+        handleVideoPointerPan(gesture)
+    }
+
+    // Pointer mode's tap: a click where the pointer already is. It resolves nothing about the
+    // touch point, which is exactly why it can live on the black bands -- and why a tap there
+    // is meaningful rather than dead.
+    @objc func handleVideoPointerTap(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended,
+              videoGestureConfig?.tapRetargetsCursor == false else { return }
+        pendingCursorRetarget = nil
+        for input in videoTouchTapInputs(for: nil, retargetsCursor: false) {
+            sendInput(input)
         }
     }
 
@@ -317,21 +374,20 @@ extension PairingViewController {
         )
     }
 
+    // Touch mode's tap: absolute, so it resolves the host point under the finger first. Bound
+    // to the picture, which is why it is a separate recognizer from the pointer-mode tap
+    // rather than a branch inside one -- the two want different surfaces, not just different
+    // outputs.
     @objc func handleVideoTouchTap(_ gesture: UITapGestureRecognizer) {
-        guard gesture.state == .ended, let sinkView = videoSink?.view else { return }
-        let retargetsCursor = videoGestureConfig?.tapRetargetsCursor ?? true
-        // Pointer mode clicks where the pointer is. Resolving the touch point first would
-        // move it there, undoing whatever the last drag steered it to -- and the pointer is
-        // drawn on screen, so the user would watch it happen.
-        let retarget = retargetsCursor
-            ? retargetVideoTouchCursor(
-                at: gesture.location(in: sinkView),
-                contentViewSize: sinkView.bounds.size
-            )
-            : nil
+        guard gesture.state == .ended,
+              videoGestureConfig?.tapRetargetsCursor != false,
+              let sinkView = videoSink?.view else { return }
+        let retarget = retargetVideoTouchCursor(
+            at: gesture.location(in: sinkView),
+            contentViewSize: sinkView.bounds.size
+        )
         pendingCursorRetarget = nil
-        let inputs = videoTouchTapInputs(for: retarget, retargetsCursor: retargetsCursor)
-        for input in inputs {
+        for input in videoTouchTapInputs(for: retarget) {
             sendInput(input)
         }
     }
@@ -378,7 +434,9 @@ extension PairingViewController {
         // UserDefaults on every `.changed`.
         videoGestureConfig = config
         videoTouchTapRecognizer?.isEnabled = config.videoTouchTapRecognizerEnabled
-        videoTouchScrollRecognizer?.isEnabled = config.oneFingerPanBinding != .none
+        videoTouchScrollRecognizer?.isEnabled = config.oneFingerPanBinding == .remoteScroll
+        videoPointerTapRecognizer?.isEnabled = config.pointerTapRecognizerEnabled
+        videoPointerPanRecognizer?.isEnabled = config.oneFingerPanBinding == .pointerMove
         videoTwoFingerScrollRecognizer?.isEnabled = config.twoFingerRemoteScrollEnabled
         videoDoubleTapZoomRecognizer?.isEnabled = config.doubleTapZoomRecognizerEnabled
         if let scroll = sinkScrollView {

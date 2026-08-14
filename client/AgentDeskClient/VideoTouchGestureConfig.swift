@@ -72,7 +72,13 @@ struct RemoteInputModeControlState: Equatable {
 // drags stay with the local UIScrollView, and double-tap zoom remains
 // available. When it is on, one-finger taps and drags route to the host.
 struct VideoTouchGestureConfig: Equatable {
+    // Touch mode's absolute tap, bound to the picture: it means "the host point under this
+    // finger", so the letterbox is genuinely nothing to it.
     let videoTouchTapRecognizerEnabled: Bool
+    // Pointer mode's tap, bound to the whole video surface. It clicks where the pointer
+    // already is, asks nothing about the touch point, and therefore works on the black bands
+    // above and below the picture -- which on a landscape Mac shown portrait is most of them.
+    let pointerTapRecognizerEnabled: Bool
     let oneFingerPanBinding: VideoOneFingerPanBinding
     // Two fingers scroll the Mac in pointer mode, because one finger is spoken for and the
     // right-edge strip cannot have that job here: edge follow needs the pointer pushed
@@ -107,7 +113,8 @@ func videoTouchGestureConfig(
     let videoIsAnInputSurface = pointer || videoTouchEnabled
     let hidesRelativeControls = layoutMode.usesFullLayout || keyboardIsShown
     return VideoTouchGestureConfig(
-        videoTouchTapRecognizerEnabled: videoIsAnInputSurface,
+        videoTouchTapRecognizerEnabled: videoTouchEnabled && !pointer,
+        pointerTapRecognizerEnabled: pointer,
         oneFingerPanBinding: pointer
             ? .pointerMove
             : (videoTouchEnabled ? .remoteScroll : .none),
