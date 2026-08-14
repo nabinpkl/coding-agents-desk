@@ -152,6 +152,9 @@ extension PairingViewController {
         puck.onDragged = { [weak self] delta in
             self?.movePointerScrollPuck(by: delta)
         }
+        puck.onZoomToggle = { [weak self] in
+            self?.toggleSinkZoomAtPointer()
+        }
         stage(.chrome).addSubview(puck)
         NSLayoutConstraint.activate([puckX, puckY])
         pointerScrollPuck = puck

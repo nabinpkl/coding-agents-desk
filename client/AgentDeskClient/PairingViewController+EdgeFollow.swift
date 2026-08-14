@@ -13,16 +13,43 @@ extension PairingViewController: UIScrollViewDelegate {
     var sinkVideoSize: CGSize { sinkContentView?.bounds.size ?? .zero }
 
     @objc func handleSinkDoubleTap(_ gr: UITapGestureRecognizer) {
-        guard let scroll = sinkScrollView, let sink = sinkContentView else { return }
-        let target: CGFloat = scroll.zoomScale > 1.0 ? 1.0 : Self.sinkDoubleTapZoomScale
+        guard let sink = sinkContentView else { return }
         // zoom(to:) reads its rect in the zooming view's coordinates, which stopped being the
         // scroll view's the moment the sink shrank to the picture.
-        let point = gr.location(in: sink)
-        // Convert the visible-frame tap point to a content-coords rect
-        // so iOS zooms centered on the user's finger, not the origin.
-        let scale = target
-        let rectWidth = scroll.bounds.width / scale
-        let rectHeight = scroll.bounds.height / scale
+        toggleSinkZoom(centredOnSinkPoint: gr.location(in: sink))
+    }
+
+    /// Where the host cursor sits in the picture's own coordinates, zoom-independent.
+    ///
+    /// One producer, because two places need the identical answer and a disagreement between
+    /// them is invisible until it is wrong: the overlay draws the pointer here, and the puck's
+    /// zoom centres on here. If they drifted, the zoom would land next to the pointer it was
+    /// aimed at and nothing would say why.
+    var cursorSinkPoint: CGPoint? {
+        let video = sinkVideoSize
+        guard let pos = cursorSourcePos,
+              activeDisplayRect.width > 0, activeDisplayRect.height > 0,
+              video.width > 0, video.height > 0 else { return nil }
+        return CGPoint(
+            x: pos.x * (video.width / activeDisplayRect.width),
+            y: pos.y * (video.height / activeDisplayRect.height)
+        )
+    }
+
+    /// Toggle between 1x and the double-tap scale, keeping `point` in the middle of the window.
+    ///
+    /// Shared by the sink's own double tap, which centres on the finger, and pointer mode's
+    /// puck, which centres on the pointer. Pointer mode disables the sink's double tap
+    /// outright -- a finger there is the pointer's input, not a zoom target -- so without the
+    /// puck that mode has no zoom toggle at all.
+    func toggleSinkZoom(centredOnSinkPoint point: CGPoint) {
+        guard let scroll = sinkScrollView else { return }
+        let target: CGFloat = scroll.zoomScale > 1.0 ? 1.0 : Self.sinkDoubleTapZoomScale
+        // Convert to a content-coords rect so iOS zooms centred on the point rather than the
+        // origin. The rect is the window's size AT the target scale, which is what makes the
+        // point end up in the middle of it.
+        let rectWidth = scroll.bounds.width / target
+        let rectHeight = scroll.bounds.height / target
         let rect = CGRect(
             x: point.x - rectWidth / 2,
             y: point.y - rectHeight / 2,
@@ -30,6 +57,14 @@ extension PairingViewController: UIScrollViewDelegate {
             height: rectHeight
         )
         scroll.zoom(to: rect, animated: true)
+    }
+
+    /// The puck's double tap. Centres on where the pointer was parked, not on the puck, which
+    /// is a control the user dragged out of the way and has nothing to do with what they are
+    /// looking at.
+    func toggleSinkZoomAtPointer() {
+        guard let point = cursorSinkPoint else { return }
+        toggleSinkZoom(centredOnSinkPoint: point)
     }
 
     // MARK: - UIScrollViewDelegate
@@ -234,24 +269,19 @@ extension PairingViewController: UIScrollViewDelegate {
             cursorDotView?.isHidden = true
             return
         }
-        let video = sinkVideoSize
+        // Position in sinkView coords (unaffected by zoom), from the one producer of that
+        // mapping so the drawn pointer and the puck's zoom target cannot disagree. It carries
+        // the geometry guards with it -- cursor known, display and picture both sized -- so
+        // they are not restated here.
         guard let dot = cursorDotView,
               let scroll = sinkScrollView,
-              let pos = cursorSourcePos,
-              activeDisplayRect.width > 0,
-              activeDisplayRect.height > 0,
-              video.width > 0,
-              video.height > 0 else {
+              let sinkPoint = cursorSinkPoint else {
             cursorDotView?.isHidden = true
             return
         }
-        // Position in sinkView coords (unaffected by zoom). The sink is the picture, so this
-        // is a straight scale with no padding to step over.
-        let sinkX = pos.x * (video.width / activeDisplayRect.width)
-        let sinkY = pos.y * (video.height / activeDisplayRect.height)
         // Scale up by zoom and subtract the scroll offset to get viewport coords.
-        let vpX = sinkX * scroll.zoomScale - scroll.contentOffset.x
-        let vpY = sinkY * scroll.zoomScale - scroll.contentOffset.y
+        let vpX = sinkPoint.x * scroll.zoomScale - scroll.contentOffset.x
+        let vpY = sinkPoint.y * scroll.zoomScale - scroll.contentOffset.y
         // Mirror the Mac's hidden state and the local cursor-display preference.
         if cursorHidden || !SettingsStore.shared.cursorDisplayMode.showsClientCursor {
             dot.isHidden = true

@@ -22,6 +22,11 @@ final class PointerScrollPuck: UIView {
     var onToggle: ((Bool) -> Void)?
     // Incremental travel from a drag of the puck itself, in the parent's coordinates.
     var onDragged: ((CGPoint) -> Void)?
+    // Double tap: zoom the picture in or out around wherever the pointer is parked. It lives
+    // here because pointer mode turns the sink's own double-tap zoom off -- a finger there is
+    // the pointer's input, not a zoom target -- which otherwise leaves the mode with no way to
+    // zoom but a pinch.
+    var onZoomToggle: (() -> Void)?
 
     static let side: CGFloat = 56
     // Resting transparency. Low enough to read the Mac through it, high enough to find.
@@ -66,8 +71,17 @@ final class PointerScrollPuck: UIView {
             glyphView.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
 
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap))
+        doubleTap.numberOfTapsRequired = 2
+        addGestureRecognizer(doubleTap)
+
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
         tap.numberOfTapsRequired = 1
+        // The clutch toggle now waits out the double-tap interval before it fires. That delay
+        // is real and it is the price of putting two taps on one control; it is paid on the
+        // clutch rather than the zoom because a clutch is held for a while and a zoom is
+        // aimed, so a late toggle costs less than a zoom that fired at the wrong scale.
+        tap.require(toFail: doubleTap)
         addGestureRecognizer(tap)
 
         // Standard pan, not an instant one: it waits for real travel before recognising, which
@@ -86,6 +100,13 @@ final class PointerScrollPuck: UIView {
     @objc private func handleTap() {
         setEngaged(!isEngaged)
         onToggle?(isEngaged)
+    }
+
+    // Deliberately does NOT touch the clutch. A zoom and a mode change are different intents,
+    // and firing both would mean a user who wanted a closer look also silently changed what
+    // their next drag does.
+    @objc private func handleDoubleTap() {
+        onZoomToggle?()
     }
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
