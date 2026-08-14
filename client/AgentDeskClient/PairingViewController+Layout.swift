@@ -523,12 +523,16 @@ extension PairingViewController {
             displayRailView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
             bandTopAtVideoBottom(),
 
-            thumbnailStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            // Flush to the edges, unlike every other band here. Both strips are scrolling tile
+            // rows, and the 12pt gutter their neighbours want was costing 24pt of the one axis
+            // that runs out: it is a whole Desktop pill at seven or eight Desktops. A tile
+            // running off the edge is also the overflow cue, so the row reads better for it.
+            thumbnailStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             thumbnailStripView.topAnchor.constraint(equalTo: displayRailView.bottomAnchor, constant: 4),
 
-            windowPickerStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            windowPickerStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            windowPickerStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            windowPickerStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
             keyboardSurface.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             keyboardSurface.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
@@ -558,12 +562,13 @@ extension PairingViewController {
             displayRailView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
             bandTopAtVideoBottom(),
 
-            thumbnailStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            // Flush, as in portrait.
+            thumbnailStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            thumbnailStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             thumbnailStripView.topAnchor.constraint(equalTo: displayRailView.bottomAnchor, constant: 4),
 
-            windowPickerStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            windowPickerStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            windowPickerStripView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            windowPickerStripView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
             keyboardSurface.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
             keyboardSurface.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
@@ -592,12 +597,14 @@ extension PairingViewController {
             displayRailView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
             displayRailView.bottomAnchor.constraint(equalTo: thumbnailStripView.topAnchor, constant: -4),
 
-            thumbnailStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-            thumbnailStripView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
+            // Flush, as in portrait. Against the safe area rather than the view, because
+            // landscape is where the leading edge is a notch.
+            thumbnailStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            thumbnailStripView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
             thumbnailStripView.bottomAnchor.constraint(equalTo: windowPickerStripView.topAnchor, constant: -4),
 
-            windowPickerStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-            windowPickerStripView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: -12),
+            windowPickerStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            windowPickerStripView.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
             windowPickerStripView.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
 
             trackpadView.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 12),
@@ -623,12 +630,13 @@ extension PairingViewController {
             displayRailView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
             displayRailView.bottomAnchor.constraint(equalTo: thumbnailStripView.topAnchor, constant: -4),
 
-            thumbnailStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-            thumbnailStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
+            // Flush, as in portrait, and against the safe area for the notch.
+            thumbnailStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            thumbnailStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
             thumbnailStripView.bottomAnchor.constraint(equalTo: windowPickerStripView.topAnchor, constant: -4),
 
-            windowPickerStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),
-            windowPickerStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor, constant: -12),
+            windowPickerStripView.leadingAnchor.constraint(equalTo: safe.leadingAnchor),
+            windowPickerStripView.trailingAnchor.constraint(equalTo: safe.trailingAnchor),
             windowPickerStripView.bottomAnchor.constraint(equalTo: safe.bottomAnchor, constant: -12),
 
             trackpadView.leadingAnchor.constraint(equalTo: safe.leadingAnchor, constant: 12),

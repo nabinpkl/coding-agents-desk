@@ -46,15 +46,23 @@ final class WindowPickerStripView: UIView {
     // Icon plus a little breathing room; the badge overlaps the icon corner rather than
     // claiming its own height, so the tile row stays one tile tall.
     static let tileRowHeight: CGFloat = tileSize + 8
-    // The bar is the whole strip when collapsed: a sliver carrying a chevron and the window
-    // glyph that says which strip this is. It spans the full width so the tap target is large
-    // in the axis that matters.
+    // The bar is the whole strip when collapsed: a sliver carrying the window glyph that says
+    // which strip this is. It spans the full width so the tap target is large in the axis
+    // that matters.
     static let barHeight: CGFloat = 28
-    // Chevron plus the identifying glyph. Open, the bar shrinks to this column and the tiles
-    // take the rest of the row, so the disclosure control costs no vertical band of its own.
-    static let chevronWidth: CGFloat = 16
+    // The identifying glyph. Open, the bar shrinks to this column and the tiles take the rest
+    // of the row, so the disclosure control costs no vertical band of its own.
+    //
+    // One glyph, not a chevron beside one, for the same reason as the Spaces strip above:
+    // horizontal is the axis that runs out, and the filled variant says open just as well as
+    // a second symbol did. This is why the glyph is no longer `macwindow` -- it has no filled
+    // variant in the catalog, and tint is already spoken for here (see `renderBar`, where it
+    // means "narrowed to one window"). Two overlapping squares is also the more honest shape
+    // for a list of windows.
     static let iconWidth: CGFloat = 20
-    static let leadColumnWidth: CGFloat = chevronWidth + iconWidth
+    static let leadColumnWidth: CGFloat = iconWidth
+    // Dead space between the glyph and the first tile, claimed by the bar as target area
+    // rather than left beside a 20pt-wide control. See `barWidthConstraint`.
     static let leadColumnGap: CGFloat = 4
     static let rowVerticalPadding: CGFloat = 4
     static let collapsedHeight: CGFloat = barHeight
@@ -79,7 +87,6 @@ final class WindowPickerStripView: UIView {
     }()
 
     private let barButton = UIControl()
-    private let barChevron = UIImageView()
     private let barIcon = UIImageView()
     private var barTrailingConstraint: NSLayoutConstraint?
     private var barWidthConstraint: NSLayoutConstraint?
@@ -121,25 +128,23 @@ final class WindowPickerStripView: UIView {
         barButton.addTarget(self, action: #selector(toggleExpansion), for: .touchUpInside)
         addSubview(barButton)
 
-        barChevron.contentMode = .center
-        barChevron.tintColor = .secondaryLabel
-        barChevron.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
-        barChevron.translatesAutoresizingMaskIntoConstraints = false
-        barButton.addSubview(barChevron)
-
-        // Two closed slivers stacked one above the other are indistinguishable by a chevron
-        // alone, so each carries the glyph for what it opens.
+        // Two closed slivers stacked one above the other are indistinguishable by a bare
+        // disclosure, so each carries the glyph for what it opens. `applyExpansionToSubviews`
+        // owns the image, since which variant is right depends on the disclosure.
         barIcon.contentMode = .center
         barIcon.tintColor = .secondaryLabel
-        barIcon.image = UIImage(systemName: "macwindow")
-        barIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+        barIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 13, weight: .regular)
         barIcon.translatesAutoresizingMaskIntoConstraints = false
         barButton.addSubview(barIcon)
 
         addSubview(collectionView)
 
         let barTrailing = barButton.trailingAnchor.constraint(equalTo: trailingAnchor)
-        let barWidth = barButton.widthAnchor.constraint(equalToConstant: Self.leadColumnWidth)
+        // The gap is inside the target, not beside it: open, this is the way back out, and a
+        // bare 20pt column is a thin thing to hit next to a full-height row of tiles.
+        let barWidth = barButton.widthAnchor.constraint(
+            equalToConstant: Self.leadColumnWidth + Self.leadColumnGap
+        )
         barTrailingConstraint = barTrailing
         barWidthConstraint = barWidth
         barTrailing.isActive = true
@@ -150,12 +155,7 @@ final class WindowPickerStripView: UIView {
             // and a short target beside a 52pt tile row is easy to miss.
             barButton.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            barChevron.leadingAnchor.constraint(equalTo: barButton.leadingAnchor),
-            barChevron.widthAnchor.constraint(equalToConstant: Self.chevronWidth),
-            barChevron.topAnchor.constraint(equalTo: barButton.topAnchor),
-            barChevron.bottomAnchor.constraint(equalTo: barButton.bottomAnchor),
-
-            barIcon.leadingAnchor.constraint(equalTo: barChevron.trailingAnchor),
+            barIcon.leadingAnchor.constraint(equalTo: barButton.leadingAnchor),
             barIcon.widthAnchor.constraint(equalToConstant: Self.iconWidth),
             barIcon.topAnchor.constraint(equalTo: barButton.topAnchor),
             barIcon.bottomAnchor.constraint(equalTo: barButton.bottomAnchor),
@@ -237,7 +237,11 @@ final class WindowPickerStripView: UIView {
         // Hidden rather than merely off-screen: a closed strip must not eat taps meant for the
         // surface below it.
         collectionView.isHidden = !isExpanded
-        barChevron.image = UIImage(systemName: isExpanded ? "chevron.down" : "chevron.right")
+        // Filled means open, the same encoding the Spaces strip above uses. Both names were
+        // checked against the symbol catalog rather than assumed: `UIImage(systemName:)`
+        // answers nil for a name that does not exist, and the control would render as
+        // nothing at all. `macwindow.fill`, the obvious first guess, is one of those.
+        barIcon.image = UIImage(systemName: isExpanded ? "square.fill.on.square" : "square.on.square")
     }
 
     private func renderBar() {
@@ -257,7 +261,6 @@ final class WindowPickerStripView: UIView {
         // window, grey means the whole desktop.
         let narrowed = selectedWindowId != nil
         barIcon.tintColor = narrowed ? .tintColor : .secondaryLabel
-        barChevron.tintColor = narrowed ? .tintColor : .secondaryLabel
         barButton.accessibilityLabel = "Window picker"
         barButton.accessibilityValue = title
         barButton.accessibilityHint = isExpanded ? "Closes the window list." : "Opens the window list."

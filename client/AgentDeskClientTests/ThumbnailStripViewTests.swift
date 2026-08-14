@@ -271,7 +271,7 @@ struct ThumbnailStripViewTests {
     // MARK: - Compact row and on-demand previews
     //
     // The strip rests as a compact row of Desktop pills, which is also its bar: Desktop
-    // switching is never a tap deep. A leading chevron grows those pills into preview tiles,
+    // switching is never a tap deep. A leading glyph grows those pills into preview tiles,
     // and exists only when the host is capturing previews at all. The row height is what the
     // layout owner installs, so it is asserted through `preferredHeight`.
 
@@ -380,6 +380,66 @@ struct ThumbnailStripViewTests {
         #expect(view.isExpanded == false)
         #expect(view.preferredHeight == ThumbnailStripView.barHeight)
         #expect(view.userSpaceCount == 0)
+    }
+
+    // MARK: - How many Desktops the pill row holds at rest
+    //
+    // The reason the pill shrank and the strip went edge-to-edge. On a Mac with seven
+    // Desktops the row used to overflow, so reaching D7 pushed D1 out of sight -- the strip
+    // was a scrollbar you had to scroll to read. These assert the property, not the numbers:
+    // they compose the real geometry from the real constants, so any later change to the
+    // pill, the spacing, the lead column, or the strip's insets has to keep seven visible or
+    // fail here.
+
+    // Portrait width of the phones this ships to, with the strip flush to both edges.
+    private static func pillRow(spaces: Int, screenWidth: CGFloat) -> ThumbnailStripGeometry {
+        ThumbnailStripGeometry(
+            tileCount: spaces,
+            tileWidth: ThumbnailStripView.compactTileWidth,
+            tileHeight: ThumbnailStripView.compactRowHeight,
+            spacing: ThumbnailStripView.defaultTileSpacing,
+            viewportWidth: screenWidth
+                - ThumbnailStripView.leadColumnWidth
+                - ThumbnailStripView.leadColumnGap
+        )
+    }
+
+    @Test func sevenDesktopsFitAtRestOnAStandardPhone() {
+        // iPhone 15/16 portrait, the narrowest common width.
+        let row = Self.pillRow(spaces: 7, screenWidth: 393)
+        #expect(row.maxOffsetX == 0)
+        // Fitting means centred, not merely reachable: the row is inset to span the viewport.
+        #expect(row.sectionInset > 0)
+        // And D1 is the first thing in view, which is the whole point.
+        #expect(row.restingOffsetX(for: 0) == 0)
+        #expect(row.restingOffsetX(for: 6) == 0)
+    }
+
+    @Test func sevenDesktopsFitAtRestOnTheSmallestSupportedPhone() {
+        #expect(Self.pillRow(spaces: 7, screenWidth: 375).maxOffsetX == 0)
+    }
+
+    // Eight is past the row's honest capacity at this pill width, so it scrolls. Asserted so
+    // the boundary is a decision on record rather than something rediscovered on a device.
+    @Test func eightDesktopsOverflowAndScroll() {
+        let row = Self.pillRow(spaces: 8, screenWidth: 393)
+        #expect(row.maxOffsetX > 0)
+        #expect(row.sectionInset == 0)
+    }
+
+    // Preview tiles are 88pt and were never going to fit seven. The strip is honest about it
+    // by scrolling; nothing above claims otherwise for this mode.
+    @Test func previewTilesStillOverflowAtSevenDesktops() {
+        let row = ThumbnailStripGeometry(
+            tileCount: 7,
+            tileWidth: ThumbnailStripView.tileWidth,
+            tileHeight: ThumbnailStripView.previewRowHeight,
+            spacing: ThumbnailStripView.defaultTileSpacing,
+            viewportWidth: 393
+                - ThumbnailStripView.leadColumnWidth
+                - ThumbnailStripView.leadColumnGap
+        )
+        #expect(row.maxOffsetX > 0)
     }
 }
 

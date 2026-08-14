@@ -92,9 +92,9 @@ struct WindowPickerStripViewTests {
         #expect(view.currentSelection == nil)
     }
 
-    // Open, the strip is the tile row and nothing else: the chevron and glyph move into the
-    // row's leading column rather than sitting in a band above it, so the label row's height
-    // is not part of the expanded strip.
+    // Open, the strip is the tile row and nothing else: the glyph moves into the row's leading
+    // column rather than sitting in a band above it, so the label row's height is not part of
+    // the expanded strip.
     @Test func expandedHeightIsTheTileRowAlone() {
         #expect(
             WindowPickerStripView.expandedHeight

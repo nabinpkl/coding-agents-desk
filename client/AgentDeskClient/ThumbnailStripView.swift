@@ -96,8 +96,8 @@ final class DisplayRailView: UIView {
 // Spaces strip. Horizontal UICollectionView of one cell per non-fullscreen
 // user Space on the selected display.
 //
-// The strip is on-demand. At rest it is a 26pt bar carrying nothing but a leading chevron;
-// opening it grows that same bar into the tile row, with the chevron still leading and now
+// The strip is on-demand. At rest it is a 26pt bar carrying nothing but a leading glyph;
+// opening it grows that same bar into the tile row, with the glyph still leading and now
 // the way back out. Nothing is stacked: the bar does not become a second row above the
 // tiles, so opening costs exactly the tile row and closing gives all of it back. The fill
 // is the strip's own, so the two states are one surface growing, not a bar swapped for a
@@ -171,22 +171,33 @@ final class ThumbnailStripView: UIView {
     // is no image to show, and the preview tile spends 56pt drawing an empty box plus a
     // caption for a picture that will never arrive. The pill is the Desktop number and
     // nothing else, which is all the strip can honestly say in that mode.
-    static let compactTileWidth: CGFloat = 52
+    //
+    // Sized so a Mac with seven Desktops shows all seven at rest on a standard phone rather
+    // than hiding D1 behind a scroll: at 393pt the strip is now full-bleed and spends 24pt on
+    // the lead column, leaving 369pt, and seven pills plus their spacing come to 340pt. It
+    // draws one 13pt label ("D7"), so the width lost off the old 52pt was never carrying ink.
+    static let compactTileWidth: CGFloat = 40
     static let compactRowHeight: CGFloat = 30
     static let defaultTileSpacing: CGFloat = 10
 
     // The closed bar. Tall enough to be a comfortable target across its full width (the whole
-    // bar toggles, not just the chevron glyph) and short enough to read as a sliver.
+    // bar toggles, not just the glyph) and short enough to read as a sliver.
     static let barHeight: CGFloat = 26
     // Breathing room above and below the open tile row. Without it the row is flush against
     // the strip's clipped edges and the active tile's 1.5pt selection border is shaved off
     // top and bottom, which reads as the blue box being cut in half.
     static let rowVerticalPadding: CGFloat = 3
-    // The chevron and the identifying glyph lead the row in both states, so the disclosure
-    // control costs no vertical space: open, they sit beside the tiles rather than above them.
-    static let chevronWidth: CGFloat = 16
+    // The identifying glyph leads the row in both states, so the disclosure control costs no
+    // vertical space: open, it sits beside the tiles rather than above them.
+    //
+    // One glyph, not a chevron beside one. The vertical axis was never the scarce one here --
+    // the horizontal is, because every point this column takes is a point the tile row does
+    // not get, and the row is what runs out of room at seven or eight Desktops. The glyph's
+    // filled variant carries the open/closed state the chevron used to, for free.
     static let iconWidth: CGFloat = 20
-    static let leadColumnWidth: CGFloat = chevronWidth + iconWidth
+    static let leadColumnWidth: CGFloat = iconWidth
+    // Dead space between the glyph and the first tile. The bar claims it as target area (see
+    // `barWidthConstraint`) rather than leaving a 20pt-wide control beside a full-height row.
     static let leadColumnGap: CGFloat = 4
 
     // False (default, toggle OFF) inverts the wire-level sign so
@@ -269,7 +280,6 @@ final class ThumbnailStripView: UIView {
     // The disclosure control. Closed it spans the strip, so the whole bar is the target;
     // open it shrinks to the lead column at the leading edge and the tiles take the rest.
     private let barButton = UIControl()
-    private let chevronView = UIImageView()
     private let barIcon = UIImageView()
     private var barTrailingConstraint: NSLayoutConstraint?
     private var barWidthConstraint: NSLayoutConstraint?
@@ -344,28 +354,25 @@ final class ThumbnailStripView: UIView {
         barButton.addTarget(self, action: #selector(toggleExpansion), for: .touchUpInside)
         addSubview(barButton)
 
-        chevronView.tintColor = .secondaryLabel
-        chevronView.contentMode = .center
-        chevronView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: 11, weight: .semibold
-        )
-        chevronView.translatesAutoresizingMaskIntoConstraints = false
-        barButton.addSubview(chevronView)
-
-        // Two closed slivers stacked one above the other are indistinguishable by a chevron
-        // alone, so each carries the glyph for what it opens: desktops here, a window in the
-        // picker below.
+        // Two closed slivers stacked one above the other are indistinguishable by a bare
+        // disclosure, so each carries the glyph for what it opens: desktops here, a window in
+        // the picker below. That glyph is the whole control -- `applyExpansionChrome` swaps it
+        // for its filled variant when open, which says what a second 16pt symbol beside it
+        // used to, without taking 16pt away from the tiles.
         barIcon.contentMode = .center
         barIcon.tintColor = .secondaryLabel
-        barIcon.image = UIImage(systemName: "rectangle.3.group")
         barIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-            pointSize: 12, weight: .regular
+            pointSize: 13, weight: .regular
         )
         barIcon.translatesAutoresizingMaskIntoConstraints = false
         barButton.addSubview(barIcon)
 
         let barTrailing = barButton.trailingAnchor.constraint(equalTo: trailingAnchor)
-        let barWidth = barButton.widthAnchor.constraint(equalToConstant: Self.leadColumnWidth)
+        // The gap is inside the target, not beside it: open, this is the way back out, and a
+        // bare 20pt column is a thin thing to hit next to a full-height row of tiles.
+        let barWidth = barButton.widthAnchor.constraint(
+            equalToConstant: Self.leadColumnWidth + Self.leadColumnGap
+        )
         barTrailingConstraint = barTrailing
         barWidthConstraint = barWidth
         barTrailing.isActive = true
@@ -377,12 +384,7 @@ final class ThumbnailStripView: UIView {
             // to miss.
             barButton.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            chevronView.leadingAnchor.constraint(equalTo: barButton.leadingAnchor),
-            chevronView.widthAnchor.constraint(equalToConstant: Self.chevronWidth),
-            chevronView.topAnchor.constraint(equalTo: barButton.topAnchor),
-            chevronView.bottomAnchor.constraint(equalTo: barButton.bottomAnchor),
-
-            barIcon.leadingAnchor.constraint(equalTo: chevronView.trailingAnchor),
+            barIcon.leadingAnchor.constraint(equalTo: barButton.leadingAnchor),
             barIcon.widthAnchor.constraint(equalToConstant: Self.iconWidth),
             barIcon.topAnchor.constraint(equalTo: barButton.topAnchor),
             barIcon.bottomAnchor.constraint(equalTo: barButton.bottomAnchor),
@@ -474,7 +476,7 @@ final class ThumbnailStripView: UIView {
     var contentRowHeight: CGFloat { showsPreviewTiles ? Self.previewRowHeight : Self.compactRowHeight }
 
     // Closed the strip is the bar and nothing else; open it is the tile row plus its padding,
-    // since the bar becomes that row's leading chevron rather than a band above it.
+    // since the bar becomes that row's leading glyph rather than a band above it.
     var preferredHeight: CGFloat {
         isExpanded ? contentRowHeight + Self.rowVerticalPadding * 2 : Self.barHeight
     }
@@ -512,16 +514,19 @@ final class ThumbnailStripView: UIView {
     private func applyExpansionChrome() {
         // Closed, the bar spans the strip so the whole sliver is the target. Open, it yields
         // everything past the lead column to the tiles. It stays transparent either way:
-        // closed, the chevron and glyph alone are the visible control, so the row is not a
-        // wide empty band and the generous target costs nothing to look at.
+        // closed, the glyph alone is the visible control, so the row is not a wide empty band
+        // and the generous target costs nothing to look at.
         barTrailingConstraint?.isActive = !isExpanded
         barWidthConstraint?.isActive = isExpanded
         backgroundColor = isExpanded ? .secondarySystemFill : .clear
         // Hidden rather than merely off-screen: a closed strip must not eat taps meant for
         // the surface below it, and the row is clipped mid-animation either way.
         contentContainer.isHidden = !isExpanded
-        chevronView.image = UIImage(
-            systemName: isExpanded ? "chevron.down" : "chevron.right"
+        // Filled means open, the same encoding the picker below uses. Both symbol names were
+        // checked against the catalog rather than assumed: `UIImage(systemName:)` answers nil
+        // for a name that does not exist, and the control would render as nothing at all.
+        barIcon.image = UIImage(
+            systemName: isExpanded ? "rectangle.3.group.fill" : "rectangle.3.group"
         )
         barButton.accessibilityLabel = isExpanded ? "Hide Desktops" : "Show Desktops"
         // The tile row's available width can change with the bar. `layoutSubviews` re-derives
