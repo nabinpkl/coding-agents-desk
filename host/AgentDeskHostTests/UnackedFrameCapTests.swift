@@ -37,11 +37,16 @@ import Testing
     bp.noteSent(frameId: 10, bytes: 20, sentAtUptimeNs: 100)
     bp.noteSent(frameId: 11, bytes: 30, sentAtUptimeNs: 200)
 
-    let ackedAt = bp.noteAck(frameId: 11)
+    let retirement = bp.noteAck(frameId: 11)
 
-    #expect(ackedAt == 200)
+    #expect(retirement?.ackedSentAtUptimeNs == 200)
+    // ADR-0098: both frames' bytes, not just the ACKed one's. The watermark retired 10 as well,
+    // and 10's twenty bytes reached the client exactly as surely as 11's thirty did.
+    #expect(retirement?.bytes == 50)
+    #expect(retirement?.frames == 2)
     #expect(bp.inFlight == 0)
     #expect(bp.bytesInFlight == 0)
+    // An ACK that does not advance the watermark retired nothing and is reported as nothing.
     #expect(bp.noteAck(frameId: 10) == nil)
     #expect(bp.noteAck(frameId: 11) == nil)
 }
@@ -52,10 +57,17 @@ import Testing
     #expect(bp.abandonOldest()?.id == 10)
     bp.noteSent(frameId: 11, bytes: 30, sentAtUptimeNs: 200)
 
-    #expect(bp.noteAck(frameId: 10) == nil)
+    // ADR-0098 split the two questions this used to answer with one nil. The ACK DOES advance
+    // the watermark, so it is reported -- but it retired nothing, and carries no timestamp,
+    // because the frame it names was abandoned. Only the timestamp guards the round-trip
+    // sample, so a late ACK still cannot be misread as the age of a newer frame.
+    let late = bp.noteAck(frameId: 10)
+    #expect(late?.ackedSentAtUptimeNs == nil)
+    #expect(late?.bytes == 0)
+    #expect(late?.frames == 0)
     #expect(bp.inFlight == 1)
     #expect(bp.bytesInFlight == 30)
-    #expect(bp.noteAck(frameId: 11) == 200)
+    #expect(bp.noteAck(frameId: 11)?.ackedSentAtUptimeNs == 200)
     #expect(bp.inFlight == 0)
 }
 

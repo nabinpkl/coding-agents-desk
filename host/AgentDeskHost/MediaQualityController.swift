@@ -94,6 +94,13 @@ struct MediaDeliveryObservation: Equatable {
     // like this is evidence AGAINST link health, not the absence of evidence that
     // `clientReportMissing` describes.
     let clientLinkStalled: Bool
+    // ADR-0098: the link's measured capacity, in bytes per second, from the bytes acks retired
+    // (`LinkDeliveryEstimator`). nil means unknown -- no backlogged slice has completed -- which
+    // is NOT the same as zero and must never be read as one.
+    let deliveredBytesPerSecond: Double?
+    // ADR-0088 built this and spent it on a log line. How many times the smoothed round-trip
+    // exceeds the path's own floor: 1.0 is an empty queue, and it read 5.0 through the freeze.
+    let roundTripInflationRatio: Double?
 
     init(
         sample: MediaQualitySample,
@@ -104,10 +111,14 @@ struct MediaDeliveryObservation: Equatable {
         oldestInflightMs: Double? = nil,
         staleRecoveryCount: Int = 0,
         clientReportMissing: Bool = false,
-        clientLinkStalled: Bool = false
+        clientLinkStalled: Bool = false,
+        deliveredBytesPerSecond: Double? = nil,
+        roundTripInflationRatio: Double? = nil
     ) {
         self.clientReportMissing = clientReportMissing
         self.clientLinkStalled = clientLinkStalled
+        self.deliveredBytesPerSecond = deliveredBytesPerSecond
+        self.roundTripInflationRatio = roundTripInflationRatio
         self.sample = sample
         self.ackCount = max(0, ackCount)
         self.ackAgeMaxMs = ackAgeMaxMs
@@ -132,6 +143,31 @@ struct MediaDeliveryObservation: Equatable {
     /// never on the absence of evidence of health -- the same asymmetry `clientLinkStalled`
     /// itself is built on.
     var isStalled: Bool { clientLinkStalled }
+
+    /// ADR-0098: the link measurably cannot carry the rung we are asking it for.
+    ///
+    /// The one statement in this whole struct made in the link's own units rather than in the
+    /// host's. Everything else here is a symptom of a link that fell behind -- acks aging,
+    /// frames expiring, the client going quiet. This is the shortfall itself.
+    ///
+    /// Unknown is not shortfall. A nil estimate means no backlogged slice has completed, which
+    /// happens on a calm screen and at the start of every connection; descending on it would
+    /// punish a link for being asked to carry nothing.
+    func isBelowBudget(bitrateKbps: Int, ratio: Double) -> Bool {
+        guard let deliveredBytesPerSecond else { return false }
+        return deliveredBytesPerSecond < Double(max(1, bitrateKbps)) * 1_000.0 / 8.0 * ratio
+    }
+
+    /// ADR-0098: the queue in front of us is deep enough that sending more only adds delay.
+    ///
+    /// The failure `isBelowBudget` cannot see. A path that delivers everything, at its full rate,
+    /// several seconds late shows a healthy goodput, no expiries and no stale frames -- and a
+    /// picture on the phone that is seconds behind the Mac. Only the round-trip's distance from
+    /// its own floor says so, which is what ADR-0088 built the tracker to measure.
+    func isQueueBloated(ratio: Double) -> Bool {
+        guard let roundTripInflationRatio else { return false }
+        return roundTripInflationRatio >= ratio
+    }
 }
 
 struct MediaQualityControllerInput: Equatable {
@@ -235,6 +271,13 @@ struct MediaQualityControllerConfig: Equatable {
     let survivalScale: Double
     let resolutionDownDwellMs: Int
     let resolutionRaiseCleanMs: Int
+    // ADR-0098: the fraction of the rung's own budget the link must be measurably delivering.
+    let deliveryShortfallRatio: Double
+    let deliveryShortfallWindows: Int
+    // ADR-0098: how far the smoothed round-trip may sit above the path's floor. Shares
+    // `deliveryShortfallWindows` for its streak -- "one window is a burst, two is a link" is the
+    // same claim for both -- but counts it separately, so neither signal spends the other's run.
+    let roundTripInflationDownRatio: Double
 
     init(
         ceilingKbps: Int,
@@ -267,7 +310,10 @@ struct MediaQualityControllerConfig: Equatable {
         emergencyScale: Double,
         survivalScale: Double,
         resolutionDownDwellMs: Int = Config.ownedMediaResolutionDownDwellMs,
-        resolutionRaiseCleanMs: Int = Config.ownedMediaResolutionRaiseCleanMs
+        resolutionRaiseCleanMs: Int = Config.ownedMediaResolutionRaiseCleanMs,
+        deliveryShortfallRatio: Double = Config.ownedMediaDeliveryShortfallRatio,
+        deliveryShortfallWindows: Int = Config.ownedMediaDeliveryShortfallWindows,
+        roundTripInflationDownRatio: Double = Config.ownedMediaRoundTripInflationDownRatio
     ) {
         self.ceilingKbps = max(1, ceilingKbps)
         self.floorKbps = min(max(1, floorKbps), self.ceilingKbps)
@@ -300,6 +346,14 @@ struct MediaQualityControllerConfig: Equatable {
         self.emergencyScale = min(Self.normalizedScale(emergencyScale), self.survivalScale)
         self.resolutionDownDwellMs = max(0, resolutionDownDwellMs)
         self.resolutionRaiseCleanMs = max(0, resolutionRaiseCleanMs)
+        // Clamped below 1.0 deliberately. At 1.0 the rule reads "descend unless the link is
+        // delivering every byte we asked for", which no healthy link does continuously, so the
+        // ladder would walk itself to the floor on a link that was fine.
+        self.deliveryShortfallRatio = min(max(0.05, deliveryShortfallRatio), 0.95)
+        self.deliveryShortfallWindows = max(1, deliveryShortfallWindows)
+        // Floored above 1.0, because 1.0 is an empty queue by definition: at or below it the rule
+        // reads "descend whenever the path has any latency at all", which is always.
+        self.roundTripInflationDownRatio = max(1.01, roundTripInflationDownRatio)
     }
 
     static func fromConfig() -> MediaQualityControllerConfig {
@@ -334,7 +388,10 @@ struct MediaQualityControllerConfig: Equatable {
             emergencyScale: Config.ownedMediaEmergencyResolutionScale,
             survivalScale: Config.ownedMediaSurvivalResolutionScale,
             resolutionDownDwellMs: Config.ownedMediaResolutionDownDwellMs,
-            resolutionRaiseCleanMs: Config.ownedMediaResolutionRaiseCleanMs
+            resolutionRaiseCleanMs: Config.ownedMediaResolutionRaiseCleanMs,
+            deliveryShortfallRatio: Config.ownedMediaDeliveryShortfallRatio,
+            deliveryShortfallWindows: Config.ownedMediaDeliveryShortfallWindows,
+            roundTripInflationDownRatio: Config.ownedMediaRoundTripInflationDownRatio
         )
     }
 
@@ -406,6 +463,12 @@ struct MediaQualityController {
     private var cleanRecoveryMs = 0
     private var cadencePressureStreak = 0
     private var stalePressureStreak = 0
+    // ADR-0098: consecutive windows the measured goodput fell short of the rung's budget.
+    private var deliveryShortfallStreak = 0
+    // ADR-0098: consecutive windows the round-trip sat far above the path's own floor. Counted
+    // apart from the shortfall streak because the two describe different failures and must not
+    // spend each other's evidence.
+    private var queueBloatStreak = 0
     private var probeWindowsRemaining = 0
     private var warmupWindowsRemaining = 0
     private var probeAxis: MediaQualityProbeAxis = .none
@@ -532,6 +595,8 @@ struct MediaQualityController {
         cleanRecoveryMs = 0
         cadencePressureStreak = 0
         stalePressureStreak = 0
+        deliveryShortfallStreak = 0
+        queueBloatStreak = 0
         // A pin is the encoder's scale being set directly, not a request to be gated: this is
         // the resume path (ADR-0090) handing back the rung the previous connection ended on,
         // and the encoder is about to run at exactly that scale. Adopting it as committed is
@@ -618,6 +683,80 @@ struct MediaQualityController {
         // stale pressure was already ruled out above, so this is now true of the idle branch as
         // well -- which is what makes it safe for a quiet window to clear the run.
         resetStaleStreak()
+
+        // ADR-0098: descend on the measured shortfall itself, not on a symptom of it.
+        //
+        // Every other descent branch above reads an effect: acks aging, frames expiring, the
+        // client reporting a dead path. Each is real and each lags, because it needs the queue
+        // to have already grown enough to show. This one asks the link directly -- goodput from
+        // the bytes acks retired -- and it fires while the queue is still building.
+        //
+        // It sits after stale pressure rather than before it because stale is the more specific
+        // complaint: `abandonUntilCanProduce` dropping frames says the host is over the cap
+        // right now, where a shortfall says the last few seconds averaged short. Both descend by
+        // the same step, so the order only decides which reason is logged.
+        //
+        // The max filter is what keeps this from running away. After a downshift the window
+        // still holds the capacity measured before it, so the very next window compares the new,
+        // smaller ask against the old, larger measurement and the streak breaks. The ladder
+        // takes one step per genuine 5-second stretch of shortfall, not one per window.
+        if delivery.isBelowBudget(
+            bitrateKbps: target.bitrateKbps,
+            ratio: config.deliveryShortfallRatio
+        ) {
+            resetPressureStreaks()
+            resetRecovery()
+            deliveryShortfallStreak += 1
+            guard deliveryShortfallStreak >= config.deliveryShortfallWindows else {
+                return evaluation(
+                    signals: signals,
+                    previous: previous,
+                    reason: "delivery-shortfall-hold",
+                    recoveryBlocker: "delivery-shortfall"
+                )
+            }
+            downshiftCapacity(reason: "delivery-shortfall-down")
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: target == previous ? floorReason : target.reason,
+                recoveryBlocker: "delivery-shortfall"
+            )
+        }
+        deliveryShortfallStreak = 0
+
+        // ADR-0098: the other half of what ADR-0088 measured and never spent.
+        //
+        // Goodput cannot see this one. A path can deliver every byte, at the rate we asked for,
+        // several seconds late -- healthy throughput, nothing expiring, nothing stale, and a
+        // picture on the phone that is seconds behind the Mac. The round-trip's distance from its
+        // own floor is the only signal that says so, and it read 5.0 through the freeze while the
+        // ladder held.
+        //
+        // Descending is the right response even though the queue is not of our making: the queue
+        // drains at the link's rate whatever we do, and the only lever we have over how long it
+        // stays full is how fast we refill it.
+        if delivery.isQueueBloated(ratio: config.roundTripInflationDownRatio) {
+            resetPressureStreaks()
+            resetRecovery()
+            queueBloatStreak += 1
+            guard queueBloatStreak >= config.deliveryShortfallWindows else {
+                return evaluation(
+                    signals: signals,
+                    previous: previous,
+                    reason: "queue-bloat-hold",
+                    recoveryBlocker: "queue-bloat"
+                )
+            }
+            downshiftCapacity(reason: "queue-bloat-down")
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: target == previous ? floorReason : target.reason,
+                recoveryBlocker: "queue-bloat"
+            )
+        }
+        queueBloatStreak = 0
 
         if delivery.resolvedFrames == 0 {
             resetPressureStreaks()
@@ -945,6 +1084,12 @@ struct MediaQualityController {
         }
         stableTarget = target
         clearProbe()
+        // ADR-0098: a descent spends the shortfall evidence, whichever signal triggered it. The
+        // ask just got smaller, so a streak accumulated against the OLD budget says nothing
+        // about the new one, and carrying it forward would let a single stale-down and a single
+        // short window combine into a second step the link never asked for.
+        deliveryShortfallStreak = 0
+        queueBloatStreak = 0
     }
 
     private mutating func recover() {
@@ -1345,6 +1490,10 @@ struct QuicSessionHostMediaState {
     // ADR-0088: cross-window smoothed/minimum round-trip, the queueing detector. Distinct
     // from the per-window ack percentiles, which cannot see inflation.
     private(set) var roundTrip: AckRoundTripTracker
+    // ADR-0098: how much the link actually carried, from the bytes acks retire. The rung, the
+    // encoder's average and the pacer's refill were all numbers the host asked for; this is the
+    // only one it was told.
+    private(set) var deliveryEstimator: LinkDeliveryEstimator
 
     init(
         maxInflightFrames: Int = Config.ownedMediaBackpressureMaxInflightFrames,
@@ -1354,10 +1503,16 @@ struct QuicSessionHostMediaState {
         qualityController: MediaQualityController? = nil,
         resendRingFrames: Int = Config.ownedMediaResendRingFrames,
         stallRecoveryMinIntervalMs: Int = Config.ownedMediaStallRecoveryMinIntervalMs,
-        roundTripMinimumWindowMs: Int = Config.ownedMediaRoundTripMinimumWindowMs
+        roundTripMinimumWindowMs: Int = Config.ownedMediaRoundTripMinimumWindowMs,
+        deliverySliceMs: Int = Config.ownedMediaDeliverySliceMs,
+        deliveryWindowMs: Int = Config.ownedMediaDeliveryWindowMs
     ) {
         self.stallRecoveryMinIntervalNs = UInt64(max(0, stallRecoveryMinIntervalMs)) * 1_000_000
         self.roundTrip = AckRoundTripTracker(minimumWindowMs: roundTripMinimumWindowMs)
+        self.deliveryEstimator = LinkDeliveryEstimator(
+            sliceMs: deliverySliceMs,
+            windowMs: deliveryWindowMs
+        )
         self.backpressure = GraphicsBackpressure(
             maxUnacked: maxInflightFrames,
             maxUnackedBytes: maxInflightBytes
@@ -1483,10 +1638,19 @@ struct QuicSessionHostMediaState {
 
     @discardableResult
     mutating func noteAck(frameId: UInt64, nowNs: UInt64 = DispatchTime.now().uptimeNanoseconds) -> Double? {
-        guard let sentAtUptimeNs = backpressure.noteAck(frameId: frameId) else { return nil }
+        guard let retirement = backpressure.noteAck(frameId: frameId) else { return nil }
         if let inFlight = keyframeInFlight, frameId >= inFlight {
             keyframeInFlight = nil
         }
+        // ADR-0098: goodput is fed from every advancing ack, including the ones whose own frame
+        // was already abandoned. Those bytes still arrived; only their round-trip attribution is
+        // untrustworthy, and that is a separate question from how much the link carried.
+        deliveryEstimator.noteDelivered(
+            bytes: retirement.bytes,
+            backlogBytesAfter: backpressure.bytesInFlight,
+            nowNs: nowNs
+        )
+        guard let sentAtUptimeNs = retirement.ackedSentAtUptimeNs else { return nil }
         let ageNs = nowNs >= sentAtUptimeNs ? nowNs - sentAtUptimeNs : 0
         let ageMs = Double(ageNs) / 1_000_000.0
         ackAgesMs.append(ageMs)
@@ -1523,6 +1687,11 @@ struct QuicSessionHostMediaState {
 
     mutating func resetForQualityChange() {
         backpressure.reset()
+        // ADR-0098: the slice in progress was measuring against a backlog that just vanished
+        // without the link having carried it, so its rate would be an app-limited sample wearing
+        // a link-limited label. The completed samples still describe this link and stay -- the
+        // link did not change, only what we are asking of it.
+        deliveryEstimator.discardPendingSlice()
         pendingClientKeyframeRequest = false
         keyframeInFlight = nil
     }
@@ -1546,6 +1715,10 @@ struct QuicSessionHostMediaState {
         // `record` would stay pinned to a pre-freeze value for the whole stall -- the one
         // stretch where the ratio most needs to be honest about how old its baseline is.
         roundTrip.expireMinimumCandidates(nowNs: nowNs)
+        // ADR-0098: same reason, same boundary. A max filter only falls by expiry, so a freeze --
+        // which delivers nothing, and therefore calls nothing on the estimator -- would keep
+        // reporting the capacity measured before it started for as long as it lasted.
+        deliveryEstimator.expire(nowNs: nowNs)
         let ackStats = ackAgeStats()
         let sample = MediaQualitySample(
             completedFrames: completedFrames,
@@ -1578,7 +1751,9 @@ struct QuicSessionHostMediaState {
                     hostQuietMs: lastSentUptimeNs.map { sentNs in
                         Double(nowNs >= sentNs ? nowNs - sentNs : 0) / 1_000_000.0
                     }
-                )
+                ),
+                deliveredBytesPerSecond: deliveryEstimator.deliveredBytesPerSecond,
+                roundTripInflationRatio: roundTrip.inflationRatio
             ),
             production: productionSummary
         )
@@ -1695,6 +1870,11 @@ struct QuicSessionHostMediaState {
         let flushedFrames = backpressure.inFlight
         let flushedBytes = backpressure.bytesInFlight
         backpressure.reset()
+        // Same reason as the quality-change flush: the backlog is gone and the link never
+        // carried it. Keeping the completed samples matters more here than anywhere -- they are
+        // the record of what this link could do before it stalled, and the pacer needs a number
+        // to come back to.
+        deliveryEstimator.discardPendingSlice()
 
         // Withhold the keyframe while one is already in flight (it is the recovery, and a
         // second would only compete with it for the same starved link), and while the rate

@@ -805,9 +805,25 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     /// Routing both through here means a future rung change cannot move one without the other.
     private func applyBitrate(_ kbps: Int) {
         encoder.updateBitrate(kbps)
+        retargetSendPacer(kbps)
+    }
+
+    /// ADR-0098: re-derive the wire budget from the rung AND the link's measured capacity.
+    ///
+    /// Separate from `applyBitrate` because the two move on different clocks. The encoder's
+    /// budget changes only when the ladder steps; the measurement changes continuously, and it is
+    /// during the stretch where the ladder has NOT yet stepped that pacing to the rung alone
+    /// leaves the original defect intact.
+    private func retargetSendPacer(_ kbps: Int) {
+        let delivered = encodeGate.withLock {
+            $0.mediaState.deliveryEstimator.deliveredBytesPerSecond
+        }
         let bytesPerSecond = LinkSendPacer.bytesPerSecond(
             forKbps: kbps,
-            headroom: Config.ownedMediaDataRateLimitRatio
+            headroom: Config.ownedMediaDataRateLimitRatio,
+            deliveredBytesPerSecond: delivered,
+            floorKbps: Config.ownedMediaEmergencyBitrateKbps,
+            deliveryHeadroom: Config.ownedMediaDeliveryPacerHeadroom
         )
         Task { [sendScheduler] in
             await sendScheduler.retarget(bytesPerSecond: bytesPerSecond)
@@ -875,11 +891,17 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         clientTelemetry: OwnedMediaLinkTelemetry?
     ) {
         let hostPath = pathObserver.reportSnapshot()
-        let roundTrip = encodeGate.withLock { $0.mediaState.roundTrip }
+        let (roundTrip, delivered) = encodeGate.withLock {
+            ($0.mediaState.roundTrip, $0.mediaState.deliveryEstimator.deliveredBytesPerSecond)
+        }
         let inflation = roundTrip.inflationRatio.map { String(format: "%.1f", $0) } ?? "n/a"
         let smoothed = roundTrip.smoothedMs.map { String(format: "%.1f", $0) } ?? "n/a"
         let minimum = roundTrip.minimumMs.map { String(format: "%.1f", $0) } ?? "n/a"
-        logger.notice("owned media link telemetry windowId=\(decision.observation.windowId, privacy: .public) rttSmoothedMs=\(smoothed, privacy: .public) rttMinMs=\(minimum, privacy: .public) rttInflation=\(inflation, privacy: .public) rttSamples=\(roundTrip.sampleCount, privacy: .public) host[\(hostPath.snapshot?.logDescription ?? "unknown", privacy: .public) pathChanges=\(hostPath.total, privacy: .public)] client[\(clientTelemetry?.logDescription ?? "absent", privacy: .public)]")
+        // ADR-0098: next to the rung it is being compared against, because the finding is the
+        // gap between them. `n/a` is a distinct reading from a low one and means no backlogged
+        // slice completed -- nothing was asked of the link, so nothing was learned about it.
+        let deliveredKbps = delivered.map { String(Int(($0 * 8.0 / 1_000.0).rounded())) } ?? "n/a"
+        logger.notice("owned media link telemetry windowId=\(decision.observation.windowId, privacy: .public) deliveredKbps=\(deliveredKbps, privacy: .public) rungKbps=\(decision.outcome.target.bitrateKbps, privacy: .public) rttSmoothedMs=\(smoothed, privacy: .public) rttMinMs=\(minimum, privacy: .public) rttInflation=\(inflation, privacy: .public) rttSamples=\(roundTrip.sampleCount, privacy: .public) host[\(hostPath.snapshot?.logDescription ?? "unknown", privacy: .public) pathChanges=\(hostPath.total, privacy: .public)] client[\(clientTelemetry?.logDescription ?? "absent", privacy: .public)]")
     }
 
     /// ADR-0087: flush the jammed in-flight accounting and, when the rate limit allows,
@@ -966,6 +988,16 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         // keyframe both unreachable.
         applyStallRecovery(decision)
         let outcome = decision.outcome
+        // ADR-0098: every window, not only the ones that move the ladder. The measured capacity
+        // is what the wire is paced to and it changes on its own schedule; gating this behind
+        // `outcome.changed` would mean a link that halved while the rung held kept its old
+        // budget, which is precisely the window the freeze lives in.
+        //
+        // A window that also moves the bitrate re-derives the same value through `applyBitrate`
+        // below. That is left alone rather than special-cased: `applyBitrate` setting both the
+        // encoder's budget and the wire's is the invariant that stopped them drifting, and it is
+        // worth more than avoiding one idempotent call.
+        retargetSendPacer(outcome.target.bitrateKbps)
         guard outcome.changed else { return }
         onQualityTargetChanged(outcome.target)
         if outcome.bitrateChanged {

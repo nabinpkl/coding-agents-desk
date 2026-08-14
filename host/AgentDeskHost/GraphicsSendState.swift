@@ -166,23 +166,46 @@ struct GraphicsBackpressure {
         inFlightBytes += b
     }
 
+    // What an ACK retired.
+    //
+    // ADR-0098: the byte count is the one measurement in this whole path that describes the
+    // LINK rather than the host's intentions -- bytes the client confirmed it holds. It was
+    // being computed here and discarded on the next line.
+    struct AckRetirement: Equatable {
+        // Set only when the ACKed frame itself was still tracked. See `noteAck`.
+        let ackedSentAtUptimeNs: UInt64?
+        let bytes: Int
+        let frames: Int
+    }
+
     // ACKs carry the highest applied frameId. Retire every tracked entry through
-    // that watermark. Return the timestamp only when the ACKed frame itself was
+    // that watermark. Carry the timestamp only when the ACKed frame itself was
     // still tracked, so a late ACK for an abandoned frame cannot be misreported as
-    // the age of a newer entry.
+    // the age of a newer entry -- the retired bytes are reported either way, because
+    // those frames did arrive however their timestamps are attributed.
+    //
+    // nil means the ACK did not advance the watermark and retired nothing.
     @discardableResult
-    mutating func noteAck(frameId: UInt64) -> UInt64? {
+    mutating func noteAck(frameId: UInt64) -> AckRetirement? {
         guard frameId > lastAckedFrameId else { return nil }
         lastAckedFrameId = frameId
         var ackedSentAtUptimeNs: UInt64?
+        var retiredBytes = 0
+        var retiredFrames = 0
         while let first = inFlightFrames.first, first.id <= frameId {
             let done = inFlightFrames.removeFirst()
             inFlightBytes = max(0, inFlightBytes - done.bytes)
+            retiredBytes += done.bytes
+            retiredFrames += 1
             if done.id == frameId {
                 ackedSentAtUptimeNs = done.sentAtUptimeNs
             }
         }
-        return ackedSentAtUptimeNs
+        return AckRetirement(
+            ackedSentAtUptimeNs: ackedSentAtUptimeNs,
+            bytes: retiredBytes,
+            frames: retiredFrames
+        )
     }
 
     @discardableResult

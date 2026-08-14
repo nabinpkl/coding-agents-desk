@@ -422,6 +422,70 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_ROUND_TRIP_MINIMUM_WINDOW_MS",
         defaultValue: 30_000
     )
+    // ADR-0098: how long delivered bytes accumulate before becoming one goodput sample.
+    //
+    // The tension is with the ack cadence, not with the quality window. Too short and a single
+    // coalesced ack becomes an entire slice, reporting a spike the link never sustained; too
+    // long and a stall is averaged together with the healthy stretch before it and disappears.
+    // 250ms is several acks at the ~2Hz-plus rate the ack loop produces, and four samples inside
+    // every one-second quality window.
+    static let ownedMediaDeliverySliceMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DELIVERY_SLICE_MS",
+        defaultValue: 250
+    )
+    // ADR-0098: how long a goodput sample stays eligible to be the window maximum.
+    //
+    // This is how fast the estimate is allowed to follow a link DOWN, since a max filter only
+    // falls by expiry. Short enough that the two-second freezes being diagnosed are not papered
+    // over by a capacity measured before them; long enough to outlive an ordinary quiet stretch,
+    // which would otherwise expire a perfectly good measurement and make the pacer re-probe from
+    // nothing. 5s is five quality windows.
+    static let ownedMediaDeliveryWindowMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DELIVERY_WINDOW_MS",
+        defaultValue: 5_000
+    )
+    // ADR-0098: the fraction of the rung's budget the link must be delivering to be considered
+    // able to carry it. Below this for `ownedMediaDeliveryShortfallWindows` in a row, the ladder
+    // descends on measured capacity rather than on a proxy for it.
+    //
+    // Not 1.0, and not close to it. The measured rate is bounded above by what was offered even
+    // inside a backlogged slice (the encoder undershoots its own average constantly), so a
+    // healthy link routinely reads a little under its rung. 0.7 is comfortably below that noise
+    // and comfortably above the 4-to-1 shortfall the freeze produced.
+    static let ownedMediaDeliveryShortfallRatio = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DELIVERY_SHORTFALL_RATIO",
+        defaultValue: 0.7
+    )
+    // ADR-0098: consecutive windows of measured shortfall before descending. Two, matching the
+    // stale and cadence streaks: one window is a burst, two is a link.
+    static let ownedMediaDeliveryShortfallWindows = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DELIVERY_SHORTFALL_WINDOWS",
+        defaultValue: 2
+    )
+    // ADR-0098: how many times the smoothed round-trip may exceed the path's own floor before the
+    // ladder treats the queue in front of us as the problem.
+    //
+    // The second half of what ADR-0088 built and never spent. It catches the failure goodput
+    // cannot: a path that DELIVERS everything, at its full rate, several seconds late. Bytes are
+    // moving, nothing expires, nothing goes stale -- and the picture on the phone is seconds
+    // behind the Mac.
+    //
+    // 2.5 sits between the two measured populations rather than at a round number: an ordinary
+    // window on this path ran near 1.0-1.5, and the freeze read 5.0.
+    static let ownedMediaRoundTripInflationDownRatio = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_ROUND_TRIP_INFLATION_DOWN_RATIO",
+        defaultValue: 2.5
+    )
+    // ADR-0098: headroom over the measured delivery rate that the send pacer refills at.
+    //
+    // A pacer that refills at exactly the measured rate can never discover the link got faster,
+    // because the max filter can only see bytes we chose to send. The overshoot is the probe.
+    // 1.25 recovers a doubling in about three seconds of continuous sending, and is small enough
+    // that the queue it builds while probing drains inside one quality window.
+    static let ownedMediaDeliveryPacerHeadroom = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DELIVERY_PACER_HEADROOM",
+        defaultValue: 1.25
+    )
     // ADR-0088: the host's belief about how often the client reports, used ONLY as the
     // threshold for reading a client report ("no datagrams for at least one report interval"
     // is a stall; a shorter quiet stretch inside one window is not).

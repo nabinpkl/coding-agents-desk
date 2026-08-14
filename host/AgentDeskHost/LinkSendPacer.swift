@@ -46,6 +46,37 @@ struct LinkSendPacer {
         Double(max(1, kbps)) * 1_000.0 / 8.0 * max(1.0, headroom)
     }
 
+    /// ADR-0098: the budget once the link has been measured, closing the loop.
+    ///
+    /// The rung is what the host DECIDED to ask for; `deliveredBytesPerSecond` is what the link
+    /// was observed to carry (`LinkDeliveryEstimator`). Pacing to the rung alone leaves the
+    /// original defect intact one layer down: the ladder can be a full step behind the link, and
+    /// for that step the wire happily emits bytes at a rate nothing is draining.
+    ///
+    /// Three properties this has to have, and each is a way it could go wrong:
+    ///
+    /// - It only ever paces DOWN from the rung. The measurement is a lower bound on capacity, not
+    ///   a licence to exceed the quality decision, and the encoder is not producing more than the
+    ///   rung anyway.
+    /// - A nil measurement means unknown, and unknown must read as the rung. Treating it as zero
+    ///   would stop the very sends that produce the acks the estimate is built from.
+    /// - It never floors below `floorKbps`. A max filter falls by expiry, so a hard enough stall
+    ///   walks it to nothing; without a floor the pacer would stop sending, the acks would stop,
+    ///   and the estimate could never recover. The floor is what makes the loop reversible.
+    static func bytesPerSecond(
+        forKbps kbps: Int,
+        headroom: Double,
+        deliveredBytesPerSecond: Double?,
+        floorKbps: Int,
+        deliveryHeadroom: Double
+    ) -> Double {
+        let requested = bytesPerSecond(forKbps: kbps, headroom: headroom)
+        guard let deliveredBytesPerSecond, deliveredBytesPerSecond > 0 else { return requested }
+        let floor = bytesPerSecond(forKbps: floorKbps, headroom: 1.0)
+        let measured = deliveredBytesPerSecond * max(1.0, deliveryHeadroom)
+        return min(requested, max(floor, measured))
+    }
+
     /// Non-mutating peek of the balance at `nowNs`: the stored balance plus the budget accrued
     /// since the last consume. It does not advance the clock, so it is safe to call repeatedly
     /// (and from a Testing `#expect` autoclosure) without changing state.

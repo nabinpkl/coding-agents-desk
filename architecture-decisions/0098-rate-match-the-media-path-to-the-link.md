@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-08-13
 ---
 
@@ -105,8 +105,13 @@ The change lands in four parts:
 3. **One owner for keyframes**, preferring a long-term-reference refresh over an IDR wherever a
    valid acked reference exists, with the GOP ceiling scaled to the rung, and no native-resolution
    keyframe emitted on the descent or reconnect paths.
-4. **The estimator** turns acked bytes, RTT inflation and the client's arrival gaps into a
-   delivered-rate figure that feeds both the governor's refill rate and the descent trigger.
+4. **The link's own measurements become control inputs.** `LinkDeliveryEstimator` turns the bytes
+   acks retire into goodput — a windowed maximum over slices that were backlogged for their whole
+   span, so an idle screen cannot be mistaken for a slow link. It feeds the governor's refill rate,
+   closing the loop (the wire is paced to what the link *delivers*, not to what the encoder was
+   *asked for*), and it feeds a descent trigger of its own. `roundTrip.inflationRatio` becomes the
+   second trigger, for the failure goodput cannot see: a path that delivers every byte at full rate
+   several seconds late.
 
 ### Consequences
 
@@ -132,6 +137,18 @@ The change lands in four parts:
 - Bad, because `ownedMediaDataRateLimitRatio` now has two consumers with one meaning. Pacing the
   wire tighter than the encoder's own allowance would move the queue onto the host rather than
   remove it, so the two are derived from one number deliberately; a future change to it moves both.
+- Bad, because a measurement that steers the sender is measured from what the sender chose to
+  send, and that loop can close on itself: a link judged slow gets paced slower, which produces
+  fewer bytes to measure, which confirms the judgement. Three properties hold it open, and all
+  three are load-bearing rather than defensive — only backlogged slices count (an idle screen is
+  never evidence), the estimate is a windowed maximum rather than an average (a low sample cannot
+  lower it, only expiry can), and the pacer never floors below the emergency rung (so there is
+  always enough traffic to re-measure with). A regression in any one of them is a slow, quiet
+  collapse rather than a visible failure.
+- Neutral, because `presentationSkipBytes` stays unconsumed. It is on the wire and its comment
+  argues for its use, but nothing in the measured session establishes what value would mean what,
+  and this ADR spent its argument against Option B on not landing unmeasured control inputs. It
+  remains the obvious next signal, not an oversight.
 - Neutral, because the rung ladder, its thresholds and its recovery machinery are untouched. This
   changes what the ladder is told and what happens to the bytes it asks for, not how it chooses.
 
@@ -148,6 +165,15 @@ Standing signals, all readable from the existing log format with no new instrume
 - Count of `no-ack-at-cap` stall recoveries, and of windows with `completedFrames=0` and non-zero
   in-flight. Today 12 and 25 in roughly two minutes; both should reach zero, the second because
   such a window is no longer classifiable as idle.
+- `deliveredKbps` against `rungKbps` on the link-telemetry line, which is the single reading that
+  says whether any of this worked. A run where they track each other is the intended state; a
+  sustained gap with no `delivery-shortfall-down` in the log means the estimator is measuring and
+  the ladder is not listening. A `deliveredKbps=n/a` that never resolves means the opposite — the
+  estimate never had a backlogged slice to learn from, and every rate in the path is once again a
+  number the host asked for.
+- Whether the ladder now descends on `delivery-shortfall-down` or `queue-bloat-down` at all. If the
+  measured session repeats and neither reason ever appears, the thresholds are wrong and this ADR's
+  central claim is not yet earned, however green the unit suites are.
 
 ## Pros and Cons of the Options
 
