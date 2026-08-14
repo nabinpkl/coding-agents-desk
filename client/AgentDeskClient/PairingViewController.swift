@@ -224,7 +224,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     let remoteInputModeControl = RemoteInputModeControl()
     var videoTouchScrollRecognizer: UIPanGestureRecognizer?
     var videoTouchTapRecognizer: UITapGestureRecognizer?
+    var videoTwoFingerScrollRecognizer: UIPanGestureRecognizer?
     var videoDoubleTapZoomRecognizer: UITapGestureRecognizer?
+    // The resolved gesture routing for the current mode. Written by applyVideoTouchState and
+    // read by the per-frame handlers, so a 120Hz drag is not re-deciding what it means.
+    var videoGestureConfig: VideoTouchGestureConfig?
     // R25: merged Spaces band. Replaces the old dots band.
     let displayRailView = DisplayRailView()
     let thumbnailStripView = ThumbnailStripView()

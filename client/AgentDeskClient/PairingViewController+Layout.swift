@@ -739,7 +739,7 @@ extension PairingViewController {
     // session): NSLayoutConstraint.deactivate/activate on an empty
     // array is a no-op.
     func applyOrientationConstraints(forLandscape isLandscape: Bool) {
-        let useFull = SettingsStore.shared.videoLayoutMode == .full
+        let useFull = SettingsStore.shared.videoLayoutMode.usesFullLayout
         if currentIsLandscape == isLandscape,
            currentUsesFullLayout == useFull,
            (!portraitConstraints.isEmpty || !landscapeConstraints.isEmpty || !fullPortraitConstraints.isEmpty || !fullLandscapeConstraints.isEmpty) {

@@ -401,7 +401,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // sendCurrentClientConfig) but no longer hides the strip.
     func refreshThumbnailStripVisibility() {
         guard isControlSurfaceActive(),
-              SettingsStore.shared.videoLayoutMode != .full,
+              !SettingsStore.shared.videoLayoutMode.usesFullLayout,
               keyboardPresentationState != .shown
         else {
             displayRailView.isHidden = true
@@ -442,7 +442,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
     // not asking the Mac to enumerate windows for a picker nobody can see.
     func windowPickerDemandActive() -> Bool {
         isControlSurfaceActive()
-            && SettingsStore.shared.videoLayoutMode != .full
+            && !SettingsStore.shared.videoLayoutMode.usesFullLayout
             && keyboardPresentationState != .shown
     }
 

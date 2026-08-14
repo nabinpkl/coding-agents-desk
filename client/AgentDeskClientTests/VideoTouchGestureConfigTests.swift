@@ -13,7 +13,7 @@ struct VideoTouchGestureConfigTests {
             keyboardIsShown: false
         )
         #expect(config.videoTouchTapRecognizerEnabled == false)
-        #expect(config.videoTouchScrollRecognizerEnabled == false)
+        #expect(config.oneFingerPanBinding == .none)
         #expect(config.doubleTapZoomRecognizerEnabled)
         #expect(config.scrollViewScrollEnabled == true)
         #expect(config.scrollViewPanMinimumTouches == 1)
@@ -30,7 +30,7 @@ struct VideoTouchGestureConfigTests {
             keyboardIsShown: false
         )
         #expect(config.videoTouchTapRecognizerEnabled)
-        #expect(config.videoTouchScrollRecognizerEnabled)
+        #expect(config.oneFingerPanBinding == .remoteScroll)
         #expect(config.doubleTapZoomRecognizerEnabled == false)
         #expect(config.scrollViewScrollEnabled == true)
         #expect(config.scrollViewPanMinimumTouches == 2)
@@ -47,7 +47,7 @@ struct VideoTouchGestureConfigTests {
             keyboardIsShown: false
         )
         #expect(config.videoTouchTapRecognizerEnabled == false)
-        #expect(config.videoTouchScrollRecognizerEnabled == false)
+        #expect(config.oneFingerPanBinding == .none)
         #expect(config.doubleTapZoomRecognizerEnabled)
         #expect(config.scrollViewScrollEnabled == true)
         #expect(config.scrollViewPanMinimumTouches == 1)
@@ -64,7 +64,7 @@ struct VideoTouchGestureConfigTests {
             keyboardIsShown: false
         )
         #expect(config.videoTouchTapRecognizerEnabled)
-        #expect(config.videoTouchScrollRecognizerEnabled)
+        #expect(config.oneFingerPanBinding == .remoteScroll)
         #expect(config.doubleTapZoomRecognizerEnabled == false)
         #expect(config.scrollViewScrollEnabled == true)
         #expect(config.scrollViewPanMinimumTouches == 2)
@@ -99,7 +99,7 @@ struct VideoTouchGestureConfigTests {
                 keyboardIsShown: true
             )
             #expect(config.videoTouchTapRecognizerEnabled == videoTouchEnabled)
-            #expect(config.videoTouchScrollRecognizerEnabled == videoTouchEnabled)
+            #expect(config.oneFingerPanBinding == (videoTouchEnabled ? .remoteScroll : VideoOneFingerPanBinding.none))
             #expect(config.relativeControlsHidden)
             #expect(config.relativeControlsInteractionEnabled == false)
             #expect(config.usesFullLayout == false)
@@ -171,5 +171,99 @@ struct VideoTouchGestureConfigTests {
 
     @Test func invalidVideoTapEmitsNothing() {
         #expect(videoTouchTapInputs(for: nil).isEmpty)
+    }
+
+    // MARK: - Pointer mode
+    //
+    // TeamViewer's mouse mode. One finger moves the Mac's pointer and the picture holds
+    // still; it moves only when the pointer reaches the edge, which is ADR-0009 edge follow
+    // reacting to the same `cursorMove` frames the trackpad already sends.
+
+    @Test func pointerModeBindsOneFingerToThePointer() {
+        let config = videoTouchGestureConfig(
+            videoTouchEnabled: false,
+            layoutMode: .pointer,
+            keyboardIsShown: false
+        )
+        #expect(config.oneFingerPanBinding == .pointerMove)
+        #expect(config.videoTouchTapRecognizerEnabled)
+        #expect(config.twoFingerRemoteScrollEnabled)
+    }
+
+    // The mode is a video-input mode by definition. If the Touch switch could still strip its
+    // bindings, that switch would be a setting whose only effect is to make the video inert.
+    @Test func pointerModeIgnoresTheTouchSwitch() {
+        for videoTouchEnabled in [false, true] {
+            let config = videoTouchGestureConfig(
+                videoTouchEnabled: videoTouchEnabled,
+                layoutMode: .pointer,
+                keyboardIsShown: false
+            )
+            #expect(config.oneFingerPanBinding == .pointerMove)
+            #expect(config.videoTouchTapRecognizerEnabled)
+            #expect(config.tapRetargetsCursor == false)
+        }
+    }
+
+    // The whole premise: the picture does not move under the finger, at any finger count.
+    // Disabling the scroll view's PAN rather than its scrolling is what leaves pinch alive,
+    // and edge follow reaches the offset through setContentOffset regardless.
+    @Test func pointerModeStopsTheLocalViewportPanButKeepsZoom() {
+        let config = videoTouchGestureConfig(
+            videoTouchEnabled: false,
+            layoutMode: .pointer,
+            keyboardIsShown: false
+        )
+        #expect(config.scrollViewPanEnabled == false)
+        #expect(config.scrollViewScrollEnabled)
+        #expect(config.doubleTapZoomRecognizerEnabled == false)
+    }
+
+    @Test func everyOtherModeKeepsTheLocalViewportPan() {
+        for layoutMode in [VideoLayoutMode.asIs, .full] {
+            for videoTouchEnabled in [false, true] {
+                #expect(videoTouchGestureConfig(
+                    videoTouchEnabled: videoTouchEnabled,
+                    layoutMode: layoutMode,
+                    keyboardIsShown: false
+                ).scrollViewPanEnabled)
+            }
+        }
+    }
+
+    // Choosing Pointer is choosing a layout too: the video is the input surface now, so the
+    // trackpad below it has nothing left to do and the picture takes the space.
+    @Test func pointerModeIsFullBleedAndHidesTheRelativeControls() {
+        let config = videoTouchGestureConfig(
+            videoTouchEnabled: false,
+            layoutMode: .pointer,
+            keyboardIsShown: false
+        )
+        #expect(config.usesFullLayout)
+        #expect(config.relativeControlsHidden)
+        #expect(VideoLayoutMode.pointer.usesFullLayout)
+        #expect(VideoLayoutMode.full.usesFullLayout)
+        #expect(VideoLayoutMode.asIs.usesFullLayout == false)
+    }
+
+    // The single most breakable line in the mode. A tap that resolved the touch point first
+    // would jump the pointer to the finger, undoing whatever the last drag steered it to --
+    // and the pointer is drawn on screen, so the user would watch it happen.
+    @Test func aPointerModeTapClicksWhereThePointerIsAndSendsNoRetarget() {
+        let inputs = videoTouchTapInputs(
+            for: CursorViewportRetarget(
+                displayId: "display-a",
+                sourcePoint: CGPoint(x: 100, y: 200),
+                hostPoint: CGPoint(x: 300, y: 400)
+            ),
+            retargetsCursor: false
+        )
+        #expect(inputs == [.click(button: .left)])
+    }
+
+    // And it still clicks with no retarget available at all, which is the state the caller is
+    // actually in: pointer mode never resolves one.
+    @Test func aPointerModeTapClicksEvenWithNoRetargetResolved() {
+        #expect(videoTouchTapInputs(for: nil, retargetsCursor: false) == [.click(button: .left)])
     }
 }
