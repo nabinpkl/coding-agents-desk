@@ -305,32 +305,29 @@ extension PairingViewController {
         }
     }
 
-    // Pointer mode. Each `.changed` reports travel since the last one, because the recognizer's
-    // translation is zeroed every time -- a pointer is moved by increments, where a scroll is
-    // driven by a cumulative offset. Everything downstream is already built: the frame goes
-    // through `sendPointerAwareInput`, which advances the local cursor model and calls
-    // `applyEdgeFollow`, which pans the picture when the pointer nears the edge (ADR-0009).
+    // Pointer mode. The same state machine the trackpad drives, not a second one: identical
+    // acceleration curve, speed tuning, and drag suppression, so a finger means the same thing
+    // whichever surface it lands on.
+    //
+    // The first attempt mapped finger travel to pointer travel one-to-one through the picture's
+    // own scale, on the theory that a pointer drawn in the video should keep pace with the
+    // finger. It was judged on a device and it is not what a pointer should feel like: at 1:1 a
+    // 440pt-wide phone needs three and a half screen-widths of dragging to cross a 1512pt
+    // display, because there is no acceleration to reward a fast flick. Acceleration is the
+    // entire reason a small surface can drive a large screen, and the trackpad already has it.
+    //
+    // Everything downstream is unchanged: the frames go through `sendPointerAwareInput`, which
+    // advances the local cursor model and calls `applyEdgeFollow` to pan the picture when the
+    // pointer nears its edge (ADR-0009).
     private func handleVideoPointerPan(_ gesture: UIPanGestureRecognizer) {
         guard let scroll = sinkScrollView else { return }
-        switch gesture.state {
-        case .began:
-            // Whatever slop the recognizer needed before it fired is not pointer travel.
-            gesture.setTranslation(.zero, in: scroll)
-        case .changed:
-            let fingerDelta = gesture.translation(in: scroll)
-            gesture.setTranslation(.zero, in: scroll)
-            guard let hostDelta = VideoPointerPan.hostDelta(
-                fingerDelta: fingerDelta,
-                videoSize: sinkVideoSize,
-                displayBounds: activeDisplayRect,
-                zoomScale: scroll.zoomScale
-            ), hostDelta != .zero else { return }
-            sendPointerAwareInput(
-                .cursorMove(dx: Float(hostDelta.x), dy: Float(hostDelta.y))
-            )
-        default:
-            break
-        }
+        // Cumulative translation, because `processPan` tracks the previous value itself and
+        // differences against it -- the same call shape `attachTrackpad` makes.
+        gestureTranslator.processPan(
+            state: gesture.state,
+            translation: gesture.translation(in: scroll),
+            velocity: gesture.velocity(in: scroll)
+        )
     }
 
     // Pointer mode's two-finger scroll. Same state machine as the right-edge strip, which is
