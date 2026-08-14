@@ -349,7 +349,14 @@ extension PairingViewController {
         gestureTranslator.processScrollPan(
             state: gesture.state,
             translation: gesture.translation(in: scroll),
-            velocity: gesture.velocity(in: scroll)
+            velocity: gesture.velocity(in: scroll),
+            // Free, unlike the right-edge strip. The strip is a narrow clutch you grab
+            // deliberately, so committing to one axis stops a vertical drag smearing content
+            // sideways. Here the finger is on the content itself and a real trackpad scrolls
+            // both axes at once, so a diagonal drag has to move diagonally rather than doing
+            // nothing until one axis wins. It is also what makes the direction preference
+            // apply horizontally, which under the locked policy it never did.
+            axisPolicy: .free
         )
     }
 
@@ -455,6 +462,12 @@ extension PairingViewController {
         }
         pointerScrollPuck?.isHidden = !config.pointerScrollPuckVisible
             || !isControlSurfaceActive()
+        // Re-clamp on the way in. A position saved on a bigger screen, or in the other
+        // orientation, can be outside this layout's bounds -- and off screen is the one place
+        // the puck must never be, since it is the only way back out of scroll mode.
+        if pointerScrollPuck?.isHidden == false {
+            movePointerScrollPuck(by: .zero)
+        }
         videoTwoFingerScrollRecognizer?.isEnabled = config.twoFingerRemoteScrollEnabled
         videoDoubleTapZoomRecognizer?.isEnabled = config.doubleTapZoomRecognizerEnabled
         if let scroll = sinkScrollView {
@@ -513,6 +526,12 @@ extension PairingViewController {
         offsetX.constant = min(0, max(minX, offsetX.constant + delta.x))
         offsetY.constant = min(0, max(minY, offsetY.constant + delta.y))
         puck.superview?.layoutIfNeeded()
+        // Written per drag frame rather than at lift: a drag has no reliable end on a control
+        // that can also be cancelled by a mode change, and UserDefaults coalesces its writes.
+        // Saved clamped, so a value read back on a smaller screen is already inside it.
+        SettingsStore.shared.pointerScrollPuckOffset = CGPoint(
+            x: offsetX.constant, y: offsetY.constant
+        )
     }
 
     func isControlSurfaceActive() -> Bool {

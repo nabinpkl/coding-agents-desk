@@ -69,6 +69,8 @@ final class SettingsStore: @unchecked Sendable {
         static let spacesStripExpanded = "agentDesk.spacesStripExpanded"
         static let windowPickerStripExpanded = "agentDesk.windowPickerStripExpanded"
         static let mediaDiagnosticsExpanded = "agentDesk.mediaDiagnosticsExpanded"
+        static let pointerScrollPuckOffsetX = "agentDesk.pointerScrollPuckOffsetX"
+        static let pointerScrollPuckOffsetY = "agentDesk.pointerScrollPuckOffsetY"
     }
 
     // iOS HIG / QuickType bar standard is 44pt; key chiclets at 36pt
@@ -387,6 +389,34 @@ final class SettingsStore: @unchecked Sendable {
     var mediaDiagnosticsExpanded: Bool {
         get { defaults.object(forKey: Key.mediaDiagnosticsExpanded) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Key.mediaDiagnosticsExpanded) }
+    }
+
+    // Where the pointer-mode scroll clutch was last dragged to, as negative offsets from the
+    // safe area's trailing and bottom edges. Offsets rather than a point, so the puck lands in
+    // the same corner-relative place on a phone held the other way up or a different phone
+    // entirely, and a value saved in landscape cannot put it off screen in portrait.
+    //
+    // Persisted because the whole reason it drags is that no default place is right for
+    // everyone; making that choice again every launch is the same problem with extra steps.
+    // The clutch's ENGAGEMENT is deliberately not persisted -- that is a mode held for the
+    // length of a scroll, and restoring it would mean opening to a video whose one finger
+    // silently scrolls.
+    var pointerScrollPuckOffset: CGPoint? {
+        get {
+            guard let x = defaults.object(forKey: Key.pointerScrollPuckOffsetX) as? Double,
+                  let y = defaults.object(forKey: Key.pointerScrollPuckOffsetY) as? Double
+            else { return nil }
+            return CGPoint(x: x, y: y)
+        }
+        set {
+            guard let newValue else {
+                defaults.removeObject(forKey: Key.pointerScrollPuckOffsetX)
+                defaults.removeObject(forKey: Key.pointerScrollPuckOffsetY)
+                return
+            }
+            defaults.set(Double(newValue.x), forKey: Key.pointerScrollPuckOffsetX)
+            defaults.set(Double(newValue.y), forKey: Key.pointerScrollPuckOffsetY)
+        }
     }
 
     private func postChange() {

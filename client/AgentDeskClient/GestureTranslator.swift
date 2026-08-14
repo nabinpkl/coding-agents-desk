@@ -307,6 +307,9 @@ final class GestureTranslator: NSObject {
     private var didEmitScrollBegan = false
     // Same idea for the inertia tail.
     private var didEmitMomentumBegan = false
+    // Whether the gesture that threw this momentum scrolled both axes. Captured at lift
+    // because `scrollAxis` is cleared as the gesture ends, and the tail outlives it.
+    private var momentumAxisIsFree = false
     // Velocity threshold (points/sec) below which a finger-lift is treated
     // as a slow drag finishing, not a flick. No momentum below this.
     private static let momentumFlickThreshold: CGFloat = 200
@@ -447,7 +450,26 @@ final class GestureTranslator: NSObject {
     // slop, the dominant axis locks the gesture to vertical or horizontal
     // app-content scrolling. dy is in iPhone screen coords (positive =
     // finger moved down), dx positive = finger moved right.
-    func processScrollPan(state: UIGestureRecognizer.State, translation: CGPoint, velocity: CGPoint = .zero) {
+    /// How a scroll gesture treats its two axes.
+    ///
+    /// The right-edge strip commits to one. It is a narrow clutch you grab deliberately, the
+    /// axis you meant is obvious from the first inch, and locking it stops a vertical drag
+    /// from smearing content sideways on the way down.
+    ///
+    /// A full surface is the opposite case. There is no thin control to grab, the finger is
+    /// wherever the content is, and a real trackpad scrolls both axes at once -- so a diagonal
+    /// drag must move diagonally rather than doing nothing until one axis wins.
+    enum ScrollAxisPolicy: Equatable, Sendable {
+        case dominantAxis
+        case free
+    }
+
+    func processScrollPan(
+        state: UIGestureRecognizer.State,
+        translation: CGPoint,
+        velocity: CGPoint = .zero,
+        axisPolicy: ScrollAxisPolicy = .dominantAxis
+    ) {
         switch state {
         case .began:
             // A fresh touch on the scroll strip cancels any in-flight
@@ -456,7 +478,7 @@ final class GestureTranslator: NSObject {
             lastScrollTranslation = translation
             scrollStartTranslation = translation
             lastScrollVelocity = .zero
-            scrollAxis = .undecided
+            scrollAxis = axisPolicy == .free ? .free : .undecided
             didEmitScrollBegan = false
         case .changed:
             if scrollAxis == .undecided {
@@ -530,6 +552,8 @@ final class GestureTranslator: NSObject {
             CGPoint(x: velocity.x, y: 0)
         case .vertical:
             CGPoint(x: 0, y: velocity.y)
+        case .free:
+            velocity
         case .undecided:
             .zero
         }
@@ -550,6 +574,18 @@ final class GestureTranslator: NSObject {
                 0,
                 Float(delta.y * gain * tuning.scrollSpeed * sign)
             )
+        case .free:
+            // The direction preference applies to BOTH axes here. macOS natural scrolling
+            // inverts both, and a surface that honoured it vertically while ignoring it
+            // horizontally would scroll one way as asked and the other way as it pleased.
+            // The locked cases keep their existing behaviour rather than inheriting this:
+            // the strip's horizontal drag has never been signed, and changing a shipped
+            // surface is not this policy's business.
+            let sign: CGFloat = tuning.scrollInverted ? -1.0 : 1.0
+            return (
+                Float(delta.x * gain * tuning.scrollSpeed * sign),
+                Float(delta.y * gain * tuning.scrollSpeed * sign)
+            )
         case .undecided:
             return (0, 0)
         }
@@ -564,6 +600,8 @@ final class GestureTranslator: NSObject {
         momentumVelocity = initialVelocity
         momentumLastTime = CACurrentMediaTime()
         didEmitMomentumBegan = false
+        // Read before the caller clears `scrollAxis` at the end of the gesture.
+        momentumAxisIsFree = scrollAxis == .free
         let link = CADisplayLink(target: self, selector: #selector(tickMomentum(_:)))
         link.add(to: .main, forMode: .common)
         momentumDisplayLink = link
@@ -596,7 +634,11 @@ final class GestureTranslator: NSObject {
         }
         let gain = scrollAcceleration.scale(scrollSpeed(momentumVelocity))
         let sign: CGFloat = tuning.scrollInverted ? -1.0 : 1.0
-        let dx = Float(momentumVelocity.x * dt * gain * tuning.scrollSpeed)
+        // The tail has to be signed the same way the drag was, or a flick coasts back against
+        // the direction that threw it. Which axes that covers is a property of the gesture
+        // that started the momentum, not of the momentum itself, so it is captured at lift.
+        let horizontalSign: CGFloat = momentumAxisIsFree ? sign : 1.0
+        let dx = Float(momentumVelocity.x * dt * gain * tuning.scrollSpeed * horizontalSign)
         let dy = Float(momentumVelocity.y * dt * gain * tuning.scrollSpeed * sign)
         let phase: NormalizedInput.ScrollPhase = didEmitMomentumBegan ? .momentumChanged : .momentumBegan
         didEmitMomentumBegan = true
@@ -791,6 +833,6 @@ final class GestureTranslator: NSObject {
     }
 
     private enum ScrollAxis {
-        case undecided, horizontal, vertical
+        case undecided, horizontal, vertical, free
     }
 }

@@ -60,6 +60,84 @@ struct GestureTranslatorTests {
         #expect(recorder.events[0] == .click(button: .left))
     }
 
+    // MARK: - Free-axis scrolling
+    //
+    // The right-edge strip commits to one axis: it is a narrow clutch grabbed deliberately, and
+    // locking stops a vertical drag smearing content sideways. A full surface -- the video with
+    // two fingers, or with the scroll puck engaged -- is the opposite case. The finger is on the
+    // content, a real trackpad scrolls both axes at once, and under the locked policy a diagonal
+    // drag emitted nothing at all while the axes argued.
+
+    @Test func aFreeAxisDragScrollsBothAxesAtOnce() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        translator.processScrollPan(state: .began, translation: .zero, axisPolicy: .free)
+        translator.processScrollPan(
+            state: .changed,
+            translation: CGPoint(x: 10, y: 10),
+            velocity: CGPoint(x: 100, y: 100),
+            axisPolicy: .free
+        )
+
+        #expect(recorder.events.count == 1)
+        if case let .scroll(dx, dy, _) = recorder.events[0] {
+            #expect(dx != 0)
+            #expect(dy != 0)
+        } else {
+            Issue.record("expected a scroll event")
+        }
+    }
+
+    // The locked policy is unchanged, and this is the case that proves the two are different
+    // rather than the same code with a new name: an evenly diagonal drag never resolves a
+    // dominant axis, so under the lock it emits nothing whatsoever.
+    @Test func theSameDiagonalDragEmitsNothingUnderTheLockedPolicy() {
+        let recorder = InputRecorder()
+        let translator = GestureTranslator()
+        translator.delegate = recorder
+
+        translator.processScrollPan(state: .began, translation: .zero)
+        translator.processScrollPan(
+            state: .changed,
+            translation: CGPoint(x: 10, y: 10),
+            velocity: CGPoint(x: 100, y: 100)
+        )
+
+        #expect(recorder.events.isEmpty)
+    }
+
+    // The direction preference has to reach BOTH axes on a free surface. Honouring it
+    // vertically and ignoring it horizontally would scroll one way as asked and the other way
+    // as it pleased -- which is the defect this policy was added to fix.
+    @Test func theDirectionPreferenceAppliesToBothFreeAxes() {
+        func firstScroll(inverted: Bool) -> (dx: Float, dy: Float)? {
+            let recorder = InputRecorder()
+            let translator = GestureTranslator()
+            translator.delegate = recorder
+            translator.tuning = GestureTuning(
+                cursorSpeed: 1, cursorAcceleration: 1, scrollSpeed: 1, scrollInverted: inverted
+            )
+            translator.processScrollPan(state: .began, translation: .zero, axisPolicy: .free)
+            translator.processScrollPan(
+                state: .changed,
+                translation: CGPoint(x: 10, y: 10),
+                velocity: CGPoint(x: 100, y: 100),
+                axisPolicy: .free
+            )
+            guard case let .scroll(dx, dy, _) = recorder.events.first else { return nil }
+            return (dx, dy)
+        }
+
+        let natural = firstScroll(inverted: false)
+        let flipped = firstScroll(inverted: true)
+        #expect(natural != nil)
+        #expect(flipped != nil)
+        #expect(natural?.dx == flipped.map { -$0.dx })
+        #expect(natural?.dy == flipped.map { -$0.dy })
+    }
+
     @Test func scrollStripLocksVerticalAndEmitsDyDeltasOnly() {
         let recorder = InputRecorder()
         let translator = GestureTranslator()

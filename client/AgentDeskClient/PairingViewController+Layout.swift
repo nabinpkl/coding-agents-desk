@@ -134,11 +134,13 @@ extension PairingViewController {
         // user drags it wherever suits, and an offset survives a rotation and a layout swap
         // where absolute coordinates would leave it off screen or under the button row.
         let puck = PointerScrollPuck()
+        let restingOffset = SettingsStore.shared.pointerScrollPuckOffset
+            ?? CGPoint(x: -16, y: -120)
         let puckX = puck.trailingAnchor.constraint(
-            equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16
+            equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: restingOffset.x
         )
         let puckY = puck.bottomAnchor.constraint(
-            equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -120
+            equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: restingOffset.y
         )
         pointerScrollPuckOffsetX = puckX
         pointerScrollPuckOffsetY = puckY
