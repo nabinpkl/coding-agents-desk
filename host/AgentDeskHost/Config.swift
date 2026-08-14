@@ -391,6 +391,17 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_MAX_INTERVAL_MS",
         defaultValue: 15_000
     )
+    // ADR-0098: the above is now the interval for a link at the CEILING, stretched in proportion
+    // as the budget falls (see `VideoToolboxOwnedMediaEncoder.keyframeInterval`). This bounds the
+    // stretch, because a safety net with no bottom is not a net: a client that misses every
+    // explicit resync still has to come back on its own.
+    //
+    // 60s against the measured 96KB keyframe on a 300kbps link is 12.8kbps, 4% of the budget,
+    // where the flat 15s spent 51kbps -- 17% of it, in one lump every fifteen seconds.
+    static let ownedMediaKeyframeMaxIntervalCeilingMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_MAX_INTERVAL_CEILING_MS",
+        defaultValue: 60_000
+    )
     // ADR-0087: floor between two stall-recovery keyframes. The flush half of recovery is
     // free and runs every stalled window; this spaces out only the keyframe, so a link
     // that is genuinely dead cannot be driven into a keyframe storm by its own stall

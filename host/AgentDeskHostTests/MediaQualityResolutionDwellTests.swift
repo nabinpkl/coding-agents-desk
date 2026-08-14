@@ -28,8 +28,12 @@ struct MediaQualityResolutionDwellTests {
         windowMs: Int = 1_000
     ) -> MediaQualityControllerInput {
         MediaQualityControllerInput(
-            sample: MediaQualitySample(completedFrames: completed, expiredFrames: expired),
-            productionSummary: MediaProductionSummary(
+            delivery: MediaDeliveryObservation(
+                sample: MediaQualitySample(completedFrames: completed, expiredFrames: expired),
+                ackCount: completed,
+                staleRecoveryCount: stale
+            ),
+            production: MediaProductionSummary(
                 actualFps: 30,
                 targetFps: 30,
                 fpsDeficit: 0,
@@ -40,9 +44,7 @@ struct MediaQualityResolutionDwellTests {
                 maxGapMs: 0,
                 resolutionScale: 1.0,
                 windowMs: windowMs
-            ),
-            ackCount: completed,
-            staleRecoveryCount: stale
+            )
         )
     }
 

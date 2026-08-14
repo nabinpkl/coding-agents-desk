@@ -65,9 +65,19 @@ struct MediaQualitySample: Equatable {
     }
 }
 
-struct MediaQualityControllerInput: Equatable {
+/// ADR-0098: what the LINK did this window, as opposed to what the host produced.
+///
+/// These were one type with production, and the fusion is what let the measured freeze go
+/// unanswered. A freeze is precisely the window where the two halves disagree: the host
+/// produced six frames dead on cadence and the client received none of them. With one type
+/// there was nowhere for that disagreement to live, so the controller read a delivery failure
+/// as a quiet screen and held its rung -- 25 windows of it in one 45-minute log.
+///
+/// The ordering rule this type exists to enforce: **the link's state is asked about before the
+/// frame count.** A count of zero means the link resolved nothing, not that nothing was made.
+struct MediaDeliveryObservation: Equatable {
+    /// What the link resolved: completions, expiries, and the client's repair requests.
     let sample: MediaQualitySample
-    let productionSummary: MediaProductionSummary?
     let ackCount: Int
     let ackAgeMaxMs: Double?
     let inFlightFrames: Int
@@ -87,7 +97,6 @@ struct MediaQualityControllerInput: Equatable {
 
     init(
         sample: MediaQualitySample,
-        productionSummary: MediaProductionSummary? = nil,
         ackCount: Int = 0,
         ackAgeMaxMs: Double? = nil,
         inFlightFrames: Int = 0,
@@ -100,13 +109,43 @@ struct MediaQualityControllerInput: Equatable {
         self.clientReportMissing = clientReportMissing
         self.clientLinkStalled = clientLinkStalled
         self.sample = sample
-        self.productionSummary = productionSummary
         self.ackCount = max(0, ackCount)
         self.ackAgeMaxMs = ackAgeMaxMs
         self.inFlightFrames = max(0, inFlightFrames)
         self.inFlightBytes = max(0, inFlightBytes)
         self.oldestInflightMs = oldestInflightMs
         self.staleRecoveryCount = max(0, staleRecoveryCount)
+    }
+
+    /// Frames the link resolved one way or the other this window.
+    ///
+    /// Named for what it is, because the name it did not have is the bug: zero here was read as
+    /// "the host made nothing", when it equally describes a link that acknowledged nothing.
+    var resolvedFrames: Int { sample.completedFrames + sample.expiredFrames }
+
+    /// The link is failing to deliver, on positive evidence rather than on absence of it.
+    ///
+    /// `clientReportMissing` is deliberately NOT grounds here even though it also means we are
+    /// flying blind. A client that has gone quiet tells us nothing either way, and ADR-0087
+    /// already spends that signal correctly by blocking the climb; descending on it would let a
+    /// merely slow reporter walk the ladder to the floor. We descend on evidence of failure,
+    /// never on the absence of evidence of health -- the same asymmetry `clientLinkStalled`
+    /// itself is built on.
+    var isStalled: Bool { clientLinkStalled }
+}
+
+struct MediaQualityControllerInput: Equatable {
+    let delivery: MediaDeliveryObservation
+    /// What the HOST produced: its own capture and encode cadence.
+    ///
+    /// Never on its own evidence that the link is failing. A settled screen legitimately
+    /// produces nothing, and during the measured freeze this side read perfectly healthy --
+    /// `actualFps=6 targetFps=6 fpsDeficit=0` -- while nothing at all was arriving.
+    let production: MediaProductionSummary?
+
+    init(delivery: MediaDeliveryObservation, production: MediaProductionSummary? = nil) {
+        self.delivery = delivery
+        self.production = production
     }
 }
 
@@ -506,51 +545,50 @@ struct MediaQualityController {
 
     mutating func observe(_ input: MediaQualityControllerInput) -> MediaQualityEvaluation {
         let previous = target
-        currentWindowMs = max(input.productionSummary?.windowMs ?? idleRecoveryWindowMs, 1)
+        currentWindowMs = max(input.production?.windowMs ?? idleRecoveryWindowMs, 1)
         let signals = makeSignals(input)
-        let total = input.sample.completedFrames + input.sample.expiredFrames
-        if total == 0 {
+        let delivery = input.delivery
+
+        // ADR-0098: the link is asked about BEFORE the frame count, and this ordering is the
+        // whole fix.
+        //
+        // A freeze resolves no frames -- nothing is acked because nothing arrives, and nothing
+        // expires because expiry needs a client report the client is not sending -- so it fell
+        // into the zero-frame branch below, whose only outcomes are climb and hold. Every
+        // descent branch is written after it. Measured on a stalled LTE link: 25 windows with
+        // zero completions and frames still in flight, 6 of them carrying stale pressure, all
+        // of them logged `reason=idle` while the rung never moved.
+        //
+        // No streak gate, unlike stale and cadence pressure. Those count because one window of
+        // them is usually noise (R231b measured 47 of 51 stale bursts lasting exactly one
+        // window). A stalled link is not noise: the client is reporting that it received
+        // nothing over a span longer than our own quiet period, or that its path is not
+        // satisfied. Waiting for a second window of that is waiting through a freeze the user
+        // is already looking at.
+        if delivery.isStalled {
             resetPressureStreaks()
-            // A window with no frames at all cannot have produced a stale one, so it breaks the
-            // run rather than being invisible to it: two stale windows either side of a silent
-            // gap are not the sustained pressure the streak is looking for.
             resetStaleStreak()
-            // A calm screen is change-driven quiet, not a frozen link: ScreenCaptureKit
-            // produces no frames when nothing moves, so a zero-activity window with a
-            // clean link is a recovery opportunity, climb back so the next motion burst
-            // starts crisp, rather than wiping recovery credit. A window with frames
-            // still inflight is a pre-timeout stall, not idle, and must not climb.
-            // ADR-0087: a host-raised window means the client stopped reporting, which is
-            // the opposite of evidence that the link is healthy. Without this the synthetic
-            // tick would read a silent client with an empty in-flight list as a calm screen
-            // and climb the ladder into a stall.
-            //
-            // ADR-0088 tightens this from "who sent the window" to "what the window says".
-            // The old test rested on a side effect: a stalled client happened to be silent
-            // because the client suppressed zero-count reports, so silence stood in for
-            // "stalled". Now that reports are sent unconditionally, a stalled client sends a
-            // zero-count window with `clientReportMissing == false`, which would have reached
-            // this branch and climbed the ladder mid-freeze. `clientLinkStalled` reads the
-            // telemetry the report now carries, so the judgement no longer depends on the
-            // messenger.
-            let idleLinkClean = !input.clientReportMissing
-                && !input.clientLinkStalled
-                && input.inFlightFrames == 0
-                && input.staleRecoveryCount == 0
-                && !signals.lossPressure
-                && !signals.repairPressure
-                && !signals.queuePressure
-            if idleLinkClean && target.rung != .native {
-                return accrueCleanRecovery(
-                    signals: signals,
-                    previous: previous,
-                    windowMs: idleRecoveryWindowMs
-                )
-            }
             resetRecovery()
-            return evaluation(signals: signals, previous: previous, reason: "idle", recoveryBlocker: "idle")
+            resolutionEvidenceIsProven = true
+            downshiftCapacity(reason: "delivery-stalled-down")
+            return evaluation(
+                signals: signals,
+                previous: previous,
+                reason: target == previous ? floorReason : target.reason,
+                recoveryBlocker: "delivery-stalled"
+            )
         }
 
+        // ADR-0098: stale pressure is judged before the frame count too, for the same reason and
+        // against a premise that turned out to be false. The zero-frame branch used to reset the
+        // stale streak on the grounds that "a window with no frames cannot have produced a stale
+        // one" -- but `staleRecoveryCount` is incremented by `abandonUntilCanProduce` at PRODUCE
+        // time, which is entirely independent of whether anything was acked. A window that
+        // abandoned five frames and had none acknowledged has both, and it was being called idle.
+        //
+        // Measured consequence of the old order: a freeze alternating idle and stale windows
+        // reset the streak on every idle one, so 12 stale windows produced exactly one
+        // `stale-capacity-down` in 45 minutes.
         if signals.stalePressure {
             resetPressureStreaks()
             resetRecovery()
@@ -576,8 +614,48 @@ struct MediaQualityController {
             )
         }
         // A window without stale pressure breaks the run, so the next burst starts from zero
-        // rather than pairing up with an unrelated one from minutes ago.
+        // rather than pairing up with an unrelated one from minutes ago. Reaching here means
+        // stale pressure was already ruled out above, so this is now true of the idle branch as
+        // well -- which is what makes it safe for a quiet window to clear the run.
         resetStaleStreak()
+
+        if delivery.resolvedFrames == 0 {
+            resetPressureStreaks()
+            // A calm screen is change-driven quiet, not a frozen link: ScreenCaptureKit
+            // produces no frames when nothing moves, so a zero-activity window with a
+            // clean link is a recovery opportunity, climb back so the next motion burst
+            // starts crisp, rather than wiping recovery credit. A window with frames
+            // still inflight is a pre-timeout stall, not idle, and must not climb.
+            // ADR-0087: a host-raised window means the client stopped reporting, which is
+            // the opposite of evidence that the link is healthy. Without this the synthetic
+            // tick would read a silent client with an empty in-flight list as a calm screen
+            // and climb the ladder into a stall.
+            //
+            // ADR-0088 tightens this from "who sent the window" to "what the window says".
+            // The old test rested on a side effect: a stalled client happened to be silent
+            // because the client suppressed zero-count reports, so silence stood in for
+            // "stalled". Now that reports are sent unconditionally, a stalled client sends a
+            // zero-count window with `clientReportMissing == false`, which would have reached
+            // this branch and climbed the ladder mid-freeze. `clientLinkStalled` reads the
+            // telemetry the report now carries, so the judgement no longer depends on the
+            // messenger.
+            let idleLinkClean = !delivery.clientReportMissing
+                && !delivery.clientLinkStalled
+                && delivery.inFlightFrames == 0
+                && delivery.staleRecoveryCount == 0
+                && !signals.lossPressure
+                && !signals.repairPressure
+                && !signals.queuePressure
+            if idleLinkClean && target.rung != .native {
+                return accrueCleanRecovery(
+                    signals: signals,
+                    previous: previous,
+                    windowMs: idleRecoveryWindowMs
+                )
+            }
+            resetRecovery()
+            return evaluation(signals: signals, previous: previous, reason: "idle", recoveryBlocker: "idle")
+        }
 
         if signals.lossPressure {
             resetPressureStreaks()
@@ -681,7 +759,7 @@ struct MediaQualityController {
 
         cadencePressureStreak = 0
 
-        if signals.queuePressure || (input.sample.ackAgeP95Ms ?? 0) >= config.ackHoldP95Ms {
+        if signals.queuePressure || (input.delivery.sample.ackAgeP95Ms ?? 0) >= config.ackHoldP95Ms {
             resetRecovery()
             return evaluation(
                 signals: signals,
@@ -706,7 +784,7 @@ struct MediaQualityController {
         // A clean window with no production summary (sparse, ack-only) still
         // represents real elapsed link-clean time; credit a nominal window so
         // recovery progresses instead of stalling between sparse production windows.
-        let cleanWindowMs = input.productionSummary?.windowMs ?? idleRecoveryWindowMs
+        let cleanWindowMs = input.production?.windowMs ?? idleRecoveryWindowMs
         return accrueCleanRecovery(signals: signals, previous: previous, windowMs: cleanWindowMs)
     }
 
@@ -738,8 +816,8 @@ struct MediaQualityController {
             return evaluation(
                 signals: signals,
                 previous: previous,
-                reason: target == previous ? "at-native" : target.reason,
-                recoveryBlocker: target == previous ? "at-native" : "none"
+                reason: target == previous ? atCeilingReason : target.reason,
+                recoveryBlocker: target == previous ? atCeilingReason : "none"
             )
         }
         return evaluation(signals: signals, previous: previous, reason: "clean-hold", recoveryBlocker: "none")
@@ -752,7 +830,7 @@ struct MediaQualityController {
     // Pure: reads the input and config, mutates nothing, so it is safe on a path whose
     // whole contract is that the target does not move.
     func makeSignals(_ input: MediaQualityControllerInput) -> MediaQualityObservationSignals {
-        let sample = input.sample
+        let sample = input.delivery.sample
         let total = sample.completedFrames + sample.expiredFrames
         let lossPermille = total > 0 ? (sample.expiredFrames * 1000) / total : 0
         let repairPressure = sample.resendRequests > 0
@@ -761,7 +839,7 @@ struct MediaQualityController {
             sample.keyframeRequests > 0 ||
             repairPressure
         let queuePressure = (sample.ackAgeP95Ms ?? 0) >= config.ackDownP95Ms
-        let stalePressure = input.staleRecoveryCount > 0
+        let stalePressure = input.delivery.staleRecoveryCount > 0
         // Production cadence (low fps, big gaps) measures how much the screen is
         // changing, not link capacity: a settled screen is change-driven sparse,
         // not a frozen link. Only read sparse production as freeze/cadence
@@ -774,11 +852,11 @@ struct MediaQualityController {
             sample.keyframeRequests > 0 ||
             stalePressure ||
             (sample.ackAgeP95Ms ?? 0) >= config.ackHoldP95Ms
-        let cadencePressure = linkStressed && (input.productionSummary.map { summary in
+        let cadencePressure = linkStressed && (input.production.map { summary in
             summary.fpsDeficit * 2 >= max(summary.targetFps, 1) ||
                 summary.maxGapMs >= config.cadenceGapMs
         } ?? false)
-        let freezePressure = linkStressed && (input.productionSummary.map { summary in
+        let freezePressure = linkStressed && (input.production.map { summary in
             summary.maxGapMs >= config.freezeGapMs ||
                 summary.actualFps <= config.freezeFpsCeiling
         } ?? false)
@@ -803,12 +881,12 @@ struct MediaQualityController {
               !signals.cadencePressure,
               !signals.stalePressure,
               !signals.freezePressure,
-              input.staleRecoveryCount == 0,
-              input.ackCount > 0
+              input.delivery.staleRecoveryCount == 0,
+              input.delivery.ackCount > 0
         else {
             return "recovery-wait-no-ack"
         }
-        guard (input.sample.ackAgeP95Ms ?? Double.greatestFiniteMagnitude) < config.ackHoldP95Ms else {
+        guard (input.delivery.sample.ackAgeP95Ms ?? Double.greatestFiniteMagnitude) < config.ackHoldP95Ms else {
             return "recovery-wait-ack"
         }
         // Recovery is gated on link health (loss, queue, stale, fast acks), not on
@@ -840,6 +918,16 @@ struct MediaQualityController {
 
     private var floorReason: String {
         target.rung == .emergency ? "at-emergency-floor" : "at-survival-floor"
+    }
+
+    /// The climb earned its step and had nowhere to put it.
+    ///
+    /// Named for where the ladder actually is. This was hardcoded to `at-native`, which one
+    /// 45-minute log emitted 27 times from the EMERGENCY floor -- the opposite end of the
+    /// ladder, and the one place where "we are at full quality" is the most misleading thing a
+    /// diagnostic could say. A rung can be at its own ceiling without being at the top.
+    private var atCeilingReason: String {
+        target.rung == .native ? "at-native" : "at-rung-ceiling"
     }
 
     private mutating func downshiftCapacity(reason: String) {
@@ -971,7 +1059,41 @@ struct MediaQualityController {
         recoveryPhaseState = .steady
     }
 
-    private func fixedTarget(for rung: MediaQualityRung, reason: String) -> MediaQualityTarget {
+    /// The rung to hand a stream switching from a manual pin back to adaptive.
+    ///
+    /// ADR-0098. A fresh controller opens at the ceiling, and the encoder acts on that
+    /// immediately: measured at 18:32:45, enabling adaptive on a stream pinned to 0.33 scale
+    /// recreated the compression session at the full 3600x2338 and emitted a 120,646-byte
+    /// keyframe, then the link-quality prior arrived one window later and spent a second
+    /// 102,918-byte keyframe going back down. 223KB in 364ms, on the link that had just been
+    /// diagnosed as congested.
+    ///
+    /// So the scale that is already running is kept exactly, which costs no keyframe at all --
+    /// resolution is the only axis whose change forces an IDR, because HEVC has no reference
+    /// picture resampling. Bitrate and fps come from the ladder rung that owns that scale, so
+    /// the controller lands on a real rung and can climb; pinning the manual target verbatim
+    /// would leave it at `.native` below the ceiling, where `recover` returns early and the
+    /// bitrate could never come back.
+    ///
+    /// The rung chosen is the highest-quality one whose canonical scale does not EXCEED what is
+    /// running, so this can only ever keep or lower the encoder's ambition, never raise it.
+    static func adaptiveHandoffTarget(
+        from current: MediaQualityTarget,
+        config: MediaQualityControllerConfig,
+        reason: String
+    ) -> MediaQualityTarget {
+        let rung = [MediaQualityRung.native, .lossControl, .capacity1, .capacity2, .survival, .emergency]
+            .first { canonicalTarget(for: $0, config: config, reason: reason).resolutionScale <= current.resolutionScale }
+            ?? .emergency
+        return canonicalTarget(for: rung, config: config, reason: reason)
+            .with(resolutionScale: current.resolutionScale, reason: reason)
+    }
+
+    static func canonicalTarget(
+        for rung: MediaQualityRung,
+        config: MediaQualityControllerConfig,
+        reason: String
+    ) -> MediaQualityTarget {
         switch rung {
         case .native:
             MediaQualityTarget(bitrateKbps: config.ceilingKbps, fps: config.fpsCeiling, resolutionScale: 1.0, rung: .native, reason: reason)
@@ -986,6 +1108,10 @@ struct MediaQualityController {
         case .emergency:
             MediaQualityTarget(bitrateKbps: config.emergencyKbps, fps: config.emergencyFps, resolutionScale: config.emergencyScale, rung: .emergency, reason: reason)
         }
+    }
+
+    private func fixedTarget(for rung: MediaQualityRung, reason: String) -> MediaQualityTarget {
+        Self.canonicalTarget(for: rung, config: config, reason: reason)
     }
 
     private func recoveryTarget(for rung: MediaQualityRung) -> MediaQualityTarget {
@@ -1258,9 +1384,18 @@ struct QuicSessionHostMediaState {
             guard !adaptiveQualityEnabled else { return nil }
             adaptiveQualityEnabled = true
             qualityController = MediaQualityController(config: qualityControllerConfig)
+            // ADR-0098: hand the ladder the stream as it is actually running, not the ceiling.
+            // A fresh controller opens at native, and the encoder acted on that before any
+            // measurement arrived -- two full keyframes, 223KB in 364ms, on a link that had just
+            // been diagnosed as congested.
+            qualityController.pin(to: MediaQualityController.adaptiveHandoffTarget(
+                from: previous,
+                config: qualityControllerConfig,
+                reason: "adaptive-quality-enabled"
+            ))
             resetForQualityChange()
             clearQualityWindow()
-            let target = qualityController.target.with(reason: "adaptive-quality-enabled")
+            let target = qualityController.target
             return MediaQualityOutcome(
                 target: target,
                 previousTarget: previous,
@@ -1428,22 +1563,24 @@ struct QuicSessionHostMediaState {
             Double(nowNs >= sentNs ? nowNs - sentNs : 0) / 1_000_000.0
         }
         let input = MediaQualityControllerInput(
-            sample: sample,
-            productionSummary: productionSummary,
-            ackCount: ackStats.count,
-            ackAgeMaxMs: ackStats.max,
-            inFlightFrames: backpressure.inFlight,
-            inFlightBytes: backpressure.bytesInFlight,
-            oldestInflightMs: oldestInflightMs,
-            staleRecoveryCount: staleRecoveryCountInWindow,
-            clientReportMissing: clientReportMissing,
-            clientLinkStalled: MediaQualityController.clientLinkStalled(
-                telemetry: clientTelemetry,
-                reportIntervalMs: reportIntervalMs,
-                hostQuietMs: lastSentUptimeNs.map { sentNs in
-                    Double(nowNs >= sentNs ? nowNs - sentNs : 0) / 1_000_000.0
-                }
-            )
+            delivery: MediaDeliveryObservation(
+                sample: sample,
+                ackCount: ackStats.count,
+                ackAgeMaxMs: ackStats.max,
+                inFlightFrames: backpressure.inFlight,
+                inFlightBytes: backpressure.bytesInFlight,
+                oldestInflightMs: oldestInflightMs,
+                staleRecoveryCount: staleRecoveryCountInWindow,
+                clientReportMissing: clientReportMissing,
+                clientLinkStalled: MediaQualityController.clientLinkStalled(
+                    telemetry: clientTelemetry,
+                    reportIntervalMs: reportIntervalMs,
+                    hostQuietMs: lastSentUptimeNs.map { sentNs in
+                        Double(nowNs >= sentNs ? nowNs - sentNs : 0) / 1_000_000.0
+                    }
+                )
+            ),
+            production: productionSummary
         )
 
         if !adaptiveQualityEnabled {
@@ -1454,12 +1591,12 @@ struct QuicSessionHostMediaState {
                 sample: sample,
                 previousTarget: target,
                 productionSummary: productionSummary,
-                ackCount: input.ackCount,
-                ackAgeMaxMs: input.ackAgeMaxMs,
-                inFlightFrames: input.inFlightFrames,
-                inFlightBytes: input.inFlightBytes,
-                oldestInflightMs: input.oldestInflightMs,
-                staleRecoveryCount: input.staleRecoveryCount,
+                ackCount: input.delivery.ackCount,
+                ackAgeMaxMs: input.delivery.ackAgeMaxMs,
+                inFlightFrames: input.delivery.inFlightFrames,
+                inFlightBytes: input.delivery.inFlightBytes,
+                oldestInflightMs: input.delivery.oldestInflightMs,
+                staleRecoveryCount: input.delivery.staleRecoveryCount,
                 freshness: freshnessSummary(),
                 signals: signals,
                 recoveryStatus: qualityController.currentRecoveryStatus
@@ -1502,12 +1639,12 @@ struct QuicSessionHostMediaState {
             sample: sample,
             previousTarget: evaluation.outcome.previousTarget,
             productionSummary: productionSummary,
-            ackCount: input.ackCount,
-            ackAgeMaxMs: input.ackAgeMaxMs,
-            inFlightFrames: input.inFlightFrames,
-            inFlightBytes: input.inFlightBytes,
-            oldestInflightMs: input.oldestInflightMs,
-            staleRecoveryCount: input.staleRecoveryCount,
+            ackCount: input.delivery.ackCount,
+            ackAgeMaxMs: input.delivery.ackAgeMaxMs,
+            inFlightFrames: input.delivery.inFlightFrames,
+            inFlightBytes: input.delivery.inFlightBytes,
+            oldestInflightMs: input.delivery.oldestInflightMs,
+            staleRecoveryCount: input.delivery.staleRecoveryCount,
             freshness: freshnessSummary(),
             signals: evaluation.signals,
             recoveryStatus: evaluation.recoveryStatus
@@ -1543,7 +1680,7 @@ struct QuicSessionHostMediaState {
         // list says anything. No ACKs at all while admission is closed is that shape.
         // Asking `canProduce` rather than comparing the frame count keeps this agreeing
         // with the actual admission rule, which gates on the byte ceiling too.
-        let jammed = input.ackCount == 0 && !backpressure.canProduce()
+        let jammed = input.delivery.ackCount == 0 && !backpressure.canProduce()
         let reason: String
         if signals.freezePressure {
             reason = "freeze"

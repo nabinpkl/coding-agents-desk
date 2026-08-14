@@ -79,6 +79,9 @@ struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
     // The wall-clock half, and the load-bearing one: the frame count above is unbounded in
     // TIME on a change-driven capture. See Config for the bandwidth arithmetic.
     let keyframeMaxIntervalMs: Int
+    // ADR-0098: the longest the periodic refresh may be stretched to on a slow link. The pair
+    // above describes a link at `targetBitrateKbps`; this bounds what happens below it.
+    let keyframeMaxIntervalCeilingMs: Int
     // ADR-0027: multiple of the average bitrate used for the encoder's hard
     // DataRateLimits window. Threaded through config so it tracks the bitrate and is
     // injectable in tests; defaults to the Config knob so existing call sites are
@@ -90,12 +93,14 @@ struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
         expectedFrameRate: Int,
         keyframeIntervalFrames: Int,
         keyframeMaxIntervalMs: Int = Config.ownedMediaKeyframeMaxIntervalMs,
+        keyframeMaxIntervalCeilingMs: Int = Config.ownedMediaKeyframeMaxIntervalCeilingMs,
         dataRateLimitRatio: Double = Config.ownedMediaDataRateLimitRatio
     ) {
         self.targetBitrateKbps = targetBitrateKbps
         self.expectedFrameRate = expectedFrameRate
         self.keyframeIntervalFrames = keyframeIntervalFrames
         self.keyframeMaxIntervalMs = keyframeMaxIntervalMs
+        self.keyframeMaxIntervalCeilingMs = max(keyframeMaxIntervalMs, keyframeMaxIntervalCeilingMs)
         self.dataRateLimitRatio = dataRateLimitRatio
     }
 
@@ -141,6 +146,18 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     // recreate keeps the adapted rate. Matches the encoder's bit allocation to the
     // produce-loop cadence cap.
     private var expectedFrameRate: Int
+    /// ADR-0098: the live periodic-refresh interval, scaled to the rung's budget.
+    ///
+    /// The configured pair is the interval for a link at the ceiling. Held at that value on a
+    /// 300kbps link it cost 51kbps -- a 96KB keyframe every 15.1s, 17% of the whole budget,
+    /// delivered as a lump -- and it was the single largest keyframe source in a measured
+    /// 45-minute session: 25 of 53, none of them requested by anything.
+    ///
+    /// Recomputed on every bitrate change and re-applied on session recreate, exactly as the
+    /// bitrate and frame rate above are, so a resolution change cannot silently restore the
+    /// ceiling's cadence on a link that cannot afford it.
+    private var currentKeyframeIntervalFrames: Int
+    private var currentKeyframeMaxIntervalMs: Int
     private let configuration: OwnedMediaEncodingConfiguration
     private let lock = NSLock()
     private var session: VTCompressionSession?
@@ -185,7 +202,49 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         self.codec = codec
         self.currentBitrateKbps = configuration.targetBitrateKbps
         self.expectedFrameRate = configuration.expectedFrameRate
+        let interval = Self.keyframeInterval(
+            forBitrateKbps: configuration.targetBitrateKbps,
+            configuration: configuration
+        )
+        self.currentKeyframeIntervalFrames = interval.frames
+        self.currentKeyframeMaxIntervalMs = interval.maxIntervalMs
         self.configuration = configuration
+    }
+
+    /// How often the encoder may place a keyframe nobody asked for, given what the link can carry.
+    ///
+    /// The periodic refresh is a safety net: it exists so a client that lost sync recovers even
+    /// if no explicit request reaches us. How long "eventually" is allowed to be should scale
+    /// with how expensive that recovery is, and on a slow link it is very expensive. So the
+    /// configured interval is treated as the interval for a link at the CEILING, and stretched
+    /// in proportion as the budget falls, which keeps the refresh at a roughly constant share of
+    /// the link instead of a constant share of the clock.
+    ///
+    /// Both properties move together because "whichever comes first wins": at the emergency
+    /// rung's 6fps the configured 120 frames is 20s, so stretching only the duration would be
+    /// inert. Scaling both by the same factor leaves the ceiling's behaviour exactly as it was
+    /// (factor 1) rather than retuning a rung that was never the problem.
+    ///
+    /// Bounded by `ownedMediaKeyframeMaxIntervalCeilingMs`, because a net with no bottom is not
+    /// a net: a client that misses every explicit resync still has to come back on its own.
+    static func keyframeInterval(
+        forBitrateKbps kbps: Int,
+        configuration: OwnedMediaEncodingConfiguration
+    ) -> (frames: Int, maxIntervalMs: Int) {
+        // The encoder's OWN configured target, not the global ceiling: this has to be a function
+        // of its arguments alone, or an encoder built for a different budget silently inherits
+        // the daily driver's idea of what "at the ceiling" means.
+        let ceilingKbps = max(1, configuration.targetBitrateKbps)
+        let factor = max(1.0, Double(ceilingKbps) / Double(max(1, kbps)))
+        let stretchedMs = Double(configuration.keyframeMaxIntervalMs) * factor
+        let cappedMs = min(Double(configuration.keyframeMaxIntervalCeilingMs), stretchedMs)
+        // Re-derive the applied factor from the capped duration so the frame count never implies
+        // a shorter interval than the duration allows, which would put the cap back to no effect.
+        let appliedFactor = max(1.0, cappedMs / Double(max(1, configuration.keyframeMaxIntervalMs)))
+        return (
+            frames: Int((Double(configuration.keyframeIntervalFrames) * appliedFactor).rounded()),
+            maxIntervalMs: Int(cappedMs.rounded())
+        )
     }
 
     func encode(
@@ -356,6 +415,13 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     func updateBitrate(_ kbps: Int) {
         lock.lock()
         currentBitrateKbps = kbps
+        // ADR-0098: the periodic-refresh interval is a function of the budget, so it moves with
+        // it here rather than being a separate thing a caller has to remember to update.
+        let interval = Self.keyframeInterval(forBitrateKbps: kbps, configuration: configuration)
+        let intervalChanged = interval.frames != currentKeyframeIntervalFrames
+            || interval.maxIntervalMs != currentKeyframeMaxIntervalMs
+        currentKeyframeIntervalFrames = interval.frames
+        currentKeyframeMaxIntervalMs = interval.maxIntervalMs
         let session = self.session
         let ratio = configuration.dataRateLimitRatio
         lock.unlock()
@@ -368,6 +434,18 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         _ = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: kbps * 1000))
         _ = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitsValue)
         logger.notice("owned encoder bitrate-updated kbps=\(kbps, privacy: .public) dataRateCapBytes=\(Int(limits.bytesPerWindow), privacy: .public)")
+        guard intervalChanged else { return }
+        _ = VTSessionSetProperty(
+            session,
+            key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
+            value: NSNumber(value: interval.frames)
+        )
+        _ = VTSessionSetProperty(
+            session,
+            key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
+            value: NSNumber(value: Double(interval.maxIntervalMs) / 1000.0)
+        )
+        logger.notice("owned encoder keyframe-interval-updated frames=\(interval.frames, privacy: .public) maxIntervalMs=\(interval.maxIntervalMs, privacy: .public) kbps=\(kbps, privacy: .public)")
     }
 
     // ADR-0029: retarget the live session's expected frame rate without recreating it,
@@ -509,14 +587,18 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         // these two would silently leave the stream with no ceiling at all. R189 asserts
         // both are supported and read back on real hardware; this is the runtime half of
         // that guarantee.
+        // ADR-0098: the LIVE interval, not the configured one, for the same reason the bitrate
+        // above is live. A resolution change recreates this session, and restoring the ceiling's
+        // refresh cadence on a link at the emergency rung would undo the stretch at exactly the
+        // moment it is most needed -- a rescale only happens because the link is in trouble.
         try setRequiredProperty(
             kVTCompressionPropertyKey_MaxKeyFrameInterval,
-            value: NSNumber(value: configuration.keyframeIntervalFrames),
+            value: NSNumber(value: currentKeyframeIntervalFrames),
             on: newSession
         )
         try setRequiredProperty(
             kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
-            value: NSNumber(value: Double(configuration.keyframeMaxIntervalMs) / 1000.0),
+            value: NSNumber(value: Double(currentKeyframeMaxIntervalMs) / 1000.0),
             on: newSession
         )
         VTCompressionSessionPrepareToEncodeFrames(newSession)
@@ -551,11 +633,20 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         }
     }
 
-    // kVTCompressionPropertyKey_DataRateLimits is a hard cap: the encoder emits at
-    // most `bytesPerWindow` over any `windowSeconds` window. One one-second window
-    // sized at `ratio` times the average byte-rate gives a keyframe bounded headroom
-    // over the nominal bitrate instead of the unbounded burst AverageBitRate allows.
-    // Pure so the ceiling contract is unit-testable without a live session. See ADR-0027.
+    // kVTCompressionPropertyKey_DataRateLimits bounds the AVERAGE over a sliding window, which
+    // is not the same as bounding the frame. ADR-0027 recorded it as "a hard cap: the encoder
+    // emits at most `bytesPerWindow` over any `windowSeconds` window"; ADR-0098 measured
+    // otherwise. Three keyframes against the cap in force at the time: 43,441 vs 33,750 (1.29x),
+    // 96,408 vs 56,250 (1.71x), 132,831 vs 99,188 (1.34x). VideoToolbox honours the window by
+    // STARVING the frames after the IDR -- `sentKbps` went 768, then 13, then 14 across the three
+    // windows around one of them -- not by making the IDR fit. At the emergency rung's 6fps a
+    // one-second window holds six frames, so there is almost nothing to amortise across.
+    //
+    // It is still worth setting: the keyframes do scale with it, which is why the sizes above
+    // track their caps at a roughly constant multiple. But the thing that actually bounds what
+    // reaches the link is `LinkSendPacer`, and the interval stretch above is what bounds how
+    // often this cost is paid at all. Pure so the contract is unit-testable without a live
+    // session.
     static func dataRateLimits(
         targetBitrateKbps: Int,
         ratio: Double

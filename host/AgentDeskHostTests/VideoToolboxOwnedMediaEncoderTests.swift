@@ -453,11 +453,13 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         staleRecoveryCount: Int = 0
     ) -> MediaQualityControllerInput {
         MediaQualityControllerInput(
-            sample: sample,
-            productionSummary: productionSummary,
-            ackCount: ackCount,
-            ackAgeMaxMs: sample.ackAgeP95Ms,
-            staleRecoveryCount: staleRecoveryCount
+            delivery: MediaDeliveryObservation(
+                sample: sample,
+                ackCount: ackCount,
+                ackAgeMaxMs: sample.ackAgeP95Ms,
+                staleRecoveryCount: staleRecoveryCount
+            ),
+            production: productionSummary
         )
     }
 
@@ -524,10 +526,19 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(state.targetFps, 1)
         XCTAssertEqual(state.targetResolutionScale, 0.5)
 
+        // ADR-0098 changed what this hands back. It used to be the ceiling -- 2500/30/1.0 -- and
+        // that jump is what the measured 223KB of keyframe in 364ms was: the encoder recreated
+        // its session at the full 3600x2338 before any measurement arrived, then the
+        // link-quality prior spent a second keyframe going back down one window later.
+        //
+        // Now the running resolution is kept exactly, which costs no keyframe at all, and
+        // bitrate and fps come from the ladder rung that owns that scale so the controller lands
+        // somewhere it can climb from.
         let reenabled = state.applyClientMediaQuality(ClientMediaQualityConfig(adaptiveEnabled: true))
-        XCTAssertEqual(reenabled?.target.bitrateKbps, 2500)
-        XCTAssertEqual(reenabled?.target.fps, 30)
-        XCTAssertEqual(reenabled?.target.resolutionScale, 1.0)
+        XCTAssertEqual(reenabled?.target.resolutionScale, 0.5, "the running scale is kept, so no IDR is spent")
+        XCTAssertEqual(reenabled?.target.rung, .capacity2, "the rung that owns 0.5 scale")
+        XCTAssertEqual(reenabled?.target.bitrateKbps, Config.ownedMediaCapacity2BitrateKbps)
+        XCTAssertEqual(reenabled?.target.fps, Config.ownedMediaCapacity2Fps)
         XCTAssertEqual(reenabled?.reason, "adaptive-quality-enabled")
     }
 
@@ -643,14 +654,15 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         // Zero completions this window, but frames are still inflight: a pre-timeout
         // stall, not an idle screen. Recovery must not climb.
         let stall = MediaQualityControllerInput(
-            sample: MediaQualitySample(completedFrames: 0, expiredFrames: 0),
-            productionSummary: nil,
-            ackCount: 0,
-            ackAgeMaxMs: nil,
-            inFlightFrames: 3,
-            inFlightBytes: 90_000,
-            oldestInflightMs: 1_200,
-            staleRecoveryCount: 0
+            delivery: MediaDeliveryObservation(
+                sample: MediaQualitySample(completedFrames: 0, expiredFrames: 0),
+                ackCount: 0,
+                ackAgeMaxMs: nil,
+                inFlightFrames: 3,
+                inFlightBytes: 90_000,
+                oldestInflightMs: 1_200,
+                staleRecoveryCount: 0
+            )
         )
         for _ in 0..<20 {
             let decision = controller.observe(stall)
