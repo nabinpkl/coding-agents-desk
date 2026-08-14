@@ -29,6 +29,14 @@ enum VideoOneFingerPanBinding: Equatable {
     case remoteScroll
     // Pointer mode: move the Mac's pointer by the finger's travel.
     case pointerMove
+    // Pointer mode with the scroll puck engaged: scroll where the pointer already is.
+    //
+    // Distinct from `remoteScroll` in the one way that matters. That one primes the cursor at
+    // the touch point first, because in Touch mode the finger IS the pointer. Here the pointer
+    // was parked somewhere deliberately and the Mac scrolls whatever sits under it, so priming
+    // would scroll whatever the finger happened to land on instead -- which is never what the
+    // user aimed at, and would move the pointer out from under them as a parting gift.
+    case pointerScroll
 }
 
 struct RemoteInputModeControlState: Equatable {
@@ -84,6 +92,9 @@ struct VideoTouchGestureConfig: Equatable {
     // right-edge strip cannot have that job here: edge follow needs the pointer pushed
     // against the right edge, which is exactly where the strip would be sitting.
     let twoFingerRemoteScrollEnabled: Bool
+    // The floating scroll clutch. Pointer mode only: in the other two, one finger is already
+    // either the local viewport or the Mac's scroll wheel, so there is nothing for it to swap.
+    let pointerScrollPuckVisible: Bool
     let doubleTapZoomRecognizerEnabled: Bool
     let scrollViewScrollEnabled: Bool
     // The scroll view's own pan, which is what moves the picture locally. Off in pointer mode:
@@ -104,7 +115,11 @@ struct VideoTouchGestureConfig: Equatable {
 func videoTouchGestureConfig(
     videoTouchEnabled: Bool,
     layoutMode: VideoLayoutMode,
-    keyboardIsShown: Bool
+    keyboardIsShown: Bool,
+    // The floating scroll puck, which only exists in pointer mode. Passed in rather than read
+    // from settings because it is transient: it is a clutch held for as long as a scroll takes,
+    // not a preference that should outlive the session.
+    pointerScrollEngaged: Bool = false
 ) -> VideoTouchGestureConfig {
     let pointer = layoutMode == .pointer
     // Pointer mode is a video-input mode by definition, so it does not consult the Touch
@@ -116,9 +131,13 @@ func videoTouchGestureConfig(
         videoTouchTapRecognizerEnabled: videoTouchEnabled && !pointer,
         pointerTapRecognizerEnabled: pointer,
         oneFingerPanBinding: pointer
-            ? .pointerMove
+            ? (pointerScrollEngaged ? .pointerScroll : .pointerMove)
             : (videoTouchEnabled ? .remoteScroll : .none),
+        // Two fingers keep scrolling even with the puck engaged. The puck is a convenience for
+        // one-handed use, not a replacement, and taking the two-finger gesture away would make
+        // engaging it a trap on the one occasion the user forgot it was on.
         twoFingerRemoteScrollEnabled: pointer,
+        pointerScrollPuckVisible: pointer,
         doubleTapZoomRecognizerEnabled: !videoIsAnInputSurface,
         scrollViewScrollEnabled: true,
         scrollViewPanEnabled: !pointer,

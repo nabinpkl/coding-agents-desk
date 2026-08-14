@@ -296,4 +296,76 @@ struct VideoTouchGestureConfigTests {
     @Test func aPointerModeTapClicksEvenWithNoRetargetResolved() {
         #expect(videoTouchTapInputs(for: nil, retargetsCursor: false) == [.click(button: .left)])
     }
+
+    // MARK: - The scroll clutch
+    //
+    // A floating puck in pointer mode that swaps what one finger means. Scrolling is the thing
+    // you do most and two fingers is the gesture you cannot do one-handed, so the puck hands
+    // one-finger drags to the scroll wheel and leaves the pointer parked.
+
+    @Test func engagingTheClutchGivesOneFingerToScrolling() {
+        let config = videoTouchGestureConfig(
+            videoTouchEnabled: false,
+            layoutMode: .pointer,
+            keyboardIsShown: false,
+            pointerScrollEngaged: true
+        )
+        #expect(config.oneFingerPanBinding == .pointerScroll)
+    }
+
+    // `pointerScroll` and `remoteScroll` are separate cases for one reason: Touch mode's scroll
+    // primes the cursor at the touch point first, and doing that here would scroll whatever the
+    // finger landed on rather than what the pointer was parked over -- and lose the parked
+    // position on the way.
+    @Test func theClutchScrollsWhereThePointerIsNotWhereTheFingerIs() {
+        let clutched = videoTouchGestureConfig(
+            videoTouchEnabled: true,
+            layoutMode: .pointer,
+            keyboardIsShown: false,
+            pointerScrollEngaged: true
+        )
+        let touchMode = videoTouchGestureConfig(
+            videoTouchEnabled: true,
+            layoutMode: .full,
+            keyboardIsShown: false
+        )
+        #expect(clutched.oneFingerPanBinding == .pointerScroll)
+        #expect(touchMode.oneFingerPanBinding == .remoteScroll)
+        #expect(clutched.oneFingerPanBinding != touchMode.oneFingerPanBinding)
+    }
+
+    // Two fingers keep working with the clutch engaged. Taking the gesture away would make
+    // engaging the puck a trap on the one occasion the user forgot it was on.
+    @Test func theClutchDoesNotTakeAwayTwoFingerScrolling() {
+        #expect(videoTouchGestureConfig(
+            videoTouchEnabled: false,
+            layoutMode: .pointer,
+            keyboardIsShown: false,
+            pointerScrollEngaged: true
+        ).twoFingerRemoteScrollEnabled)
+    }
+
+    // It exists only where it has something to swap. In the other two modes one finger is
+    // already either the local viewport or the Mac's scroll wheel.
+    @Test func theClutchIsPointerModeOnly() {
+        #expect(videoTouchGestureConfig(
+            videoTouchEnabled: false, layoutMode: .pointer, keyboardIsShown: false
+        ).pointerScrollPuckVisible)
+        for layoutMode in [VideoLayoutMode.asIs, .full] {
+            #expect(videoTouchGestureConfig(
+                videoTouchEnabled: true, layoutMode: layoutMode, keyboardIsShown: false
+            ).pointerScrollPuckVisible == false)
+        }
+    }
+
+    // Disengaged is the default, and the mode's own binding is untouched by a puck nobody has
+    // tapped -- so adding the clutch changed nothing for anyone who never uses it.
+    @Test func aDisengagedClutchLeavesPointerModeExactlyAsItWas() {
+        #expect(videoTouchGestureConfig(
+            videoTouchEnabled: false,
+            layoutMode: .pointer,
+            keyboardIsShown: false,
+            pointerScrollEngaged: false
+        ).oneFingerPanBinding == .pointerMove)
+    }
 }

@@ -236,6 +236,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // The resolved gesture routing for the current mode. Written by applyVideoTouchState and
     // read by the per-frame handlers, so a 120Hz drag is not re-deciding what it means.
     var videoGestureConfig: VideoTouchGestureConfig?
+    // Pointer mode's floating scroll clutch, and the offsets a drag of it has accumulated.
+    // Offsets rather than a frame, so the puck keeps its place through a rotation instead of
+    // landing wherever its absolute coordinates now point.
+    var pointerScrollPuck: PointerScrollPuck?
+    var pointerScrollPuckOffsetX: NSLayoutConstraint?
+    var pointerScrollPuckOffsetY: NSLayoutConstraint?
     // R25: merged Spaces band. Replaces the old dots band.
     let displayRailView = DisplayRailView()
     let thumbnailStripView = ThumbnailStripView()
@@ -820,6 +826,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             sinkAspectConstraint = nil
             mediaDiagnosticsPill?.removeFromSuperview()
             mediaDiagnosticsPill = nil
+            pointerScrollPuck?.removeFromSuperview()
+            pointerScrollPuck = nil
+            // The constraints die with the view, but the references would outlive it and let a
+            // later drag write into a layout nothing is watching.
+            pointerScrollPuckOffsetX = nil
+            pointerScrollPuckOffsetY = nil
             hostStatusOverlay?.removeFromSuperview()
             hostStatusOverlay = nil
             cursorDotView?.removeFromSuperview()

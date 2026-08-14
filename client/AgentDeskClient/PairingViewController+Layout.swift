@@ -127,6 +127,33 @@ extension PairingViewController {
         ])
         mediaDiagnosticsPill = diag
 
+        // Pointer mode's scroll clutch. Chrome, like the switchers and the readout, so a
+        // full-bleed surface covers it exactly as it covers the video it belongs to.
+        //
+        // Positioned by offsets from the trailing/bottom corner rather than by a frame: the
+        // user drags it wherever suits, and an offset survives a rotation and a layout swap
+        // where absolute coordinates would leave it off screen or under the button row.
+        let puck = PointerScrollPuck()
+        let puckX = puck.trailingAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16
+        )
+        let puckY = puck.bottomAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -120
+        )
+        pointerScrollPuckOffsetX = puckX
+        pointerScrollPuckOffsetY = puckY
+        puck.isHidden = true
+        puck.onToggle = { [weak self] _ in
+            // The clutch changes what one finger means, which is the gesture config's business.
+            self?.applyVideoTouchState()
+        }
+        puck.onDragged = { [weak self] delta in
+            self?.movePointerScrollPuck(by: delta)
+        }
+        stage(.chrome).addSubview(puck)
+        NSLayoutConstraint.activate([puckX, puckY])
+        pointerScrollPuck = puck
+
         // Host status (message, spinner, and the manual escape hatch). Centered on the root
         // view's safe area rather than on the scroll: what it has to say matters most exactly
         // when the video is in a bad state, so it must not inherit the video's geometry. The

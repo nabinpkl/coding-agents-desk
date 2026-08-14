@@ -287,10 +287,21 @@ extension PairingViewController {
         handleVideoRemoteScrollPan(gesture)
     }
 
-    // One finger anywhere on the video surface, letterbox included.
+    // One finger anywhere on the video surface, letterbox included. Which of the two things it
+    // means is the puck's decision, resolved into the binding rather than read from the puck
+    // here: this recognizer should not know what a puck is.
     @objc func handleVideoPointerPanGesture(_ gesture: UIPanGestureRecognizer) {
-        guard videoGestureConfig?.oneFingerPanBinding == .pointerMove else { return }
-        handleVideoPointerPan(gesture)
+        switch videoGestureConfig?.oneFingerPanBinding {
+        case .pointerMove:
+            handleVideoPointerPan(gesture)
+        case .pointerScroll:
+            // No cursor prime, unlike Touch mode's scroll: the pointer is parked where the user
+            // put it and the Mac scrolls what is under it, so moving it to the finger would
+            // scroll the wrong thing and lose the parked position at the same time.
+            handleVideoTwoFingerScroll(gesture)
+        default:
+            return
+        }
     }
 
     // Pointer mode's tap: a click where the pointer already is. It resolves nothing about the
@@ -425,7 +436,8 @@ extension PairingViewController {
         let config = videoTouchGestureConfig(
             videoTouchEnabled: enabled,
             layoutMode: layoutMode,
-            keyboardIsShown: keyboardPresentationState == .shown
+            keyboardIsShown: keyboardPresentationState == .shown,
+            pointerScrollEngaged: pointerScrollPuck?.isEngaged ?? false
         )
         // Held so the per-frame handlers read a decision instead of re-deriving one from
         // UserDefaults on every `.changed`.
@@ -434,6 +446,15 @@ extension PairingViewController {
         videoTouchScrollRecognizer?.isEnabled = config.oneFingerPanBinding == .remoteScroll
         videoPointerTapRecognizer?.isEnabled = config.pointerTapRecognizerEnabled
         videoPointerPanRecognizer?.isEnabled = config.oneFingerPanBinding == .pointerMove
+            || config.oneFingerPanBinding == .pointerScroll
+        // Leaving pointer mode disengages the clutch rather than remembering it: coming back
+        // later to a video whose one finger silently scrolls is a worse surprise than having
+        // to tap it again.
+        if !config.pointerScrollPuckVisible {
+            pointerScrollPuck?.setEngaged(false)
+        }
+        pointerScrollPuck?.isHidden = !config.pointerScrollPuckVisible
+            || !isControlSurfaceActive()
         videoTwoFingerScrollRecognizer?.isEnabled = config.twoFingerRemoteScrollEnabled
         videoDoubleTapZoomRecognizer?.isEnabled = config.doubleTapZoomRecognizerEnabled
         if let scroll = sinkScrollView {
@@ -473,6 +494,25 @@ extension PairingViewController {
         buttonRowHeightConstraint?.constant = controlRowPresentation.height
         applyOrientationConstraints(forLandscape: view.bounds.width > view.bounds.height)
         refreshThumbnailStripVisibility()
+    }
+
+    // Move the floating clutch by a drag's travel, clamped so it cannot be pushed off screen.
+    //
+    // Clamping is not politeness. The puck is the only way back out of scroll mode, so a puck
+    // dragged past the edge is a client stuck scrolling with no visible control to undo it.
+    func movePointerScrollPuck(by delta: CGPoint) {
+        guard let puck = pointerScrollPuck,
+              let offsetX = pointerScrollPuckOffsetX,
+              let offsetY = pointerScrollPuckOffsetY else { return }
+        let safe = view.safeAreaLayoutGuide.layoutFrame
+        guard safe.width > 0, safe.height > 0 else { return }
+        // Constants are negative offsets from the trailing/bottom edge, so dragging right or
+        // down (positive delta) moves the constant toward zero.
+        let minX = -(safe.width - PointerScrollPuck.side)
+        let minY = -(safe.height - PointerScrollPuck.side)
+        offsetX.constant = min(0, max(minX, offsetX.constant + delta.x))
+        offsetY.constant = min(0, max(minY, offsetY.constant + delta.y))
+        puck.superview?.layoutIfNeeded()
     }
 
     func isControlSurfaceActive() -> Bool {
