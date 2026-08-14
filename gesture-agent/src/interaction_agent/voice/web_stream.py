@@ -18,7 +18,10 @@ from pydantic import ValidationError
 
 from interaction_agent.paths import VOICE_RECORDING_ROOT
 from interaction_agent.voice.practice_passages import PracticePassageStore
-from interaction_agent.voice.recording import VoiceRecordingResult
+from interaction_agent.voice.recording import (
+    VoiceRecordingResult,
+    timestamp_in_utc,
+)
 from interaction_agent.voice.reference_pronunciation import (
     ReferencePronunciationError,
     reference_alignment,
@@ -252,7 +255,10 @@ def load_all_recordings() -> list[Recording]:
         for recording_id in list_recording_ids()
         if recording_has_passage(recording_id)
     ]
-    recordings.sort(key=lambda recording: recording.created_at, reverse=True)
+    recordings.sort(
+        key=lambda recording: timestamp_in_utc(recording.created_at),
+        reverse=True,
+    )
     return recordings
 
 

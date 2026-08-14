@@ -5,7 +5,7 @@ import wave
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
@@ -24,6 +24,16 @@ DEFAULT_SAMPLE_RATE: Final = 16_000
 DEFAULT_CHANNELS: Final = 1
 DEFAULT_BLOCK_SIZE: Final = 512
 RECENT_SAMPLE_SECONDS: Final = 2.0
+
+
+def timestamp_in_utc(value: str) -> datetime:
+    """Parse a persisted timestamp as an absolute UTC instant.
+
+    Recordings created before UTC timestamps were enforced contain offset-less
+    local wall time. ``astimezone`` deliberately interprets those values in the
+    Mac's local timezone; aware timestamps retain their recorded offset.
+    """
+    return datetime.fromisoformat(value).astimezone(UTC)
 
 
 @dataclass(frozen=True)
@@ -146,7 +156,7 @@ class VoiceInputRecorder:
             if self.is_monitoring:
                 raise RuntimeError("stop monitoring before recording")
             self.recording_chunks = []
-            self.recording_started_at = datetime.now()
+            self.recording_started_at = datetime.now(UTC)
             self.is_recording = True
             self.last_result = None
 
@@ -156,7 +166,7 @@ class VoiceInputRecorder:
                 return None
 
             chunks = [chunk.copy() for chunk in self.recording_chunks]
-            started_at = self.recording_started_at or datetime.now()
+            started_at = self.recording_started_at or datetime.now(UTC)
             self.is_recording = False
             self.recording_started_at = None
             self.recording_chunks = []
@@ -185,7 +195,7 @@ class VoiceInputRecorder:
         with self.lock:
             if self.is_recording:
                 raise RuntimeError("stop recording before monitoring")
-            self.monitoring_started_at = datetime.now()
+            self.monitoring_started_at = datetime.now(UTC)
             self.monitoring_samples = 0
             self.is_monitoring = True
 
@@ -279,6 +289,7 @@ def save_voice_recording(
     client_session_id: str | None = None,
     transport: dict[str, Any] | None = None,
 ) -> VoiceRecordingResult:
+    started_at = started_at.astimezone(UTC)
     timestamp = started_at.strftime("%Y%m%d-%H%M%S-%f")
     VOICE_RECORDING_ROOT.mkdir(parents=True, exist_ok=True)
     wav_path = VOICE_RECORDING_ROOT / f"session-{timestamp}.wav"

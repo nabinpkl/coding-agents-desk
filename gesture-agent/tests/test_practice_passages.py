@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
+import time
 import unittest
 from contextlib import ExitStack
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -159,6 +161,72 @@ class PracticePassageStoreTests(unittest.TestCase):
             self.store.list_passages()[0][0].id,
             passages[0].id,
         )
+
+    def test_passages_sort_mixed_local_and_utc_timestamps_by_instant(self) -> None:
+        original_timezone = os.environ.get("TZ")
+        try:
+            os.environ["TZ"] = "America/Toronto"
+            time.tzset()
+
+            newer_recording_id = self.save_recording(
+                "Newer recording",
+                started_at=datetime(2026, 8, 12, 16, 11),
+            )
+            newer_passage_id = web_stream.load_recording(
+                newer_recording_id
+            ).passage_id
+            newer_timestamp = "2026-08-12T16:11:00"
+            newer_recording_path = web_stream.recording_json_path(
+                newer_recording_id
+            )
+            newer_recording_payload = json.loads(
+                newer_recording_path.read_text(encoding="utf-8")
+            )
+            newer_recording_payload["createdAt"] = newer_timestamp
+            newer_recording_path.write_text(
+                json.dumps(newer_recording_payload),
+                encoding="utf-8",
+            )
+            newer_passage_path = (
+                self.root / "passages" / f"{newer_passage_id}.json"
+            )
+            newer_passage_payload = json.loads(
+                newer_passage_path.read_text(encoding="utf-8")
+            )
+            newer_passage_payload["createdAt"] = newer_timestamp
+            newer_passage_payload["updatedAt"] = newer_timestamp
+            newer_passage_path.write_text(
+                json.dumps(newer_passage_payload),
+                encoding="utf-8",
+            )
+            older_passage = self.store.create_passage("Older reference")
+            older_path = (
+                self.root / "passages" / f"{older_passage.id}.json"
+            )
+            older_payload = json.loads(older_path.read_text(encoding="utf-8"))
+            older_timestamp = (
+                datetime(2026, 8, 12, 16, 11).astimezone(UTC)
+                - timedelta(minutes=10)
+            ).isoformat()
+            older_payload["createdAt"] = older_timestamp
+            older_payload["updatedAt"] = older_timestamp
+            older_path.write_text(
+                json.dumps(older_payload),
+                encoding="utf-8",
+            )
+
+            passages, _ = self.store.list_passages()
+
+            self.assertEqual(
+                [passage.id for passage in passages],
+                [newer_passage_id, older_passage.id],
+            )
+        finally:
+            if original_timezone is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = original_timezone
+            time.tzset()
 
     def test_intended_text_edit_preserves_attempt_evidence(self) -> None:
         recording_id = self.save_recording("Hello. How would you?")

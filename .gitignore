@@ -42,10 +42,13 @@ host/AgentDeskHost/pty-manager
 host/AgentDeskHost/pty-vault
 
 # Voice sidecar inputs staged into the app bundle by `just build-voice-sidecar`
-# (run automatically by host-run): the `uv` binary and a read-only copy of the
-# in-repo interaction-agent source. Regenerated on demand, never tracked.
+# (run automatically by host-run): the `uv` binary, the complete offline
+# wheelhouse, and a read-only copy of the in-repo interaction-agent source.
+# Regenerated on demand, never tracked.
 host/AgentDeskHost/uv
 host/AgentDeskHost/voice-src/
+host/AgentDeskHost/voice-wheelhouse/*
+!host/AgentDeskHost/voice-wheelhouse/.gitkeep
 
 # Agent feed webview bundle. Never tracked: the real bundle (~5 MB) is produced
 # by `just build-agent-webview` and the placeholder is regenerated on demand by

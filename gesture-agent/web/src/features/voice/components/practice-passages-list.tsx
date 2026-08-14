@@ -664,14 +664,14 @@ function Passage({
   }
 
   return (
-    <Card>
+    <Card className="relative">
       <details
         className="group/passage"
         onToggle={(event) => setOpen(event.currentTarget.open)}
         open={open}
       >
         <summary
-          className="flex cursor-pointer list-none items-start gap-3 px-4 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex cursor-pointer list-none items-start gap-3 py-4 pl-4 pr-28 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           data-passage-summary={passage.id}
           ref={passageSummaryRef}
         >
@@ -881,13 +881,6 @@ function Passage({
                 ? "Record first attempt"
                 : "Record another take"}
             </Button>
-            <Button
-              disabled={isCaptureBusy}
-              onClick={() => setConfirmDelete(true)}
-              variant="destructive"
-            >
-              <Trash2 /> Delete passage
-            </Button>
           </div>
           {playback.status === "error" &&
           playback.requestKey?.startsWith(
@@ -992,6 +985,16 @@ function Passage({
           </section>
         </CardContent>
       </details>
+      <Button
+        aria-label={`Delete passage: ${passage.intendedText || "Intended text needs review"}`}
+        className="absolute right-4 top-8 z-10"
+        disabled={isCaptureBusy}
+        onClick={() => setConfirmDelete(true)}
+        size="sm"
+        variant="destructive"
+      >
+        <Trash2 /> Delete
+      </Button>
       <Dialog onOpenChange={setConfirmDelete} open={confirmDelete}>
         <DialogContent>
           <DialogHeader>

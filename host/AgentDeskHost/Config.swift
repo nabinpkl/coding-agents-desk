@@ -1234,7 +1234,20 @@ enum Config {
         .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("AgentDeskVoiceAssets", isDirectory: true)
     static var voiceWheelhouseURL: URL? {
-        Bundle.main.url(forResource: "voice-wheelhouse", withExtension: nil)
+        completeVoiceWheelhouseURL(
+            at: Bundle.main.url(forResource: "voice-wheelhouse", withExtension: nil)
+        )
+    }
+    static func completeVoiceWheelhouseURL(at wheelhouse: URL?) -> URL? {
+        // The tracked .gitkeep preserves Xcode's folder reference in a fresh
+        // checkout. Only the generated checksum manifest proves the complete
+        // package house was built and is safe to make authoritative offline.
+        guard let wheelhouse else { return nil }
+        let manifest = wheelhouse.appendingPathComponent("SHA256SUMS")
+        guard FileManager.default.fileExists(atPath: manifest.path) else {
+            return nil
+        }
+        return wheelhouse
     }
     // Content hash of the staged voice source, written by `just
     // build-voice-sidecar` (the same hash that gates its own staging). It stamps

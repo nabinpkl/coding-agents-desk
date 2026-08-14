@@ -82,7 +82,7 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		DDD787112FF7B21500F8BB76 /* AgentDeskHost */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (DDD787A52FF7B21600F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, DDD787A62FF7B21600F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = ("voice-src", ); path = AgentDeskHost; sourceTree = "<group>"; };
+		DDD787112FF7B21500F8BB76 /* AgentDeskHost */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (DDD787A52FF7B21600F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, DDD787A62FF7B21600F8BB76 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = ("voice-src", "voice-wheelhouse", ); path = AgentDeskHost; sourceTree = "<group>"; };
 		DDD787D32FF7B32600F8BB76 /* AgentDeskHostTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = AgentDeskHostTests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 

@@ -7,11 +7,15 @@ import Testing
 // script so no real venv is built and `just check` stays hermetic. The stub
 // mimics the one behavior the provisioner depends on — `uv venv <path>` creates
 // the directory and its bin/voice-server console entry — and records every
-// invocation so a test can assert which commands ran. The real uv chain is
-// exercised by launching the host.
+// invocation so a test can assert which commands ran. The real empty-cache,
+// offline uv chain is exercised by `just build-voice-sidecar`.
 struct VoiceVenvProvisionerTests {
 
-    private func makeInputs(root: URL, versionStamp: String = "1.0.0") throws -> VoiceVenvProvisioner.Inputs {
+    private func makeInputs(
+        root: URL,
+        versionStamp: String = "1.0.0",
+        wheelhouseURL: URL? = nil
+    ) throws -> VoiceVenvProvisioner.Inputs {
         let source = root.appendingPathComponent("voice-src", isDirectory: true)
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         return VoiceVenvProvisioner.Inputs(
@@ -19,9 +23,44 @@ struct VoiceVenvProvisionerTests {
             sourceURL: source,
             venvURL: root.appendingPathComponent("voice-venv", isDirectory: true),
             cacheURL: root.appendingPathComponent("voice-uv-cache", isDirectory: true),
-            wheelhouseURL: nil,
+            wheelhouseURL: wheelhouseURL,
             versionStamp: versionStamp
         )
+    }
+
+    @Test func bundledWheelhouseForcesAnOfflineCacheIndependentInstall() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("voice-provisioner-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let wheelhouse = root.appendingPathComponent("voice-wheelhouse", isDirectory: true)
+        try FileManager.default.createDirectory(at: wheelhouse, withIntermediateDirectories: true)
+        let inputs = try makeInputs(root: root, wheelhouseURL: wheelhouse)
+
+        try provisionAndWait(inputs: inputs)
+
+        let invocations = try String(contentsOf: invocationLog(root: root), encoding: .utf8)
+            .split(separator: "\n")
+        #expect(invocations.count == 2)
+        #expect(
+            invocations.last?.hasSuffix(
+                "\(inputs.sourceURL.path) --find-links \(wheelhouse.path) --offline --no-cache"
+            ) == true
+        )
+    }
+
+    @Test func wheelhousePlaceholderIsNotTreatedAsACompletePackageHouse() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("voice-wheelhouse-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        #expect(Config.completeVoiceWheelhouseURL(at: root) == nil)
+
+        FileManager.default.createFile(
+            atPath: root.appendingPathComponent("SHA256SUMS").path,
+            contents: Data("fixture\n".utf8)
+        )
+        #expect(Config.completeVoiceWheelhouseURL(at: root) == root)
     }
 
     /// Path the stub appends one line per invocation to.

@@ -251,6 +251,36 @@ describe("PracticePassagesList", () => {
     );
   });
 
+  it("exposes passage deletion on the collapsed card", async () => {
+    renderList(vi.fn(), null);
+
+    const summary = await waitFor(() => {
+      const element = document.querySelector(
+        `[data-passage-summary="${passage.id}"]`,
+      );
+      expect(element).toBeTruthy();
+      return element as HTMLElement;
+    });
+    const details = summary.closest("details") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `Delete passage: ${passage.intendedText}`,
+      }),
+    );
+
+    expect(details.open).toBe(false);
+    expect(screen.getByText("Delete this passage?")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Delete passage and attempts",
+      }),
+    );
+    await waitFor(() => expect(api.deletePassage).toHaveBeenCalled());
+    expect(api.deletePassage.mock.calls[0]?.[0]).toBe(passage.id);
+  });
+
   it("creates a typed zero-attempt reference and starts its first practice", async () => {
     const created: PracticePassage = {
       ...passage,

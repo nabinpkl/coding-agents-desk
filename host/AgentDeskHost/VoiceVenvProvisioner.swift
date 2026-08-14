@@ -113,7 +113,7 @@ final class VoiceVenvProvisioner: @unchecked Sendable {
             fm.fileExists(atPath: wheelhouse.path) {
             // Offline install from the bundled wheelhouse — no PyPI reachability
             // required on first launch.
-            install += ["--find-links", wheelhouse.path, "--offline"]
+            install += ["--find-links", wheelhouse.path, "--offline", "--no-cache"]
         }
         logger.notice("voice venv: installing interaction-agent (core)")
         try run(arguments: install)

@@ -5,7 +5,7 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal
 from uuid import uuid4
@@ -550,7 +550,7 @@ async def analyze_recording_phones(
                 "modelIdentifier": result.model_identifier,
                 "modelHash": result.model_hash,
                 "runtimeIdentifier": result.runtime_identifier,
-                "analyzedAt": datetime.now().isoformat(),
+                "analyzedAt": datetime.now(UTC).isoformat(),
             }
         },
     )
@@ -790,7 +790,7 @@ async def finalize_session(
                     "modelIdentifier": None,
                     "modelHash": None,
                     "runtimeIdentifier": None,
-                    "analyzedAt": datetime.now().isoformat(),
+                    "analyzedAt": datetime.now(UTC).isoformat(),
                 }
             },
         )
@@ -857,7 +857,7 @@ async def run_voice_session(
 ) -> None:
     collected: list[FloatArray] = []
     sample_rate = DEFAULT_SAMPLE_RATE
-    started_at = datetime.now()
+    started_at = datetime.now(UTC)
     session_open = False
     expected_sequence = 0
     received_sample_count = 0
@@ -912,7 +912,7 @@ async def run_voice_session(
                     websocket.app.state.active_practice_passage_id = passage.id
                 else:
                     passage_id = None
-                started_at = datetime.now()
+                started_at = datetime.now(UTC)
                 collected = []
                 sample_rate = DEFAULT_SAMPLE_RATE
                 expected_sequence = 0
@@ -943,7 +943,7 @@ async def run_voice_session(
                     )
                 sample_rate = message.sample_rate
                 collected.append(samples)
-                received_at = datetime.now().isoformat()
+                received_at = datetime.now(UTC).isoformat()
                 if first_frame_received_at is None:
                     first_frame_received_at = received_at
                 last_frame_received_at = received_at
@@ -967,7 +967,7 @@ async def run_voice_session(
             else:  # SessionStopMessage
                 if not session_open:
                     raise VoiceWireError("sessionStop received before sessionStart")
-                stop_received_at = datetime.now().isoformat()
+                stop_received_at = datetime.now(UTC).isoformat()
                 client_final_sequence = message.final_sequence
                 client_captured_sample_count = message.captured_sample_count
                 continuity_errors: list[str] = []
@@ -1207,7 +1207,7 @@ async def create_recording(request: SaveRecordingRequest) -> Recording:
         save_voice_recording,
         samples,
         request.sample_rate,
-        datetime.now(),
+        datetime.now(UTC),
     )
     if request.machine_transcript is not None:
         await run_in_threadpool(
@@ -1533,7 +1533,7 @@ async def reanalyze_recording(recording_id: str) -> Recording:
                         "modelIdentifier": None,
                         "modelHash": None,
                         "runtimeIdentifier": None,
-                        "analyzedAt": datetime.now().isoformat(),
+                        "analyzedAt": datetime.now(UTC).isoformat(),
                     }
                 },
             )

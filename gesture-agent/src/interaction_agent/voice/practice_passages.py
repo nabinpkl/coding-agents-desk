@@ -13,6 +13,7 @@ from typing import Any, Final
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from interaction_agent.paths import VOICE_RECORDING_ROOT
+from interaction_agent.voice.recording import timestamp_in_utc
 from interaction_agent.voice.reference_pronunciation import (
     ReferencePronunciationError,
     reference_pronunciation,
@@ -201,7 +202,10 @@ class PracticePassageStore:
                 for path in self._passage_metadata_paths()
             ]
         passages.sort(
-            key=lambda passage: (passage.updated_at, passage.id),
+            key=lambda passage: (
+                timestamp_in_utc(passage.updated_at),
+                passage.id,
+            ),
             reverse=True,
         )
         page, next_cursor = self._page_after(
@@ -274,7 +278,10 @@ class PracticePassageStore:
                 for recording_id in self._attempt_ids(passage_id)
             ]
             attempts.sort(
-                key=lambda attempt: (attempt.created_at, attempt.id),
+                key=lambda attempt: (
+                    timestamp_in_utc(attempt.created_at),
+                    attempt.id,
+                ),
                 reverse=True,
             )
             page, next_cursor = self._page_after(
@@ -392,6 +399,7 @@ class PracticePassageStore:
         ]
         latest = max(
             (str(attempt.get("createdAt", "")) for attempt in attempts),
+            key=timestamp_in_utc,
             default=None,
         )
         baseline = payload.get("baselineRecordingID")

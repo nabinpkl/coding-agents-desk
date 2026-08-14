@@ -182,9 +182,11 @@ gesture_agent_dir := env_var_or_default("AGENTDESK_GESTURE_AGENT_DIR", justfile_
 # Staged voice-sidecar inputs inside the host app source tree (auto-picked up by
 # the synchronized root group and copied into the app bundle). `uv` is the
 # resolver/runner; `voice-src` is the read-only interaction-agent source the
-# first-launch provisioner installs into the Application-Support venv.
+# first-launch provisioner installs into the Application-Support venv; and the
+# wheelhouse is the complete Python 3.13 dependency closure used offline.
 voice_uv_out := justfile_directory() + "/host/AgentDeskHost/uv"
 voice_src_out := justfile_directory() + "/host/AgentDeskHost/voice-src"
+voice_wheelhouse_out := justfile_directory() + "/host/AgentDeskHost/voice-wheelhouse"
 # The one tracked home for voice inputs that more than one target needs: the CMU
 # dictionary and its license, and the CMUdict-to-model-phone mapping. The phone,
 # the Python sidecar, and the offline calibration harness all derive their
@@ -785,21 +787,22 @@ build-gesture-webview:
 # Stage the voice sidecar's Python inputs into the host app source tree: the `uv`
 # binary and a read-only copy of the interaction-agent source (pyproject.toml +
 # uv.lock + src, WITHOUT the heavy data/ models tree — models are fetch-and-cached
-# to Application Support at runtime). The first-launch VoiceVenvProvisioner uses
-# these to build the Application-Support venv (core deps, no `desktop` extra).
+# to Application Support at runtime), plus the complete locked Python 3.13 wheel
+# wheelhouse. The first-launch VoiceVenvProvisioner installs from those bundled wheels
+# with networking and its cache disabled (core deps, no `desktop` extra).
 #
 # NOTE (Xcode inclusion): `uv` is a single file and is picked up as a bundle
-# resource by the synchronized root group like `agent-feed-sidecar`. `voice-src/` is a
-# directory tree; confirm it lands in the built app at
-# `Contents/Resources/voice-src/` with structure preserved (a folder reference,
-# not flattened). Verify once with:
-#   just build-host && ls "{{host_app}}/Contents/Resources/voice-src/pyproject.toml"
+# resource by the synchronized root group like `agent-feed-sidecar`. `voice-src/`
+# and `voice-wheelhouse/` are folder references, preserving both trees under
+# `Contents/Resources/`.
 build-voice-sidecar: voice-zipa-model-check
     #!/usr/bin/env bash
     set -euo pipefail
     SRC='{{gesture_agent_dir}}'
     UV_OUT='{{voice_uv_out}}'
     SRC_OUT='{{voice_src_out}}'
+    WHEELHOUSE_OUT='{{voice_wheelhouse_out}}'
+    WHEELHOUSE_BUILDER='{{justfile_directory()}}/tools/build-system/build-voice-wheelhouse.sh'
     UV_BIN="$(command -v uv)"
     CMU_DICT='{{voice_assets_src}}/VoiceCMUDictionary.txt'
     PHONE_MAP='{{voice_assets_src}}/arpabet-model-phone-map.json'
@@ -807,13 +810,18 @@ build-voice-sidecar: voice-zipa-model-check
     if [ ! -f "$SRC/pyproject.toml" ]; then echo "build-voice-sidecar: no pyproject at $SRC" >&2; exit 1; fi
     if [ ! -f "$SRC/uv.lock" ]; then echo "build-voice-sidecar: no uv.lock at $SRC (run 'uv lock')" >&2; exit 1; fi
     STAMP='{{stamps_dir}}/voice-sidecar'
-    # Hash package inputs, pinned pronunciation assets, and the uv binary, never
-    # the whole tree (its data/ holds a ~500 MB model).
-    HASH="$('{{source_hash}}' "$SRC/pyproject.toml" "$SRC/uv.lock" "$SRC/src" "$UV_BIN" "$CMU_DICT" "$PHONE_MAP")"
-    if [ -x "$UV_OUT" ] && [ -f "$SRC_OUT/pyproject.toml" ] && [ -f "$SRC_OUT/stage-hash" ] && [ "$HASH" = "$(cat "$STAMP" 2>/dev/null || true)" ]; then
-        echo "build-voice-sidecar: inputs unchanged, skipping"
-        exit 0
+    # Hash package inputs, pinned pronunciation assets, the wheelhouse builder,
+    # and the uv binary, never the whole tree (its data/ holds a ~500 MB model).
+    HASH="$('{{source_hash}}' "$SRC/pyproject.toml" "$SRC/uv.lock" "$SRC/src" "$UV_BIN" "$CMU_DICT" "$PHONE_MAP" "$WHEELHOUSE_BUILDER")"
+    if [ -x "$UV_OUT" ] && [ -f "$SRC_OUT/pyproject.toml" ] && [ -f "$SRC_OUT/stage-hash" ] && [ -f "$WHEELHOUSE_OUT/SHA256SUMS" ] && [ "$HASH" = "$(cat "$WHEELHOUSE_OUT/.stage-hash" 2>/dev/null || true)" ] && [ "$HASH" = "$(cat "$STAMP" 2>/dev/null || true)" ]; then
+        if (cd "$WHEELHOUSE_OUT" && shasum -a 256 -c SHA256SUMS >/dev/null); then
+            echo "build-voice-sidecar: inputs unchanged, skipping"
+            exit 0
+        fi
+        echo "build-voice-sidecar: wheelhouse checksum mismatch; rebuilding" >&2
     fi
+    echo "build-voice-sidecar: building offline wheelhouse -> $WHEELHOUSE_OUT"
+    "$WHEELHOUSE_BUILDER" "$UV_BIN" "$SRC" "$WHEELHOUSE_OUT" "$HASH"
     echo "build-voice-sidecar: staging uv -> $UV_OUT"
     cp -f "$UV_BIN" "$UV_OUT"
     chmod +x "$UV_OUT"

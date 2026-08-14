@@ -73,7 +73,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // Zero while the rail has nothing to draw; see updateDisplayRailHeight.
     var displayRailHeightConstraint: NSLayoutConstraint?
     static let sinkMaxZoomScale: CGFloat = 4.0
-    static let sinkDoubleTapZoomScale: CGFloat = 2.0
+    // Where a double tap lands, whether it came from the picture or from pointer mode's puck.
+    // 2x was barely worth the tap on a phone showing a whole Mac display: the point of zooming
+    // is to read something, and half the ceiling did not get there. Still short of the 4x
+    // ceiling so a pinch has somewhere left to go.
+    static let sinkDoubleTapZoomScale: CGFloat = 2.5
     // ADR-0009 cursor-driven viewport pan. The client mirrors the host
     // cursor position in source-display points so the scroll view can
     // follow it when zoomed past 1.0x. Updated locally on every

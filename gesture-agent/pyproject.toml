@@ -22,6 +22,10 @@ dependencies = [
     "onnxruntime==1.24.4",
     "python-multipart",
     "sherpa-onnx>=1.13.3",
+    # The sherpa-onnx wheel delegates its native payload to this separately
+    # published distribution. Pin it explicitly so uv.lock and the host's
+    # offline package house capture the complete runtime closure.
+    "sherpa-onnx-core==1.13.3",
     "sounddevice",
     "uvicorn[standard]",
 ]
