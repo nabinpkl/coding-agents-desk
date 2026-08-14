@@ -102,17 +102,16 @@ extension PairingViewController {
         cursorDotView = dot
 
         // Diagnostics readout as fixed chrome in the host root (not the zoomable sink), so
-        // pinch-zoom/pan leave it pinned top-left. Styling matches the old in-sink label;
-        // text is seeded to the connecting state and driven by onOwnedMediaStatusChange.
-        let diag = UILabel()
-        diag.backgroundColor = UIColor.black.withAlphaComponent(0.72)
-        diag.textColor = .white
-        diag.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        diag.numberOfLines = 1
-        diag.text = OwnedMediaStatus.connecting.labelText
-        diag.layer.cornerRadius = 6
-        diag.layer.masksToBounds = true
-        diag.translatesAutoresizingMaskIntoConstraints = false
+        // pinch-zoom/pan leave it pinned top-left. Text is seeded to the connecting state and
+        // driven by onOwnedMediaStatusChange.
+        //
+        // It collapses to its glyph, because top-left is where the Mac keeps its own menu bar
+        // and title bars and this sat on them. The disclosure is restored from settings here
+        // rather than defaulted, so a run that starts with it hidden stays hidden.
+        let diag = MediaDiagnosticsPill(isExpanded: SettingsStore.shared.mediaDiagnosticsExpanded)
+        diag.onDisclosureChange = { expanded in
+            SettingsStore.shared.mediaDiagnosticsExpanded = expanded
+        }
         // Chrome, not overlay: it reports on the Mac video, so it belongs with
         // the other Control-surface furniture and stays covered by a full-bleed
         // surface rather than floating a debug pill over the agent panel.
@@ -125,7 +124,7 @@ extension PairingViewController {
                 constant: -8
             )
         ])
-        mediaDiagnosticsLabel = diag
+        mediaDiagnosticsPill = diag
 
         // Host status (message, spinner, and the manual escape hatch). Centered on the root
         // view's safe area rather than on the scroll: what it has to say matters most exactly

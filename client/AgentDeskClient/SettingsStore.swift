@@ -68,6 +68,7 @@ final class SettingsStore: @unchecked Sendable {
         static let diagnosticScreenshotsEnabled = "agentDesk.diagnosticScreenshotsEnabled"
         static let spacesStripExpanded = "agentDesk.spacesStripExpanded"
         static let windowPickerStripExpanded = "agentDesk.windowPickerStripExpanded"
+        static let mediaDiagnosticsExpanded = "agentDesk.mediaDiagnosticsExpanded"
     }
 
     // iOS HIG / QuickType bar standard is 44pt; key chiclets at 36pt
@@ -377,6 +378,15 @@ final class SettingsStore: @unchecked Sendable {
     var windowPickerStripExpanded: Bool {
         get { defaults.object(forKey: Key.windowPickerStripExpanded) as? Bool ?? false }
         set { defaults.set(newValue, forKey: Key.windowPickerStripExpanded) }
+    }
+
+    // The top-left media readout, on the same terms and for the same reason: a tap is a
+    // preference, not a host-visible change. Open by default because it has always been on
+    // screen and it is what this project reads first when motion looks wrong; the disclosure
+    // exists so it can be got out of the Mac's own top-left corner, not to hide it by default.
+    var mediaDiagnosticsExpanded: Bool {
+        get { defaults.object(forKey: Key.mediaDiagnosticsExpanded) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Key.mediaDiagnosticsExpanded) }
     }
 
     private func postChange() {

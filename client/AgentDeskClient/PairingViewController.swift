@@ -97,8 +97,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var cursorDotView: CursorPointerView?
     // Live media diagnostics readout (fps/kbps/gap). Fixed chrome pinned to the root view,
     // like settingsButton and cursorDotView, so it never rides the sink's pinch-zoom/pan.
-    // The sink publishes status into it via onOwnedMediaStatusChange.
-    var mediaDiagnosticsLabel: UILabel?
+    // The sink publishes status into it via onOwnedMediaStatusChange, whether or not the
+    // user has collapsed it -- the readout is current the moment it is reopened.
+    var mediaDiagnosticsPill: MediaDiagnosticsPill?
     /// Host status: what the session is doing when it is not simply showing the Mac. Owns the
     /// spinner, the message, and the last-resort escape from a session the client thinks is
     /// live and the host has ended (see `reconnectTapped`). Centered on the root view's safe
@@ -541,7 +542,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         hostStatusOverlay?.apply(.hidden)
         if let owned = sink as? any OwnedMediaFrameSink {
             owned.onOwnedMediaStatusChange = { [weak self] status in
-                self?.mediaDiagnosticsLabel?.text = status.labelText
+                self?.mediaDiagnosticsPill?.text = status.labelText
                 self?.noteOwnedMediaStatus(status)
             }
             owned.setOwnedMediaStatus(.connecting)
@@ -752,7 +753,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // Frames stop here, so the next foreground starts black again and owes
         // the user the same explanation the first connect did.
         videoStartupBanner.awaitFirstFrame(detail: "media suspended")
-        mediaDiagnosticsLabel?.text = "media suspended"
+        mediaDiagnosticsPill?.text = "media suspended"
         if #available(iOS 26.0, *) {
             terminalSurface?.detach()
         }
@@ -806,8 +807,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             sinkContentView = nil
             sinkFillHeightConstraint = nil
             sinkAspectConstraint = nil
-            mediaDiagnosticsLabel?.removeFromSuperview()
-            mediaDiagnosticsLabel = nil
+            mediaDiagnosticsPill?.removeFromSuperview()
+            mediaDiagnosticsPill = nil
             hostStatusOverlay?.removeFromSuperview()
             hostStatusOverlay = nil
             cursorDotView?.removeFromSuperview()
