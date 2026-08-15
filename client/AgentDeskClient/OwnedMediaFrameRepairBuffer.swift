@@ -86,9 +86,10 @@ final class MediaDatagramFrameRepairBuffer {
 
         var result = MediaDatagramRepairResult.empty
         result.skippedFrames.append(contentsOf: skipFramesOvertakenByCompletion())
-        let completed = drainCompletedFrames()
-        result.repairedFrameCount += completed.filter(\.wasRepaired).count
-        result.completedFrames.append(contentsOf: completed)
+        let drained = drainCompletedFrames()
+        result.repairedFrameCount += drained.completed.filter(\.wasRepaired).count
+        result.completedFrames.append(contentsOf: drained.completed)
+        result.skippedFrames.append(contentsOf: drained.whollyLost)
         result.skippedFrames.append(contentsOf: enforceTrackedFrameLimit())
         result.resendRequests.append(contentsOf: requestMissingPackets())
         result.pendingFrameCount = frames.count
@@ -147,18 +148,47 @@ final class MediaDatagramFrameRepairBuffer {
         return skipped
     }
 
-    private func drainCompletedFrames() -> [MediaDatagramCompletedFrame] {
+    /// Frame ids the current drain jumped over without ever seeing a packet.
+    ///
+    /// The skip machinery above only knows about frames it holds PARTIAL data for; a frame
+    /// that loses every packet leaves no pending entry, so the stream silently jumped from
+    /// 427 to 429 and the recovery gate never armed. Measured end to end: the delta after the
+    /// hole references the frame the decoder never saw, `AVSampleBufferDisplayLayer` returns
+    /// -11821 "Cannot Decode" on intact data, and the response cost a full IDR per occurrence
+    /// -- recurring on a ~30s radio-layer cadence on LTE. Wire frame ids are contiguous by
+    /// construction (the host's send-side abandons only drop resend bookkeeping for frames
+    /// already sent), so a delivered-id gap IS loss, and it must arm the same recovery the
+    /// partial-frame skip arms -- which the resync contract now settles for a few hundred
+    /// bytes instead of the IDR.
+    private func whollyLostFrames(before nextId: UInt64) -> [IncompleteFrame] {
+        // deliveredFrameId == 0 is a transport that has delivered nothing yet: a resume or a
+        // mid-stream join legitimately starts at an arbitrary id, and there is no chain to
+        // protect before the first delivered frame.
+        guard deliveredFrameId > 0, nextId > deliveredFrameId + 1 else { return [] }
+        // Cap the enumeration: after a long stall the hole can be hundreds of ids, and the
+        // point is arming the gate, not itemizing every casualty.
+        let lost = (deliveredFrameId + 1)..<nextId
+        return lost.prefix(8).map {
+            IncompleteFrame(frameId: $0, received: 0, expected: 0, missingIndexes: [])
+        }
+    }
+
+    private func drainCompletedFrames() -> (
+        completed: [MediaDatagramCompletedFrame], whollyLost: [IncompleteFrame]
+    ) {
         var completed: [MediaDatagramCompletedFrame] = []
+        var whollyLost: [IncompleteFrame] = []
         while let nextId = frames.keys.sorted().first,
               let frame = frames[nextId] {
             guard frame.isComplete, let completedFrame = frame.completedFrame else {
                 break
             }
+            whollyLost.append(contentsOf: whollyLostFrames(before: nextId))
             frames.removeValue(forKey: nextId)
             deliveredFrameId = max(deliveredFrameId, nextId)
             completed.append(completedFrame)
         }
-        return completed
+        return (completed, whollyLost)
     }
 
     private func skip(frameId: UInt64) -> MediaDatagramRepairResult {
@@ -237,22 +267,29 @@ struct MediaFrameRecoveryGate: Equatable {
     }
 
     struct KeyframeRequest: Equatable {
-        /// True once the discard run has outlived the escalation limit: the cheap answers are
-        /// not resolving the gate, so the client's references are presumed unusable and the
-        /// request must force a true keyframe.
+        /// True once the gate has been armed longer than the escalation window with nothing
+        /// resolving it: the cheap answers are not landing, so the client's references are
+        /// presumed unusable and the request must force a true keyframe.
+        ///
+        /// Time, deliberately not a discard count. The first version escalated after N
+        /// discarded frames, which made escalation a function of MOTION RATE: at 14fps a
+        /// 6-frame limit fired in ~400ms, far faster than any resync answer could cross the
+        /// congested link it was queued behind. Measured in one 4-minute LTE session: 160
+        /// gap-recovery requests, 116 escalations, and 164KB IDRs spending 2.7s in flight --
+        /// the escalation manufacturing the exact jam it existed to break.
         let declareNoReferences: Bool
     }
 
     private let keyframeRequestMinGapNs: UInt64
-    private let escalationDiscardLimit: Int
+    private let escalationNs: UInt64
     private(set) var awaitingKeyframe = false
     private var lastKeyframeRequestNs: UInt64?
     private(set) var discardedSinceArmed = 0
     private var armedAtNs: UInt64?
 
-    init(keyframeRequestMinGapNs: UInt64, escalationDiscardLimit: Int) {
+    init(keyframeRequestMinGapNs: UInt64, escalationNs: UInt64) {
         self.keyframeRequestMinGapNs = keyframeRequestMinGapNs
-        self.escalationDiscardLimit = max(1, escalationDiscardLimit)
+        self.escalationNs = max(1, escalationNs)
     }
 
     /// Arms the gate. Returns true when this call armed it (it was not already armed), so the
@@ -296,6 +333,7 @@ struct MediaFrameRecoveryGate: Equatable {
             return nil
         }
         lastKeyframeRequestNs = nowNs
-        return KeyframeRequest(declareNoReferences: discardedSinceArmed >= escalationDiscardLimit)
+        let armedNs = armedAtNs.map { nowNs >= $0 ? nowNs - $0 : 0 } ?? 0
+        return KeyframeRequest(declareNoReferences: armedNs >= escalationNs)
     }
 }

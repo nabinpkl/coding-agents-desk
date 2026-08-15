@@ -217,14 +217,18 @@ enum Config {
         defaultValue: 300
     )
     // Gap-recovery escalation backstop. The gate normally resolves on the host's cheap answer
-    // (a marked LTR-resync delta); if that many completed frames have been discarded since the
-    // gate armed and none resolved it, the client's references are presumed unusable and the
-    // next request declares `clientHasNoReferences`, buying one bounded IDR instead of an
-    // unbounded discard loop. Measured before the resync mark existed: 763 cheap answers
-    // discarded in one session while the picture stayed frozen.
-    static let ownedMediaRecoveryEscalationDiscards = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_RECOVERY_ESCALATION_DISCARDS",
-        defaultValue: 6
+    // (a marked LTR-resync delta); if it has been armed this long and nothing resolved it, the
+    // client's references are presumed unusable and the next request declares
+    // `clientHasNoReferences`, buying one bounded IDR instead of an unbounded discard loop.
+    //
+    // A TIME window, sized for the answer's worst-case journey: a ~40KB refresh delta behind a
+    // congested 180kbps link is ~2s of wire plus the smoothed ~700ms LTE round trip. The first
+    // version counted discarded frames instead, which tied escalation to motion rate -- at
+    // 14fps it fired in ~400ms and demanded 164KB IDRs into the very jam it was breaking (116
+    // escalations in one 4-minute session).
+    static let ownedMediaRecoveryEscalationMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_RECOVERY_ESCALATION_MS",
+        defaultValue: 4_000
     )
     // How long the datagram receive loop keeps retrying a throwing `receive()` before giving up.
     // Mirrors the host key of the same name; see `DatagramReceiveRetry` for why ending the loop

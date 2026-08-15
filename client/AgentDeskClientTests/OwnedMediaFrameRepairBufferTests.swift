@@ -95,11 +95,11 @@ final class OwnedMediaFrameRepairBufferTests: XCTestCase {
     }
 
     private func gate(
-        minGapNs: UInt64 = 300, escalationDiscards: Int = 6
+        minGapNs: UInt64 = 300, escalationNs: UInt64 = 4_000
     ) -> MediaFrameRecoveryGate {
         MediaFrameRecoveryGate(
             keyframeRequestMinGapNs: minGapNs,
-            escalationDiscardLimit: escalationDiscards
+            escalationNs: escalationNs
         )
     }
 
@@ -108,6 +108,49 @@ final class OwnedMediaFrameRepairBufferTests: XCTestCase {
         nowNs: UInt64 = 0
     ) -> MediaFrameRecoveryGate.CompletedFrameDecision {
         gate.decideCompletedFrame(isKeyframe: keyframe, isLtrResync: resync, nowNs: nowNs).decision
+    }
+
+    // The blindness that produced the -11821 cascade: a frame losing EVERY packet leaves no
+    // pending entry, so nothing skipped it and the recovery gate never armed -- the stream
+    // silently jumped the hole and the next delta was undecodable against a frame the decoder
+    // never saw. A delivered-id gap is loss and must report the missing ids as skipped.
+    func testWhollyLostFrameReportsAsSkipped() {
+        let buffer = buffer()
+        _ = buffer.accept(packet(frame: 1, index: 0, count: 1, payload: Data([1])))
+
+        let result = buffer.accept(packet(frame: 3, index: 0, count: 1, payload: Data([3])))
+
+        XCTAssertEqual(result.completedFrames.map(\.frameId), [3])
+        XCTAssertEqual(result.skippedFrames.map(\.frameId), [2], "the unseen id is the loss signal")
+    }
+
+    func testFirstDeliveredFrameDoesNotReportAJoinGap() {
+        // A resume or mid-stream join legitimately starts at an arbitrary id; there is no
+        // chain to protect before the first delivered frame.
+        let buffer = buffer()
+        let result = buffer.accept(packet(frame: 500, index: 0, count: 1, payload: Data([1])))
+        XCTAssertEqual(result.completedFrames.map(\.frameId), [500])
+        XCTAssertTrue(result.skippedFrames.isEmpty)
+    }
+
+    func testAWideHoleReportsACappedNumberOfLostFrames() {
+        let buffer = buffer()
+        _ = buffer.accept(packet(frame: 1, index: 0, count: 1, payload: Data([1])))
+        let result = buffer.accept(packet(frame: 100, index: 0, count: 1, payload: Data([2])))
+        XCTAssertEqual(result.completedFrames.map(\.frameId), [100])
+        XCTAssertEqual(result.skippedFrames.count, 8, "arming the gate is the point, not itemizing every casualty")
+        XCTAssertEqual(result.skippedFrames.first?.frameId, 2)
+    }
+
+    func testPartialLossStillReportsViaTheExistingSkipPath() {
+        // The pre-existing path must not double-report: a frame with partial data is skipped
+        // by overtake, not counted again as wholly lost.
+        let buffer = buffer()
+        _ = buffer.accept(packet(frame: 1, index: 0, count: 1, payload: Data([1])))
+        _ = buffer.accept(packet(frame: 2, index: 0, count: 2, payload: Data([2])))
+        let result = buffer.accept(packet(frame: 3, index: 0, count: 1, payload: Data([3])))
+        XCTAssertEqual(result.skippedFrames.map(\.frameId), [2])
+        XCTAssertEqual(result.completedFrames.map(\.frameId), [3])
     }
 
     func testRecoveryGateCoalescesRequestsAndRetriesAfterGap() {
@@ -158,36 +201,37 @@ final class OwnedMediaFrameRepairBufferTests: XCTestCase {
         XCTAssertTrue(gate.awaitingKeyframe)
     }
 
-    // The backstop for references that are genuinely unusable: once enough cheap answers have
-    // been discarded, the next request must declare no references and force a true keyframe,
-    // converting an unbounded discard loop into one bounded IDR.
-    func testEscalationDeclaresNoReferencesAfterTheDiscardLimit() {
-        var gate = gate(escalationDiscards: 3)
+    // The backstop for references that are genuinely unusable: once the gate has been armed
+    // past the escalation window with nothing resolving it, the next request must declare no
+    // references and force a true keyframe, converting an unbounded discard loop into one
+    // bounded IDR. Time-based, NOT discard-count-based: counting discards tied escalation to
+    // motion rate and fired IDRs into the congestion the resync was still crossing.
+    func testEscalationDeclaresNoReferencesAfterTheArmedWindow() {
+        var gate = gate(escalationNs: 4_000)
         gate.noteGapSkip(nowNs: 0)
 
-        XCTAssertEqual(gate.takeKeyframeRequestIfNeeded(nowNs: 1_000)?.declareNoReferences, false)
-        _ = decide(&gate)
-        _ = decide(&gate)
+        XCTAssertEqual(gate.takeKeyframeRequestIfNeeded(nowNs: 500)?.declareNoReferences, false)
+        // A flood of discarded frames inside the window must NOT escalate.
+        for _ in 0..<50 { _ = decide(&gate, nowNs: 1_000) }
         XCTAssertEqual(
-            gate.takeKeyframeRequestIfNeeded(nowNs: 2_000)?.declareNoReferences, false,
-            "below the limit the request stays cheap"
+            gate.takeKeyframeRequestIfNeeded(nowNs: 3_999)?.declareNoReferences, false,
+            "heavy motion inside the window stays cheap"
         )
-        _ = decide(&gate)
-        XCTAssertEqual(gate.takeKeyframeRequestIfNeeded(nowNs: 3_000)?.declareNoReferences, true)
+        XCTAssertEqual(gate.takeKeyframeRequestIfNeeded(nowNs: 4_500)?.declareNoReferences, true)
     }
 
-    func testResolutionResetsTheEscalationCount() {
-        var gate = gate(escalationDiscards: 2)
+    func testResolutionResetsTheEscalationClock() {
+        var gate = gate(escalationNs: 4_000)
         gate.noteGapSkip(nowNs: 0)
         _ = decide(&gate)
-        _ = decide(&gate)
-        XCTAssertEqual(decide(&gate, resync: true), .renderRecoveryResync)
+        XCTAssertEqual(decide(&gate, resync: true, nowNs: 3_000), .renderRecoveryResync)
 
         gate.noteGapSkip(nowNs: 10_000)
         XCTAssertEqual(
-            gate.takeKeyframeRequestIfNeeded(nowNs: 11_000)?.declareNoReferences, false,
-            "a fresh gap must not inherit the previous run's discard count"
+            gate.takeKeyframeRequestIfNeeded(nowNs: 13_000)?.declareNoReferences, false,
+            "a fresh gap must not inherit the previous run's armed time"
         )
+        XCTAssertEqual(gate.takeKeyframeRequestIfNeeded(nowNs: 14_100)?.declareNoReferences, true)
     }
 
     // The mark travels on the packet because this gate decides before envelope decode; a frame

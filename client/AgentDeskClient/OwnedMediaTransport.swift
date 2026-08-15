@@ -901,8 +901,17 @@ private struct Channels {
         }
         for (completed, decision) in zip(handling.result.completedFrames, handling.decisions) {
             sendVideoControl(OwnedMediaControlMessage(kind: .frameAck, frameId: completed.frameId))
-            guard decision != .discardRecoveryDelta,
-                  let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else {
+            guard decision != .discardRecoveryDelta else { continue }
+            guard let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else {
+                // Was a silent `continue` folded into the discard guard, and that silence cost
+                // an investigation: a frame vanishing here has already been acked, so the host
+                // believes it was delivered while the decoder never sees it -- the same
+                // reference-chain break as a wholly-lost frame, minus any record of it.
+                ClientDiagnostics.shared.record(
+                    type: "mediaEnvelopeDecodeFailed",
+                    fields: ["frameId": String(completed.frameId), "bytes": String(completed.data.count)],
+                    level: .error
+                )
                 continue
             }
             if decision == .renderRecoveryKeyframe || decision == .renderRecoveryResync {
@@ -1499,7 +1508,7 @@ private struct Channels {
         var maxPendingFrameDepth = 0
         var mediaRecovery = MediaFrameRecoveryGate(
             keyframeRequestMinGapNs: UInt64(Config.ownedMediaKeyframeRequestMinGapMs) * 1_000_000,
-            escalationDiscardLimit: Config.ownedMediaRecoveryEscalationDiscards
+            escalationNs: UInt64(Config.ownedMediaRecoveryEscalationMs) * 1_000_000
         )
         // ADR-0088: receive-loop liveness. Lives in the same lock as the frame counters so a
         // report is one consistent snapshot of the window rather than two racing ones.

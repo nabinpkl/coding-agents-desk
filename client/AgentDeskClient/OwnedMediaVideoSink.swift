@@ -346,6 +346,30 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     /// so the host log attributes every request without a client diagnostics pull -- 857
     /// unattributed requests in one session is the measurement that bought this parameter.
     private var videoKeyframeRequestHandler: (@Sendable (Bool, String) -> Void)?
+    /// The last few enqueued frames, kept so a decode failure can say what it was fed.
+    ///
+    /// `didFailToDecodeNotification` arrives asynchronously and names no sample, so the only
+    /// way to identify the frame that drew `-11821` is to remember what was recently enqueued
+    /// and dump it when the notification lands. Measured need: failures recur on a 30-second
+    /// wall-clock grid with the renderer reporting itself healthy (`status=rendering`,
+    /// `requiresFlush=false`), so ONE sample in an otherwise decodable stream is bad, and
+    /// nothing short of its bytes says why. Payloads are retained only under
+    /// `Self.capturedPayloadByteLimit` -- the failing frames measured 300B-40KB, and a capped
+    /// ring of eight holds well under half a megabyte.
+    private var recentEnqueues: [EnqueuedFrameRecord] = []
+    private static let recentEnqueueLimit = 8
+    private static let capturedPayloadByteLimit = 40_000
+
+    private struct EnqueuedFrameRecord {
+        let frameId: UInt64
+        let bytes: Int
+        let isKeyframe: Bool
+        let ltrToken: UInt64?
+        let ltrResync: Bool
+        let refreshReason: String
+        let presentation: String
+        let payload: Data?
+    }
     // ADR-0088: reports each decoded-but-never-shown frame's size to the transport, which
     // accumulates it into the link-health window.
     private var presentationSkipHandler: (@Sendable (Int) -> Void)?
@@ -542,6 +566,20 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         let result = videoDecoder.decodeAndEnqueue(envelope, presentation: presentation)
         switch result {
         case .enqueued:
+            recentEnqueues.append(EnqueuedFrameRecord(
+                frameId: envelope.header.frameId,
+                bytes: frame.frameBytes,
+                isKeyframe: envelope.header.isKeyframe,
+                ltrToken: envelope.header.ltrToken,
+                ltrResync: envelope.header.ltrResync == true,
+                refreshReason: envelope.header.refreshReason.rawValue,
+                presentation: presentation == .display ? "display" : "decodeOnly",
+                payload: envelope.payload.count <= Self.capturedPayloadByteLimit
+                    ? Data(envelope.payload) : nil
+            ))
+            if recentEnqueues.count > Self.recentEnqueueLimit {
+                recentEnqueues.removeFirst(recentEnqueues.count - Self.recentEnqueueLimit)
+            }
             ClientRuntimeTelemetry.shared.advanceVideoMilestone(.decoderEnqueued)
             lastVideoEnqueueUptimeNs = nowNs
             videoEnqueueCount &+= 1
@@ -701,7 +739,45 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     /// it is posted against a renderer a test cannot reach.
     func noteDecodeFailure(detail: String, now: UInt64 = DispatchTime.now().uptimeNanoseconds) {
         noteRendererFailure(kind: "decode-failed", detail: detail)
+        recordDecodeFailureContext()
         requestKeyframe(now: now, discardingReferences: true, reason: "decode-failure")
+    }
+
+    /// Dump what the layer was recently fed, so the -11821 stops being anonymous.
+    ///
+    /// Metadata for the whole ring, bytes for the newest two frames that fit the cap: the
+    /// failing sample is one of the last few enqueued, and its actual HEVC payload -- NAL
+    /// structure, slice reference lists -- is the ground truth that three rounds of timestamp
+    /// correlation could not produce.
+    private func recordDecodeFailureContext() {
+        guard !recentEnqueues.isEmpty else {
+            ClientDiagnostics.shared.record(
+                type: "videoDecodeFailureContext",
+                fields: ["ring": "empty"],
+                level: .error
+            )
+            return
+        }
+        let ring = recentEnqueues.map { record in
+            "frame=\(record.frameId) bytes=\(record.bytes) kf=\(record.isKeyframe)"
+                + " ltr=\(record.ltrToken.map(String.init) ?? "none")"
+                + " resync=\(record.ltrResync) refresh=\(record.refreshReason)"
+                + " pres=\(record.presentation) captured=\(record.payload != nil)"
+        }.joined(separator: "; ")
+        // Field names deliberately avoid "payload": the diagnostics sanitizer redacts any key
+        // containing it (rightly -- this is the one record that ships screen-content bytes,
+        // captured knowingly for this investigation and removed with it).
+        var fields = ["ring": ring]
+        for (index, record) in recentEnqueues.suffix(2).enumerated() {
+            guard let payload = record.payload else { continue }
+            fields["hevcFrame\(index)"] = String(record.frameId)
+            fields["hevcB64_\(index)"] = payload.base64EncodedString()
+        }
+        ClientDiagnostics.shared.record(
+            type: "videoDecodeFailureContext",
+            fields: fields,
+            level: .error
+        )
     }
 
     private func noteRendererFailure(kind: String, detail: String) {
