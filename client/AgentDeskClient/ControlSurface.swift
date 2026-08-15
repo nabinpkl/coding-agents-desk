@@ -17,7 +17,7 @@ enum VideoDemand: Equatable {
     case none
 }
 
-enum ControlSurface {
+enum ControlSurface: CaseIterable {
     case control  // trackpad / display rail / keyboard (desktop pixel/video path)
     case agent    // AgentFeedSurface webview
     case browser  // DomMirrorSurface (browser-only DOM path)
@@ -96,23 +96,52 @@ struct SessionLayoutConstraints {
     }
 }
 
-// Pure surface -> visibility mapping. `controlRailHidden` controls the
-// root navigation rail, while `controlChromeHidden` covers the
-// interactive control surfaces (trackpad, hints, scroll strip, button row,
-// display rail); `keyboardInteractive` gates the keyboard helper's
-// first-responder handling. The concrete UIKit wiring (applySurface) just
-// applies these flags.
+/// What is on screen, as the ONE surface that owns the content area plus named
+/// questions about it. The concrete UIKit wiring (applySurface) just applies the
+/// answers.
+///
+/// It used to be ten independent stored booleans, one per view, filled in by
+/// hand in a seven-row switch. Seventy cells, each of which had to be typed
+/// correctly and stay correct as surfaces were added -- and the shape could
+/// still represent two surfaces visible at once, or none at all. The test that
+/// guarded it could only assert "at most one visible", because exactly one was
+/// never actually guaranteed. Storing the content surface makes both of those
+/// states unrepresentable, so the guarantee comes from the type rather than from
+/// the table being right.
 struct SurfaceVisibility: Equatable {
-    let hostContentHidden: Bool
-    let controlRailHidden: Bool
-    let agentHidden: Bool
-    let browserHidden: Bool
-    let terminalHidden: Bool
-    let workspaceHidden: Bool
-    let ideHidden: Bool
-    let voiceHidden: Bool
-    let controlChromeHidden: Bool
-    let keyboardInteractive: Bool
+    /// The surface that owns the content area. There is always exactly one.
+    let content: ControlSurface
+
+    /// Whether this surface's view should be hidden. False for `content` alone.
+    ///
+    /// `.control` answers false for itself even though it has no full-bleed view
+    /// of its own; its "surface" is the Mac chrome, which `controlChromeHidden`
+    /// covers. No consumer asks this about `.control`.
+    func isHidden(_ surface: ControlSurface) -> Bool { surface != content }
+
+    var agentHidden: Bool { isHidden(.agent) }
+    var browserHidden: Bool { isHidden(.browser) }
+    var terminalHidden: Bool { isHidden(.terminal) }
+    var workspaceHidden: Bool { isHidden(.workspace) }
+    var ideHidden: Bool { isHidden(.ide) }
+    var voiceHidden: Bool { isHidden(.voice) }
+
+    /// Voice replaces the host root and the root navigation rail rather than
+    /// sitting inside them: it is the one surface mounted on the view controller's
+    /// own view instead of on `hostContentView`, so hiding that container is what
+    /// clears the screen for it.
+    var hostContentHidden: Bool { content == .voice }
+    var controlRailHidden: Bool { content == .voice }
+
+    /// The interactive Mac controls: trackpad, hints, scroll strip, button row,
+    /// display rail. Only Control drives the Mac, so only Control shows them.
+    var controlChromeHidden: Bool { content != .control }
+
+    /// Whether the keyboard helper may take first responder and forward keys to
+    /// the Mac. The same answer as showing the chrome, asked as its own question
+    /// because a local surface with its own text field must not forward what is
+    /// typed into it to the desktop.
+    var keyboardInteractive: Bool { content == .control }
 }
 
 extension ControlSurface {
@@ -168,7 +197,7 @@ extension ControlSurface {
     /// Resolves a surface from its switcher accessibility label (the inverse of the property above),
     /// or nil for an unknown label so callers fall back to `.control` safely.
     init?(switcherAccessibilityLabel label: String) {
-        guard let match = [ControlSurface.control, .agent, .terminal, .browser, .workspace, .ide, .voice]
+        guard let match = ControlSurface.allCases
             .first(where: { $0.switcherAccessibilityLabel == label }) else { return nil }
         self = match
     }
@@ -188,63 +217,9 @@ func availableControlSurfaces(browserAvailable: Bool) -> [ControlSurface] {
     return surfaces
 }
 
+/// The named entry point for "what should be on screen for this surface".
+/// Kept as a function rather than folded into the memberwise init because it is
+/// the vocabulary the UIKit layer and its comments are written in.
 func visibility(for surface: ControlSurface) -> SurfaceVisibility {
-    switch surface {
-    case .control:
-        return SurfaceVisibility(
-            hostContentHidden: false,
-            controlRailHidden: false,
-            agentHidden: true, browserHidden: true,
-            terminalHidden: true, workspaceHidden: true,
-            ideHidden: true, voiceHidden: true,
-            controlChromeHidden: false, keyboardInteractive: true)
-    case .agent:
-        return SurfaceVisibility(
-            hostContentHidden: false,
-            controlRailHidden: false,
-            agentHidden: false, browserHidden: true,
-            terminalHidden: true, workspaceHidden: true,
-            ideHidden: true, voiceHidden: true,
-            controlChromeHidden: true, keyboardInteractive: false)
-    case .browser:
-        return SurfaceVisibility(
-            hostContentHidden: false,
-            controlRailHidden: false,
-            agentHidden: true, browserHidden: false,
-            terminalHidden: true, workspaceHidden: true,
-            ideHidden: true, voiceHidden: true,
-            controlChromeHidden: true, keyboardInteractive: false)
-    case .terminal:
-        return SurfaceVisibility(
-            hostContentHidden: false,
-            controlRailHidden: false,
-            agentHidden: true, browserHidden: true,
-            terminalHidden: false, workspaceHidden: true,
-            ideHidden: true, voiceHidden: true,
-            controlChromeHidden: true, keyboardInteractive: false)
-    case .workspace:
-        return SurfaceVisibility(
-            hostContentHidden: false,
-            controlRailHidden: false,
-            agentHidden: true, browserHidden: true,
-            terminalHidden: true, workspaceHidden: false,
-            ideHidden: true, voiceHidden: true,
-            controlChromeHidden: true, keyboardInteractive: false)
-    case .ide:
-        return SurfaceVisibility(
-            hostContentHidden: false,
-            controlRailHidden: false,
-            agentHidden: true, browserHidden: true,
-            terminalHidden: true, workspaceHidden: true,
-            ideHidden: false, voiceHidden: true,
-            controlChromeHidden: true, keyboardInteractive: false)
-    case .voice:
-        return SurfaceVisibility(
-            hostContentHidden: true,
-            controlRailHidden: true,
-            agentHidden: true, browserHidden: true,
-            terminalHidden: true, workspaceHidden: true,
-            ideHidden: true, voiceHidden: false,
-            controlChromeHidden: true, keyboardInteractive: false)
-    }
+    SurfaceVisibility(content: surface)
 }

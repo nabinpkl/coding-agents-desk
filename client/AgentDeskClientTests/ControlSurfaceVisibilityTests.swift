@@ -5,94 +5,43 @@ import UIKit
 // No view controller required: this is the testable seam that keeps the UIKit
 // wiring (applySurface) trivial.
 struct ControlSurfaceVisibilityTests {
-    @Test func controlShowsChromeHidesOtherSurfaces() {
-        let v = visibility(for: .control)
-        #expect(!v.hostContentHidden)
-        #expect(!v.controlRailHidden)
-        #expect(v.agentHidden)
-        #expect(v.browserHidden)
-        #expect(v.terminalHidden)
-        #expect(!v.controlChromeHidden)
-        #expect(v.keyboardInteractive)
-    }
-
-    @Test func agentShowsWebviewHidesChromeAndBrowser() {
-        let v = visibility(for: .agent)
-        #expect(!v.agentHidden)
-        #expect(v.browserHidden)
-        #expect(v.terminalHidden)
-        #expect(v.controlChromeHidden)
-        #expect(!v.keyboardInteractive)
-    }
-
-    @Test func browserShowsMirrorHidesChromeAndAgent() {
-        let v = visibility(for: .browser)
-        #expect(v.agentHidden)
-        #expect(!v.browserHidden)
-        #expect(v.terminalHidden)
-        #expect(v.controlChromeHidden)
-        #expect(!v.keyboardInteractive)
-    }
-
-    @Test func terminalShowsTerminalHidesChromeAndOtherSurfaces() {
-        let v = visibility(for: .terminal)
-        #expect(v.agentHidden)
-        #expect(v.browserHidden)
-        #expect(!v.terminalHidden)
-        #expect(v.controlChromeHidden)
-        #expect(!v.keyboardInteractive)
-    }
-
-    @Test func workspaceShowsWorkspaceHidesChromeAndOtherSurfaces() {
-        let v = visibility(for: .workspace)
-        #expect(v.agentHidden)
-        #expect(v.browserHidden)
-        #expect(v.terminalHidden)
-        #expect(!v.workspaceHidden)
-        #expect(v.controlChromeHidden)
-        #expect(!v.keyboardInteractive)
-    }
-
-    @Test func ideShowsIDEAndHidesEveryOtherSurface() {
-        let v = visibility(for: .ide)
-        #expect(!v.ideHidden)
-        #expect(v.workspaceHidden)
-        #expect(v.agentHidden)
-        #expect(v.browserHidden)
-        #expect(v.terminalHidden)
-        #expect(v.controlChromeHidden)
-    }
-
-    // Exactly one full-bleed surface (agent, browser, terminal, or files) may be visible at a
-    // time; control shows neither. Guards against a future mapping edit that
-    // reveals two overlapping surfaces.
-    @Test func atMostOneFullBleedSurfaceVisible() {
-        for surface in [ControlSurface.control, .agent, .browser, .terminal, .workspace, .ide, .voice] {
+    // Exactly one surface owns the content area -- never two overlapping, never
+    // none. This used to be six near-identical per-surface tests plus an
+    // "at most one visible" count, which was the strongest claim the old
+    // ten-boolean struct could support: it could represent zero visible too.
+    // Over `allCases`, so a surface added without a visibility answer fails here
+    // rather than shipping invisible.
+    @Test func exactlyOneSurfaceOwnsTheContentArea() {
+        for surface in ControlSurface.allCases {
             let v = visibility(for: surface)
-            let visibleCount = (v.agentHidden ? 0 : 1)
-                + (v.browserHidden ? 0 : 1)
-                + (v.terminalHidden ? 0 : 1)
-                + (v.workspaceHidden ? 0 : 1)
-                + (v.ideHidden ? 0 : 1)
-                + (v.voiceHidden ? 0 : 1)
-            #expect(visibleCount <= 1)
+            let shown = ControlSurface.allCases.filter { !v.isHidden($0) }
+            #expect(shown == [surface])
         }
     }
 
-    @Test func voiceShowsProbeAndHidesEveryOtherSurface() {
-        let v = visibility(for: .voice)
-        #expect(v.hostContentHidden)
-        #expect(v.controlRailHidden)
-        #expect(!v.voiceHidden)
-        #expect(v.ideHidden)
-        #expect(v.workspaceHidden)
-        #expect(v.agentHidden)
-        #expect(v.browserHidden)
-        #expect(v.terminalHidden)
-        #expect(v.controlChromeHidden)
-        // The probe's own text field is a local first responder; the host
-        // keyboard helper must stay disabled so keys are not forwarded to the Mac.
-        #expect(!v.keyboardInteractive)
+    // The per-view accessors are hand-written one-liners over `isHidden`, so the
+    // mistake they can still make is naming the wrong case. Each one is checked
+    // against the surface it is named for. Control has no full-bleed view of its
+    // own; its surface is the Mac chrome, covered below.
+    @Test func eachNamedAccessorFollowsItsOwnSurface() {
+        #expect(!visibility(for: .agent).agentHidden)
+        #expect(!visibility(for: .browser).browserHidden)
+        #expect(!visibility(for: .terminal).terminalHidden)
+        #expect(!visibility(for: .workspace).workspaceHidden)
+        #expect(!visibility(for: .ide).ideHidden)
+        #expect(!visibility(for: .voice).voiceHidden)
+    }
+
+    @Test func onlyControlShowsTheMacChromeAndForwardsKeys() {
+        #expect(!visibility(for: .control).controlChromeHidden)
+        #expect(visibility(for: .control).keyboardInteractive)
+        for surface in ControlSurface.allCases where surface != .control {
+            #expect(visibility(for: surface).controlChromeHidden)
+            // Every other surface owns its own text fields (the voice probe's
+            // included). A live host keyboard helper would forward what is typed
+            // into them to the Mac.
+            #expect(!visibility(for: surface).keyboardInteractive)
+        }
     }
 
     /// The host stops encoding for this client whenever this is `.none`, so a
@@ -100,17 +49,13 @@ struct ControlSurfaceVisibilityTests {
     /// own webview is covering.
     @Test func onlyControlDemandsTheHostVideo() {
         #expect(ControlSurface.control.videoDemand == .live)
-        for surface in [ControlSurface.agent, .terminal, .browser, .workspace, .ide, .voice] {
+        for surface in ControlSurface.allCases where surface != .control {
             #expect(surface.videoDemand == .none)
         }
     }
 
     @Test func onlyVoiceReplacesTheHostContentRoot() {
-        let hostSurfaces: [ControlSurface] = [
-            .control, .agent, .browser, .terminal, .workspace, .ide
-        ]
-
-        for surface in hostSurfaces {
+        for surface in ControlSurface.allCases where surface != .voice {
             #expect(!visibility(for: surface).hostContentHidden)
             #expect(!visibility(for: surface).controlRailHidden)
         }
@@ -242,7 +187,7 @@ struct SurfaceSwitcherTests {
     }
 
     @Test func everySurfaceHasADistinctSymbolAndStableAccessibilityLabel() {
-        let all: [ControlSurface] = [.control, .agent, .terminal, .browser, .workspace, .ide, .voice]
+        let all = ControlSurface.allCases
         // Distinct SF Symbols so all segments are visually distinguishable.
         let symbols = all.map(\.switcherSymbolName)
         #expect(Set(symbols).count == all.count)
@@ -263,7 +208,7 @@ struct SurfaceSwitcherTests {
     // The switcher resolves a tapped segment back to its surface via the label round-trip, so this
     // inverse must hold for every surface and reject unknown labels (-> safe .control fallback).
     @Test func accessibilityLabelRoundTripsToSurface() {
-        for surface in [ControlSurface.control, .agent, .terminal, .browser, .workspace, .ide, .voice] {
+        for surface in ControlSurface.allCases {
             #expect(ControlSurface(switcherAccessibilityLabel: surface.switcherAccessibilityLabel) == surface)
         }
         #expect(ControlSurface(switcherAccessibilityLabel: "Nonexistent") == nil)
