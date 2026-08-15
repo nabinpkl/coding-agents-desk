@@ -76,6 +76,28 @@ export interface RunningBackgroundTask extends BackgroundTask {
   hasOutput: boolean;
 }
 
+/**
+ * One message on a task's output stream: a snapshot of the tail, then appends as it grows.
+ *
+ * `label` is the file's base name, not its path. The viewer wants to know which file is being
+ * streamed -- often a log the command redirected into, not the task's own capture -- and the rest
+ * of the path is machine detail that does not need to cross to a phone.
+ */
+export type TaskOutputMessage =
+  | {
+    kind: "snapshot";
+    label: string;
+    text: string;
+    /** Byte offset the next append continues from. */
+    offset: number;
+    progress: BackgroundTaskProgress;
+  }
+  | { kind: "append"; text: string; offset: number; progress: BackgroundTaskProgress }
+  /** The task ended while being watched. Carries how, so the row settles without a re-poll. */
+  | { kind: "ended"; state: BackgroundTaskState }
+  /** No readable output could be found. Distinct from an empty file, which streams normally. */
+  | { kind: "unavailable"; reason: string };
+
 export interface BackgroundTaskSnapshot {
   running: RunningBackgroundTask[];
   finished: BackgroundTask[];

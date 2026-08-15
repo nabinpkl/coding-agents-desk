@@ -104,17 +104,27 @@ describe("assembleSnapshot", () => {
     expect(snapshot.finished).toEqual([]);
   });
 
-  test("a task the kernel reports but the transcript never explained still appears", () => {
-    // A running row the viewer cannot see is worse than one labelled by its id. A missing
-    // description means the backward window did not reach far enough, not that the task is unreal.
+  test("a shell with no start record is a foreground command, not a background task", () => {
+    // Caught against a live sidecar: the agent's own in-flight `curl` showed up as a running task.
+    // The harness gives foreground commands a tasks/<id>.output file too and their shells hold it
+    // open identically, so the kernel cannot tell them apart -- only the transcript records that
+    // the agent asked for a background run.
     const snapshot = assembleSnapshot(sources({
-      shells: [{ taskId: "bmystery", pid: 100, capturePath: `${ROOT}/-p/s/tasks/bmystery.output` }],
+      shells: [{ taskId: "bforeground", pid: 100, capturePath: `${ROOT}/-p/s/tasks/bforeground.output` }],
     }));
-    expect(snapshot.running[0]).toMatchObject({
-      taskId: "bmystery",
-      description: "bmystery",
-      elapsedMs: 0,
-    });
+    expect(snapshot.running).toEqual([]);
+    expect(snapshot.finished).toEqual([]);
+  });
+
+  test("one foreground shell does not suppress a real task running beside it", () => {
+    const snapshot = assembleSnapshot(sources({
+      shells: [
+        { taskId: "bforeground", pid: 100, capturePath: `${ROOT}/-p/s/tasks/bforeground.output` },
+        { taskId: "b1", pid: 101, capturePath: `${ROOT}/-p/s/tasks/b1.output` },
+      ],
+      identities: new Map([["b1", identity("b1")]]),
+    }));
+    expect(snapshot.running.map((task) => task.taskId)).toEqual(["b1"]);
   });
 
   test("a start with no evidence at all resolves as unknown, not running", () => {

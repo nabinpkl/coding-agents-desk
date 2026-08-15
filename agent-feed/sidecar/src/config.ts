@@ -176,6 +176,15 @@ export const config = {
     1000,
     30 * 60 * 1000,
   ),
+  // How often a subscribed session re-probes its background tasks. The probe forks `lsof`, so
+  // this is the knob that decides what the feature costs; 2s is well inside human patience for
+  // "a task started" while keeping the fork rate low. Only sessions with an open subscriber poll.
+  backgroundTaskPollMs: integerEnvironment(
+    "AGENT_FEED_BACKGROUND_TASK_POLL_MS",
+    2000,
+    250,
+    60_000,
+  ),
   contextWindows: contextWindowEnvironment("AGENT_FEED_CONTEXT_WINDOWS"),
   proxyObserverEndpoint: urlEnvironment(
     "AGENT_FEED_PROXY_OBSERVER_ENDPOINT",

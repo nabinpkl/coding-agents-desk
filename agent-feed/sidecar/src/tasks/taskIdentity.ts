@@ -114,7 +114,10 @@ export function parseTranscriptWindow(text: string): TranscriptTaskScan {
  * Dropping that first line matters: a window almost always begins mid-record, and half a JSON
  * object parses as nothing rather than as something wrong, but skipping it keeps the log clean.
  */
-export async function readBackwardWindow(path: string, bytes: number): Promise<{ text: string; whole: boolean }> {
+export async function readBackwardWindow(
+  path: string,
+  bytes: number,
+): Promise<{ text: string; whole: boolean; size: number }> {
   const size = (await stat(path)).size;
   const from = Math.max(0, size - bytes);
   const handle = await open(path, "r");
@@ -122,9 +125,9 @@ export async function readBackwardWindow(path: string, bytes: number): Promise<{
     const buffer = Buffer.alloc(size - from);
     await handle.read(buffer, 0, buffer.length, from);
     const text = buffer.toString("utf8");
-    if (from === 0) return { text, whole: true };
+    if (from === 0) return { text, whole: true, size };
     const firstBreak = text.indexOf("\n");
-    return { text: firstBreak === -1 ? "" : text.slice(firstBreak + 1), whole: false };
+    return { text: firstBreak === -1 ? "" : text.slice(firstBreak + 1), whole: false, size };
   } finally {
     await handle.close();
   }
@@ -138,28 +141,105 @@ export async function readBackwardWindow(path: string, bytes: number): Promise<{
  * and reads the file, which is 27 ms even at 29 MB -- affordable only because this runs for
  * sessions with a live process, of which there are a handful, not the catalog's 1237.
  */
-const WINDOW_BYTES = [1024 * 1024, 4 * 1024 * 1024, Infinity] as const;
+const WINDOW_BYTES = [1024 * 1024, 4 * 1024 * 1024] as const;
+
+interface SessionScan extends TranscriptTaskScan {
+  path: string;
+  /** Bytes consumed so far. Everything before this has been parsed and folded in. */
+  offset: number;
+}
 
 /**
- * Resolve a session's background tasks from its transcript.
+ * Per-session accumulated scan.
  *
- * Grows the window only while a REQUIRED task is still unresolved -- required meaning the kernel
- * says it is running, so a row for it is going on screen and needs a description. Finished tasks
- * are whatever the window happened to contain, which is a deliberate bound: a three-hour session
- * has 181 of them and nobody wants that list.
+ * Process-local and unbounded only in the number of SESSIONS someone has subscribed to, which is
+ * one at a time in the panel. Cleared when a session's transcript is replaced.
+ */
+const scans = new Map<string, SessionScan>();
+
+/**
+ * Resolve a session's background tasks from its transcript, reading each byte once.
+ *
+ * The first call reads a backward window, because a task worth showing was started recently and
+ * the file it lives in can be 29 MB. Every call after that reads only what has been APPENDED,
+ * which is a few kilobytes, because a transcript is append-only.
+ *
+ * That incremental step is what makes the poll affordable and also what makes it complete: a task
+ * seen once stays known, so a long-running one does not fall out of the window as the session
+ * talks past it. Growing the window on every tick instead would have meant re-reading megabytes
+ * two seconds apart, forever, chasing ids that are foreground commands and will never resolve.
+ *
+ * `requiredTaskIds` only widens the FIRST read. Finished tasks are whatever that window contained,
+ * a deliberate bound: a three-hour session has 181 of them and nobody wants that list.
  */
 export async function scanSessionTasks(
+  sessionId: string,
   transcriptPath: string,
   requiredTaskIds: ReadonlySet<string>,
 ): Promise<TranscriptTaskScan> {
-  let scan: TranscriptTaskScan = { starts: new Map(), notifications: new Map() };
-  for (const bytes of WINDOW_BYTES) {
-    const { text, whole } = await readBackwardWindow(transcriptPath, bytes);
-    scan = parseTranscriptWindow(text);
-    const missing = [...requiredTaskIds].some((id) => !scan.starts.has(id));
-    if (!missing || whole) break;
+  const cached = scans.get(sessionId);
+  if (cached && cached.path === transcriptPath) {
+    const size = (await stat(transcriptPath)).size;
+    // A file that shrank is a different file wearing the same name -- a compaction rewrite, or a
+    // session id reused across a rotation. Start over rather than parse from a stale offset.
+    if (size >= cached.offset) {
+      if (size > cached.offset) {
+        const { text, consumed } = await readForward(transcriptPath, cached.offset, size);
+        const fresh = parseTranscriptWindow(text);
+        for (const [id, identity] of fresh.starts) cached.starts.set(id, identity);
+        for (const [id, notification] of fresh.notifications) {
+          cached.notifications.set(id, notification);
+        }
+        cached.offset += consumed;
+      }
+      return { starts: cached.starts, notifications: cached.notifications };
+    }
   }
+
+  let scan: TranscriptTaskScan = { starts: new Map(), notifications: new Map() };
+  let size = 0;
+  for (const bytes of WINDOW_BYTES) {
+    const window = await readBackwardWindow(transcriptPath, bytes);
+    size = window.size;
+    scan = parseTranscriptWindow(window.text);
+    const missing = [...requiredTaskIds].some((id) => !scan.starts.has(id));
+    if (!missing || window.whole) break;
+  }
+  scans.set(sessionId, { ...scan, path: transcriptPath, offset: size });
   return scan;
+}
+
+/** Testing seam: forget what has been accumulated for a session. */
+export function forgetSessionScan(sessionId: string): void {
+  scans.delete(sessionId);
+}
+
+/**
+ * Read an appended range, stopping at the last complete line.
+ *
+ * A transcript can be mid-write when this runs, so the final line is often a fragment. Consuming
+ * it would advance the offset past a record that was never parsed, losing it permanently; leaving
+ * it unconsumed means the next tick reads it whole.
+ */
+async function readForward(
+  path: string,
+  from: number,
+  to: number,
+): Promise<{ text: string; consumed: number }> {
+  const handle = await open(path, "r");
+  try {
+    const buffer = Buffer.alloc(to - from);
+    await handle.read(buffer, 0, buffer.length, from);
+    const text = buffer.toString("utf8");
+    const lastBreak = text.lastIndexOf("\n");
+    if (lastBreak === -1) return { text: "", consumed: 0 };
+    return {
+      text: text.slice(0, lastBreak + 1),
+      consumed: Buffer.byteLength(text.slice(0, lastBreak + 1), "utf8"),
+    };
+  } finally {
+    await handle.close();
+  }
 }
 
 /**

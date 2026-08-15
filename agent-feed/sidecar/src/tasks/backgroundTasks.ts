@@ -56,9 +56,15 @@ export interface SnapshotSources {
  * Fold the three sources into what the panel renders. Pure, so the precedence is testable without
  * a live session.
  *
- * Tasks the kernel reports but the transcript has not explained still appear, described by their
- * own id. A running task the viewer cannot see is worse than one with an ugly label, and a missing
- * description means the window did not reach far enough, not that the task is not real.
+ * A shell only counts as a background task when the transcript also carries a start record for it.
+ * That corroboration is not bookkeeping, it is the discriminator: the harness gives FOREGROUND
+ * commands a `tasks/<id>.output` file too and their shells hold it open exactly the same way, so
+ * the kernel cannot tell the two apart. Without this rule the panel showed the agent's own
+ * in-flight `curl` as a background task, and would have shown a running count of at least one
+ * whenever the agent was doing anything at all.
+ *
+ * "Backgrounded" is a property the agent declared, and the transcript is the only record of the
+ * declaration.
  */
 export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapshot {
   const running: RunningBackgroundTask[] = [];
@@ -84,6 +90,9 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
   };
 
   for (const shell of sources.shells) {
+    // No start record means this shell is a foreground command, not a background task. See the
+    // note above: the two are indistinguishable to the kernel.
+    if (!sources.identities.has(shell.taskId)) continue;
     seen.add(shell.taskId);
     const identity = describe(shell.taskId);
     const captureSize = sources.captureSizes.get(shell.taskId) ?? 0;
@@ -141,7 +150,7 @@ export async function backgroundTaskSnapshot(
   const shells = await taskShellsOf(run, owner.pid);
   const transcriptPath = await claudeTranscriptPath(sessionId);
   const scan = transcriptPath
-    ? await scanSessionTasks(transcriptPath, new Set(shells.map((shell) => shell.taskId)))
+    ? await scanSessionTasks(sessionId, transcriptPath, new Set(shells.map((shell) => shell.taskId)))
     : { starts: new Map<string, TaskIdentity>(), notifications: new Map<string, TaskNotification>() };
 
   const markers = new Map<string, ReturnType<typeof parseTerminalMarker>>();

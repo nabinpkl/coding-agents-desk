@@ -9,6 +9,7 @@ import { createAgentRoutes } from "./http/agentRoutes.ts";
 import { createInventoryRoutes } from "./http/inventoryRoutes.ts";
 import type { RouteHandler } from "./http/route.ts";
 import { createSessionRoutes } from "./http/sessionRoutes.ts";
+import { createTaskRoutes } from "./http/taskRoutes.ts";
 import { createTimelineRoutes } from "./http/timelineRoutes.ts";
 import { state } from "./transcripts/transcriptState.ts";
 import {
@@ -55,6 +56,9 @@ const routes: RouteHandler[] = [
   // Ahead of the session routes so `/timeline` is matched before their
   // catch-all rejection of unknown `/api/sessions/` paths.
   createTimelineRoutes(resolveBackend, describeAgentSession),
+  // Ahead of them for the same reason: `/tasks` and `/tasks/<id>/output` live under
+  // `/api/sessions/` and would otherwise be rejected before they are matched.
+  createTaskRoutes(),
   createSessionRoutes(describeAgentSession),
 ];
 const SHUTDOWN_GRACE_MS = 500;
