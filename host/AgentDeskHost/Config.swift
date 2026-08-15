@@ -259,17 +259,34 @@ enum Config {
     )
     // ADR-0033 survival cadence target. A lower emergency rung exists for paths
     // that still freeze after survival.
+    //
+    // 5, not 10, because a rung must be able to CARRY its own cadence. Measured per-frame cost
+    // on this content is 4.8KB at p50 (18.8KB at p90), so 10fps needs 382kbps against a 300kbps
+    // budget -- and a rung that promises more frames than its bitrate can carry does not drop
+    // them, it queues them. That is latency, not loss: the picture stays smooth and arrives
+    // seconds late. 5fps needs 190kbps and fits.
     static let ownedMediaFpsFloor = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS_FLOOR",
-        defaultValue: 10
+        defaultValue: 5
     )
     static let ownedMediaEmergencyBitrateKbps = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_EMERGENCY_BITRATE_KBPS",
         defaultValue: 180
     )
+    // The true floor, and the only rung that fits its budget even at p90 (150kbps of 180).
+    //
+    // 6fps here needed 228kbps at p50 and 900 at p90 against 180 -- 1.3x to 5x over-subscribed,
+    // on the one rung reached precisely because the link cannot over-deliver. Measured result:
+    // standing queues 1-2.6s deep with rttInflation 10-32x, a smooth picture consistently that
+    // far behind the Mac. For a remote desktop a current frame at 1fps beats a two-second-old
+    // frame at 6fps, so the floor spends its whole budget on being CURRENT.
+    //
+    // Safe to go this low only since reference chains became loss-immune: skipped frames no
+    // longer break anything, so the next frame sent is decodable and fresh rather than the
+    // start of a resync.
     static let ownedMediaEmergencyFps = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_EMERGENCY_FPS",
-        defaultValue: 6
+        defaultValue: 1
     )
     // Tile-path periodic full-surface heal cadence (ScrollDeltaEngine.healIntervalFrames).
     // Named for the heal it actually drives, not a video keyframe. There is no longer a video
