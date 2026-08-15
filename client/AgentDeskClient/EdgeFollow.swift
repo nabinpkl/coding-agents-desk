@@ -23,15 +23,24 @@ import AgentDeskWire
 //
 // Horizontal is centred: a picture narrower than its frame has no reason to prefer a side.
 //
-// Vertical is not, and this is a deliberate asymmetry. The Mac keeps its menu bar at the top
-// of the display, and every window its title bar, so the top of the picture is the part worth
-// seeing. Split evenly, zooming in closed half of each band and left a black strip above the
-// menu bar until the picture filled the frame outright. Biased to the top, the slack all sits
-// underneath, the menu bar is against the top edge at every zoom, and what zoom closes is the
-// band at the bottom -- which is also where the Desktop and window switchers now overlay.
+// Vertical is neither centred nor pinned, and the reason is that a pinch is a sequence, not a
+// state. Two earlier arrangements each got half of it right:
+//
+//   centred   both bands shrink together, so a black strip sits above the menu bar through the
+//             whole zoom and only disappears when the picture fills the frame outright.
+//   pinned    the picture is jammed against the top with every pixel of slack below it, which
+//             is a large black band at rest on a phone in portrait.
+//
+// `fillFarFirst` is the sequence instead. The near band holds at its resting height while the
+// far band closes, so pinching consumes the space under the picture first -- including the
+// strip the Desktop and window switchers overlay -- and only once that is gone does the near
+// band start closing. Zoom by zoom the viewport fills from the bottom up, and the picture never
+// has black above AND below it at the same time on the way there.
 enum ContentAlignment: Equatable, Sendable {
     case centered
-    case leading
+    /// Slack sits at the near edge up to `restingNear`; everything beyond that goes to the far
+    /// edge. `restingNear: 0` pins the content to the near edge at every size.
+    case fillFarFirst(restingNear: CGFloat)
 }
 
 enum EdgeFollow {
@@ -46,9 +55,41 @@ enum EdgeFollow {
     ) -> (near: CGFloat, far: CGFloat) {
         let slack = max(0, viewportExtent - contentExtent)
         switch alignment {
-        case .centered: return (slack / 2, slack / 2)
-        case .leading: return (0, slack)
+        case .centered:
+            return (slack / 2, slack / 2)
+        case .fillFarFirst(let restingNear):
+            // Capped by the slack that is left, which is what makes the two phases one formula:
+            // while there is more slack than the resting band the surplus is all at the far edge
+            // and only that edge closes; once the surplus is gone the near band is the only slack
+            // left, and further growth closes it.
+            let near = min(max(0, restingNear), slack)
+            return (near, slack - near)
         }
+    }
+
+    /// The near band this axis rests at, from the picture's UNZOOMED extent.
+    ///
+    /// Taken at zoom 1 rather than from the current size on purpose: it is the band the picture
+    /// keeps while the far side closes, so it has to be a fixed target rather than something that
+    /// re-derives itself smaller on every pinch frame and drifts the picture upward as it grows.
+    static func restingNearInset(unzoomedExtent: CGFloat, viewportExtent: CGFloat) -> CGFloat {
+        max(0, (viewportExtent - unzoomedExtent) / 2)
+    }
+
+    /// The vertical split, in one place because five call sites need to agree on it exactly.
+    ///
+    /// `insets` feeds the scroll view's `contentInset` and `offsetRange` feeds every clamp the
+    /// cursor math applies; a disagreement between them does not fail, it drifts the drawn
+    /// pointer away from the real one by the difference.
+    static func verticalAlignment(
+        unzoomedExtent: CGFloat,
+        viewportExtent: CGFloat
+    ) -> ContentAlignment {
+        .fillFarFirst(
+            restingNear: restingNearInset(
+                unzoomedExtent: unzoomedExtent, viewportExtent: viewportExtent
+            )
+        )
     }
 
     // Offset range a UIScrollView will hold for this content, honouring the inset above.
@@ -129,7 +170,9 @@ enum EdgeFollow {
         let rangeY = offsetRange(
             contentExtent: videoSize.height * zoomScale,
             viewportExtent: viewportSize.height,
-            alignment: .leading
+            alignment: verticalAlignment(
+                unzoomedExtent: videoSize.height, viewportExtent: viewportSize.height
+            )
         )
         nextOffsetX = min(max(rangeX.min, nextOffsetX), rangeX.max)
         nextOffsetY = min(max(rangeY.min, nextOffsetY), rangeY.max)
@@ -286,7 +329,9 @@ enum PointerRetargeting {
         let rangeY = EdgeFollow.offsetRange(
             contentExtent: videoSize.height * zoomScale,
             viewportExtent: viewportSize.height,
-            alignment: .leading
+            alignment: EdgeFollow.verticalAlignment(
+                unzoomedExtent: videoSize.height, viewportExtent: viewportSize.height
+            )
         )
 
         // Per-axis: interior reconcile of the fixed anchor, clamped to the
@@ -357,6 +402,9 @@ enum PointerRetargeting {
     static func panFollowEdgeProjection(
         contentOffset: CGPoint,
         contentSize: CGSize,
+        // The picture at zoom 1. `contentSize` is already zoomed, and the vertical resting band
+        // is defined against the unzoomed height, so it cannot be recovered from the other two.
+        unzoomedContentHeight: CGFloat,
         viewportSize: CGSize,
         panTranslation: CGPoint,
         panVelocity: CGPoint
@@ -374,7 +422,9 @@ enum PointerRetargeting {
         let rangeY = EdgeFollow.offsetRange(
             contentExtent: contentSize.height,
             viewportExtent: viewportSize.height,
-            alignment: .leading
+            alignment: EdgeFollow.verticalAlignment(
+                unzoomedExtent: unzoomedContentHeight, viewportExtent: viewportSize.height
+            )
         )
         var axes: PanFollowOverscrollAxes = []
         if contentOffset.x < rangeX.min || contentOffset.x > rangeX.max {
@@ -426,6 +476,7 @@ enum PointerRetargeting {
         let edgeProjection = panFollowEdgeProjection(
             contentOffset: input.contentOffset,
             contentSize: input.contentSize,
+            unzoomedContentHeight: input.videoSize.height,
             viewportSize: input.viewportSize,
             panTranslation: input.panTranslation,
             panVelocity: input.panVelocity

@@ -335,6 +335,7 @@ struct EdgeFollowTests {
         let projection = PointerRetargeting.panFollowEdgeProjection(
             contentOffset: CGPoint(x: 410, y: 30),
             contentSize: CGSize(width: 800, height: 480),
+            unzoomedContentHeight: 240,
             viewportSize: CGSize(width: 400, height: 240),
             panTranslation: CGPoint(x: -18, y: -12),
             panVelocity: CGPoint(x: -900, y: -500)
@@ -348,6 +349,7 @@ struct EdgeFollowTests {
         let projection = PointerRetargeting.panFollowEdgeProjection(
             contentOffset: CGPoint(x: 200, y: 120),
             contentSize: CGSize(width: 800, height: 480),
+            unzoomedContentHeight: 240,
             viewportSize: CGSize(width: 400, height: 240),
             panTranslation: CGPoint(x: -18, y: -12),
             panVelocity: CGPoint(x: -900, y: -500)
@@ -617,7 +619,7 @@ struct ContentAlignmentTests {
         let vertical = EdgeFollow.insets(
             contentExtent: Self.video.height,
             viewportExtent: Self.viewport.height,
-            alignment: .leading
+            alignment: .fillFarFirst(restingNear: 0)
         )
         #expect(Self.slack > 0)
         #expect(vertical.near == 0)
@@ -641,7 +643,7 @@ struct ContentAlignmentTests {
         let leading = EdgeFollow.offsetRange(
             contentExtent: Self.video.height,
             viewportExtent: Self.viewport.height,
-            alignment: .leading
+            alignment: .fillFarFirst(restingNear: 0)
         )
         #expect(leading.min == 0)
         #expect(leading.max == 0)
@@ -661,7 +663,7 @@ struct ContentAlignmentTests {
             let range = EdgeFollow.offsetRange(
                 contentExtent: Self.video.height * zoom,
                 viewportExtent: Self.viewport.height,
-                alignment: .leading
+                alignment: .fillFarFirst(restingNear: 0)
             )
             #expect(range.min == 0)
         }
@@ -673,7 +675,7 @@ struct ContentAlignmentTests {
     @Test func theTwoAlignmentsAgreeOnceThereIsNoSlack() {
         let tall = Self.viewport.height * 2
         let leading = EdgeFollow.offsetRange(
-            contentExtent: tall, viewportExtent: Self.viewport.height, alignment: .leading
+            contentExtent: tall, viewportExtent: Self.viewport.height, alignment: .fillFarFirst(restingNear: 0)
         )
         let centred = EdgeFollow.offsetRange(
             contentExtent: tall, viewportExtent: Self.viewport.height, alignment: .centered
@@ -681,5 +683,104 @@ struct ContentAlignmentTests {
         #expect(leading == centred)
         #expect(leading.min == 0)
         #expect(leading.max == Self.viewport.height)
+    }
+}
+
+// The pinch sequence itself: the band under the picture closes first, the band above it second.
+//
+// Written against offsets rather than insets because the offset is what the viewer sees -- a
+// resting offset that stays put means the picture has not moved on screen, which is the property
+// that makes zooming read as "the gap is filling" instead of "everything is sliding".
+struct FillFarFirstTests {
+    // A 1512x982 display fitted to a 393-wide window is 393x255, in a 500pt-tall window: 245pt
+    // of slack, so the picture rests with roughly 122pt above and below it.
+    private static let viewport = CGSize(width: 393, height: 500)
+    private static let video = CGSize(width: 393, height: 393 * 982 / 1512)
+    private static var resting: CGFloat {
+        EdgeFollow.restingNearInset(unzoomedExtent: video.height, viewportExtent: viewport.height)
+    }
+    private static var alignment: ContentAlignment {
+        EdgeFollow.verticalAlignment(
+            unzoomedExtent: video.height, viewportExtent: viewport.height
+        )
+    }
+
+    private static func insets(atZoom zoom: CGFloat) -> (near: CGFloat, far: CGFloat) {
+        EdgeFollow.insets(
+            contentExtent: video.height * zoom,
+            viewportExtent: viewport.height,
+            alignment: alignment
+        )
+    }
+
+    @Test func atRestTheSlackIsSharedEvenly() {
+        let vertical = Self.insets(atZoom: 1)
+        #expect(Self.resting > 0)
+        #expect(vertical.near == Self.resting)
+        #expect(abs(vertical.near - vertical.far) < 0.0001)
+    }
+
+    /// The zoom at which the band below runs out and the one above starts closing.
+    ///
+    /// Derived rather than written down. A hand-picked 1.5 looked safely inside the first phase
+    /// and is not: this fixture hands over at 1.48, so the sample was testing phase two against
+    /// phase one's expectation.
+    private static var handoverZoom: CGFloat {
+        (viewport.height - resting) / video.height
+    }
+
+    @Test func zoomingClosesTheBandBelowAndLeavesTheOneAboveAlone() {
+        // The whole point of the change: through this phase the picture does not move, the gap
+        // under it just gets smaller. Both earlier arrangements failed here -- centring shrank
+        // the top band too, pinning had no top band to keep.
+        var previousFar = Self.insets(atZoom: 1).far
+        for fraction in [0.7, 0.8, 0.9, 0.98] as [CGFloat] {
+            let vertical = Self.insets(atZoom: Self.handoverZoom * fraction)
+            #expect(vertical.near == Self.resting)
+            #expect(vertical.far < previousFar)
+            previousFar = vertical.far
+        }
+        #expect(Self.handoverZoom * 0.7 > 1)
+    }
+
+    @Test func theBandAboveOnlyStartsClosingOnceTheOneBelowIsGone() {
+        // Past this zoom the picture is taller than the window minus its resting band, so the
+        // only slack left is above it.
+        let zoom = Self.handoverZoom
+        let atTheHandover = Self.insets(atZoom: zoom)
+        #expect(abs(atTheHandover.far) < 0.0001)
+        #expect(abs(atTheHandover.near - Self.resting) < 0.0001)
+
+        var previousNear = atTheHandover.near
+        for step in [1.05, 1.15, 1.3] as [CGFloat] {
+            let vertical = Self.insets(atZoom: zoom * step)
+            #expect(vertical.far == 0)
+            #expect(vertical.near < previousNear)
+            previousNear = vertical.near
+        }
+    }
+
+    @Test func aPictureTallerThanTheWindowHasNoBandsAtAll() {
+        let vertical = Self.insets(atZoom: 3)
+        #expect(vertical.near == 0)
+        #expect(vertical.far == 0)
+    }
+
+    @Test func aRestingBandOfZeroIsThePinnedBehaviourExactly() {
+        // The old `.leading` case, still reachable, so a caller that genuinely wants the content
+        // against the near edge does not need a second concept for it.
+        for zoom in [1.0, 1.5, 2.0] as [CGFloat] {
+            let pinned = EdgeFollow.insets(
+                contentExtent: Self.video.height * zoom,
+                viewportExtent: Self.viewport.height,
+                alignment: .fillFarFirst(restingNear: 0)
+            )
+            #expect(pinned.near == 0)
+        }
+    }
+
+    @Test func aWindowSmallerThanThePictureRestsWithNoBand() {
+        // Landscape, where the fitted picture is already taller than the window it sits in.
+        #expect(EdgeFollow.restingNearInset(unzoomedExtent: 800, viewportExtent: 500) == 0)
     }
 }

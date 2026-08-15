@@ -451,6 +451,14 @@ extension PairingViewController {
     func alignSinkContent() {
         guard let scroll = sinkScrollView else { return }
         scroll.layoutIfNeeded()
+        // `contentSize` is the picture after zoom; the vertical resting band is defined against
+        // its unzoomed height, so divide the zoom back out rather than reading a second view.
+        let unzoomedHeight = scroll.zoomScale > 0
+            ? scroll.contentSize.height / scroll.zoomScale
+            : scroll.contentSize.height
+        let vertically = EdgeFollow.verticalAlignment(
+            unzoomedExtent: unzoomedHeight, viewportExtent: scroll.bounds.height
+        )
         let horizontal = EdgeFollow.insets(
             contentExtent: scroll.contentSize.width,
             viewportExtent: scroll.bounds.width,
@@ -459,7 +467,7 @@ extension PairingViewController {
         let vertical = EdgeFollow.insets(
             contentExtent: scroll.contentSize.height,
             viewportExtent: scroll.bounds.height,
-            alignment: .leading
+            alignment: vertically
         )
         let inset = UIEdgeInsets(
             top: vertical.near,
@@ -484,7 +492,7 @@ extension PairingViewController {
         let rangeY = EdgeFollow.offsetRange(
             contentExtent: scroll.contentSize.height,
             viewportExtent: scroll.bounds.height,
-            alignment: .leading
+            alignment: vertically
         )
         let clamped = CGPoint(
             x: min(max(rangeX.min, scroll.contentOffset.x), rangeX.max),
