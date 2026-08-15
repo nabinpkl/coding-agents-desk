@@ -138,6 +138,35 @@ struct GestureTranslatorTests {
         #expect(natural?.dy == flipped.map { -$0.dy })
     }
 
+    // And on the axis-locked path, which is the one that shipped ignoring it. The strip passed
+    // dx straight through, so with the switch off a vertical drag followed the wheel model and
+    // a horizontal drag on the same strip stayed natural. Asserted as a relationship rather
+    // than a magnitude so the acceleration curve stays free to change.
+    @Test func theDirectionPreferenceAppliesToTheLockedHorizontalAxis() {
+        func firstScroll(natural: Bool) -> Float? {
+            let recorder = InputRecorder()
+            let translator = GestureTranslator()
+            translator.delegate = recorder
+            translator.tuning = GestureTuning(
+                cursorSpeed: 1, cursorAcceleration: 1, scrollSpeed: 1, naturalScrolling: natural
+            )
+            translator.processScrollPan(state: .began, translation: .zero)
+            translator.processScrollPan(
+                state: .changed,
+                translation: CGPoint(x: 13, y: 3),
+                velocity: CGPoint(x: 240, y: 10)
+            )
+            guard case let .scroll(dx, _, _) = recorder.events.first else { return nil }
+            return dx
+        }
+
+        let natural = firstScroll(natural: true)
+        let flipped = firstScroll(natural: false)
+        #expect(natural != nil)
+        #expect(natural != 0)
+        #expect(natural == flipped.map { -$0 })
+    }
+
     @Test func scrollStripLocksVerticalAndEmitsDyDeltasOnly() {
         let recorder = InputRecorder()
         let translator = GestureTranslator()
@@ -171,9 +200,13 @@ struct GestureTranslatorTests {
         translator.processScrollPan(state: .changed, translation: CGPoint(x: 31, y: 8), velocity: CGPoint(x: 260, y: 20))
         translator.processScrollPan(state: .ended, translation: CGPoint(x: 31, y: 8))
 
+        // dx comes back NEGATED for the same reason dy does above: natural scrolling is off by
+        // default and the preference covers both axes. The locked path used to pass dx straight
+        // through, so a user with the switch off got wheel-model vertical and natural horizontal
+        // from one gesture.
         #expect(recorder.events.count == 3)
-        #expect(recorder.events[0] == .scroll(dx: 13, dy: 0, phase: .began))
-        #expect(recorder.events[1] == .scroll(dx: 18, dy: 0, phase: .changed))
+        #expect(recorder.events[0] == .scroll(dx: -13, dy: 0, phase: .began))
+        #expect(recorder.events[1] == .scroll(dx: -18, dy: 0, phase: .changed))
         #expect(recorder.events[2] == .scroll(dx: 0, dy: 0, phase: .ended))
     }
 
@@ -186,7 +219,7 @@ struct GestureTranslatorTests {
         translator.processScrollPan(state: .changed, translation: CGPoint(x: 10, y: 10), velocity: CGPoint(x: 200, y: 200))
         translator.processScrollPan(state: .changed, translation: CGPoint(x: 20, y: 12), velocity: CGPoint(x: 240, y: 80))
 
-        #expect(recorder.events == [.scroll(dx: 20, dy: 0, phase: .began)])
+        #expect(recorder.events == [.scroll(dx: -20, dy: 0, phase: .began)])
     }
 
     @Test func scrollEndedWithoutAnyChangedEmitsNothing() {
@@ -353,13 +386,22 @@ struct GestureTranslatorTests {
         translator.processScrollPan(state: .ended, translation: CGPoint(x: 18, y: 2), velocity: CGPoint(x: 500, y: 40))
         translator.processScrollMomentumTick(now: CACurrentMediaTime() + 0.05)
 
+        guard case let .scroll(dragDx, _, _) = recorder.events.first else {
+            Issue.record("expected a drag scroll")
+            return
+        }
         guard case let .scroll(dx, dy, phase) = recorder.events.last else {
             Issue.record("expected momentum scroll")
             return
         }
         #expect(phase == .momentumBegan)
-        #expect(dx > 0)
         #expect(dy == 0)
+        // The tail carries the drag's direction rather than a fixed sign. It used to be pinned
+        // positive, which only held because the locked horizontal path ignored the direction
+        // preference; now that it honours it, a fixed sign would coast back against the flick
+        // that threw it whenever natural scrolling is off -- which is the default.
+        #expect(dx != 0)
+        #expect((dx < 0) == (dragDx < 0))
     }
 
     @Test func scrollTapWithoutMotionEmitsNothing() {
