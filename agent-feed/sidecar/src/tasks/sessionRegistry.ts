@@ -12,7 +12,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "../config.ts";
 import type { CommandRunner } from "./processProbe.ts";
-import { runCommand } from "./processProbe.ts";
+import { PS_BINARY, runCommand } from "./processProbe.ts";
 
 export interface ClaudeSessionProcess {
   pid: number;
@@ -41,12 +41,20 @@ interface CTimeParts {
  *
  * Whitespace-tolerant because `ps` pads single-digit days to a fixed width, so a first-of-month
  * process reads `Mon Aug  3 16:42:02 2026` with two spaces.
+ *
+ * The month is found by NAME rather than by position, because position is not stable: `ps` formats
+ * `lstart` per locale, and under `en_CA` it emits `Fri 14 Aug 13:10:48 2026` with the day first.
+ * The probe now forces `LC_ALL=C` so this should always see the American order, but a parser that
+ * cannot be broken by word order is three lines, and the failure it prevents is silent -- every
+ * session read as a pid mismatch, and a panel that reports no background work at all.
  */
 function parseCTime(text: string): CTimeParts | null {
   const parts = text.trim().split(/\s+/);
   if (parts.length !== 5) return null;
-  const [, monthName, dayText, clock, yearText] = parts;
-  const month = MONTHS[monthName ?? ""];
+  const [, second, third, clock, yearText] = parts;
+  const monthFirst = MONTHS[second ?? ""] !== undefined;
+  const month = monthFirst ? MONTHS[second ?? ""] : MONTHS[third ?? ""];
+  const dayText = monthFirst ? third : second;
   const time = /^(\d{1,2}):(\d{2}):(\d{2})$/.exec(clock ?? "");
   if (month === undefined || !time) return null;
   const day = Number(dayText);
@@ -132,10 +140,22 @@ export async function liveSessionProcesses(
     }
     const registryStart = parseRegistryProcStart(procStart);
     if (registryStart === null) continue;
-    const lstart = (await run(["ps", "-p", String(pid), "-o", "lstart="])).trim();
+    const lstart = (await run([PS_BINARY, "-p", String(pid), "-o", "lstart="])).trim();
+    // Empty means the process is gone, which is the ordinary state of half this directory.
     if (!lstart) continue;
     const kernelStart = parseProcessLstart(lstart);
-    if (kernelStart === null || !startTimesAgree(registryStart, kernelStart)) continue;
+    if (kernelStart === null) {
+      // The process EXISTS and we could not read when it started. That is a format we do not
+      // understand, not a dead pid, and it silently rejects every session -- so it is said out
+      // loud rather than counted as "nothing is running".
+      console.error(JSON.stringify({
+        event: "agent-feed-session-start-unparsed",
+        pid,
+        lstart: lstart.slice(0, 64),
+      }));
+      continue;
+    }
+    if (!startTimesAgree(registryStart, kernelStart)) continue;
     live.push({
       pid,
       sessionId,

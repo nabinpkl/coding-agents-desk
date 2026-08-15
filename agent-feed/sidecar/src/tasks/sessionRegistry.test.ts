@@ -35,6 +35,18 @@ describe("proc start parsing", () => {
     );
   });
 
+  test("a day-before-month locale still parses", () => {
+    // The Mac host inherits LANG=en_CA.UTF-8, under which `ps -o lstart=` prints
+    // `Fri 14 Aug 13:10:48 2026`. Reading position 2 as the month yielded null for every process,
+    // so every session looked like a pid mismatch and the panel reported no background work.
+    expect(parseProcessLstart("Fri 14 Aug 13:10:48 2026")).toBe(
+      new Date(2026, 7, 14, 13, 10, 48).getTime(),
+    );
+    expect(parseProcessLstart("Fri Aug 14 13:10:48 2026")).toBe(
+      parseProcessLstart("Fri 14 Aug 13:10:48 2026"),
+    );
+  });
+
   test("a single-digit day padded by ps still parses", () => {
     // `Mon Aug  3 16:42:02 2026` -- two spaces, seen on a real record.
     expect(parseProcessLstart("Mon Aug  3 16:42:02 2026")).toBe(

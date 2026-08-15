@@ -73,8 +73,8 @@ describe("taskShellsOf", () => {
   test("finds the running task among a session's other children", () => {
     // A real session's children are mostly MCP servers and a language server.
     const run = fakeRunner({
-      "pgrep -P 61308": "61794\n61796\n63854\n",
-      "lsof -p 61794,61796,63854 -a -d 0-3 -F pfn":
+      "/usr/bin/pgrep -P 61308": "61794\n61796\n63854\n",
+      "/usr/sbin/lsof -p 61794,61796,63854 -a -d 0-3 -F pfn":
         `p61794\nf1\nn/dev/null\np63854\nf1\nn${CAPTURE}\nf2\nn${CAPTURE}\n`,
     });
     return taskShellsOf(run, 61308).then((shells) => {
@@ -86,7 +86,7 @@ describe("taskShellsOf", () => {
     let calls = 0;
     const run: CommandRunner = async (argv) => {
       calls += 1;
-      expect(argv[0]).toBe("pgrep");
+      expect(argv[0]).toBe("/usr/bin/pgrep");
       return "";
     };
     expect(await taskShellsOf(run, 999)).toEqual([]);
@@ -101,9 +101,9 @@ describe("outputTargetsOf", () => {
     // The whole point: the capture is 0 bytes because the command redirected, and the work is
     // going to a log file a descendant holds open.
     const run = fakeRunner({
-      "pgrep -P 63854": "63891\n",
-      "pgrep -P 63891": "",
-      "lsof -p 63891 -a -d 1 -F pfn": `p63891\nf1\nn${REAL_LOG}\n`,
+      "/usr/bin/pgrep -P 63854": "63891\n",
+      "/usr/bin/pgrep -P 63891": "",
+      "/usr/sbin/lsof -p 63891 -a -d 1 -F pfn": `p63891\nf1\nn${REAL_LOG}\n`,
     });
     expect(await outputTargetsOf(run, shell)).toEqual([REAL_LOG]);
   });
@@ -111,25 +111,25 @@ describe("outputTargetsOf", () => {
   test("a target held by both a subshell and its child is reported once", async () => {
     // Observed in the live smoke, where it rendered the same log twice.
     const run = fakeRunner({
-      "pgrep -P 63854": "63891\n",
-      "pgrep -P 63891": "63892\n",
-      "pgrep -P 63892": "",
-      "lsof -p 63891,63892 -a -d 1 -F pfn": `p63891\nf1\nn${REAL_LOG}\np63892\nf1\nn${REAL_LOG}\n`,
+      "/usr/bin/pgrep -P 63854": "63891\n",
+      "/usr/bin/pgrep -P 63891": "63892\n",
+      "/usr/bin/pgrep -P 63892": "",
+      "/usr/sbin/lsof -p 63891,63892 -a -d 1 -F pfn": `p63891\nf1\nn${REAL_LOG}\np63892\nf1\nn${REAL_LOG}\n`,
     });
     expect(await outputTargetsOf(run, shell)).toEqual([REAL_LOG]);
   });
 
   test("the capture itself is not reported as a redirect target", async () => {
     const run = fakeRunner({
-      "pgrep -P 63854": "63891\n",
-      "pgrep -P 63891": "",
-      "lsof -p 63891 -a -d 1 -F pfn": `p63891\nf1\nn${CAPTURE}\n`,
+      "/usr/bin/pgrep -P 63854": "63891\n",
+      "/usr/bin/pgrep -P 63891": "",
+      "/usr/sbin/lsof -p 63891 -a -d 1 -F pfn": `p63891\nf1\nn${CAPTURE}\n`,
     });
     expect(await outputTargetsOf(run, shell)).toEqual([]);
   });
 
   test("a task that streams normally has no separate target", async () => {
-    const run = fakeRunner({ "pgrep -P 63854": "" });
+    const run = fakeRunner({ "/usr/bin/pgrep -P 63854": "" });
     expect(await outputTargetsOf(run, shell)).toEqual([]);
   });
 });
