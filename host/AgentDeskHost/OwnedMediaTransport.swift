@@ -1080,16 +1080,59 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         case job(EncodeJob)
     }
 
+    /// Read control datagrams for as long as the session lives, surviving transient errors.
+    ///
+    /// This loop used to `return` on any throw, and that one line is what made a six-second LTE
+    /// stall unrecoverable: `POSIXErrorCode(22)` ended it on four consecutive teardowns, after
+    /// which no keyframe request, frame ack or liveness probe could reach the host on that
+    /// connection again. Cancellation stays terminal -- `stop()` cancels this task, so it is the
+    /// signal that the session really is over -- but a network error is not, and treating the two
+    /// alike cost the session every time.
     private func startControlReceiveLoop() {
         controlTask = Task { [weak self] in
             guard let self else { return }
+            var retry = DatagramReceiveRetry()
+            let budgetMs = Double(Config.ownedMediaReceiveRetryBudgetMs)
             while !Task.isCancelled {
                 do {
                     let message = try await datagrams.receive()
+                    if let recovered = retry.noteSuccess(nowNs: DispatchTime.now().uptimeNanoseconds) {
+                        logger.notice(
+                            """
+                            media control datagram receive recovered \
+                            failures=\(recovered.failures, privacy: .public) \
+                            outageMs=\(Int(recovered.outageMs), privacy: .public)
+                            """
+                        )
+                    }
                     handleControlDatagram(message.content)
                 } catch {
-                    logger.notice("media control datagram receive ended: \(String(describing: error), privacy: .public)")
-                    return
+                    if Task.isCancelled || error is CancellationError { return }
+                    // Edge-triggered: one line when the run opens, one when it closes. Logging
+                    // every retry would emit twenty lines a second into the log written to
+                    // diagnose the freeze.
+                    let isFirst = !retry.isFailing
+                    let outcome = retry.noteFailure(
+                        nowNs: DispatchTime.now().uptimeNanoseconds,
+                        budgetMs: budgetMs
+                    )
+                    if isFirst {
+                        logger.notice("media control datagram receive failing: \(String(describing: error), privacy: .public)")
+                    }
+                    switch outcome {
+                    case .retry(let backoffMs):
+                        try? await Task.sleep(nanoseconds: UInt64(backoffMs * 1_000_000))
+                    case .giveUp(let failures, let elapsedMs):
+                        logger.error(
+                            """
+                            media control datagram receive ended \
+                            failures=\(failures, privacy: .public) \
+                            elapsedMs=\(Int(elapsedMs), privacy: .public) \
+                            last=\(String(describing: error), privacy: .public)
+                            """
+                        )
+                        return
+                    }
                 }
             }
         }

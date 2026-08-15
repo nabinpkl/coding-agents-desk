@@ -216,6 +216,14 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_REQUEST_MIN_GAP_MS",
         defaultValue: 300
     )
+    // How long the datagram receive loop keeps retrying a throwing `receive()` before giving up.
+    // Mirrors the host key of the same name; see `DatagramReceiveRetry` for why ending the loop
+    // on the first error was wrong. Sized against the same two numbers: a ~6s measured LTE stall
+    // and this client's own 6.5s silence verdict, both of which it must outlast.
+    static let ownedMediaReceiveRetryBudgetMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_RECEIVE_RETRY_BUDGET_MS",
+        defaultValue: 30_000
+    )
     // ADR-0025 motion carrier switch (mirrors the host). ON by default now that the
     // video path is device-validated: the client accepts the HEVC datagram stream and
     // renders the video layer. Set the env var to 0/false to render only the retained

@@ -483,6 +483,19 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_LINK_HEALTH_TICK_MS",
         defaultValue: 1_000
     )
+    // How long a datagram receive loop keeps retrying a throwing `receive()` before it gives up.
+    //
+    // Both loops used to end on the first error, which made every transient fault permanent.
+    // 30s is chosen against the two numbers that bound the problem: the longest measured LTE
+    // stall was ~6s, and the client declares the host silent at 6.5s and re-dials. Anything past
+    // that is already being handled by someone else, so the budget only has to be comfortably
+    // longer than both -- long enough that this loop is never the reason a recoverable session
+    // dies, short enough that a genuinely dead connection is still reported rather than retried
+    // forever.
+    static let ownedMediaReceiveRetryBudgetMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_RECEIVE_RETRY_BUDGET_MS",
+        defaultValue: 30_000
+    )
     // ADR-0030: video datagrams ride the authenticated session QUIC connection.
     //
     // ADR-0098: how many bytes may leave back-to-back before `LinkSendPacer` starts pacing to

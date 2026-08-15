@@ -619,9 +619,18 @@ private struct Channels {
         sendVideoControl(OwnedMediaControlMessage(kind: .graphicsResetRequest, frameId: resetRequest.lastCommittedFrameId))
     }
 
+    /// Read video datagrams for as long as the session lives, surviving transient errors.
+    ///
+    /// Same defect and same fix as the host's control loop: ending on the first throw made every
+    /// transient fault permanent. It matters more here, because this loop stopping is not merely
+    /// deafness -- arrivals are what clear the liveness run, so a dead receive loop manufactures
+    /// exactly the silence that `evaluateLivenessProbe` reads as a dead host, and the client
+    /// tears down a session over its own stopped task.
     private func startDatagramReceiveLoop() {
         datagramReceiveTask = Task { [weak self] in
             guard let self else { return }
+            var retry = DatagramReceiveRetry()
+            let budgetMs = Double(Config.ownedMediaReceiveRetryBudgetMs)
             while !Task.isCancelled {
                 // ADR-0088: bumped BEFORE the await, so an iteration that blocks forever in
                 // receive() still counts. Counting after would make a wedged receive
@@ -630,13 +639,65 @@ private struct Channels {
                 lock.withLock { $0.arrivals.noteLoopIteration() }
                 do {
                     let message = try await datagrams.receive()
-                    lock.withLock {
-                        $0.arrivals.noteArrival(atNs: DispatchTime.now().uptimeNanoseconds)
+                    let nowNs = DispatchTime.now().uptimeNanoseconds
+                    lock.withLock { $0.arrivals.noteArrival(atNs: nowNs) }
+                    if let recovered = retry.noteSuccess(nowNs: nowNs) {
+                        logger.notice(
+                            """
+                            video datagram receive recovered \
+                            failures=\(recovered.failures, privacy: .public) \
+                            outageMs=\(Int(recovered.outageMs), privacy: .public)
+                            """
+                        )
+                        ClientDiagnostics.shared.record(
+                            type: "mediaReceiveRecovered",
+                            fields: [
+                                "failures": String(recovered.failures),
+                                "outageMs": String(Int(recovered.outageMs))
+                            ]
+                        )
                     }
                     handleVideoDatagram(message.content)
                 } catch {
-                    logger.notice("video datagram receive ended: \(String(describing: error), privacy: .public)")
-                    return
+                    if Task.isCancelled || error is CancellationError { return }
+                    // Edge-triggered, like the control-send health around it: one line when the
+                    // run opens, one when it closes.
+                    let isFirst = !retry.isFailing
+                    let outcome = retry.noteFailure(
+                        nowNs: DispatchTime.now().uptimeNanoseconds,
+                        budgetMs: budgetMs
+                    )
+                    if isFirst {
+                        logger.notice("video datagram receive failing: \(String(describing: error), privacy: .public)")
+                        ClientDiagnostics.shared.record(
+                            type: "mediaReceiveFailing",
+                            fields: ["reason": String(describing: error)],
+                            level: .error
+                        )
+                    }
+                    switch outcome {
+                    case .retry(let backoffMs):
+                        try? await Task.sleep(nanoseconds: UInt64(backoffMs * 1_000_000))
+                    case .giveUp(let failures, let elapsedMs):
+                        logger.error(
+                            """
+                            video datagram receive ended \
+                            failures=\(failures, privacy: .public) \
+                            elapsedMs=\(Int(elapsedMs), privacy: .public) \
+                            last=\(String(describing: error), privacy: .public)
+                            """
+                        )
+                        ClientDiagnostics.shared.record(
+                            type: "mediaReceiveEnded",
+                            fields: [
+                                "failures": String(failures),
+                                "elapsedMs": String(Int(elapsedMs)),
+                                "reason": String(describing: error)
+                            ],
+                            level: .error
+                        )
+                        return
+                    }
                 }
             }
         }
