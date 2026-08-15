@@ -221,6 +221,13 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS",
         defaultValue: 30
     )
+    // Smoothing for the live delta-frame wire-cost EWMA (QuicSessionHostMediaState). 0.1 makes
+    // the last ~10 delta frames dominate: enough history to ride out one outlier frame, recent
+    // enough to track a content change (idle text vs. video playback) within seconds.
+    static let ownedMediaFrameBytesEwmaAlpha = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_FRAME_BYTES_EWMA_ALPHA",
+        defaultValue: 0.1
+    )
     // ADR-0033 fixed capacity rungs. Once bitrate has been spent to the normal floor
     // and the link still shows loss/expiry, the controller changes resolution, fps,
     // and bitrate together instead of bolting resolution onto a separate loop.

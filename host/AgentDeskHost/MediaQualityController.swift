@@ -203,10 +203,19 @@ struct MediaQualityControllerInput: Equatable {
     /// produces nothing, and during the measured freeze this side read perfectly healthy --
     /// `actualFps=6 targetFps=6 fpsDeficit=0` -- while nothing at all was arriving.
     let production: MediaProductionSummary?
+    /// The smoothed wire cost of a delta frame of this content (`deltaFrameBytesEwma`), the
+    /// number a bitrate needs before it can be turned into a cadence. nil before the first
+    /// delta of a connection.
+    let deltaFrameBytesEwma: Double?
 
-    init(delivery: MediaDeliveryObservation, production: MediaProductionSummary? = nil) {
+    init(
+        delivery: MediaDeliveryObservation,
+        production: MediaProductionSummary? = nil,
+        deltaFrameBytesEwma: Double? = nil
+    ) {
         self.delivery = delivery
         self.production = production
+        self.deltaFrameBytesEwma = deltaFrameBytesEwma
     }
 }
 
@@ -1381,6 +1390,13 @@ struct QuicSessionHostMediaState {
     // encoder's average and the pacer's refill were all numbers the host asked for; this is the
     // only one it was told.
     private(set) var deliveryEstimator: LinkDeliveryEstimator
+    // What a delta frame of THIS content actually costs on the wire, smoothed. The floor work
+    // (cb74f8bf) sized cadence from an offline measurement of this number (p50 4.8KB, mean
+    // 7.7KB); tracking it live is what lets a cadence be derived instead of configured. Delta
+    // frames only: keyframes are session-start events (ADR-0100) and two orders of magnitude
+    // off the cost this describes. nil until the first delta is sent.
+    private(set) var deltaFrameBytesEwma: Double?
+    private let frameBytesEwmaAlpha: Double
 
     init(
         maxInflightFrames: Int = Config.ownedMediaBackpressureMaxInflightFrames,
@@ -1392,8 +1408,10 @@ struct QuicSessionHostMediaState {
         stallRecoveryMinIntervalMs: Int = Config.ownedMediaStallRecoveryMinIntervalMs,
         roundTripMinimumWindowMs: Int = Config.ownedMediaRoundTripMinimumWindowMs,
         deliverySliceMs: Int = Config.ownedMediaDeliverySliceMs,
-        deliveryWindowMs: Int = Config.ownedMediaDeliveryWindowMs
+        deliveryWindowMs: Int = Config.ownedMediaDeliveryWindowMs,
+        frameBytesEwmaAlpha: Double = Config.ownedMediaFrameBytesEwmaAlpha
     ) {
+        self.frameBytesEwmaAlpha = min(max(frameBytesEwmaAlpha, 0.01), 1.0)
         self.stallRecoveryMinIntervalNs = UInt64(max(0, stallRecoveryMinIntervalMs)) * 1_000_000
         self.roundTrip = AckRoundTripTracker(minimumWindowMs: roundTripMinimumWindowMs)
         self.deliveryEstimator = LinkDeliveryEstimator(
@@ -1527,6 +1545,10 @@ struct QuicSessionHostMediaState {
         lastSentUptimeNs = sentAtUptimeNs
         if isKeyframe {
             keyframeInFlight = frameId
+        } else if let current = deltaFrameBytesEwma {
+            deltaFrameBytesEwma = current + frameBytesEwmaAlpha * (Double(encodedBytes) - current)
+        } else {
+            deltaFrameBytesEwma = Double(encodedBytes)
         }
         resendRing.remember(frameId: frameId, packets: packets)
     }
@@ -1651,7 +1673,8 @@ struct QuicSessionHostMediaState {
                 roundTripInflationRatio: roundTrip.inflationRatio,
                 roundTripSmoothedMs: roundTrip.smoothedMs
             ),
-            production: productionSummary
+            production: productionSummary,
+            deltaFrameBytesEwma: deltaFrameBytesEwma
         )
 
         if !adaptiveQualityEnabled {

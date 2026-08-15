@@ -779,6 +779,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 kbps: state.mediaState.targetKbps,
                 fps: state.mediaState.targetFps,
                 scale: state.mediaState.targetResolutionScale,
+                frameBytesEwma: state.mediaState.deltaFrameBytesEwma,
                 productionSummary: summary
             )
         }
@@ -812,7 +813,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 return count
             }
             logger.notice(
-                "owned media production summary actualFps=\(summary.actualFps, privacy: .public) targetFps=\(summary.targetFps, privacy: .public) fpsDeficit=\(summary.fpsDeficit, privacy: .public) frames=\(summary.frames, privacy: .public) keyframes=\(summary.keyframes, privacy: .public) sentKbps=\(summary.sentKbps, privacy: .public) targetKbps=\(summary.targetKbps, privacy: .public) maxGapMs=\(summary.maxGapMs, privacy: .public) capacityDeferrals=\(deferrals, privacy: .public) resolutionScale=\(summary.resolutionScale, privacy: .public) windowMs=\(summary.windowMs, privacy: .public)"
+                "owned media production summary actualFps=\(summary.actualFps, privacy: .public) targetFps=\(summary.targetFps, privacy: .public) fpsDeficit=\(summary.fpsDeficit, privacy: .public) frames=\(summary.frames, privacy: .public) keyframes=\(summary.keyframes, privacy: .public) sentKbps=\(summary.sentKbps, privacy: .public) targetKbps=\(summary.targetKbps, privacy: .public) maxGapMs=\(summary.maxGapMs, privacy: .public) capacityDeferrals=\(deferrals, privacy: .public) resolutionScale=\(summary.resolutionScale, privacy: .public) windowMs=\(summary.windowMs, privacy: .public) frameBytesEwma=\(liveTargets.frameBytesEwma.map { Int($0.rounded()) } ?? -1, privacy: .public)"
             )
         }
     }
