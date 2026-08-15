@@ -734,6 +734,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             packets = try MediaDatagramFramePacket.packetize(
                 frameId: envelope.header.frameId,
                 isKeyframe: envelope.header.isKeyframe,
+                isLtrResync: envelope.header.ltrResync == true,
                 sentAtUptimeNs: DispatchTime.now().uptimeNanoseconds,
                 payload: payload,
                 key: mediaKey
@@ -780,6 +781,13 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 scale: state.mediaState.targetResolutionScale,
                 productionSummary: summary
             )
+        }
+        if envelope.header.ltrResync == true {
+            // Rare by construction -- one per answered resync request -- and the host half of
+            // the new contract: the client should log accepting this same frame, so a resync
+            // that leaves here and never resolves the client's gate is visible as a pair with
+            // a missing half.
+            logger.notice("owned media resync delta sent frame=\(envelope.header.frameId, privacy: .public) bytes=\(payload.count, privacy: .public) packets=\(packets.count, privacy: .public)")
         }
         if envelope.header.isKeyframe || envelope.header.frameId.isMultiple(of: 30) {
             // `frame` here is the WIRE id (the surface update counter), which restarts whenever
@@ -1150,8 +1158,13 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             // away: there is no way to un-acknowledge a reference, so unless the client says so
             // the encoder would keep answering with a delta the client cannot decode, and the
             // client would keep asking.
+            // The reason is client-authored attribution, logged verbatim: 857 requests reached
+            // this switch in one measured session while the client's own diagnostics recorded
+            // 3, so the host log is the only surface that sees every request and it has to say
+            // who asked.
+            let requestReason = message.reason ?? "unspecified"
             if message.clientHasNoReferences == true {
-                logger.notice("owned media client keyframe request declares no references")
+                logger.notice("owned media client keyframe request declares no references reason=\(requestReason, privacy: .public)")
                 encoder.noteClientHasNoReferences()
             }
             let admission = encodeGate.withLock { state in
@@ -1159,9 +1172,9 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             }
             switch admission {
             case .queued:
-                logger.notice("owned media client keyframe request queued")
+                logger.notice("owned media client keyframe request queued reason=\(requestReason, privacy: .public)")
             case .suppressedInFlight(let frameId):
-                logger.notice("owned media client keyframe request suppressed inFlightKeyframe=\(frameId, privacy: .public)")
+                logger.notice("owned media client keyframe request suppressed inFlightKeyframe=\(frameId, privacy: .public) reason=\(requestReason, privacy: .public)")
             }
             startDrainIfNeeded()
         case .packetResendRequest:

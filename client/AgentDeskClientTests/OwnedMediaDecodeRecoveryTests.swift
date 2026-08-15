@@ -16,13 +16,15 @@ import Foundation
 struct OwnedMediaDecodeRecoveryTests {
     private final class Requests: @unchecked Sendable {
         var hasReferences: [Bool] = []
+        var reasons: [String] = []
     }
 
     private static func sinkAndRequests() -> (OwnedMediaVideoSink, Requests) {
         let sink = OwnedMediaVideoSink()
         let requests = Requests()
-        sink.setVideoKeyframeRequestHandler { hasReferences in
+        sink.setVideoKeyframeRequestHandler { hasReferences, reason in
             requests.hasReferences.append(hasReferences)
+            requests.reasons.append(reason)
         }
         return (sink, requests)
     }

@@ -313,6 +313,27 @@ released fails cleanly and pulls a keyframe: the worst case is today's behaviour
 trip, not corruption and not a hang. That is cheap enough to let the real system answer the
 question the synthetic harness was going to approximate.
 
+### Amendment (2026-08-15): the refresh answer is a first-class resync, and it says so
+
+This ADR made an LTR delta a valid resync but left one consumer running the pre-ADR contract:
+the client's gap-recovery gate (`MediaFrameRecoveryGate`) still discarded every non-keyframe
+while resyncing after a gap skip. Its request set no `clientHasNoReferences` -- correctly, the
+references were intact -- so the host answered with the cheap `ForceLTRRefresh` delta this ADR
+prefers, and the gate discarded it as "not a keyframe". Measured on LTE: 763 refreshes answered
+and discarded in one session, requests every 300 ms for 14 minutes, picture frozen throughout,
+every health metric green. Neither side was violating its own contract; the wire simply had no
+way to say "this delta IS the resync you asked for".
+
+Now it does. The `ForceLTRRefresh` answer that comes back as a delta is marked `ltrResync` on
+the envelope header and as a flag bit on the ADMD packet -- on the packet because the gate
+decides before reassembled frames are envelope-decoded, so an envelope-only mark can never
+reach it. The gate accepts a marked delta exactly as it accepts a keyframe. The backstop for
+references that are genuinely unusable is escalation: after a configured number of discarded
+frames the gate's next request declares `clientHasNoReferences`, converting an unbounded
+discard loop into one bounded IDR. Every client keyframe request now also carries a `reason`
+the host logs verbatim, because those 857 unattributed requests were findable only by counting
+both ends by hand.
+
 ## Links
 
 - ADR-0089 survive a network handover instead of waiting for the transport

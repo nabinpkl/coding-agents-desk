@@ -24,7 +24,7 @@ final class MediaDatagramCarrierTests: XCTestCase {
     func testPacketizeThenDecodeRoundTripsASmallFrame() throws {
         let payload = Data((0..<300).map { UInt8($0 % 256) })
         let packets = try MediaDatagramFramePacket.packetize(
-            frameId: 42, isKeyframe: true, sentAtUptimeNs: 1_000, payload: payload, key: key
+            frameId: 42, isKeyframe: true, isLtrResync: false, sentAtUptimeNs: 1_000, payload: payload, key: key
         )
         XCTAssertEqual(packets.count, 1, "300 bytes fits one packet")
         let packet = try MediaDatagramFramePacket.decode(packets[0], key: key)
@@ -38,7 +38,7 @@ final class MediaDatagramCarrierTests: XCTestCase {
     func testLargeFrameFragmentsAndReassembles() throws {
         let payload = Data((0..<(MediaDatagramFramePacket.maxPayloadBytes * 3 + 17)).map { UInt8($0 % 251) })
         let packets = try MediaDatagramFramePacket.packetize(
-            frameId: 7, isKeyframe: false, sentAtUptimeNs: 99, payload: payload, key: key
+            frameId: 7, isKeyframe: false, isLtrResync: false, sentAtUptimeNs: 99, payload: payload, key: key
         )
         XCTAssertEqual(packets.count, 4, "three full packets plus a remainder")
         XCTAssertEqual(try reassemble(packets), payload)
@@ -51,7 +51,7 @@ final class MediaDatagramCarrierTests: XCTestCase {
 
     func testWrongKeyFailsAuthentication() throws {
         let packets = try MediaDatagramFramePacket.packetize(
-            frameId: 1, isKeyframe: true, sentAtUptimeNs: 0, payload: Data([9, 9, 9]), key: key
+            frameId: 1, isKeyframe: true, isLtrResync: false, sentAtUptimeNs: 0, payload: Data([9, 9, 9]), key: key
         )
         let otherKey = SymmetricKey(data: Data(repeating: 0xAB, count: 32))
         XCTAssertThrowsError(try MediaDatagramFramePacket.decode(packets[0], key: otherKey)) { error in
@@ -61,7 +61,7 @@ final class MediaDatagramCarrierTests: XCTestCase {
 
     func testTruncatedPacketIsMalformed() throws {
         let packets = try MediaDatagramFramePacket.packetize(
-            frameId: 1, isKeyframe: true, sentAtUptimeNs: 0, payload: Data([1, 2, 3]), key: key
+            frameId: 1, isKeyframe: true, isLtrResync: false, sentAtUptimeNs: 0, payload: Data([1, 2, 3]), key: key
         )
         let truncated = packets[0].prefix(10)
         XCTAssertThrowsError(try MediaDatagramFramePacket.decode(truncated, key: key)) { error in

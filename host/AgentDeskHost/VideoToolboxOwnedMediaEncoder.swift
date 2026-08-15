@@ -692,6 +692,10 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             let outcome = isKeyframe ? "idr-fallback" : "ltr-delta"
             logger.notice("owned encoder ltr-refresh-result encFrame=\(encodedFrameId, privacy: .public) outcome=\(outcome, privacy: .public) bytes=\(payload.count, privacy: .public)")
         }
+        // The `ltr-delta` outcome above, but on the wire instead of only in the log: the
+        // client's gap-recovery gate discards ordinary deltas while resyncing, and this mark is
+        // the only way it can tell that THIS delta is the resync it asked for.
+        let ltrResync = pending.requestedLtrRefresh && !isKeyframe
         let header = OwnedMediaFrameHeader(
             surfaceGeneration: pending.updateId.surfaceGeneration,
             frameId: pending.updateId.frameId,
@@ -703,7 +707,8 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             isKeyframe: isKeyframe,
             parameterSets: parameterSets,
             refreshReason: refreshReason,
-            ltrToken: ltrToken
+            ltrToken: ltrToken,
+            ltrResync: ltrResync ? true : nil
         )
         if !loggedFirstEncodedFrame {
             loggedFirstEncodedFrame = true

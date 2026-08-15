@@ -253,11 +253,12 @@ private struct Channels {
                 // Through the shared path, not an inline copy of it: a keyframe request is the
                 // message most likely to be sent into a broken link and the one whose loss
                 // hurts most, so it must be covered by the send-failure reporting too.
-                mediaSink?.setVideoKeyframeRequestHandler { [weak self] hasReferences in
+                mediaSink?.setVideoKeyframeRequestHandler { [weak self] hasReferences, reason in
                     self?.sendVideoControl(
                         OwnedMediaControlMessage(
                             kind: .keyframeRequest,
                             frameId: 0,
+                            reason: reason,
                             clientHasNoReferences: hasReferences ? nil : true
                         )
                     )
@@ -853,27 +854,68 @@ private struct Channels {
             return
         }
         let nowNs = DispatchTime.now().uptimeNanoseconds
-        let handling = lock.withLock { state in
+        let handling = lock.withLock { state -> (
+            result: MediaDatagramRepairResult,
+            decisions: [MediaFrameRecoveryGate.CompletedFrameDecision],
+            resolvedArmedNs: UInt64?,
+            gateArmed: Bool,
+            discardedAtResolve: Int,
+            requestKeyframe: MediaFrameRecoveryGate.KeyframeRequest?
+        ) in
             let accepted = mediaRepairBuffer.accept(packet)
             state.completedFrames += accepted.completedFrames.count
             state.expiredFrames += accepted.skippedFrames.count
+            var gateArmed = false
             if !accepted.skippedFrames.isEmpty {
-                state.mediaRecovery.noteGapSkip()
+                gateArmed = state.mediaRecovery.noteGapSkip(nowNs: nowNs)
             }
-            let decisions = accepted.completedFrames.map { completed in
-                state.mediaRecovery.decideCompletedFrame(isKeyframe: completed.isKeyframe)
+            // Captured BEFORE the decisions clear it, so a resolve can report how many cheap
+            // answers were thrown away on the way to the one that landed.
+            let discardedAtResolve = state.mediaRecovery.discardedSinceArmed
+            var resolvedArmedNs: UInt64?
+            let decisions = accepted.completedFrames.map { completed -> MediaFrameRecoveryGate.CompletedFrameDecision in
+                let outcome = state.mediaRecovery.decideCompletedFrame(
+                    isKeyframe: completed.isKeyframe,
+                    isLtrResync: completed.isLtrResync,
+                    nowNs: nowNs
+                )
+                if let armedNs = outcome.armedNs { resolvedArmedNs = armedNs }
+                return outcome.decision
             }
             state.discardedRecoveryDeltas += decisions.filter { $0 == .discardRecoveryDelta }.count
             state.keyframeRecoveries += decisions.filter { $0 == .renderRecoveryKeyframe }.count
+            state.resyncRecoveries += decisions.filter { $0 == .renderRecoveryResync }.count
             state.maxPendingFrameDepth = max(state.maxPendingFrameDepth, accepted.pendingFrameCount)
             let requestKeyframe = state.mediaRecovery.takeKeyframeRequestIfNeeded(nowNs: nowNs)
-            return (result: accepted, decisions: decisions, requestKeyframe: requestKeyframe)
+            return (accepted, decisions, resolvedArmedNs, gateArmed, discardedAtResolve, requestKeyframe)
+        }
+        if handling.gateArmed, let skipped = handling.result.skippedFrames.last {
+            // The moment the freeze-risk window opens. Paired with mediaRecoveryResolved below;
+            // an armed record with no resolve is the frozen-session signature, and before these
+            // existed 857 recovery requests reached the host while the client recorded 3.
+            ClientDiagnostics.shared.record(
+                type: "mediaRecoveryArmed",
+                fields: ["skippedFrameId": String(skipped.frameId)],
+                level: .info
+            )
         }
         for (completed, decision) in zip(handling.result.completedFrames, handling.decisions) {
             sendVideoControl(OwnedMediaControlMessage(kind: .frameAck, frameId: completed.frameId))
             guard decision != .discardRecoveryDelta,
                   let envelope = try? OwnedMediaFrameEnvelope.decode(completed.data) else {
                 continue
+            }
+            if decision == .renderRecoveryKeyframe || decision == .renderRecoveryResync {
+                ClientDiagnostics.shared.record(
+                    type: "mediaRecoveryResolved",
+                    fields: [
+                        "kind": decision == .renderRecoveryResync ? "ltr-resync" : "keyframe",
+                        "frameId": String(completed.frameId),
+                        "discardedDeltas": String(handling.discardedAtResolve),
+                        "armedMs": String(Int(Double(handling.resolvedArmedNs ?? 0) / 1_000_000))
+                    ],
+                    level: .info
+                )
             }
             ClientRuntimeTelemetry.shared.advanceVideoMilestone(.frameCompleted)
             Task { @MainActor [weak self] in
@@ -912,13 +954,26 @@ private struct Channels {
                 level: .info
             )
         }
-        if handling.requestKeyframe {
+        if let request = handling.requestKeyframe {
             let recoveryFrameId = handling.result.skippedFrames.last?.frameId
                 ?? handling.result.completedFrames.last?.frameId
                 ?? packet.frameId
+            if request.declareNoReferences {
+                // The backstop firing means the design's cheap path did not resolve the gate:
+                // either the resync deltas are not arriving or they are arriving undecodable.
+                // Loud, because with resync acceptance in place this should be rare enough
+                // that every occurrence deserves a look.
+                ClientDiagnostics.shared.record(
+                    type: "mediaRecoveryEscalated",
+                    fields: ["frameId": String(recoveryFrameId)],
+                    level: .error
+                )
+            }
             sendVideoControl(OwnedMediaControlMessage(
                 kind: .keyframeRequest,
-                frameId: recoveryFrameId
+                frameId: recoveryFrameId,
+                reason: request.declareNoReferences ? "gap-recovery-escalated" : "gap-recovery",
+                clientHasNoReferences: request.declareNoReferences ? true : nil
             ))
         }
         if handling.decisions.contains(.renderRecoveryKeyframe) {
@@ -950,6 +1005,7 @@ private struct Channels {
             skipped: Int,
             discardedRecoveryDeltas: Int,
             keyframeRecoveries: Int,
+            resyncRecoveries: Int,
             maxPendingFrameDepth: Int,
             arrivals: Int,
             maxArrivalGapMs: Double,
@@ -963,6 +1019,7 @@ private struct Channels {
                 state.expiredFrames,
                 state.discardedRecoveryDeltas,
                 state.keyframeRecoveries,
+                state.resyncRecoveries,
                 state.maxPendingFrameDepth,
                 arrivals.arrivals,
                 arrivals.maxGapMs,
@@ -974,6 +1031,7 @@ private struct Channels {
             state.expiredFrames = 0
             state.discardedRecoveryDeltas = 0
             state.keyframeRecoveries = 0
+            state.resyncRecoveries = 0
             state.maxPendingFrameDepth = 0
             state.presentationSkips = 0
             state.presentationSkipBytes = 0
@@ -1048,6 +1106,7 @@ private struct Channels {
             || counts.skipped > 0
             || counts.discardedRecoveryDeltas > 0
             || counts.keyframeRecoveries > 0
+            || counts.resyncRecoveries > 0
             || counts.maxPendingFrameDepth > 0
             || counts.presentationSkips > 0
             || newPathChanges > 0
@@ -1063,6 +1122,7 @@ private struct Channels {
                 "gapSkips": String(counts.skipped),
                 "discardedRecoveryDeltas": String(counts.discardedRecoveryDeltas),
                 "keyframeRecoveries": String(counts.keyframeRecoveries),
+                "resyncRecoveries": String(counts.resyncRecoveries),
                 "maxPendingFrameDepth": String(counts.maxPendingFrameDepth),
                 "telemetry": telemetry.logDescription
             ],
@@ -1126,7 +1186,11 @@ private struct Channels {
 
         if outcome.probe {
             logger.notice("handover probe causes=\(causes ?? "unknown", privacy: .public)")
-            sendVideoControl(OwnedMediaControlMessage(kind: .keyframeRequest, frameId: 0))
+            sendVideoControl(OwnedMediaControlMessage(
+                kind: .keyframeRequest,
+                frameId: 0,
+                reason: "handover-probe"
+            ))
         }
         guard let silentMs = outcome.recover else { return }
         logger.notice(
@@ -1429,9 +1493,13 @@ private struct Channels {
         var expiredFrames = 0
         var discardedRecoveryDeltas = 0
         var keyframeRecoveries = 0
+        // The cheap half of the recovery split: gates resolved by a marked LTR-resync delta
+        // rather than a keyframe. Healthy sessions grow this and not keyframeRecoveries.
+        var resyncRecoveries = 0
         var maxPendingFrameDepth = 0
         var mediaRecovery = MediaFrameRecoveryGate(
-            keyframeRequestMinGapNs: UInt64(Config.ownedMediaKeyframeRequestMinGapMs) * 1_000_000
+            keyframeRequestMinGapNs: UInt64(Config.ownedMediaKeyframeRequestMinGapMs) * 1_000_000,
+            escalationDiscardLimit: Config.ownedMediaRecoveryEscalationDiscards
         )
         // ADR-0088: receive-loop liveness. Lives in the same lock as the frame counters so a
         // report is one consistent snapshot of the window rather than two racing ones.

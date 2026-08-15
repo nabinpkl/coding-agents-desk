@@ -216,6 +216,16 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_REQUEST_MIN_GAP_MS",
         defaultValue: 300
     )
+    // Gap-recovery escalation backstop. The gate normally resolves on the host's cheap answer
+    // (a marked LTR-resync delta); if that many completed frames have been discarded since the
+    // gate armed and none resolved it, the client's references are presumed unusable and the
+    // next request declares `clientHasNoReferences`, buying one bounded IDR instead of an
+    // unbounded discard loop. Measured before the resync mark existed: 763 cheap answers
+    // discarded in one session while the picture stayed frozen.
+    static let ownedMediaRecoveryEscalationDiscards = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_RECOVERY_ESCALATION_DISCARDS",
+        defaultValue: 6
+    )
     // How long the datagram receive loop keeps retrying a throwing `receive()` before giving up.
     // Mirrors the host key of the same name; see `DatagramReceiveRetry` for why ending the loop
     // on the first error was wrong. Sized against the same two numbers: a ~6s measured LTE stall

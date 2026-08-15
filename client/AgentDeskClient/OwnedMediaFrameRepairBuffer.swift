@@ -9,6 +9,7 @@ final class MediaDatagramFrameRepairBuffer {
         let frameId: UInt64
         let packetCount: UInt16
         let isKeyframe: Bool
+        let isLtrResync: Bool
         var packets: [UInt16: Data]
         var resendRequested: Bool
 
@@ -40,6 +41,7 @@ final class MediaDatagramFrameRepairBuffer {
                 frameId: frameId,
                 packetCount: packetCount,
                 isKeyframe: isKeyframe,
+                isLtrResync: isLtrResync,
                 data: frame,
                 wasRepaired: resendRequested
             )
@@ -65,7 +67,8 @@ final class MediaDatagramFrameRepairBuffer {
         newestFrameId = max(newestFrameId, packet.frameId)
         if var pending = frames[packet.frameId] {
             guard pending.packetCount == packet.packetCount,
-                  pending.isKeyframe == packet.isKeyframe else {
+                  pending.isKeyframe == packet.isKeyframe,
+                  pending.isLtrResync == packet.isLtrResync else {
                 return skip(frameId: packet.frameId)
             }
             pending.packets[packet.packetIndex] = packet.payload
@@ -75,6 +78,7 @@ final class MediaDatagramFrameRepairBuffer {
                 frameId: packet.frameId,
                 packetCount: packet.packetCount,
                 isKeyframe: packet.isKeyframe,
+                isLtrResync: packet.isLtrResync,
                 packets: [packet.packetIndex: packet.payload],
                 resendRequested: false
             )
@@ -181,6 +185,7 @@ struct MediaDatagramCompletedFrame: Equatable {
     let frameId: UInt64
     let packetCount: UInt16
     let isKeyframe: Bool
+    let isLtrResync: Bool
     let data: Data
     let wasRepaired: Bool
 }
@@ -208,41 +213,89 @@ struct IncompleteFrame: Equatable {
     let missingIndexes: [UInt16]
 }
 
+/// Decides what to do with completed frames after a gap skip broke the delta chain.
+///
+/// The original contract -- discard everything until a keyframe -- predates ADR-0090, which
+/// made an LTR-refresh delta a valid resync. The two contracts ran unreconciled until an LTE
+/// session measured the result: the gate requested "a keyframe" every 300ms, the host answered
+/// each request with the cheap LTR delta it is supposed to prefer, and the gate discarded all
+/// 763 of them while the picture stayed frozen. Neither side was violating its own rules.
+///
+/// So the gate now accepts either sync point: a keyframe, or a delta the host has marked as
+/// the `ForceLTRRefresh` answer (`isLtrResync`, carried on the packet so this decision --
+/// which runs before envelope decode -- can see it). The escalation path is the backstop for
+/// references that are genuinely unusable: after `escalationDiscardLimit` discarded frames the
+/// next request declares `clientHasNoReferences`, converting an unbounded loop into one IDR.
 struct MediaFrameRecoveryGate: Equatable {
     enum CompletedFrameDecision: Equatable {
         case render
         case renderRecoveryKeyframe
+        /// A marked LTR-resync delta resolved the gate. Distinct from the keyframe case so
+        /// diagnostics can say WHICH path recovered -- the cheap one is the design working.
+        case renderRecoveryResync
         case discardRecoveryDelta
     }
 
+    struct KeyframeRequest: Equatable {
+        /// True once the discard run has outlived the escalation limit: the cheap answers are
+        /// not resolving the gate, so the client's references are presumed unusable and the
+        /// request must force a true keyframe.
+        let declareNoReferences: Bool
+    }
+
     private let keyframeRequestMinGapNs: UInt64
+    private let escalationDiscardLimit: Int
     private(set) var awaitingKeyframe = false
     private var lastKeyframeRequestNs: UInt64?
+    private(set) var discardedSinceArmed = 0
+    private var armedAtNs: UInt64?
 
-    init(keyframeRequestMinGapNs: UInt64) {
+    init(keyframeRequestMinGapNs: UInt64, escalationDiscardLimit: Int) {
         self.keyframeRequestMinGapNs = keyframeRequestMinGapNs
+        self.escalationDiscardLimit = max(1, escalationDiscardLimit)
     }
 
-    mutating func noteGapSkip() {
+    /// Arms the gate. Returns true when this call armed it (it was not already armed), so the
+    /// caller can record the transition without tracking previous state itself.
+    @discardableResult
+    mutating func noteGapSkip(nowNs: UInt64) -> Bool {
+        let armed = !awaitingKeyframe
         awaitingKeyframe = true
+        if armed {
+            armedAtNs = nowNs
+            discardedSinceArmed = 0
+        }
+        return armed
     }
 
-    mutating func decideCompletedFrame(isKeyframe: Bool) -> CompletedFrameDecision {
-        guard awaitingKeyframe else { return .render }
-        guard isKeyframe else { return .discardRecoveryDelta }
+    /// The gate's answer for one completed frame, plus how long the gate had been armed when a
+    /// resolving frame closed it (nil for non-resolving decisions).
+    mutating func decideCompletedFrame(
+        isKeyframe: Bool,
+        isLtrResync: Bool,
+        nowNs: UInt64
+    ) -> (decision: CompletedFrameDecision, armedNs: UInt64?) {
+        guard awaitingKeyframe else { return (.render, nil) }
+        guard isKeyframe || isLtrResync else {
+            discardedSinceArmed += 1
+            return (.discardRecoveryDelta, nil)
+        }
+        let armedNs = armedAtNs.map { nowNs >= $0 ? nowNs - $0 : 0 }
         awaitingKeyframe = false
         lastKeyframeRequestNs = nil
-        return .renderRecoveryKeyframe
+        armedAtNs = nil
+        discardedSinceArmed = 0
+        return (isKeyframe ? .renderRecoveryKeyframe : .renderRecoveryResync, armedNs)
     }
 
-    mutating func takeKeyframeRequestIfNeeded(nowNs: UInt64) -> Bool {
-        guard awaitingKeyframe else { return false }
+    mutating func takeKeyframeRequestIfNeeded(nowNs: UInt64) -> KeyframeRequest? {
+        guard awaitingKeyframe else { return nil }
         if let last = lastKeyframeRequestNs,
            nowNs >= last,
            nowNs - last < keyframeRequestMinGapNs {
-            return false
+            return nil
         }
         lastKeyframeRequestNs = nowNs
-        return true
+        return KeyframeRequest(declareNoReferences: discardedSinceArmed >= escalationDiscardLimit)
     }
 }

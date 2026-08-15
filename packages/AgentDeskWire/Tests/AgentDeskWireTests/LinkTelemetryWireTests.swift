@@ -176,6 +176,50 @@ private let ms = 1_000_000 as UInt64
         #expect(decoded == header)
     }
 
+    // The livelock fix's wire half: the ForceLTRRefresh answer marks itself, because the
+    // client's gap-recovery gate discards unmarked deltas while resyncing and cannot otherwise
+    // tell the resync it asked for from the ordinary deltas it must throw away.
+    @Test func aResyncDeltaMarksItselfAcrossTheWire() throws {
+        let header = OwnedMediaFrameHeader(
+            surfaceGeneration: 3,
+            frameId: 43,
+            codec: .hevc,
+            width: 1920,
+            height: 1080,
+            capturedAtUptimeNs: 111,
+            presentationTimeNs: 222,
+            isKeyframe: false,
+            parameterSets: nil,
+            refreshReason: .rest,
+            ltrToken: 8,
+            ltrResync: true
+        )
+        let decoded = try JSONDecoder().decode(
+            OwnedMediaFrameHeader.self,
+            from: try JSONEncoder().encode(header)
+        )
+        #expect(decoded.ltrResync == true)
+        #expect(decoded == header)
+    }
+
+    @Test func anOrdinaryFrameCarriesNoResyncMark() {
+        let header = OwnedMediaFrameHeader(
+            surfaceGeneration: 1,
+            frameId: 2,
+            codec: .hevc,
+            width: 640,
+            height: 480,
+            capturedAtUptimeNs: 0,
+            presentationTimeNs: 0,
+            isKeyframe: false,
+            parameterSets: nil,
+            refreshReason: .rest
+        )
+        #expect(header.ltrResync == nil)
+        let json = String(decoding: try! JSONEncoder().encode(header), as: UTF8.self)
+        #expect(!json.contains("\"ls\""))
+    }
+
     @Test func anOrdinaryFrameCarriesNoToken() {
         // Most frames are not long-term references. The field must stay absent rather than
         // encode a zero, which the host would otherwise read back as a real token.

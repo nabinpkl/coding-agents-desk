@@ -19,6 +19,11 @@ struct MediaDatagramFramePacket: Equatable {
     private static let version: UInt8 = 2
     private static let frameKind: UInt8 = 3
     private static let keyframeFlag: UInt8 = 1 << 0
+    // ADR-0090, closed loop: this frame is the LTR-refresh answer to a resync request. On the
+    // packet rather than only the envelope because the client's recovery gate decides on packet
+    // headers BEFORE reassembly and envelope decode -- a discarded frame is never decoded, so a
+    // mark that only lives in the envelope can never reach the code that needs it.
+    private static let resyncFlag: UInt8 = 1 << 1
     private static let headerPrefixLength = 33
     private static let macLength = 32
 
@@ -26,12 +31,14 @@ struct MediaDatagramFramePacket: Equatable {
     let packetIndex: UInt16
     let packetCount: UInt16
     let isKeyframe: Bool
+    let isLtrResync: Bool
     let sentAtUptimeNs: UInt64
     let payload: Data
 
     static func packetize(
         frameId: UInt64,
         isKeyframe: Bool,
+        isLtrResync: Bool,
         sentAtUptimeNs: UInt64,
         payload: Data,
         key: SymmetricKey
@@ -49,6 +56,7 @@ struct MediaDatagramFramePacket: Equatable {
                 packetIndex: UInt16(index),
                 packetCount: UInt16(count),
                 isKeyframe: isKeyframe,
+                isLtrResync: isLtrResync,
                 sentAtUptimeNs: sentAtUptimeNs,
                 payload: chunk,
                 key: key
@@ -81,11 +89,13 @@ struct MediaDatagramFramePacket: Equatable {
         }
         let packetCount = try normalized.readUInt16BE(at: 21)
         guard packetCount > 0 else { throw MediaDatagramPacketError.malformed }
+        let flags = data[data.startIndex + 6]
         return MediaDatagramFramePacket(
             frameId: try normalized.readUInt64BE(at: 11),
             packetIndex: try normalized.readUInt16BE(at: 19),
             packetCount: packetCount,
-            isKeyframe: (normalized[normalized.startIndex + 6] & keyframeFlag) != 0,
+            isKeyframe: (flags & keyframeFlag) != 0,
+            isLtrResync: (flags & resyncFlag) != 0,
             sentAtUptimeNs: try normalized.readUInt64BE(at: 23),
             payload: Data(payload)
         )
@@ -96,6 +106,7 @@ struct MediaDatagramFramePacket: Equatable {
         packetIndex: UInt16,
         packetCount: UInt16,
         isKeyframe: Bool,
+        isLtrResync: Bool,
         sentAtUptimeNs: UInt64,
         payload: Data,
         key: SymmetricKey
@@ -107,7 +118,7 @@ struct MediaDatagramFramePacket: Equatable {
         prefix.append(magic)
         prefix.append(version)
         prefix.append(frameKind)
-        prefix.append(isKeyframe ? keyframeFlag : 0)
+        prefix.append((isKeyframe ? keyframeFlag : 0) | (isLtrResync ? resyncFlag : 0))
         prefix.appendUInt32BE(0)
         prefix.appendUInt64BE(frameId)
         prefix.appendUInt16BE(packetIndex)

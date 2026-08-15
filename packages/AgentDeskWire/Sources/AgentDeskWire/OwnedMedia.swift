@@ -88,6 +88,13 @@ public struct OwnedMediaFrameHeader: Codable, Equatable, Sendable {
     /// the encoder may only reference frames the client provably holds, and a frame that
     /// arrived but failed to decode is not one of them.
     public let ltrToken: UInt64?
+    /// ADR-0090, closed loop: true when this delta IS the resync the client asked for -- a
+    /// `ForceLTRRefresh` answered with a delta against an acknowledged reference. Without this
+    /// mark the client's gap-recovery gate cannot tell a resync delta from an ordinary one, so
+    /// it discarded every cheap answer while waiting for a keyframe that was never coming:
+    /// measured at 763 refreshes discarded in one LTE session, a livelock on both ends of a
+    /// contract each side was honouring. Absent means false.
+    public let ltrResync: Bool?
 
     public var updateId: OwnedSurfaceUpdateId {
         OwnedSurfaceUpdateId(surfaceGeneration: surfaceGeneration, frameId: frameId)
@@ -108,6 +115,7 @@ public struct OwnedMediaFrameHeader: Codable, Equatable, Sendable {
         // Not "lt": the control message already uses that for linkTelemetry, and the two wire
         // types have drifted before when abbreviations were reused across them.
         case ltrToken = "lr"
+        case ltrResync = "ls"
     }
 
     public init(
@@ -122,7 +130,8 @@ public struct OwnedMediaFrameHeader: Codable, Equatable, Sendable {
         parameterSets: OwnedMediaParameterSets?,
         payloadFormat: OwnedMediaPayloadFormat = .lengthPrefixedNal,
         refreshReason: OwnedMediaRefreshReason,
-        ltrToken: UInt64? = nil
+        ltrToken: UInt64? = nil,
+        ltrResync: Bool? = nil
     ) {
         self.surfaceGeneration = surfaceGeneration
         self.frameId = frameId
@@ -136,6 +145,7 @@ public struct OwnedMediaFrameHeader: Codable, Equatable, Sendable {
         self.payloadFormat = payloadFormat
         self.refreshReason = refreshReason
         self.ltrToken = ltrToken
+        self.ltrResync = ltrResync
     }
 }
 public struct OwnedMediaFrameEnvelope: Equatable, Sendable {
