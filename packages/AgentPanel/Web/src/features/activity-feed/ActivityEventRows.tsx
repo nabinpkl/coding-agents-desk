@@ -12,6 +12,7 @@ import {
   isFlowBlock,
   partitionEventBlocks,
   shellCommand,
+  toolIntent,
   type DisplayRole,
   type PairedToolResult,
 } from "./activityDisplayItems";
@@ -117,6 +118,7 @@ function EventHeading({
   isLive: boolean;
 }) {
   const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : null;
+  const intent = role === "tool" ? toolIntent(ev) : null;
   return (
     <button
       type="button"
@@ -151,6 +153,15 @@ function EventHeading({
         />
       ) : null}
       {showCacheHits && ev.cacheHit ? <CacheBadge cacheHit={ev.cacheHit} /> : null}
+      {/* Why the tool ran, beside the chip that says a tool ran. Only when expanded: a collapsed
+          row already spends this space on its gist, and the heading is otherwise blank here. */}
+      {!isCollapsed && intent ? (
+        // Bounded, because this sits inside a float-left heading: an unbounded span would grow
+        // the float to the width of a long description and push the body around it.
+        <span className="ml-[0.35em] max-w-[36ch] truncate font-sans text-muted-foreground">
+          {intent}
+        </span>
+      ) : null}
     </button>
   );
 }

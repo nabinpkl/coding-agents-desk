@@ -6,6 +6,11 @@ import type {
   RunningBackgroundTask,
 } from "@agentdesk/agent-feed-wire";
 import type { AgentDataSource, SessionReference } from "../activity-feed/data-source/AgentDataSource";
+// The panel's own Shiki block, reused rather than reinvented: bash is already among its loaded
+// grammars, its engine is the pure-JS one (no wasm fetch, which is what makes it safe in the
+// phone webview), and it lazy-loads, so an unopened row costs nothing. It brings a copy button
+// with it, which is the thing you actually want to do with a command you are looking at.
+import { CodeBlock } from "../activity-feed/markdown/CodeBlock";
 import { useElapsedNow } from "./useBackgroundTasks";
 import { useTaskOutputStream } from "./useTaskOutputStream";
 
@@ -100,24 +105,43 @@ function TaskOutput({
   );
 }
 
-function RunningRow({
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 12 12"
+      aria-hidden
+      className={`size-3 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
+    >
+      <path d="M4 2.5 L8 6 L4 9.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+/**
+ * One task, running or finished.
+ *
+ * Both use the same row because both can be opened: a finished task's output is still readable
+ * from the capture the harness left behind, and "what did that build actually print" is the
+ * question people have most often once it is over. Giving finished tasks a hover highlight but no
+ * expansion -- which is what they had -- promises a click that does nothing.
+ */
+function TaskRow({
   task,
-  now,
+  meta,
+  running,
   expanded,
   onToggle,
   source,
   session,
 }: {
-  task: RunningBackgroundTask;
-  now: number;
+  task: BackgroundTask;
+  meta: string;
+  running: boolean;
   expanded: boolean;
   onToggle: () => void;
   source: AgentDataSource;
   session: SessionReference;
 }) {
-  // Prefer the clock the client keeps over the one that shipped, so the number moves between
-  // server messages instead of freezing for as long as nothing else changed.
-  const elapsed = task.startedAt === null ? task.elapsedMs : Math.max(0, now - task.startedAt);
   return (
     <li className="border-b border-border last:border-b-0">
       <button
@@ -127,28 +151,34 @@ function RunningRow({
         data-testid={`task-row-${task.taskId}`}
         className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-muted"
       >
-        <span className="mt-1 inline-flex size-1.5 shrink-0 rounded-full bg-amber-500" />
+        <span className="mt-0.5 flex shrink-0 items-center gap-1.5">
+          <Chevron open={expanded} />
+          <span
+            className={`inline-flex size-1.5 rounded-full ${running ? "bg-amber-500" : "bg-muted-foreground/50"}`}
+          />
+        </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] text-foreground">{task.description}</span>
-          <span className="block text-[11px] text-muted-foreground tabular-nums">
-            {formatDuration(elapsed)}
-            {task.hasOutput ? "" : " · output redirected"}
+          <span
+            className={`block truncate text-[13px] ${running ? "text-foreground" : "text-muted-foreground"}`}
+          >
+            {task.description}
           </span>
+          <span className="block text-[11px] text-muted-foreground tabular-nums">{meta}</span>
         </span>
       </button>
-      {expanded ? <TaskOutput source={source} session={session} taskId={task.taskId} /> : null}
-    </li>
-  );
-}
-
-function FinishedRow({ task }: { task: BackgroundTask }) {
-  return (
-    <li className="flex items-start gap-2 px-3 py-1.5">
-      <span className="mt-1.5 inline-flex size-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[12px] text-muted-foreground">{task.description}</span>
-        <span className="block text-[11px] text-muted-foreground/70">{describeState(task.state)}</span>
-      </span>
+      {expanded ? (
+        <div className="bg-background/40">
+          {/* The command itself, which the description only paraphrases. Worth showing on expand:
+              a row labelled "Run the full gate" does not tell you which gate, and this is the
+              first thing anyone reads when the output looks wrong. */}
+          {task.command ? (
+            <div className="border-t border-border px-2 py-2">
+              <CodeBlock code={task.command} lang="bash" />
+            </div>
+          ) : null}
+          <TaskOutput source={source} session={session} taskId={task.taskId} />
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -195,10 +225,15 @@ export function BackgroundTasksContent({
         ) : (
           <ul>
             {snapshot.running.map((task) => (
-              <RunningRow
+              <TaskRow
                 key={task.taskId}
                 task={task}
-                now={now}
+                running
+                // Prefer the clock the client keeps over the one that shipped, so the number moves
+                // between server messages instead of freezing for as long as nothing else changed.
+                meta={`${formatDuration(
+                  task.startedAt === null ? task.elapsedMs : Math.max(0, now - task.startedAt),
+                )}${task.hasOutput ? "" : " · output redirected"}`}
                 expanded={expanded === task.taskId}
                 onToggle={() => setExpanded((current) => (current === task.taskId ? null : task.taskId))}
                 source={source}
@@ -214,11 +249,30 @@ export function BackgroundTasksContent({
               onClick={() => setShowFinished((current) => !current)}
               aria-expanded={showFinished}
               data-testid="finished-tasks-toggle"
-              className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-[12px] text-muted-foreground hover:bg-muted"
+              className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
             >
+              <Chevron open={showFinished} />
               Finished {snapshot.finished.length}
             </button>
-            {showFinished ? <ul>{snapshot.finished.map((task) => <FinishedRow key={task.taskId} task={task} />)}</ul> : null}
+            {showFinished
+              ? (
+                <ul>
+                  {snapshot.finished.map((task) => (
+                    <TaskRow
+                      key={task.taskId}
+                      task={task}
+                      running={false}
+                      meta={describeState(task.state)}
+                      expanded={expanded === task.taskId}
+                      onToggle={() =>
+                        setExpanded((current) => (current === task.taskId ? null : task.taskId))}
+                      source={source}
+                      session={session}
+                    />
+                  ))}
+                </ul>
+              )
+              : null}
           </div>
         ) : null}
       </div>
@@ -268,10 +322,14 @@ export function BackgroundTasksPanel({
       </div>
     );
   }
+  // Floats over the thread rather than taking a column out of it. A third column re-flows the
+  // transcript every time this opens, which makes a passing glance at a build log cost a reading
+  // position; lifting it onto its own layer with a shadow says "temporary" and leaves the text
+  // where it was. The shadow is the whole signal that it is above rather than beside.
   return (
     <aside
       data-testid="tasks-column"
-      className="flex w-80 shrink-0 flex-col border-l border-border bg-card"
+      className="absolute inset-y-0 right-0 z-40 flex w-80 max-w-[85%] flex-col border-l border-border bg-card shadow-[-12px_0_32px_-8px_rgba(0,0,0,0.35)]"
     >
       <BackgroundTasksContent
         snapshot={snapshot}

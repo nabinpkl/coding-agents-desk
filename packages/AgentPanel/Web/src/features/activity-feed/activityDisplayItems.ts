@@ -419,6 +419,29 @@ const SHELL_COMMAND_INPUT = new Map([
  * summary (the same command, capped at 200 characters). Codex `shell` can also
  * carry an argv array rather than a string, which takes the same fallback.
  */
+/**
+ * The agent's own words for what an event's tool calls were for, or null when none said.
+ *
+ * This rides the event's role heading rather than replacing anything on the tool row, because the
+ * two answer different questions and both are wanted at a glance: the row says WHAT ran (a
+ * truncated command, precise and copyable in full one click away), the heading says WHY. Putting
+ * the description on the row meant reading the intent and losing the command, or the reverse.
+ *
+ * The heading line is otherwise empty on an expanded tool event -- the chip, then nothing -- so
+ * this costs no vertical space at all.
+ *
+ * First description wins. An event with parallel tool calls has several, and a heading is one
+ * line; the rest are still on their own rows.
+ */
+export function toolIntent(event: { blocks: ActivityBlock[] }): string | null {
+  for (const block of event.blocks) {
+    if (block.kind !== "tool_use") continue;
+    const description = block.input?.description;
+    if (typeof description === "string" && description.trim()) return description.trim();
+  }
+  return null;
+}
+
 export function shellCommand(block: ActivityBlock): string | null {
   const inputKey = block.tool ? SHELL_COMMAND_INPUT.get(block.tool) : undefined;
   if (inputKey === undefined) return null;

@@ -107,6 +107,49 @@ describe("BackgroundTasksContent", () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the command on expand, since the description only paraphrases it", () => {
+    // "Run the full gate" does not say which gate. The command is the first thing anyone reads
+    // when the output looks wrong.
+    render(
+      <BackgroundTasksContent
+        snapshot={snapshot({ running: [running({ command: "just check --variant dev" })] })}
+        source={stubDataSource()}
+        session={SESSION}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.queryByText("just check --variant dev")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("task-row-b1"));
+    expect(screen.getByText("just check --variant dev")).toBeInTheDocument();
+  });
+
+  it("a finished task opens too, so its output is still readable", () => {
+    // Finished rows used to take a hover highlight and do nothing on click, promising an
+    // interaction they did not have. Their capture usually outlives them, so they open.
+    const subscribeTaskOutput = vi.fn(() => () => {});
+    render(
+      <BackgroundTasksContent
+        snapshot={snapshot({
+          finished: [{
+            taskId: "b9",
+            kind: "bash",
+            description: "Rebuild the host",
+            command: "just host-run",
+            startedAt: 1,
+            state: { status: "exited", exitCode: 0 },
+          }],
+        })}
+        source={stubDataSource({ subscribeTaskOutput })}
+        session={SESSION}
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("finished-tasks-toggle"));
+    fireEvent.click(screen.getByTestId("task-row-b9"));
+    expect(subscribeTaskOutput).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("just host-run")).toBeInTheDocument();
+  });
+
   it("streams appended output into the expanded row", () => {
     let emit: ((message: TaskOutputMessage) => void) | undefined;
     const subscribeTaskOutput = vi.fn((_session, _taskId, handlers) => {

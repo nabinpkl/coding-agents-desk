@@ -3,6 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { resolveLang, SHIKI_THEMES, useHighlighter } from "./highlighter";
+// Declared here, not inherited. This component is exported and used outside the markdown
+// renderer, where `Markdown.tsx` may never be imported -- and the failure mode of a missing
+// stylesheet is unstyled markup rather than an error. The bundler dedupes the double import.
+import "./markdown.css";
 
 // A fenced code block. Renders a plain <pre> synchronously (correct height on
 // first paint), then swaps in Shiki-highlighted markup once the singleton
