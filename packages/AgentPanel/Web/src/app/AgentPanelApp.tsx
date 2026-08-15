@@ -14,6 +14,9 @@ import { WindowComposerError, WindowQuestionError } from "../features/activity-f
 import type { AgentSessionControlState, EventMode } from "../features/activity-feed/data-source/AgentDataSource";
 import { DataSourceProvider } from "../features/activity-feed/data-source/AgentDataSourceContext";
 import { ActivityFeed } from "../features/activity-feed/ActivityFeed";
+import { BackgroundTasksPanel } from "../features/background-tasks/BackgroundTasksPanel";
+import { RunningTasksChip } from "../features/background-tasks/RunningTasksChip";
+import { useBackgroundTasks } from "../features/background-tasks/useBackgroundTasks";
 import { TokenMeter } from "../features/activity-feed/TokenMeter";
 import type { TokenUsage } from "../features/activity-feed/useSessionEventsStream";
 import { FontSizeRoot } from "../features/activity-feed/fontStore";
@@ -197,6 +200,7 @@ export function App({ feed, host }: Props) {
     [subscribedProjectKey],
   );
   const drawerTriggerRef = useRef<HTMLButtonElement>(null);
+  const [tasksPanelOpen, setTasksPanelOpen] = useState(false);
   const initializedProjectExpansion = useRef(false);
   const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const usesModalSidebar = compact && !hoverCapable;
@@ -548,6 +552,26 @@ export function App({ feed, host }: Props) {
     setTerminal({ kind: "closing", request });
   }, [host, terminal]);
 
+  // Addresses the selected session for the task stream. `mode` is required by the reference type
+  // but means nothing here -- background tasks are not read in a transcript view -- so it is
+  // pinned rather than threaded through, which would invite it to matter.
+  const taskSession = useMemo(
+    () =>
+      selectedThread
+        ? { source: selectedThread.session.source, sessionId: selectedThread.session.sessionId, mode: "nice" as const }
+        : null,
+    [selectedThread],
+  );
+  const backgroundTasks = useBackgroundTasks(feed, taskSession);
+  const runningTaskCount = backgroundTasks.running.length;
+  // Closed on a session switch, and only then. An earlier version also closed it when the last
+  // task ended, which turned out to be exactly wrong: watching a task finish is the moment the
+  // panel is most wanted, and it vanished at the instant the result arrived. Left open, it shows
+  // "Nothing running" above the finished list, which is the answer the viewer was waiting for.
+  useEffect(() => {
+    setTasksPanelOpen(false);
+  }, [selectedThread?.session.sessionId]);
+
   const sidebarProps = {
     projects,
     sessionsByProject,
@@ -702,6 +726,13 @@ export function App({ feed, host }: Props) {
               instead of in the header. Keyed by session so switching threads
               remounts rather than carrying a draft written for one session into
               another. */}
+          {taskSession ? (
+            <RunningTasksChip
+              count={runningTaskCount}
+              open={tasksPanelOpen}
+              onToggle={() => setTasksPanelOpen((open) => !open)}
+            />
+          ) : null}
           {selectedThread ? (
             <SessionComposer
               key={selectedThread.session.sessionId}
@@ -720,6 +751,18 @@ export function App({ feed, host }: Props) {
             <TerminalNotice source={selectedThread.session.source} state={terminal} />
           ) : null}
         </div>
+        {/* Outside the main column, so on the Mac it is a real column beside the thread rather
+            than a band inside it. On a phone it renders as a sheet over everything, and the
+            `compact` switch deciding which is the shell's own, not a second rule. */}
+        {tasksPanelOpen && taskSession ? (
+          <BackgroundTasksPanel
+            compact={compact}
+            snapshot={backgroundTasks}
+            source={feed}
+            session={taskSession}
+            onClose={() => setTasksPanelOpen(false)}
+          />
+        ) : null}
       </div>
     </DataSourceProvider>
   );

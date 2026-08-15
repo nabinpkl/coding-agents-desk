@@ -16,9 +16,11 @@ import type {
   AgentCommandReceipt,
   AgentSessionDescriptor,
   AgentUiEvent,
+  BackgroundTaskSnapshot,
   EventsPage as WireEventsPage,
   ProjectSummary,
   SessionSummary,
+  TaskOutputMessage,
   TimelineMessage,
   TokenUsage,
 } from "@agentdesk/agent-feed-wire";
@@ -71,6 +73,14 @@ function parse<T>(response: { status: number; body: string }): T {
 
 function timelinePath(session: SessionReference): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/timeline?mode=${session.mode}`;
+}
+
+function tasksPath(session: SessionReference): string {
+  return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/tasks`;
+}
+
+function taskOutputPath(session: SessionReference, taskId: string): string {
+  return `${tasksPath(session)}/${encodeURIComponent(taskId)}/output`;
 }
 
 function eventsPath(session: SessionReference, offset: number, limit: number): string {
@@ -178,6 +188,41 @@ export class SidecarDataSource implements AgentDataSource {
       // An error before the stream ever opened and one after it was running are the same thing to
       // the viewer: the thread is not live and it should say so.
       onError: () => handlers.onError?.(),
+    });
+  }
+
+  /**
+   * Follows the session's background tasks.
+   *
+   * The sidecar only sends when something actually changed, so this stream is quiet while one
+   * long task runs. Elapsed time is re-derived on the client from `startedAt` for the same
+   * reason -- a clock that ticked on the wire would defeat the suppression entirely.
+   */
+  subscribeBackgroundTasks(
+    session: SessionReference,
+    handlers: {
+      onSnapshot: (snapshot: BackgroundTaskSnapshot) => void;
+      onError?: (reason: string) => void;
+    },
+  ): () => void {
+    return this.transport.subscribe(tasksPath(session), {
+      onMessage: (payload) => handlers.onSnapshot(JSON.parse(payload) as BackgroundTaskSnapshot),
+      onError: (reason) => handlers.onError?.(reason),
+    });
+  }
+
+  /** Follows one task's output. Opened on expand, closed on collapse. */
+  subscribeTaskOutput(
+    session: SessionReference,
+    taskId: string,
+    handlers: {
+      onMessage: (message: TaskOutputMessage) => void;
+      onError?: (reason: string) => void;
+    },
+  ): () => void {
+    return this.transport.subscribe(taskOutputPath(session, taskId), {
+      onMessage: (payload) => handlers.onMessage(JSON.parse(payload) as TaskOutputMessage),
+      onError: (reason) => handlers.onError?.(reason),
     });
   }
 

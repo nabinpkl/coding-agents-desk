@@ -7,6 +7,7 @@ import type {
   EventsPage,
   SessionEventsHandlers,
 } from "./data-source/AgentDataSource";
+import { stubDataSource } from "./data-source/stubDataSource";
 import {
   useSessionEventsStream,
   type ActivityEvent,
@@ -36,14 +37,14 @@ function tailEvent(index: number, messageId: string): ActivityEvent {
 describe("useSessionEventsStream", () => {
   it("shows a live tail and hands it off when the durable transcript has it", async () => {
     let handlers: SessionEventsHandlers | undefined;
-    const source: AgentDataSource = {
+    const source: AgentDataSource = stubDataSource({
       fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
       subscribeSessionEvents: (_session, _after, nextHandlers) => {
         handlers = nextHandlers;
         return () => {};
       },
       fetchRawEvent: async () => "",
-    };
+    });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <DataSourceProvider source={source}>{children}</DataSourceProvider>
     );
@@ -103,7 +104,7 @@ describe("useSessionEventsStream", () => {
       event(1, "stale-tail", "assistant"),
     ];
     let handlers: SessionEventsHandlers | undefined;
-    const source: AgentDataSource = {
+    const source: AgentDataSource = stubDataSource({
       fetchEventsPage: async (_session, offset, limit) => ({
         events: initial.filter(
           (value) => value.index >= offset && value.index < offset + limit,
@@ -116,7 +117,7 @@ describe("useSessionEventsStream", () => {
         return () => {};
       },
       fetchRawEvent: async () => "",
-    };
+    });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <DataSourceProvider source={source}>{children}</DataSourceProvider>
     );
@@ -154,14 +155,14 @@ describe("useSessionEventsStream", () => {
     let handlers: SessionEventsHandlers | undefined;
     let resolveProbe: ((page: EventsPage) => void) | undefined;
     const probe = new Promise<EventsPage>((resolve) => { resolveProbe = resolve; });
-    const source: AgentDataSource = {
+    const source: AgentDataSource = stubDataSource({
       fetchEventsPage: async () => probe,
       subscribeSessionEvents: (_session, _after, nextHandlers) => {
         handlers = nextHandlers;
         return () => {};
       },
       fetchRawEvent: async () => "",
-    };
+    });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <DataSourceProvider source={source}>{children}</DataSourceProvider>
     );
@@ -200,7 +201,7 @@ describe("useSessionEventsStream", () => {
     let handlers: SessionEventsHandlers | undefined;
     let resolveOlder: ((page: EventsPage) => void) | undefined;
     let fetchCount = 0;
-    const source: AgentDataSource = {
+    const source: AgentDataSource = stubDataSource({
       fetchEventsPage: async () => {
         fetchCount += 1;
         if (fetchCount === 1) return { events: [], total: 101, usage: null };
@@ -214,7 +215,7 @@ describe("useSessionEventsStream", () => {
         return () => {};
       },
       fetchRawEvent: async () => "",
-    };
+    });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <DataSourceProvider source={source}>{children}</DataSourceProvider>
     );
@@ -275,7 +276,7 @@ describe("useSessionEventsStream", () => {
         ],
       },
     ];
-    const source: AgentDataSource = {
+    const source: AgentDataSource = stubDataSource({
       fetchEventsPage: async (_session, offset, limit) => ({
         events: seedEvents.filter(
           (value) => value.index >= offset && value.index < offset + limit,
@@ -288,7 +289,7 @@ describe("useSessionEventsStream", () => {
         return () => {};
       },
       fetchRawEvent: async () => "",
-    };
+    });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <DataSourceProvider source={source}>{children}</DataSourceProvider>
     );

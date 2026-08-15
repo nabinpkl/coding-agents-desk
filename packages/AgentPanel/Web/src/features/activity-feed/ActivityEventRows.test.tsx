@@ -9,6 +9,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { stubDataSource } from "./data-source/stubDataSource";
 import { DataSourceProvider } from "./data-source/AgentDataSourceContext";
 import type { AgentDataSource } from "./data-source/AgentDataSource";
 import { SegmentEventRow, UserRow, type EventRowContext } from "./ActivityEventRows";
@@ -18,11 +19,11 @@ import type { ActivityEvent } from "./useSessionEventsStream";
 // whether reasoning renders its markup is the whole point of one test below.
 vi.mock("./DiffBlock", () => ({ DiffBlock: () => <div data-testid="diff-block" /> }));
 
-const DATA_SOURCE: AgentDataSource = {
+const DATA_SOURCE: AgentDataSource = stubDataSource({
   fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
   subscribeSessionEvents: () => () => {},
   fetchRawEvent: async () => "",
-};
+});
 
 const CTX: EventRowContext = {
   session: { source: "claude", sessionId: "session-1", mode: "raw" },

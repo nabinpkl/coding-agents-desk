@@ -1,5 +1,5 @@
 import type { ActivityEvent, TokenUsage } from "../useSessionEventsStream";
-import type { EventMode } from "@agentdesk/agent-feed-wire";
+import type { BackgroundTaskSnapshot, EventMode, TaskOutputMessage } from "@agentdesk/agent-feed-wire";
 
 export type AgentSource = string;
 
@@ -83,4 +83,34 @@ export interface AgentDataSource {
     session: SessionReference,
     eventIndex: number,
   ): Promise<string>;
+
+  /**
+   * Follows the session's background tasks. Returns unsubscribe.
+   *
+   * Its own stream rather than a field on the session events, because the events stream remounts
+   * when the viewer switches between raw and nice, and a task that has been running for eleven
+   * minutes should not restart its clock because the transcript is being rendered differently.
+   */
+  subscribeBackgroundTasks(
+    session: SessionReference,
+    handlers: {
+      onSnapshot: (snapshot: BackgroundTaskSnapshot) => void;
+      onError?: (reason: string) => void;
+    },
+  ): () => void;
+
+  /**
+   * Follows one task's output: a snapshot of the tail, then appends. Returns unsubscribe.
+   *
+   * Opened when a task row is expanded and closed when it collapses -- on demand, so N tasks in
+   * flight never become N open streams to a phone.
+   */
+  subscribeTaskOutput(
+    session: SessionReference,
+    taskId: string,
+    handlers: {
+      onMessage: (message: TaskOutputMessage) => void;
+      onError?: (reason: string) => void;
+    },
+  ): () => void;
 }

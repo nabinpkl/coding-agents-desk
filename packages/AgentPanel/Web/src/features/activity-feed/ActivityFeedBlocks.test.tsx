@@ -19,13 +19,10 @@ import {
   RAW_JSON_FORMAT_MAX_CHARS,
 } from "./ActivitySystemBlocks";
 import type { ActivityEvent } from "./useSessionEventsStream";
+import { stubDataSource } from "./data-source/stubDataSource";
 
 function source(fetchRawEvent: AgentDataSource["fetchRawEvent"]): AgentDataSource {
-  return {
-    fetchEventsPage: async () => ({ events: [], total: 0, usage: null }),
-    subscribeSessionEvents: () => () => {},
-    fetchRawEvent,
-  };
+  return stubDataSource({ fetchRawEvent });
 }
 
 describe("complete activity blocks", () => {
