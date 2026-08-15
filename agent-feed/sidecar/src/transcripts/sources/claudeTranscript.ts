@@ -717,7 +717,13 @@ async function readHeader(filePath: string): Promise<Header | null> {
           if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) continue;
           ev = parsed as Record<string, unknown>;
         } catch { continue; }
-        if (typeof ev.cwd === 'string') out.cwd = ev.cwd;
+        // Two different questions, and they had one answer between them until a `cd` proved
+        // otherwise. `cwd` is where the session OPENED, which is its project; `recentCwd` is
+        // wherever the agent's shell has wandered to since, which is not.
+        if (typeof ev.cwd === 'string') {
+          out.cwd ??= ev.cwd;
+          out.recentCwd = ev.cwd;
+        }
         if (typeof ev.gitBranch === 'string') out.gitBranch = ev.gitBranch;
         if (typeof ev.entrypoint === 'string') out.entrypoint = ev.entrypoint;
         if (typeof ev.aiTitle === 'string' && ev.aiTitle.trim()) aiTitle = ev.aiTitle.trim();

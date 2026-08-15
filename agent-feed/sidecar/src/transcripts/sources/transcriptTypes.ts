@@ -36,7 +36,23 @@ export type TranscriptSourceId = Exclude<SourceId, 'pi'>;
 // below are extracted from bytes that were in the buffer anyway.
 export interface Header {
   sessionId?: string;
+  /**
+   * Where the session OPENED. This is its project.
+   *
+   * The first one in the file, deliberately, because the harness stamps `cwd` on every line and
+   * an agent that runs `cd` changes it for the rest of the session. Taking the last one instead
+   * filed sessions under whichever subdirectory a shell happened to be in -- one repo's history
+   * split across three phantom projects named after its own subfolders.
+   */
   cwd?: string;
+  /**
+   * The most recent `cwd`, which is where the agent's shell is, not where the project is.
+   *
+   * Carried only so a RENAMED project can still be found: when `cwd` no longer exists on disk,
+   * this is the path to fall back to. That existence test is the whole discriminator -- a rename
+   * leaves the original path gone, a `cd` leaves it exactly where it was.
+   */
+  recentCwd?: string;
   gitBranch?: string;
   entrypoint?: string;
   title?: string;

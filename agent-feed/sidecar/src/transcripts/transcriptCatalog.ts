@@ -224,12 +224,35 @@ async function enumerateClaudeCandidates(): Promise<string[]> {
   return candidates;
 }
 
+/**
+ * Which project a Claude session belongs to, given where it opened and where its shell ended up.
+ *
+ * The opening directory wins, because that is the project; a later `cwd` is only ever the agent
+ * having run `cd`, and honouring it filed one repo's sessions under three phantom projects named
+ * after its own subfolders (`chatbot/backend`, `chatbot/frontend`, `chatbot/web`).
+ *
+ * The fallback is what keeps a RENAMED project findable, which is why the recent path is read at
+ * all. Existence is the discriminator and it is exact: a rename leaves the opening path gone, a
+ * `cd` leaves it untouched. So "the first directory, unless it is no longer there" separates the
+ * two without guessing, and a session whose directory was deleted outright still resolves to
+ * nothing, as before.
+ */
+export async function resolveClaudeProject(
+  openedIn: string,
+  recent: string | undefined,
+): Promise<string | null> {
+  const opened = await canonicalDirectory(openedIn);
+  if (opened) return opened;
+  if (!recent || recent === openedIn) return null;
+  return canonicalDirectory(recent);
+}
+
 async function readClaudeCandidate(filePath: string): Promise<Session | null> {
   const sessionId = claudeAdapter.filePathToSessionId(filePath);
   if (!sessionId || !isClaudeSessionCandidate(filePath)) return null;
   const header = await claudeAdapter.readHeader(filePath);
   if (!header?.cwd) return null;
-  const project = await canonicalDirectory(header.cwd);
+  const project = await resolveClaudeProject(header.cwd, header.recentCwd);
   if (!project) return null;
   let metadata: Awaited<ReturnType<typeof stat>>;
   try {

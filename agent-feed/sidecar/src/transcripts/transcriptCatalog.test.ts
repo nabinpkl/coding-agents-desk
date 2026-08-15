@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,6 +7,7 @@ import {
   isClaudeSessionCandidate,
   projectSummaries,
   registerPiSession,
+  resolveClaudeProject,
   sessionSummaries,
   sessionKey,
   stopCatalog,
@@ -211,27 +212,68 @@ describe("transcript catalog identity", () => {
     });
   });
 
-  test("a changed Claude transcript reports its latest direct cwd and title evidence", async () => {
-    const root = await mkdtemp(join(tmpdir(), "agent-feed-rename-"));
+  test("a Claude transcript reports where it opened and where its shell went, separately", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-feed-cwd-"));
     temporaryDirectories.push(root);
-    const oldProject = join(root, "foo");
-    const newProject = join(root, "bar");
+    const opened = join(root, "repo");
+    const wandered = join(root, "repo", "backend");
     const transcript = join(root, "11111111-1111-1111-1111-111111111111.jsonl");
-    await mkdir(oldProject);
-    await mkdir(newProject);
     await writeFile(
       transcript,
-      `${JSON.stringify({ type: "user", cwd: oldProject })}\n` +
-        `${JSON.stringify({
-          type: "ai-title",
-          aiTitle: "Renamed project",
-          cwd: newProject,
-        })}\n`,
+      `${JSON.stringify({ type: "user", cwd: opened })}\n` +
+        `${JSON.stringify({ type: "ai-title", aiTitle: "Renamed project", cwd: wandered })}\n`,
     );
 
     expect(await claudeAdapter.readHeader(transcript)).toMatchObject({
-      cwd: newProject,
+      cwd: opened,
+      recentCwd: wandered,
       title: "Renamed project",
+    });
+  });
+
+  describe("resolveClaudeProject", () => {
+    let root: string;
+
+    beforeEach(async () => {
+      root = await mkdtemp(join(tmpdir(), "agent-feed-project-"));
+      temporaryDirectories.push(root);
+    });
+
+    test("a mid-session cd does not move the session to a subdirectory", async () => {
+      // The measured failure: honouring the latest cwd split one repo's history across three
+      // phantom projects named after its own subfolders.
+      const repo = join(root, "chatbot");
+      const inside = join(repo, "backend");
+      await mkdir(inside, { recursive: true });
+      expect(await resolveClaudeProject(repo, inside)).toBe(await realpath(repo));
+    });
+
+    test("a cd to the parent does not move it either", async () => {
+      const repo = join(root, "chatbot");
+      await mkdir(repo);
+      expect(await resolveClaudeProject(repo, root)).toBe(await realpath(repo));
+    });
+
+    test("a renamed project is found under its new name", async () => {
+      // A real rename leaves the opening path GONE. That is the whole discriminator: the previous
+      // fixture created both directories, which is what a `cd` looks like, not a rename.
+      const gone = join(root, "old-name");
+      const renamed = join(root, "new-name");
+      await mkdir(renamed);
+      expect(await resolveClaudeProject(gone, renamed)).toBe(await realpath(renamed));
+    });
+
+    test("a session that never left its directory resolves to it", async () => {
+      const repo = join(root, "repo");
+      await mkdir(repo);
+      expect(await resolveClaudeProject(repo, repo)).toBe(await realpath(repo));
+      expect(await resolveClaudeProject(repo, undefined)).toBe(await realpath(repo));
+    });
+
+    test("a deleted directory resolves to nothing, as before", async () => {
+      const gone = join(root, "deleted");
+      expect(await resolveClaudeProject(gone, gone)).toBeNull();
+      expect(await resolveClaudeProject(gone, join(root, "also-deleted"))).toBeNull();
     });
   });
 
