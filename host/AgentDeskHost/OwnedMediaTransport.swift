@@ -332,6 +332,9 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     )
                 case .retry(let afterNs, let reason):
                     state.encoding = false
+                    // Counted inside the same lock that made the decision, so the tally cannot
+                    // drift from the refusals it is counting.
+                    state.capacityDeferrals += 1
                     return .retry(afterNs: afterNs, reason: reason)
                 }
             }
@@ -791,8 +794,17 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             logger.notice("owned media video sent frame=\(envelope.header.frameId, privacy: .public) gen=\(envelope.header.surfaceGeneration, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) ltr=\(envelope.header.ltrToken.map(String.init) ?? "none", privacy: .public) bytes=\(payload.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(liveTargets.kbps, privacy: .public) fps=\(liveTargets.fps, privacy: .public) resolutionScale=\(liveTargets.scale, privacy: .public)")
         }
         if let summary = liveTargets.productionSummary {
+            // Read and cleared with the window it belongs to. `fpsDeficit` says cadence fell
+            // short; this says whether the host was refused or had nothing to offer, which is
+            // the difference between a link that cannot take frames and a screen that is not
+            // changing -- indistinguishable in every other field on this line.
+            let deferrals = encodeGate.withLock { state -> Int in
+                let count = state.capacityDeferrals
+                state.capacityDeferrals = 0
+                return count
+            }
             logger.notice(
-                "owned media production summary actualFps=\(summary.actualFps, privacy: .public) targetFps=\(summary.targetFps, privacy: .public) fpsDeficit=\(summary.fpsDeficit, privacy: .public) frames=\(summary.frames, privacy: .public) keyframes=\(summary.keyframes, privacy: .public) sentKbps=\(summary.sentKbps, privacy: .public) targetKbps=\(summary.targetKbps, privacy: .public) maxGapMs=\(summary.maxGapMs, privacy: .public) resolutionScale=\(summary.resolutionScale, privacy: .public) windowMs=\(summary.windowMs, privacy: .public)"
+                "owned media production summary actualFps=\(summary.actualFps, privacy: .public) targetFps=\(summary.targetFps, privacy: .public) fpsDeficit=\(summary.fpsDeficit, privacy: .public) frames=\(summary.frames, privacy: .public) keyframes=\(summary.keyframes, privacy: .public) sentKbps=\(summary.sentKbps, privacy: .public) targetKbps=\(summary.targetKbps, privacy: .public) maxGapMs=\(summary.maxGapMs, privacy: .public) capacityDeferrals=\(deferrals, privacy: .public) resolutionScale=\(summary.resolutionScale, privacy: .public) windowMs=\(summary.windowMs, privacy: .public)"
             )
         }
     }
@@ -1176,6 +1188,16 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var mediaState = QuicSessionHostMediaState()
         var productionDiagnostics = MediaProductionDiagnosticsTracker()
         var latestProductionSummary: MediaProductionSummary?
+        /// How many times in the current production window a captured frame was ready to encode
+        /// and admission refused it for capacity.
+        ///
+        /// The production summary can only be built when a frame is SENT, so it reports that
+        /// cadence collapsed without ever saying why. Measured on LTE, windows with a freeze of
+        /// a second or more ran 1.5fps against 5.9 in clean ones -- and nothing distinguished
+        /// "the screen had nothing to send" from "we had a frame and the link would not take
+        /// it". Those want opposite responses, so the difference has to be recorded where the
+        /// refusal happens rather than inferred from the gap afterwards.
+        var capacityDeferrals = 0
     }
 
 }
