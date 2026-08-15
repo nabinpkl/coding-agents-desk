@@ -778,8 +778,14 @@ private struct Channels {
         // counted it, and that count is what clears the unanswered run in `evaluateLivenessProbe`.
         // Decoded explicitly anyway so it does not fall through to the frame decoder and read as
         // a malformed packet.
+        //
+        // It is still recorded, because clearing the run is not the same as proving the round
+        // trip: any datagram at all clears it, so an arriving video packet and an arriving echo
+        // are indistinguishable in that counter. Only the echo says the host read our control
+        // message and answered it, which is the half of the path a teardown blames.
         if let control = try? JSONDecoder().decode(OwnedMediaControlMessage.self, from: data),
            control.kind == .livenessEcho {
+            noteLivenessEcho(probeId: control.frameId)
             return
         }
         guard let packet = try? MediaDatagramFramePacket.decode(data, key: mediaKey) else {
@@ -1046,7 +1052,7 @@ private struct Channels {
             guard !watch.recoveryDeclared, let changedAt = watch.changedAtUptimeNs else {
                 return (shouldProbe, nil)
             }
-            let elapsedMs = Double(nowNs >= changedAt ? nowNs - changedAt : 0) / 1_000_000
+            let elapsedMs = Self.elapsedMs(from: changedAt, to: nowNs)
             guard HandoverRecoveryPolicy.shouldRecover(
                 msSinceLinkChange: elapsedMs,
                 sawArrivalSinceChange: watch.sawArrivalSinceChange,
@@ -1082,19 +1088,22 @@ private struct Channels {
     /// dead one by silence alone: healthy idle windows in that same run went 12.4s with nothing
     /// arriving.
     private func evaluateLivenessProbe(arrivals: Int, nowNs: UInt64) {
-        let outcome = livenessWatch.withLock { watch -> (probeId: UInt64?, dead: Int?) in
+        let outcome = livenessWatch.withLock { watch -> LivenessOutcome in
             if arrivals > 0 {
                 watch.hasEverArrived = true
                 watch.unanswered = 0
                 watch.declared = false
+                watch.lastArrivalUptimeNs = nowNs
             }
-            guard !watch.declared else { return (nil, nil) }
+            var outcome = LivenessOutcome()
+            outcome.echoesReceived = watch.echoesReceived
+            outcome.msSinceLastEcho = watch.lastEchoUptimeNs.map { Self.elapsedMs(from: $0, to: nowNs) }
+            outcome.msSinceLastArrival = watch.lastArrivalUptimeNs.map { Self.elapsedMs(from: $0, to: nowNs) }
+            guard !watch.declared else { return outcome }
             let decision = LivenessProbePolicy.evaluate(
                 hasEverArrived: watch.hasEverArrived,
                 sawArrival: arrivals > 0,
-                msSinceLastProbe: watch.lastProbeUptimeNs.map {
-                    Double(nowNs >= $0 ? nowNs - $0 : 0) / 1_000_000
-                },
+                msSinceLastProbe: watch.lastProbeUptimeNs.map { Self.elapsedMs(from: $0, to: nowNs) },
                 unansweredProbes: watch.unanswered,
                 probeIntervalMs: Double(Config.ownedMediaLivenessProbeIntervalMs),
                 failureThreshold: Config.ownedMediaLivenessFailureThreshold
@@ -1102,27 +1111,106 @@ private struct Channels {
             if decision.declareDead {
                 // Latch, so the teardown that follows does not re-declare every window.
                 watch.declared = true
-                return (nil, watch.unanswered)
+                outcome.dead = watch.unanswered
+                return outcome
             }
-            guard decision.sendProbe else { return (nil, nil) }
+            guard decision.sendProbe else { return outcome }
             let probeId = watch.nextProbeId
             watch.nextProbeId &+= 1
+            watch.lastProbeId = probeId
             watch.lastProbeUptimeNs = nowNs
+            outcome.unansweredBefore = watch.unanswered
             watch.unanswered += 1
-            return (probeId, nil)
+            outcome.probeId = probeId
+            return outcome
         }
 
         if let probeId = outcome.probeId {
+            // The send itself is not reported here: `sendVideoControl` already reports control
+            // sends failing and recovering, edge-triggered, which is the same question asked
+            // once per outage instead of once per probe.
+            logger.notice(
+                """
+                liveness probe sent probe=\(probeId, privacy: .public) \
+                unanswered=\(outcome.unansweredBefore, privacy: .public) \
+                sinceArrivalMs=\(Self.describeMs(outcome.msSinceLastArrival), privacy: .public) \
+                sinceEchoMs=\(Self.describeMs(outcome.msSinceLastEcho), privacy: .public) \
+                echoes=\(outcome.echoesReceived, privacy: .public)
+                """
+            )
+            ClientDiagnostics.shared.record(
+                type: "livenessProbeSent",
+                fields: [
+                    "probeId": String(probeId),
+                    "unansweredProbes": String(outcome.unansweredBefore),
+                    "msSinceLastArrival": Self.describeMs(outcome.msSinceLastArrival),
+                    "msSinceLastEcho": Self.describeMs(outcome.msSinceLastEcho),
+                    "echoesReceived": String(outcome.echoesReceived)
+                ]
+            )
             sendVideoControl(OwnedMediaControlMessage(kind: .livenessProbe, frameId: probeId))
         }
         guard let unanswered = outcome.dead else { return }
-        logger.notice("liveness declaring session dead unansweredProbes=\(unanswered, privacy: .public)")
+        // Carries the evidence, not just the verdict. `echoesReceived == 0` on a session that had
+        // been running says the host never answered a probe on this path at all, which is a
+        // different bug from a session that was answering until it stopped.
+        logger.notice(
+            """
+            liveness declaring session dead unansweredProbes=\(unanswered, privacy: .public) \
+            echoes=\(outcome.echoesReceived, privacy: .public) \
+            sinceEchoMs=\(Self.describeMs(outcome.msSinceLastEcho), privacy: .public) \
+            sinceArrivalMs=\(Self.describeMs(outcome.msSinceLastArrival), privacy: .public)
+            """
+        )
         ClientDiagnostics.shared.record(
             type: "livenessRecoveryDeclared",
-            fields: ["unansweredProbes": String(unanswered)],
+            fields: [
+                "unansweredProbes": String(unanswered),
+                "echoesReceived": String(outcome.echoesReceived),
+                "msSinceLastEcho": Self.describeMs(outcome.msSinceLastEcho),
+                "msSinceLastArrival": Self.describeMs(outcome.msSinceLastArrival)
+            ],
             level: .error
         )
         stateContinuation.yield(.failed(.hostSilent))
+    }
+
+    /// Record an echo's arrival and, when it answers the outstanding probe, how long it took.
+    ///
+    /// Runs on the receive path rather than the report loop, so the round trip is measured
+    /// against the datagram's actual arrival rather than the window that noticed it.
+    private func noteLivenessEcho(probeId: UInt64) {
+        let nowNs = DispatchTime.now().uptimeNanoseconds
+        let roundTripMs = livenessWatch.withLock { watch -> Double? in
+            watch.echoesReceived += 1
+            watch.lastEchoUptimeNs = nowNs
+            guard probeId == watch.lastProbeId, let sentNs = watch.lastProbeUptimeNs else {
+                return nil
+            }
+            return Self.elapsedMs(from: sentNs, to: nowNs)
+        }
+        // `stale`, not `n/a`: this echo answered a probe older than the outstanding one. It still
+        // proves the path -- that is why it is counted -- but timing it against a newer probe's
+        // send would invent a latency, and the two cases must not read alike in a log.
+        let roundTripText = roundTripMs.map { String(Int($0)) } ?? "stale"
+        logger.notice(
+            "liveness echo received probe=\(probeId, privacy: .public) roundTripMs=\(roundTripText, privacy: .public)"
+        )
+        ClientDiagnostics.shared.record(
+            type: "livenessEchoReceived",
+            fields: ["probeId": String(probeId), "roundTripMs": roundTripText]
+        )
+    }
+
+    private static func elapsedMs(from startNs: UInt64, to nowNs: UInt64) -> Double {
+        Double(nowNs >= startNs ? nowNs - startNs : 0) / 1_000_000
+    }
+
+    /// `n/a` rather than a zero for "never happened": a teardown line reporting `sinceEchoMs=0`
+    /// would read as an echo that had just arrived, which is the opposite of what it means.
+    private static func describeMs(_ value: Double?) -> String {
+        guard let value else { return "n/a" }
+        return String(Int(value))
     }
 
     /// Send a control message on the datagram lane.
@@ -1250,6 +1338,28 @@ private struct Channels {
         var lastProbeUptimeNs: UInt64?
         var unanswered: Int = 0
         var declared: Bool = false
+        // Round-trip evidence, kept beside the run rather than in it: the run is cleared by any
+        // arrival, so it cannot say whether the host ever answered. These can. `lastProbeId` is
+        // what dates a round trip -- an echo for an older probe still proves the path, but
+        // measuring it against the newest probe's send time would report a fictional latency.
+        var lastProbeId: UInt64?
+        var echoesReceived: Int = 0
+        var lastEchoUptimeNs: UInt64?
+        // Window-granular, not packet-granular: the report loop is the only place that reads the
+        // arrival count, so this is "the last window that carried anything", within one window.
+        var lastArrivalUptimeNs: UInt64?
+    }
+
+    /// What one liveness window decided, plus the evidence behind it. Grew from a bare
+    /// `(probeId, dead)` pair because the interesting part of a teardown is everything the pair
+    /// left out: how long the silence had run, and whether the host had *ever* answered.
+    private struct LivenessOutcome {
+        var probeId: UInt64?
+        var unansweredBefore: Int = 0
+        var dead: Int?
+        var echoesReceived: Int = 0
+        var msSinceLastEcho: Double?
+        var msSinceLastArrival: Double?
     }
 
     private struct State {

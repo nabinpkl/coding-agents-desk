@@ -1146,6 +1146,11 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         case .linkHealth:
             handleLinkHealth(message)
         case .livenessProbe:
+            // Logged on arrival, separately from the send below, because those are the two
+            // different failures: a probe that never reached us and an echo that never left.
+            // Cheap by construction -- the client only probes while nothing is arriving, so
+            // this is at most one line per probe interval and zero on a session carrying video.
+            logger.notice("liveness probe received probe=\(message.frameId, privacy: .public)")
             sendLivenessEcho(probeId: message.frameId)
         case .livenessEcho:
             // Host-to-client only. A client sending one is confused, not dangerous.
@@ -1158,14 +1163,21 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     /// Queueing it behind video would defeat the point: the client probes precisely when frames
     /// have stopped arriving, so an echo stuck behind a backlog of undeliverable video packets
     /// would report the link dead exactly as slowly as the thing it is measuring. A failed send
-    /// is left silent here too -- the client's unanswered-probe count is the signal, and yielding
-    /// `.failed` on a dropped echo would let one lost datagram tear down the session.
+    /// still does not fail the session -- the client's unanswered-probe count is the verdict, and
+    /// yielding `.failed` on a dropped echo would let one lost datagram tear down the session.
+    ///
+    /// It is no longer *silent*, though, and that distinction cost a night of measurement. The
+    /// client declared `hostSilent` eight times in five minutes while the host logged one liveness
+    /// line in thirty, so an echo that never left was indistinguishable from one never asked for
+    /// and from one lost in flight -- three causes with three different fixes. Both outcomes are
+    /// logged here for that reason, at the same negligible rate as the probes that drive them.
     private func sendLivenessEcho(probeId: UInt64) {
         Task { [datagrams, logger] in
             let echo = OwnedMediaControlMessage(kind: .livenessEcho, frameId: probeId)
             guard let data = try? JSONEncoder().encode(echo) else { return }
             do {
                 try await datagrams.send(data)
+                logger.notice("liveness echo sent probe=\(probeId, privacy: .public)")
             } catch {
                 logger.notice("liveness echo send failed probe=\(probeId, privacy: .public) reason=\(String(describing: error), privacy: .public)")
             }
