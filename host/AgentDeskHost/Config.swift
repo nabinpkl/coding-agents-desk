@@ -422,6 +422,29 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_ROUND_TRIP_MINIMUM_WINDOW_MS",
         defaultValue: 30_000
     )
+    // Which percentile of the round-trip window stands in for the path's floor, as the divisor
+    // for the inflation ratio that `isQueueBloated` reads.
+    //
+    // Not 0, because the minimum is one sample and therefore the one most distorted by luck.
+    // Measured over 3466 samples on a healthy Wi-Fi session: `rttMinMs` sat at 6-8ms against a
+    // smoothed 25ms, so the median window reported an inflation of 2.7 and 57% of windows
+    // crossed the 2.5 bloat threshold with zero loss and no queue. Because that verdict resets a
+    // 30-second clean-time requirement, the resolution ladder could not climb at all and the
+    // picture stayed at the emergency floor for twenty minutes.
+    //
+    // 10 rather than a wider quartile, because this percentile is a DELAY as well as a filter.
+    // The floor only stops tracking a real queue once that fraction of the window is queued, so
+    // at the 30s window a p10 floor concedes about 3 seconds of detection latency where p25
+    // would concede 7.5 -- and this detector exists to catch multi-second freezes. 10% still
+    // discards a lone fluke comfortably: the ack stream runs near 2Hz, so one unlucky sample is
+    // under 2% of a full window.
+    //
+    // The freeze this was built for measured 5.0, far above threshold on any of these settings.
+    // Set to 0 to reproduce the old minimum-based behaviour exactly.
+    static let ownedMediaRoundTripFloorPercentile = nonNegativeDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_ROUND_TRIP_FLOOR_PERCENTILE",
+        defaultValue: 10
+    )
     // ADR-0098: how long delivered bytes accumulate before becoming one goodput sample.
     //
     // The tension is with the ack cadence, not with the quality window. Too short and a single
@@ -869,6 +892,17 @@ enum Config {
     static func nonNegativeInt(environmentKey: String, defaultValue: Int) -> Int {
         guard let raw = ProcessInfo.processInfo.environment[environmentKey],
               let value = Int(raw),
+              value >= 0
+        else {
+            return defaultValue
+        }
+        return value
+    }
+    /// Zero-allowing counterpart to `positiveDouble`, for knobs where 0 is a meaningful
+    /// setting rather than an unset one -- a percentile, say, where 0 selects the minimum.
+    static func nonNegativeDouble(environmentKey: String, defaultValue: Double) -> Double {
+        guard let raw = ProcessInfo.processInfo.environment[environmentKey],
+              let value = Double(raw),
               value >= 0
         else {
             return defaultValue

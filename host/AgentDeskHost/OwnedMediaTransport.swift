@@ -897,11 +897,15 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         let inflation = roundTrip.inflationRatio.map { String(format: "%.1f", $0) } ?? "n/a"
         let smoothed = roundTrip.smoothedMs.map { String(format: "%.1f", $0) } ?? "n/a"
         let minimum = roundTrip.minimumMs.map { String(format: "%.1f", $0) } ?? "n/a"
+        // Both, because their divergence is the diagnosis. `rttInflation` divides by the floor,
+        // not the minimum, and a path where those two disagree is one where the luckiest packet
+        // in the window was about to be mistaken for the path's resting level.
+        let floor = roundTrip.floorMs.map { String(format: "%.1f", $0) } ?? "n/a"
         // ADR-0098: next to the rung it is being compared against, because the finding is the
         // gap between them. `n/a` is a distinct reading from a low one and means no backlogged
         // slice completed -- nothing was asked of the link, so nothing was learned about it.
         let deliveredKbps = delivered.map { String(Int(($0 * 8.0 / 1_000.0).rounded())) } ?? "n/a"
-        logger.notice("owned media link telemetry windowId=\(decision.observation.windowId, privacy: .public) deliveredKbps=\(deliveredKbps, privacy: .public) rungKbps=\(decision.outcome.target.bitrateKbps, privacy: .public) rttSmoothedMs=\(smoothed, privacy: .public) rttMinMs=\(minimum, privacy: .public) rttInflation=\(inflation, privacy: .public) rttSamples=\(roundTrip.sampleCount, privacy: .public) host[\(hostPath.snapshot?.logDescription ?? "unknown", privacy: .public) pathChanges=\(hostPath.total, privacy: .public)] client[\(clientTelemetry?.logDescription ?? "absent", privacy: .public)]")
+        logger.notice("owned media link telemetry windowId=\(decision.observation.windowId, privacy: .public) deliveredKbps=\(deliveredKbps, privacy: .public) rungKbps=\(decision.outcome.target.bitrateKbps, privacy: .public) rttSmoothedMs=\(smoothed, privacy: .public) rttMinMs=\(minimum, privacy: .public) rttFloorMs=\(floor, privacy: .public) rttInflation=\(inflation, privacy: .public) rttSamples=\(roundTrip.sampleCount, privacy: .public) host[\(hostPath.snapshot?.logDescription ?? "unknown", privacy: .public) pathChanges=\(hostPath.total, privacy: .public)] client[\(clientTelemetry?.logDescription ?? "absent", privacy: .public)]")
     }
 
     /// ADR-0087: flush the jammed in-flight accounting and, when the rate limit allows,

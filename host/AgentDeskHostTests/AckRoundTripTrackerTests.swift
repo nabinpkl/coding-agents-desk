@@ -73,9 +73,52 @@ private let ms = 1_000_000 as UInt64
     #expect(tracker.inflationRatio == 1)
 }
 
+@Test func oneLuckyPacketDoesNotReadAsAQueue() {
+    // The measured defect, and the reason the divisor is a percentile rather than the minimum.
+    //
+    // A Wi-Fi path resting near 20ms occasionally lands one frame in 6ms. Dividing by that
+    // single sample reported an inflation past the 2.5 "bloated" threshold on a link with zero
+    // loss and no queue -- and because that verdict calls `resetRecovery()`, which zeroes a
+    // 30-second clean-time requirement, the resolution ladder could never leave its floor.
+    var tracker = AckRoundTripTracker(minimumWindowMs: 30_000)
+    var now: UInt64 = 0
+    tracker.record(rttMs: 6, nowNs: now)
+    now += 500 * ms
+    for _ in 0..<40 {
+        tracker.record(rttMs: 20, nowNs: now)
+        now += 500 * ms
+    }
+
+    // The minimum still reports what it saw. It is simply no longer the divisor.
+    #expect(tracker.minimumMs == 6)
+    #expect(tracker.floorMs == 20)
+    #expect((tracker.inflationRatio ?? 0) < 1.2)
+    // What the old divisor would have claimed about this same calm link.
+    #expect(20.0 / (tracker.minimumMs ?? 1) > 2.5)
+}
+
+@Test func aZeroPercentileReproducesTheOldMinimumFloor() {
+    // The escape hatch documented on the config knob has to actually work, or "set it to 0 to
+    // get the previous behaviour" is a claim nobody can fall back on.
+    var tracker = AckRoundTripTracker(minimumWindowMs: 30_000, floorPercentile: 0)
+    var now: UInt64 = 0
+    tracker.record(rttMs: 6, nowNs: now)
+    now += 500 * ms
+    // Enough samples for the smoothed value to actually reach the resting level. With only a
+    // handful it is still climbing out of its 6ms seed, and the ratio measures the seeding
+    // rather than the floor -- which is what this assertion is about.
+    for _ in 0..<40 {
+        tracker.record(rttMs: 20, nowNs: now)
+        now += 500 * ms
+    }
+    #expect(tracker.floorMs == 6)
+    #expect(tracker.floorMs == tracker.minimumMs)
+    #expect((tracker.inflationRatio ?? 0) > 2.5)
+}
+
 @Test func floorTracksTheLowestNotTheMostRecent() {
-    // Guards the monotonic-candidate stack: a dip followed by a rise must leave the dip as
-    // the floor while it is still in window.
+    // A dip followed by a rise must leave the dip inside the window rather than being
+    // forgotten: `minimumMs` reports the distribution's bottom, not the latest sample.
     var tracker = AckRoundTripTracker(minimumWindowMs: 30_000)
     var now: UInt64 = 0
     for rtt in [100.0, 30.0, 250.0, 400.0] {
