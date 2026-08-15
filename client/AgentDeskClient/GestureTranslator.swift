@@ -567,10 +567,20 @@ final class GestureTranslator: NSObject {
         // The direction preference applies to BOTH axes, on every surface. macOS natural
         // scrolling inverts both, and a client that honours it vertically while ignoring it
         // horizontally scrolls one way as asked and the other way as it pleases -- which is
-        // exactly how this was reported: the switch is off and the scroll is still natural.
-        // It was the axis-locked path that ignored it, so the two paths differ in which axes
-        // they let through and never in what a direction means.
-        let sign: CGFloat = tuning.naturalScrolling ? 1.0 : -1.0
+        // exactly how this was first reported. The locked and free paths differ in which axes
+        // they let through, never in what a direction means.
+        //
+        // The sign is the opposite of what the raw CGEvent semantics predict, and that is
+        // measured, not guessed. The host posts wheel1 unchanged, and `InputDispatcher`'s
+        // comment describes what macOS does with it -- but a third-party input tap
+        // (LinearMouse) sits in the event path on this Mac and reverses scroll before any app
+        // sees it, so the delivered direction is inverted from the posted one. 1096 traced
+        // events with the old sign put "natural off" on natural behaviour and vice versa.
+        //
+        // This is therefore calibrated to the delivered direction, not the posted one. Removing
+        // that tap from the Mac would invert this again, which is the honest cost of fixing it
+        // client-side rather than having the host detect the reversal.
+        let sign: CGFloat = tuning.naturalScrolling ? -1.0 : 1.0
         switch scrollAxis {
         case .horizontal:
             return (
@@ -636,7 +646,7 @@ final class GestureTranslator: NSObject {
         // the direction that threw it. One sign covers both axes because the drag now uses one
         // too, and an axis the gesture locked out reaches here with zero velocity, so it stays
         // still whatever the sign says.
-        let sign: CGFloat = tuning.naturalScrolling ? 1.0 : -1.0
+        let sign: CGFloat = tuning.naturalScrolling ? -1.0 : 1.0
         let dx = Float(momentumVelocity.x * dt * gain * tuning.scrollSpeed * sign)
         let dy = Float(momentumVelocity.y * dt * gain * tuning.scrollSpeed * sign)
         let phase: NormalizedInput.ScrollPhase = didEmitMomentumBegan ? .momentumChanged : .momentumBegan

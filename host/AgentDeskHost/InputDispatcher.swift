@@ -496,6 +496,16 @@ final class InputDispatcher: @unchecked Sendable {
         // Horizontal scroll uses wheel2. The client sends positive dx when
         // the finger moves right; pass it through to keep the same natural
         // direct-manipulation sign model as vertical scroll.
+        //
+        // That describes what macOS does with a posted event, which is not
+        // always what the user sees. A third-party input tap (LinearMouse on
+        // this Mac) can sit between this post and every app and reverse
+        // scroll, so the DELIVERED direction is inverted from the one above.
+        // The client's `naturalScrolling` sign is calibrated against the
+        // delivered direction, measured on device -- so it looks backwards
+        // next to this comment, and is not. Do not "fix" one to match the
+        // other without re-measuring; they describe different points in the
+        // pipeline.
         // A fresh gesture (or the end of one) must not inherit a stale
         // fractional remainder from the previous gesture; reset at the gesture
         // delimiters so the first delta of a new stroke is not skewed.

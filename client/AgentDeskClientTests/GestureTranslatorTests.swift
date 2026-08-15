@@ -181,12 +181,13 @@ struct GestureTranslatorTests {
         // .ended emits a zero-delta .ended delimiter so macOS knows the touch
         // drag is over.
         //
-        // dy comes back NEGATED because natural scrolling is off by default: a finger moving
-        // down the strip pushes the document up, the way a mouse wheel does. Turn the setting
-        // on and these are positive, which is what `theDirectionPreferenceApplies...` pins.
+        // dy passes through UNNEGATED because natural scrolling is off by default, and the
+        // sign is calibrated to the direction the Mac actually delivers rather than the one
+        // the raw CGEvent semantics predict -- see the note in `projectedScrollDelta`. Turn
+        // the setting on and these are negative, which `theDirectionPreferenceApplies...` pins.
         #expect(recorder.events.count == 3)
-        #expect(recorder.events[0] == .scroll(dx: 0, dy: -13, phase: .began))
-        #expect(recorder.events[1] == .scroll(dx: 0, dy: -12, phase: .changed))
+        #expect(recorder.events[0] == .scroll(dx: 0, dy: 13, phase: .began))
+        #expect(recorder.events[1] == .scroll(dx: 0, dy: 12, phase: .changed))
         #expect(recorder.events[2] == .scroll(dx: 0, dy: 0, phase: .ended))
     }
 
@@ -200,13 +201,14 @@ struct GestureTranslatorTests {
         translator.processScrollPan(state: .changed, translation: CGPoint(x: 31, y: 8), velocity: CGPoint(x: 260, y: 20))
         translator.processScrollPan(state: .ended, translation: CGPoint(x: 31, y: 8))
 
-        // dx comes back NEGATED for the same reason dy does above: natural scrolling is off by
-        // default and the preference covers both axes. The locked path used to pass dx straight
-        // through, so a user with the switch off got wheel-model vertical and natural horizontal
-        // from one gesture.
+        // dx carries the same sign dy does above, which is the whole point: the preference
+        // covers both axes. The locked path used to pass dx through unsigned while signing dy,
+        // so one gesture on one strip obeyed the preference going down and ignored it going
+        // sideways. That the value here matches the unsigned original is a coincidence of the
+        // default, not a sign that nothing changed -- flip the setting and it moves.
         #expect(recorder.events.count == 3)
-        #expect(recorder.events[0] == .scroll(dx: -13, dy: 0, phase: .began))
-        #expect(recorder.events[1] == .scroll(dx: -18, dy: 0, phase: .changed))
+        #expect(recorder.events[0] == .scroll(dx: 13, dy: 0, phase: .began))
+        #expect(recorder.events[1] == .scroll(dx: 18, dy: 0, phase: .changed))
         #expect(recorder.events[2] == .scroll(dx: 0, dy: 0, phase: .ended))
     }
 
@@ -219,7 +221,7 @@ struct GestureTranslatorTests {
         translator.processScrollPan(state: .changed, translation: CGPoint(x: 10, y: 10), velocity: CGPoint(x: 200, y: 200))
         translator.processScrollPan(state: .changed, translation: CGPoint(x: 20, y: 12), velocity: CGPoint(x: 240, y: 80))
 
-        #expect(recorder.events == [.scroll(dx: -20, dy: 0, phase: .began)])
+        #expect(recorder.events == [.scroll(dx: 20, dy: 0, phase: .began)])
     }
 
     @Test func scrollEndedWithoutAnyChangedEmitsNothing() {
@@ -369,9 +371,9 @@ struct GestureTranslatorTests {
         translator.processScrollPan(state: .changed, translation: CGPoint(x: 0, y: 13))
         translator.processScrollPan(state: .ended, translation: CGPoint(x: 0, y: 13))
 
-        // Negated by the default direction, as above.
+        // Unnegated by the default direction, as above.
         #expect(recorder.events == [
-            .scroll(dx: 0, dy: -13, phase: .began),
+            .scroll(dx: 0, dy: 13, phase: .began),
             .scroll(dx: 0, dy: 0, phase: .ended)
         ])
     }

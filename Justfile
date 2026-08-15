@@ -2,7 +2,12 @@
 # host configuration without values being hardcoded here.
 set dotenv-load := true
 
-ios_test_destination := env_var_or_default("AGENTDESK_IOS_TEST_DESTINATION", "platform=iOS Simulator,name=iPhone 17,OS=latest")
+# A simulator that this Mac actually has. Xcode updates retire simulator models, and when the
+# named one is gone `sim-test` fails with exit 70 and "Unable to find a device matching the
+# provided destination specifier" BEFORE running a single test -- which reads as a broken gate
+# rather than a stale name. If that happens, `xcrun xctrace list devices` shows what exists and
+# AGENTDESK_IOS_TEST_DESTINATION overrides this without editing the file.
+ios_test_destination := env_var_or_default("AGENTDESK_IOS_TEST_DESTINATION", "platform=iOS Simulator,name=iPhone 17 Pro Max,OS=latest")
 # Use the hardware UDID: Xcode requires it as the destination id, and
 # devicectl accepts the same value for install, launch, and diagnostics.
 ios_device := env_var_or_default("AGENTDESK_IOS_DEVICE", "00000000-0000000000000000")
@@ -93,6 +98,11 @@ client_archive_path := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_PATH", justf
 # its derived data's Build tree; pointing it at a dedicated dir (not `derived_data`) keeps that clean
 # from deleting the running host/client build products under `.build/DerivedData` — otherwise every
 # upload deletes a live `host-run` host's on-disk bundle and its keychain/TCC identity breaks.
+# The client test gate builds into its own tree so it never shares a build database with a
+# device or host build. Xcode takes an exclusive lock on build.db, so a `sim-test` running
+# beside a `client-install` used to fail one of the two with "build.db is locked" -- and the
+# test gate is exactly the thing you want to run WHILE a device build is going.
+sim_test_derived_data := env_var_or_default("AGENTDESK_SIM_TEST_DERIVED_DATA", justfile_directory() + "/.build/DerivedData-sim-test")
 client_archive_derived_data := env_var_or_default("AGENTDESK_CLIENT_ARCHIVE_DERIVED_DATA", justfile_directory() + "/.build/DerivedData-archive")
 client_dev_archive_derived_data := justfile_directory() + "/.build/DerivedData-archive-dev"
 client_export_path := env_var_or_default("AGENTDESK_CLIENT_EXPORT_PATH", justfile_directory() + "/.build/testflight/export")
@@ -117,7 +127,7 @@ client_dev_ipa_path := client_dev_export_path + "/AgentDeskClient.ipa"
 # 1.5.0 = input-lane liveness (popover no longer stuck on "Connected") +
 # client-initiated unpair (revoke frame).
 host_marketing_version := env_var_or_default("AGENTDESK_HOST_VERSION", "1.6.0")
-client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.11.0")
+client_marketing_version := env_var_or_default("AGENTDESK_CLIENT_VERSION", "1.11.1")
 apple_team_id := env_var_or_default("AGENTDESK_APPLE_TEAM_ID", "TEAMID0000")
 # AgentDesk-owned source for transcript discovery, parsing, indexing, and feed
 # HTTP/SSE delivery.
@@ -1162,8 +1172,16 @@ wire-test:
 
 # Client simulator tests. Boots the iPhone simulator and is the slow leg split
 # out of `check`. Run before committing client-side changes.
+#
+# Builds into {{sim_test_derived_data}}, not the shared tree, so it can run concurrently with a
+# device or host build instead of losing a race for build.db. The cost is one cold build the
+# first time and a second copy on disk; the benefit is that the gate is always runnable.
+#
+# Deliberately NOT routed through tools/xcodebuild-quiet.sh: that wrapper hides stdout on
+# success, and on a test run stdout is the result. "Test run with N tests passed" is the whole
+# point of running this.
 sim-test: ensure-webview-placeholder voice-assets-stage-tests
-    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -derivedDataPath '{{derived_data}}' -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
+    xcodebuild -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -derivedDataPath '{{sim_test_derived_data}}' -sdk iphonesimulator -destination '{{ios_test_destination}}' build test
 
 # Full gate: the fast host-side check plus the client simulator tests.
 check-all: check sim-test
@@ -1854,15 +1872,24 @@ pty-live-update-verify base="HEAD~1":
 # bundled tree is the inert fixture. AgentPanel now refuses to serve that, so an
 # install without this dependency ships an "Agent view unavailable" panel. The
 # recipe is stamp-cached, so it is a no-op when the web source has not changed.
+#
+# The build targets `generic/platform=iOS`, not this Mac's paired iPhone, and that is
+# deliberate. Naming a concrete device makes xcodebuild resolve and hold that destination
+# before it starts, so the whole multi-minute compile depends on the phone staying reachable --
+# and over Wi-Fi it does not. A phone that blinks once during the build kills a build that never
+# needed it, reporting "Timed out waiting for all destinations" plus a stale note about
+# "previously reported preparation errors" that reads like corrupted Xcode state and is not.
+# Compiling an arm64 app needs no device at all. Only `devicectl install` below does, and that
+# step takes seconds and is cheap to retry.
 client-install variant="stable": build-agent-webview
     #!/usr/bin/env bash
     set -euo pipefail
     GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
     if [ "{{variant}}" = "dev" ]; then
-        sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{dev_derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$GIT_SHA" AGENTDESK_CLIENT_BUNDLE_ID='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev' build
+        sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{dev_derived_data}}' -destination 'generic/platform=iOS' AGENTDESK_GIT_SHA="$GIT_SHA" AGENTDESK_CLIENT_BUNDLE_ID='{{client_dev_bundle_id}}' ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon.Dev BUNDLE_DISPLAY_NAME='AgentDesk Dev' build
         xcrun devicectl device install app --device {{ios_device}} '{{client_dev_app}}'
     else
-        sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$GIT_SHA" build
+        sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Debug -derivedDataPath '{{derived_data}}' -destination 'generic/platform=iOS' AGENTDESK_GIT_SHA="$GIT_SHA" build
         xcrun devicectl device install app --device {{ios_device}} '{{client_app}}'
     fi
 
@@ -1877,8 +1904,17 @@ client-reinstall variant="stable":
 # experimental dev side-by-side variant stays Debug). Device install uses the same
 # automatic development signing as the Debug path, so no distribution provisioning
 # is needed. Used by the fresh-install feel-test composite.
+#
+# Release costs a whole-module-optimization compile of the whole client, so reach for it when
+# you are judging MOTION -- decode, render, scroll, gesture feel. For a correctness change that
+# merely has to run on the phone, `just client-install` builds the same app in Debug and is
+# much faster. Note the host's rule does not transfer: the host stays Release because a Debug
+# `-Onone` build pegs a core in the crisp tile codec, which is a host-side codec problem and
+# says nothing about the client.
+#
+# Builds `generic/platform=iOS` rather than the paired device, for the reason in client-install.
 client-install-release: build-agent-webview
-    sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'platform=iOS,id={{ios_device}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
+    sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'generic/platform=iOS' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
     xcrun devicectl device install app --device {{ios_device}} '{{client_app_release}}'
 
 # Historical recipe name retained for callers. Updates the stable Release app
