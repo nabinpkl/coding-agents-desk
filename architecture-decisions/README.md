@@ -134,3 +134,4 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0097 | List a project's sessions from the catalog index, never from transcript bodies | accepted | 2026-08-13 |
 | ADR-0098 | Rate-match the media path to the link | accepted | 2026-08-13 |
 | ADR-0099 | Observe an agent's background tasks from the OS, and stream their output on demand | proposed | 2026-08-14 |
+| ADR-0100 | A keyframe is a session-start event, not a runtime one | proposed | 2026-08-15 |
