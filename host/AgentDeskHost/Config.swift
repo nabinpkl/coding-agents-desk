@@ -232,10 +232,6 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY1_FPS",
         defaultValue: 24
     )
-    static let ownedMediaCapacity1ResolutionScale = positiveDouble(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY1_RESOLUTION_SCALE",
-        defaultValue: 0.75
-    )
     static let ownedMediaCapacity2BitrateKbps = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY2_BITRATE_KBPS",
         defaultValue: 400
@@ -243,14 +239,6 @@ enum Config {
     static let ownedMediaCapacity2Fps = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY2_FPS",
         defaultValue: 15
-    )
-    static let ownedMediaCapacity2ResolutionScale = positiveDouble(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY2_RESOLUTION_SCALE",
-        defaultValue: 0.5
-    )
-    static let ownedMediaSurvivalResolutionScale = positiveDouble(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_SURVIVAL_RESOLUTION_SCALE",
-        defaultValue: 0.5
     )
     // R231b. How many CONSECUTIVE windows of stale pressure it takes to act on it, mirroring
     // `ownedMediaCadenceDownWindows`. The stale signal is `staleRecoveryCount > 0`: a single
@@ -269,38 +257,6 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_STALE_DOWN_WINDOWS",
         defaultValue: 2
     )
-    // R231c. How long the link has to have been continuously clean before resolution is allowed
-    // to climb BACK up. Deliberately separate from `ownedMediaBitrateRaiseCleanWindows` (4s),
-    // which gates every other recovery step: a bitrate step is free and a resolution step is a
-    // keyframe, so sharing one threshold between them is the same mistake in a third place.
-    //
-    // 30s is set against measurement. Across a 25 minute run the ladder made 51 upward rescales
-    // and 52 downward ones -- a pure oscillation with no net drift -- and an upward rescale
-    // survived a median of 22.4s before being undone. 80% were undone within 30s, 43% within
-    // 20s. Nearly every climb was therefore a keyframe spent on an improvement that did not
-    // hold, the largest measured at 122,041 bytes onto a link that had just failed at that
-    // scale. Waiting costs a softer picture for another half minute; not waiting costs that
-    // keyframe four times out of five for nothing.
-    static let ownedMediaResolutionRaiseCleanMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_RESOLUTION_RAISE_CLEAN_MS",
-        defaultValue: 30_000
-    )
-    // R231. How long the rung has to keep asking for a LOWER resolution before the encoder
-    // acts on it. Bitrate and fps still move on the window that asked; only this axis waits,
-    // because only this axis costs a keyframe and the whole LTR reference set to change.
-    //
-    // Down only. The climb back has its own, older gate: `recover()` raises resolution through
-    // a probe phase with a clean-streak requirement, a warmup, and a rollback. A second knob
-    // for the up-move would model the same thing twice.
-    //
-    // 10s is set against measurement, not taste: the ladder's own sawtooth held a lower rung
-    // for 6-9s at a time before climbing back, so anything shorter commits to excursions that
-    // were about to reverse. A link that genuinely got worse keeps asking and is honoured
-    // 10s in, by which point the two free axes have already absorbed it.
-    static let ownedMediaResolutionDownDwellMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_RESOLUTION_DOWN_DWELL_MS",
-        defaultValue: 10_000
-    )
     // ADR-0033 survival cadence target. A lower emergency rung exists for paths
     // that still freeze after survival.
     static let ownedMediaFpsFloor = positiveInt(
@@ -315,13 +271,9 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_EMERGENCY_FPS",
         defaultValue: 6
     )
-    static let ownedMediaEmergencyResolutionScale = positiveDouble(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_EMERGENCY_RESOLUTION_SCALE",
-        defaultValue: 0.33
-    )
     // Tile-path periodic full-surface heal cadence (ScrollDeltaEngine.healIntervalFrames).
-    // Named for the heal it actually drives, not a video keyframe. The video GOP is the
-    // separate ownedMediaKeyframeIntervalFrames below.
+    // Named for the heal it actually drives, not a video keyframe. There is no longer a video
+    // GOP interval to confuse it with: ADR-0100 removed periodic keyframe placement entirely.
     static let ownedMediaTileHealIntervalFrames = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_TILE_HEAL_INTERVAL_FRAMES",
         defaultValue: 120
@@ -365,42 +317,6 @@ enum Config {
     static let ownedMediaMaxDatagramFrameSize = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_MAX_DATAGRAM_FRAME_SIZE",
         defaultValue: 1300
-    )
-    // Video encoder GOP: the HEVC datagram carrier's keyframe cadence. THE keyframe
-    // knob (AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES). 120 keeps the keyframe-tax
-    // bandwidth low (the dominant rest cost under alwaysVideo); datagram loss recovers
-    // via the next periodic keyframe or a client keyframe request. Lower it to bound the
-    // worst-case post-loss glitch at the cost of more keyframe bandwidth.
-    static let ownedMediaKeyframeIntervalFrames = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_INTERVAL_FRAMES",
-        defaultValue: 120
-    )
-    // ADR-0087: wall-clock ceiling on the same GOP. The frame-count interval above is
-    // unbounded in TIME, and capture is change-driven: a quiet screen produced 4-6fps on
-    // device, stretching 120 frames to ~21s, and ADR-0073's own 1fps validation profile
-    // stretches it to two minutes. That breaks the client's stated recovery contract
-    // ("keeps the last displayed image, and waits for one coalesced keyframe") because the
-    // wait it is told to make has no bound.
-    //
-    // 15s, not lower, is a bandwidth decision. Measured keyframes are 47-89KB at the low
-    // rungs and ~165KB at 0.5 scale, against a link measured at 300-650kbps: a 5s ceiling
-    // would spend 142-264kbps on keyframes alone, most of the link. At 15s the tax is
-    // 25-88kbps. Whichever of the two intervals comes first wins, so at 15fps+ the frame
-    // count still governs and this never fires.
-    static let ownedMediaKeyframeMaxIntervalMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_MAX_INTERVAL_MS",
-        defaultValue: 15_000
-    )
-    // ADR-0098: the above is now the interval for a link at the CEILING, stretched in proportion
-    // as the budget falls (see `VideoToolboxOwnedMediaEncoder.keyframeInterval`). This bounds the
-    // stretch, because a safety net with no bottom is not a net: a client that misses every
-    // explicit resync still has to come back on its own.
-    //
-    // 60s against the measured 96KB keyframe on a 300kbps link is 12.8kbps, 4% of the budget,
-    // where the flat 15s spent 51kbps -- 17% of it, in one lump every fifteen seconds.
-    static let ownedMediaKeyframeMaxIntervalCeilingMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_KEYFRAME_MAX_INTERVAL_CEILING_MS",
-        defaultValue: 60_000
     )
     // ADR-0087: floor between two stall-recovery keyframes. The flush half of recovery is
     // free and runs every stalled window; this spaces out only the keyframe, so a link
@@ -495,21 +411,21 @@ enum Config {
     //
     // 2.5 sits between the two measured populations rather than at a round number: an ordinary
     // window on this path ran near 1.0-1.5, and the freeze read 5.0.
-    // Pin the encoder's resolution scale and take the axis away from the ladder. 0 disables.
+    // ADR-0100: the encode resolution, for every rung, for the life of the session.
     //
-    // Resolution is not a peer of bitrate and fps, which is how the ladder currently treats it.
-    // VideoToolbox fixes width and height at `VTCompressionSessionCreate` and offers no property
-    // to change them, so every rescale RECREATES the session -- which discards every acknowledged
-    // LTR reference. Measured cost of one change: a full IDR (~53KB, 2.1s of wire at 208kbps)
-    // plus a 9-16 second window in which no acknowledged reference exists, so every stall
-    // recovery inside it is another IDR. Bitrate and fps cost nothing to change.
+    // This replaced four per-rung scales (0.75 / 0.5 / 0.5 / 0.33). Descending through them is
+    // what made resolution expensive: VideoToolbox fixes width and height at
+    // VTCompressionSessionCreate, so a scale change recreates the session and discards every
+    // acknowledged LTR reference -- and until a new one completes the round trip, measured at
+    // 9-16 seconds, every refresh falls back to a full IDR of ~44KB. On a 208kbps link that is
+    // 1.7-2.2 seconds of wire each, which is the freeze it was supposed to prevent.
     //
-    // Set this to hold one encode size for a whole session, leaving the ladder the two cheap
-    // axes. It is a measurement instrument first: it makes "how much of the freezing is
-    // rescale-induced" answerable by removing the cause rather than reasoning about it.
-    static let ownedMediaPinnedResolutionScale = nonNegativeDouble(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_PINNED_RESOLUTION_SCALE",
-        defaultValue: 0
+    // 0.5 rather than the old emergency 0.33: with the axis fixed, the value has to be legible on
+    // a fast link as well as affordable on a slow one, and bitrate and fps do the adapting inside
+    // it at no cost. Measured, pinning alone took >=1s freezes from 13.6% to 5.3%.
+    static let ownedMediaResolutionScale = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_RESOLUTION_SCALE",
+        defaultValue: 0.5
     )
     // The absolute half of the queue-bloat test: how far behind the picture has to actually be
     // before an inflated ratio is allowed to mean anything. Both must hold -- see

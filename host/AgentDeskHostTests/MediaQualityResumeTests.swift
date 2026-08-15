@@ -34,7 +34,7 @@ struct MediaQualityResumeTests {
         return MediaQualityTarget(
             bitrateKbps: config.capacity2Kbps,
             fps: config.capacity2Fps,
-            resolutionScale: config.capacity2Scale,
+            resolutionScale: config.resolutionScale,
             rung: .capacity2,
             reason: "test-pre-drop"
         )
@@ -42,9 +42,13 @@ struct MediaQualityResumeTests {
 
     /// A first connection has measured nothing, so the ceiling is the correct opening bid. This
     /// is the behaviour that must survive the change: carrying a rung is for resumes only.
+    ///
+    /// ADR-0100: "the ceiling" is now bitrate and fps only. Resolution has no ceiling to open at
+    /// -- it is one value for the whole session -- so the assertion is that opening does not
+    /// move it, which is what keeps a first connection from spending an IDR before it starts.
     @Test func aFirstConnectionStillOpensAtTheCeiling() {
         let state = makeState()
-        #expect(state.targetResolutionScale == 1.0)
+        #expect(state.targetResolutionScale == Config.ownedMediaResolutionScale)
         #expect(state.targetKbps == config().ceilingKbps)
         #expect(state.targetFps == config().fpsCeiling)
     }
@@ -64,7 +68,7 @@ struct MediaQualityResumeTests {
     /// that decides whether the compression session survives: same scale in means same scaled
     /// dimensions out, so `ensureSession` does not recreate and the long-term references live.
     @Test func aResumeDoesNotRescaleAndSoDoesNotRecreateTheEncoderSession() {
-        let preDropScale = config().capacity2Scale
+        let preDropScale = config().resolutionScale
         let state = makeState(resuming: capacity2Target())
         #expect(state.targetResolutionScale == preDropScale)
         #expect(state.targetResolutionScale != 1.0, "a resume that opens at native scale forces the rescale this exists to avoid")

@@ -293,12 +293,10 @@ struct MediaStallRecoveryTests {
             transitionWarmupWindows: 1,
             capacity1Kbps: 650,
             capacity1Fps: 24,
-            capacity1Scale: 0.75,
             capacity2Kbps: 400,
             capacity2Fps: 15,
-            capacity2Scale: 0.5,
-            emergencyKbps: 180, emergencyFps: 6, emergencyScale: 0.33,
-            survivalScale: 0.5
+            emergencyKbps: 180, emergencyFps: 6,
+            resolutionScale: 0.5
         )
     }
 }

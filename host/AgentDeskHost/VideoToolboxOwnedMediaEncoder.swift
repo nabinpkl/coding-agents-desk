@@ -16,9 +16,8 @@ import AgentDeskWire
 // Why a keyframe happened, for logging and refresh-reason classification. Host
 // only; never crosses the wire.
 // ADR-0087: every value here is a keyframe WE forced, and each names a distinct cause.
-// There is deliberately no `periodic` case: periodic placement belongs to the encoder's
-// interval properties, and a keyframe it placed has no reason we can name (the log records
-// those as `source=encoder`).
+// ADR-0100: there is no `periodic` case because there is no longer periodic placement -- the
+// encoder is given no keyframe interval, so every keyframe in the stream is one of these.
 //
 // These were previously collapsed to `clientRequest` at the call site, so a resolution
 // change and a stall recovery both logged as a client request. That mattered more once
@@ -73,15 +72,6 @@ private extension OwnedMediaCodec {
 struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
     let targetBitrateKbps: Int
     let expectedFrameRate: Int
-    // ADR-0087: both intervals are handed to the encoder as session properties, which
-    // enforces them together (whichever comes first). Neither is consulted by our code.
-    let keyframeIntervalFrames: Int
-    // The wall-clock half, and the load-bearing one: the frame count above is unbounded in
-    // TIME on a change-driven capture. See Config for the bandwidth arithmetic.
-    let keyframeMaxIntervalMs: Int
-    // ADR-0098: the longest the periodic refresh may be stretched to on a slow link. The pair
-    // above describes a link at `targetBitrateKbps`; this bounds what happens below it.
-    let keyframeMaxIntervalCeilingMs: Int
     // ADR-0027: multiple of the average bitrate used for the encoder's hard
     // DataRateLimits window. Threaded through config so it tracks the bitrate and is
     // injectable in tests; defaults to the Config knob so existing call sites are
@@ -91,31 +81,22 @@ struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
     init(
         targetBitrateKbps: Int,
         expectedFrameRate: Int,
-        keyframeIntervalFrames: Int,
-        keyframeMaxIntervalMs: Int = Config.ownedMediaKeyframeMaxIntervalMs,
-        keyframeMaxIntervalCeilingMs: Int = Config.ownedMediaKeyframeMaxIntervalCeilingMs,
         dataRateLimitRatio: Double = Config.ownedMediaDataRateLimitRatio
     ) {
         self.targetBitrateKbps = targetBitrateKbps
         self.expectedFrameRate = expectedFrameRate
-        self.keyframeIntervalFrames = keyframeIntervalFrames
-        self.keyframeMaxIntervalMs = keyframeMaxIntervalMs
-        self.keyframeMaxIntervalCeilingMs = max(keyframeMaxIntervalMs, keyframeMaxIntervalCeilingMs)
         self.dataRateLimitRatio = dataRateLimitRatio
     }
 
     static let `default` = OwnedMediaEncodingConfiguration(
         targetBitrateKbps: Config.ownedMediaBitrateKbps,
-        expectedFrameRate: 30,
-        keyframeIntervalFrames: 120
+        expectedFrameRate: 30
     )
 
     static func fromConfig() -> OwnedMediaEncodingConfiguration {
         OwnedMediaEncodingConfiguration(
             targetBitrateKbps: Config.ownedMediaBitrateKbps,
-            expectedFrameRate: Config.ownedMediaExpectedFrameRate,
-            keyframeIntervalFrames: Config.ownedMediaKeyframeIntervalFrames,
-            keyframeMaxIntervalMs: Config.ownedMediaKeyframeMaxIntervalMs
+            expectedFrameRate: Config.ownedMediaExpectedFrameRate
         )
     }
 }
@@ -146,18 +127,6 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     // recreate keeps the adapted rate. Matches the encoder's bit allocation to the
     // produce-loop cadence cap.
     private var expectedFrameRate: Int
-    /// ADR-0098: the live periodic-refresh interval, scaled to the rung's budget.
-    ///
-    /// The configured pair is the interval for a link at the ceiling. Held at that value on a
-    /// 300kbps link it cost 51kbps -- a 96KB keyframe every 15.1s, 17% of the whole budget,
-    /// delivered as a lump -- and it was the single largest keyframe source in a measured
-    /// 45-minute session: 25 of 53, none of them requested by anything.
-    ///
-    /// Recomputed on every bitrate change and re-applied on session recreate, exactly as the
-    /// bitrate and frame rate above are, so a resolution change cannot silently restore the
-    /// ceiling's cadence on a link that cannot afford it.
-    private var currentKeyframeIntervalFrames: Int
-    private var currentKeyframeMaxIntervalMs: Int
     private let configuration: OwnedMediaEncodingConfiguration
     private let lock = NSLock()
     private var session: VTCompressionSession?
@@ -194,6 +163,10 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     /// client or wire fault, both zero is an encoder that is not producing references at all.
     private var ltrTokensAcknowledged = 0
     private var pendingFrames: [UInt64: PendingEncodedFrame] = [:]
+    /// How many frames VideoToolbox has refused, and the last code it gave. See
+    /// `handleEncodeFailed`: this is the only signal a broken encoder produces.
+    private var encodeFailureCount = 0
+    private var lastEncodeFailureStatus: OSStatus = noErr
 
     init(
         codec: OwnedMediaCodec,
@@ -202,49 +175,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         self.codec = codec
         self.currentBitrateKbps = configuration.targetBitrateKbps
         self.expectedFrameRate = configuration.expectedFrameRate
-        let interval = Self.keyframeInterval(
-            forBitrateKbps: configuration.targetBitrateKbps,
-            configuration: configuration
-        )
-        self.currentKeyframeIntervalFrames = interval.frames
-        self.currentKeyframeMaxIntervalMs = interval.maxIntervalMs
         self.configuration = configuration
-    }
-
-    /// How often the encoder may place a keyframe nobody asked for, given what the link can carry.
-    ///
-    /// The periodic refresh is a safety net: it exists so a client that lost sync recovers even
-    /// if no explicit request reaches us. How long "eventually" is allowed to be should scale
-    /// with how expensive that recovery is, and on a slow link it is very expensive. So the
-    /// configured interval is treated as the interval for a link at the CEILING, and stretched
-    /// in proportion as the budget falls, which keeps the refresh at a roughly constant share of
-    /// the link instead of a constant share of the clock.
-    ///
-    /// Both properties move together because "whichever comes first wins": at the emergency
-    /// rung's 6fps the configured 120 frames is 20s, so stretching only the duration would be
-    /// inert. Scaling both by the same factor leaves the ceiling's behaviour exactly as it was
-    /// (factor 1) rather than retuning a rung that was never the problem.
-    ///
-    /// Bounded by `ownedMediaKeyframeMaxIntervalCeilingMs`, because a net with no bottom is not
-    /// a net: a client that misses every explicit resync still has to come back on its own.
-    static func keyframeInterval(
-        forBitrateKbps kbps: Int,
-        configuration: OwnedMediaEncodingConfiguration
-    ) -> (frames: Int, maxIntervalMs: Int) {
-        // The encoder's OWN configured target, not the global ceiling: this has to be a function
-        // of its arguments alone, or an encoder built for a different budget silently inherits
-        // the daily driver's idea of what "at the ceiling" means.
-        let ceilingKbps = max(1, configuration.targetBitrateKbps)
-        let factor = max(1.0, Double(ceilingKbps) / Double(max(1, kbps)))
-        let stretchedMs = Double(configuration.keyframeMaxIntervalMs) * factor
-        let cappedMs = min(Double(configuration.keyframeMaxIntervalCeilingMs), stretchedMs)
-        // Re-derive the applied factor from the capped duration so the frame count never implies
-        // a shorter interval than the duration allows, which would put the cap back to no effect.
-        let appliedFactor = max(1.0, cappedMs / Double(max(1, configuration.keyframeMaxIntervalMs)))
-        return (
-            frames: Int((Double(configuration.keyframeIntervalFrames) * appliedFactor).rounded()),
-            maxIntervalMs: Int(cappedMs.rounded())
-        )
     }
 
     func encode(
@@ -318,6 +249,13 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             // delta against one would be garbage even if the client still held it. `clientHasNo
             // References` is the client saying it discarded its decoder, which it is the only
             // party that can know.
+            //
+            // ADR-0100: `resolutionChange` is now reachable ONLY from an explicit client quality
+            // setting. The ladder holds one scale for the life of the session, so it can no
+            // longer produce one. The branch stays because it is keyed on an actual value
+            // comparison rather than an assumption -- if a scale does change, the reference set
+            // really is invalid, and dropping the guard because "that cannot happen" is how a
+            // stream gets corrupted the day it does.
             //
             // Asking for a refresh is safe regardless: with LTR off or nothing acknowledged,
             // VideoToolbox emits an IDR anyway, so the client is never handed a frame it cannot
@@ -430,13 +368,6 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
     func updateBitrate(_ kbps: Int) {
         lock.lock()
         currentBitrateKbps = kbps
-        // ADR-0098: the periodic-refresh interval is a function of the budget, so it moves with
-        // it here rather than being a separate thing a caller has to remember to update.
-        let interval = Self.keyframeInterval(forBitrateKbps: kbps, configuration: configuration)
-        let intervalChanged = interval.frames != currentKeyframeIntervalFrames
-            || interval.maxIntervalMs != currentKeyframeMaxIntervalMs
-        currentKeyframeIntervalFrames = interval.frames
-        currentKeyframeMaxIntervalMs = interval.maxIntervalMs
         let session = self.session
         let ratio = configuration.dataRateLimitRatio
         lock.unlock()
@@ -449,18 +380,6 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         _ = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_AverageBitRate, value: NSNumber(value: kbps * 1000))
         _ = VTSessionSetProperty(session, key: kVTCompressionPropertyKey_DataRateLimits, value: limitsValue)
         logger.notice("owned encoder bitrate-updated kbps=\(kbps, privacy: .public) dataRateCapBytes=\(Int(limits.bytesPerWindow), privacy: .public)")
-        guard intervalChanged else { return }
-        _ = VTSessionSetProperty(
-            session,
-            key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
-            value: NSNumber(value: interval.frames)
-        )
-        _ = VTSessionSetProperty(
-            session,
-            key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
-            value: NSNumber(value: Double(interval.maxIntervalMs) / 1000.0)
-        )
-        logger.notice("owned encoder keyframe-interval-updated frames=\(interval.frames, privacy: .public) maxIntervalMs=\(interval.maxIntervalMs, privacy: .public) kbps=\(kbps, privacy: .public)")
     }
 
     // ADR-0029: retarget the live session's expected frame rate without recreating it,
@@ -602,24 +521,19 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         // these two would silently leave the stream with no ceiling at all. R189 asserts
         // both are supported and read back on real hardware; this is the runtime half of
         // that guarantee.
-        // ADR-0098: the LIVE interval, not the configured one, for the same reason the bitrate
-        // above is live. A resolution change recreates this session, and restoring the ceiling's
-        // refresh cadence on a link at the emergency rung would undo the stretch at exactly the
-        // moment it is most needed -- a rescale only happens because the link is in trouble.
-        try setRequiredProperty(
-            kVTCompressionPropertyKey_MaxKeyFrameInterval,
-            value: NSNumber(value: currentKeyframeIntervalFrames),
-            on: newSession
-        )
-        try setRequiredProperty(
-            kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
-            value: NSNumber(value: Double(currentKeyframeMaxIntervalMs) / 1000.0),
-            on: newSession
-        )
+        // ADR-0100: no MaxKeyFrameInterval and no MaxKeyFrameIntervalDuration. Setting either
+        // asks the encoder to place keyframes nobody requested, and on a constrained link that is
+        // the largest single cost in the stream: measured at 8 of 17 keyframes even with the
+        // interval already stretched to its 60s ceiling, ~44KB each, 1.7-2.2s of wire at 208kbps,
+        // on a screen whose delta frames were 1,093 bytes.
+        //
+        // What it bought was a safety net for a client whose explicit resync never arrives. That
+        // client now recovers through the path it already uses constantly -- it asks, and the
+        // answer is an LTR refresh against a reference it confirmed, ~1KB instead of ~44KB.
         VTCompressionSessionPrepareToEncodeFrames(newSession)
         session = newSession
         size = (width, height)
-        logger.notice("owned encoder session codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) pixelFormat=\(Self.fourCC(actualPixelFormat), privacy: .public) bitrate=\(self.currentBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public) keyframeInterval=\(self.configuration.keyframeIntervalFrames, privacy: .public) dataRateCapBytes=\(Int(dataRateLimits.bytesPerWindow), privacy: .public) dataRateWindowSec=\(dataRateLimits.windowSeconds, privacy: .public)")
+        logger.notice("owned encoder session codec=\(self.codec.rawValue, privacy: .public) size=\(width, privacy: .public)x\(height, privacy: .public) pixelFormat=\(Self.fourCC(actualPixelFormat), privacy: .public) bitrate=\(self.currentBitrateKbps, privacy: .public)kbps fps=\(self.expectedFrameRate, privacy: .public) dataRateCapBytes=\(Int(dataRateLimits.bytesPerWindow), privacy: .public) dataRateWindowSec=\(dataRateLimits.windowSeconds, privacy: .public)")
     }
 
     private func setProperty(_ key: CFString, value: CFTypeRef, on session: VTCompressionSession) throws {
@@ -689,13 +603,35 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         let encoder = Unmanaged<VideoToolboxOwnedMediaEncoder>.fromOpaque(refcon).takeUnretainedValue()
         guard status == noErr,
               let sampleBuffer else {
-            encoder.handleEncodeFailed(sourceFrameRefcon: sourceFrameRefcon)
+            encoder.handleEncodeFailed(status: status, sourceFrameRefcon: sourceFrameRefcon)
             return
         }
         encoder.handleEncoded(sampleBuffer: sampleBuffer, sourceFrameRefcon: sourceFrameRefcon)
     }
 
-    private func handleEncodeFailed(sourceFrameRefcon: UnsafeMutableRawPointer?) {
+    /// A frame the encoder refused, and the ONLY place that refusal is observable.
+    ///
+    /// VideoToolbox reports per-frame encode failures asynchronously, here, and nowhere else:
+    /// `VTSessionSetProperty`, `VTCompressionSessionPrepareToEncodeFrames`,
+    /// `VTCompressionSessionEncodeFrame` and `VTCompressionSessionCompleteFrames` all return
+    /// `noErr` while every frame fails. Measured directly -- an unsupported
+    /// `BaseLayerFrameRateFraction` produced 40 submitted frames, 40 failures with -12910
+    /// (`kVTParameterErr`), zero bytes, and not one synchronous call that said so.
+    ///
+    /// This used to complete the pending frame with nil and log nothing, so a systematically
+    /// failing encoder looked exactly like a quiet screen: the host reported a healthy pipeline
+    /// while sending a black picture. Rate-limited because a broken session fails EVERY frame,
+    /// and a per-frame log would bury the log it is trying to make visible.
+    private func handleEncodeFailed(status: OSStatus, sourceFrameRefcon: UnsafeMutableRawPointer?) {
+        lock.lock()
+        encodeFailureCount += 1
+        let count = encodeFailureCount
+        let changed = status != lastEncodeFailureStatus
+        if changed { lastEncodeFailureStatus = status }
+        lock.unlock()
+        if changed || count == 1 || count % 60 == 0 {
+            logger.error("owned encoder encode-failed status=\(status, privacy: .public) consecutiveOrTotal=\(count, privacy: .public)")
+        }
         guard let sourceFrameRefcon else { return }
         let encodedFrameId = UInt64(UInt(bitPattern: sourceFrameRefcon))
         let pending: PendingEncodedFrame?

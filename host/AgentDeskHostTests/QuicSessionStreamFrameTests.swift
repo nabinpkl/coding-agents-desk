@@ -361,12 +361,10 @@ struct QuicSessionHostMediaStateTests {
             transitionWarmupWindows: 1,
             capacity1Kbps: 650,
             capacity1Fps: 24,
-            capacity1Scale: 0.75,
             capacity2Kbps: 400,
             capacity2Fps: 15,
-            capacity2Scale: 0.5,
-            emergencyKbps: 180, emergencyFps: 6, emergencyScale: 0.33,
-            survivalScale: 0.5
+            emergencyKbps: 180, emergencyFps: 6,
+            resolutionScale: 0.5
         )
     }
 
@@ -610,10 +608,10 @@ struct QuicSessionHostMediaStateTests {
         )
 
         #expect(down.outcome.reason == "cadence-capacity-down")
-        // R231: same split. The decision is real and reaches the encoder as bitrate and fps;
-        // the resolution component of the rung waits for the pressure to persist.
+        // ADR-0100: the split is now permanent rather than a wait. A rung move reaches the
+        // encoder as bitrate and fps only; the resolution component does not exist.
         #expect(down.changedAxes == "bitrate,fps,rung")
-        #expect(down.outcome.target.resolutionScale == 1.0)
+        #expect(down.outcome.target.resolutionScale == Config.ownedMediaResolutionScale)
     }
 
     @Test func ackAgeIsComputedFromSentFrameTime() throws {

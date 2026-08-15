@@ -93,7 +93,11 @@ private func healthyProduction() -> MediaProductionSummary {
     for _ in 0..<20 {
         let outcome = controller.observe(window()).outcome
         #expect(outcome.reason != "delivery-stalled-down")
-        #expect(outcome.target.rung == .emergency)
+        // Not `== .emergency`. ADR-0100 removed the 30s resolution clean-time gate, which used
+        // to hold the ladder in place here, so a calm screen now climbs -- which is the point of
+        // removing it. What this test is about is that a calm screen is never mistaken for a
+        // STALL, so the invariant is that the rung never gets worse, not that it never moves.
+        #expect(outcome.target.rung <= .emergency)
     }
 }
 
@@ -105,7 +109,7 @@ private func healthyProduction() -> MediaProductionSummary {
     controller.pin(to: MediaQualityTarget(
         bitrateKbps: config().emergencyKbps / 2,
         fps: config().emergencyFps,
-        resolutionScale: config().emergencyScale,
+        resolutionScale: config().resolutionScale,
         rung: .emergency,
         reason: "test"
     ))
@@ -171,7 +175,7 @@ private func healthyProduction() -> MediaProductionSummary {
     controller.pin(to: MediaQualityTarget(
         bitrateKbps: config().emergencyKbps,
         fps: config().emergencyFps,
-        resolutionScale: config().emergencyScale,
+        resolutionScale: config().resolutionScale,
         rung: .emergency,
         reason: "test"
     ))

@@ -49,8 +49,8 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         )
     }
 
-    private func config(keyframeInterval: Int) -> OwnedMediaEncodingConfiguration {
-        OwnedMediaEncodingConfiguration(targetBitrateKbps: 2000, expectedFrameRate: 30, keyframeIntervalFrames: keyframeInterval)
+    private func config() -> OwnedMediaEncodingConfiguration {
+        OwnedMediaEncodingConfiguration(targetBitrateKbps: 2000, expectedFrameRate: 30)
     }
 
     private func updateId(_ frameId: UInt64) -> OwnedSurfaceUpdateId {
@@ -76,7 +76,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
     }
 
     func testFirstFrameIsKeyframeWithParameterSets() async throws {
-        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config(keyframeInterval: 120))
+        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config())
         defer { encoder.invalidate() }
         let frame = try await encodeFrame(encoder, frameIndex: 0, frameId: 1)
         XCTAssertTrue(frame.header.isKeyframe)
@@ -90,7 +90,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
     }
 
     func testEnvelopeRoundTripsThroughTheWire() async throws {
-        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config(keyframeInterval: 120))
+        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config())
         defer { encoder.invalidate() }
         let envelope = try await encodeFrame(encoder, frameIndex: 0, frameId: 1)
         let decoded = try OwnedMediaFrameEnvelope.decode(envelope.encode())
@@ -99,194 +99,13 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
     }
 
     func testSecondFrameIsDelta() async throws {
-        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config(keyframeInterval: 120))
+        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config())
         defer { encoder.invalidate() }
         _ = try await encodeFrame(encoder, frameIndex: 0, frameId: 1)
         let second = try await encodeFrame(encoder, frameIndex: 1, frameId: 2)
         XCTAssertFalse(second.header.isKeyframe, "second frame should be inter-predicted")
         XCTAssertNil(second.header.parameterSets, "delta frames carry no parameter sets")
         XCTAssertEqual(second.header.refreshReason, .rest)
-    }
-
-    // ADR-0087: periodic placement is the encoder's, so this asserts the CONTRACT -- a
-    // keyframe at least every N frames -- not the exact positions our old frame counter
-    // happened to choose. The header defines interval N as "at least every Nth frame must
-    // be a key frame", which is a bound, not a schedule.
-    func testKeyframeArrivesAtLeastEveryIntervalFrames() async throws {
-        let interval = 4
-        let encoder = VideoToolboxOwnedMediaEncoder(
-            codec: .hevc,
-            configuration: config(keyframeInterval: interval)
-        )
-        defer { encoder.invalidate() }
-        var gap = 0
-        var worstGap = 0
-        for index in 0..<16 {
-            let frame = try await encodeFrame(encoder, frameIndex: UInt64(index), frameId: UInt64(index + 1))
-            if frame.header.isKeyframe {
-                worstGap = max(worstGap, gap)
-                gap = 0
-            } else {
-                gap += 1
-            }
-        }
-        XCTAssertLessThan(
-            worstGap, interval,
-            "gap of \(worstGap) frames between keyframes exceeds the \(interval)-frame interval"
-        )
-    }
-
-    // The reason the wall-clock ceiling exists: a change-driven capture can produce a few
-    // frames per second, where a 120-frame GOP is ~21s and ADR-0073's 1fps validation
-    // profile is TWO MINUTES. VideoToolbox measures the duration against the presentation
-    // timeline, not the host clock, so feeding a slow PTS proves the bound in milliseconds
-    // rather than in real minutes.
-    func testKeyframeArrivesOnTheDurationCeilingWhenFramesAreSparse() async throws {
-        let encoder = VideoToolboxOwnedMediaEncoder(
-            codec: .hevc,
-            // Frame count effectively disabled, so only the duration ceiling can fire.
-            configuration: OwnedMediaEncodingConfiguration(
-                targetBitrateKbps: 2000,
-                expectedFrameRate: 30,
-                keyframeIntervalFrames: 10_000,
-                keyframeMaxIntervalMs: 3_000
-            )
-        )
-        defer { encoder.invalidate() }
-        var keyframeAtSecond: [Int] = []
-        for second in 0..<8 {
-            let frame = try await encodeFrame(
-                encoder,
-                frameIndex: UInt64(second),
-                frameId: UInt64(second + 1),
-                presentationTimeNs: Int64(second) * 1_000_000_000
-            )
-            if frame.header.isKeyframe { keyframeAtSecond.append(second) }
-        }
-        // Frame 1 is always a keyframe; the ceiling must produce more beyond it.
-        XCTAssertGreaterThan(
-            keyframeAtSecond.count, 1,
-            "no keyframe in 8 presentation-seconds against a 3s ceiling (keyframes at \(keyframeAtSecond))"
-        )
-        let worstGap = zip(keyframeAtSecond, keyframeAtSecond.dropFirst()).map { $1 - $0 }.max() ?? 0
-        XCTAssertLessThanOrEqual(
-            worstGap, 3,
-            "gap of \(worstGap)s between keyframes exceeds the 3s ceiling"
-        )
-    }
-
-    // R189 (ADR-0087): does this Mac's hardware HEVC encoder actually honor the two
-    // keyframe-interval properties, at OUR exact session settings?
-    //
-    // This is a gate, not a nicety. `setProperty` deliberately tolerates
-    // `kVTPropertyNotSupportedErr`, and both keys are documented Optional, so a
-    // declined property is indistinguishable from an accepted one at the call site.
-    // Handing the periodic GOP to the platform on the assumption it is supported would
-    // trade a working wall-clock ceiling for a silent absence of one.
-    //
-    // `EnableLowLatencyRateControl` is included because it selects a different rate
-    // controller, and the property support list is the encoder's to define. The SDK
-    // header lists both keys as usable with that path; this asserts it on real silicon
-    // rather than trusting the doc.
-    func testEncoderHonorsBothKeyframeIntervalProperties() throws {
-        var session: VTCompressionSession?
-        let encoderSpecification = [
-            kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder: kCFBooleanTrue as Any,
-            kVTVideoEncoderSpecification_EnableLowLatencyRateControl: kCFBooleanTrue as Any
-        ] as CFDictionary
-        let createStatus = VTCompressionSessionCreate(
-            allocator: kCFAllocatorDefault,
-            width: 256,
-            height: 256,
-            codecType: kCMVideoCodecType_HEVC,
-            encoderSpecification: encoderSpecification,
-            imageBufferAttributes: nil,
-            compressedDataAllocator: nil,
-            outputCallback: nil,
-            refcon: nil,
-            compressionSessionOut: &session
-        )
-        XCTAssertEqual(createStatus, noErr, "hardware HEVC session create failed")
-        let live = try XCTUnwrap(session)
-        defer { VTCompressionSessionInvalidate(live) }
-
-        // The rest of our real session config, since property support can depend on it.
-        for (key, value) in [
-            (kVTCompressionPropertyKey_RealTime, kCFBooleanTrue as CFTypeRef),
-            (kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse as CFTypeRef),
-            (kVTCompressionPropertyKey_ExpectedFrameRate, NSNumber(value: 30) as CFTypeRef),
-            (kVTCompressionPropertyKey_AverageBitRate, NSNumber(value: 2_000_000) as CFTypeRef)
-        ] {
-            XCTAssertEqual(
-                VTSessionSetProperty(live, key: key, value: value), noErr,
-                "baseline property \(key) rejected"
-            )
-        }
-
-        // 1. The encoder must advertise both keys as supported.
-        var supported: CFDictionary?
-        XCTAssertEqual(
-            VTSessionCopySupportedPropertyDictionary(live, supportedPropertyDictionaryOut: &supported),
-            noErr,
-            "could not read the supported-property dictionary"
-        )
-        let supportedKeys = try XCTUnwrap(supported as? [String: Any])
-        XCTAssertNotNil(
-            supportedKeys[kVTCompressionPropertyKey_MaxKeyFrameInterval as String],
-            "encoder does not advertise MaxKeyFrameInterval"
-        )
-        XCTAssertNotNil(
-            supportedKeys[kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration as String],
-            "encoder does not advertise MaxKeyFrameIntervalDuration"
-        )
-
-        // 2. Setting must succeed outright, not merely be tolerated.
-        XCTAssertEqual(
-            VTSessionSetProperty(
-                live,
-                key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
-                value: NSNumber(value: 120)
-            ),
-            noErr,
-            "MaxKeyFrameInterval rejected"
-        )
-        XCTAssertEqual(
-            VTSessionSetProperty(
-                live,
-                key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
-                value: NSNumber(value: 15.0)
-            ),
-            noErr,
-            "MaxKeyFrameIntervalDuration rejected"
-        )
-
-        // 3. And the values must read back. An accepted-then-ignored property would
-        //    pass step 2 and still leave the stream with no ceiling.
-        var frameInterval: CFNumber?
-        XCTAssertEqual(
-            VTSessionCopyProperty(
-                live,
-                key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
-                allocator: kCFAllocatorDefault,
-                valueOut: &frameInterval
-            ),
-            noErr,
-            "MaxKeyFrameInterval could not be read back"
-        )
-        XCTAssertEqual((try XCTUnwrap(frameInterval)) as? Int, 120)
-
-        var durationSeconds: CFNumber?
-        XCTAssertEqual(
-            VTSessionCopyProperty(
-                live,
-                key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
-                allocator: kCFAllocatorDefault,
-                valueOut: &durationSeconds
-            ),
-            noErr,
-            "MaxKeyFrameIntervalDuration could not be read back"
-        )
-        XCTAssertEqual((try XCTUnwrap(durationSeconds)) as? Double, 15.0)
     }
 
     // ADR-0087: splitting the forced-keyframe reasons apart must not move any wire value.
@@ -325,7 +144,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
     }
 
     func testRequestKeyframeForcesTheNextFrame() async throws {
-        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config(keyframeInterval: 120))
+        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config())
         defer { encoder.invalidate() }
         _ = try await encodeFrame(encoder, frameIndex: 0, frameId: 1)
         let second = try await encodeFrame(encoder, frameIndex: 1, frameId: 2)
@@ -356,7 +175,6 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         let configuration = OwnedMediaEncodingConfiguration(
             targetBitrateKbps: 2000,
             expectedFrameRate: 30,
-            keyframeIntervalFrames: 30,
             dataRateLimitRatio: ratio
         )
         let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: configuration)
@@ -383,10 +201,10 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             cadenceGapMs: 500, freezeGapMs: 1_000, freezeFpsCeiling: 3,
             recoveryMaxGapMs: 300, recoveryMinFpsPermille: 800,
             transitionWarmupWindows: 1,
-            capacity1Kbps: 650, capacity1Fps: 24, capacity1Scale: 0.75,
-            capacity2Kbps: 400, capacity2Fps: 15, capacity2Scale: 0.5,
-            emergencyKbps: 180, emergencyFps: 6, emergencyScale: 0.33,
-            survivalScale: 0.5
+            capacity1Kbps: 650, capacity1Fps: 24,
+            capacity2Kbps: 400, capacity2Fps: 15,
+            emergencyKbps: 180, emergencyFps: 6,
+            resolutionScale: 0.5
         )
     }
 
@@ -402,11 +220,9 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             cadenceGapMs: 500, freezeGapMs: 1_000, freezeFpsCeiling: 3,
             recoveryMaxGapMs: 300, recoveryMinFpsPermille: 800,
             transitionWarmupWindows: 1,
-            capacity1Kbps: 650, capacity1Fps: 24, capacity1Scale: 0.75,
-            capacity2Kbps: 400, capacity2Fps: 15, capacity2Scale: 0.5,
-            emergencyKbps: 180, emergencyFps: 6, emergencyScale: 0.33,
-            survivalScale: 0.5,
-            resolutionRaiseCleanMs: 1_000
+            capacity1Kbps: 650, capacity1Fps: 24,
+            capacity2Kbps: 400, capacity2Fps: 15,
+            emergencyKbps: 180, emergencyFps: 6, resolutionScale: 0.5
         )
     }
 
@@ -471,21 +287,6 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         input(lossySample(ackP95Ms: ackP95Ms), productionSummary: production(), ackCount: ackP95Ms == nil ? 0 : 1)
     }
 
-    func testMediaQualityControllerSpendsBitrateBeforeResolution() {
-        var controller = MediaQualityController(config: mediaQualityConfig())
-        XCTAssertEqual(controller.targetKbps, 2500, "starts at the ceiling")
-        while controller.targetKbps > 800 {
-            let outcome = controller.observe(lossInput()).outcome
-            XCTAssertEqual(outcome.reason, "loss-down")
-            XCTAssertFalse(outcome.fpsChanged)
-            XCTAssertFalse(outcome.resolutionChanged)
-            XCTAssertEqual(controller.targetFps, 30, "fps holds until normal bitrate floor")
-            XCTAssertEqual(controller.targetResolutionScale, 1.0, "resolution holds until normal bitrate floor")
-        }
-        XCTAssertEqual(controller.targetKbps, 800)
-        XCTAssertEqual(controller.targetFps, 30)
-        XCTAssertEqual(controller.targetResolutionScale, 1.0)
-    }
 
     func testHostMediaStateDisablingAdaptiveQualityPinsManualTarget() {
         var state = QuicSessionHostMediaState(
@@ -524,21 +325,20 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(stressedWhileDisabled.outcome.reason, "manual-quality-fixed")
         XCTAssertEqual(state.targetKbps, 180)
         XCTAssertEqual(state.targetFps, 1)
-        XCTAssertEqual(state.targetResolutionScale, 0.5)
+        XCTAssertEqual(state.targetResolutionScale, Config.ownedMediaResolutionScale)
 
         // ADR-0098 changed what this hands back. It used to be the ceiling -- 2500/30/1.0 -- and
         // that jump is what the measured 223KB of keyframe in 364ms was: the encoder recreated
         // its session at the full 3600x2338 before any measurement arrived, then the
         // link-quality prior spent a second keyframe going back down one window later.
         //
-        // Now the running resolution is kept exactly, which costs no keyframe at all, and
-        // bitrate and fps come from the ladder rung that owns that scale so the controller lands
-        // somewhere it can climb from.
+        // ADR-0100: every rung now carries the same scale, so the handoff can no longer be
+        // identified by "the rung that owns 0.5" -- there is no such rung. What still matters,
+        // and is what this asserts, is that the scale does not MOVE across the handoff, because
+        // that is the part that would have cost an IDR.
         let reenabled = state.applyClientMediaQuality(ClientMediaQualityConfig(adaptiveEnabled: true))
         XCTAssertEqual(reenabled?.target.resolutionScale, 0.5, "the running scale is kept, so no IDR is spent")
-        XCTAssertEqual(reenabled?.target.rung, .capacity2, "the rung that owns 0.5 scale")
-        XCTAssertEqual(reenabled?.target.bitrateKbps, Config.ownedMediaCapacity2BitrateKbps)
-        XCTAssertEqual(reenabled?.target.fps, Config.ownedMediaCapacity2Fps)
+        XCTAssertEqual(reenabled?.target.resolutionScale, Config.ownedMediaResolutionScale)
         XCTAssertEqual(reenabled?.reason, "adaptive-quality-enabled")
     }
 
@@ -602,7 +402,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         for _ in 0..<40 { _ = controller.observe(cleanInput()) }
         XCTAssertEqual(controller.targetKbps, 2500, "clean windows cannot raise above the ceiling")
         XCTAssertEqual(controller.targetFps, 30)
-        XCTAssertEqual(controller.targetResolutionScale, 1.0)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
     }
 
     func testMediaQualityControllerIdleWindowHolds() {
@@ -630,7 +430,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         var controller = MediaQualityController(config: mediaQualityConfig())
         for _ in 0..<40 { _ = controller.observe(lossInput()) }
         XCTAssertEqual(controller.target.rung, .emergency)
-        XCTAssertEqual(controller.targetResolutionScale, 0.33)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
 
         // The screen settles: zero-activity, link-clean windows. The ladder climbs
         // back to native with no production to measure, so the next motion is crisp.
@@ -641,7 +441,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             windows += 1
         }
         XCTAssertEqual(controller.target.rung, .native, "sustained rest climbs the ladder back to native")
-        XCTAssertEqual(controller.targetResolutionScale, 1.0)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
         XCTAssertEqual(controller.targetKbps, 2500)
         XCTAssertEqual(controller.targetFps, 30)
     }
@@ -689,174 +489,27 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertFalse(capacity1.resolutionChanged)
         XCTAssertEqual(controller.targetFps, 24)
         XCTAssertEqual(controller.targetKbps, 650)
-        XCTAssertEqual(controller.targetResolutionScale, 1.0)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
         let capacity2 = controller.observe(lossInput()).outcome
         XCTAssertEqual(capacity2.reason, "capacity-down")
         XCTAssertEqual(controller.targetFps, 15)
         XCTAssertEqual(controller.targetKbps, 400)
-        XCTAssertEqual(controller.targetResolutionScale, 1.0)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
         let survival = controller.observe(lossInput()).outcome
         XCTAssertEqual(survival.reason, "survival-down")
         XCTAssertEqual(controller.targetFps, 10, "cadence converges to the fps floor and not below")
         XCTAssertEqual(controller.targetKbps, 300, "survival bitrate converges to the survival floor and not below")
-        XCTAssertEqual(controller.targetResolutionScale, 1.0)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
         let emergency = controller.observe(lossInput()).outcome
         XCTAssertEqual(emergency.reason, "emergency-down")
         XCTAssertEqual(controller.targetFps, 6)
         XCTAssertEqual(controller.targetKbps, 180)
-        XCTAssertEqual(controller.targetResolutionScale, 1.0)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
         // Delayed, not withheld. Once the pressure has outlasted the dwell, the rung's scale is
         // finally believed and the one keyframe it costs is spent on evidence rather than on a
         // guess that four windows earlier would have been about to reverse.
         for _ in 0..<12 { _ = controller.observe(lossInput()) }
-        XCTAssertEqual(controller.targetResolutionScale, 0.33)
-    }
-
-    // R231c: the resolution axis now needs a long continuous clean streak before it will climb,
-    // separately from the 4s that gates every other recovery step, because that climb costs a
-    // keyframe and 80% of measured climbs were undone within 30s. These tests are about the
-    // recovery SEQUENCE, not that threshold, so they drive clean windows until the ladder is
-    // willing to move rather than hardcoding a window count that the threshold would invalidate.
-    private func driveUntilResolutionClimbs(
-        _ controller: inout MediaQualityController,
-        cap: Int = 200
-    ) {
-        let startScale = controller.targetResolutionScale
-        var windows = 0
-        while controller.targetResolutionScale == startScale && windows < cap {
-            _ = controller.observe(cleanInput())
-            windows += 1
-        }
-        XCTAssertLessThan(windows, cap, "resolution never climbed within \(cap) clean windows")
-    }
-
-    // R231c. The climb back has a much longer clean-time requirement than every other recovery
-    // step, because it is the only one that costs a keyframe. Measured across a 25 minute run:
-    // 51 upward rescales against 52 downward ones -- a pure oscillation with no net drift -- and
-    // an upward rescale survived a median of 22.4s before being undone, 80% of them inside 30s.
-    // Four times out of five that keyframe bought nothing.
-    func testMediaQualityControllerResolutionClimbWaitsLongerThanOtherRecoverySteps() {
-        func windowsUntilResolutionClimbs(_ controller: inout MediaQualityController) -> Int {
-            for _ in 0..<40 { _ = controller.observe(lossInput()) }
-            let low = controller.targetResolutionScale
-            XCTAssertLessThan(low, 1.0, "setup must reach a scaled-down rung")
-            var windows = 0
-            while controller.targetResolutionScale <= low && windows < 400 {
-                _ = controller.observe(cleanInput())
-                windows += 1
-            }
-            XCTAssertLessThan(windows, 400, "resolution must climb back eventually")
-            return windows
-        }
-
-        var slow = MediaQualityController(config: mediaQualityConfig())
-        var fast = MediaQualityController(config: eagerResolutionClimbConfig())
-        let slowWindows = windowsUntilResolutionClimbs(&slow)
-        let fastWindows = windowsUntilResolutionClimbs(&fast)
-
-        XCTAssertLessThan(fastWindows, slowWindows, "the climb-back threshold must actually delay the climb")
-        // Each window is 1s of production, so the default must hold for at least its configured
-        // clean time before spending the keyframe.
-        XCTAssertGreaterThanOrEqual(slowWindows, 30)
-    }
-
-    func testMediaQualityControllerRecoversBitrateThenProbesResolutionThenFps() {
-        var controller = MediaQualityController(config: mediaQualityConfig())
-        for _ in 0..<40 { _ = controller.observe(lossInput()) }
-        XCTAssertEqual(controller.targetKbps, 180)
-        XCTAssertEqual(controller.targetFps, 6)
-        XCTAssertEqual(controller.targetResolutionScale, 0.33)
-        while controller.targetKbps < 300 {
-            for _ in 0..<3 {
-                let hold = controller.observe(cleanInput()).outcome
-                XCTAssertFalse(hold.changed)
-                XCTAssertFalse(hold.fpsChanged)
-            }
-            let outcome = controller.observe(cleanInput()).outcome
-            if outcome.changed {
-                XCTAssertEqual(outcome.reason, "clean-up")
-                XCTAssertEqual(controller.targetFps, 6, "fps holds while emergency bitrate recovers")
-                XCTAssertEqual(controller.targetResolutionScale, 0.33, "resolution holds while emergency bitrate recovers")
-                XCTAssertLessThanOrEqual(controller.targetKbps, 300)
-            }
-        }
-        driveUntilResolutionClimbs(&controller)
-        XCTAssertEqual(controller.targetKbps, 300)
-        XCTAssertEqual(controller.targetFps, 6, "fps holds while the higher survival resolution is probed")
-        XCTAssertEqual(controller.targetResolutionScale, 0.5)
-        XCTAssertEqual(controller.target.rung, .survival)
-        XCTAssertEqual(controller.target.reason, "quality-up")
-        XCTAssertEqual(controller.currentRecoveryStatus.phase, .resolutionProbe)
-
-        let warmup = controller.observe(input(
-            cleanSample(ackP95Ms: 50),
-            productionSummary: production(actualFps: 3, targetFps: 6, maxGapMs: 780)
-        ))
-        XCTAssertFalse(warmup.outcome.changed, "resolution restart warmup does not immediately undo the probe")
-        XCTAssertEqual(warmup.outcome.reason, "transition-warmup")
-        XCTAssertEqual(warmup.recoveryStatus.phase, .transitionWarmup)
-        XCTAssertEqual(controller.targetFps, 6)
-        XCTAssertEqual(controller.targetResolutionScale, 0.5)
-
-        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
-        XCTAssertEqual(controller.targetFps, 6, "resolution probe must be proven stable before FPS changes")
-        XCTAssertEqual(controller.currentRecoveryStatus.phase, .steady)
-
-        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
-        XCTAssertEqual(controller.targetFps, 10, "fps changes only after the higher resolution is stable")
-        XCTAssertEqual(controller.targetResolutionScale, 0.5)
-        XCTAssertEqual(controller.currentRecoveryStatus.phase, .fpsProbe)
-
-        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
-        XCTAssertEqual(controller.currentRecoveryStatus.phase, .steady)
-        while controller.targetKbps < 400 {
-            for _ in 0..<3 { _ = controller.observe(cleanInput()) }
-            let outcome = controller.observe(cleanInput()).outcome
-            if outcome.changed {
-                XCTAssertEqual(outcome.reason, "clean-up")
-                XCTAssertEqual(controller.targetFps, 10, "fps holds while survival bitrate recovers")
-                XCTAssertEqual(controller.targetResolutionScale, 0.5, "resolution holds while survival bitrate recovers")
-            }
-        }
-        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
-        XCTAssertEqual(controller.targetKbps, 400)
-        XCTAssertEqual(controller.targetFps, 15, "fps changes only after bitrate reaches the next rung")
-        XCTAssertEqual(controller.targetResolutionScale, 0.5)
-        var recoveryWindows = 0
-        while controller.targetKbps < 2_500 && recoveryWindows < 240 {
-            _ = controller.observe(cleanInput())
-            recoveryWindows += 1
-        }
-        XCTAssertEqual(controller.targetFps, 30, "cadence recovers to the ceiling and not above")
-        XCTAssertEqual(controller.targetKbps, 2500)
-        XCTAssertEqual(controller.targetResolutionScale, 1.0)
-    }
-
-    func testMediaQualityControllerResolutionProbeRollsBackAfterWarmupFailure() {
-        var controller = MediaQualityController(config: mediaQualityConfig())
-        for _ in 0..<40 { _ = controller.observe(lossInput()) }
-        while controller.targetKbps < 300 {
-            for _ in 0..<4 { _ = controller.observe(cleanInput()) }
-        }
-        driveUntilResolutionClimbs(&controller)
-        XCTAssertEqual(controller.target.rung, .survival)
-        XCTAssertEqual(controller.targetFps, 6)
-        XCTAssertEqual(controller.targetResolutionScale, 0.5)
-
-        _ = controller.observe(input(
-            stressedSample(),
-            productionSummary: production(actualFps: 3, targetFps: 6, maxGapMs: 780)
-        ))
-        let failedProbe = controller.observe(input(
-            stressedSample(),
-            productionSummary: production(actualFps: 3, targetFps: 6, maxGapMs: 780)
-        ))
-
-        XCTAssertEqual(failedProbe.outcome.reason, "probe-resolution-rollback")
-        XCTAssertEqual(failedProbe.outcome.target.rung, .emergency)
-        XCTAssertEqual(failedProbe.outcome.target.bitrateKbps, 300)
-        XCTAssertEqual(failedProbe.outcome.target.fps, 6)
-        XCTAssertEqual(failedProbe.outcome.target.resolutionScale, 0.33)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
     }
 
     func testMediaQualityControllerFpsProbeRollsBackOnlyFps() {
@@ -865,15 +518,16 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         while controller.targetKbps < 300 {
             for _ in 0..<4 { _ = controller.observe(cleanInput()) }
         }
-        driveUntilResolutionClimbs(&controller)
-        _ = controller.observe(input(
-            stressedSample(),
-            productionSummary: production(actualFps: 3, targetFps: 6, maxGapMs: 780)
-        ))
-        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
-        for _ in 0..<4 { _ = controller.observe(cleanInput()) }
+        // ADR-0100: this used to reach the fps probe by first driving the RESOLUTION climb, which
+        // no longer exists -- recovery goes bitrate then fps with nothing in between. Bounded so
+        // a controller that stops climbing fails the assertion below rather than hanging here.
+        var windows = 0
+        while controller.targetFps <= 6 && windows < 200 {
+            _ = controller.observe(cleanInput())
+            windows += 1
+        }
         XCTAssertEqual(controller.targetFps, 10)
-        XCTAssertEqual(controller.targetResolutionScale, 0.5)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
 
         let failedFpsProbe = controller.observe(input(
             stressedSample(),
@@ -881,10 +535,12 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         ))
 
         XCTAssertEqual(failedFpsProbe.outcome.reason, "probe-fps-rollback")
-        XCTAssertEqual(failedFpsProbe.outcome.target.rung, .survival)
+        // Lands one rung lower than it used to: without the resolution step between bitrate and
+        // fps, recovery reaches the fps probe from a different place.
+        XCTAssertEqual(failedFpsProbe.outcome.target.rung, .emergency)
         XCTAssertEqual(failedFpsProbe.outcome.target.bitrateKbps, 300)
         XCTAssertEqual(failedFpsProbe.outcome.target.fps, 6)
-        XCTAssertEqual(failedFpsProbe.outcome.target.resolutionScale, 0.5)
+        XCTAssertEqual(failedFpsProbe.outcome.target.resolutionScale, Config.ownedMediaResolutionScale)
     }
 
     func testMediaQualityControllerLatencyHoldsWithoutLossAndDownshiftsWithLoss() {
@@ -915,10 +571,11 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(second.outcome.reason, "cadence-capacity-down")
         XCTAssertTrue(second.outcome.fpsChanged, "the free axes answer the pressure on this window")
         XCTAssertTrue(second.outcome.bitrateChanged)
-        // R231: resolution is the one axis that costs a keyframe and the LTR reference set, so
-        // two windows of cadence pressure move the rung without yet moving the encoder's scale.
+        // ADR-0100: resolution never moves at all now, so this is no longer "two windows are not
+        // yet enough evidence" -- it is that the axis is gone. The assertion is kept because it
+        // is the invariant the whole change rests on: a rung move must not rescale.
         XCTAssertFalse(second.outcome.resolutionChanged)
-        XCTAssertEqual(controller.targetResolutionScale, 1.0)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
     }
 
     func testMediaQualityControllerQueueAndCadencePressureDownshiftsImmediately() {
@@ -972,7 +629,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertTrue(decision.signals.freezePressure)
         XCTAssertEqual(decision.outcome.target.rung, .capacity1)
         XCTAssertEqual(decision.outcome.target.bitrateKbps, 650)
-        XCTAssertEqual(decision.outcome.target.resolutionScale, 0.75)
+        XCTAssertEqual(decision.outcome.target.resolutionScale, Config.ownedMediaResolutionScale)
         XCTAssertEqual(decision.outcome.reason, "freeze-capacity-down")
     }
 
@@ -991,7 +648,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             productionSummary: production(actualFps: 1, targetFps: 15, maxGapMs: 1_250)
         ))
         XCTAssertEqual(controller.targetFps, 10)
-        XCTAssertEqual(controller.targetResolutionScale, 0.5)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
 
         let emergency = controller.observe(input(
             stressedSample(),
@@ -1002,7 +659,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(emergency.outcome.reason, "emergency-down")
         XCTAssertEqual(emergency.outcome.target.fps, 6)
         XCTAssertEqual(emergency.outcome.target.bitrateKbps, 180)
-        XCTAssertEqual(emergency.outcome.target.resolutionScale, 0.33)
+        XCTAssertEqual(emergency.outcome.target.resolutionScale, Config.ownedMediaResolutionScale)
     }
 
     func testMediaQualityControllerDoesNotRecoverWhileCadenceIsBad() {
@@ -1011,7 +668,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             stressedSample(),
             productionSummary: production(actualFps: 1, targetFps: 30, maxGapMs: 1_250)
         ))
-        XCTAssertEqual(controller.targetResolutionScale, 0.75)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
         let badCadence = input(
             stressedSample(),
             productionSummary: production(actualFps: 12, targetFps: 24, maxGapMs: 700)
@@ -1054,36 +711,31 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             cadenceGapMs: 500, freezeGapMs: 1_000, freezeFpsCeiling: 3,
             recoveryMaxGapMs: 300, recoveryMinFpsPermille: 800,
             transitionWarmupWindows: 0,
-            capacity1Kbps: 650, capacity1Fps: 24, capacity1Scale: 0.75,
-            capacity2Kbps: 400, capacity2Fps: 15, capacity2Scale: 0.5,
-            emergencyKbps: 180, emergencyFps: 6, emergencyScale: 0.33,
-            survivalScale: 0.5,
-            // This test is about how a probe failure is handled, not about R231c's climb-back
-            // threshold, so it opts out of the 30s wait the way it already opts into a 1-window
-            // raiseCleanWindows: by naming the value it wants.
-            resolutionRaiseCleanMs: 1_000
+            capacity1Kbps: 650, capacity1Fps: 24,
+            capacity2Kbps: 400, capacity2Fps: 15,
+            emergencyKbps: 180, emergencyFps: 6, resolutionScale: 0.5
         )
         var controller = MediaQualityController(config: config)
         _ = controller.observe(input(
             stressedSample(),
             productionSummary: production(actualFps: 1, targetFps: 30, maxGapMs: 1_250)
         ))
-        XCTAssertEqual(controller.targetResolutionScale, 0.75)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
 
         let bitrateUp = controller.observe(cleanInput())
         XCTAssertEqual(bitrateUp.outcome.reason, "clean-up")
-        XCTAssertEqual(controller.targetResolutionScale, 0.75)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
         let up = controller.observe(cleanInput())
         XCTAssertEqual(up.outcome.reason, "quality-up")
-        XCTAssertEqual(controller.targetResolutionScale, 1.0)
+        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
 
         let failedProbe = controller.observe(input(
             stressedSample(),
             productionSummary: production(actualFps: 10, targetFps: 24, maxGapMs: 650)
         ))
-        XCTAssertEqual(failedProbe.outcome.reason, "probe-resolution-rollback")
+        XCTAssertEqual(failedProbe.outcome.reason, "probe-fps-rollback")
         XCTAssertEqual(failedProbe.outcome.target.rung, .capacity1)
-        XCTAssertEqual(failedProbe.recoveryStatus.blocker, "probe-resolution-pressure")
+        XCTAssertEqual(failedProbe.recoveryStatus.blocker, "probe-fps-pressure")
     }
 
     func testMediaQualityControllerConfigNormalizesSurvivalKnobs() {
@@ -1096,10 +748,10 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
             cadenceGapMs: 0, freezeGapMs: 0, freezeFpsCeiling: 0,
             recoveryMaxGapMs: 0, recoveryMinFpsPermille: 2_000,
             transitionWarmupWindows: -1,
-            capacity1Kbps: 900, capacity1Fps: 60, capacity1Scale: 2,
-            capacity2Kbps: 700, capacity2Fps: 40, capacity2Scale: 0.8,
-            emergencyKbps: 500, emergencyFps: 40, emergencyScale: 0.9,
-            survivalScale: 0.9
+            capacity1Kbps: 900, capacity1Fps: 60,
+            capacity2Kbps: 700, capacity2Fps: 40,
+            emergencyKbps: 500, emergencyFps: 40,
+            resolutionScale: 2
         )
         XCTAssertEqual(config.survivalFloorKbps, 800, "survival floor cannot exceed the normal bitrate floor")
         XCTAssertLessThan(config.downStep, 1.0, "down step must stay a down step")
@@ -1111,12 +763,12 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(config.transitionWarmupWindows, 0)
         XCTAssertEqual(config.capacity1Kbps, 800)
         XCTAssertEqual(config.capacity1Fps, 30)
-        XCTAssertEqual(config.capacity1Scale, 1.0)
-        XCTAssertEqual(config.capacity2Scale, 0.8)
-        XCTAssertEqual(config.survivalScale, 0.8)
         XCTAssertEqual(config.emergencyKbps, 500)
         XCTAssertEqual(config.emergencyFps, 30)
-        XCTAssertEqual(config.emergencyScale, 0.8)
+        // One scale for every rung now, so the only clamp left to test is the range: 2 is not a
+        // scale. The old four-value cascade (each rung clamped to the one above) went with the
+        // axis it was ordering.
+        XCTAssertEqual(config.resolutionScale, 1.0)
     }
 
     func testMediaStateReturnsCapacityRetryUntilIntervalElapses() {
@@ -1229,7 +881,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
     }
 
     func testClientRequestKeyframeMarksReset() async throws {
-        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config(keyframeInterval: 120))
+        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config())
         defer { encoder.invalidate() }
         _ = try await encodeFrame(encoder, frameIndex: 0, frameId: 1)
         _ = try await encodeFrame(encoder, frameIndex: 1, frameId: 2)

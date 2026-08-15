@@ -48,7 +48,10 @@ struct LinkQualityPriorTests {
         #expect(controller.target.rung == .capacity2)
         #expect(controller.target.fps < displaced!.fps)
         #expect(controller.target.bitrateKbps < displaced!.bitrateKbps)
-        #expect(controller.target.resolutionScale < displaced!.resolutionScale)
+        // ADR-0100: the prior opens the ladder lower on the two axes that can move. Resolution
+        // is not one of them, and asserting it dropped would be asserting the keyframe this
+        // change exists to stop spending.
+        #expect(controller.target.resolutionScale == displaced!.resolutionScale)
     }
 
     // The displaced target is what makes the drop visible. The prior moves the rung before the
