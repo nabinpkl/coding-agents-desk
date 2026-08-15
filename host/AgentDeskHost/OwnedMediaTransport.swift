@@ -791,7 +791,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             // surface generation, logged so a host frame can be matched to what the client says
             // it rendered; note the client's VIDEO path ignores it (only the crisp/graphics path
             // reads it), so a mismatch here is a correlation aid, not a discard reason.
-            logger.notice("owned media video sent frame=\(envelope.header.frameId, privacy: .public) gen=\(envelope.header.surfaceGeneration, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) ltr=\(envelope.header.ltrToken.map(String.init) ?? "none", privacy: .public) bytes=\(payload.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(liveTargets.kbps, privacy: .public) fps=\(liveTargets.fps, privacy: .public) resolutionScale=\(liveTargets.scale, privacy: .public)")
+            logger.notice("owned media video sent frame=\(envelope.header.frameId, privacy: .public) gen=\(envelope.header.surfaceGeneration, privacy: .public) keyframe=\(envelope.header.isKeyframe, privacy: .public) refresh=\(envelope.header.refreshReason.rawValue, privacy: .public) ltr=\(envelope.header.ltrToken.map(String.init) ?? "none", privacy: .public) bytes=\(payload.count, privacy: .public) packets=\(packets.count, privacy: .public) bitrateKbps=\(liveTargets.kbps, privacy: .public) fps=\(liveTargets.fps, privacy: .public) resolutionScale=\(liveTargets.scale, privacy: .public)")
         }
         if let summary = liveTargets.productionSummary {
             // Read and cleared with the window it belongs to. `fpsDeficit` says cadence fell

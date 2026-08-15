@@ -343,6 +343,21 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
                 pendingLtrAcknowledgements.removeAll(keepingCapacity: true)
             }
             frameProperties = options.isEmpty ? nil : options as CFDictionary
+            if forceKeyframe, !refreshWithLtr {
+                // The expensive branch, and until now the silent one. `ltr-refresh-requested`
+                // below only fires when the CHEAP path is taken, so every true keyframe left no
+                // record of why it was unavoidable -- which reads, when you count reasons in the
+                // log, as though those causes never happen. Measured on a 208kbps link a median
+                // keyframe is 57KB, or 2.2 seconds of wire time, so this is the single most
+                // expensive decision in the media path and it deserves to say its name.
+                let cause = requiresTrueKeyframe
+                    ? (encodedFrameId == 1 ? "first-frame"
+                        : resyncReason == .initial ? "initial"
+                        : resyncReason == .resolutionChange ? "resolution-change"
+                        : "client-has-no-references")
+                    : "ltr-disabled"
+                logger.notice("owned encoder true-keyframe encFrame=\(encodedFrameId, privacy: .public) cause=\(cause, privacy: .public) requested=\(resyncReason?.rawValue ?? "none", privacy: .public) ltrEnabled=\(self.ltrEnabled, privacy: .public) emitted=\(self.ltrTokensEmitted, privacy: .public) acked=\(self.ltrTokensAcknowledged, privacy: .public)")
+            }
             if refreshWithLtr {
                 // `acked` is the decisive number when a refresh comes back as an IDR: the
                 // encoder falls back when it holds no acknowledged reference, so a zero here
