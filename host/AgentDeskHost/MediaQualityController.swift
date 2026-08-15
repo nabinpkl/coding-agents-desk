@@ -1485,7 +1485,15 @@ struct QuicSessionHostMediaState {
     }
 
     mutating func reserveUpdateId(nowNs: UInt64) -> Admission {
-        if let last = lastProduceUptimeNs {
+        // A pending client resync request bypasses the capacity pacer. The recovery frame is
+        // the one frame the client is NOT discarding while its gap-recovery gate is armed, so
+        // pacing it behind ordinary frames -- which that gate throws away unrendered -- delays
+        // the only thing that ends the freeze. Measured before this: on a saturated LTE link
+        // the refresh answer regularly took over the client's 4s escalation window to arrive,
+        // and the escalations bought 164KB IDRs into the same jam. Bounded by construction:
+        // one pending request at a time (`noteKeyframeRequest` suppresses while one is in
+        // flight), so this admits one unpaced frame per resync round trip, not a stream.
+        if let last = lastProduceUptimeNs, !pendingClientKeyframeRequest {
             let interval = capacityIntervalNs()
             if interval > 0, nowNs &- last < interval {
                 return .retry(afterNs: interval - (nowNs &- last), reason: .capacity)

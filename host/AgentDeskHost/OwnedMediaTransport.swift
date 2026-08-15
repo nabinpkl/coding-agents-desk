@@ -782,11 +782,11 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 productionSummary: summary
             )
         }
-        if envelope.header.ltrResync == true {
-            // Rare by construction -- one per answered resync request -- and the host half of
-            // the new contract: the client should log accepting this same frame, so a resync
-            // that leaves here and never resolves the client's gate is visible as a pair with
-            // a missing half.
+        if envelope.header.ltrResync == true, !Config.ownedMediaReferenceAckedOnlyEnabled {
+            // One per answered resync request -- the host half of the resync contract; the
+            // client logs accepting this same frame, so an answer that never resolves the gate
+            // is visible as a pair with a missing half. Silenced in reference-acked-only mode,
+            // where EVERY delta carries the mark and the line would fire six times a second.
             logger.notice("owned media resync delta sent frame=\(envelope.header.frameId, privacy: .public) bytes=\(payload.count, privacy: .public) packets=\(packets.count, privacy: .public)")
         }
         if envelope.header.isKeyframe || envelope.header.frameId.isMultiple(of: 30) {

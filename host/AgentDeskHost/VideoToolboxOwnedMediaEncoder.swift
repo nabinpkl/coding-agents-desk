@@ -265,7 +265,24 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
                 || resyncReason == .initial
                 || resyncReason == .resolutionChange
                 || clientHasNoReferences
-            let refreshWithLtr = forceKeyframe && ltrEnabled && !requiresTrueKeyframe
+            // Loss-immune chain mode: EVERY delta is encoded as a refresh against an
+            // acknowledged long-term reference, so a frame the client receives is decodable no
+            // matter what was wholesale-lost before it. The recovery machinery then has almost
+            // nothing to recover: a collapsed link degrades to a stale-but-moving picture
+            // instead of a frozen one waiting seconds for a resync to cross the same collapse
+            // that ate its predecessors. Measured need: an 11.5s armed episode where every
+            // few-KB resync answer died in flight and only a 100KB+ escalated IDR -- into a
+            // ~30kbps-effective pipe -- finally resolved it. The cost is predicting from an
+            // RTT-older reference (larger deltas under motion), which is what the A/B flag is
+            // for measuring.
+            // Engaged only once at least one acknowledgement has closed the round trip: with
+            // zero acked references VideoToolbox answers every ForceLTRRefresh with an IDR
+            // fallback, which would turn session start into an IDR burst until the first ack
+            // lands ~1 RTT in.
+            let referenceAckedOnly = Config.ownedMediaReferenceAckedOnlyEnabled && ltrEnabled
+                && ltrTokensAcknowledged > 0
+            let refreshWithLtr = (forceKeyframe && ltrEnabled && !requiresTrueKeyframe)
+                || (referenceAckedOnly && !requiresTrueKeyframe && !forceKeyframe)
             clientHasNoReferences = false
             var options: [CFString: Any] = [:]
             if forceKeyframe, !refreshWithLtr {
@@ -296,10 +313,13 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
                     : "ltr-disabled"
                 logger.notice("owned encoder true-keyframe encFrame=\(encodedFrameId, privacy: .public) cause=\(cause, privacy: .public) requested=\(resyncReason?.rawValue ?? "none", privacy: .public) ltrEnabled=\(self.ltrEnabled, privacy: .public) emitted=\(self.ltrTokensEmitted, privacy: .public) acked=\(self.ltrTokensAcknowledged, privacy: .public)")
             }
-            if refreshWithLtr {
+            if refreshWithLtr, forceKeyframe {
                 // `acked` is the decisive number when a refresh comes back as an IDR: the
                 // encoder falls back when it holds no acknowledged reference, so a zero here
                 // says the round trip never closed rather than that the refresh misfired.
+                // Gated on `forceKeyframe`: in reference-acked-only mode EVERY delta is a
+                // refresh, and six lines a second of routine encoding would bury the explicit
+                // request answers this line exists to show.
                 logger.notice("owned encoder ltr-refresh-requested encFrame=\(encodedFrameId, privacy: .public) reason=\(resyncReason?.rawValue ?? "unknown", privacy: .public) emitted=\(self.ltrTokensEmitted, privacy: .public) acked=\(self.ltrTokensAcknowledged, privacy: .public)")
             }
             pendingFrames[encodedFrameId] = PendingEncodedFrame(
@@ -685,10 +705,11 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             // client's fault.
             logger.notice("owned encoder ltr-token-emitted encFrame=\(encodedFrameId, privacy: .public) frame=\(pending.updateId.frameId, privacy: .public) token=\(ltrToken, privacy: .public) emitted=\(emitted, privacy: .public) keyframe=\(isKeyframe, privacy: .public) bytes=\(payload.count, privacy: .public)")
         }
-        if pending.requestedLtrRefresh {
+        if pending.requestedLtrRefresh, isKeyframe || pending.requestedKeyframeReason != nil {
             // What the refresh actually bought. `outcome=idr-fallback` is the failure this
             // telemetry exists for: we asked for a delta against an acknowledged reference and
             // VideoToolbox had none, so it sent a full frame instead and said nothing.
+            // Routine acked-only-mode refreshes stay quiet; an IDR fallback always logs.
             let outcome = isKeyframe ? "idr-fallback" : "ltr-delta"
             logger.notice("owned encoder ltr-refresh-result encFrame=\(encodedFrameId, privacy: .public) outcome=\(outcome, privacy: .public) bytes=\(payload.count, privacy: .public)")
         }

@@ -483,6 +483,17 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_LINK_HEALTH_TICK_MS",
         defaultValue: 1_000
     )
+    // Loss-immune reference chains: every delta is encoded as an LTR refresh against an
+    // acknowledged reference, so any frame the client receives is decodable regardless of what
+    // was wholesale-lost before it. Trades larger deltas (prediction from an RTT-older frame)
+    // for the near-elimination of resync recovery -- measured before this: 11.5s frozen
+    // episodes while few-KB resync answers died in the same congestion that made them
+    // necessary, resolved only by 100KB escalated IDRs. Disable to A/B the delta-size cost.
+    static let ownedMediaReferenceAckedOnlyEnabled: Bool = enabledFlag(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_REFERENCE_ACKED_ONLY",
+        defaultValue: true,
+        environment: ProcessInfo.processInfo.environment
+    )
     // How long a datagram receive loop keeps retrying a throwing `receive()` before it gives up.
     //
     // Both loops used to end on the first error, which made every transient fault permanent.
