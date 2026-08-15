@@ -495,6 +495,25 @@ enum Config {
     //
     // 2.5 sits between the two measured populations rather than at a round number: an ordinary
     // window on this path ran near 1.0-1.5, and the freeze read 5.0.
+    // The absolute half of the queue-bloat test: how far behind the picture has to actually be
+    // before an inflated ratio is allowed to mean anything. Both must hold -- see
+    // `MediaQualityObservationDelivery.isQueueBloated`.
+    //
+    // 250ms is chosen against measurement, not intuition. Modelled over 472 windows from one
+    // session spanning both interfaces, requiring the ratio AND this floor takes the Wi-Fi path
+    // from firing in 75% of windows to 0%, and cellular from 17% to 8% -- keeping exactly the
+    // windows where that path was genuinely slow. The freeze ADR-0088 was built for was
+    // "several seconds late", so it clears this by an order of magnitude.
+    //
+    // State the cost honestly: on a fast link this makes the queue detector effectively silent,
+    // because such a link is never a quarter-second behind. That is the intent -- a 47ms picture
+    // is not queued -- but it does mean a genuine queue on a fast path has to be caught by the
+    // other signals (stale pressure, delivery shortfall, expiries) rather than by this one.
+    // Set to 0 to restore the ratio-only behaviour.
+    static let ownedMediaRoundTripBloatMinimumSmoothedMs = nonNegativeDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_ROUND_TRIP_BLOAT_MIN_SMOOTHED_MS",
+        defaultValue: 250
+    )
     static let ownedMediaRoundTripInflationDownRatio = positiveDouble(
         environmentKey: "AGENTDESK_OWNED_MEDIA_ROUND_TRIP_INFLATION_DOWN_RATIO",
         defaultValue: 2.5

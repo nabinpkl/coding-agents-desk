@@ -19,7 +19,11 @@ private func bytesPerSecond(kbps: Double) -> Double { kbps * 1_000.0 / 8.0 }
 private func window(
     deliveredKbps: Double?,
     inflation: Double? = nil,
-    completed: Int = 6
+    completed: Int = 6,
+    // Bloat needs an absolute delay as well as a ratio, so these windows carry one. 1200ms
+    // matches what the bloat tests below already describe in prose -- a picture SECONDS behind
+    // the Mac -- rather than being a number picked to make the assertion pass.
+    smoothedMs: Double? = 1_200
 ) -> MediaQualityControllerInput {
     MediaQualityControllerInput(
         delivery: MediaDeliveryObservation(
@@ -27,7 +31,8 @@ private func window(
             ackCount: completed,
             ackAgeMaxMs: 40,
             deliveredBytesPerSecond: deliveredKbps.map { bytesPerSecond(kbps: $0) },
-            roundTripInflationRatio: inflation
+            roundTripInflationRatio: inflation,
+            roundTripSmoothedMs: smoothedMs
         ),
         production: MediaProductionSummary(
             actualFps: 30,
@@ -165,6 +170,40 @@ private func window(
     let plenty = Double(config().ceilingKbps)
     for _ in 0..<10 {
         _ = controller.observe(window(deliveredKbps: plenty, inflation: 1.3))
+    }
+    #expect(controller.target.rung == .native)
+}
+
+// The measured defect. Wi-Fi is fast and jittery: its floor is a lucky aggregated frame and its
+// smoothed value includes retries, so it sits 3-4x its own floor permanently. Over one session
+// that crossed the 2.5 ratio in 75% of windows at 46.9ms smoothed -- 47 thousandths of a second
+// behind, which nobody can see -- while cellular at 158.7ms crossed it in 17%. The detector was
+// calling the four-times-faster path the queued one, and each verdict zeroed a thirty-second
+// climb requirement, so the ladder never left its emergency floor.
+@Test func aFastButJitteryPathIsNotQueued() {
+    var controller = MediaQualityController(config: config())
+    let plenty = Double(config().ceilingKbps)
+    for _ in 0..<10 {
+        let outcome = controller.observe(
+            window(deliveredKbps: plenty, inflation: 3.7, smoothedMs: 46.9)
+        ).outcome
+        #expect(outcome.reason != "queue-bloat-down")
+        #expect(outcome.reason != "queue-bloat-hold")
+    }
+    #expect(controller.target.rung == .native)
+}
+
+// The other direction, so the gate cannot be satisfied by lateness alone. A path that is simply
+// far away sits at a steady high round-trip with no inflation, and sending it less recovers not
+// one millisecond of that distance.
+@Test func aDistantButSteadyPathIsNotQueued() {
+    var controller = MediaQualityController(config: config())
+    let plenty = Double(config().ceilingKbps)
+    for _ in 0..<10 {
+        let outcome = controller.observe(
+            window(deliveredKbps: plenty, inflation: 1.2, smoothedMs: 800)
+        ).outcome
+        #expect(outcome.reason != "queue-bloat-down")
     }
     #expect(controller.target.rung == .native)
 }

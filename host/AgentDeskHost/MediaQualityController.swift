@@ -101,6 +101,13 @@ struct MediaDeliveryObservation: Equatable {
     // ADR-0088 built this and spent it on a log line. How many times the smoothed round-trip
     // exceeds the path's own floor: 1.0 is an empty queue, and it read 5.0 through the freeze.
     let roundTripInflationRatio: Double?
+    // The same round-trip in milliseconds, kept because the ratio alone cannot say whether its
+    // own answer matters. A ratio is scale-free: 3.7x a floor of 11ms is a picture 47ms behind,
+    // which nobody can see, and the identical ratio on a slow path is a picture seconds behind.
+    // Measured on one session across both interfaces: Wi-Fi ran 3.70 median inflation at 46.9ms
+    // smoothed, cellular ran 1.50 at 158.7ms -- so the detector called the FASTER path bloated
+    // 75% of the time and the four-times-slower one healthy.
+    let roundTripSmoothedMs: Double?
 
     init(
         sample: MediaQualitySample,
@@ -113,12 +120,14 @@ struct MediaDeliveryObservation: Equatable {
         clientReportMissing: Bool = false,
         clientLinkStalled: Bool = false,
         deliveredBytesPerSecond: Double? = nil,
-        roundTripInflationRatio: Double? = nil
+        roundTripInflationRatio: Double? = nil,
+        roundTripSmoothedMs: Double? = nil
     ) {
         self.clientReportMissing = clientReportMissing
         self.clientLinkStalled = clientLinkStalled
         self.deliveredBytesPerSecond = deliveredBytesPerSecond
         self.roundTripInflationRatio = roundTripInflationRatio
+        self.roundTripSmoothedMs = roundTripSmoothedMs
         self.sample = sample
         self.ackCount = max(0, ackCount)
         self.ackAgeMaxMs = ackAgeMaxMs
@@ -164,9 +173,25 @@ struct MediaDeliveryObservation: Equatable {
     /// several seconds late shows a healthy goodput, no expiries and no stale frames -- and a
     /// picture on the phone that is seconds behind the Mac. Only the round-trip's distance from
     /// its own floor says so, which is what ADR-0088 built the tracker to measure.
-    func isQueueBloated(ratio: Double) -> Bool {
-        guard let roundTripInflationRatio else { return false }
-        return roundTripInflationRatio >= ratio
+    /// Two conditions, and the second one is why this stopped firing on every calm Wi-Fi window.
+    ///
+    /// The ratio answers "is this path slower than its own best". It cannot answer "and does
+    /// that matter", because it is scale-free -- the same 3.7x means 47ms behind on a fast path
+    /// and several seconds behind on a slow one, and only the second is the failure this exists
+    /// to catch. Measured across one session: Wi-Fi at 46.9ms smoothed crossed the 2.5 ratio in
+    /// 75% of windows while cellular at 158.7ms crossed it in 17%, so the detector was calling
+    /// the four-times-faster path the queued one.
+    ///
+    /// That verdict is not cheap. It runs `resetRecovery()`, which zeroes a THIRTY SECOND
+    /// clean-time requirement, so firing it three windows in four made the resolution ladder
+    /// unable to climb at all and pinned the picture at its emergency floor.
+    ///
+    /// The absolute term alone would be just as wrong in the other direction: a path sitting at
+    /// a steady 300ms is distant, not queued, and sending less recovers none of it. So both
+    /// have to hold -- the ratio says something changed, the floor says it is big enough to see.
+    func isQueueBloated(ratio: Double, minimumSmoothedMs: Double) -> Bool {
+        guard let roundTripInflationRatio, let roundTripSmoothedMs else { return false }
+        return roundTripInflationRatio >= ratio && roundTripSmoothedMs >= minimumSmoothedMs
     }
 }
 
@@ -278,6 +303,9 @@ struct MediaQualityControllerConfig: Equatable {
     // `deliveryShortfallWindows` for its streak -- "one window is a burst, two is a link" is the
     // same claim for both -- but counts it separately, so neither signal spends the other's run.
     let roundTripInflationDownRatio: Double
+    /// The absolute half of the queue test: how late the picture has to actually be before an
+    /// inflated ratio is allowed to mean anything. See `isQueueBloated`.
+    let roundTripBloatMinimumSmoothedMs: Double
 
     init(
         ceilingKbps: Int,
@@ -313,7 +341,8 @@ struct MediaQualityControllerConfig: Equatable {
         resolutionRaiseCleanMs: Int = Config.ownedMediaResolutionRaiseCleanMs,
         deliveryShortfallRatio: Double = Config.ownedMediaDeliveryShortfallRatio,
         deliveryShortfallWindows: Int = Config.ownedMediaDeliveryShortfallWindows,
-        roundTripInflationDownRatio: Double = Config.ownedMediaRoundTripInflationDownRatio
+        roundTripInflationDownRatio: Double = Config.ownedMediaRoundTripInflationDownRatio,
+        roundTripBloatMinimumSmoothedMs: Double = Config.ownedMediaRoundTripBloatMinimumSmoothedMs
     ) {
         self.ceilingKbps = max(1, ceilingKbps)
         self.floorKbps = min(max(1, floorKbps), self.ceilingKbps)
@@ -354,6 +383,7 @@ struct MediaQualityControllerConfig: Equatable {
         // Floored above 1.0, because 1.0 is an empty queue by definition: at or below it the rule
         // reads "descend whenever the path has any latency at all", which is always.
         self.roundTripInflationDownRatio = max(1.01, roundTripInflationDownRatio)
+        self.roundTripBloatMinimumSmoothedMs = max(0, roundTripBloatMinimumSmoothedMs)
     }
 
     static func fromConfig() -> MediaQualityControllerConfig {
@@ -391,7 +421,8 @@ struct MediaQualityControllerConfig: Equatable {
             resolutionRaiseCleanMs: Config.ownedMediaResolutionRaiseCleanMs,
             deliveryShortfallRatio: Config.ownedMediaDeliveryShortfallRatio,
             deliveryShortfallWindows: Config.ownedMediaDeliveryShortfallWindows,
-            roundTripInflationDownRatio: Config.ownedMediaRoundTripInflationDownRatio
+            roundTripInflationDownRatio: Config.ownedMediaRoundTripInflationDownRatio,
+            roundTripBloatMinimumSmoothedMs: Config.ownedMediaRoundTripBloatMinimumSmoothedMs
         )
     }
 
@@ -736,7 +767,10 @@ struct MediaQualityController {
         // Descending is the right response even though the queue is not of our making: the queue
         // drains at the link's rate whatever we do, and the only lever we have over how long it
         // stays full is how fast we refill it.
-        if delivery.isQueueBloated(ratio: config.roundTripInflationDownRatio) {
+        if delivery.isQueueBloated(
+            ratio: config.roundTripInflationDownRatio,
+            minimumSmoothedMs: config.roundTripBloatMinimumSmoothedMs
+        ) {
             resetPressureStreaks()
             resetRecovery()
             queueBloatStreak += 1
@@ -1753,7 +1787,8 @@ struct QuicSessionHostMediaState {
                     }
                 ),
                 deliveredBytesPerSecond: deliveryEstimator.deliveredBytesPerSecond,
-                roundTripInflationRatio: roundTrip.inflationRatio
+                roundTripInflationRatio: roundTrip.inflationRatio,
+                roundTripSmoothedMs: roundTrip.smoothedMs
             ),
             production: productionSummary
         )
