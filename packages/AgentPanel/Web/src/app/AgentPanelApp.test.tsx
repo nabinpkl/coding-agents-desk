@@ -1804,3 +1804,73 @@ describe("safe area insets", () => {
     unmount();
   });
 });
+
+describe("remembered selection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    restoreViewport();
+  });
+
+  it("records the open thread's identity, not a copy of its row", () => {
+    // The row carries live facts -- activity bin, last event time, capabilities. Storing it would
+    // be a second source of truth that nothing refreshes.
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+    expect(JSON.parse(localStorage.getItem("agent-panel.selection")!)).toEqual({
+      projectPath: FIXTURE_PROJECT_A.projectPath,
+      source: "claude",
+      sessionId: "sid-claude-01",
+    });
+    unmount();
+  });
+
+  it("reopens that thread after a reload, once its session list arrives", () => {
+    // The panel is edited while it is being read; landing on the empty state after every save
+    // makes it unusable to develop against.
+    localStorage.setItem(
+      "agent-panel.selection",
+      JSON.stringify({
+        projectPath: FIXTURE_PROJECT_A.projectPath,
+        source: "claude",
+        sessionId: "sid-claude-01",
+      }),
+    );
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
+    expect(screen.getByRole("banner")).toHaveTextContent("Session Claude 01");
+    unmount();
+  });
+
+  it("opens on the empty state when the remembered thread is gone", () => {
+    // A deleted or aged-out session simply never matches; nothing is fabricated to stand in.
+    localStorage.setItem(
+      "agent-panel.selection",
+      JSON.stringify({
+        projectPath: FIXTURE_PROJECT_A.projectPath,
+        source: "claude",
+        sessionId: "deleted-session",
+      }),
+    );
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
+    expect(screen.getByText("Select a session from Projects")).toBeInTheDocument();
+    unmount();
+  });
+
+  it("ignores a stored value of the wrong shape", () => {
+    localStorage.setItem("agent-panel.selection", '{"projectPath":"/repo"}');
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
+    expect(screen.getByText("Select a session from Projects")).toBeInTheDocument();
+    unmount();
+  });
+});
+

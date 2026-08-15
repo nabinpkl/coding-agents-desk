@@ -36,6 +36,7 @@ import {
   loadSidebarPreferences,
   storeSidebarPreferences,
 } from "../features/sidebar/sidebarPreferences";
+import { loadSelection, storeSelection } from "../features/sidebar/selectionStore";
 
 /**
  * A textarea that grows with its content instead of scrolling inside a fixed single row.
@@ -202,6 +203,10 @@ export function App({ feed, host }: Props) {
   const drawerTriggerRef = useRef<HTMLButtonElement>(null);
   const [tasksPanelOpen, setTasksPanelOpen] = useState(false);
   const initializedProjectExpansion = useRef(false);
+  // Read once, at mount. Storage is written on every selection, so re-reading it later would
+  // race the write this component just made.
+  const rememberedSelection = useRef(loadSelection());
+  const restoredSelection = useRef(false);
   const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const usesModalSidebar = compact && !hoverCapable;
   const sidebarPinned = !usesModalSidebar && sidebarPreferences.open;
@@ -296,7 +301,14 @@ export function App({ feed, host }: Props) {
     if (projects.length === 0) return;
     if (!initializedProjectExpansion.current) {
       initializedProjectExpansion.current = true;
-      setExpandedProjectPaths(new Set([projects[0]!.projectPath]));
+      // The remembered project, when it is still there, because a collapsed project's sessions
+      // are not on the inventory stream at all -- so without expanding it first there is nothing
+      // for the restore below to match against. Falls back to the first project, as before.
+      const remembered = rememberedSelection.current?.projectPath;
+      const openAt = remembered && projects.some((project) => project.projectPath === remembered)
+        ? remembered
+        : projects[0]!.projectPath;
+      setExpandedProjectPaths(new Set([openAt]));
       return;
     }
     const currentPaths = new Set(projects.map((project) => project.projectPath));
@@ -467,11 +479,39 @@ export function App({ feed, host }: Props) {
       setExtensionUI([]);
       setOpenQuestion(null);
       setSelectedThread({ project, session });
+      storeSelection({
+        projectPath: project.projectPath,
+        source: session.source,
+        sessionId: session.sessionId,
+      });
       setHoverPreviewOpen(false);
       if (usesModalSidebar) setSidebarOpen(false);
     },
     [endCurrentTerminalContext, selectedThread, setSidebarOpen, usesModalSidebar],
   );
+
+  /**
+   * Reopen whatever was on screen before the last reload.
+   *
+   * Runs once, and only while nothing is selected: a viewer who has already picked a thread must
+   * never have it changed under them by a late inventory delivery.
+   *
+   * It waits for the session list rather than acting on the stored id directly, because the row it
+   * restores carries live state -- capabilities decide which modes the thread can open in, and a
+   * fabricated summary would open a thread in a view its source does not serve. A session that has
+   * since been deleted simply never matches, and the panel opens on its empty state.
+   */
+  useEffect(() => {
+    if (restoredSelection.current || selectedThread) return;
+    const remembered = rememberedSelection.current;
+    if (!remembered) return;
+    const project = projects.find((entry) => entry.projectPath === remembered.projectPath);
+    const session = sessionsByProject.get(remembered.projectPath)
+      ?.find((entry) => entry.sessionId === remembered.sessionId && entry.source === remembered.source);
+    if (!project || !session) return;
+    restoredSelection.current = true;
+    openSession(project, session);
+  }, [projects, sessionsByProject, selectedThread, openSession]);
 
   const openTerminal = useCallback(() => {
     if (!selectedThread) return;
