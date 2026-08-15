@@ -23,6 +23,13 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // complete tree from rendering, accessibility, and hit testing
     // without tearing down the live host transport.
     let hostContentView = UIView()
+    // The z-order bands inside that root, back to front. Reached through
+    // `stage(_:)` rather than by name at the mount sites, so the decision
+    // recorded there is which band a view belongs to. See HostContentStage.
+    let backdropStage = PassthroughView()
+    let chromeStage = PassthroughView()
+    let surfaceStage = PassthroughView()
+    let overlayStage = PassthroughView()
     // ADR-0019: listens for a Mac-pushed pairing offer while unpaired and
     // foregrounded. Started/stopped from render() and the background hook.
     var pairingOfferListener: PairingOfferListener?
@@ -884,6 +891,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             hostContentView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             hostContentView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+        installHostContentStages()
 
         statusLabel.font = .preferredFont(forTextStyle: .headline)
         statusLabel.textAlignment = .center
@@ -914,10 +922,15 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         agentSayBanner.textAlignment = .left
         agentSayBanner.accessibilityIdentifier = "agent-say-banner"
 
-        hostContentView.addSubview(statusLabel)
-        hostContentView.addSubview(actionButton)
-        hostContentView.addSubview(forgetButton)
-        hostContentView.addSubview(agentSayBanner)
+        // The pre-session screen shares the backdrop band with the video: they
+        // never coexist, they fill the same space, and both belong under
+        // anything a session puts on top.
+        stage(.backdrop).addSubview(statusLabel)
+        stage(.backdrop).addSubview(actionButton)
+        stage(.backdrop).addSubview(forgetButton)
+        // The banner is the Mac's agent speaking, which has to be readable over
+        // whichever surface is up.
+        stage(.overlay).addSubview(agentSayBanner)
 
         NSLayoutConstraint.activate([
             statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
@@ -1357,7 +1370,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         label.accessibilityIdentifier = "client-screenshot-shared-status"
         label.accessibilityLabel = "Screenshot shared with paired Mac"
         label.translatesAutoresizingMaskIntoConstraints = false
-        hostContentView.addSubview(label)
+        stage(.overlay).addSubview(label)
         screenshotToastLabel = label
         NSLayoutConstraint.activate([
             label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -1449,8 +1462,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
         let preview = AVCaptureVideoPreviewLayer(session: session)
         preview.videoGravity = .resizeAspectFill
-        preview.frame = hostContentView.bounds
-        hostContentView.layer.insertSublayer(preview, at: 0)
+        // Behind the pairing status and its buttons, which share this band.
+        preview.frame = stage(.backdrop).bounds
+        stage(.backdrop).layer.insertSublayer(preview, at: 0)
         captureSession = session
         previewLayer = preview
         session.startRunning()

@@ -116,6 +116,7 @@
 				"PairingViewController+Keyboard.swift",
 				"PairingViewController+KeyboardHandoff.swift",
 				"PairingViewController+Layout.swift",
+				"PairingViewController+Stages.swift",
 				"PairingViewController+VideoTouch.swift",
 				"PairingViewController+Voice.swift",
 				"PairingViewController+WorkspaceIDE.swift",

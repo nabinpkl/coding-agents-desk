@@ -15,7 +15,7 @@ extension PairingViewController: UIGestureRecognizerDelegate, KeyboardSurfaceDel
         // they typed locally as confirmation while wire events go to
         // the Mac. Hidden until the user summons it.
         keyboardSurface.isHidden = true
-        hostContentView.addSubview(keyboardSurface)
+        stage(.chrome).addSubview(keyboardSurface)
         // R23: leading/trailing are orientation-variant and live in the
         // portrait/landscape arrays built by showTrackpad. Height and
         // bottom (relative to buttonRow.topAnchor) stay shared.

@@ -36,7 +36,7 @@ extension PairingViewController {
 
         sinkView.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(sinkView)
-        hostContentView.insertSubview(scroll, at: 0)
+        stage(.backdrop).insertSubview(scroll, at: 0)
 
         // Inner constraints (sink view inside the scroll) are
         // orientation-invariant; activate immediately.
@@ -98,7 +98,7 @@ extension PairingViewController {
 
         let dot = CursorPointerView()
         dot.isHidden = true
-        hostContentView.addSubview(dot)
+        stage(.backdrop).addSubview(dot)
         cursorDotView = dot
 
         // Diagnostics readout as fixed chrome in the host root (not the zoomable sink), so
@@ -113,7 +113,10 @@ extension PairingViewController {
         diag.layer.cornerRadius = 6
         diag.layer.masksToBounds = true
         diag.translatesAutoresizingMaskIntoConstraints = false
-        hostContentView.addSubview(diag)
+        // Chrome, not overlay: it reports on the Mac video, so it belongs with
+        // the other Control-surface furniture and stays covered by a full-bleed
+        // surface rather than floating a debug pill over the agent panel.
+        stage(.chrome).addSubview(diag)
         NSLayoutConstraint.activate([
             diag.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
             diag.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
@@ -122,7 +125,6 @@ extension PairingViewController {
                 constant: -8
             )
         ])
-        hostContentView.bringSubviewToFront(diag)
         mediaDiagnosticsLabel = diag
 
         // Host status (message, spinner, and the manual escape hatch). Centered on the root
@@ -137,7 +139,7 @@ extension PairingViewController {
         // happens the user should not be left holding a dead screen with nothing to tap.
         let status = HostStatusOverlay()
         status.reconnectButton.addTarget(self, action: #selector(reconnectTapped), for: .touchUpInside)
-        hostContentView.addSubview(status)
+        stage(.overlay).addSubview(status)
         let safe = view.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
             status.centerXAnchor.constraint(equalTo: safe.centerXAnchor),
@@ -145,7 +147,6 @@ extension PairingViewController {
             status.leadingAnchor.constraint(greaterThanOrEqualTo: safe.leadingAnchor, constant: 24),
             status.trailingAnchor.constraint(lessThanOrEqualTo: safe.trailingAnchor, constant: -24)
         ])
-        hostContentView.bringSubviewToFront(status)
         hostStatusOverlay = status
     }
 
@@ -166,7 +167,7 @@ extension PairingViewController {
         trackpadView.layer.borderColor = UIColor.separator.cgColor
         trackpadView.layer.borderWidth = 0.5
         trackpadView.isUserInteractionEnabled = true
-        hostContentView.addSubview(trackpadView)
+        stage(.chrome).addSubview(trackpadView)
 
         trackpadHint.text = "Trackpad"
         trackpadHint.textColor = .secondaryLabel
@@ -181,7 +182,7 @@ extension PairingViewController {
         scrollStripView.layer.borderColor = UIColor.separator.cgColor
         scrollStripView.layer.borderWidth = 0.5
         scrollStripView.isUserInteractionEnabled = true
-        hostContentView.addSubview(scrollStripView)
+        stage(.chrome).addSubview(scrollStripView)
 
         scrollStripHint.image = UIImage(systemName: "arrow.up.arrow.down")
         scrollStripHint.tintColor = .secondaryLabel
@@ -193,7 +194,7 @@ extension PairingViewController {
         buttonRow.spacing = 12
         buttonRow.distribution = .fillEqually
         buttonRow.translatesAutoresizingMaskIntoConstraints = false
-        hostContentView.addSubview(buttonRow)
+        stage(.chrome).addSubview(buttonRow)
 
         styleActionButton(rightClickButton, title: "Right-click")
         rightClickButton.addTarget(self, action: #selector(rightClickTapped), for: .touchUpInside)
@@ -230,12 +231,12 @@ extension PairingViewController {
         displayRailView.translatesAutoresizingMaskIntoConstraints = false
         displayRailView.delegate = self
         displayRailView.isHidden = true
-        hostContentView.addSubview(displayRailView)
+        stage(.chrome).addSubview(displayRailView)
 
         thumbnailStripView.translatesAutoresizingMaskIntoConstraints = false
         thumbnailStripView.delegate = self
         thumbnailStripView.isHidden = true
-        hostContentView.addSubview(thumbnailStripView)
+        stage(.chrome).addSubview(thumbnailStripView)
 
         // Directly under the Spaces strip, because the two are the same kind of thing: pick a
         // thing to look at. They need visibly distinct affordances though -- a Desktop tile
@@ -245,7 +246,7 @@ extension PairingViewController {
         windowPickerStripView.translatesAutoresizingMaskIntoConstraints = false
         windowPickerStripView.delegate = self
         windowPickerStripView.isHidden = true
-        hostContentView.addSubview(windowPickerStripView)
+        stage(.chrome).addSubview(windowPickerStripView)
 
         let thumbnailStripHeight = thumbnailStripView.heightAnchor.constraint(
             equalToConstant: thumbnailStripView.preferredHeight

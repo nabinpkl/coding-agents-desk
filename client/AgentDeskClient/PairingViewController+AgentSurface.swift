@@ -275,7 +275,7 @@ extension PairingViewController {
         let surface = AgentFeedSurface(closeDelivery: agentTerminalLifecycleRouter.closeDelivery)
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = true
-        hostContentView.addSubview(surface)
+        stage(.surface).addSubview(surface)
         // Ends at the keyboard, like every other surface here that contains a text field: the
         // terminal below, and both Workspace surfaces. This one was the exception, and the cost was
         // not a covered composer -- WebKit will not leave a focused field under the keyboard, so
@@ -558,7 +558,7 @@ extension PairingViewController {
                 )
                 surface.translatesAutoresizingMaskIntoConstraints = false
                 surface.isHidden = self.activeControlSurface != .workspace
-                self.hostContentView.addSubview(surface)
+                self.stage(.surface).addSubview(surface)
                 self.constrainSurfaceUnderControlRail(
                     surface,
                     bottomAnchor: self.view.bottomAnchor
@@ -596,7 +596,7 @@ extension PairingViewController {
         let surface = TerminalSurface()
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = true
-        hostContentView.addSubview(surface)
+        stage(.surface).addSubview(surface)
         constrainSurfaceUnderControlRail(
             surface,
             bottomAnchor: view.keyboardLayoutGuide.topAnchor

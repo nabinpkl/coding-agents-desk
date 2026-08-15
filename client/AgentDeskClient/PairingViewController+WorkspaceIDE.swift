@@ -103,7 +103,7 @@ extension PairingViewController {
         )
         surface.translatesAutoresizingMaskIntoConstraints = false
         surface.isHidden = activeControlSurface != .ide
-        hostContentView.addSubview(surface)
+        stage(.surface).addSubview(surface)
         constrainSurfaceUnderControlRail(surface, bottomAnchor: view.bottomAnchor)
         view.bringSubviewToFront(surfaceControlRail)
 

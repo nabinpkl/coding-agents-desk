@@ -306,7 +306,7 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
         agentSayHideTask?.cancel()
         agentSayBanner.text = text.isEmpty ? " " : text
         agentSayBanner.isHidden = false
-        hostContentView.bringSubviewToFront(agentSayBanner)
+        stage(.overlay).bringSubviewToFront(agentSayBanner)
         UIView.animate(withDuration: 0.12) {
             self.agentSayBanner.alpha = 1
         }
