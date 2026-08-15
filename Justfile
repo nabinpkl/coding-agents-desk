@@ -299,6 +299,22 @@ agent-feed-sidecar-check:
         exit 1
     fi
 
+# Canary for the harness artifacts background-task detection reads (ADR-0099): the
+# ~/.claude/sessions/<pid>.json registry, the <session>/tasks/<id>.output layout, and the
+# terminal-marker text. A Claude Code release can move any of them, and when one moves the
+# feature does not throw -- it reports nothing running, which looks exactly like a quiet
+# machine. This asserts the contract instead of the weather, so drift fails loudly.
+#
+# NOT part of `just check`: it reads live processes, so its result depends on what is running.
+agent-feed-background-tasks-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ROOT='{{justfile_directory()}}'
+    SIDECAR='{{agent_feed_sidecar_dir}}'
+    node "$ROOT/tools/build-system/ensure-js-dependencies.mjs" agent-feed-sidecar "$SIDECAR" "$ROOT/.build/js-dependencies"
+    cd "$SIDECAR"
+    bun run scripts/background-tasks-smoke.ts
+
 # Authenticated real-SDK gate for ADR-0091. This is manual because it spends one
 # model turn. It proves Pi's existing auth/settings, built-in bash, two-viewer
 # fan-out, control-token isolation, and persisted JSONL reopen through our adapter.
