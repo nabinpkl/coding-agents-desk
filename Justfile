@@ -1697,7 +1697,17 @@ host-run variant="stable" panel="live": build-agent-feed-sidecar build-agent-web
         fi
     fi
     just prepare-pty-runtime "{{variant}}"
-    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
+    # SWIFT_COMPILATION_MODE=singlefile keeps -O while making the unit of compilation the FILE
+    # rather than the module. Release defaults to wholemodule, which puts the whole 83k-line host
+    # through one serial frontend job, so a three-line edit costs the same as a clean build and
+    # nine of ten cores sit idle watching it. Timed on this tree, same one-file edit each way:
+    # wholemodule ~300s, singlefile 26s. Debug is 18s, and is NOT the answer -- it drops to -Onone
+    # across the whole host, and this is the launch you judge shipped behaviour on.
+    #
+    # The cost is losing cross-file inlining, which was worth protecting only while the crisp tile
+    # codec's per-byte loop was live. It is not: `crispTextOverlayEnabled` defaults to false and
+    # `OwnedTileCodec.extractTileWithHash` has one caller behind that switch.
+    sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Release -derivedDataPath "$DD" SWIFT_COMPILATION_MODE="${AGENTDESK_HOST_SWIFT_COMPILATION_MODE:-singlefile}" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
     # Kill both build configurations of THIS variant. LaunchServices treats Debug
     # and Release as the same running app because they share a bundle id, so leaving
     # either one alive can make `open "$APP"` silently keep the stale executable.
