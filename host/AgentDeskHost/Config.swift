@@ -269,17 +269,23 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS_FLOOR",
         defaultValue: 5
     )
+    // 90, not 180, because a rung carries its cadence in BYTES, not just frames. At 1fps the old
+    // budget told the encoder it could afford 22.5KB per frame, and it filled it: measured p50
+    // frame 16.5KB against a 4.8KB p50 delta the content needed. Resync refreshes were worse --
+    // 40-139KB each, a 2-3s stall on a link delivering ~200kbps. 90kbps makes the nominal frame
+    // 11.25KB (mean delta is 7.7KB, so 46% headroom) and drops the DataRateLimits window cap from
+    // 33.75KB to 16.9KB, so a p90 delta (18.8KB) compresses ~10% instead of emitting at cap; the
+    // refreshes shrink with the budget.
     static let ownedMediaEmergencyBitrateKbps = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_EMERGENCY_BITRATE_KBPS",
-        defaultValue: 180
+        defaultValue: 90
     )
-    // The true floor, and the only rung that fits its budget even at p90 (150kbps of 180).
-    //
-    // 6fps here needed 228kbps at p50 and 900 at p90 against 180 -- 1.3x to 5x over-subscribed,
-    // on the one rung reached precisely because the link cannot over-deliver. Measured result:
-    // standing queues 1-2.6s deep with rttInflation 10-32x, a smooth picture consistently that
-    // far behind the Mac. For a remote desktop a current frame at 1fps beats a two-second-old
-    // frame at 6fps, so the floor spends its whole budget on being CURRENT.
+    // The true floor. 1fps, not 6, because a rung must be able to CARRY its own cadence:
+    // 6fps here needed 228kbps at p50 and 900 at p90 against the 180kbps budget -- 1.3x to 5x
+    // over-subscribed, on the one rung reached precisely because the link cannot over-deliver.
+    // Measured result: standing queues 1-2.6s deep with rttInflation 10-32x, a smooth picture
+    // consistently that far behind the Mac. For a remote desktop a current frame at 1fps beats a
+    // two-second-old frame at 6fps, so the floor spends its whole budget on being CURRENT.
     //
     // Safe to go this low only since reference chains became loss-immune: skipped frames no
     // longer break anything, so the next frame sent is decodable and fresh rather than the
