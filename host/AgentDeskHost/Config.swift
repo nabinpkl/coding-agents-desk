@@ -495,6 +495,22 @@ enum Config {
     //
     // 2.5 sits between the two measured populations rather than at a round number: an ordinary
     // window on this path ran near 1.0-1.5, and the freeze read 5.0.
+    // Pin the encoder's resolution scale and take the axis away from the ladder. 0 disables.
+    //
+    // Resolution is not a peer of bitrate and fps, which is how the ladder currently treats it.
+    // VideoToolbox fixes width and height at `VTCompressionSessionCreate` and offers no property
+    // to change them, so every rescale RECREATES the session -- which discards every acknowledged
+    // LTR reference. Measured cost of one change: a full IDR (~53KB, 2.1s of wire at 208kbps)
+    // plus a 9-16 second window in which no acknowledged reference exists, so every stall
+    // recovery inside it is another IDR. Bitrate and fps cost nothing to change.
+    //
+    // Set this to hold one encode size for a whole session, leaving the ladder the two cheap
+    // axes. It is a measurement instrument first: it makes "how much of the freezing is
+    // rescale-induced" answerable by removing the cause rather than reasoning about it.
+    static let ownedMediaPinnedResolutionScale = nonNegativeDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_PINNED_RESOLUTION_SCALE",
+        defaultValue: 0
+    )
     // The absolute half of the queue-bloat test: how far behind the picture has to actually be
     // before an inflated ratio is allowed to mean anything. Both must hold -- see
     // `MediaQualityObservationDelivery.isQueueBloated`.

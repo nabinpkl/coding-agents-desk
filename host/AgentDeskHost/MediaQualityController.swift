@@ -1559,7 +1559,14 @@ struct QuicSessionHostMediaState {
 
     var targetKbps: Int { qualityController.targetKbps }
     var targetFps: Int { qualityController.targetFps }
-    var targetResolutionScale: Double { qualityController.targetResolutionScale }
+    /// Clamped here rather than at the point the frame is scaled, so that EVERY consumer sees one
+    /// unchanging value -- including whatever would otherwise notice a change and force the
+    /// session recreate this exists to prevent. Pinning only the scaler would leave the ladder
+    /// still announcing changes nobody applied.
+    var targetResolutionScale: Double {
+        let pinned = Config.ownedMediaPinnedResolutionScale
+        return pinned > 0 ? min(1.0, pinned) : qualityController.targetResolutionScale
+    }
     var inFlightFrames: Int { backpressure.inFlight }
     var inFlightBytes: Int { backpressure.bytesInFlight }
 
