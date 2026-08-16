@@ -224,6 +224,7 @@ final class PairingClient {
         activeDomMirror = nil
         activeResumeMaterial = nil
         pendingResume = nil
+        livenessMonitor = nil
         resetActiveMediaSession()
         state = .unpaired
         ClientDiagnostics.shared.record(type: "storedCredentialsCleared", fields: [:], level: .default)
@@ -249,11 +250,37 @@ final class PairingClient {
     private var activeResumeMaterial: SessionResumeMaterial?
     private var pendingResume: (active: ActiveSession, resume: SessionResumeMaterial)?
     private var inputReconnectTask: Task<Void, Never>?
+    /// ADR-0104: the session's liveness clock, owned HERE because this is the session's owner.
+    /// The transport only borrows it (`adoptLivenessMonitor`); a resume that keeps the session
+    /// id keeps the clock, so silence spans carriers, and a fresh dial that mints a new id
+    /// starts a new one.
+    private var livenessMonitor: SessionLivenessMonitor?
+    /// Set by PairingViewController. Fired when the carrier dies outside the media path's own
+    /// reporting (today: the input stream closing), so the VC's carrier-lost handling -- keep
+    /// surfaces, redial now -- runs for every carrier death, not only the ones the media
+    /// transport noticed.
+    var onCarrierLost: (() -> Void)?
 
-    /// Called by PairingViewController when the owned media channel reports
-    /// .failed (or 5s of .disconnected). Tears down the signaling channel
-    /// and transitions to .pairedDisconnected so the foreground auto-dial
-    /// path can retry on next willEnterForeground.
+    /// ADR-0104: the silence verdict, for the moments no carrier exists to deliver it.
+    ///
+    /// A live transport's report loop drives the clock itself; but when every redial fails
+    /// before a handshake there is no transport, no report loop, and without this check a
+    /// dead host would leave the session reattaching forever -- the eternal spinner the
+    /// verdict exists to prevent. The redial retry loop calls this between attempts. Same
+    /// clock, same latch, so only one of the two drivers ever fires per silence.
+    func sessionSilenceVerdict() -> Int? {
+        guard let monitor = livenessMonitor,
+              let silentMs = monitor.silentVerdict(nowNs: DispatchTime.now().uptimeNanoseconds)
+        else { return nil }
+        return Int(silentMs)
+    }
+
+    /// ADR-0104: the carrier is gone; the session (unless rejected) is not. Releases every
+    /// per-connection resource, banks the resume material, and leaves the state at
+    /// `.pairedDisconnected` for the redial loop. Deliberately does NOT touch the liveness
+    /// monitor: the silence accumulated on the dead carrier is exactly what must keep
+    /// counting across the redial, or a storm of short-lived carriers could postpone the
+    /// verdict forever.
     func handleMediaSessionFailed(rejection: SessionRejected? = nil) {
         inputReconnectTask?.cancel()
         inputReconnectTask = nil
@@ -270,6 +297,8 @@ final class PairingClient {
         activeResumeMaterial = nil
         resetActiveMediaSession()
         if let rejection {
+            // A rejection ends the SESSION, so its clock goes with it.
+            livenessMonitor = nil
             ClientDiagnostics.shared.record(
                 type: "mediaSessionFailed",
                 fields: ["reason": String(describing: rejection.reason)],
@@ -370,6 +399,23 @@ final class PairingClient {
                 port: port,
                 domMirror: connection.domMirror
             )
+            // ADR-0104: same session id, same clock -- the handshake that just completed is
+            // itself evidence, so a resumed session's silence resets here the honest way, by
+            // an exchange. A new id is a new session and starts a new clock.
+            let nowNs = DispatchTime.now().uptimeNanoseconds
+            if let existing = livenessMonitor, existing.sessionId == session.active.sessionId {
+                existing.noteEvidence(nowNs: nowNs)
+            } else {
+                livenessMonitor = SessionLivenessMonitor(
+                    sessionId: session.active.sessionId,
+                    nowNs: nowNs,
+                    quietPingMs: Config.sessionQuietPingMs,
+                    silenceLimitMs: Config.sessionSilenceLimitMs
+                )
+            }
+            if let monitor = livenessMonitor {
+                session.transport.adoptLivenessMonitor(monitor)
+            }
             activeSessionTransport = session.transport
             // Forward this transport's agent pushes to the stable sink so a
             // reconnect that replaces the transport keeps delivering to the
@@ -395,6 +441,7 @@ final class PairingClient {
             resetActiveMediaSession()
             activeResumeMaterial = nil
             pendingResume = nil
+            livenessMonitor = nil
             applyRejection(rejection)
             ClientDiagnostics.shared.record(
                 type: "sessionRejected",
@@ -492,6 +539,10 @@ final class PairingClient {
             fields: ["sessionId": active.sessionId],
             level: .error
         )
+        // ADR-0104: the input stream dying is a carrier death like any other. Reporting it
+        // upward is what makes this path redial NOW instead of waiting for the next
+        // foreground -- previously it was the one carrier loss with no recovery trigger.
+        onCarrierLost?()
     }
 
     private func resetActiveMediaSession() {

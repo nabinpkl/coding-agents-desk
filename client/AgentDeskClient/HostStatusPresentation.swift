@@ -5,9 +5,12 @@ import AgentDeskWire
 enum HostSessionActivity: Equatable {
     /// A session is up, so the host's own availability pushes are the real signal.
     case live
-    /// The client tore the session down and is rebuilding it. Whatever availability value is
-    /// around belongs to the session that just ended.
-    case recovering(MediaSessionLoss)
+    /// ADR-0104: the carrier is gone, the session is not. Surfaces stay mounted with the
+    /// last frame, the redial loop replaces the carrier underneath, and whatever
+    /// availability value is around belongs to the connection that just died. Carries no
+    /// loss reason: the client cannot know which end broke, and every name it used to pick
+    /// here was measured wrong in 13 of 14 teardowns.
+    case reattaching
     /// The user pressed Reconnect.
     case userRequestedReconnect
 }
@@ -65,42 +68,21 @@ struct HostStatusPresentation: Equatable {
             return forAvailability(availability)
         case .userRequestedReconnect:
             return .reconnecting
-        case .recovering(let loss):
-            return forLoss(loss)
+        case .reattaching:
+            return .reattaching
         }
     }
 
-    /// Every recovery keeps the escape hatch: the messages differ in what they blame, not in
-    /// what they offer, because any of them can be a recovery that never lands.
-    static func forLoss(_ loss: MediaSessionLoss) -> HostStatusPresentation {
-        switch loss {
-        case .linkChanged:
-            // Says what actually happened, and says nothing about the Mac. The last decoded
-            // frame stays on screen underneath, so this reads as a transition over a live
-            // picture rather than an error over a blank one.
-            return HostStatusPresentation(
-                message: "Switching network…",
-                showsActivity: true,
-                offersReconnect: true
-            )
-        case .hostSilent:
-            return HostStatusPresentation(
-                message: "Mac stopped responding",
-                showsActivity: true,
-                offersReconnect: true
-            )
-        case .transportFailed:
-            return HostStatusPresentation(
-                message: "Connection lost",
-                showsActivity: true,
-                offersReconnect: true
-            )
-        case .rejected:
-            // A refusal ends the session rather than recovering it, so the pairing screen
-            // takes over and there is nothing for this overlay to say.
-            return .hidden
-        }
-    }
+    /// A carrier swap in flight. Blames neither end -- "Mac stopped responding" was shown
+    /// thirteen times in one measured session while the Mac was answering every probe. The
+    /// last decoded frame stays on screen underneath, so this reads as a transition over a
+    /// live picture rather than an error over a blank one. The escape hatch rides along: any
+    /// recovery can be one that never lands, and without it the user is stranded waiting.
+    static let reattaching = HostStatusPresentation(
+        message: "Reconnecting…",
+        showsActivity: true,
+        offersReconnect: true
+    )
 
     static func forAvailability(_ availability: HostAvailability) -> HostStatusPresentation {
         switch availability {

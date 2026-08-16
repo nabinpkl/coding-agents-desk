@@ -36,33 +36,31 @@ struct HostStatusPresentationTests {
 /// `captureUnavailable` push -- from the client, about itself. Under last-writer-wins that
 /// second write won, and a WiFi-to-cellular switch told the user the Mac was unavailable.
 struct HostStatusResolutionTests {
-    @Test func recoveryOutranksTheAvailabilityItsOwnTeardownSynthesizes() {
+    @Test func reattachingOutranksTheAvailabilityItsOwnTeardownSynthesizes() {
         let resolved = HostStatusPresentation.resolve(
-            activity: .recovering(.linkChanged),
+            activity: .reattaching,
             availability: .captureUnavailable
         )
-        #expect(resolved == HostStatusPresentation.forLoss(.linkChanged))
+        #expect(resolved == HostStatusPresentation.reattaching)
         #expect(resolved != HostStatusPresentation.forAvailability(.captureUnavailable))
     }
 
-    /// A network switch blames the network. Naming the Mac here was the complaint.
-    @Test func aLinkChangeNeverBlamesTheMac() {
-        let message = HostStatusPresentation.forLoss(.linkChanged).message
-        #expect(message == "Switching network…")
-        #expect(HostStatusPresentation.forLoss(.linkChanged).showsActivity)
+    /// ADR-0104: the client cannot tell which end broke, so it must not say. "Mac stopped
+    /// responding" was shown thirteen times in one measured session while the Mac was
+    /// answering every probe. Asserted as an absence: whatever this string becomes, it may
+    /// not name a culprit.
+    @Test func aReattachBlamesNeitherEnd() {
+        let message = HostStatusPresentation.reattaching.message
+        #expect(message != nil)
+        #expect(!(message ?? "").contains("Mac"))
+        #expect(!(message ?? "").contains("network"))
     }
 
-    /// An unanswered probe on a path that never moved is the opposite diagnosis, and says so.
-    @Test func silenceOnAStablePathBlamesTheHost() {
-        #expect(HostStatusPresentation.forLoss(.hostSilent).message == "Mac stopped responding")
-        #expect(HostStatusPresentation.forLoss(.transportFailed).message == "Connection lost")
-    }
-
-    /// Every recovery keeps a way out, whatever it blames: any of them can fail to land.
-    @Test func everyRecoveryKeepsAnEscapeHatch() {
-        for loss in [MediaSessionLoss.linkChanged, .hostSilent, .transportFailed] {
-            #expect(HostStatusPresentation.forLoss(loss).offersReconnect)
-        }
+    /// Every recovery keeps a way out: a redial that never lands would otherwise strand the
+    /// user waiting on a spinner.
+    @Test func aReattachKeepsAnEscapeHatch() {
+        #expect(HostStatusPresentation.reattaching.showsActivity)
+        #expect(HostStatusPresentation.reattaching.offersReconnect)
     }
 
     @Test func aLiveSessionLetsTheHostSpeakForItself() {

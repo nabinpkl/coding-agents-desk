@@ -152,7 +152,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         source: .none
     )
     var mediaStateTask: Task<Void, Never>?
-    var iceGraceTask: Task<Void, Never>?
+    /// ADR-0104: delays the "Reconnecting…" overlay so a fast carrier swap is invisible.
+    var reattachOverlayTask: Task<Void, Never>?
     // R11: observes the input channel's desktopStateUpdates stream and
     // pushes each DesktopState into the strip. Lifecycle matches
     // sessionTask: cancelled on background, restarted on the next
@@ -307,6 +308,18 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         configureKeyboardSurface()
         applySettingsToTranslator()
         pairingClient.loadStoredPairingMaterial()
+        // ADR-0104: a carrier death PairingClient notices on its own (the input stream
+        // closing) runs the same keep-surfaces-and-redial path as one the media transport
+        // reports. Before this, the input-close path parked at `.pairedDisconnected` until
+        // the next foreground -- the one carrier loss with no recovery trigger.
+        pairingClient.onCarrierLost = { [weak self] in
+            guard let self else { return }
+            self.hostSessionActivity = .reattaching
+            self.preservesSuspendedSessionSurfaces = true
+            self.teardownMediaTransport(preservingSessionSurfaces: true)
+            self.render()
+            self.triggerSessionIfPaired()
+        }
         render()
         NotificationCenter.default.addObserver(
             self,
@@ -380,8 +393,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         cancelSessionAttempt()
         handshakeTask?.cancel()
         handshakeTask = nil
-        iceGraceTask?.cancel()
-        iceGraceTask = nil
+        reattachOverlayTask?.cancel()
+        reattachOverlayTask = nil
         mediaStateTask?.cancel()
         mediaStateTask = nil
         desktopStateTask?.cancel()
@@ -450,9 +463,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                     self.sessionTask = nil
                 }
             }
-            // Only when the link is what moved. Every other loss leaves the path exactly where
-            // it was, so there is nothing to wait for and waiting would be pure added outage.
-            if case .recovering(.linkChanged) = self.hostSessionActivity {
+            // ADR-0104: we no longer claim to know whether the link moved, so every reattach
+            // waits for the path to settle. `waitUntilSettled` returns immediately on a path
+            // that never moved, so asking costs nothing when it did not, where not asking
+            // when it did means dialing into a radio mid-switch.
+            if case .reattaching = self.hostSessionActivity {
                 await SessionPathReadiness.shared.waitUntilSettled()
                 guard !Task.isCancelled, self.sessionAttemptGeneration == generation else { return }
             }
@@ -503,6 +518,18 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                     self.sessionLogger.notice(
                         "session reconnect attempt failed cause=\(String(describing: cause), privacy: .public) consecutive=\(self.consecutiveSessionFailures, privacy: .public) error=\(String(describing: error), privacy: .public)"
                     )
+                    // ADR-0104: with no carrier there is no report loop, so the retry loop is
+                    // what carries the session's silence clock to its verdict. Without this a
+                    // dead host would leave the session reattaching forever.
+                    if let silentMs = self.pairingClient.sessionSilenceVerdict() {
+                        ClientDiagnostics.shared.record(
+                            type: "sessionUnreachable",
+                            fields: ["silentMs": String(silentMs), "driver": "redial-loop"],
+                            level: .error
+                        )
+                        self.failMediaSession(loss: .unreachable(silentMs: silentMs))
+                        return
+                    }
                     self.render()
                     shouldDelay = true
                 }
@@ -521,7 +548,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         handshakeTask?.cancel()
         sessionTask?.cancel()
         mediaStateTask?.cancel()
-        iceGraceTask?.cancel()
+        reattachOverlayTask?.cancel()
         desktopStateTask?.cancel()
         cursorTask?.cancel()
         cursorReconciliationTask?.cancel()
@@ -560,6 +587,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // overlay would sit permanently over a working session -- and a stuck "Reconnecting…"
         // over live video is a worse failure than a briefly absent one over a frozen frame.
         hostSessionActivity = .live
+        reattachOverlayTask?.cancel()
+        reattachOverlayTask = nil
         hostStatusOverlay?.apply(.hidden)
         if let owned = sink as? any OwnedMediaFrameSink {
             owned.onOwnedMediaStatusChange = { [weak self] status in
@@ -698,31 +727,23 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         case .connecting:
             break
         case .connected:
-            iceGraceTask?.cancel()
-            iceGraceTask = nil
+            reattachOverlayTask?.cancel()
+            reattachOverlayTask = nil
         case .disconnected:
-            iceGraceTask?.cancel()
-            iceGraceTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
-                guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    // Nothing more specific to say: the link never reported moving and no
-                    // probe went unanswered, the session simply stayed quiet past the grace.
-                    self?.failMediaSession(loss: .transportFailed)
-                }
-            }
+            // ADR-0104: a quiet spell is not a verdict, and the 5s grace that lived here was
+            // one of five independent paths that could end a session. If the quiet is real
+            // silence, the session clock accumulates it and delivers the one verdict; if the
+            // carrier actually dies, `.failed` arrives on its own.
+            break
         case .failed(let loss):
             ClientRuntimeTelemetry.shared.updateMediaState(.failed)
-            iceGraceTask?.cancel()
-            iceGraceTask = nil
             failMediaSession(loss: loss)
         case .closed:
-            iceGraceTask?.cancel()
-            iceGraceTask = nil
-            applyHostAvailability(HostAvailabilityPush(
-                availability: .captureUnavailable,
-                reason: "media-closed"
-            ))
+            // A closed carrier says nothing about the Mac. The old availability push here
+            // ("Mac display unavailable") blamed the host for every deliberate teardown and
+            // carrier swap; the reattach overlay and the session verdict now cover the cases
+            // that deserve words.
+            break
         }
     }
 
@@ -742,27 +763,34 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             return
         }
 
-        // The overlay reads this rather than the availability push that follows, so what the
-        // user is told names what actually happened instead of what the closing transport
-        // made the client assume about the Mac.
-        hostSessionActivity = .recovering(loss)
+        if case .unreachable(let silentMs) = loss {
+            // ADR-0104: the one death verdict. The session is over; say so honestly with the
+            // full teardown and the Connect screen, and leave the existing auto-redial
+            // triggers (foreground, viewWillAppear, the Connect button) armed rather than
+            // spinning a hot retry loop against a host that has not answered in 15 seconds.
+            hostSessionActivity = .live
+            teardownMediaTransport()
+            pairingClient.handleMediaSessionFailed()
+            ClientDiagnostics.shared.record(
+                type: "sessionEndedUnreachable",
+                fields: ["silentMs": String(silentMs)],
+                level: .error
+            )
+            render()
+            return
+        }
+
+        // Carrier lost, session alive: keep the surfaces and the last frame, replace the
+        // carrier underneath. ADR-0089's insight survives its detectors: re-dial NOW, because
+        // during a network handover the app never leaves the foreground, so the
+        // foreground-triggered paths cannot fire. `triggerSessionIfPaired` carries the guards
+        // (no-ops unless `.pairedDisconnected`, respects a user disconnect, owns the
+        // retry-with-delay loop).
+        hostSessionActivity = .reattaching
         preservesSuspendedSessionSurfaces = true
         teardownMediaTransport(preservingSessionSurfaces: true)
         pairingClient.handleMediaSessionFailed()
         render()
-        // ADR-0089: re-dial now instead of waiting for the next foreground.
-        //
-        // `handleMediaSessionFailed` leaves the client in `.pairedDisconnected`, and until now
-        // nothing moved it out of that except `applicationWillEnterForeground`, `viewWillAppear`
-        // or the user tapping Connect. During a network handover the app never leaves the
-        // foreground, so the one path that could recover the session could not fire -- which is
-        // why ADR-0030's resume machinery, built for exactly this, had never once run.
-        //
-        // Only the non-rejection path. A rejection (revoked, unauthorized) returns above and
-        // must stay down. `triggerSessionIfPaired` already carries the rest of the guards: it
-        // no-ops unless the state is `.pairedDisconnected`, it respects a user-requested
-        // disconnect, and it owns the retry-with-delay loop, so this enters existing machinery
-        // sooner rather than adding a second one.
         triggerSessionIfPaired()
     }
 
@@ -809,17 +837,25 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // the reattach path needs nothing new; it was simply unreachable while this nil'd it.
         if preservingSessionSurfaces {
             (videoSink as? any OwnedMediaFrameSink)?.prepareForStreamHandover()
-            // A frozen picture with nothing over it is indistinguishable from a hung app, which
-            // is arguably worse than black because black at least reads as "something happened".
-            // The status label is hidden by the preserved-surfaces branch of `render`, so the
-            // overlay on the picture is the place to say it. Spinner and all: this is a
-            // transition over a picture that is still there, not an error over a dead one. The
-            // escape hatch rides along, because if the redial does not come back the user is
-            // otherwise stranded waiting for a recovery that is not coming.
-            hostStatusOverlay?.apply(HostStatusPresentation.resolve(
-                activity: hostSessionActivity,
-                availability: .captureUnavailable
-            ))
+            // A frozen picture with nothing over it is indistinguishable from a hung app --
+            // but a "Reconnecting" flash over every sub-second carrier swap teaches the user
+            // to distrust a session that is actually fine. So the overlay waits out a grace:
+            // a swap that completes inside it (most of them, now that a resume costs a delta
+            // resync rather than an IDR) is invisible, and one that does not gets the honest
+            // spinner plus the escape hatch, because a redial that never lands would
+            // otherwise strand the user waiting.
+            reattachOverlayTask?.cancel()
+            reattachOverlayTask = Task { [weak self] in
+                try? await Task.sleep(
+                    nanoseconds: UInt64(Config.sessionReattachOverlayGraceMs) * 1_000_000
+                )
+                guard !Task.isCancelled, let self else { return }
+                guard case .reattaching = self.hostSessionActivity else { return }
+                self.hostStatusOverlay?.apply(HostStatusPresentation.resolve(
+                    activity: self.hostSessionActivity,
+                    availability: .captureUnavailable
+                ))
+            }
         } else {
             videoSink?.view.removeFromSuperview()
             videoSink = nil

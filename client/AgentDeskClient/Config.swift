@@ -68,6 +68,28 @@ enum Config {
         environmentKey: "AGENTDESK_SESSION_RECONNECT_RETRY_DELAY_MS",
         defaultValue: 1_000
     )
+    // ADR-0104: how long the session may go with no inbound evidence before the client
+    // manufactures some (a session-ping on the input lane). Anything arriving -- a datagram,
+    // a push, a pong -- resets this, so an active session never pings.
+    static let sessionQuietPingMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_QUIET_PING_MS",
+        defaultValue: 2_000
+    )
+    // ADR-0104: the one number that ends a session for silence. Above the longest measured
+    // self-healing stall (9s); inside the host's 20s resume TTL, so a success at the boundary
+    // is still a resume rather than a re-pair. Counted across ALL carriers: redials do not
+    // reset it, only evidence does.
+    static let sessionSilenceLimitMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_SILENCE_LIMIT_MS",
+        defaultValue: 15_000
+    )
+    // ADR-0104: how long a reattach may run before the overlay says anything. A carrier swap
+    // that completes inside this is invisible -- which is most of them, now that a resume
+    // costs a delta resync rather than an IDR.
+    static let sessionReattachOverlayGraceMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_REATTACH_OVERLAY_GRACE_MS",
+        defaultValue: 2_000
+    )
     // ADR-0058: grace before an unconfirmed locally predicted cursor becomes
     // a grey ghost. This is intentionally longer than normal input-lane RTT,
     // while still surfacing a host that stopped applying cursor input quickly.
@@ -162,52 +184,13 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_RENDER_STALL_MS",
         defaultValue: 1_000
     )
-    // ADR-0025 carrier keepalive cadence. The datagram carrier is host->client only,
-    // so with nothing flowing back the host's QUIC idle timer fires (~30s) and drops
-    // the carrier. A small keepalive control datagram on this interval keeps the host
-    // hearing from the client. Must stay well under the 30s idle window.
-    static let ownedMediaKeepaliveIntervalMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_KEEPALIVE_INTERVAL_MS",
-        defaultValue: 5_000
-    )
     // ADR-0027: how often the client reports link health (window completed/expired
-    // frame counts) to the host adaptive bitrate controller. Faster than keepalive so
-    // the controller reacts within a second; each report carries that window's counts.
+    // frame counts) to the host adaptive bitrate controller. Each report carries that
+    // window's counts, and at 2Hz it doubles as the traffic that keeps the QUIC idle
+    // timer (~30s) from firing on a quiet carrier.
     static let ownedMediaLinkHealthIntervalMs = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_LINK_HEALTH_INTERVAL_MS",
         defaultValue: 500
-    )
-    // ADR-0089 handover recovery: how long a detected link change is given to start carrying
-    // traffic again before the session is declared dead and re-dialed.
-    //
-    // Sized from the device measurement rather than taste. Detection fires within one report
-    // window (~0.5s); the measured freeze delivered nothing for 9s and the transport never
-    // reported a failure at all. 2s recovers roughly four times sooner than that freeze
-    // self-healed while still leaving a real handover time to settle, and it sits far inside
-    // the host's 20s resume window, so the resume material is still valid when we dial.
-    static let ownedMediaHandoverGraceMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_HANDOVER_GRACE_MS",
-        defaultValue: 2000
-    )
-    // ADR-0089 liveness: how often the client probes the host while nothing is arriving.
-    //
-    // Only spent when the downlink is already silent, so an active session pays nothing and an
-    // idle one pays one small datagram each way per interval. The radio is awake anyway -- the
-    // link-health report goes out at 2Hz -- so this adds bandwidth, not wakeups.
-    static let ownedMediaLivenessProbeIntervalMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_LIVENESS_PROBE_INTERVAL_MS",
-        defaultValue: 2000
-    )
-    // ADR-0089 liveness: unanswered probes before the downlink is declared dead.
-    //
-    // Three at a 2s interval declares roughly 6.5s after the last arrival: sooner than the 9.6s
-    // the transport took to notice the same death in R212, and far inside the host's 20s resume
-    // window so the session can be resumed rather than re-paired. Not lower, because a single
-    // lost datagram must never fire this -- three consecutive round trips lost at the 0.2% loss
-    // measured at rest is about one in ten million.
-    static let ownedMediaLivenessFailureThreshold = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_LIVENESS_FAILURE_THRESHOLD",
-        defaultValue: 3
     )
     // ADR-0073: minimum gap between recovery keyframe requests. Gap skips coalesce
     // behind one request; a later completed delta retries after this interval if the

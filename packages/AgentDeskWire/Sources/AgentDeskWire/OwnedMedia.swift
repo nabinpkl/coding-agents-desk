@@ -197,24 +197,17 @@ public struct OwnedMediaFrameEnvelope: Equatable, Sendable {
 }
 // Client-to-host control for the datagram carrier: a keyframe request when the
 // stream desyncs past repair, and a packet-resend request naming the missing
-// indexes of a frame. frameAck/graphicsResetRequest/keepalive round out the
-// protocol the pre-ADR-0022 carrier used.
+// indexes of a frame. Liveness does NOT ride here (ADR-0104): these are datagrams
+// sharing the video's flow, and the probe/echo pair that once lived on them lost
+// 38% of its replies to that sharing.
 public enum OwnedMediaControlKind: String, Codable, Equatable, Sendable {
     case keyframeRequest = "keyframe-request"
     case packetResendRequest = "packet-resend-request"
     case frameAck = "frame-ack"
     case graphicsResetRequest = "graphics-reset-request"
-    case keepalive = "keepalive"
     // ADR-0027: client->host link-health report carrying the window's completed and
     // expired (lost) frame counts, which drive the host adaptive bitrate controller.
     case linkHealth = "link-health"
-    // ADR-0089 liveness: client->host probe and the host's reply. The pair exists because
-    // silence is not evidence -- a host with a static screen legitimately sends nothing for
-    // over twelve seconds -- so the client manufactures traffic it is owed an answer to, and
-    // an unanswered probe means the downlink is dead whatever killed it. `frameId` carries the
-    // probe's sequence number and the echo returns it unchanged.
-    case livenessProbe = "liveness-probe"
-    case livenessEcho = "liveness-echo"
 }
 public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
     public let type: String
