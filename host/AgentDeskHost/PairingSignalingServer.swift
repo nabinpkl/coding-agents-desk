@@ -218,19 +218,6 @@ final class PairingSignalingServer: @unchecked Sendable {
             }
             let lane = GraphicsLaneServer(stream: stream, fingerprint: active.deviceFingerprint)
             graphicsLaneReadyHandler(active.deviceFingerprint, lane)
-        case .liveness:
-            // ADR-0103. No ready handler: nothing in the host talks to this lane, it only
-            // beats. Rejecting an unauthorized one still matters -- an unauthenticated peer
-            // must not learn the host is alive.
-            guard let active = context.activeSession else {
-                try await QuicSessionStreamIO.send(
-                    SessionRejected(reason: .unauthorized),
-                    role: .liveness,
-                    on: stream
-                )
-                return
-            }
-            LivenessLaneServer.start(stream: stream, fingerprint: active.deviceFingerprint)
         case .dom:
             // ADR-0038 DOM-mirror lane. Gated by the master flag: if the subsystem is off, reject
             // cleanly (a client should not open .dom then, but reject rather than hang if it does).

@@ -17,16 +17,6 @@ public enum QuicSessionStreamRole: UInt8, Codable, Equatable, Sendable {
     /// panel protocol verbatim to its webview instead of multiplexing it onto
     /// the shared `input` lane and demuxing by a hand-maintained tag allowlist.
     case agent = 9
-    /// Host liveness heartbeat (ADR-0103). Its own lane for the same reason `assets` is
-    /// separate from `voice`: QUIC streams do not head-of-line block one another, so a
-    /// heartbeat here cannot queue behind crisp tiles, and being a stream rather than a
-    /// datagram it is retransmitted rather than dropped.
-    ///
-    /// That combination is the point. Liveness previously rode the connection-wide datagram
-    /// flow alongside video, where it competed with 30KB frames for one congestion window:
-    /// measured on device, the host answered 187 of 187 probes while only 108 of 175 replies
-    /// reached the phone, and three consecutive losses were read as a dead host.
-    case liveness = 10
 }
 
 public enum QuicSessionFrameError: Error, Equatable {

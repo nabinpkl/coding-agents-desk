@@ -156,9 +156,6 @@ final class SessionDialer {
         let domMirror = try await Self.openDomMirrorIfEnabled(connection)
         let datagrams = try await connection.datagrams
         let agentStream = try await connection.openStream()
-        // ADR-0103: liveness rides its own stream so a heartbeat never queues behind crisp
-        // tiles and is retransmitted rather than dropped.
-        let livenessStream = try await connection.openStream()
         let mediaKey = MediaDatagramCrypto.sessionKey(
             sessionId: ready.sessionId,
             clientNonce: clientNonce,
@@ -172,8 +169,7 @@ final class SessionDialer {
             datagrams: datagrams,
             activeSession: active,
             mediaKey: mediaKey,
-            agentStream: agentStream,
-            livenessStream: livenessStream
+            agentStream: agentStream
         )
         success = true
         return SessionHandshakeOutcome(
@@ -298,9 +294,6 @@ final class SessionDialer {
         let domMirror = try await Self.openDomMirrorIfEnabled(connection)
         let datagrams = try await connection.datagrams
         let agentStream = try await connection.openStream()
-        // ADR-0103: liveness rides its own stream so a heartbeat never queues behind crisp
-        // tiles and is retransmitted rather than dropped.
-        let livenessStream = try await connection.openStream()
         let mediaKey = MediaDatagramCrypto.sessionKey(
             sessionId: ready.sessionId,
             clientNonce: clientNonce,
@@ -314,8 +307,7 @@ final class SessionDialer {
             datagrams: datagrams,
             activeSession: active,
             mediaKey: mediaKey,
-            agentStream: agentStream,
-            livenessStream: livenessStream
+            agentStream: agentStream
         )
         success = true
         return SessionHandshakeOutcome(
