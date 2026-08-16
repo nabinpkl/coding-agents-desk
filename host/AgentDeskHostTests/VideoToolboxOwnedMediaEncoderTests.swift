@@ -190,39 +190,22 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertLessThanOrEqual(Double(total), cap, "keyframe-interval bytes exceeded the DataRateLimits window cap")
     }
 
-    // ADR-0033: the adaptive media-quality controller, pure-logic against fixed inputs.
+    // ADR-0101: the continuous media-quality controller, pure-logic against fixed inputs.
+    //
+    // The derived-cadence arithmetic these tests rely on: no input carries an EWMA, so the
+    // frame budget is seedFrameBytes * frameBytesHeadroom = 13,000B, and
+    // fps(kbps) = kbps * 125 / 13_000. The blind descent is *0.7 per confirmed step:
+    // 2500 -> 1750 (16fps) -> 1225 (11) -> 858 (8) -> ... -> floor 60 (1fps).
     private func mediaQualityConfig() -> MediaQualityControllerConfig {
         MediaQualityControllerConfig(
-            ceilingKbps: 2500, floorKbps: 800, survivalFloorKbps: 300,
+            ceilingKbps: 2500, floorKbps: 60,
             downStep: 0.7, upStep: 1.15,
             lossDownPermille: 50, raiseCleanWindows: 4, cadenceDownWindows: 2,
-            fpsCeiling: 30, fpsFloor: 10,
+            fpsCeiling: 30,
             ackHoldP95Ms: 180, ackDownP95Ms: 350,
             cadenceGapMs: 500, freezeGapMs: 1_000, freezeFpsCeiling: 3,
-            recoveryMaxGapMs: 300, recoveryMinFpsPermille: 800,
-            transitionWarmupWindows: 1,
-            capacity1Kbps: 650, capacity1Fps: 24,
-            capacity2Kbps: 400, capacity2Fps: 15,
-            emergencyKbps: 180, emergencyFps: 6,
-            resolutionScale: 0.5
-        )
-    }
-
-    /// The same ladder with R231c's climb-back requirement turned down, used as the control when
-    /// measuring that the requirement actually delays anything.
-    private func eagerResolutionClimbConfig() -> MediaQualityControllerConfig {
-        MediaQualityControllerConfig(
-            ceilingKbps: 2500, floorKbps: 800, survivalFloorKbps: 300,
-            downStep: 0.7, upStep: 1.15,
-            lossDownPermille: 50, raiseCleanWindows: 4, cadenceDownWindows: 2,
-            fpsCeiling: 30, fpsFloor: 10,
-            ackHoldP95Ms: 180, ackDownP95Ms: 350,
-            cadenceGapMs: 500, freezeGapMs: 1_000, freezeFpsCeiling: 3,
-            recoveryMaxGapMs: 300, recoveryMinFpsPermille: 800,
-            transitionWarmupWindows: 1,
-            capacity1Kbps: 650, capacity1Fps: 24,
-            capacity2Kbps: 400, capacity2Fps: 15,
-            emergencyKbps: 180, emergencyFps: 6, resolutionScale: 0.5
+            resolutionScale: 0.5,
+            seedFrameBytes: 10_000, frameBytesHeadroom: 1.3, deliverySnapRatio: 0.85
         )
     }
 
@@ -292,8 +275,8 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         var state = QuicSessionHostMediaState(
             qualityControllerConfig: mediaQualityConfig()
         )
-        // R231: the rung drops within a couple of windows, but resolution follows only after
-        // the dwell, so this setup has to run past it to reach a below-native scale.
+        // Drive the adaptive controller well below its ceiling before pinning, so the pin and
+        // the later handoff are exercised against a genuinely moved target.
         for _ in 0..<16 {
             _ = state.observeLinkHealth(
                 completedFrames: 80,
@@ -301,7 +284,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
                 productionSummary: production()
             )
         }
-        XCTAssertLessThan(state.targetResolutionScale, 1.0, "setup should drive the adaptive ladder below native resolution")
+        XCTAssertLessThan(state.targetKbps, 2_500, "setup should drive the adaptive target below the ceiling")
 
         let disabled = state.applyClientMediaQuality(ClientMediaQualityConfig(
             adaptiveEnabled: false,
@@ -353,7 +336,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertFalse(controller.observe(cleanInput()).outcome.changed)
         XCTAssertEqual(controller.targetKbps, afterDown, "three clean windows do not raise; hysteresis needs four")
         let up = controller.observe(cleanInput()).outcome
-        XCTAssertEqual(up.reason, "clean-up")
+        XCTAssertEqual(up.reason, "quality-up")
         XCTAssertGreaterThan(controller.targetKbps, afterDown)
     }
 
@@ -374,7 +357,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         // real link-clean time: it accrues a nominal window and completes the
         // streak, so recovery climbs instead of stalling between production windows.
         let linkOnly = controller.observe(input(cleanSample(ackP95Ms: 50), ackCount: 1))
-        XCTAssertEqual(linkOnly.outcome.reason, "clean-up")
+        XCTAssertEqual(linkOnly.outcome.reason, "quality-up")
         XCTAssertGreaterThan(controller.targetKbps, afterDown)
     }
 
@@ -391,9 +374,9 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         var climbed = false
         for _ in 0..<8 {
             let decision = controller.observe(input(cleanSample(ackP95Ms: 50), ackCount: 1))
-            if decision.outcome.reason == "clean-up" { climbed = true }
+            if decision.outcome.reason == "quality-up" { climbed = true }
         }
-        XCTAssertTrue(climbed, "clean ack-only windows must let the ladder recover")
+        XCTAssertTrue(climbed, "clean ack-only windows must let the target recover")
         XCTAssertGreaterThan(controller.targetKbps, afterDown)
     }
 
@@ -417,7 +400,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
     func testMediaQualityControllerIdleWindowBelowNativeAccruesRecovery() {
         var controller = MediaQualityController(config: mediaQualityConfig())
         for _ in 0..<40 { _ = controller.observe(lossInput()) }
-        XCTAssertEqual(controller.target.rung, .emergency)
+        XCTAssertEqual(controller.targetKbps, 60, "sustained loss walks the target to the floor")
 
         let idle = input(MediaQualitySample(completedFrames: 0, expiredFrames: 0))
         let first = controller.observe(idle)
@@ -429,27 +412,29 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
     func testMediaQualityControllerIdleRecoversToNativeAtRest() {
         var controller = MediaQualityController(config: mediaQualityConfig())
         for _ in 0..<40 { _ = controller.observe(lossInput()) }
-        XCTAssertEqual(controller.target.rung, .emergency)
+        XCTAssertEqual(controller.targetKbps, 60)
         XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
 
-        // The screen settles: zero-activity, link-clean windows. The ladder climbs
-        // back to native with no production to measure, so the next motion is crisp.
+        // The screen settles: zero-activity, link-clean windows. The target climbs
+        // back to the ceiling with no production to measure, so the next motion is crisp.
         let idle = input(MediaQualitySample(completedFrames: 0, expiredFrames: 0))
         var windows = 0
-        while controller.target.rung != .native && windows < 400 {
+        while controller.targetKbps < 2500 && windows < 400 {
             _ = controller.observe(idle)
             windows += 1
         }
-        XCTAssertEqual(controller.target.rung, .native, "sustained rest climbs the ladder back to native")
+        XCTAssertEqual(controller.targetKbps, 2500, "sustained rest climbs the target back to the ceiling")
         XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
-        XCTAssertEqual(controller.targetKbps, 2500)
-        XCTAssertEqual(controller.targetFps, 30)
+        // 24, not the 30 ceiling: with no measured frames the cadence is derived through the
+        // 13,000B seed budget, and 2500kbps carries 24 such frames a second. Real content
+        // cheaper than the seed raises this through the EWMA.
+        XCTAssertEqual(controller.targetFps, 24)
     }
 
     func testMediaQualityControllerInflightStallDoesNotClimbAtRest() {
         var controller = MediaQualityController(config: mediaQualityConfig())
         for _ in 0..<40 { _ = controller.observe(lossInput()) }
-        XCTAssertEqual(controller.target.rung, .emergency)
+        XCTAssertEqual(controller.targetKbps, 60)
 
         // Zero completions this window, but frames are still inflight: a pre-timeout
         // stall, not an idle screen. Recovery must not climb.
@@ -466,81 +451,37 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         )
         for _ in 0..<20 {
             let decision = controller.observe(stall)
-            XCTAssertNotEqual(decision.outcome.reason, "clean-up")
-            XCTAssertNotEqual(decision.outcome.reason, "probe-stable")
+            XCTAssertNotEqual(decision.outcome.reason, "quality-up")
         }
-        XCTAssertEqual(controller.target.rung, .emergency, "a stall must not be mistaken for idle recovery")
+        XCTAssertEqual(controller.targetKbps, 60, "a stall must not be mistaken for idle recovery")
     }
 
-    func testMediaQualityControllerStepsCapacityRungsAfterBitrateFloor() {
+    // ADR-0101: sustained pressure walks the target down multiplicatively, cadence deriving
+    // with it, and stops AT the floor rather than churning against it. This is the continuous
+    // successor to the rung-walk test: no fixed stops, but every step must move both axes
+    // coherently and the floor must be terminal.
+    func testMediaQualityControllerSustainedLossWalksToTheFloorAndStays() {
         var controller = MediaQualityController(config: mediaQualityConfig())
-        while controller.targetKbps > 800 {
+        var previousKbps = controller.targetKbps
+        var reachedFloor = false
+        for _ in 0..<20 {
             let outcome = controller.observe(lossInput()).outcome
-            XCTAssertEqual(outcome.reason, "loss-down")
-            XCTAssertEqual(controller.targetFps, 30, "fps holds while bitrate is still falling")
-            XCTAssertFalse(outcome.fpsChanged)
+            if controller.targetKbps == 60 {
+                reachedFloor = true
+                XCTAssertEqual(outcome.reason, controller.targetKbps == previousKbps ? "at-floor" : "loss-down")
+            } else {
+                XCTAssertEqual(outcome.reason, "loss-down")
+                XCTAssertLessThan(controller.targetKbps, previousKbps, "every confirmed descent moves down")
+            }
+            // The cadence rides the bitrate: never more frames than the budget carries.
+            let budgetFps = min(max(Int(Double(controller.targetKbps) * 125.0 / 13_000.0), 1), 30)
+            XCTAssertEqual(controller.targetFps, budgetFps)
+            XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
+            previousKbps = controller.targetKbps
         }
-        // R231: the rungs still step one window at a time, and bitrate and fps step with them.
-        // Resolution does not: it is held at the committed scale until the pressure has lasted
-        // long enough to be worth a keyframe, so every scale assertion below is 1.0 while the
-        // ladder walks down underneath it.
-        let capacity1 = controller.observe(lossInput()).outcome
-        XCTAssertEqual(capacity1.reason, "capacity-down")
-        XCTAssertFalse(capacity1.resolutionChanged)
-        XCTAssertEqual(controller.targetFps, 24)
-        XCTAssertEqual(controller.targetKbps, 650)
-        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
-        let capacity2 = controller.observe(lossInput()).outcome
-        XCTAssertEqual(capacity2.reason, "capacity-down")
-        XCTAssertEqual(controller.targetFps, 15)
-        XCTAssertEqual(controller.targetKbps, 400)
-        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
-        let survival = controller.observe(lossInput()).outcome
-        XCTAssertEqual(survival.reason, "survival-down")
-        XCTAssertEqual(controller.targetFps, 10, "cadence converges to the fps floor and not below")
-        XCTAssertEqual(controller.targetKbps, 300, "survival bitrate converges to the survival floor and not below")
-        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
-        let emergency = controller.observe(lossInput()).outcome
-        XCTAssertEqual(emergency.reason, "emergency-down")
-        XCTAssertEqual(controller.targetFps, 6)
-        XCTAssertEqual(controller.targetKbps, 180)
-        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
-        // Delayed, not withheld. Once the pressure has outlasted the dwell, the rung's scale is
-        // finally believed and the one keyframe it costs is spent on evidence rather than on a
-        // guess that four windows earlier would have been about to reverse.
-        for _ in 0..<12 { _ = controller.observe(lossInput()) }
-        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
-    }
-
-    func testMediaQualityControllerFpsProbeRollsBackOnlyFps() {
-        var controller = MediaQualityController(config: mediaQualityConfig())
-        for _ in 0..<40 { _ = controller.observe(lossInput()) }
-        while controller.targetKbps < 300 {
-            for _ in 0..<4 { _ = controller.observe(cleanInput()) }
-        }
-        // ADR-0100: this used to reach the fps probe by first driving the RESOLUTION climb, which
-        // no longer exists -- recovery goes bitrate then fps with nothing in between. Bounded so
-        // a controller that stops climbing fails the assertion below rather than hanging here.
-        var windows = 0
-        while controller.targetFps <= 6 && windows < 200 {
-            _ = controller.observe(cleanInput())
-            windows += 1
-        }
-        XCTAssertEqual(controller.targetFps, 10)
-        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
-
-        let failedFpsProbe = controller.observe(input(
-            stressedSample(),
-            productionSummary: production(actualFps: 3, targetFps: 10, maxGapMs: 780)
-        ))
-
-        XCTAssertEqual(failedFpsProbe.outcome.reason, "probe-fps-rollback")
-        // Lands one rung lower than it used to: without the resolution step between bitrate and
-        // fps, recovery reaches the fps probe from a different place.
-        XCTAssertEqual(failedFpsProbe.outcome.target.rung, .emergency)
-        XCTAssertEqual(failedFpsProbe.outcome.target.bitrateKbps, 300)
-        XCTAssertEqual(failedFpsProbe.outcome.target.fps, 6)
-        XCTAssertEqual(failedFpsProbe.outcome.target.resolutionScale, Config.ownedMediaResolutionScale)
+        XCTAssertTrue(reachedFloor, "twenty confirmed descents from 2500 must reach the 60kbps floor")
+        XCTAssertEqual(controller.targetKbps, 60)
+        XCTAssertEqual(controller.targetFps, 1, "the floor is a heartbeat: one frame a second")
     }
 
     func testMediaQualityControllerLatencyHoldsWithoutLossAndDownshiftsWithLoss() {
@@ -567,13 +508,13 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertEqual(first.outcome.reason, "cadence-hold")
 
         let second = controller.observe(slow)
-        XCTAssertEqual(second.outcome.target.rung, .capacity1)
+        XCTAssertEqual(second.outcome.target.bitrateKbps, 1750, "one blind multiplicative step from the ceiling")
         XCTAssertEqual(second.outcome.reason, "cadence-capacity-down")
         XCTAssertTrue(second.outcome.fpsChanged, "the free axes answer the pressure on this window")
         XCTAssertTrue(second.outcome.bitrateChanged)
         // ADR-0100: resolution never moves at all now, so this is no longer "two windows are not
         // yet enough evidence" -- it is that the axis is gone. The assertion is kept because it
-        // is the invariant the whole change rests on: a rung move must not rescale.
+        // is the invariant the whole change rests on: a quality move must not rescale.
         XCTAssertFalse(second.outcome.resolutionChanged)
         XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
     }
@@ -589,7 +530,7 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
 
         XCTAssertTrue(decision.signals.queuePressure)
         XCTAssertTrue(decision.signals.cadencePressure)
-        XCTAssertEqual(decision.outcome.target.rung, .capacity1)
+        XCTAssertEqual(decision.outcome.target.bitrateKbps, 1750)
         XCTAssertEqual(decision.outcome.reason, "queue-cadence-down")
     }
 
@@ -607,17 +548,17 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
 
         let held = controller.observe(stale)
         XCTAssertTrue(held.signals.stalePressure)
-        XCTAssertEqual(held.outcome.target.rung, .native, "one window of stale pressure is not evidence")
+        XCTAssertEqual(held.outcome.target.bitrateKbps, 2500, "one window of stale pressure is not evidence")
         XCTAssertEqual(held.outcome.reason, "stale-hold")
 
         let decision = controller.observe(stale)
 
         XCTAssertTrue(decision.signals.stalePressure)
-        XCTAssertEqual(decision.outcome.target.rung, .capacity1)
+        XCTAssertEqual(decision.outcome.target.bitrateKbps, 1750)
         XCTAssertEqual(decision.outcome.reason, "stale-capacity-down")
     }
 
-    func testMediaQualityControllerFreezeSkipsBitrateOnlyLossControl() {
+    func testMediaQualityControllerFreezeDescendsImmediately() {
         var controller = MediaQualityController(config: mediaQualityConfig())
         let frozen = input(
             stressedSample(),
@@ -627,39 +568,28 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         let decision = controller.observe(frozen)
 
         XCTAssertTrue(decision.signals.freezePressure)
-        XCTAssertEqual(decision.outcome.target.rung, .capacity1)
-        XCTAssertEqual(decision.outcome.target.bitrateKbps, 650)
+        XCTAssertEqual(decision.outcome.target.bitrateKbps, 1750, "a freeze needs no streak: one window descends")
         XCTAssertEqual(decision.outcome.target.resolutionScale, Config.ownedMediaResolutionScale)
         XCTAssertEqual(decision.outcome.reason, "freeze-capacity-down")
     }
 
-    func testMediaQualityControllerSurvivalFreezeEntersEmergency() {
+    func testMediaQualityControllerSustainedFreezeKeepsDescending() {
         var controller = MediaQualityController(config: mediaQualityConfig())
-        _ = controller.observe(input(
-            stressedSample(),
-            productionSummary: production(actualFps: 1, targetFps: 30, maxGapMs: 1_250)
-        ))
-        _ = controller.observe(input(
-            stressedSample(),
-            productionSummary: production(actualFps: 1, targetFps: 24, maxGapMs: 1_250)
-        ))
-        _ = controller.observe(input(
-            stressedSample(),
-            productionSummary: production(actualFps: 1, targetFps: 15, maxGapMs: 1_250)
-        ))
-        XCTAssertEqual(controller.targetFps, 10)
+        var previous = controller.targetKbps
+        for _ in 0..<3 {
+            let decision = controller.observe(input(
+                stressedSample(),
+                productionSummary: production(actualFps: 1, targetFps: controller.targetFps, maxGapMs: 1_250)
+            ))
+            XCTAssertEqual(decision.outcome.reason, "freeze-capacity-down")
+            XCTAssertLessThan(controller.targetKbps, previous)
+            previous = controller.targetKbps
+        }
+        // Three confirmed freeze windows from the ceiling: 2500 -> 1750 -> 1225 -> 858, with
+        // the derived cadence following (16 -> 11 -> 8 through the 13,000B seed budget).
+        XCTAssertEqual(controller.targetKbps, 858)
+        XCTAssertEqual(controller.targetFps, 8)
         XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
-
-        let emergency = controller.observe(input(
-            stressedSample(),
-            productionSummary: production(actualFps: 1, targetFps: 10, maxGapMs: 1_250)
-        ))
-
-        XCTAssertEqual(emergency.outcome.target.rung, .emergency)
-        XCTAssertEqual(emergency.outcome.reason, "emergency-down")
-        XCTAssertEqual(emergency.outcome.target.fps, 6)
-        XCTAssertEqual(emergency.outcome.target.bitrateKbps, 180)
-        XCTAssertEqual(emergency.outcome.target.resolutionScale, Config.ownedMediaResolutionScale)
     }
 
     func testMediaQualityControllerDoesNotRecoverWhileCadenceIsBad() {
@@ -701,82 +631,37 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertLessThan(controller.targetKbps, 2500)
     }
 
-    func testMediaQualityControllerProbeCadenceFailureDownshiftsImmediately() {
+    func testMediaQualityControllerConfigNormalizesKnobs() {
         let config = MediaQualityControllerConfig(
-            ceilingKbps: 2500, floorKbps: 800, survivalFloorKbps: 300,
-            downStep: 0.7, upStep: 10.0,
-            lossDownPermille: 50, raiseCleanWindows: 1, cadenceDownWindows: 4,
-            fpsCeiling: 30, fpsFloor: 10,
-            ackHoldP95Ms: 180, ackDownP95Ms: 350,
-            cadenceGapMs: 500, freezeGapMs: 1_000, freezeFpsCeiling: 3,
-            recoveryMaxGapMs: 300, recoveryMinFpsPermille: 800,
-            transitionWarmupWindows: 0,
-            capacity1Kbps: 650, capacity1Fps: 24,
-            capacity2Kbps: 400, capacity2Fps: 15,
-            emergencyKbps: 180, emergencyFps: 6, resolutionScale: 0.5
-        )
-        var controller = MediaQualityController(config: config)
-        _ = controller.observe(input(
-            stressedSample(),
-            productionSummary: production(actualFps: 1, targetFps: 30, maxGapMs: 1_250)
-        ))
-        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
-
-        let bitrateUp = controller.observe(cleanInput())
-        XCTAssertEqual(bitrateUp.outcome.reason, "clean-up")
-        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
-        let up = controller.observe(cleanInput())
-        XCTAssertEqual(up.outcome.reason, "quality-up")
-        XCTAssertEqual(controller.targetResolutionScale, Config.ownedMediaResolutionScale)
-
-        let failedProbe = controller.observe(input(
-            stressedSample(),
-            productionSummary: production(actualFps: 10, targetFps: 24, maxGapMs: 650)
-        ))
-        XCTAssertEqual(failedProbe.outcome.reason, "probe-fps-rollback")
-        XCTAssertEqual(failedProbe.outcome.target.rung, .capacity1)
-        XCTAssertEqual(failedProbe.recoveryStatus.blocker, "probe-fps-pressure")
-    }
-
-    func testMediaQualityControllerConfigNormalizesSurvivalKnobs() {
-        let config = MediaQualityControllerConfig(
-            ceilingKbps: 2500, floorKbps: 800, survivalFloorKbps: 1200,
+            ceilingKbps: 2500, floorKbps: 5000,
             downStep: 1.5, upStep: 0.5,
             lossDownPermille: 0, raiseCleanWindows: 0, cadenceDownWindows: 0,
-            fpsCeiling: 30, fpsFloor: 60,
+            fpsCeiling: 30,
             ackHoldP95Ms: 0, ackDownP95Ms: 0,
             cadenceGapMs: 0, freezeGapMs: 0, freezeFpsCeiling: 0,
-            recoveryMaxGapMs: 0, recoveryMinFpsPermille: 2_000,
-            transitionWarmupWindows: -1,
-            capacity1Kbps: 900, capacity1Fps: 60,
-            capacity2Kbps: 700, capacity2Fps: 40,
-            emergencyKbps: 500, emergencyFps: 40,
-            resolutionScale: 2
+            resolutionScale: 2,
+            seedFrameBytes: 10, frameBytesHeadroom: 0.5, deliverySnapRatio: 7
         )
-        XCTAssertEqual(config.survivalFloorKbps, 800, "survival floor cannot exceed the normal bitrate floor")
+        XCTAssertEqual(config.floorKbps, 2500, "the floor cannot exceed the ceiling")
         XCTAssertLessThan(config.downStep, 1.0, "down step must stay a down step")
         XCTAssertGreaterThan(config.upStep, 1.0, "up step must stay an up step")
         XCTAssertEqual(config.cadenceDownWindows, 1)
-        XCTAssertEqual(config.fpsFloor, 30, "fps floor cannot exceed the fps ceiling")
         XCTAssertEqual(config.freezeGapMs, config.cadenceGapMs)
-        XCTAssertEqual(config.recoveryMinFpsPermille, 1_000)
-        XCTAssertEqual(config.transitionWarmupWindows, 0)
-        XCTAssertEqual(config.capacity1Kbps, 800)
-        XCTAssertEqual(config.capacity1Fps, 30)
-        XCTAssertEqual(config.emergencyKbps, 500)
-        XCTAssertEqual(config.emergencyFps, 30)
-        // One scale for every rung now, so the only clamp left to test is the range: 2 is not a
-        // scale. The old four-value cascade (each rung clamped to the one above) went with the
-        // axis it was ordering.
+        // A tiny frame-cost seed would read as "frames are free" and derive the ceiling fps
+        // from any budget; the divisor floors well above zero.
+        XCTAssertEqual(config.seedFrameBytes, 500)
+        XCTAssertEqual(config.frameBytesHeadroom, 1.0, "headroom below 1 would size frames under their own cost")
+        XCTAssertEqual(config.deliverySnapRatio, 1.0, "a snap above the measured rate is not a descent")
+        // 2 is not a scale.
         XCTAssertEqual(config.resolutionScale, 1.0)
     }
 
     func testMediaStateReturnsCapacityRetryUntilIntervalElapses() {
         var controller = MediaQualityController(config: mediaQualityConfig())
-        while controller.targetFps > 15 {
-            _ = controller.observe(lossInput())
-        }
-        XCTAssertEqual(controller.targetFps, 15)
+        // One confirmed loss descent: 2500 -> 1750, whose derived cadence through the 13,000B
+        // seed budget is 16fps -- a 62.5ms production interval for the capacity gate below.
+        _ = controller.observe(lossInput())
+        XCTAssertEqual(controller.targetFps, 16)
 
         var state = QuicSessionHostMediaState(
             expectedFrameRate: 30,

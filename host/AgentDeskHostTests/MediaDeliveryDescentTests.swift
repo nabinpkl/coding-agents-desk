@@ -52,15 +52,17 @@ private func healthyProduction() -> MediaProductionSummary {
 }
 
 // The headline claim. The host produced six frames on cadence, the client received none, and the
-// rung comes down -- where it previously logged `reason=idle` and held.
+// target comes down -- where it previously logged `reason=idle` and held. No delivery
+// measurement rides these windows, so the descent is the blind multiplicative step.
 @Test func aStalledLinkDescendsEvenThoughTheHostProducedPerfectly() {
     var controller = MediaQualityController(config: config())
+    let ceiling = config().ceilingKbps
     let outcome = controller.observe(
         window(inFlight: 6, clientLinkStalled: true, production: healthyProduction())
     ).outcome
     #expect(outcome.reason == "delivery-stalled-down")
     #expect(outcome.changed)
-    #expect(outcome.target.rung == .capacity1)
+    #expect(outcome.target.bitrateKbps == Int((Double(ceiling) * config().downStep).rounded()))
 }
 
 // No streak gate, unlike stale and cadence pressure. A stalled link is not the one-window noise
@@ -72,14 +74,15 @@ private func healthyProduction() -> MediaProductionSummary {
 }
 
 // It keeps descending while the link stays stalled, and stops at the floor rather than churning.
+// Sixteen windows outlast the ~11 blind steps from 2500 to 60, so the tail exercises the floor.
 @Test func aPersistentStallWalksToTheFloorAndStays() {
     var controller = MediaQualityController(config: config())
     var reasons: [String] = []
-    for _ in 0..<8 {
+    for _ in 0..<16 {
         reasons.append(controller.observe(window(clientLinkStalled: true)).outcome.reason)
     }
-    #expect(controller.target.rung == .emergency)
-    #expect(reasons.last == "at-emergency-floor")
+    #expect(controller.target.bitrateKbps == config().floorKbps)
+    #expect(reasons.last == "at-floor")
 }
 
 // The regression the new branch could most easily cause: a quiet Mac read as a stalled link. If
@@ -88,35 +91,31 @@ private func healthyProduction() -> MediaProductionSummary {
 @Test func aCalmScreenIsNeverMistakenForAStall() {
     var controller = MediaQualityController(config: config())
     controller.pin(to: MediaQualityTarget(
-        bitrateKbps: 300, fps: 6, resolutionScale: 0.33, rung: .emergency, reason: "test"
+        bitrateKbps: 300, fps: 6, resolutionScale: 0.33, reason: "test"
     ))
     for _ in 0..<20 {
         let outcome = controller.observe(window()).outcome
         #expect(outcome.reason != "delivery-stalled-down")
-        // Not `== .emergency`. ADR-0100 removed the 30s resolution clean-time gate, which used
-        // to hold the ladder in place here, so a calm screen now climbs -- which is the point of
-        // removing it. What this test is about is that a calm screen is never mistaken for a
-        // STALL, so the invariant is that the rung never gets worse, not that it never moves.
-        #expect(outcome.target.rung <= .emergency)
+        // A calm screen legitimately CLIMBS (that is rest recovery); what it must never do is
+        // read as a stall, so the invariant is that the target never gets worse, not that it
+        // never moves.
+        #expect(outcome.target.bitrateKbps >= 300)
     }
 }
 
-// And the other half: a calm screen still earns its way back up. Pinned below the rung's own
-// canonical bitrate, which is where a loss downshift leaves it, so the climb is the bitrate axis
-// -- the one that moves in seconds rather than waiting out the 30s resolution dwell.
+// And the other half: a calm screen still earns its way back up from the floor.
 @Test func aCalmScreenStillEarnsItsClimb() {
     var controller = MediaQualityController(config: config())
     controller.pin(to: MediaQualityTarget(
-        bitrateKbps: config().emergencyKbps / 2,
-        fps: config().emergencyFps,
+        bitrateKbps: config().floorKbps,
+        fps: 1,
         resolutionScale: config().resolutionScale,
-        rung: .emergency,
         reason: "test"
     ))
     for _ in 0..<config().raiseCleanWindows {
         _ = controller.observe(window())
     }
-    #expect(controller.target.bitrateKbps > config().emergencyKbps / 2)
+    #expect(controller.target.bitrateKbps > config().floorKbps)
 }
 
 // A client that has gone quiet is not evidence of failure, only absence of evidence. It must
@@ -124,14 +123,14 @@ private func healthyProduction() -> MediaProductionSummary {
 @Test func aSilentClientBlocksTheClimbWithoutDescending() {
     var controller = MediaQualityController(config: config())
     controller.pin(to: MediaQualityTarget(
-        bitrateKbps: 300, fps: 6, resolutionScale: 0.33, rung: .emergency, reason: "test"
+        bitrateKbps: 300, fps: 6, resolutionScale: 0.33, reason: "test"
     ))
     for _ in 0..<8 {
         let outcome = controller.observe(window(clientReportMissing: true)).outcome
         #expect(outcome.reason == "idle")
         #expect(!outcome.changed)
     }
-    #expect(controller.target.rung == .emergency)
+    #expect(controller.target.bitrateKbps == 300)
 }
 
 // Stale pressure is judged before the frame count. The premise the old order rested on -- that a
@@ -168,15 +167,16 @@ private func healthyProduction() -> MediaProductionSummary {
     #expect(!outcome.changed)
 }
 
-// The climb reports where it actually is. `at-native` was emitted 27 times from the EMERGENCY
-// floor in one log, which reads as full quality at the opposite end of the ladder.
-@Test func aRungAtItsOwnCeilingDoesNotClaimToBeAtNative() {
+// The climb reports where it actually is. `at-native` was once emitted 27 times from the
+// bottom of the range, which reads as full quality at the opposite end. Under the continuous
+// axis at-native is reachable only AT the ceiling, so a floor-pinned target climbing through
+// twelve windows must never claim it.
+@Test func theFloorNeverClaimsToBeAtNative() {
     var controller = MediaQualityController(config: config())
     controller.pin(to: MediaQualityTarget(
-        bitrateKbps: config().emergencyKbps,
-        fps: config().emergencyFps,
+        bitrateKbps: config().floorKbps,
+        fps: 1,
         resolutionScale: config().resolutionScale,
-        rung: .emergency,
         reason: "test"
     ))
     var reasons: Set<String> = []

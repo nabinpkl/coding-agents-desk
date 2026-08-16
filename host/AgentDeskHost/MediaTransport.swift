@@ -109,6 +109,11 @@ struct MediaQualityObservation: Equatable {
     let freshness: MediaFreshnessDiagnosticsSummary
     let signals: MediaQualityObservationSignals
     let recoveryStatus: MediaQualityRecoveryStatus
+    // ADR-0101: the two numbers the continuous target is computed FROM, carried on the
+    // observation so the applied-target log can name why a window chose what it chose --
+    // a descent's landing point is the delivered rate, and its fps is the frame-cost budget.
+    let deliveredBytesPerSecond: Double?
+    let frameBytesTarget: Double
 }
 
 struct MediaFreshnessDiagnosticsSummary: Equatable {
@@ -149,7 +154,6 @@ struct MediaQualityDecision: Equatable {
         if outcome.bitrateChanged { axes.append("bitrate") }
         if outcome.fpsChanged { axes.append("fps") }
         if outcome.resolutionChanged { axes.append("resolution") }
-        if outcome.target.rung != outcome.previousTarget.rung { axes.append("rung") }
         return axes.isEmpty ? "none" : axes.joined(separator: ",")
     }
 }

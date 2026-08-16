@@ -342,29 +342,22 @@ struct QuicSessionHostMediaStateTests {
     private func controllerConfig() -> MediaQualityControllerConfig {
         MediaQualityControllerConfig(
             ceilingKbps: 2500,
-            floorKbps: 800,
-            survivalFloorKbps: 300,
+            floorKbps: 60,
             downStep: 0.7,
             upStep: 1.15,
             lossDownPermille: 50,
             raiseCleanWindows: 4,
             cadenceDownWindows: 2,
             fpsCeiling: 30,
-            fpsFloor: 10,
             ackHoldP95Ms: 180,
             ackDownP95Ms: 350,
             cadenceGapMs: 500,
             freezeGapMs: 1_000,
             freezeFpsCeiling: 3,
-            recoveryMaxGapMs: 300,
-            recoveryMinFpsPermille: 800,
-            transitionWarmupWindows: 1,
-            capacity1Kbps: 650,
-            capacity1Fps: 24,
-            capacity2Kbps: 400,
-            capacity2Fps: 15,
-            emergencyKbps: 180, emergencyFps: 6,
-            resolutionScale: 0.5
+            resolutionScale: 0.5,
+            seedFrameBytes: 10_000,
+            frameBytesHeadroom: 1.3,
+            deliverySnapRatio: 0.85
         )
     }
 
@@ -479,9 +472,11 @@ struct QuicSessionHostMediaStateTests {
         #expect(decision.observation.sample.completedFrames == 80)
         #expect(decision.observation.sample.expiredFrames == 20)
         #expect(decision.observation.signals.lossPressure)
-        #expect(decision.changedAxes == "bitrate,rung")
+        // ADR-0101: a loss descent moves bitrate and its derived cadence together -- there is
+        // no fps knob left to hold at the ceiling while the budget falls.
+        #expect(decision.changedAxes == "bitrate,fps")
         #expect(state.targetKbps < 2500)
-        #expect(state.targetFps == 30)
+        #expect(state.targetFps < 30)
     }
 
     @Test func qualityObservationIncludesAckAndBackpressureDiagnostics() throws {
@@ -526,7 +521,7 @@ struct QuicSessionHostMediaStateTests {
         // measured bursts lasted exactly one window, and acting on each is what made the ladder
         // oscillate. R231: when it does downshift, resolution still is not in the list, because
         // it costs a keyframe and the other two axes are free.
-        #expect(decision.outcome.target.rung == .native)
+        #expect(decision.outcome.target.bitrateKbps == 2500)
         #expect(decision.changedAxes == "none")
         #expect(decision.observation.ackCount == 0)
     }
@@ -608,9 +603,12 @@ struct QuicSessionHostMediaStateTests {
         )
 
         #expect(down.outcome.reason == "cadence-capacity-down")
-        // ADR-0100: the split is now permanent rather than a wait. A rung move reaches the
-        // encoder as bitrate and fps only; the resolution component does not exist.
-        #expect(down.changedAxes == "bitrate,fps,rung")
+        // ADR-0101: bitrate is the only axis this descent needs to move. The frames this test
+        // sent cost 1,000B, so the measured frame budget (1,300B with headroom) carries far
+        // more than 30fps at the descended bitrate -- the derived cadence stays at the
+        // ceiling, and resolution does not exist as an axis at all (ADR-0100).
+        #expect(down.changedAxes == "bitrate")
+        #expect(down.outcome.target.fps == 30)
         #expect(down.outcome.target.resolutionScale == Config.ownedMediaResolutionScale)
     }
 

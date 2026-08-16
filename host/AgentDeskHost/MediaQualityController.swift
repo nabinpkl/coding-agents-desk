@@ -1,40 +1,31 @@
 import Foundation
 import AgentDeskWire
 
-// ADR-0033: one host-owned media-quality controller chooses bitrate, fps, and
-// capture resolution together from link-health and production smoothness.
-enum MediaQualityRung: Int, Equatable, Comparable, Sendable {
-    case native = 0
-    case lossControl = 1
-    case capacity1 = 2
-    case capacity2 = 3
-    case survival = 4
-    case emergency = 5
-
-    static func < (lhs: MediaQualityRung, rhs: MediaQualityRung) -> Bool {
-        lhs.rawValue < rhs.rawValue
-    }
-}
-
+// ADR-0033 established one host-owned controller choosing bitrate, fps, and resolution
+// together. ADR-0101 made the target it chooses a NUMBER rather than a named rung: the old
+// four-step capacity ladder could not represent a link whose capacity sat between rungs
+// (capacity1 asked 650kbps while its own fps needed ~916 of measured content), and had no step
+// below its floor, so a bloated queue logged `at-emergency-floor` 126 times in one session with
+// nowhere left to go. Bitrate moves continuously in [floorKbps, ceilingKbps]; fps is DERIVED
+// from bitrate through the measured delta-frame cost, so every target carries its cadence in
+// bytes by construction (the cb74f8bf floor lesson, generalized); resolution never moves
+// (ADR-0100).
 struct MediaQualityTarget: Equatable, Sendable {
     let bitrateKbps: Int
     let fps: Int
     let resolutionScale: Double
-    let rung: MediaQualityRung
     let reason: String
 
     func with(
         bitrateKbps: Int? = nil,
         fps: Int? = nil,
         resolutionScale: Double? = nil,
-        rung: MediaQualityRung? = nil,
         reason: String
     ) -> MediaQualityTarget {
         MediaQualityTarget(
             bitrateKbps: bitrateKbps ?? self.bitrateKbps,
             fps: fps ?? self.fps,
             resolutionScale: resolutionScale ?? self.resolutionScale,
-            rung: rung ?? self.rung,
             reason: reason
         )
     }
@@ -241,40 +232,32 @@ struct MediaQualityOutcome: Equatable {
     let reason: String
 
     var changed: Bool {
-        bitrateChanged || fpsChanged || resolutionChanged || target.rung != previousTarget.rung
+        bitrateChanged || fpsChanged || resolutionChanged
     }
     var bitrateChanged: Bool { target.bitrateKbps != previousTarget.bitrateKbps }
     var fpsChanged: Bool { target.fps != previousTarget.fps }
     var resolutionChanged: Bool { target.resolutionScale != previousTarget.resolutionScale }
 }
 
-enum MediaQualityRecoveryPhase: String, Equatable {
-    case steady
-    case bitrateRecovering
-    case transitionWarmup
-    case fpsProbe
-}
-
-enum MediaQualityProbeAxis: String, Equatable {
-    case none
-    case fps
-}
-
+// ADR-0101 deleted the probe/warmup machinery that used to live beside this status
+// (MediaQualityProbeAxis, probe windows, the transition warmup). Probes existed because
+// raising fps was a gamble the controller had to test; a derived fps only rises because
+// bitrate already earned its climb through the clean-credit gate, and any overreach is
+// answered by the next descent snapping to the measured delivery rate.
 struct MediaQualityRecoveryStatus: Equatable {
     let cleanMs: Int
     let requiredMs: Int
     let blocker: String
-    let probeWindowsRemaining: Int
-    let phase: MediaQualityRecoveryPhase
-    let warmupWindowsRemaining: Int
-    let probeAxis: MediaQualityProbeAxis
-    let stableTarget: MediaQualityTarget
 }
 
 struct MediaQualityControllerConfig: Equatable {
     let ceilingKbps: Int
+    /// ADR-0101: the heartbeat floor, and the reason the range does not reach 0. A target of
+    /// literally nothing stops all frames, which stops all acks, which starves the delivery
+    /// estimator and the round-trip tracker -- and a controller that cannot measure cannot
+    /// climb. The floor is one small frame a second: enough traffic to keep the measurement
+    /// loop alive, low enough to let a bloated queue actually drain.
     let floorKbps: Int
-    let survivalFloorKbps: Int
     let downStep: Double
     let upStep: Double
     let lossDownPermille: Int
@@ -282,30 +265,20 @@ struct MediaQualityControllerConfig: Equatable {
     let cadenceDownWindows: Int
     let staleDownWindows: Int
     let fpsCeiling: Int
-    let fpsFloor: Int
     let ackHoldP95Ms: Double
     let ackDownP95Ms: Double
     let cadenceGapMs: Int
     let freezeGapMs: Int
     let freezeFpsCeiling: Int
-    let recoveryMaxGapMs: Int
-    let recoveryMinFpsPermille: Int
-    let transitionWarmupWindows: Int
-    let capacity1Kbps: Int
-    let capacity1Fps: Int
-    let capacity2Kbps: Int
-    let capacity2Fps: Int
-    let emergencyKbps: Int
-    let emergencyFps: Int
-    /// ADR-0100: ONE scale for every rung, because resolution is not an adaptation axis.
+    /// ADR-0100: ONE scale, always, because resolution is not an adaptation axis.
     ///
     /// It used to be four values descending 0.75 / 0.5 / 0.5 / 0.33, and moving between them is
     /// what made this expensive: `VTCompressionSessionCreate` fixes width and height, so a scale
     /// change recreates the session and discards every acknowledged LTR reference, after which
     /// each refresh falls back to a full IDR for the 9-16 seconds it takes to establish a new one.
-    /// Bitrate and fps still differ per rung; they cost nothing to change.
+    /// Bitrate and fps move freely; they cost nothing to change.
     let resolutionScale: Double
-    // ADR-0098: the fraction of the rung's own budget the link must be measurably delivering.
+    // ADR-0098: the fraction of the target's own budget the link must be measurably delivering.
     let deliveryShortfallRatio: Double
     let deliveryShortfallWindows: Int
     // ADR-0098: how far the smoothed round-trip may sit above the path's floor. Shares
@@ -315,11 +288,24 @@ struct MediaQualityControllerConfig: Equatable {
     /// The absolute half of the queue test: how late the picture has to actually be before an
     /// inflated ratio is allowed to mean anything. See `isQueueBloated`.
     let roundTripBloatMinimumSmoothedMs: Double
+    /// ADR-0101: what to assume a delta frame costs before the live EWMA has a sample --
+    /// session start, and the fallback whenever the measurement is absent. Sized near the
+    /// measured mean delta (7.7KB) with room over it, so an unmeasured session opens with a
+    /// conservative cadence rather than an optimistic one.
+    let seedFrameBytes: Double
+    /// The budget a frame gets over its measured EWMA cost, so cadence is derived with slack
+    /// for the frames above the mean rather than exactly at it.
+    let frameBytesHeadroom: Double
+    /// ADR-0101: the fraction of the MEASURED delivery rate a confirmed descent lands at.
+    /// Below 1.0 on purpose: landing exactly at capacity keeps the queue exactly full, and the
+    /// point of the descent is to drain it. Mirrors the pacer's delivery tracking
+    /// (`LinkSendPacer.bytesPerSecond(forKbps:headroom:deliveredBytesPerSecond:...)`) so the
+    /// quality decision and the wire pacing stop disagreeing about what the link can carry.
+    let deliverySnapRatio: Double
 
     init(
         ceilingKbps: Int,
         floorKbps: Int,
-        survivalFloorKbps: Int,
         downStep: Double,
         upStep: Double,
         lossDownPermille: Int,
@@ -327,30 +313,22 @@ struct MediaQualityControllerConfig: Equatable {
         cadenceDownWindows: Int,
         staleDownWindows: Int = Config.ownedMediaStaleDownWindows,
         fpsCeiling: Int,
-        fpsFloor: Int,
         ackHoldP95Ms: Double,
         ackDownP95Ms: Double,
         cadenceGapMs: Int,
         freezeGapMs: Int,
         freezeFpsCeiling: Int,
-        recoveryMaxGapMs: Int,
-        recoveryMinFpsPermille: Int,
-        transitionWarmupWindows: Int,
-        capacity1Kbps: Int,
-        capacity1Fps: Int,
-        capacity2Kbps: Int,
-        capacity2Fps: Int,
-        emergencyKbps: Int,
-        emergencyFps: Int,
         resolutionScale: Double = Config.ownedMediaResolutionScale,
         deliveryShortfallRatio: Double = Config.ownedMediaDeliveryShortfallRatio,
         deliveryShortfallWindows: Int = Config.ownedMediaDeliveryShortfallWindows,
         roundTripInflationDownRatio: Double = Config.ownedMediaRoundTripInflationDownRatio,
-        roundTripBloatMinimumSmoothedMs: Double = Config.ownedMediaRoundTripBloatMinimumSmoothedMs
+        roundTripBloatMinimumSmoothedMs: Double = Config.ownedMediaRoundTripBloatMinimumSmoothedMs,
+        seedFrameBytes: Double = Config.ownedMediaSeedFrameBytes,
+        frameBytesHeadroom: Double = Config.ownedMediaFrameBytesHeadroom,
+        deliverySnapRatio: Double = Config.ownedMediaDeliverySnapRatio
     ) {
         self.ceilingKbps = max(1, ceilingKbps)
         self.floorKbps = min(max(1, floorKbps), self.ceilingKbps)
-        self.survivalFloorKbps = min(max(1, survivalFloorKbps), self.floorKbps)
         self.downStep = min(max(downStep, 0.01), 0.99)
         self.upStep = max(upStep, 1.01)
         self.lossDownPermille = max(1, lossDownPermille)
@@ -358,38 +336,32 @@ struct MediaQualityControllerConfig: Equatable {
         self.cadenceDownWindows = max(1, cadenceDownWindows)
         self.staleDownWindows = max(1, staleDownWindows)
         self.fpsCeiling = max(1, fpsCeiling)
-        self.fpsFloor = min(max(1, fpsFloor), self.fpsCeiling)
         self.ackHoldP95Ms = max(1, ackHoldP95Ms)
         self.ackDownP95Ms = max(self.ackHoldP95Ms, ackDownP95Ms)
         self.cadenceGapMs = max(1, cadenceGapMs)
         self.freezeGapMs = max(self.cadenceGapMs, freezeGapMs)
         self.freezeFpsCeiling = max(0, freezeFpsCeiling)
-        self.recoveryMaxGapMs = max(1, recoveryMaxGapMs)
-        self.recoveryMinFpsPermille = min(max(1, recoveryMinFpsPermille), 1_000)
-        self.transitionWarmupWindows = max(0, transitionWarmupWindows)
-        self.capacity1Kbps = min(max(1, capacity1Kbps), self.floorKbps)
-        self.capacity1Fps = min(max(1, capacity1Fps), self.fpsCeiling)
-        self.capacity2Kbps = min(max(1, capacity2Kbps), self.capacity1Kbps)
-        self.capacity2Fps = min(max(1, capacity2Fps), self.capacity1Fps)
-        self.emergencyKbps = min(max(1, emergencyKbps), self.survivalFloorKbps)
-        self.emergencyFps = min(max(1, emergencyFps), self.fpsFloor)
         self.resolutionScale = Self.normalizedScale(resolutionScale)
         // Clamped below 1.0 deliberately. At 1.0 the rule reads "descend unless the link is
         // delivering every byte we asked for", which no healthy link does continuously, so the
-        // ladder would walk itself to the floor on a link that was fine.
+        // controller would walk itself to the floor on a link that was fine.
         self.deliveryShortfallRatio = min(max(0.05, deliveryShortfallRatio), 0.95)
         self.deliveryShortfallWindows = max(1, deliveryShortfallWindows)
         // Floored above 1.0, because 1.0 is an empty queue by definition: at or below it the rule
         // reads "descend whenever the path has any latency at all", which is always.
         self.roundTripInflationDownRatio = max(1.01, roundTripInflationDownRatio)
         self.roundTripBloatMinimumSmoothedMs = max(0, roundTripBloatMinimumSmoothedMs)
+        // Floored well above zero: this number is a divisor in the cadence derivation, and a
+        // tiny value would read as "frames are free", deriving the ceiling fps from any budget.
+        self.seedFrameBytes = max(500, seedFrameBytes)
+        self.frameBytesHeadroom = max(1.0, frameBytesHeadroom)
+        self.deliverySnapRatio = min(max(0.1, deliverySnapRatio), 1.0)
     }
 
     static func fromConfig() -> MediaQualityControllerConfig {
         MediaQualityControllerConfig(
             ceilingKbps: Config.ownedMediaBitrateKbps,
-            floorKbps: Config.ownedMediaBitrateFloorKbps,
-            survivalFloorKbps: Config.ownedMediaSurvivalBitrateFloorKbps,
+            floorKbps: Config.ownedMediaFloorKbps,
             downStep: Config.ownedMediaBitrateDownStep,
             upStep: Config.ownedMediaBitrateUpStep,
             lossDownPermille: Config.ownedMediaBitrateLossDownPermille,
@@ -397,25 +369,18 @@ struct MediaQualityControllerConfig: Equatable {
             cadenceDownWindows: Config.ownedMediaCadenceDownWindows,
             staleDownWindows: Config.ownedMediaStaleDownWindows,
             fpsCeiling: Config.ownedMediaExpectedFrameRate,
-            fpsFloor: Config.ownedMediaFpsFloor,
             ackHoldP95Ms: Config.ownedMediaAckHoldP95Ms,
             ackDownP95Ms: Config.ownedMediaAckDownP95Ms,
             cadenceGapMs: Config.ownedMediaCadenceGapMs,
             freezeGapMs: Config.ownedMediaFreezeGapMs,
             freezeFpsCeiling: Config.ownedMediaFreezeFpsCeiling,
-            recoveryMaxGapMs: Config.ownedMediaRecoveryMaxGapMs,
-            recoveryMinFpsPermille: Config.ownedMediaRecoveryMinFpsPermille,
-            transitionWarmupWindows: Config.ownedMediaTransitionWarmupWindows,
-            capacity1Kbps: Config.ownedMediaCapacity1BitrateKbps,
-            capacity1Fps: Config.ownedMediaCapacity1Fps,
-            capacity2Kbps: Config.ownedMediaCapacity2BitrateKbps,
-            capacity2Fps: Config.ownedMediaCapacity2Fps,
-            emergencyKbps: Config.ownedMediaEmergencyBitrateKbps,
-            emergencyFps: Config.ownedMediaEmergencyFps,
             deliveryShortfallRatio: Config.ownedMediaDeliveryShortfallRatio,
             deliveryShortfallWindows: Config.ownedMediaDeliveryShortfallWindows,
             roundTripInflationDownRatio: Config.ownedMediaRoundTripInflationDownRatio,
-            roundTripBloatMinimumSmoothedMs: Config.ownedMediaRoundTripBloatMinimumSmoothedMs
+            roundTripBloatMinimumSmoothedMs: Config.ownedMediaRoundTripBloatMinimumSmoothedMs,
+            seedFrameBytes: Config.ownedMediaSeedFrameBytes,
+            frameBytesHeadroom: Config.ownedMediaFrameBytesHeadroom,
+            deliverySnapRatio: Config.ownedMediaDeliverySnapRatio
         )
     }
 
@@ -493,67 +458,33 @@ struct MediaQualityController {
     // apart from the shortfall streak because the two describe different failures and must not
     // spend each other's evidence.
     private var queueBloatStreak = 0
-    private var probeWindowsRemaining = 0
-    private var warmupWindowsRemaining = 0
-    private var probeAxis: MediaQualityProbeAxis = .none
-    private var recoveryPhaseState: MediaQualityRecoveryPhase = .steady
-    private var stableTarget: MediaQualityTarget
+    // ADR-0101: the last measured delta-frame wire cost handed in by `observe`, kept across
+    // windows because the EWMA rides the input and an idle window carries none. This is the
+    // divisor that turns a bitrate into a cadence; until a measurement arrives, the config
+    // seed stands in for it.
+    private var measuredFrameBytes: Double?
     // Nominal window credited per idle (zero-activity) observation. The controller
     // counts recovery in one-second windows (requiredRecoveryMs = raiseCleanWindows
-    // * 1000, probeWindowsRemaining decremented once per window), so an idle window
-    // credits the same unit to keep ms-accrual and probe-window counting aligned.
+    // * 1000), so an idle window credits the same unit to keep ms-accrual aligned.
     private let idleRecoveryWindowMs = 1_000
 
-    // R231. The rung names a resolution the way it names a bitrate, but the two are not the
-    // same kind of instruction. Bitrate and fps are live properties of the compression
-    // session; resolution is fixed at session creation, so changing it recreates the session,
-    // which emits an IDR and destroys every long-term reference inside it. That is not an
-    // implementation cost that could be optimised away: HEVC has no reference picture
-    // resampling, and the codecs that do are not encodable on this host.
-    //
-    // So the rung's scale is treated as a REQUEST, and this is what has actually been
-    // committed to the encoder. The request has to persist to be granted. The measured
-    // failure it prevents: 0.75 -> 0.50 -> 0.75 inside seventeen seconds, three keyframes of
-    // 86,644 / 68,598 / 122,041 bytes, on the cellular link least able to carry them.
-    // How long the rung has continuously asked for something other than the committed scale.
-    // Whether that pressure is currently accruing, deliberately not which scale it points at.
-    // A link that is genuinely failing produces repeated stale windows, and each one walks the
-    // rung down another step, so the requested scale keeps changing: 0.75, then 0.50, then
-    // 0.33. Keyed on the exact value, every one of those steps would reset the clock and a
-    // collapsing link would never earn its rescale at all -- the precise failure this gate
-    // must not have. They accumulate instead, because they are all the same evidence.
-    // Duration credited to the current window, captured at the top of `observe` so the single
-    // funnel below can accrue in the same units the recovery clock uses.
-    private var currentWindowMs = 1_000
-    // Set by the paths whose evidence is about the setting actually running, rather than a
-    // guess about capacity. Two cases: a probe that failed its warmup has just demonstrated
-    // that the scale it raised to does not work, and a freeze means the stream is already
-    // broken rather than predicted to break. Waiting out a dwell in either case holds a
-    // known-bad resolution for ten seconds on purpose, so they skip the gate.
-    // R231c. Total clean time since the last thing went wrong, for the resolution axis only.
-    // `cleanRecoveryMs` cannot serve this: it is zeroed every time it reaches
-    // `requiredRecoveryMs` so the ladder can take its next recovery step, which caps it at 4s
-    // and makes "clean for thirty seconds" unrepresentable in it.
     /// Whether `adoptLinkQualityPrior` has had its one chance. Separate from whether it acted:
     /// a client reporting `good` on its first window must not leave the door open for a later
-    /// window reporting `minimal` to reset a ladder that measurement is by then driving.
+    /// window reporting `minimal` to reset a target that measurement is by then driving.
     private var hasConsideredLinkQualityPrior = false
     private var hasBeenPinned = false
 
     init(config: MediaQualityControllerConfig) {
         self.config = config
-        let initialTarget = MediaQualityTarget(
+        self.target = MediaQualityTarget(
             bitrateKbps: config.ceilingKbps,
             fps: config.fpsCeiling,
-            // Not 1.0. Opening at native and then taking the first canonical target would be a
-            // scale CHANGE on the opening decision -- a session recreate before a single quality
-            // window has been observed, which is the cost this whole change exists to remove.
+            // Not 1.0. Opening at native scale and then adapting down would be a scale CHANGE
+            // on the opening decision -- a session recreate before a single quality window has
+            // been observed, which is the cost ADR-0100 exists to remove.
             resolutionScale: config.resolutionScale,
-            rung: .native,
             reason: "initial"
         )
-        self.target = initialTarget
-        self.stableTarget = initialTarget
     }
 
     var targetKbps: Int { target.bitrateKbps }
@@ -564,72 +495,101 @@ struct MediaQualityController {
         recoveryStatus(blocker: "none")
     }
 
-    /// The rung to open on for a client that has told us how good its link is.
+    /// ADR-0101: the per-frame byte budget the cadence is derived through -- the measured delta
+    /// EWMA with headroom, or the config seed while unmeasured. Exposed so the applied-target
+    /// log can name why a given bitrate produced a given fps.
+    var frameBytesTarget: Double {
+        max(500, (measuredFrameBytes ?? config.seedFrameBytes) * config.frameBytesHeadroom)
+    }
+
+    /// The cadence a bitrate can actually carry: budget bytes-per-second over the per-frame
+    /// cost, clamped to [1, ceiling]. "A target carries its cadence in bytes" (cb74f8bf) made
+    /// continuous -- there is no fps knob left to mis-set against the budget.
+    private func derivedFps(forKbps kbps: Int) -> Int {
+        let bytesPerSecond = Double(max(1, kbps)) * 1_000.0 / 8.0
+        return min(max(Int(bytesPerSecond / frameBytesTarget), 1), config.fpsCeiling)
+    }
+
+    private func makeTarget(kbps: Int, reason: String) -> MediaQualityTarget {
+        let clamped = min(max(kbps, config.floorKbps), config.ceilingKbps)
+        return MediaQualityTarget(
+            bitrateKbps: clamped,
+            fps: derivedFps(forKbps: clamped),
+            resolutionScale: config.resolutionScale,
+            reason: reason
+        )
+    }
+
+    /// The bitrate to open on for a client that has told us how good its link is.
     ///
-    /// A prior, not a verdict: measurement governs from the first window, and the ladder climbs
+    /// A prior, not a verdict: measurement governs from the first window, and the target climbs
     /// back the moment the link proves it can carry more. It exists because the controller
-    /// otherwise learns the link the expensive way -- it opens at `.native` and discovers a weak
-    /// one by failing on it. Measured on a `linkQuality=minimal` cellular path, that discovery
-    /// cost several seconds of full-rate video the link could not carry, and it settled below
-    /// where this would have started.
+    /// otherwise learns the link the expensive way -- it opens at the ceiling and discovers a
+    /// weak one by failing on it. Measured on a `linkQuality=minimal` cellular path, that
+    /// discovery cost several seconds of full-rate video the link could not carry, and it
+    /// settled below where this would have started.
     ///
-    /// Deliberately conservative rather than accurate. It names a rung the link is very likely
-    /// to sustain, not the rung it will end on, because the two errors are not symmetric:
+    /// Deliberately conservative rather than accurate. It names a rate the link is very likely
+    /// to sustain, not the rate it will end on, because the two errors are not symmetric:
     /// opening too low costs a second of climbing, opening too high costs the first seconds of
     /// the session, which is exactly when the user is deciding whether this works at all.
+    /// The numbers are the old capacity rungs' budgets (ADR-0101 kept the priors when it
+    /// retired the rungs); cadence is derived, not paired.
     ///
     /// `good` and `unknown` get no opinion. An absent or optimistic reading is not evidence of
     /// a weak link, and the ceiling is already the right guess without evidence.
-    static func startingRung(forLinkQuality quality: String?) -> MediaQualityRung? {
+    static func startingKbps(forLinkQuality quality: String?) -> Int? {
         switch quality {
-        case "minimal": .capacity2
-        case "moderate": .capacity1
+        case "minimal": 400
+        case "moderate": 650
         default: nil
         }
     }
 
-    /// Open on the rung the client's reported link quality suggests, once per connection.
+    /// Open on the bitrate the client's reported link quality suggests, once per connection.
     ///
     /// Ignored unless the controller is still exactly where it started. Anything else means
-    /// better evidence is already in play: either measurement has moved the rung, or a resume
-    /// pinned the one the previous connection ended on (ADR-0090), which is a rung this link
+    /// better evidence is already in play: either measurement has moved the target, or a resume
+    /// pinned the one the previous connection ended on (ADR-0090), which is a rate this link
     /// actually sustained seconds ago rather than an inference from a coarse label.
     /// - Returns: the target this displaced, or `nil` if it did not act. The caller needs it:
-    ///   the prior moves the rung *before* the window is judged, so that window's own
-    ///   evaluation compares the new rung against itself and reports no change. Reported that
-    ///   way the move would never reach the encoder, and the ladder would say it had dropped
-    ///   while full-rate frames kept going out.
+    ///   the prior moves the target *before* the window is judged, so that window's own
+    ///   evaluation compares the new target against itself and reports no change. Reported that
+    ///   way the move would never reach the encoder, and the controller would say it had
+    ///   dropped while full-rate frames kept going out.
     @discardableResult
     mutating func adoptLinkQualityPrior(_ quality: String?) -> MediaQualityTarget? {
         guard !hasConsideredLinkQualityPrior else { return nil }
         hasConsideredLinkQualityPrior = true
-        guard !hasBeenPinned, target.rung == .native else { return nil }
-        guard let rung = Self.startingRung(forLinkQuality: quality) else { return nil }
+        // Only from the untouched opening position. A pin means better evidence is already in
+        // play (a resume carried a target this link actually sustained, or a manual choice),
+        // and observe() runs after the prior on every window, so an unpinned target below the
+        // ceiling cannot exist here.
+        guard !hasBeenPinned, target.bitrateKbps == config.ceilingKbps else { return nil }
+        guard let kbps = Self.startingKbps(forLinkQuality: quality) else { return nil }
         let displaced = target
-        pin(to: fixedTarget(for: rung, reason: "link-quality-prior"))
+        pin(to: makeTarget(kbps: kbps, reason: "link-quality-prior"))
         return displaced
     }
 
     mutating func pin(to target: MediaQualityTarget) {
         hasBeenPinned = true
         self.target = target
-        self.stableTarget = target
         cleanRecoveryMs = 0
         cadencePressureStreak = 0
         stalePressureStreak = 0
         deliveryShortfallStreak = 0
         queueBloatStreak = 0
-        // A pin is the encoder's scale being set directly, not a request to be gated: this is
-        // the resume path (ADR-0090) handing back the rung the previous connection ended on,
-        // and the encoder is about to run at exactly that scale. Adopting it as committed is
-        // what keeps the resume from immediately reading as pressure in one direction or the
-        // other and spending a keyframe undoing itself.
-        clearProbe()
     }
 
     mutating func observe(_ input: MediaQualityControllerInput) -> MediaQualityEvaluation {
         let previous = target
-        currentWindowMs = max(input.production?.windowMs ?? idleRecoveryWindowMs, 1)
+        // ADR-0101: adopt the freshest frame-cost measurement before any branch can derive a
+        // cadence from it. Kept across windows -- an idle window carries no EWMA and must not
+        // forget the content's cost.
+        if let ewma = input.deltaFrameBytesEwma {
+            measuredFrameBytes = ewma
+        }
         let signals = makeSignals(input)
         let delivery = input.delivery
 
@@ -653,7 +613,7 @@ struct MediaQualityController {
             resetPressureStreaks()
             resetStaleStreak()
             resetRecovery()
-            downshiftCapacity(reason: "delivery-stalled-down")
+            descend(reason: "delivery-stalled-down", deliveredBytesPerSecond: delivery.deliveredBytesPerSecond)
             return evaluation(
                 signals: signals,
                 previous: previous,
@@ -688,7 +648,7 @@ struct MediaQualityController {
                 )
             }
             resetStaleStreak()
-            downshiftCapacity(reason: "stale-capacity-down")
+            descend(reason: "stale-capacity-down", deliveredBytesPerSecond: delivery.deliveredBytesPerSecond)
             return evaluation(
                 signals: signals,
                 previous: previous,
@@ -733,7 +693,7 @@ struct MediaQualityController {
                     recoveryBlocker: "delivery-shortfall"
                 )
             }
-            downshiftCapacity(reason: "delivery-shortfall-down")
+            descend(reason: "delivery-shortfall-down", deliveredBytesPerSecond: delivery.deliveredBytesPerSecond)
             return evaluation(
                 signals: signals,
                 previous: previous,
@@ -769,7 +729,7 @@ struct MediaQualityController {
                     recoveryBlocker: "queue-bloat"
                 )
             }
-            downshiftCapacity(reason: "queue-bloat-down")
+            descend(reason: "queue-bloat-down", deliveredBytesPerSecond: delivery.deliveredBytesPerSecond)
             return evaluation(
                 signals: signals,
                 previous: previous,
@@ -806,7 +766,7 @@ struct MediaQualityController {
                 && !signals.lossPressure
                 && !signals.repairPressure
                 && !signals.queuePressure
-            if idleLinkClean && target.rung != .native {
+            if idleLinkClean && target.bitrateKbps < config.ceilingKbps {
                 return accrueCleanRecovery(
                     signals: signals,
                     previous: previous,
@@ -817,10 +777,14 @@ struct MediaQualityController {
             return evaluation(signals: signals, previous: previous, reason: "idle", recoveryBlocker: "idle")
         }
 
+        // ADR-0101: loss is just another descent trigger now. The old lossControl phase cut
+        // bitrate while HOLDING the ceiling fps (more, smaller frames); with cadence derived
+        // from the frame cost, a loss descent lowers fps too and keeps frames at the content's
+        // measured size -- fewer, intact frames on a lossy link.
         if signals.lossPressure {
             resetPressureStreaks()
             resetRecovery()
-            downshiftLoss(reason: "loss-down")
+            descend(reason: "loss-down", deliveredBytesPerSecond: delivery.deliveredBytesPerSecond)
             return evaluation(
                 signals: signals,
                 previous: previous,
@@ -829,31 +793,10 @@ struct MediaQualityController {
             )
         }
 
-        if warmupWindowsRemaining > 0 {
-            warmupWindowsRemaining -= 1
-            cleanRecoveryMs = 0
-            return evaluation(
-                signals: signals,
-                previous: previous,
-                reason: "transition-warmup",
-                recoveryBlocker: "transition-warmup"
-            )
-        }
-
         if signals.freezePressure {
-            if probeAxis != .none {
-                let activeProbeAxis = probeAxis
-                rollbackProbe(axis: activeProbeAxis)
-                return evaluation(
-                    signals: signals,
-                    previous: previous,
-                    reason: target.reason,
-                    recoveryBlocker: "probe-\(activeProbeAxis.rawValue)-pressure"
-                )
-            }
             resetPressureStreaks()
             resetRecovery()
-            downshiftCapacity(reason: "freeze-capacity-down")
+            descend(reason: "freeze-capacity-down", deliveredBytesPerSecond: delivery.deliveredBytesPerSecond)
             return evaluation(
                 signals: signals,
                 previous: previous,
@@ -863,19 +806,9 @@ struct MediaQualityController {
         }
 
         if signals.queuePressure && signals.cadencePressure {
-            if probeAxis != .none {
-                let activeProbeAxis = probeAxis
-                rollbackProbe(axis: activeProbeAxis)
-                return evaluation(
-                    signals: signals,
-                    previous: previous,
-                    reason: target.reason,
-                    recoveryBlocker: "probe-\(activeProbeAxis.rawValue)-pressure"
-                )
-            }
             resetPressureStreaks()
             resetRecovery()
-            downshiftCapacity(reason: "queue-cadence-down")
+            descend(reason: "queue-cadence-down", deliveredBytesPerSecond: delivery.deliveredBytesPerSecond)
             return evaluation(
                 signals: signals,
                 previous: previous,
@@ -885,17 +818,6 @@ struct MediaQualityController {
         }
 
         if signals.cadencePressure {
-            let activeProbeAxis = probeAxis
-            if activeProbeAxis != .none {
-                resetPressureStreaks()
-                rollbackProbe(axis: activeProbeAxis)
-                return evaluation(
-                    signals: signals,
-                    previous: previous,
-                    reason: target == previous ? floorReason : target.reason,
-                    recoveryBlocker: "probe-\(activeProbeAxis.rawValue)-pressure"
-                )
-            }
             resetRecovery()
             cadencePressureStreak += 1
             guard cadencePressureStreak >= config.cadenceDownWindows else {
@@ -907,7 +829,7 @@ struct MediaQualityController {
                 )
             }
             cadencePressureStreak = 0
-            downshiftCapacity(reason: "cadence-capacity-down")
+            descend(reason: "cadence-capacity-down", deliveredBytesPerSecond: delivery.deliveredBytesPerSecond)
             return evaluation(
                 signals: signals,
                 previous: previous,
@@ -948,28 +870,16 @@ struct MediaQualityController {
     }
 
     // Shared climb path for a clean window, whether it carried production (active
-    // recovery) or was idle (rest recovery). Accrues recovery credit, advances any
-    // probe, and lifts the ladder one step once the clean streak clears the bar.
+    // recovery) or was idle (rest recovery). Accrues recovery credit and lifts the
+    // target one multiplicative step once the clean streak clears the bar.
     private mutating func accrueCleanRecovery(
         signals: MediaQualityObservationSignals,
         previous: MediaQualityTarget,
         windowMs: Int
     ) -> MediaQualityEvaluation {
         cleanRecoveryMs += max(windowMs, 1)
-        if probeWindowsRemaining > 0 {
-            probeWindowsRemaining -= 1
-        }
         if cleanRecoveryMs >= requiredRecoveryMs {
             cleanRecoveryMs = 0
-            if probeAxis != .none {
-                markProbeStable()
-                return evaluation(
-                    signals: signals,
-                    previous: previous,
-                    reason: "probe-stable",
-                    recoveryBlocker: "none"
-                )
-            }
             recover()
             return evaluation(
                 signals: signals,
@@ -1057,147 +967,55 @@ struct MediaQualityController {
         return nil
     }
 
-    private mutating func downshiftLoss(reason: String) {
-        if target.bitrateKbps > config.floorKbps && target.rung <= .lossControl {
-            let bitrate = max(config.floorKbps, Int((Double(target.bitrateKbps) * config.downStep).rounded()))
-            target = target.with(
-                bitrateKbps: bitrate,
-                fps: config.fpsCeiling,
-                // Loss is a bitrate problem. Restoring native scale here would spend a keyframe
-                // and the whole reference set on a link that just told us it is dropping packets.
-                resolutionScale: config.resolutionScale,
-                rung: .lossControl,
-                reason: reason
-            )
-            stableTarget = target
-            clearProbe()
-            return
-        }
-        downshiftCapacity(reason: target.rung >= .survival ? floorReason : "capacity-down")
-    }
+    private var floorReason: String { "at-floor" }
 
-    private var floorReason: String {
-        target.rung == .emergency ? "at-emergency-floor" : "at-survival-floor"
-    }
+    /// The climb earned its step and had nowhere to put it. With one continuous axis the only
+    /// place that happens is the ceiling, which IS native -- the old `at-rung-ceiling` case
+    /// (a rung at its own top while the ladder sat at the bottom) went with the rungs.
+    private var atCeilingReason: String { "at-native" }
 
-    /// The climb earned its step and had nowhere to put it.
+    /// ADR-0101: every confirmed descent, whatever signal triggered it.
     ///
-    /// Named for where the ladder actually is. This was hardcoded to `at-native`, which one
-    /// 45-minute log emitted 27 times from the EMERGENCY floor -- the opposite end of the
-    /// ladder, and the one place where "we are at full quality" is the most misleading thing a
-    /// diagnostic could say. A rung can be at its own ceiling without being at the top.
-    private var atCeilingReason: String {
-        target.rung == .native ? "at-native" : "at-rung-ceiling"
-    }
-
-    private mutating func downshiftCapacity(reason: String) {
-        switch target.rung {
-        case .native, .lossControl:
-            target = fixedTarget(for: .capacity1, reason: reason)
-        case .capacity1:
-            target = fixedTarget(for: .capacity2, reason: reason)
-        case .capacity2:
-            target = fixedTarget(for: .survival, reason: "survival-down")
-        case .survival:
-            target = fixedTarget(for: .emergency, reason: "emergency-down")
-        case .emergency:
-            target = fixedTarget(for: .emergency, reason: "at-emergency-floor")
-        }
-        stableTarget = target
-        clearProbe()
+    /// Two terms, min-combined. The multiplicative step is the blind move -- the link
+    /// complained but did not say how much it can carry. The snap term is the point of the
+    /// continuous axis: when the delivery estimator HAS a number, one descent lands at that
+    /// number times a drain margin, instead of walking toward it a step per confirmation.
+    /// The ladder this replaces needed four confirmed steps to reach where the link already
+    /// was, and had no step at all below its bottom rung. Unknown is not zero: with no
+    /// measurement only the blind step applies, the same asymmetry `isBelowBudget` is built on.
+    private mutating func descend(reason: String, deliveredBytesPerSecond: Double?) {
         // ADR-0098: a descent spends the shortfall evidence, whichever signal triggered it. The
         // ask just got smaller, so a streak accumulated against the OLD budget says nothing
         // about the new one, and carrying it forward would let a single stale-down and a single
         // short window combine into a second step the link never asked for.
         deliveryShortfallStreak = 0
         queueBloatStreak = 0
+        var nextKbps = Double(target.bitrateKbps) * config.downStep
+        if let deliveredBytesPerSecond, deliveredBytesPerSecond > 0 {
+            let deliveredKbps = deliveredBytesPerSecond * 8.0 / 1_000.0
+            nextKbps = min(nextKbps, deliveredKbps * config.deliverySnapRatio)
+        }
+        let kbps = max(config.floorKbps, Int(nextKbps.rounded()))
+        guard kbps < target.bitrateKbps else {
+            target = target.with(reason: floorReason)
+            return
+        }
+        target = makeTarget(kbps: kbps, reason: reason)
     }
 
+    /// One multiplicative step toward the ceiling, cadence re-derived with it. Slow by design
+    /// against the fast descent: the climb is a bet the link has to keep re-earning, and any
+    /// overreach is answered within two windows by a descent that snaps back to measurement.
     private mutating func recover() {
-        if target.rung == .native {
-            return
-        }
-        let canonical = fixedTarget(for: target.rung, reason: "quality-up")
-        if target.bitrateKbps < canonical.bitrateKbps {
-            recoverBitrate(toward: canonical.bitrateKbps)
-            return
-        }
-        if target.fps < canonical.fps {
-            beginProbe(
-                target.with(fps: canonical.fps, reason: "quality-up"),
-                axis: .fps
-            )
-            return
-        }
-
-        let next = recoveryTarget(for: target.rung)
-        if target.bitrateKbps < next.bitrateKbps {
-            recoverBitrate(toward: next.bitrateKbps)
-            return
-        }
-        if target.fps < next.fps {
-            beginProbe(
-                MediaQualityTarget(
-                    bitrateKbps: next.bitrateKbps,
-                    fps: next.fps,
-                    resolutionScale: next.resolutionScale,
-                    rung: next.rung,
-                    reason: "quality-up"
-                ),
-                axis: .fps
-            )
-            return
-        }
-        target = next.with(reason: "quality-up")
-        stableTarget = target
-        clearProbe()
+        guard target.bitrateKbps < config.ceilingKbps else { return }
+        let kbps = min(
+            config.ceilingKbps,
+            Int((Double(target.bitrateKbps) * config.upStep).rounded())
+        )
+        target = makeTarget(kbps: kbps, reason: "quality-up")
     }
 
-    private mutating func recoverBitrate(toward nextBitrateKbps: Int) {
-        if target.bitrateKbps < nextBitrateKbps {
-            let bitrate = min(nextBitrateKbps, Int((Double(target.bitrateKbps) * config.upStep).rounded()))
-            target = target.with(bitrateKbps: bitrate, reason: "clean-up")
-            stableTarget = target
-            clearProbe()
-            recoveryPhaseState = .bitrateRecovering
-            return
-        }
-    }
-
-    private mutating func beginProbe(_ nextTarget: MediaQualityTarget, axis: MediaQualityProbeAxis) {
-        target = nextTarget
-        probeAxis = axis
-        recoveryPhaseState = .fpsProbe
-        probeWindowsRemaining = config.raiseCleanWindows
-        // ADR-0100: fps is the only axis that gets probed now, and it needs no transition warmup
-        // -- the warmup existed for the resolution probe, whose session recreate took a keyframe
-        // and a fresh reference set to settle. Changing fps settles on the next frame.
-        warmupWindowsRemaining = 0
-    }
-
-    private mutating func rollbackProbe(axis: MediaQualityProbeAxis? = nil) {
-        // The probe just tested this exact setting and it failed. That is the strongest
-        // evidence available about the current scale, so the rollback is not speculation and
-        // does not wait.
-        let rollbackAxis = axis ?? probeAxis
-        target = stableTarget.with(reason: "probe-\(rollbackAxis.rawValue)-rollback")
-        clearProbe()
-        cleanRecoveryMs = 0
-    }
-
-    private mutating func markProbeStable() {
-        stableTarget = target
-        clearProbe()
-    }
-
-    private mutating func clearProbe() {
-        probeAxis = .none
-        probeWindowsRemaining = 0
-        warmupWindowsRemaining = 0
-        recoveryPhaseState = .steady
-    }
-
-    /// The rung to hand a stream switching from a manual pin back to adaptive.
+    /// The target to hand a stream switching from a manual pin back to adaptive.
     ///
     /// ADR-0098. A fresh controller opens at the ceiling, and the encoder acts on that
     /// immediately: measured at 18:32:45, enabling adaptive on a stream pinned to 0.33 scale
@@ -1206,67 +1024,22 @@ struct MediaQualityController {
     /// 102,918-byte keyframe going back down. 223KB in 364ms, on the link that had just been
     /// diagnosed as congested.
     ///
-    /// So the scale that is already running is kept exactly, which costs no keyframe at all --
+    /// So the RUNNING stream is adopted as it stands, which costs no keyframe at all --
     /// resolution is the only axis whose change forces an IDR, because HEVC has no reference
-    /// picture resampling. Bitrate and fps come from the ladder rung that owns that scale, so
-    /// the controller lands on a real rung and can climb; pinning the manual target verbatim
-    /// would leave it at `.native` below the ceiling, where `recover` returns early and the
-    /// bitrate could never come back.
-    ///
-    /// The rung chosen is the highest-quality one whose canonical scale does not EXCEED what is
-    /// running, so this can only ever keep or lower the encoder's ambition, never raise it.
+    /// picture resampling. Bitrate is clamped into the adaptive range so the controller can
+    /// move it from here; fps is kept, not re-derived, because derivation could RAISE the
+    /// cadence and this handoff must only ever keep or lower the encoder's ambition.
     static func adaptiveHandoffTarget(
         from current: MediaQualityTarget,
         config: MediaQualityControllerConfig,
         reason: String
     ) -> MediaQualityTarget {
-        let rung = [MediaQualityRung.native, .lossControl, .capacity1, .capacity2, .survival, .emergency]
-            .first { canonicalTarget(for: $0, config: config, reason: reason).resolutionScale <= current.resolutionScale }
-            ?? .emergency
-        return canonicalTarget(for: rung, config: config, reason: reason)
-            .with(resolutionScale: current.resolutionScale, reason: reason)
-    }
-
-    static func canonicalTarget(
-        for rung: MediaQualityRung,
-        config: MediaQualityControllerConfig,
-        reason: String
-    ) -> MediaQualityTarget {
-        switch rung {
-        case .native:
-            MediaQualityTarget(bitrateKbps: config.ceilingKbps, fps: config.fpsCeiling, resolutionScale: config.resolutionScale, rung: .native, reason: reason)
-        case .lossControl:
-            MediaQualityTarget(bitrateKbps: config.floorKbps, fps: config.fpsCeiling, resolutionScale: config.resolutionScale, rung: .lossControl, reason: reason)
-        case .capacity1:
-            MediaQualityTarget(bitrateKbps: config.capacity1Kbps, fps: config.capacity1Fps, resolutionScale: config.resolutionScale, rung: .capacity1, reason: reason)
-        case .capacity2:
-            MediaQualityTarget(bitrateKbps: config.capacity2Kbps, fps: config.capacity2Fps, resolutionScale: config.resolutionScale, rung: .capacity2, reason: reason)
-        case .survival:
-            MediaQualityTarget(bitrateKbps: config.survivalFloorKbps, fps: config.fpsFloor, resolutionScale: config.resolutionScale, rung: .survival, reason: reason)
-        case .emergency:
-            MediaQualityTarget(bitrateKbps: config.emergencyKbps, fps: config.emergencyFps, resolutionScale: config.resolutionScale, rung: .emergency, reason: reason)
-        }
-    }
-
-    private func fixedTarget(for rung: MediaQualityRung, reason: String) -> MediaQualityTarget {
-        Self.canonicalTarget(for: rung, config: config, reason: reason)
-    }
-
-    private func recoveryTarget(for rung: MediaQualityRung) -> MediaQualityTarget {
-        switch rung {
-        case .emergency:
-            fixedTarget(for: .survival, reason: "quality-up")
-        case .survival:
-            fixedTarget(for: .capacity2, reason: "quality-up")
-        case .capacity2:
-            fixedTarget(for: .capacity1, reason: "quality-up")
-        case .capacity1:
-            fixedTarget(for: .lossControl, reason: "quality-up")
-        case .lossControl:
-            fixedTarget(for: .native, reason: "quality-up")
-        case .native:
-            fixedTarget(for: .native, reason: "quality-up")
-        }
+        MediaQualityTarget(
+            bitrateKbps: min(max(current.bitrateKbps, config.floorKbps), config.ceilingKbps),
+            fps: min(max(current.fps, 1), config.fpsCeiling),
+            resolutionScale: current.resolutionScale,
+            reason: reason
+        )
     }
 
     private mutating func resetPressureStreaks() {
@@ -1281,42 +1054,22 @@ struct MediaQualityController {
     }
 
     private mutating func resetRecovery() {
-        cleanRecoveryMs = 0
         // Any pressure at all restarts the climb-back clock. That is the point: the measured
         // failure was climbing after four clean seconds onto a link that had not actually
         // recovered, and then paying another keyframe to come back down.
-        clearProbe()
+        cleanRecoveryMs = 0
     }
 
     private func recoveryStatus(blocker: String) -> MediaQualityRecoveryStatus {
         MediaQualityRecoveryStatus(
             cleanMs: cleanRecoveryMs,
             requiredMs: requiredRecoveryMs,
-            blocker: blocker,
-            probeWindowsRemaining: probeWindowsRemaining,
-            phase: recoveryPhase(blocker: blocker),
-            warmupWindowsRemaining: warmupWindowsRemaining,
-            probeAxis: probeAxis,
-            stableTarget: stableTarget
+            blocker: blocker
         )
     }
 
-    private func recoveryPhase(blocker: String) -> MediaQualityRecoveryPhase {
-        if blocker == "transition-warmup" {
-            return .transitionWarmup
-        }
-        switch probeAxis {
-        case .fps:
-            return .fpsProbe
-        case .none:
-            return recoveryPhaseState
-        }
-    }
-
-    /// R231. Every branch of `observe` returns through here, which is why the resolution gate
-    /// lives at this point rather than at each `downshiftCapacity` / `recover` site: the rungs
-    /// stay free to say whatever they mean, and exactly one place decides what the encoder is
-    /// allowed to act on.
+    /// Every branch of `observe` returns through here: one place builds the evaluation, so
+    /// diagnostics cannot drift from the decision (ADR-0033's rule, kept through ADR-0101).
     private mutating func evaluation(
         signals: MediaQualityObservationSignals,
         previous: MediaQualityTarget,
@@ -1693,7 +1446,9 @@ struct QuicSessionHostMediaState {
                 staleRecoveryCount: input.delivery.staleRecoveryCount,
                 freshness: freshnessSummary(),
                 signals: signals,
-                recoveryStatus: qualityController.currentRecoveryStatus
+                recoveryStatus: qualityController.currentRecoveryStatus,
+                deliveredBytesPerSecond: input.delivery.deliveredBytesPerSecond,
+                frameBytesTarget: qualityController.frameBytesTarget
             )
             // Observation first, recovery second: the flush zeroes the in-flight counters
             // that are the evidence this window is the one that stalled.
@@ -1741,7 +1496,9 @@ struct QuicSessionHostMediaState {
             staleRecoveryCount: input.delivery.staleRecoveryCount,
             freshness: freshnessSummary(),
             signals: evaluation.signals,
-            recoveryStatus: evaluation.recoveryStatus
+            recoveryStatus: evaluation.recoveryStatus,
+            deliveredBytesPerSecond: input.delivery.deliveredBytesPerSecond,
+            frameBytesTarget: qualityController.frameBytesTarget
         )
         // Adaptive gets the same recovery. It used to obtain the flush and the keyframe as
         // a side effect of `outcome.resolutionChanged`, which is why it recovered at all;
@@ -1839,7 +1596,6 @@ struct QuicSessionHostMediaState {
             bitrateKbps: min(max(bitrate, 1), 20_000),
             fps: min(max(fps, 1), expectedFrameRate),
             resolutionScale: min(max(scale, 0.1), 1.0),
-            rung: .native,
             reason: reason
         )
     }
@@ -1847,8 +1603,7 @@ struct QuicSessionHostMediaState {
     private func sameQualityTarget(_ lhs: MediaQualityTarget, _ rhs: MediaQualityTarget) -> Bool {
         lhs.bitrateKbps == rhs.bitrateKbps &&
             lhs.fps == rhs.fps &&
-            lhs.resolutionScale == rhs.resolutionScale &&
-            lhs.rung == rhs.rung
+            lhs.resolutionScale == rhs.resolutionScale
     }
 
     private func percentile(_ fraction: Double) -> Double? {

@@ -52,7 +52,7 @@ struct MediaQualityStalePressureTests {
         let outcome = controller.observe(window(stale: 1)).outcome
         #expect(outcome.reason == "stale-hold")
         #expect(!outcome.changed)
-        #expect(outcome.target.rung == .native)
+        #expect(outcome.target.bitrateKbps == config().ceilingKbps)
     }
 
     /// Held, not ignored. Sustained pressure is still answered, one window later.
@@ -61,7 +61,7 @@ struct MediaQualityStalePressureTests {
         _ = controller.observe(window(stale: 1))
         let outcome = controller.observe(window(stale: 1)).outcome
         #expect(outcome.reason == "stale-capacity-down")
-        #expect(outcome.target.rung == .capacity1)
+        #expect(outcome.target.bitrateKbps < config().ceilingKbps)
         #expect(outcome.bitrateChanged)
     }
 
@@ -73,7 +73,7 @@ struct MediaQualityStalePressureTests {
         _ = controller.observe(window())
         let outcome = controller.observe(window(stale: 1)).outcome
         #expect(outcome.reason == "stale-hold", "a broken run must start counting again")
-        #expect(outcome.target.rung == .native)
+        #expect(outcome.target.bitrateKbps == config().ceilingKbps)
     }
 
     /// A window with no frames at all cannot have produced a stale one, so it breaks the run

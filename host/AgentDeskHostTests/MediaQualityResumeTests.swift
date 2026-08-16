@@ -29,13 +29,11 @@ struct MediaQualityResumeTests {
         return state
     }
 
-    private func capacity2Target() -> MediaQualityTarget {
-        let config = config()
-        return MediaQualityTarget(
-            bitrateKbps: config.capacity2Kbps,
-            fps: config.capacity2Fps,
-            resolutionScale: config.resolutionScale,
-            rung: .capacity2,
+    private func carriedTarget() -> MediaQualityTarget {
+        MediaQualityTarget(
+            bitrateKbps: 400,
+            fps: 15,
+            resolutionScale: config().resolutionScale,
             reason: "test-pre-drop"
         )
     }
@@ -57,7 +55,7 @@ struct MediaQualityResumeTests {
     /// its first frame is a rescale, and a rescale destroys the references the resume exists to
     /// reuse.
     @Test func aResumedConnectionOpensAtTheRungItLeftOff() {
-        let target = capacity2Target()
+        let target = carriedTarget()
         let state = makeState(resuming: target)
         #expect(state.targetResolutionScale == target.resolutionScale)
         #expect(state.targetKbps == target.bitrateKbps)
@@ -69,20 +67,20 @@ struct MediaQualityResumeTests {
     /// dimensions out, so `ensureSession` does not recreate and the long-term references live.
     @Test func aResumeDoesNotRescaleAndSoDoesNotRecreateTheEncoderSession() {
         let preDropScale = config().resolutionScale
-        let state = makeState(resuming: capacity2Target())
+        let state = makeState(resuming: carriedTarget())
         #expect(state.targetResolutionScale == preDropScale)
         #expect(state.targetResolutionScale != 1.0, "a resume that opens at native scale forces the rescale this exists to avoid")
     }
 
     /// Carried, not frozen. The link may genuinely have changed -- that is usually why the drop
-    /// happened -- so the rung is an opening bid the ladder has to re-earn its way up from.
-    /// Pinning clears the recovery credit rather than leaving it banked from before the drop.
-    @Test func aCarriedRungIsAStartingPointNotAFreeze() {
+    /// happened -- so the carried target is an opening bid the controller has to re-earn its
+    /// way up from. Pinning clears the recovery credit rather than leaving it banked from
+    /// before the drop.
+    @Test func aCarriedTargetIsAStartingPointNotAFreeze() {
         var controller = MediaQualityController(config: config())
-        controller.pin(to: capacity2Target())
+        controller.pin(to: carriedTarget())
         let recovery = controller.currentRecoveryStatus
         #expect(recovery.cleanMs == 0, "recovery credit earned before the drop must not count toward climbing after it")
-        #expect(recovery.stableTarget == capacity2Target())
-        #expect(recovery.probeWindowsRemaining == 0)
+        #expect(controller.target == carriedTarget())
     }
 }

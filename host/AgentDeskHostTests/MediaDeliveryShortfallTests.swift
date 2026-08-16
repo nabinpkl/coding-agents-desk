@@ -49,10 +49,13 @@ private func window(
     )
 }
 
-// The headline claim. The ladder is asking the link for 2500kbps and the link is carrying 300.
-// Nothing has expired, nothing is stale, the acks are quick -- none of the existing signals has
-// anything to say, and the rung still comes down.
-@Test func aLinkCarryingAFractionOfTheRungDescends() {
+// The headline claim. The controller is asking the link for 2500kbps and the link is carrying
+// 300. Nothing has expired, nothing is stale, the acks are quick -- none of the existing
+// signals has anything to say, and the target still comes down. And it comes down TO the
+// measurement: ADR-0101's snap term lands the one confirmed descent at delivered * snapRatio
+// (300 * 0.85 = 255) instead of walking rungs toward it -- the ladder this replaced needed
+// four confirmed steps to get here.
+@Test func aShortfallDescentSnapsToTheMeasuredRate() {
     var controller = MediaQualityController(config: config())
     let first = controller.observe(window(deliveredKbps: 300)).outcome
     #expect(!first.changed)
@@ -60,7 +63,7 @@ private func window(
 
     let second = controller.observe(window(deliveredKbps: 300)).outcome
     #expect(second.reason == "delivery-shortfall-down")
-    #expect(second.target.rung == .capacity1)
+    #expect(second.target.bitrateKbps == Int((300.0 * config().deliverySnapRatio).rounded()))
 }
 
 // One short window is a burst, two is a link. Same rule as stale and cadence pressure, and the
@@ -90,7 +93,7 @@ private func window(
         #expect(outcome.reason != "delivery-shortfall-down")
         #expect(outcome.reason != "delivery-shortfall-hold")
     }
-    #expect(controller.target.rung == .native)
+    #expect(controller.target.bitrateKbps == config().ceilingKbps)
 }
 
 // A link delivering slightly under its rung is a link doing its job. The encoder undershoots its
@@ -102,23 +105,23 @@ private func window(
     for _ in 0..<10 {
         _ = controller.observe(window(deliveredKbps: justUnder))
     }
-    #expect(controller.target.rung == .native)
+    #expect(controller.target.bitrateKbps == config().ceilingKbps)
 }
 
-// The runaway guard, and the reason the estimate is a windowed maximum. After a descent the
-// window still holds the capacity measured before it, so the next window compares the new,
-// smaller ask against the old, larger measurement -- and the streak breaks. One step per genuine
-// stretch of shortfall, not one per window.
+// The runaway guard. A snap descent lands at delivered * snapRatio, and the very next window
+// compares that smaller ask against the same 300kbps measurement -- which now covers it, so
+// the streak breaks. One landing per genuine stretch of shortfall, not one step per window.
 @Test func aDescentDoesNotCascadeWhileTheMeasurementStands() {
     var controller = MediaQualityController(config: config())
     _ = controller.observe(window(deliveredKbps: 300))
     let stepped = controller.observe(window(deliveredKbps: 300)).outcome
-    #expect(stepped.target.rung == .capacity1)
+    #expect(stepped.reason == "delivery-shortfall-down")
+    let landed = controller.target.bitrateKbps
 
-    // The same 300kbps measurement, now compared against capacity1 rather than the ceiling.
+    // The same 300kbps measurement, now compared against the landing point.
     let after = controller.observe(window(deliveredKbps: 300)).outcome
     #expect(after.reason != "delivery-shortfall-down")
-    #expect(controller.target.rung == .capacity1)
+    #expect(controller.target.bitrateKbps == landed)
 }
 
 // A descent spends the evidence whichever signal triggered it. Without this a single stale-down
@@ -139,7 +142,7 @@ private func window(
     )
     let byStall = controller.observe(stalled).outcome
     #expect(byStall.reason == "delivery-stalled-down")
-    #expect(byStall.target.rung == .capacity1)
+    #expect(byStall.changed)
 
     let next = controller.observe(window(deliveredKbps: 300)).outcome
     #expect(next.reason != "delivery-shortfall-down")
@@ -159,7 +162,10 @@ private func window(
 
     let second = controller.observe(window(deliveredKbps: plenty, inflation: 5.0)).outcome
     #expect(second.reason == "queue-bloat-down")
-    #expect(second.target.rung == .capacity1)
+    // Bloat happens on a link that delivers FULLY, so the snap term is above the blind step
+    // and the multiplicative step is what moves. The load-bearing difference from the ladder:
+    // this keeps stepping below any fixed bottom until the queue drains.
+    #expect(second.target.bitrateKbps == Int((plenty * config().downStep).rounded()))
 }
 
 // A path with ordinary latency is not a bloated one. The ratio is the round-trip against its own
@@ -171,7 +177,7 @@ private func window(
     for _ in 0..<10 {
         _ = controller.observe(window(deliveredKbps: plenty, inflation: 1.3))
     }
-    #expect(controller.target.rung == .native)
+    #expect(controller.target.bitrateKbps == config().ceilingKbps)
 }
 
 // The measured defect. Wi-Fi is fast and jittery: its floor is a lucky aggregated frame and its
@@ -190,7 +196,7 @@ private func window(
         #expect(outcome.reason != "queue-bloat-down")
         #expect(outcome.reason != "queue-bloat-hold")
     }
-    #expect(controller.target.rung == .native)
+    #expect(controller.target.bitrateKbps == config().ceilingKbps)
 }
 
 // The other direction, so the gate cannot be satisfied by lateness alone. A path that is simply
@@ -205,7 +211,7 @@ private func window(
         ).outcome
         #expect(outcome.reason != "queue-bloat-down")
     }
-    #expect(controller.target.rung == .native)
+    #expect(controller.target.bitrateKbps == config().ceilingKbps)
 }
 
 // No ratio yet means no floor to divide by -- the start of every connection. Unknown is not
@@ -217,7 +223,7 @@ private func window(
         let outcome = controller.observe(window(deliveredKbps: plenty, inflation: nil)).outcome
         #expect(outcome.reason != "queue-bloat-down")
     }
-    #expect(controller.target.rung == .native)
+    #expect(controller.target.bitrateKbps == config().ceilingKbps)
 }
 
 // The two signals count separately. One short window and one bloated window are two different

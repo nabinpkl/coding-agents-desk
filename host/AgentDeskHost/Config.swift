@@ -131,17 +131,15 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_KBPS",
         defaultValue: 2_500
     )
-    // ADR-0033 adaptive media-quality controller knobs. Down fast on loss, up slow
-    // on a clean streak; see MediaQualityController.
-    static let ownedMediaBitrateFloorKbps = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_FLOOR_KBPS",
-        defaultValue: 800
-    )
-    // ADR-0033 survival rung bitrate. This is the last fixed target after the
-    // controller has spent bitrate, resolution, and fps.
-    static let ownedMediaSurvivalBitrateFloorKbps = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_SURVIVAL_BITRATE_FLOOR_KBPS",
-        defaultValue: 300
+    // ADR-0101: the continuous target's heartbeat floor. Not 0, because a target of nothing
+    // stops all frames, which stops all acks, which starves the delivery estimator and the
+    // round-trip tracker -- and a controller that cannot measure cannot climb back. 60kbps is
+    // roughly one mean-cost delta frame (7.7KB measured) per second: enough traffic to keep
+    // the measurement loop alive, low enough to let a bloated queue actually drain. Also the
+    // send pacer's floor, for the same reversibility reason (LinkSendPacer).
+    static let ownedMediaFloorKbps = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_FLOOR_KBPS",
+        defaultValue: 60
     )
     static let ownedMediaBitrateDownStep = positiveDouble(
         environmentKey: "AGENTDESK_OWNED_MEDIA_BITRATE_DOWN_STEP",
@@ -193,18 +191,6 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_FREEZE_FPS_CEILING",
         defaultValue: 3
     )
-    static let ownedMediaRecoveryMaxGapMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_RECOVERY_MAX_GAP_MS",
-        defaultValue: 300
-    )
-    static let ownedMediaRecoveryMinFpsPermille = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_RECOVERY_MIN_FPS_PERMILLE",
-        defaultValue: 800
-    )
-    static let ownedMediaTransitionWarmupWindows = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_TRANSITION_WARMUP_WINDOWS",
-        defaultValue: 1
-    )
     // ADR-0027: hard data-rate ceiling as a multiple of the average bitrate.
     // AverageBitRate only bounds the long-run average, so a single keyframe can
     // burst many times the target in one frame; on a constrained link that burst is
@@ -228,25 +214,6 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_FRAME_BYTES_EWMA_ALPHA",
         defaultValue: 0.1
     )
-    // ADR-0033 fixed capacity rungs. Once bitrate has been spent to the normal floor
-    // and the link still shows loss/expiry, the controller changes resolution, fps,
-    // and bitrate together instead of bolting resolution onto a separate loop.
-    static let ownedMediaCapacity1BitrateKbps = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY1_BITRATE_KBPS",
-        defaultValue: 650
-    )
-    static let ownedMediaCapacity1Fps = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY1_FPS",
-        defaultValue: 24
-    )
-    static let ownedMediaCapacity2BitrateKbps = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY2_BITRATE_KBPS",
-        defaultValue: 400
-    )
-    static let ownedMediaCapacity2Fps = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_CAPACITY2_FPS",
-        defaultValue: 15
-    )
     // R231b. How many CONSECUTIVE windows of stale pressure it takes to act on it, mirroring
     // `ownedMediaCadenceDownWindows`. The stale signal is `staleRecoveryCount > 0`: a single
     // abandoned frame, with no magnitude, answered by a jump to a fixed rung. That made the
@@ -264,42 +231,28 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_STALE_DOWN_WINDOWS",
         defaultValue: 2
     )
-    // ADR-0033 survival cadence target. A lower emergency rung exists for paths
-    // that still freeze after survival.
-    //
-    // 5, not 10, because a rung must be able to CARRY its own cadence. Measured per-frame cost
-    // on this content is 4.8KB at p50 (18.8KB at p90), so 10fps needs 382kbps against a 300kbps
-    // budget -- and a rung that promises more frames than its bitrate can carry does not drop
-    // them, it queues them. That is latency, not loss: the picture stays smooth and arrives
-    // seconds late. 5fps needs 190kbps and fits.
-    static let ownedMediaFpsFloor = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_FPS_FLOOR",
-        defaultValue: 5
+    // ADR-0101: what to assume a delta frame costs before the live EWMA has a sample. Sized
+    // over the measured mean delta (7.7KB) so an unmeasured session opens with a conservative
+    // cadence rather than an optimistic one; the first real frames replace it within a second.
+    static let ownedMediaSeedFrameBytes = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_SEED_FRAME_BYTES",
+        defaultValue: 10_000
     )
-    // 90, not 180, because a rung carries its cadence in BYTES, not just frames. At 1fps the old
-    // budget told the encoder it could afford 22.5KB per frame, and it filled it: measured p50
-    // frame 16.5KB against a 4.8KB p50 delta the content needed. Resync refreshes were worse --
-    // 40-139KB each, a 2-3s stall on a link delivering ~200kbps. 90kbps makes the nominal frame
-    // 11.25KB (mean delta is 7.7KB, so 46% headroom) and drops the DataRateLimits window cap from
-    // 33.75KB to 16.9KB, so a p90 delta (18.8KB) compresses ~10% instead of emitting at cap; the
-    // refreshes shrink with the budget.
-    static let ownedMediaEmergencyBitrateKbps = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_EMERGENCY_BITRATE_KBPS",
-        defaultValue: 90
+    // ADR-0101: the budget a frame gets over its measured EWMA cost when the cadence is
+    // derived (fps = bitrate / (ewma * headroom)). The cb74f8bf floor lesson, generalized: a
+    // cadence must fit the frames ABOVE the mean too, or the ones the mean hides queue. 1.3
+    // puts the p50 delta (4.8KB) well inside a budget derived from the mean.
+    static let ownedMediaFrameBytesHeadroom = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_FRAME_BYTES_HEADROOM",
+        defaultValue: 1.3
     )
-    // The true floor. 1fps, not 6, because a rung must be able to CARRY its own cadence:
-    // 6fps here needed 228kbps at p50 and 900 at p90 against the 180kbps budget -- 1.3x to 5x
-    // over-subscribed, on the one rung reached precisely because the link cannot over-deliver.
-    // Measured result: standing queues 1-2.6s deep with rttInflation 10-32x, a smooth picture
-    // consistently that far behind the Mac. For a remote desktop a current frame at 1fps beats a
-    // two-second-old frame at 6fps, so the floor spends its whole budget on being CURRENT.
-    //
-    // Safe to go this low only since reference chains became loss-immune: skipped frames no
-    // longer break anything, so the next frame sent is decodable and fresh rather than the
-    // start of a resync.
-    static let ownedMediaEmergencyFps = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_EMERGENCY_FPS",
-        defaultValue: 1
+    // ADR-0101: the fraction of the MEASURED delivery rate a confirmed descent lands at.
+    // Below 1.0 on purpose: landing exactly at capacity keeps the queue exactly full, and the
+    // point of descending is to drain it. Measured before this existed: sentKbps p90 359
+    // against a link delivering 186 -- the controller had no way to land where the link was.
+    static let ownedMediaDeliverySnapRatio = positiveDouble(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DELIVERY_SNAP_RATIO",
+        defaultValue: 0.85
     )
     // Tile-path periodic full-surface heal cadence (ScrollDeltaEngine.healIntervalFrames).
     // Named for the heal it actually drives, not a video keyframe. There is no longer a video

@@ -274,29 +274,22 @@ struct MediaStallRecoveryTests {
     private func controllerConfig() -> MediaQualityControllerConfig {
         MediaQualityControllerConfig(
             ceilingKbps: 2500,
-            floorKbps: 800,
-            survivalFloorKbps: 300,
+            floorKbps: 60,
             downStep: 0.7,
             upStep: 1.15,
             lossDownPermille: 50,
             raiseCleanWindows: 4,
             cadenceDownWindows: 2,
             fpsCeiling: 30,
-            fpsFloor: 10,
             ackHoldP95Ms: 180,
             ackDownP95Ms: 350,
             cadenceGapMs: 500,
             freezeGapMs: 1_000,
             freezeFpsCeiling: 3,
-            recoveryMaxGapMs: 300,
-            recoveryMinFpsPermille: 800,
-            transitionWarmupWindows: 1,
-            capacity1Kbps: 650,
-            capacity1Fps: 24,
-            capacity2Kbps: 400,
-            capacity2Fps: 15,
-            emergencyKbps: 180, emergencyFps: 6,
-            resolutionScale: 0.5
+            resolutionScale: 0.5,
+            seedFrameBytes: 10_000,
+            frameBytesHeadroom: 1.3,
+            deliverySnapRatio: 0.85
         )
     }
 }
