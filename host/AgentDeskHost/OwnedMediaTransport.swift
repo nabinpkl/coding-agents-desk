@@ -621,8 +621,23 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 let payloadBytes = emission.payload.count
                 let dropped = state.controller.droppedCrispTileCount
                 let throttled = state.controller.throttledCrispTileCount
+                let eagerReverts = state.controller.eagerRevertCount
+                // `fresh` vs `redraw` separates the two promotions that look identical in a
+                // bare tile count but cost wildly different things: a fresh cacheTile carries
+                // compressed pixels, a drawCachedTile carries nothing. A window that is mostly
+                // redraws is crisp re-establishing tiles it already sent, which paired with a
+                // climbing eagerReverts is the flicker loop rather than real work.
+                var fresh = 0
+                var redraw = 0
+                for command in emission.commands {
+                    switch command {
+                    case .cacheTile: fresh += 1
+                    case .drawCachedTile: redraw += 1
+                    default: break
+                    }
+                }
                 let laneAttached = state.lane != nil
-                logger.notice("crisp window tiles=\(tiles, privacy: .public) payloadBytes=\(payloadBytes, privacy: .public) dropped=\(dropped, privacy: .public) throttled=\(throttled, privacy: .public) resized=\(emission.surfaceDidReset, privacy: .public) laneAttached=\(laneAttached, privacy: .public)")
+                logger.notice("crisp window tiles=\(tiles, privacy: .public) fresh=\(fresh, privacy: .public) redraw=\(redraw, privacy: .public) payloadBytes=\(payloadBytes, privacy: .public) budget=\(windowBudget, privacy: .public) dropped=\(dropped, privacy: .public) throttled=\(throttled, privacy: .public) eagerReverts=\(eagerReverts, privacy: .public) resized=\(emission.surfaceDidReset, privacy: .public) laneAttached=\(laneAttached, privacy: .public)")
             }
             guard let lane = state.lane else {
                 // No lane to receive these assignments: discard the staged slot commits so

@@ -122,6 +122,12 @@ struct RegionCrispController {
     // dedups once committed. Expected under a small cache; grows per frame per excess
     // tile, so it is a tuning signal (raise cacheSlots), not an error.
     private(set) var throttledCrispTileCount = 0
+    // Tiles un-crispened by a damage RECT rather than a proven content change. Cheap churn
+    // when they come straight back, expensive when they do not, and until now invisible: the
+    // flicker this produces was only ever reported by eye. Read against the drawCachedTile
+    // count in the same window -- reverts far exceeding cache-hit re-promotions means the OS
+    // is reporting damage on tiles whose pixels are not moving.
+    private(set) var eagerRevertCount = 0
 
     init(config: RegionCrispConfig) {
         self.config = config
@@ -378,6 +384,21 @@ struct RegionCrispController {
     // the live video update for up to one crisp interval, which reads as sluggish response to
     // input. Reverting to video is always coherent (video is the live floor), so an over-broad
     // damage rect costs only a momentary un-crispen, never staleness. Carries no payload.
+    //
+    // "Momentary" is doing real work in that sentence, and it stopped being true. This walks
+    // RECTS, not pixels -- it has no buffer to hash at video cadence -- so a tile the OS
+    // reported as damaged reverts whether or not one pixel of it actually changed. That is
+    // fine when the tile comes straight back. It did not: this also restarted the settle
+    // timer, so an unchanged tile had to sit on video for a fresh settle window before it
+    // could be re-promoted. At 60fps, with damage arriving up to sixty times a second, static
+    // text sat in a revert / settle / re-promote loop and visibly flickered between crisp and
+    // video with nothing on screen changing.
+    //
+    // So the timer is left alone here. An unchanged tile is re-promoted by the very next crisp
+    // window, and because its content is already in a client slot that promotion is a
+    // payload-free drawCachedTile. A tile that genuinely changed still gets its timer reset --
+    // in reconcile's changed branch, where a hash comparison has actually proven the change,
+    // rather than here where only a rectangle has suggested it.
     mutating func reactToDamage(_ damageRects: [PixelRect], nowMs: Int) -> [OwnedGraphicsCommand] {
         let grid = config.tileGridPx
         guard hasObserved, grid > 0, lastWidth > 0, lastHeight > 0, !damageRects.isEmpty else { return [] }
@@ -395,10 +416,10 @@ struct RegionCrispController {
                         let h = min(grid, lastHeight - ty)
                         commands.append(.revertTileToVideo(x: tx, y: ty, width: w, height: h))
                         state.crispHash = nil
-                        // Restart the settle timer so re-promotion waits for the region to
-                        // truly settle again rather than re-caching on the next pass.
-                        state.stableSinceMs = nowMs
+                        // `stableSinceMs` deliberately untouched: see the note above. Only a
+                        // proven content change restarts the settle clock.
                         cells[key] = state
+                        eagerRevertCount += 1
                     }
                     tx += grid
                 }

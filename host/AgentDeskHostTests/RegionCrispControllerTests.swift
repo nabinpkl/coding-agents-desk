@@ -329,8 +329,13 @@ final class RegionCrispControllerTests: XCTestCase {
     }
 
     // Eager revert (input latency): OS damage over a crisp tile reverts it to the video floor
-    // immediately, on the video cadence, instead of waiting for the next hash pass. The tile
-    // stops being crisp and must re-settle before it sharpens again.
+    // immediately, on the video cadence, instead of waiting for the next hash pass, and
+    // reverts exactly the overlapped tile at its full grid bounds.
+    //
+    // What happens NEXT is deliberately not asserted here any more. This test used to also
+    // require the tile to serve a fresh settle window before returning, which is the rule that
+    // made false reverts flicker; testEagerRevertDoesNotRestartTheSettleClock owns that
+    // contract now and asserts the opposite.
     func testDamageEagerlyRevertsCrispTileToVideo() {
         var c = RegionCrispController(config: config())
         _ = heal(&c, surface(0xAB), at: 0)
@@ -342,12 +347,10 @@ final class RegionCrispControllerTests: XCTestCase {
             return XCTFail("damage over a crisp tile must revert exactly it, got \(reverts)")
         }
         XCTAssertEqual([x, y, w, h], [0, 0, 64, 64])
-        // No longer crisp: the unchanged content must re-settle (not dedup as still-crisp),
-        // then re-promote from the still-cached slot once the settle window passes again.
-        XCTAssertTrue(heal(&c, surface(0xAB), at: 300).isEmpty, "a freshly reverted tile is not immediately crisp")
-        guard case .drawCachedTile = heal(&c, surface(0xAB), at: 600).commands.first else {
-            return XCTFail("after an eager revert the unchanged tile re-promotes from cache")
-        }
+        XCTAssertNil(
+            c.reactToDamage([PixelRect(x: 10, y: 10, width: 5, height: 5)], nowMs: 260).first,
+            "the tile is on video now, so a second damage rect has nothing left to revert"
+        )
     }
 
     // Eager revert only touches crisp tiles the damage overlaps; an already-reverted or
@@ -464,6 +467,46 @@ final class RegionCrispControllerTests: XCTestCase {
 
         XCTAssertEqual(cacheTileCount(emission), 0, "a never-seen tile needs bytes, so it waits")
         XCTAssertGreaterThan(c.throttledCrispTileCount, 0, "and it is counted as throttled")
+    }
+
+    // An eager revert is driven by a damage RECT, not by a hash, so it fires on tiles whose
+    // pixels never moved. Restarting the settle clock there made every such false revert cost
+    // a full settle window before the tile could come back, and at 60fps -- damage arriving
+    // sixty times a second -- static text sat in a revert/settle/re-promote loop and visibly
+    // flickered between crisp and video with nothing on screen changing.
+    func testEagerRevertDoesNotRestartTheSettleClock() {
+        var c = RegionCrispController(config: config())
+        _ = heal(&c, surface(0xAB), at: 0)
+        XCTAssertEqual(cacheTileCount(heal(&c, surface(0xAB), at: 200)), 1, "tile is crisp")
+
+        // Damage the tile without changing a pixel of it, exactly what an over-broad OS
+        // damage rect does.
+        let reverts = c.reactToDamage([PixelRect(x: 0, y: 0, width: 10, height: 10)], nowMs: 300)
+        XCTAssertEqual(reverts.count, 1)
+        XCTAssertEqual(c.eagerRevertCount, 1, "the false revert is counted so churn is visible")
+
+        // The very next window re-promotes it. Previously this needed nowMs >= 300 + settle.
+        let back = heal(&c, surface(0xAB), at: 310)
+
+        let redraws = back.commands.filter {
+            if case .drawCachedTile = $0 { return true }; return false
+        }
+        XCTAssertEqual(redraws.count, 1, "an unchanged tile returns at the next window")
+        XCTAssertEqual(back.payload.count, 0, "and returns free, because the client still holds it")
+    }
+
+    // The other half: a tile that genuinely changed must still serve its settle window, or
+    // crisp would re-cache moving content every window.
+    func testProvenChangeStillRestartsTheSettleClock() {
+        var c = RegionCrispController(config: config())
+        _ = heal(&c, surface(0xAB), at: 0)
+        _ = heal(&c, surface(0xAB), at: 200)
+
+        _ = heal(&c, surface(0xCD), at: 300) // reconcile sees a different hash: timer resets
+        let tooSoon = heal(&c, surface(0xCD), at: 380)
+
+        XCTAssertTrue(tooSoon.isEmpty, "still inside the settle window after a real change")
+        XCTAssertEqual(cacheTileCount(heal(&c, surface(0xCD), at: 460)), 1, "promotes once settled")
     }
 
     private func cacheTileCount(_ e: RegionCrispEmission) -> Int {
