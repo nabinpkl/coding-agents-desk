@@ -19,9 +19,12 @@ final class RegionCrispControllerTests: XCTestCase {
     // it visits every grid tile every frame.
     private func heal(
         _ c: inout RegionCrispController, _ pixels: Data, at nowMs: Int,
-        width: Int = 64, height: Int = 64
+        width: Int = 64, height: Int = 64, maxPayloadBytes: Int = .max
     ) -> RegionCrispEmission {
-        let emission = c.healScan(pixels: pixels, width: width, height: height, bytesPerRow: width * 4, nowMs: nowMs)
+        let emission = c.healScan(
+            pixels: pixels, width: width, height: height, bytesPerRow: width * 4,
+            nowMs: nowMs, maxPayloadBytes: maxPayloadBytes
+        )
         // The transport commits the staged slot assignments once the emission is handed to
         // the lane (commitEmission); mirror that here so cross-frame dedup and eviction
         // behave as in production now that healScan/observe no longer commit unconditionally.
@@ -33,11 +36,12 @@ final class RegionCrispControllerTests: XCTestCase {
     // cells due for promotion. An empty `changedRects` is a promote-only pass.
     private func observe(
         _ c: inout RegionCrispController, _ pixels: Data, at nowMs: Int,
-        changedRects: [PixelRect] = [], width: Int = 64, height: Int = 64
+        changedRects: [PixelRect] = [], width: Int = 64, height: Int = 64,
+        maxPayloadBytes: Int = .max
     ) -> RegionCrispEmission {
         let emission = c.observe(
             pixels: pixels, width: width, height: height, bytesPerRow: width * 4,
-            nowMs: nowMs, changedRects: changedRects
+            nowMs: nowMs, changedRects: changedRects, maxPayloadBytes: maxPayloadBytes
         )
         c.commitEmission()
         return emission
@@ -363,18 +367,56 @@ final class RegionCrispControllerTests: XCTestCase {
     // Per-window byte budget: a full-surface settle does not emit every cacheTile at once;
     // the excess throttles and the next window emits more, spreading the re-cache over time.
     func testByteBudgetSpreadsFullSurfaceCacheOverWindows() {
-        let cfg = RegionCrispConfig(tileGridPx: grid, settleWindowMs: settle, cacheSlots: 16, maxBytesPerWindow: 1)
-        var c = RegionCrispController(config: cfg)
+        var c = RegionCrispController(config: config())
         let s = distinctTilesSurface(width: 128, height: 128) // four distinct tiles
-        _ = heal(&c, s, at: 0, width: 128, height: 128)
+        _ = heal(&c, s, at: 0, width: 128, height: 128, maxPayloadBytes: 1)
         func cacheTileCount(_ e: RegionCrispEmission) -> Int {
             e.commands.filter { if case .cacheTile = $0 { return true }; return false }.count
         }
-        let w1 = heal(&c, s, at: 200, width: 128, height: 128)
+        let w1 = heal(&c, s, at: 200, width: 128, height: 128, maxPayloadBytes: 1)
         XCTAssertEqual(cacheTileCount(w1), 1, "a 1-byte budget admits one fresh cacheTile per window")
         XCTAssertGreaterThan(c.throttledCrispTileCount, 0, "the over-budget settled tiles throttle")
-        let w2 = heal(&c, s, at: 300, width: 128, height: 128)
+        let w2 = heal(&c, s, at: 300, width: 128, height: 128, maxPayloadBytes: 1)
         XCTAssertEqual(cacheTileCount(w2), 1, "the next window emits the next throttled tile")
+    }
+
+    // The budget is a CEILING on the emitted chunk, not a line the last tile may cross.
+    // Retrospectively (`payload.count >= cap` checked before compressing) one window could
+    // reach nearly double its cap, which on device meant 303KB inside a second against a
+    // 128KB/s allowance -- more than the whole cellular link, so video queued behind it.
+    func testWindowPayloadNeverExceedsItsBudget() {
+        var c = RegionCrispController(config: config())
+        let s = distinctTilesSurface(width: 128, height: 128)
+        _ = heal(&c, s, at: 0, width: 128, height: 128)
+
+        // Sized to admit the first tile and then land mid-way through the second, which is
+        // exactly the case the old check waved through.
+        let oneTile = heal(&c, s, at: 200, width: 128, height: 128, maxPayloadBytes: .max)
+        let perTile = oneTile.payload.count / max(cacheTileCount(oneTile), 1)
+        XCTAssertGreaterThan(perTile, 0, "the surface must actually produce payload to bound")
+
+        var fresh = RegionCrispController(config: config())
+        _ = heal(&fresh, s, at: 0, width: 128, height: 128)
+        let budget = perTile + perTile / 2
+        let capped = heal(&fresh, s, at: 200, width: 128, height: 128, maxPayloadBytes: budget)
+        XCTAssertLessThanOrEqual(capped.payload.count, budget, "the chunk must fit its budget")
+    }
+
+    // A tile bigger than the whole budget still has to get through eventually, or it is
+    // throttled forever: never crisp, and never visible as a failure either.
+    func testOversizedTileStillEmitsOnAnEmptyPayload() {
+        var c = RegionCrispController(config: config())
+        let s = distinctTilesSurface(width: 128, height: 128)
+        _ = heal(&c, s, at: 0, width: 128, height: 128)
+
+        let emission = heal(&c, s, at: 200, width: 128, height: 128, maxPayloadBytes: 1)
+
+        XCTAssertEqual(cacheTileCount(emission), 1, "an empty payload admits one tile regardless of size")
+        XCTAssertGreaterThan(emission.payload.count, 1, "and that tile is genuinely over the budget")
+    }
+
+    private func cacheTileCount(_ e: RegionCrispEmission) -> Int {
+        e.commands.filter { if case .cacheTile = $0 { return true }; return false }.count
     }
 
     // MARK: - Damage-gated observe(changedRects:) and hasDueCandidates
@@ -457,25 +499,50 @@ final class RegionCrispControllerTests: XCTestCase {
 
     func testPacingGateStopsOncePerSecondBudgetSpent() {
         var gate = CrispPacingGate(maxBytesPerSecond: 100_000)
-        XCTAssertTrue(gate.mayEmit(nowNs: 0))
+        XCTAssertEqual(gate.remainingBudget(nowNs: 0), 100_000)
         gate.recordSent(payloadBytes: 60_000)
-        XCTAssertTrue(gate.mayEmit(nowNs: 10_000_000), "still under the 100KB/s budget")
+        XCTAssertEqual(gate.remainingBudget(nowNs: 10_000_000), 40_000, "still under the 100KB/s budget")
         gate.recordSent(payloadBytes: 60_000)
-        XCTAssertFalse(gate.mayEmit(nowNs: 20_000_000), "120KB spent in this second exhausts the budget")
+        XCTAssertEqual(gate.remainingBudget(nowNs: 20_000_000), 0, "120KB spent in this second exhausts the budget")
+    }
+
+    // The reason this reports a budget rather than a yes/no: a window holding 99KB of a
+    // 100KB/s allowance used to be told "yes, emit" and could then send a whole further
+    // chunk. The caller must be able to see it has 1KB left, not merely that it has some.
+    func testPacingGateReportsHeadroomSoTheCallerCanCapItsChunk() {
+        var gate = CrispPacingGate(maxBytesPerSecond: 100_000)
+        gate.recordSent(payloadBytes: 99_000)
+
+        XCTAssertEqual(gate.remainingBudget(nowNs: 10_000_000), 1_000)
     }
 
     func testPacingGateBudgetResetsAfterOneSecond() {
         var gate = CrispPacingGate(maxBytesPerSecond: 100_000)
-        _ = gate.mayEmit(nowNs: 0)
+        _ = gate.remainingBudget(nowNs: 0)
         gate.recordSent(payloadBytes: 100_000)
-        XCTAssertFalse(gate.mayEmit(nowNs: 500_000_000), "still inside the same second")
-        XCTAssertTrue(gate.mayEmit(nowNs: 1_000_000_000), "the rolling second rolled over; budget refreshed")
+        XCTAssertEqual(gate.remainingBudget(nowNs: 500_000_000), 0, "still inside the same second")
+        XCTAssertEqual(
+            gate.remainingBudget(nowNs: 1_000_000_000), 100_000,
+            "the rolling second rolled over; budget refreshed"
+        )
+    }
+
+    // Overspend must not leave a negative budget that silently grants extra headroom on the
+    // next call. The one tile allowed past an empty payload can exceed the allowance.
+    func testPacingGateClampsOverspendToZero() {
+        var gate = CrispPacingGate(maxBytesPerSecond: 100_000)
+        gate.recordSent(payloadBytes: 180_000)
+
+        XCTAssertEqual(gate.remainingBudget(nowNs: 10_000_000), 0)
     }
 
     func testPacingGatePayloadFreeRevertsDoNotSpendBudget() {
         var gate = CrispPacingGate(maxBytesPerSecond: 100_000)
-        _ = gate.mayEmit(nowNs: 0)
+        _ = gate.remainingBudget(nowNs: 0)
         gate.recordSent(payloadBytes: 0) // a revert / cache-hit window carries no payload
-        XCTAssertTrue(gate.mayEmit(nowNs: 10_000_000), "payload-free emissions never charge the budget")
+        XCTAssertEqual(
+            gate.remainingBudget(nowNs: 10_000_000), 100_000,
+            "payload-free emissions never charge the budget"
+        )
     }
 }

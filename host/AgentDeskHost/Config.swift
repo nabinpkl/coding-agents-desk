@@ -758,11 +758,18 @@ enum Config {
     // Crisp is a settled-content luxury that must never steal the link from motion. The
     // per-window cap bounds one chunk; this bounds the cumulative rate so a big re-cache
     // (e.g. a desktop full of text) trickles out over seconds at a rate that leaves the
-    // link free for video, instead of pacing windows straight at the per-window cap. Kept
-    // well under the video link estimate (hybridLinkBytesPerSecond, ~256KB/s) so crisp is
-    // clearly subordinate to video; crisp only consumes the calm-time headroom that the
-    // in-flight-frame yield gate confirms video is not using. Only fresh cacheTile payload
-    // bytes count. Tune on device alongside hybridLinkBytesPerSecond.
+    // link free for video, instead of pacing windows straight at the per-window cap. Only
+    // fresh cacheTile payload bytes count.
+    //
+    // This value was picked as "well under the video link estimate (~256KB/s)", and device
+    // measurement has since retired that premise. On 5G NSA the round-trip knee sat near
+    // 1.2-1.3Mbps -- about 150KB/s for EVERYTHING on the link. So 128KB/s is not a
+    // subordinate share, it is very nearly the whole link, and crisp taking it is what put
+    // video datagrams behind the reliable stream carrying tiles.
+    //
+    // It is still a constant here. The real fix is to derive it from measured headroom
+    // instead of assuming a link speed, which is the lesson the quality controller already
+    // learned in ADR-0101.
     static let ownedMediaCrispMaxBytesPerSecond: Int = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_MAX_BYTES_PER_SECOND",
         defaultValue: 131_072

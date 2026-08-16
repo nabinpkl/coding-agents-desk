@@ -13,24 +13,21 @@ struct RegionCrispConfig: Equatable {
     let tileGridPx: Int
     let settleWindowMs: Int
     let cacheSlots: Int
-    // Cap on new cacheTile payload bytes per observe(). Excess settled tiles throttle and
-    // retry next window, so a full-surface re-cache trickles out instead of one MB-scale
-    // burst that would saturate the lane and stall video.
-    let maxBytesPerWindow: Int
 
-    init(tileGridPx: Int, settleWindowMs: Int, cacheSlots: Int, maxBytesPerWindow: Int = .max) {
+    // The cap on new cacheTile payload bytes is NOT here. It is passed per call, because it
+    // is the smaller of a fixed per-chunk cap and whatever is left of the current second's
+    // rate budget -- a value that changes every window and only the transport knows.
+    init(tileGridPx: Int, settleWindowMs: Int, cacheSlots: Int) {
         self.tileGridPx = tileGridPx
         self.settleWindowMs = settleWindowMs
         self.cacheSlots = cacheSlots
-        self.maxBytesPerWindow = max(1, maxBytesPerWindow)
     }
 
     static func fromConfig() -> RegionCrispConfig {
         RegionCrispConfig(
             tileGridPx: Config.hybridTileGridPx,
             settleWindowMs: Config.ownedMediaCrispSettleWindowMs,
-            cacheSlots: Config.ownedMediaCrispCacheSlots,
-            maxBytesPerWindow: Config.ownedMediaCrispMaxBytesPerWindow
+            cacheSlots: Config.ownedMediaCrispCacheSlots
         )
     }
 }
@@ -57,16 +54,25 @@ struct CrispPacingGate {
         self.maxBytesPerSecond = max(1, maxBytesPerSecond)
     }
 
-    // May a crisp window emit now? Rolls the 1s rate window over by wall time first, then
-    // gates on the remaining byte budget. Returning true does not spend budget; the caller
-    // spends it via recordSent once the payload size is known.
-    mutating func mayEmit(nowNs: UInt64) -> Bool {
+    // How many bytes this crisp window may still emit. Rolls the 1s rate window over by wall
+    // time first. Zero means the second's budget is spent and the window should not run.
+    //
+    // This returns a BUDGET rather than a yes/no on purpose. The previous shape answered
+    // "is there any budget left?", which let a window holding 127KB of a 128KB/s allowance
+    // emit a whole further chunk: measured at 303KB inside one second, 2.4x the ceiling it
+    // was supposed to enforce. On a cellular link whose knee sits near 150KB/s that burst is
+    // more than the entire link, so video datagrams queue behind the reliable crisp stream
+    // and the picture goes stale until it drains. Handing the caller the remaining budget
+    // lets the window cap its own payload instead of discovering the overrun afterwards.
+    //
+    // Spending still happens in recordSent once the payload size is known; this only reports.
+    mutating func remainingBudget(nowNs: UInt64) -> Int {
         let windowNs: UInt64 = 1_000_000_000
         if nowNs &- windowStartNs >= windowNs {
             windowStartNs = nowNs
             bytesInWindow = 0
         }
-        return bytesInWindow < maxBytesPerSecond
+        return max(0, maxBytesPerSecond - bytesInWindow)
     }
 
     // Charge an emitted crisp payload against the current second's budget. Only fresh
@@ -146,7 +152,8 @@ struct RegionCrispController {
         width: Int,
         height: Int,
         bytesPerRow: Int,
-        nowMs: Int
+        nowMs: Int,
+        maxPayloadBytes: Int
     ) -> RegionCrispEmission {
         let grid = config.tileGridPx
         guard grid > 0, width > 0, height > 0 else { return .none }
@@ -164,7 +171,8 @@ struct RegionCrispController {
         }
         return reconcile(
             cells: visit, pixels: pixels, width: width, height: height,
-            bytesPerRow: bytesPerRow, nowMs: nowMs, surfaceDidReset: surfaceDidReset
+            bytesPerRow: bytesPerRow, nowMs: nowMs, surfaceDidReset: surfaceDidReset,
+            maxPayloadBytes: maxPayloadBytes
         )
     }
 
@@ -182,7 +190,8 @@ struct RegionCrispController {
         height: Int,
         bytesPerRow: Int,
         nowMs: Int,
-        changedRects: [PixelRect]
+        changedRects: [PixelRect],
+        maxPayloadBytes: Int
     ) -> RegionCrispEmission {
         let grid = config.tileGridPx
         guard grid > 0, width > 0, height > 0 else { return .none }
@@ -216,7 +225,8 @@ struct RegionCrispController {
         let visit = keys.sorted { $0.y != $1.y ? $0.y < $1.y : $0.x < $1.x }
         return reconcile(
             cells: visit, pixels: pixels, width: width, height: height,
-            bytesPerRow: bytesPerRow, nowMs: nowMs, surfaceDidReset: surfaceDidReset
+            bytesPerRow: bytesPerRow, nowMs: nowMs, surfaceDidReset: surfaceDidReset,
+            maxPayloadBytes: maxPayloadBytes
         )
     }
 
@@ -260,7 +270,8 @@ struct RegionCrispController {
         height: Int,
         bytesPerRow: Int,
         nowMs: Int,
-        surfaceDidReset: Bool
+        surfaceDidReset: Bool,
+        maxPayloadBytes: Int
     ) -> RegionCrispEmission {
         let grid = config.tileGridPx
         var commands: [OwnedGraphicsCommand] = []
@@ -311,15 +322,26 @@ struct RegionCrispController {
                 commands.append(.drawCachedTile(slot: slot, x: x, y: y, width: w, height: h))
                 state.crispHash = hash
                 cells[key] = state
-            } else if assignsThisFrame >= config.cacheSlots || payload.count >= config.maxBytesPerWindow {
-                // Out of fresh slots, or this window's byte budget is spent: leave on the
-                // video floor and retry next window (dedups once committed). The budget
-                // check reads the bytes already emitted this window, so the first
-                // over-budget tile is the last one sent and the rest throttle without
-                // paying for compression. This spreads a full-surface re-cache over many
-                // windows instead of one MB-scale burst.
+            } else if assignsThisFrame >= config.cacheSlots {
+                // Out of fresh slots this frame: leave on the video floor and retry next
+                // window (dedups once committed).
                 throttledCrispTileCount += 1
             } else if let compressed = OwnedTileCodec.compressLZFSE(tile) {
+                // Prospective, not retrospective. This check used to read `payload.count >=
+                // cap` BEFORE compressing, which admitted the tile that crossed the line and
+                // let one window reach nearly double its cap -- measured at 62KB against a
+                // 32KB cap, and 303KB inside one second against a 128KB/s ceiling. On a
+                // cellular link whose knee sits near 150KB/s, that burst is more than the
+                // whole link, and video queues behind the reliable stream carrying it.
+                //
+                // The cost is one LZFSE pass on a tile that is then declined, which is cheap
+                // beside stalling the video lane. `payload.isEmpty` still lets a single
+                // oversized tile through: a tile larger than the entire budget would
+                // otherwise be throttled forever, never crisp and never diagnosable.
+                if !payload.isEmpty, payload.count + compressed.count > maxPayloadBytes {
+                    throttledCrispTileCount += 1
+                    continue
+                }
                 let slot = cache.assign(hash: hash, bytes: tile)
                 assignsThisFrame += 1
                 let offset = payload.count

@@ -449,10 +449,15 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         // never emits), and checking the budget before the BGRA render also avoids the GPU
         // convert and hash when nothing can be sent. Eager reverts (processCrispDamage)
         // carry no payload and are unaffected.
-        let mayEmit = crispGate.withLock { state in
-            state.pacing.mayEmit(nowNs: nowNs)
+        // This window's payload ceiling is the SMALLER of the per-chunk cap and whatever is
+        // left of the current second's rate budget. Taking the minimum is what makes the
+        // per-second ceiling actually bind: the per-chunk cap alone bounds one chunk but says
+        // nothing about how many chunks a second may hold, which is how crisp reached 303KB
+        // in one second against a 128KB/s allowance.
+        let windowBudget = crispGate.withLock { state in
+            min(Config.ownedMediaCrispMaxBytesPerWindow, state.pacing.remainingBudget(nowNs: nowNs))
         }
-        guard mayEmit else { return }
+        guard windowBudget > 0 else { return }
         let nowMs = Int(nowNs / 1_000_000)
         // ADR-0036: decide this window's mode and possibly early-out before the expensive
         // YUV->BGRA convert and full-surface hash. The heal counter was already advanced in
@@ -579,7 +584,8 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     width: width,
                     height: height,
                     bytesPerRow: bytesPerRow,
-                    nowMs: nowMs
+                    nowMs: nowMs,
+                    maxPayloadBytes: windowBudget
                 )
                 state.crispWindowsSinceHeal = 0
             case .gated:
@@ -589,7 +595,8 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     height: height,
                     bytesPerRow: bytesPerRow,
                     nowMs: nowMs,
-                    changedRects: frame.damageRects
+                    changedRects: frame.damageRects,
+                    maxPayloadBytes: windowBudget
                 )
             }
             // A geometry change resets the controller's tile state and slot cache; the
