@@ -7,7 +7,7 @@ date: 2026-07-01
 
 ## Context and Problem Statement
 
-`RegionCrispController.observe()` (host owned-media crisp path, ADR-0034) re-hashes every tile of the captured surface on every crisp window (~100ms), regardless of what changed. A `sample` of the streaming host shows the per-byte hash loop in `OwnedTileCodec.extractTileWithHash` saturating a core (Debug) / ~30% (Release) even when the screen is static. The capture pipeline already carries per-frame OS damage (`CapturedVideoFrame.damageRects`), which `reactToDamage` uses for eager revert, but `observe` ignores it. This ADR decides whether crisp change-detection may trust damage instead of a full-surface rehash. Affects `RegionCrispController.swift`, `OwnedMediaTransport.swift`, `Config.swift`.
+`RegionCrispController.observe()` (host owned-media crisp path, ADR-0034) re-hashes every tile of the captured surface on every crisp window (~100ms), regardless of what changed. A `sample` of the streaming host shows the per-byte hash loop in `OwnedTileCodec.extractTileWithHash` saturating a core (Debug) / ~30% (Release) even when the screen is static. The capture pipeline already carries per-frame OS damage (`CapturedVideoFrame.damageRects`), which `reactToDamage` used for eager revert (since removed by ADR-0102, which found damage rects a poor predictor of actual pixel change), but `observe` ignores it. This ADR decides whether crisp change-detection may trust damage instead of a full-surface rehash. Affects `RegionCrispController.swift`, `OwnedMediaTransport.swift`, `Config.swift`.
 
 ## Decision Drivers
 

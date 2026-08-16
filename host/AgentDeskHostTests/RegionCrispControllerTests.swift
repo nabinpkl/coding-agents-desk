@@ -328,44 +328,7 @@ final class RegionCrispControllerTests: XCTestCase {
         return d
     }
 
-    // Eager revert (input latency): OS damage over a crisp tile reverts it to the video floor
-    // immediately, on the video cadence, instead of waiting for the next hash pass, and
-    // reverts exactly the overlapped tile at its full grid bounds.
-    //
-    // What happens NEXT is deliberately not asserted here any more. This test used to also
-    // require the tile to serve a fresh settle window before returning, which is the rule that
-    // made false reverts flicker; testEagerRevertDoesNotRestartTheSettleClock owns that
-    // contract now and asserts the opposite.
-    func testDamageEagerlyRevertsCrispTileToVideo() {
-        var c = RegionCrispController(config: config())
-        _ = heal(&c, surface(0xAB), at: 0)
-        guard case .cacheTile = heal(&c, surface(0xAB), at: 200).commands.first else {
-            return XCTFail("expected the tile to promote to crisp")
-        }
-        let reverts = c.reactToDamage([PixelRect(x: 10, y: 10, width: 5, height: 5)], nowMs: 250)
-        guard case let .revertTileToVideo(x, y, w, h) = reverts.first, reverts.count == 1 else {
-            return XCTFail("damage over a crisp tile must revert exactly it, got \(reverts)")
-        }
-        XCTAssertEqual([x, y, w, h], [0, 0, 64, 64])
-        XCTAssertNil(
-            c.reactToDamage([PixelRect(x: 10, y: 10, width: 5, height: 5)], nowMs: 260).first,
-            "the tile is on video now, so a second damage rect has nothing left to revert"
-        )
-    }
 
-    // Eager revert only touches crisp tiles the damage overlaps; an already-reverted or
-    // non-crisp tile is a no-op (no redundant reverts).
-    func testDamageRevertsOnlyOverlappedCrispTiles() {
-        var c = RegionCrispController(config: config())
-        let s = surface(0xCD, width: 128, height: 128)
-        _ = heal(&c, s, at: 0, width: 128, height: 128)
-        _ = heal(&c, s, at: 200, width: 128, height: 128) // all four tiles crisp
-        let reverts = c.reactToDamage([PixelRect(x: 0, y: 0, width: 10, height: 10)], nowMs: 250)
-        XCTAssertEqual(reverts.count, 1, "only the crisp tile the damage overlaps reverts")
-        XCTAssertTrue(c.reactToDamage([PixelRect(x: 0, y: 0, width: 10, height: 10)], nowMs: 260).isEmpty,
-                      "an already-reverted tile must not revert again")
-        XCTAssertTrue(c.reactToDamage([], nowMs: 270).isEmpty, "no damage means no reverts")
-    }
 
     // Per-window byte budget: a full-surface settle does not emit every cacheTile at once;
     // the excess throttles and the next window emits more, spreading the re-cache over time.
@@ -469,32 +432,6 @@ final class RegionCrispControllerTests: XCTestCase {
         XCTAssertGreaterThan(c.throttledCrispTileCount, 0, "and it is counted as throttled")
     }
 
-    // An eager revert is driven by a damage RECT, not by a hash, so it fires on tiles whose
-    // pixels never moved. Restarting the settle clock there made every such false revert cost
-    // a full settle window before the tile could come back, and at 60fps -- damage arriving
-    // sixty times a second -- static text sat in a revert/settle/re-promote loop and visibly
-    // flickered between crisp and video with nothing on screen changing.
-    func testEagerRevertDoesNotRestartTheSettleClock() {
-        var c = RegionCrispController(config: config())
-        _ = heal(&c, surface(0xAB), at: 0)
-        XCTAssertEqual(cacheTileCount(heal(&c, surface(0xAB), at: 200)), 1, "tile is crisp")
-
-        // Damage the tile without changing a pixel of it, exactly what an over-broad OS
-        // damage rect does.
-        let reverts = c.reactToDamage([PixelRect(x: 0, y: 0, width: 10, height: 10)], nowMs: 300)
-        XCTAssertEqual(reverts.count, 1)
-        XCTAssertEqual(c.eagerRevertCount, 1, "the false revert is counted so churn is visible")
-        XCTAssertEqual(c.eagerRevertUnverifiedCount, 1, "no pixels were offered, so it could not be checked")
-
-        // The very next window re-promotes it. Previously this needed nowMs >= 300 + settle.
-        let back = heal(&c, surface(0xAB), at: 310)
-
-        let redraws = back.commands.filter {
-            if case .drawCachedTile = $0 { return true }; return false
-        }
-        XCTAssertEqual(redraws.count, 1, "an unchanged tile returns at the next window")
-        XCTAssertEqual(back.payload.count, 0, "and returns free, because the client still holds it")
-    }
 
     // The other half: a tile that genuinely changed must still serve its settle window, or
     // crisp would re-cache moving content every window.
@@ -510,92 +447,10 @@ final class RegionCrispControllerTests: XCTestCase {
         XCTAssertEqual(cacheTileCount(heal(&c, surface(0xCD), at: 460)), 1, "promotes once settled")
     }
 
-    // The point of the whole exercise: given the live pixels, a damage rect over a tile that
-    // did not actually change must NOT un-crispen it. Rect-only, this same call reverts.
-    func testVerifiedEagerRevertSuppressesUnchangedTiles() {
-        var c = RegionCrispController(config: config())
-        let s = surface(0xAB)
-        _ = heal(&c, s, at: 0)
-        XCTAssertEqual(cacheTileCount(heal(&c, s, at: 200)), 1, "tile is crisp")
 
-        let reverts = c.reactToDamage(
-            [PixelRect(x: 0, y: 0, width: 10, height: 10)], nowMs: 300,
-            verifying: s, bytesPerRow: 64 * 4
-        )
 
-        XCTAssertTrue(reverts.isEmpty, "the pixels are identical, so nothing reverts")
-        XCTAssertEqual(c.eagerRevertSuppressedCount, 1)
-        XCTAssertEqual(c.eagerRevertConfirmedCount, 0)
-    }
 
-    // And the other half: verification must still revert a tile that genuinely changed, or it
-    // would leave stale crisp pixels masking live video.
-    func testVerifiedEagerRevertStillRevertsChangedTiles() {
-        var c = RegionCrispController(config: config())
-        _ = heal(&c, surface(0xAB), at: 0)
-        XCTAssertEqual(cacheTileCount(heal(&c, surface(0xAB), at: 200)), 1, "tile is crisp")
 
-        let reverts = c.reactToDamage(
-            [PixelRect(x: 0, y: 0, width: 10, height: 10)], nowMs: 300,
-            verifying: surface(0xCD), bytesPerRow: 64 * 4
-        )
-
-        XCTAssertEqual(reverts.count, 1, "different pixels must revert")
-        XCTAssertEqual(c.eagerRevertConfirmedCount, 1)
-        XCTAssertEqual(c.eagerRevertSuppressedCount, 0)
-    }
-
-    // A buffer that does not match the geometry the cells were hashed against would read the
-    // wrong rows and call every tile changed. Better to fall back to rect-only than to trust it.
-    func testMismatchedVerifyBufferFallsBackToRectOnly() {
-        var c = RegionCrispController(config: config())
-        _ = heal(&c, surface(0xAB), at: 0)
-        _ = heal(&c, surface(0xAB), at: 200)
-
-        let reverts = c.reactToDamage(
-            [PixelRect(x: 0, y: 0, width: 10, height: 10)], nowMs: 300,
-            verifying: Data(repeating: 0xAB, count: 16), bytesPerRow: 64 * 4
-        )
-
-        XCTAssertEqual(reverts.count, 1, "an untrustworthy buffer reverts rather than guesses")
-        XCTAssertEqual(c.eagerRevertUnverifiedCount, 1)
-    }
-
-    // The pre-check the transport uses to decide whether a convert is worth paying for. It
-    // must cost nothing when the damage touches no crisp tile, which is the common case.
-    func testCrispTilesOverlappingReportsOnlyCrispTiles() {
-        var c = RegionCrispController(config: config())
-        let s = surface(0xCD, width: 128, height: 128)
-        XCTAssertNil(
-            c.crispTilesOverlapping([PixelRect(x: 0, y: 0, width: 128, height: 128)]),
-            "nothing is crisp yet, so there is nothing to verify"
-        )
-        _ = heal(&c, s, at: 0, width: 128, height: 128)
-        _ = heal(&c, s, at: 200, width: 128, height: 128)
-
-        let overlap = c.crispTilesOverlapping([PixelRect(x: 0, y: 0, width: 10, height: 10)])
-
-        XCTAssertEqual(overlap?.count, 1, "only the overlapped tile counts")
-        XCTAssertEqual(overlap?.bounds, PixelRect(x: 0, y: 0, width: 64, height: 64),
-                       "and the box is grid-aligned so the render covers what the hash reads")
-    }
-
-    // Overlapping damage rects walk the same tile twice; a suppression must not be counted
-    // twice, or the telemetry that justifies this whole path would overstate its own win.
-    func testOverlappingDamageRectsCountATileOnce() {
-        var c = RegionCrispController(config: config())
-        let s = surface(0xAB)
-        _ = heal(&c, s, at: 0)
-        _ = heal(&c, s, at: 200)
-
-        _ = c.reactToDamage(
-            [PixelRect(x: 0, y: 0, width: 10, height: 10),
-             PixelRect(x: 5, y: 5, width: 10, height: 10)],
-            nowMs: 300, verifying: s, bytesPerRow: 64 * 4
-        )
-
-        XCTAssertEqual(c.eagerRevertSuppressedCount, 1, "one tile, one suppression")
-    }
 
     private func cacheTileCount(_ e: RegionCrispEmission) -> Int {
         e.commands.filter { if case .cacheTile = $0 { return true }; return false }.count

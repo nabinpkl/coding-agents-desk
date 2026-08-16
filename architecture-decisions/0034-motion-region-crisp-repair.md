@@ -2,6 +2,7 @@
 status: proposed
 date: 2026-06-28
 refines: ADR-0026 (partially reverses its "retire tiles entirely" target, scoped to rest)
+superseded-by: ADR-0102 (its eager-revert mechanism only; settle/promote policy below stands)
 ---
 
 # Motion-region crisp-repair: revive tiles at rest as a per-region sharpen over video

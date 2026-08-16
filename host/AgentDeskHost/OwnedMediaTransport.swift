@@ -371,11 +371,10 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 // Gate = host env (hard kill switch) AND the client's per-session preference.
                 let clientCrispEnabled = clientCrispEnabledGate.withLock { $0 }
                 if Config.ownedMediaCrispEnabled, clientCrispEnabled {
-                    // Eager-revert any crisp tile over a region that changed this frame, on the
-                    // video cadence, so a live update is never masked by a stale crisp tile while
-                    // it waits for the next time-gated crisp pass.
-                    processCrispDamage(job.frame)
                     // Crisp runs on the native capture, never the downscaled video frame.
+                    // Reverts belong to this pass alone: the damage-driven eager revert that
+                    // used to run first is gone (ADR-0102), because it decided from rectangles
+                    // and was wrong 94% of the time.
                     processCrisp(job.frame)
                 }
             }
@@ -434,64 +433,6 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         }
     }
 
-    private func processCrispDamage(_ frame: CapturedVideoFrame) {
-        guard !frame.damageRects.isEmpty else { return }
-        let nowMs = Int(frame.capturedAtUptimeNs / 1_000_000)
-        // Cheap first: does this damage touch any crisp tile, and how many? Rect arithmetic
-        // only. The overwhelmingly common answer is "none", and that answer must not cost a
-        // pixel convert at video cadence.
-        let overlap = crispGate.withLock { state -> (bounds: PixelRect, count: Int)? in
-            guard state.lane != nil, state.surfaceInitialized else { return nil }
-            return state.controller.crispTilesOverlapping(frame.damageRects)
-        }
-        guard let overlap else { return }
-        // Verify only when the tile count makes it worth a convert. Above the threshold the
-        // damage is a scroll or a window switch, where nearly every tile genuinely changed and
-        // hashing would pay a full convert to be told what the rectangle already said.
-        let verified: (pixels: Data, stride: Int)? = {
-            guard overlap.count <= Config.ownedMediaCrispVerifyMaxTiles else { return nil }
-            let width = CVPixelBufferGetWidth(frame.pixelBuffer)
-            let height = CVPixelBufferGetHeight(frame.pixelBuffer)
-            guard let ensured = ensureCrispBuffer(width: width, height: height),
-                  // A fresh allocation holds uninitialized memory; hashing it would call every
-                  // tile changed. Fall through to the rect-only path for this one frame.
-                  !ensured.reallocated,
-                  OwnedMediaCrispConvert.renderRegion(
-                      source: frame.pixelBuffer, into: ensured.base, destRowBytes: width * 4,
-                      region: overlap.bounds, fullWidth: width, fullHeight: height,
-                      context: Self.crispCIContext
-                  )
-            else { return nil }
-            let stride = width * 4
-            return (
-                Data(bytesNoCopy: ensured.base, count: stride * height, deallocator: .none),
-                stride
-            )
-        }()
-        crispGate.withLock { state in
-            guard let lane = state.lane, state.surfaceInitialized else { return }
-            let reverts = state.controller.reactToDamage(
-                frame.damageRects,
-                nowMs: nowMs,
-                verifying: verified?.pixels,
-                bytesPerRow: verified?.stride ?? 0
-            )
-            guard !reverts.isEmpty else { return }
-            state.crispFrameId &+= 1
-            lane.send(OwnedGraphicsFrameEnvelope(
-                header: OwnedGraphicsFrameHeader(
-                    surfaceGeneration: state.surfaceGeneration,
-                    frameId: state.crispFrameId,
-                    capturedAtUptimeNs: frame.capturedAtUptimeNs,
-                    commandCount: reverts.count,
-                    payloadLength: 0
-                ),
-                commands: reverts,
-                payload: Data()
-            ))
-        }
-    }
-
     // ADR-0034 crisp-repair: run the per-tile crisp policy on the full-resolution capture
     // (independent of the video's downscale) and push crisp tiles over the reliable lane.
     // Time-gated so the full-surface rehash does not load the CPU at video frame rate.
@@ -514,9 +455,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         // the current second is spent. This bounds crisp's sustained link share so a large
         // settle trickles out instead of bursting. It is NOT a motion gate: which regions
         // crisp is decided per-tile by the controller (a moving region never settles, so it
-        // never emits), and checking the budget before the BGRA render also avoids the GPU
-        // convert and hash when nothing can be sent. Eager reverts (processCrispDamage)
-        // carry no payload and are unaffected.
+        // never emits).
         // This window's payload ceiling is the SMALLER of the per-chunk cap and whatever is
         // left of the current second's rate budget. Taking the minimum is what makes the
         // per-second ceiling actually bind: the per-chunk cap alone bounds one chunk but says
@@ -548,13 +487,15 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         // damage-gated window: if it has no damage AND no settled tile due for promotion,
         // there is nothing to do, so skip the convert and hash entirely.
         //
-        // Staleness bound: the counter advances per interval-window, but the heal RUN (like
-        // all crisp emission) is still behind the per-second pacing gate above, so a
-        // pacing-saturated stretch defers the heal until the byte budget rolls over (~1s).
-        // During that stretch, changed crisp tiles are still reverted via processCrispDamage
-        // on any non-empty damage. So the worst-case staleness of an OS-under-reported change
-        // to a crisp tile is roughly healInterval windows plus up to ~1s of pacing rollover,
-        // and is self-bounded.
+        // Staleness bound: a damaged tile is visited by the very next gated window, which
+        // re-hashes it and reverts it if it truly changed, so an ordinary change is covered
+        // within one crisp interval (~100ms). This pass is now the ONLY thing that reverts a
+        // crisp tile (ADR-0102), so that interval is the whole staleness budget for a change
+        // the OS did report. A change the OS does NOT report is caught by the periodic heal,
+        // bounded by healInterval windows.
+        //
+        // Reverts carry no payload and are not gated on the byte budget, so a pacing-saturated
+        // stretch delays new tiles, never the clearing of a stale one.
         let mode: CrispWindowMode? = crispGate.withLock { state in
             let healInterval = Config.ownedMediaCrispHealIntervalWindows
             let healDue = !state.surfaceInitialized
@@ -673,10 +614,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 let payloadBytes = emission.payload.count
                 let dropped = state.controller.droppedCrispTileCount
                 let throttled = state.controller.throttledCrispTileCount
-                let eagerConfirmed = state.controller.eagerRevertConfirmedCount
-                let eagerSuppressed = state.controller.eagerRevertSuppressedCount
-                let eagerUnverified = state.controller.eagerRevertUnverifiedCount
-                let reconcileReverts = state.controller.reconcileRevertCount
+                let reverts = state.controller.reconcileRevertCount
                 // `fresh` vs `redraw` separates the two promotions that look identical in a
                 // bare tile count but cost wildly different things: a fresh cacheTile carries
                 // compressed pixels, a drawCachedTile carries nothing. A window that is mostly
@@ -692,7 +630,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     }
                 }
                 let laneAttached = state.lane != nil
-                logger.notice("crisp window tiles=\(tiles, privacy: .public) fresh=\(fresh, privacy: .public) redraw=\(redraw, privacy: .public) payloadBytes=\(payloadBytes, privacy: .public) budget=\(windowBudget, privacy: .public) dropped=\(dropped, privacy: .public) throttled=\(throttled, privacy: .public) eagerConfirmed=\(eagerConfirmed, privacy: .public) eagerSuppressed=\(eagerSuppressed, privacy: .public) eagerUnverified=\(eagerUnverified, privacy: .public) reconcileReverts=\(reconcileReverts, privacy: .public) resized=\(emission.surfaceDidReset, privacy: .public) laneAttached=\(laneAttached, privacy: .public)")
+                logger.notice("crisp window tiles=\(tiles, privacy: .public) fresh=\(fresh, privacy: .public) redraw=\(redraw, privacy: .public) payloadBytes=\(payloadBytes, privacy: .public) budget=\(windowBudget, privacy: .public) dropped=\(dropped, privacy: .public) throttled=\(throttled, privacy: .public) reverts=\(reverts, privacy: .public) resized=\(emission.surfaceDidReset, privacy: .public) laneAttached=\(laneAttached, privacy: .public)")
             }
             guard let lane = state.lane else {
                 // No lane to receive these assignments: discard the staged slot commits so

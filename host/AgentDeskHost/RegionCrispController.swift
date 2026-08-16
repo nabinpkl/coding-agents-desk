@@ -4,8 +4,8 @@ import AgentDeskWire
 // ADR-0034 crisp-repair: per-tile settle/motion policy. Over a fixed grid, each tile
 // is hashed every frame from the captured BGRA surface. A tile that holds the same
 // content for the settle window is promoted to a crisp tile (cacheTile, or drawCachedTile
-// when its content hash is already cached). The instant a crisp tile's content changes
-// it is eagerly reverted to video. The coherence invariant holds by construction: a
+// when its content hash is already cached). A crisp tile is reverted to video the first time
+// a pass re-hashes it and finds the content changed. The coherence invariant holds: a
 // draw is only ever emitted in the unchanged branch, so the emitted hash always equals
 // the hash just computed from the current capture. Video is the live floor; a tile that
 // cannot be compressed simply stays on video and is counted, never shown stale.
@@ -122,22 +122,9 @@ struct RegionCrispController {
     // dedups once committed. Expected under a small cache; grows per frame per excess
     // tile, so it is a tuning signal (raise cacheSlots), not an error.
     private(set) var throttledCrispTileCount = 0
-    // Reverts emitted by the eager damage path, split by how much was actually known when the
-    // decision was made. Device measurement drove this apart: the eager path was emitting
-    // ~140 reverts/s, and there was no way to tell how many were real.
-    //
-    // `confirmed` re-hashed the tile and found it genuinely different. `suppressed` re-hashed
-    // it and found it identical, so no revert was emitted at all -- that counter is the whole
-    // point of hash verification, and a large one means the OS is reporting damage on tiles
-    // that are not moving. `unverified` reverted on the rectangle alone, because verifying
-    // would have cost more than it saved.
-    private(set) var eagerRevertConfirmedCount = 0
-    private(set) var eagerRevertSuppressedCount = 0
-    private(set) var eagerRevertUnverifiedCount = 0
-    var eagerRevertCount: Int { eagerRevertConfirmedCount + eagerRevertUnverifiedCount }
-    // Reverts from reconcile's changed-hash branch, which are always proven. Counted so the
-    // eager path's share of total revert churn is attributable: without this, redraw counts
-    // exceeding eager reverts had no explanation.
+    // Crisp tiles reverted to video because a re-hash proved their content changed. Every
+    // revert in the system is now one of these (ADR-0102): reverting is a decision only this
+    // pass is entitled to make, because only it has looked at the pixels.
     private(set) var reconcileRevertCount = 0
 
     init(config: RegionCrispConfig) {
@@ -388,131 +375,6 @@ struct RegionCrispController {
         // getting ahead of what the client received, which is what made the host emit a
         // drawCachedTile for a slot the client never got. See TileContentCache's contract.
         return RegionCrispEmission(commands: commands, payload: payload, surfaceDidReset: surfaceDidReset)
-    }
-
-    // Eager revert (input latency): when the OS reports per-frame damage, immediately revert
-    // any crisp tile the damage overlaps to the live video floor, on the video-frame cadence,
-    // instead of waiting for the next (~100ms) hash pass. An opaque crisp tile otherwise masks
-    // the live video update for up to one crisp interval, which reads as sluggish response to
-    // input. Reverting to video is always coherent (video is the live floor), so an over-broad
-    // damage rect costs only a momentary un-crispen, never staleness. Carries no payload.
-    //
-    // "Momentary" is doing real work in that sentence, and it stopped being true. This walks
-    // RECTS, not pixels -- it has no buffer to hash at video cadence -- so a tile the OS
-    // reported as damaged reverts whether or not one pixel of it actually changed. That is
-    // fine when the tile comes straight back. It did not: this also restarted the settle
-    // timer, so an unchanged tile had to sit on video for a fresh settle window before it
-    // could be re-promoted. At 60fps, with damage arriving up to sixty times a second, static
-    // text sat in a revert / settle / re-promote loop and visibly flickered between crisp and
-    // video with nothing on screen changing.
-    //
-    // So the timer is left alone here. An unchanged tile is re-promoted by the very next crisp
-    // window, and because its content is already in a client slot that promotion is a
-    // payload-free drawCachedTile. A tile that genuinely changed still gets its timer reset --
-    // in reconcile's changed branch, where a hash comparison has actually proven the change,
-    // rather than here where only a rectangle has suggested it.
-    //
-    // Passing `pixels` closes the loop: each overlapped crisp tile is re-hashed and reverts
-    // only if it genuinely differs, so a damage rect over static text stops un-crispening it.
-    // The caller renders only the region it needs. Nil pixels keep the rect-only behaviour,
-    // which is the right call when the damage covers so many crisp tiles that verifying costs
-    // more than it saves -- during a real scroll nearly every tile HAS changed, so hashing
-    // would pay a full convert to be told what the rectangle already said.
-    mutating func reactToDamage(
-        _ damageRects: [PixelRect],
-        nowMs: Int,
-        verifying pixels: Data? = nil,
-        bytesPerRow: Int = 0
-    ) -> [OwnedGraphicsCommand] {
-        let grid = config.tileGridPx
-        guard hasObserved, grid > 0, lastWidth > 0, lastHeight > 0, !damageRects.isEmpty else { return [] }
-        // Only trust a buffer that matches the geometry these cells were hashed against;
-        // otherwise hashing reads the wrong rows and every tile looks changed.
-        let verifiable = pixels.flatMap { data -> Data? in
-            bytesPerRow >= lastWidth * 4 && data.count >= bytesPerRow * lastHeight ? data : nil
-        }
-        var commands: [OwnedGraphicsCommand] = []
-        // Overlapping damage rects can walk the same tile twice. The crispHash check used to
-        // make that harmless; with verification a repeat visit would double-count a
-        // suppression, so visited tiles are tracked explicitly.
-        var visited = Set<CellKey>()
-        for rect in damageRects {
-            let clamped = rect.clamped(toWidth: lastWidth, height: lastHeight)
-            guard clamped.area > 0 else { continue }
-            var ty = (clamped.y / grid) * grid
-            while ty < clamped.maxY {
-                var tx = (clamped.x / grid) * grid
-                while tx < clamped.maxX {
-                    let key = CellKey(x: tx, y: ty)
-                    if var state = cells[key], state.crispHash != nil, visited.insert(key).inserted {
-                        let w = min(grid, lastWidth - tx)
-                        let h = min(grid, lastHeight - ty)
-                        if let verifiable,
-                           let (_, hash) = OwnedTileCodec.extractTileWithHash(
-                               from: verifiable, surfaceWidth: lastWidth, surfaceHeight: lastHeight,
-                               bytesPerRow: bytesPerRow, x: tx, y: ty, width: w, height: h
-                           ) {
-                            guard hash != state.hash else {
-                                // The rectangle said damaged; the pixels say otherwise. Leaving
-                                // it crisp is what stops the flicker.
-                                eagerRevertSuppressedCount += 1
-                                tx += grid
-                                continue
-                            }
-                            eagerRevertConfirmedCount += 1
-                        } else {
-                            eagerRevertUnverifiedCount += 1
-                        }
-                        commands.append(.revertTileToVideo(x: tx, y: ty, width: w, height: h))
-                        state.crispHash = nil
-                        // `stableSinceMs` deliberately untouched: see the note above. Only a
-                        // proven content change restarts the settle clock.
-                        cells[key] = state
-                    }
-                    tx += grid
-                }
-                ty += grid
-            }
-        }
-        return commands
-    }
-
-    /// The grid-aligned bounding box of the crisp tiles this damage overlaps, and how many
-    /// there are. Nil when the damage touches no crisp tile at all, which is the common case
-    /// and the one worth answering without touching a pixel.
-    ///
-    /// This exists so the transport can decide whether verifying is worth a convert BEFORE
-    /// paying for one: it needs the tile count to compare against the threshold, and the box
-    /// so it renders only the region the hashes will actually read. Pure rect arithmetic.
-    func crispTilesOverlapping(_ damageRects: [PixelRect]) -> (bounds: PixelRect, count: Int)? {
-        let grid = config.tileGridPx
-        guard hasObserved, grid > 0, lastWidth > 0, lastHeight > 0, !damageRects.isEmpty else { return nil }
-        var minX = Int.max, minY = Int.max, maxX = Int.min, maxY = Int.min
-        var seen = Set<CellKey>()
-        for rect in damageRects {
-            let clamped = rect.clamped(toWidth: lastWidth, height: lastHeight)
-            guard clamped.area > 0 else { continue }
-            var ty = (clamped.y / grid) * grid
-            while ty < clamped.maxY {
-                var tx = (clamped.x / grid) * grid
-                while tx < clamped.maxX {
-                    let key = CellKey(x: tx, y: ty)
-                    if let state = cells[key], state.crispHash != nil, seen.insert(key).inserted {
-                        minX = min(minX, tx)
-                        minY = min(minY, ty)
-                        maxX = max(maxX, min(tx + grid, lastWidth))
-                        maxY = max(maxY, min(ty + grid, lastHeight))
-                    }
-                    tx += grid
-                }
-                ty += grid
-            }
-        }
-        guard !seen.isEmpty else { return nil }
-        return (
-            PixelRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY),
-            seen.count
-        )
     }
 
     // Commit / discard the slot assignments staged by the most recent observe(), so the
