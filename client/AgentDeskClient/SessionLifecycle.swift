@@ -89,6 +89,20 @@ struct SessionLivenessClock {
         Double(Self.elapsed(from: lastEvidenceUptimeNs, to: nowNs)) / 1_000_000
     }
 
+    /// How long the most recent ping has gone unanswered, or nil while no ping is outstanding.
+    ///
+    /// A ping is a request with a due reply, and this is the request-deadline view of the
+    /// clock: "I asked and nothing came back" is knowable one round-trip after the ask, where
+    /// the wall-clock quiet rung needs seconds of calendar to say the same thing. Outstanding
+    /// means issued strictly after the last evidence -- any evidence, not just the pong,
+    /// because a carrier that delivers anything at all has answered the only question the
+    /// ping was asking. Equal stamps (evidence and ping in the same caller tick) count as
+    /// answered so a healthy carrier's forced birth ping can never look overdue.
+    func msSinceUnansweredPing(nowNs: UInt64) -> Double? {
+        guard let lastPing = lastPingUptimeNs, lastPing > lastEvidenceUptimeNs else { return nil }
+        return Double(Self.elapsed(from: lastPing, to: nowNs)) / 1_000_000
+    }
+
     /// Clamped, never wrapping. Evidence is stamped on receive paths while callers capture
     /// their `nowNs` earlier in a report tick, so evidence can legitimately be NEWER than a
     /// caller's now. The wrapping subtraction this replaces turned that microsecond skew into
@@ -99,26 +113,70 @@ struct SessionLivenessClock {
     }
 }
 
-/// Whether the CURRENT carrier should be replaced, as distinct from the session being over.
+/// Why the CURRENT carrier should be replaced, as distinct from the session being over.
+enum SessionCarrierStaleReason: String {
+    /// A ping went out on a carrier that has never delivered a byte, and its reply is
+    /// overdue. The fastest detector: fires one missed round-trip after the birth ping.
+    case unansweredPing = "unanswered-ping"
+    /// The carrier's streams may answer, but the datagram lane never delivered a single
+    /// video packet despite the first frame being requested at attach.
+    case noFirstDatagram = "no-first-datagram"
+    /// The wall-clock floor: quiet across all lanes for the full stale window.
+    case quiet = "quiet"
+}
+
+/// Whether the CURRENT carrier should be replaced, and why.
 ///
 /// The rung between "quiet" and "dead" that the first cut of ADR-0104 lacked, measured
 /// missing on device: a connection went zombie -- the OS never reported it failed, so no
 /// carrier-lost event fired -- and the only detector left was the session clock, whose only
 /// action was ending the session. The host was answering the whole time; a redial at any
-/// point would have reconnected. So: evidence quiet past this limit means swap the carrier
-/// and ask again on a fresh one. Only carriers that keep coming up empty reach the verdict.
+/// point would have reconnected. So: a carrier that comes up empty is swapped and the
+/// question asked again on a fresh one. Only silence that survives swaps reaches the verdict.
 ///
-/// Both clocks matter. `msSinceEvidence` alone would declare a replacement carrier stale the
-/// instant it attached mid-silence, swapping in a storm; giving each carrier its own grace
-/// (`msSinceCarrierStart`) means every fresh connection gets the full window to produce
-/// evidence while the session clock keeps counting toward the real verdict underneath.
+/// Three rungs, fastest first, all of them swap-only -- none is ever a session verdict:
+///
+/// - `unansweredPing`: request-deadline detection for a carrier born deaf. Every carrier
+///   pings at its first report tick; a carrier with zero lifetime evidence whose ping goes
+///   unanswered is dead NOW, not after the wall-clock window. Measured motivation: a
+///   foreground resume connected in 350ms, then sat 6s waiting for the quiet rung while its
+///   newborn carrier delivered nothing -- the unanswered ping proved the same fact at ~1.5s.
+///   Gated to zero-evidence carriers so a slow-but-alive path can never thrash: one
+///   delivered byte moves the carrier to the wall-clock floor.
+/// - `noFirstDatagram`: the lanes fail independently (measured: streams answering while 38%
+///   of datagram replies vanished), so a pong must not vouch for the video path. The first
+///   frame is requested at attach and its packets normally arrive within one RTT; a carrier
+///   that has never produced a single datagram past this deadline has a dead video lane no
+///   ping can see. Assumes the host produces continuously (it does, even at rest -- delta
+///   frames at full fps); if production ever pauses at idle this rung must learn that.
+/// - `quiet`: the original floor. Both clocks matter: `msSinceEvidence` alone would declare
+///   a replacement carrier stale the instant it attached mid-silence, swapping in a storm;
+///   giving each carrier its own grace (`msSinceCarrierStart`) means every fresh connection
+///   gets the full window while the session clock keeps counting toward the real verdict.
 enum SessionCarrierStaleness {
-    static func isStale(
+    static func staleReason(
         msSinceEvidence: Double,
         msSinceCarrierStart: Double,
-        staleLimitMs: Double
-    ) -> Bool {
-        min(msSinceEvidence, msSinceCarrierStart) >= staleLimitMs
+        msSinceUnansweredPing: Double?,
+        carrierSawDatagram: Bool,
+        staleLimitMs: Double,
+        unansweredPingLimitMs: Double,
+        firstDatagramLimitMs: Double
+    ) -> SessionCarrierStaleReason? {
+        // "Never delivered a byte" reads as: the session's last evidence predates this
+        // carrier's birth. Evidence during its life resets the session clock below carrier
+        // age, so one delivered byte permanently retires this rung for the carrier.
+        if msSinceEvidence >= msSinceCarrierStart,
+           let pingMs = msSinceUnansweredPing, pingMs >= unansweredPingLimitMs {
+            return .unansweredPing
+        }
+        if !carrierSawDatagram, msSinceCarrierStart >= firstDatagramLimitMs {
+            return .noFirstDatagram
+        }
+        if min(msSinceEvidence, msSinceCarrierStart) >= staleLimitMs {
+            return .quiet
+        }
+        return nil
     }
 }
 
@@ -166,5 +224,9 @@ final class SessionLivenessMonitor: @unchecked Sendable {
 
     func msSinceEvidence(nowNs: UInt64) -> Double {
         clock.withLock { $0.msSinceEvidence(nowNs: nowNs) }
+    }
+
+    func msSinceUnansweredPing(nowNs: UInt64) -> Double? {
+        clock.withLock { $0.msSinceUnansweredPing(nowNs: nowNs) }
     }
 }

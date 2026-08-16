@@ -467,14 +467,15 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                     self.sessionTask = nil
                 }
             }
-            // ADR-0104: we no longer claim to know whether the link moved, so every reattach
-            // waits for the path to settle. `waitUntilSettled` returns immediately on a path
-            // that never moved, so asking costs nothing when it did not, where not asking
-            // when it did means dialing into a radio mid-switch.
-            if case .reattaching = self.hostSessionActivity {
-                await SessionPathReadiness.shared.waitUntilSettled()
-                guard !Task.isCancelled, self.sessionAttemptGeneration == generation else { return }
-            }
+            // ADR-0104: EVERY dial waits for the path to hold still, not just reattaches.
+            // The gate is history-based, so a long-stable path settles instantly and a calm
+            // foreground resume pays nothing. The case that made this universal: a
+            // foreground wake dialed into a radio still associating, won the race, and
+            // minted a carrier that connected in 350ms and then never delivered a byte.
+            // The settle gate is the event-driven mechanism for exactly that window, and it
+            // was only guarding the reattach path.
+            await SessionPathReadiness.shared.waitUntilSettled()
+            guard !Task.isCancelled, self.sessionAttemptGeneration == generation else { return }
             var shouldDelay = false
             while !Task.isCancelled, self.sessionAttemptGeneration == generation {
                 guard case .pairedDisconnected = self.pairingClient.state else { return }

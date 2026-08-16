@@ -83,6 +83,25 @@ enum Config {
         environmentKey: "AGENTDESK_SESSION_CARRIER_STALE_MS",
         defaultValue: 6_000
     )
+    // ADR-0104 request-deadline rung: a carrier that has never delivered a byte, whose birth
+    // ping has gone unanswered this long, is replaced immediately -- the reply was due one
+    // round-trip after the ask, so waiting out the wall-clock rung buys nothing. Sized for a
+    // bad cellular RTT (~500ms) plus margin; gated to zero-evidence carriers, so a slow but
+    // alive path cannot thrash. Measured motivation: a foreground resume connected in 350ms,
+    // then sat the full 6s stale window on a carrier that never produced a single packet.
+    static let sessionCarrierUnansweredPingStaleMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_CARRIER_UNANSWERED_PING_STALE_MS",
+        defaultValue: 1_000
+    )
+    // ADR-0104 request-deadline rung for the video lane: the first frame is requested at
+    // attach and its first packets normally arrive within one RTT, so a carrier with zero
+    // datagrams ever after this long has a dead video lane -- even if its streams answer
+    // pings (measured: streams alive while 38% of datagram replies vanished). Retired
+    // permanently by the carrier's first datagram.
+    static let sessionCarrierFirstDatagramStaleMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_CARRIER_FIRST_DATAGRAM_STALE_MS",
+        defaultValue: 2_000
+    )
     // ADR-0104: the one number that ends a session for silence. Above the longest measured
     // self-healing stall (9s); inside the host's 20s resume TTL, so a success at the boundary
     // is still a resume rather than a re-pair. Counted across ALL carriers: redials do not

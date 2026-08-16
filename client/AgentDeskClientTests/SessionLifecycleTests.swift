@@ -128,6 +128,42 @@ struct SessionLivenessClockTests {
         let verdict = clock.silentVerdict(nowNs: base + ms(15_000))
         #expect(verdict != nil)
     }
+
+    // MARK: The request deadline
+
+    /// No ask, no deadline: the clock reports an unanswered ping only once one exists.
+    @Test func noOutstandingPingMeansNoDeadline() {
+        let clock = makeClock()
+        #expect(clock.msSinceUnansweredPing(nowNs: base + ms(5_000)) == nil)
+    }
+
+    /// A ping is a request with a due reply: from the moment it is issued with no evidence
+    /// after it, the clock counts how overdue the answer is.
+    @Test func anUnansweredPingAccumulatesItsOverdueTime() {
+        var clock = makeClock()
+        _ = clock.forcedPingSequence(nowNs: base + ms(500))
+        let overdue = clock.msSinceUnansweredPing(nowNs: base + ms(1_500))
+        #expect(overdue == 1_000)
+    }
+
+    /// ANY evidence answers the outstanding ping, not just its pong -- a carrier that
+    /// delivers anything at all has answered the only question the ping was asking.
+    @Test func anyEvidenceClearsTheOutstandingPing() {
+        var clock = makeClock()
+        _ = clock.forcedPingSequence(nowNs: base + ms(500))
+        clock.noteEvidence(nowNs: base + ms(700))
+        #expect(clock.msSinceUnansweredPing(nowNs: base + ms(5_000)) == nil)
+    }
+
+    /// The birth-tick race: the report loop notes arrival evidence and then sends the forced
+    /// birth ping with the SAME timestamp. Equal stamps count as answered, so a healthy
+    /// carrier's birth ping can never look overdue even if its pong is lost.
+    @Test func aPingStampedWithItsTicksEvidenceIsNotOutstanding() {
+        var clock = makeClock()
+        clock.noteEvidence(nowNs: base + ms(500))
+        _ = clock.forcedPingSequence(nowNs: base + ms(500))
+        #expect(clock.msSinceUnansweredPing(nowNs: base + ms(5_000)) == nil)
+    }
 }
 
 /// The monitor is the clock shared across carriers; identity is the session id.
@@ -144,38 +180,111 @@ struct SessionLivenessMonitorTests {
     }
 }
 
-/// The rung between "quiet" and "dead": a carrier that stays quiet despite pings is replaced,
-/// and only silence that survives replacement reaches the session verdict.
+/// The rung between "quiet" and "dead": a carrier that comes up empty is replaced, and only
+/// silence that survives replacement reaches the session verdict. Three rungs -- two
+/// request-deadline detectors for carriers born dead, and the wall-clock floor.
 struct SessionCarrierStalenessTests {
+    private func reason(
+        msSinceEvidence: Double,
+        msSinceCarrierStart: Double,
+        msSinceUnansweredPing: Double? = nil,
+        carrierSawDatagram: Bool = true
+    ) -> SessionCarrierStaleReason? {
+        SessionCarrierStaleness.staleReason(
+            msSinceEvidence: msSinceEvidence,
+            msSinceCarrierStart: msSinceCarrierStart,
+            msSinceUnansweredPing: msSinceUnansweredPing,
+            carrierSawDatagram: carrierSawDatagram,
+            staleLimitMs: 6_000,
+            unansweredPingLimitMs: 1_000,
+            firstDatagramLimitMs: 2_000
+        )
+    }
+
+    // MARK: The wall-clock floor
+
     /// The measured zombie: evidence long quiet on a carrier well past its grace. This is the
     /// case that used to fall through to the session verdict while the host was answering.
     @Test func aQuietMatureCarrierIsStale() {
-        #expect(SessionCarrierStaleness.isStale(
-            msSinceEvidence: 6_000, msSinceCarrierStart: 46_000, staleLimitMs: 6_000
-        ))
+        #expect(reason(msSinceEvidence: 6_000, msSinceCarrierStart: 46_000) == .quiet)
     }
 
     /// A replacement carrier attached mid-silence must get its own full grace, or a reattach
     /// storm swaps carriers as fast as they come up and never gives one time to answer.
     @Test func aFreshCarrierIsNotStaleHoweverLongTheSilence() {
-        #expect(!SessionCarrierStaleness.isStale(
-            msSinceEvidence: 14_000, msSinceCarrierStart: 500, staleLimitMs: 6_000
-        ))
+        #expect(reason(msSinceEvidence: 14_000, msSinceCarrierStart: 500) == nil)
     }
 
     /// Evidence flowing means not stale, whatever the carrier's age.
     @Test func evidenceKeepsAnOldCarrierFresh() {
-        #expect(!SessionCarrierStaleness.isStale(
-            msSinceEvidence: 1_000, msSinceCarrierStart: 300_000, staleLimitMs: 6_000
-        ))
+        #expect(reason(msSinceEvidence: 1_000, msSinceCarrierStart: 300_000) == nil)
     }
 
     @Test func stalenessIsInclusiveAtItsBoundary() {
-        #expect(SessionCarrierStaleness.isStale(
-            msSinceEvidence: 6_000, msSinceCarrierStart: 6_000, staleLimitMs: 6_000
-        ))
-        #expect(!SessionCarrierStaleness.isStale(
-            msSinceEvidence: 5_999, msSinceCarrierStart: 6_000, staleLimitMs: 6_000
-        ))
+        #expect(reason(msSinceEvidence: 6_000, msSinceCarrierStart: 6_000) == .quiet)
+        #expect(reason(msSinceEvidence: 5_999, msSinceCarrierStart: 6_000) == nil)
+    }
+
+    // MARK: The unanswered birth ping
+
+    /// The measured 7-second resume: a carrier connected in 350ms, never delivered a byte,
+    /// and sat out the full wall-clock window. The unanswered birth ping proves the same
+    /// fact one missed round-trip after the ask.
+    @Test func aNewbornWhoseBirthPingWentUnansweredIsStaleNow() {
+        #expect(reason(
+            msSinceEvidence: 5_000,
+            msSinceCarrierStart: 1_600,
+            msSinceUnansweredPing: 1_000,
+            carrierSawDatagram: false
+        ) == .unansweredPing)
+    }
+
+    @Test func theBirthPingDeadlineIsInclusiveAtItsBoundary() {
+        #expect(reason(
+            msSinceEvidence: 5_000,
+            msSinceCarrierStart: 1_600,
+            msSinceUnansweredPing: 999,
+            carrierSawDatagram: false
+        ) == nil)
+    }
+
+    /// One delivered byte retires the fast rung: a carrier with lifetime evidence keeps the
+    /// full wall-clock grace even when a later ping goes unanswered, so a slow-but-alive
+    /// path can never thrash through carriers at ping cadence.
+    @Test func aCarrierWithHistoryIsNeverFastSwappedByAPing() {
+        #expect(reason(
+            msSinceEvidence: 3_000,
+            msSinceCarrierStart: 46_000,
+            msSinceUnansweredPing: 2_500
+        ) == nil)
+    }
+
+    // MARK: The missing first datagram
+
+    /// The lanes fail independently (measured: streams answering while 38% of datagram
+    /// replies vanished). Pongs keep session evidence fresh, so without this rung a carrier
+    /// with a dead video lane would look healthy forever.
+    @Test func answeringPingsCannotVouchForADeadVideoLane() {
+        #expect(reason(
+            msSinceEvidence: 200,
+            msSinceCarrierStart: 2_000,
+            carrierSawDatagram: false
+        ) == .noFirstDatagram)
+    }
+
+    @Test func theFirstDatagramRetiresItsRungPermanently() {
+        #expect(reason(
+            msSinceEvidence: 200,
+            msSinceCarrierStart: 300_000,
+            carrierSawDatagram: true
+        ) == nil)
+    }
+
+    @Test func theFirstDatagramDeadlineGivesTheFirstFrameItsWindow() {
+        #expect(reason(
+            msSinceEvidence: 200,
+            msSinceCarrierStart: 1_999,
+            carrierSawDatagram: false
+        ) == nil)
     }
 }

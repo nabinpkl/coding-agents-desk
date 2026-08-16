@@ -98,6 +98,21 @@ ping immediately — never as a cause.
   death. The silence verdict is reserved for quiet that survives carrier replacement, and the
   post-verdict state re-arms dialing itself after `sessionEndedRetryDelayMs` -- the
   foreground-based triggers cannot fire for an app that never left the foreground.
+- Good, because detection of a carrier BORN dead is request-deadline (event-shaped), not
+  wall-clock. Field measurement: a foreground resume connected in 350ms and then delivered
+  nothing; the only detector was the 6s quiet rung, so "open the app" felt like 7 seconds.
+  Absence of data is not an event -- but an overdue reply to a concrete ask is knowable one
+  round-trip after the ask, so every carrier now pings at its first report tick, and a
+  carrier with zero lifetime evidence whose birth ping goes unanswered
+  (`sessionCarrierUnansweredPingStaleMs`, 1s) is swapped at ~1.5s. The video lane gets the
+  same treatment independently (`sessionCarrierFirstDatagramStaleMs`, 2s): streams answering
+  cannot vouch for datagrams (measured 38% datagram-reply loss while streams worked), so a
+  carrier that never produces a single datagram past the first-frame window is swapped even
+  while its pongs flow. Both rungs retire permanently on the carrier's first delivered
+  byte/datagram -- a slow-but-alive path keeps the full 6s floor and cannot thrash. And the
+  dial itself stops manufacturing these zombies where it can: EVERY dial now waits behind
+  `SessionPathReadiness` (history-based, instant on a stable path), not just reattaches --
+  the measured zombie was minted by a foreground dial racing the waking radio.
 - Neutral, because the host side is untouched except for the pong responder: the registry's
   TTL already governs host-side session lifetime.
 
@@ -110,7 +125,9 @@ reasons — every surviving reader fails to compile rather than silently default
 
 `SessionLivenessClockTests` pins the rules, including the two that carry the design: sending
 pings does not postpone the verdict (only inbound evidence moves the clock), and silence
-accumulates across carrier swaps. On device: `sessionUnreachable` count against the 13-14
+accumulates across carrier swaps. `SessionCarrierStalenessTests` pins the three replacement
+rungs, including that a carrier with history is never fast-swapped by an unanswered ping and
+that answering pings cannot vouch for a dead video lane. On device: `sessionUnreachable` count against the 13-14
 teardowns/session baseline; a WiFi toggle produces `reattaching` with an unchanged session
 id and a delta-resync recovery; a killed host is declared within ~15s.
 

@@ -129,10 +129,19 @@ private struct Channels {
     /// immediately instead of waiting out the quiet interval. A hint about when to ask,
     /// never a verdict -- the old design's grace timer here killed a real handover 98ms
     /// before the new path came up.
-    private let pingNow = OSAllocatedUnfairLock(initialState: false)
+    ///
+    /// Born true: every carrier pings at its FIRST report tick. On a healthy carrier the
+    /// pong (or the video already flowing) answers within one RTT and the ping is a no-op;
+    /// on a carrier born deaf the unanswered birth ping is what lets the request-deadline
+    /// staleness rung replace it in ~1.5s instead of the 6s wall-clock window.
+    private let pingNow = OSAllocatedUnfairLock(initialState: true)
     /// When this carrier came up, for `SessionCarrierStaleness`: a fresh carrier gets its
     /// full grace to produce evidence before it can be called quiet.
     private let carrierStartedNs = DispatchTime.now().uptimeNanoseconds
+    /// Whether this carrier has EVER delivered a datagram. The first frame is requested at
+    /// attach, so a carrier still false past the first-datagram deadline has a dead video
+    /// lane regardless of what its streams say -- the lanes fail independently.
+    private let carrierSawDatagram = OSAllocatedUnfairLock(initialState: false)
     /// One staleness report per carrier -- the report replaces the carrier, so a second one
     /// would be a second teardown racing the first.
     private let carrierStaleReported = OSAllocatedUnfairLock(initialState: false)
@@ -1162,6 +1171,7 @@ private struct Channels {
         guard let monitor = livenessMonitor.withLock({ $0 }) else { return }
         if arrivals > 0 {
             monitor.noteEvidence(nowNs: nowNs)
+            carrierSawDatagram.withLock { $0 = true }
         }
         let forced = pingNow.withLock { pending -> Bool in
             defer { pending = false }
@@ -1172,28 +1182,34 @@ private struct Channels {
             : monitor.pingSequenceIfQuiet(nowNs: nowNs) {
             sendSessionPing(sequence: sequence)
         }
-        // A quiet carrier is replaced before the session is judged. Measured: a connection
+        // A failing carrier is replaced before the session is judged. Measured: a connection
         // went zombie without the OS ever reporting it failed, so no carrier-lost event
         // fired and the session clock -- the only detector left -- ended a session whose
-        // host was answering the whole time. Quiet-despite-pings on a carrier that has had
-        // its full grace means swap the carrier; the verdict below is only for silence that
-        // survives the swapping. Latched per carrier: this transport is being replaced, so
-        // one report is all it gets to give.
+        // host was answering the whole time. The rungs live in `SessionCarrierStaleness`:
+        // two request-deadline detectors (the birth ping's overdue reply, the first frame's
+        // missing datagrams) so a carrier born dead is swapped in ~1.5s, and the wall-clock
+        // floor for carriers with history. The verdict below is only for
+        // silence that survives the swapping. Latched per carrier: this transport is being
+        // replaced, so one report is all it gets to give.
         let staleMs = monitor.msSinceEvidence(nowNs: nowNs)
-        if SessionCarrierStaleness.isStale(
+        if let reason = SessionCarrierStaleness.staleReason(
             msSinceEvidence: staleMs,
             msSinceCarrierStart: Double(nowNs &- carrierStartedNs) / 1_000_000,
-            staleLimitMs: Double(Config.sessionCarrierStaleMs)
+            msSinceUnansweredPing: monitor.msSinceUnansweredPing(nowNs: nowNs),
+            carrierSawDatagram: carrierSawDatagram.withLock { $0 },
+            staleLimitMs: Double(Config.sessionCarrierStaleMs),
+            unansweredPingLimitMs: Double(Config.sessionCarrierUnansweredPingStaleMs),
+            firstDatagramLimitMs: Double(Config.sessionCarrierFirstDatagramStaleMs)
         ) {
             let firstReport = carrierStaleReported.withLock { reported -> Bool in
                 defer { reported = true }
                 return !reported
             }
             if firstReport {
-                logger.notice("carrier stale, replacing quietMs=\(Int(staleMs), privacy: .public)")
+                logger.notice("carrier stale, replacing reason=\(reason.rawValue, privacy: .public) quietMs=\(Int(staleMs), privacy: .public)")
                 ClientDiagnostics.shared.record(
                     type: "carrierStale",
-                    fields: ["quietMs": String(Int(staleMs))],
+                    fields: ["quietMs": String(Int(staleMs)), "reason": reason.rawValue],
                     level: .default
                 )
                 stateContinuation.yield(.failed(.transportFailed))
