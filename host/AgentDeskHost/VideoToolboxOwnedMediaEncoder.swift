@@ -209,11 +209,12 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         completion: @escaping @Sendable (OwnedMediaFrameEnvelope?) -> Void
     ) {
         lock.lock()
+        var retiredSessions: [VTCompressionSession] = []
         let sessionToEncode: VTCompressionSession
         let encodedFrameId: UInt64
         let frameProperties: CFDictionary?
         do {
-            try ensureSession(for: frame.pixelBuffer)
+            try ensureSession(for: frame.pixelBuffer, retiring: &retiredSessions)
             guard let session else {
                 lock.unlock()
                 completion(nil)
@@ -339,16 +340,17 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
                 logger.notice("owned encoder forcing requested keyframe encFrame=\(encodedFrameId, privacy: .public) reason=\(requestedKeyframeReason?.rawValue ?? "unknown", privacy: .public)")
             }
         } catch {
-            if let session {
-                VTCompressionSessionInvalidate(session)
-            }
+            retiredSessions.append(contentsOf: session.map { [$0] } ?? [])
             session = nil
             size = nil
             lock.unlock()
+            // Outside the lock -- see invalidate() for the measured deadlock.
+            retiredSessions.forEach { VTCompressionSessionInvalidate($0) }
             completion(nil)
             return
         }
         lock.unlock()
+        retiredSessions.forEach { VTCompressionSessionInvalidate($0) }
 
         let pts = CMTime(value: frame.presentationTimeNs, timescale: 1_000_000_000)
         let status = VTCompressionSessionEncodeFrame(
@@ -372,12 +374,18 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         lock.lock()
         let pending = pendingFrames.values
         pendingFrames.removeAll()
-        if let session {
-            VTCompressionSessionInvalidate(session)
-        }
+        let retired = session
         session = nil
         size = nil
         lock.unlock()
+        // NEVER under `lock`. VTCompressionSessionInvalidate blocks until in-flight output
+        // callbacks return, and `handleEncoded` takes `lock` -- so invalidating under it is an
+        // ABBA deadlock with VideoToolbox's rate-control mutex. Measured on device
+        // (2026-08-16): the MAIN thread sat in VCPRateControlSessionCompleteFrames forever
+        // while the callback thread waited on `lock`, freezing every MainActor surface --
+        // dock enrichment, the popover, and all session handshakes -- while background
+        // threads kept logging as if nothing were wrong.
+        if let retired { VTCompressionSessionInvalidate(retired) }
         pending.forEach { $0.completion(nil) }
     }
 
@@ -460,7 +468,10 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
         return token.uint64Value
     }
 
-    private func ensureSession(for pixelBuffer: CVPixelBuffer) throws {
+    private func ensureSession(
+        for pixelBuffer: CVPixelBuffer,
+        retiring: inout [VTCompressionSession]
+    ) throws {
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
         let actualPixelFormat = CVPixelBufferGetPixelFormatType(pixelBuffer)
@@ -468,7 +479,9 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
             return
         }
         if let session {
-            VTCompressionSessionInvalidate(session)
+            // Handed back to the caller to invalidate AFTER `lock` is released -- see
+            // invalidate() for the measured deadlock.
+            retiring.append(session)
             // Every long-term reference lived inside that session and died with it. Three
             // pieces of state have to go too, or they describe a session that no longer
             // exists: queued acknowledgements would be handed to a session that never issued
