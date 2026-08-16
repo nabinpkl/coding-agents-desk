@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-07-31
+superseded-by: ADR-0104
 ---
 
 # Survive a network handover instead of waiting for the transport to notice
