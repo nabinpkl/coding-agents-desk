@@ -490,9 +490,15 @@ enum Config {
     // for the near-elimination of resync recovery -- measured before this: 11.5s frozen
     // episodes while few-KB resync answers died in the same congestion that made them
     // necessary, resolved only by 100KB escalated IDRs. Disable to A/B the delta-size cost.
+    // OFF pending investigation (2026-08-16): measured on device locked in its own IDR
+    // fallback -- VideoToolbox answered EVERY per-frame ForceLTRRefresh with a ~17KB sync
+    // frame while acks flowed and tokens were emitted, ~8Mbps of keyframes reproducing from a
+    // fresh session. The mode's premise (any received frame is decodable) held, which is why
+    // it was invisible on screen; the cost made the link's loss floor. Re-enable only with
+    // the token-rejection cause understood.
     static let ownedMediaReferenceAckedOnlyEnabled: Bool = enabledFlag(
         environmentKey: "AGENTDESK_OWNED_MEDIA_REFERENCE_ACKED_ONLY",
-        defaultValue: true,
+        defaultValue: false,
         environment: ProcessInfo.processInfo.environment
     )
     // How long a datagram receive loop keeps retrying a throwing `receive()` before it gives up.
