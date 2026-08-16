@@ -203,8 +203,26 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_DATA_RATE_LIMIT_RATIO",
         defaultValue: 1.5
     )
+    // What the PIPELINE can do, not what the controller aims for. ScreenCaptureKit is
+    // configured at `minimumFrameInterval = 1/60`, so 60 is the real capture bound and this
+    // mirrors it. Two things read it: the cadence gate (`capacityIntervalNs`) and the ceiling
+    // a manual pin may request.
+    //
+    // The gate treats `targetFps >= this` as "no gate at all" and encodes every captured
+    // frame. While this was 30 that made a manual pin of 30 silently ungated -- measured at
+    // actualFps 54-56 against targetFps 30 -- so the slider did not mean what it said above
+    // 24. At 60 the gate covers the whole selectable range and only a deliberate 60 runs free.
     static let ownedMediaExpectedFrameRate = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_FPS",
+        defaultValue: 60
+    )
+    // What the ADAPTIVE controller may derive, which is a policy choice and deliberately not
+    // the capability bound above. ADR-0101 derives cadence from bitrate over measured frame
+    // cost; letting that derivation reach 60 doubles the frame count a constrained link has to
+    // carry to say the same thing, which is the opposite of what the descent is for. A human
+    // asking for 60 by hand is a different act and is bounded by the capability instead.
+    static let ownedMediaAdaptiveFpsCeiling = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_ADAPTIVE_FPS_CEILING",
         defaultValue: 30
     )
     // Smoothing for the live delta-frame wire-cost EWMA (QuicSessionHostMediaState). 0.1 makes

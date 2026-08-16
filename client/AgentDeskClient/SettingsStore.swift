@@ -86,16 +86,25 @@ final class SettingsStore: @unchecked Sendable {
     // travel. Even spacing between STOPS spends equal thumb distance per step instead, which
     // makes the low end selectable and the top end coarse -- the way round it wants to be.
     // Starts at 10 so the slider can reach below the adaptive controller's own 60kbps floor.
+    // Runs to 8Mbps, well past the adaptive controller's own 2.5Mbps ceiling, because the top
+    // of this axis exists to answer "is the link the problem?" -- and it cannot answer that
+    // while it stops below what the link can carry. 6000 keeps the ramp even; a jump straight
+    // from 5000 to 8000 would be the only 3x step on the whole slider.
     static let manualMediaBitrateKbpsValues = [
         10, 20, 30, 40, 50, 60, 80, 100, 125, 150, 180, 220, 260, 300,
-        400, 500, 650, 800, 1_000, 1_250, 1_500, 2_000, 2_500, 3_000, 4_000, 5_000
+        400, 500, 650, 800, 1_000, 1_250, 1_500, 2_000, 2_500, 3_000, 4_000, 5_000,
+        6_000, 8_000
     ]
     // Which stops get a printed caption under their tick. Every stop is marked; only these are
-    // named, because thirteen captions do not fit across a phone.
-    static let manualMediaBitrateCaptionedKbps: Set<Int> = [10, 60, 180, 500, 1_000, 2_500, 5_000]
+    // named, because thirteen captions do not fit across a phone. The last caption tracks the
+    // last STOP, so the reader can see where the axis ends without dragging to find out.
+    static let manualMediaBitrateCaptionedKbps: Set<Int> = [10, 60, 180, 500, 1_000, 2_500, 8_000]
     static let defaultManualMediaFps = 30
-    static let manualMediaFpsValues = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 24, 30]
-    static let manualMediaFpsCaptionedValues: Set<Int> = [1, 5, 10, 15, 20, 30]
+    // Reaches 60 because that is the capture bound (ScreenCaptureKit runs at
+    // minimumFrameInterval 1/60), not because the adaptive controller will ever ask for it --
+    // it stops deriving at 30. Above 30 is a hand-picked experiment, so the stops thin out.
+    static let manualMediaFpsValues = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 24, 30, 40, 48, 60]
+    static let manualMediaFpsCaptionedValues: Set<Int> = [1, 5, 10, 15, 30, 60]
     static let defaultManualMediaResolutionScale = 1.0
     static let manualMediaResolutionScaleValues = [0.25, 0.33, 0.4, 0.5, 0.6, 0.75, 0.85, 1.0]
     // Keyed on whole percent rather than the Double itself: a Set<Double> would make selection

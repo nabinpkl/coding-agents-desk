@@ -93,10 +93,15 @@ struct OwnedMediaEncodingConfiguration: Equatable, Sendable {
         expectedFrameRate: 30
     )
 
+    // Seeded from the ADAPTIVE ceiling, not the capture bound, because this is only the value
+    // the session holds until the first quality decision calls `updateExpectedFrameRate` --
+    // and an unpinned session starts at the adaptive ceiling. Seeding it with the capture
+    // bound instead would have the encoder budget bits for 60fps while the stream runs at 30,
+    // under-spending on the first frames of every session for no reason.
     static func fromConfig() -> OwnedMediaEncodingConfiguration {
         OwnedMediaEncodingConfiguration(
             targetBitrateKbps: Config.ownedMediaBitrateKbps,
-            expectedFrameRate: Config.ownedMediaExpectedFrameRate
+            expectedFrameRate: Config.ownedMediaAdaptiveFpsCeiling
         )
     }
 }

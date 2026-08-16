@@ -368,7 +368,7 @@ struct MediaQualityControllerConfig: Equatable {
             raiseCleanWindows: Config.ownedMediaBitrateRaiseCleanWindows,
             cadenceDownWindows: Config.ownedMediaCadenceDownWindows,
             staleDownWindows: Config.ownedMediaStaleDownWindows,
-            fpsCeiling: Config.ownedMediaExpectedFrameRate,
+            fpsCeiling: Config.ownedMediaAdaptiveFpsCeiling,
             ackHoldP95Ms: Config.ownedMediaAckHoldP95Ms,
             ackDownP95Ms: Config.ownedMediaAckDownP95Ms,
             cadenceGapMs: Config.ownedMediaCadenceGapMs,
