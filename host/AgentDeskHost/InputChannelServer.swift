@@ -357,6 +357,17 @@ final class InputChannelServer: InputChannelServing, @unchecked Sendable {
             } catch {
                 logger.error("input lane event decode failed: \(String(describing: error), privacy: .public)")
             }
+        case "session-ping":
+            // ADR-0104: answer immediately and do nothing else. The host holds no liveness
+            // timer and reaches no verdict from this lane -- the client owns the only clock,
+            // and the pong echoes the ASKED-FOR session id so a stale ping is answered as
+            // what it is rather than turned into silence.
+            do {
+                let ping = try JSONDecoder().decode(SessionPing.self, from: data)
+                sendCodableFrame(SessionPong(sessionId: ping.sessionId, sequence: ping.sequence))
+            } catch {
+                logger.error("session-ping decode failed: \(String(describing: error), privacy: .public)")
+            }
         case "revoke":
             logger.notice("input lane revoke received fp=\(self.fingerprint.rawValue, privacy: .public)")
             revokeHandler?()

@@ -850,3 +850,29 @@ private func roundTrip<T: Codable & Equatable>(_ value: T) throws {
         staleDiscardCount: 3)
     try roundTrip(ack)
 }
+
+// ADR-0104: the pong must count for the session it names on whichever carrier delivers it,
+// so the id and sequence surviving the wire exactly is the whole contract. Keys are pinned
+// because both peers decode by abbreviated key, where this wire has drifted before.
+@Test func sessionPingAndPongRoundTripWithPinnedKeys() throws {
+    let ping = SessionPing(sessionId: "B0x1CTNAviAUzADKxVH0oIVMv_bHuMGOUMoMB8I_OGc", sequence: .max)
+    try roundTrip(ping)
+    let object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(ping)) as? [String: Any]
+    #expect(object?["t"] as? String == "session-ping")
+    #expect(Set(object?.keys.map { $0 } ?? []) == ["t", "sid", "sq"])
+
+    let pong = SessionPong(sessionId: ping.sessionId, sequence: ping.sequence)
+    try roundTrip(pong)
+    let pongObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(pong)) as? [String: Any]
+    #expect(pongObject?["t"] as? String == "session-pong")
+    #expect(Set(pongObject?.keys.map { $0 } ?? []) == ["t", "sid", "sq"])
+}
+
+// A ping is sent about twice per quiet second for the session's whole life; it must stay a
+// trivial number of bytes, not grow into a status report.
+@Test func aSessionPingStaysSmallEnoughToPoll() throws {
+    let data = try JSONEncoder().encode(
+        SessionPing(sessionId: "B0x1CTNAviAUzADKxVH0oIVMv_bHuMGOUMoMB8I_OGc", sequence: .max)
+    )
+    #expect(data.count < 120)
+}

@@ -353,6 +353,54 @@ public struct HostCursorMovedPush: Codable, Equatable, Sendable {
     }
 }
 
+/// ADR-0104: the session's liveness question, asked by the client only when nothing else has
+/// arrived for a while. Rides the input lane like every other framed control message rather
+/// than a dedicated stream: both dedicated-lane designs made one stream the sole authority on
+/// the session, so the stream dying read as the session dying -- the exact conflation the
+/// session/carrier split removes. Any inbound traffic is evidence; this pair only exists to
+/// manufacture some when the screen is static and nothing else is flowing.
+///
+/// Carries the session id, not the connection: a pong is proof for the SESSION it names,
+/// whichever carrier delivers it.
+public struct SessionPing: Codable, Equatable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let sequence: UInt64
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case type = "t"
+        case sessionId = "sid"
+        case sequence = "sq"
+    }
+
+    public init(sessionId: String, sequence: UInt64) {
+        self.type = "session-ping"
+        self.sessionId = sessionId
+        self.sequence = sequence
+    }
+}
+
+/// The host's answer, echoing the ping's id and sequence. The host is a pure responder: no
+/// timer, no verdict -- the client owns the only liveness clock, and the host's side of
+/// session lifetime is already governed by the registry's resume TTL.
+public struct SessionPong: Codable, Equatable, Sendable {
+    public let type: String
+    public let sessionId: String
+    public let sequence: UInt64
+
+    public enum CodingKeys: String, CodingKey, Sendable {
+        case type = "t"
+        case sessionId = "sid"
+        case sequence = "sq"
+    }
+
+    public init(sessionId: String, sequence: UInt64) {
+        self.type = "session-pong"
+        self.sessionId = sessionId
+        self.sequence = sequence
+    }
+}
+
 public enum HostAvailability: String, Codable, Equatable, Sendable {
     case active
     case locked
