@@ -415,6 +415,57 @@ final class RegionCrispControllerTests: XCTestCase {
         XCTAssertGreaterThan(emission.payload.count, 1, "and that tile is genuinely over the budget")
     }
 
+    // A spent byte budget must not silence the payload-free work. Reverts carry no bytes and
+    // charge nothing, and they are the only thing that clears a stale crisp tile off a region
+    // that has moved. When an exhausted budget stopped the whole pass, a heavy scroll left
+    // crisp tiles sitting over content that had scrolled away, and the once-a-second budget
+    // rollover is what made them pulse instead of simply staying wrong.
+    func testSpentBudgetStillRevertsChangedTiles() {
+        var c = RegionCrispController(config: config())
+        _ = heal(&c, surface(0xAB), at: 0)
+        let promoted = heal(&c, surface(0xAB), at: 200)
+        XCTAssertEqual(cacheTileCount(promoted), 1, "the tile is crisp before the budget runs out")
+
+        // Same tile, different content, and not one byte of budget to spend.
+        let emission = heal(&c, surface(0xCD), at: 400, maxPayloadBytes: 0)
+
+        let reverts = emission.commands.filter {
+            if case .revertTileToVideo = $0 { return true }; return false
+        }
+        XCTAssertEqual(reverts.count, 1, "a changed crisp tile reverts regardless of byte budget")
+        XCTAssertEqual(emission.payload.count, 0, "and the revert costs nothing")
+    }
+
+    // The other payload-free command: a tile whose content is already in a client cache slot
+    // redraws for free. Budget exhaustion must not block it either, or a region that scrolled
+    // back to previously-seen content stays on blurry video for no reason.
+    func testSpentBudgetStillDrawsCachedTiles() {
+        var c = RegionCrispController(config: config())
+        _ = heal(&c, surface(0xAB), at: 0)
+        _ = heal(&c, surface(0xAB), at: 200) // 0xAB is now a known slot
+        _ = heal(&c, surface(0xCD), at: 400) // change away, reverting it
+        _ = heal(&c, surface(0xAB), at: 600) // change back; re-establishes the baseline
+
+        let emission = heal(&c, surface(0xAB), at: 800, maxPayloadBytes: 0)
+
+        let draws = emission.commands.filter {
+            if case .drawCachedTile = $0 { return true }; return false
+        }
+        XCTAssertEqual(draws.count, 1, "a cache hit needs no budget because it sends no bytes")
+        XCTAssertEqual(emission.payload.count, 0)
+    }
+
+    // The budget still has to stop NEW tiles, or the fix above would just remove the cap.
+    func testSpentBudgetStillBlocksFreshTiles() {
+        var c = RegionCrispController(config: config())
+        _ = heal(&c, surface(0xAB), at: 0)
+
+        let emission = heal(&c, surface(0xAB), at: 200, maxPayloadBytes: 0)
+
+        XCTAssertEqual(cacheTileCount(emission), 0, "a never-seen tile needs bytes, so it waits")
+        XCTAssertGreaterThan(c.throttledCrispTileCount, 0, "and it is counted as throttled")
+    }
+
     private func cacheTileCount(_ e: RegionCrispEmission) -> Int {
         e.commands.filter { if case .cacheTile = $0 { return true }; return false }.count
     }

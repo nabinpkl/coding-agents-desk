@@ -457,7 +457,18 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         let windowBudget = crispGate.withLock { state in
             min(Config.ownedMediaCrispMaxBytesPerWindow, state.pacing.remainingBudget(nowNs: nowNs))
         }
-        guard windowBudget > 0 else { return }
+        // NO early return on an exhausted budget. The budget bounds NEW cacheTile payload and
+        // nothing else: `revertTileToVideo` and `drawCachedTile` both carry zero bytes and
+        // charge zero. Returning here used to stop the whole crisp pass whenever the second's
+        // bytes were spent -- which during a heavy scroll is most of the time -- and the first
+        // casualty was the revert that clears a stale crisp tile off a region that has since
+        // moved. The tile then sat there until the budget happened to roll over, which is the
+        // "stale crisp that never wiped itself", and the once-a-second rollover is why it
+        // pulsed rather than simply staying wrong.
+        //
+        // A zero budget is passed through to the reconcile below, which declines new tiles
+        // before paying for their compression. The mode gate above already skips windows with
+        // no damage and nothing due, so this does not run the convert for nothing.
         let nowMs = Int(nowNs / 1_000_000)
         // ADR-0036: decide this window's mode and possibly early-out before the expensive
         // YUV->BGRA convert and full-surface hash. The heal counter was already advanced in

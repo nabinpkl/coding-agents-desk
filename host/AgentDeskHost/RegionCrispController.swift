@@ -322,9 +322,13 @@ struct RegionCrispController {
                 commands.append(.drawCachedTile(slot: slot, x: x, y: y, width: w, height: h))
                 state.crispHash = hash
                 cells[key] = state
-            } else if assignsThisFrame >= config.cacheSlots {
-                // Out of fresh slots this frame: leave on the video floor and retry next
-                // window (dedups once committed).
+            } else if assignsThisFrame >= config.cacheSlots || maxPayloadBytes <= 0 {
+                // Out of fresh slots this frame, or this second's byte budget is already
+                // spent: leave on the video floor and retry next window (dedups once
+                // committed). Checked before compressing, so an exhausted budget costs
+                // nothing. A zero budget still lets the caller run the window for its
+                // payload-free reverts and cache hits, which is the whole reason the
+                // transport no longer returns early on one.
                 throttledCrispTileCount += 1
             } else if let compressed = OwnedTileCodec.compressLZFSE(tile) {
                 // Prospective, not retrospective. This check used to read `payload.count >=
