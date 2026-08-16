@@ -335,6 +335,9 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     private var lastVideoArrivalUptimeNs: UInt64?
     private var lastVideoEnqueueUptimeNs: UInt64?
     private var lastKeyframeRequestUptimeNs: UInt64?
+    /// Whether the request that set `lastKeyframeRequestUptimeNs` declared discarded
+    /// references. A flagged request may coalesce into a flagged one, never into a plain one.
+    private var lastKeyframeRequestDiscardedReferences = false
     private var videoStatusTracker = OwnedMediaVideoStatusTracker()
     private var videoPresentationPacer = OwnedMediaLatestFramePacer<QueuedVideoFrame>(
         expectedFrameRate: Config.ownedMediaExpectedFrameRate
@@ -499,6 +502,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         lastVideoArrivalUptimeNs = nil
         lastVideoEnqueueUptimeNs = nil
         lastKeyframeRequestUptimeNs = nil
+        lastKeyframeRequestDiscardedReferences = false
     }
 
     // Single rate-limited keyframe-request point shared by the watchdog and the
@@ -511,10 +515,19 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     ///   reason is unattributable from the host log, and the host log is the only surface that
     ///   sees every request.
     private func requestKeyframe(now: UInt64, discardingReferences: Bool = false, reason: String) {
+        // The min-gap coalesces bursts, but an ESCALATION must break through it. Measured on
+        // device (2026-08-16): a plain gap-recovery request went out first, the host answered
+        // it with a delta resync, the delta hit the flushed decoder as -11821, and the
+        // `discardingReferences` retry -- the one message that ends that loop -- was swallowed
+        // here for arriving inside the gap. The host kept answering deltas against references
+        // the client no longer held, exactly the loop the doc comment above describes. A
+        // flagged request may only be coalesced into another flagged one.
         if let last = lastKeyframeRequestUptimeNs,
-           now < last &+ UInt64(Config.ownedMediaRenderStallMs) * 1_000_000 {
+           now < last &+ UInt64(Config.ownedMediaRenderStallMs) * 1_000_000,
+           !(discardingReferences && !lastKeyframeRequestDiscardedReferences) {
             return
         }
+        lastKeyframeRequestDiscardedReferences = discardingReferences
         lastKeyframeRequestUptimeNs = now
         ClientDiagnostics.shared.record(
             type: "videoKeyframeRequested",

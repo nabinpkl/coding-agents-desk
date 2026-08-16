@@ -45,8 +45,8 @@ struct SessionLivenessClock {
     /// While anything else is flowing this never fires. Also paced against its own last send
     /// so a quiet session asks at the ping interval, not once per caller tick.
     mutating func pingSequenceIfQuiet(nowNs: UInt64) -> UInt64? {
-        guard nowNs &- lastEvidenceUptimeNs >= quietPingNs else { return nil }
-        if let lastPing = lastPingUptimeNs, nowNs &- lastPing < quietPingNs { return nil }
+        guard Self.elapsed(from: lastEvidenceUptimeNs, to: nowNs) >= quietPingNs else { return nil }
+        if let lastPing = lastPingUptimeNs, Self.elapsed(from: lastPing, to: nowNs) < quietPingNs { return nil }
         lastPingUptimeNs = nowNs
         let sequence = nextSequence
         nextSequence &+= 1
@@ -78,7 +78,7 @@ struct SessionLivenessClock {
     /// that comes back at the boundary is still a resume rather than a re-pair.
     mutating func silentVerdict(nowNs: UInt64) -> Double? {
         guard !declared else { return nil }
-        let silentNs = nowNs &- lastEvidenceUptimeNs
+        let silentNs = Self.elapsed(from: lastEvidenceUptimeNs, to: nowNs)
         guard silentNs >= silenceLimitNs else { return nil }
         declared = true
         return Double(silentNs) / 1_000_000
@@ -86,7 +86,16 @@ struct SessionLivenessClock {
 
     /// For log lines and diagnostics.
     func msSinceEvidence(nowNs: UInt64) -> Double {
-        Double(nowNs &- lastEvidenceUptimeNs) / 1_000_000
+        Double(Self.elapsed(from: lastEvidenceUptimeNs, to: nowNs)) / 1_000_000
+    }
+
+    /// Clamped, never wrapping. Evidence is stamped on receive paths while callers capture
+    /// their `nowNs` earlier in a report tick, so evidence can legitimately be NEWER than a
+    /// caller's now. The wrapping subtraction this replaces turned that microsecond skew into
+    /// a 2^64ns "silence" -- measured on device as `sessionUnreachable silentMs=2^64/1e6`,
+    /// ending a healthy session instantly.
+    private static func elapsed(from startNs: UInt64, to nowNs: UInt64) -> UInt64 {
+        nowNs >= startNs ? nowNs - startNs : 0
     }
 }
 

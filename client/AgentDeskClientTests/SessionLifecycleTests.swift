@@ -102,6 +102,21 @@ struct SessionLivenessClockTests {
         #expect(secondSilence != nil)
     }
 
+    /// The underflow regression. Evidence is stamped on receive paths, callers capture their
+    /// `nowNs` earlier in a tick, so evidence can be NEWER than a caller's now. The wrapping
+    /// subtraction this pins against turned that microsecond skew into a 2^64ns "silence" --
+    /// measured on device as `sessionUnreachable silentMs=18446744073708`, ending a healthy
+    /// session instantly.
+    @Test func evidenceNewerThanTheCallersClockIsNotSilence() {
+        var clock = makeClock()
+        clock.noteEvidence(nowNs: base + ms(5_000))
+        let verdict = clock.silentVerdict(nowNs: base + ms(4_999))
+        #expect(verdict == nil)
+        #expect(clock.msSinceEvidence(nowNs: base + ms(4_999)) == 0)
+        let ping = clock.pingSequenceIfQuiet(nowNs: base + ms(4_999))
+        #expect(ping == nil)
+    }
+
     /// The property the whole redesign exists for: pings going OUT prove nothing and reset
     /// nothing. Only inbound evidence moves the clock, so a redial storm of send-only
     /// carriers still accumulates the silence that ends the session.
