@@ -75,6 +75,14 @@ enum Config {
         environmentKey: "AGENTDESK_SESSION_QUIET_PING_MS",
         defaultValue: 2_000
     )
+    // ADR-0104: evidence quiet past this, on a carrier at least this old, replaces the
+    // CARRIER (reattach on a fresh connection) rather than judging the session. Three
+    // unanswered pings at the 2s cadence. The session verdict below is reserved for silence
+    // that survives carrier replacement.
+    static let sessionCarrierStaleMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_CARRIER_STALE_MS",
+        defaultValue: 6_000
+    )
     // ADR-0104: the one number that ends a session for silence. Above the longest measured
     // self-healing stall (9s); inside the host's 20s resume TTL, so a success at the boundary
     // is still a resume rather than a re-pair. Counted across ALL carriers: redials do not
@@ -89,6 +97,15 @@ enum Config {
     static let sessionReattachOverlayGraceMs = positiveInt(
         environmentKey: "AGENTDESK_SESSION_REATTACH_OVERLAY_GRACE_MS",
         defaultValue: 2_000
+    )
+    // ADR-0104: how long after an unreachable verdict before dialing resumes on its own. The
+    // verdict's honesty does not require staying down: the foreground-based triggers cannot
+    // fire for an app that never leaves the foreground, so without this one delayed nudge an
+    // ended session stayed parked forever. Ten seconds keeps the post-verdict screen calm
+    // without turning the verdict into a mere blip.
+    static let sessionEndedRetryDelayMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_ENDED_RETRY_DELAY_MS",
+        defaultValue: 10_000
     )
     // ADR-0058: grace before an unconfirmed locally predicted cursor becomes
     // a grey ghost. This is intentionally longer than normal input-lane RTT,

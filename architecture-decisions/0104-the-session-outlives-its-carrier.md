@@ -91,10 +91,13 @@ ping immediately — never as a cause.
 - Bad, because liveness now shares the input lane with occasionally large transfers
   (screenshots ride it). Bounded: those are rare and request-scoped, and the silence budget
   is 15s against multi-hundred-KB frames.
-- Bad, because a session with a live carrier whose input lane alone wedges (stream stuck,
-  connection healthy) now waits for the silence verdict rather than a stream-specific
-  detector. Accepted: that case was never observed, and the old stream-specific detectors
-  were the false-positive source.
+- Good, because a carrier that goes quiet WITHOUT the OS reporting it dead (a zombie
+  connection -- observed on device within an hour of the first cut, which lacked this rung)
+  is replaced rather than judged: quiet-despite-pings past `sessionCarrierStaleMs` (6s, with
+  each fresh carrier getting its own full grace) triggers the same reattach as an OS-reported
+  death. The silence verdict is reserved for quiet that survives carrier replacement, and the
+  post-verdict state re-arms dialing itself after `sessionEndedRetryDelayMs` -- the
+  foreground-based triggers cannot fire for an app that never left the foreground.
 - Neutral, because the host side is untouched except for the pong responder: the registry's
   TTL already governs host-side session lifetime.
 

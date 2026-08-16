@@ -128,3 +128,39 @@ struct SessionLivenessMonitorTests {
         #expect(atLimit != nil)
     }
 }
+
+/// The rung between "quiet" and "dead": a carrier that stays quiet despite pings is replaced,
+/// and only silence that survives replacement reaches the session verdict.
+struct SessionCarrierStalenessTests {
+    /// The measured zombie: evidence long quiet on a carrier well past its grace. This is the
+    /// case that used to fall through to the session verdict while the host was answering.
+    @Test func aQuietMatureCarrierIsStale() {
+        #expect(SessionCarrierStaleness.isStale(
+            msSinceEvidence: 6_000, msSinceCarrierStart: 46_000, staleLimitMs: 6_000
+        ))
+    }
+
+    /// A replacement carrier attached mid-silence must get its own full grace, or a reattach
+    /// storm swaps carriers as fast as they come up and never gives one time to answer.
+    @Test func aFreshCarrierIsNotStaleHoweverLongTheSilence() {
+        #expect(!SessionCarrierStaleness.isStale(
+            msSinceEvidence: 14_000, msSinceCarrierStart: 500, staleLimitMs: 6_000
+        ))
+    }
+
+    /// Evidence flowing means not stale, whatever the carrier's age.
+    @Test func evidenceKeepsAnOldCarrierFresh() {
+        #expect(!SessionCarrierStaleness.isStale(
+            msSinceEvidence: 1_000, msSinceCarrierStart: 300_000, staleLimitMs: 6_000
+        ))
+    }
+
+    @Test func stalenessIsInclusiveAtItsBoundary() {
+        #expect(SessionCarrierStaleness.isStale(
+            msSinceEvidence: 6_000, msSinceCarrierStart: 6_000, staleLimitMs: 6_000
+        ))
+        #expect(!SessionCarrierStaleness.isStale(
+            msSinceEvidence: 5_999, msSinceCarrierStart: 6_000, staleLimitMs: 6_000
+        ))
+    }
+}

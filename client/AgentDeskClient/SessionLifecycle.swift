@@ -90,6 +90,29 @@ struct SessionLivenessClock {
     }
 }
 
+/// Whether the CURRENT carrier should be replaced, as distinct from the session being over.
+///
+/// The rung between "quiet" and "dead" that the first cut of ADR-0104 lacked, measured
+/// missing on device: a connection went zombie -- the OS never reported it failed, so no
+/// carrier-lost event fired -- and the only detector left was the session clock, whose only
+/// action was ending the session. The host was answering the whole time; a redial at any
+/// point would have reconnected. So: evidence quiet past this limit means swap the carrier
+/// and ask again on a fresh one. Only carriers that keep coming up empty reach the verdict.
+///
+/// Both clocks matter. `msSinceEvidence` alone would declare a replacement carrier stale the
+/// instant it attached mid-silence, swapping in a storm; giving each carrier its own grace
+/// (`msSinceCarrierStart`) means every fresh connection gets the full window to produce
+/// evidence while the session clock keeps counting toward the real verdict underneath.
+enum SessionCarrierStaleness {
+    static func isStale(
+        msSinceEvidence: Double,
+        msSinceCarrierStart: Double,
+        staleLimitMs: Double
+    ) -> Bool {
+        min(msSinceEvidence, msSinceCarrierStart) >= staleLimitMs
+    }
+}
+
 /// The clock, shared between the session's owner (`PairingClient`) and whichever carrier is
 /// current. A class on purpose: the transport is per-connection and this must not be -- a
 /// redial that replaced the clock could never accumulate silence across a redial storm, and

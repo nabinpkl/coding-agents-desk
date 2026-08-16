@@ -154,6 +154,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var mediaStateTask: Task<Void, Never>?
     /// ADR-0104: delays the "Reconnecting…" overlay so a fast carrier swap is invisible.
     var reattachOverlayTask: Task<Void, Never>?
+    /// ADR-0104: the one delayed nudge that restarts dialing after an unreachable verdict.
+    var endedRetryTask: Task<Void, Never>?
     // R11: observes the input channel's desktopStateUpdates stream and
     // pushes each DesktopState into the strip. Lifecycle matches
     // sessionTask: cancelled on background, restarted on the next
@@ -395,6 +397,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         handshakeTask = nil
         reattachOverlayTask?.cancel()
         reattachOverlayTask = nil
+        endedRetryTask?.cancel()
+        endedRetryTask = nil
         mediaStateTask?.cancel()
         mediaStateTask = nil
         desktopStateTask?.cancel()
@@ -549,6 +553,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         sessionTask?.cancel()
         mediaStateTask?.cancel()
         reattachOverlayTask?.cancel()
+        endedRetryTask?.cancel()
         desktopStateTask?.cancel()
         cursorTask?.cancel()
         cursorReconciliationTask?.cancel()
@@ -765,9 +770,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
         if case .unreachable(let silentMs) = loss {
             // ADR-0104: the one death verdict. The session is over; say so honestly with the
-            // full teardown and the Connect screen, and leave the existing auto-redial
-            // triggers (foreground, viewWillAppear, the Connect button) armed rather than
-            // spinning a hot retry loop against a host that has not answered in 15 seconds.
+            // full teardown, rather than spinning a hot retry loop against a host that has
+            // not answered in 15 seconds.
             hostSessionActivity = .live
             teardownMediaTransport()
             pairingClient.handleMediaSessionFailed()
@@ -777,6 +781,22 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 level: .error
             )
             render()
+            // "Ended but still retrying" needs a retry path that can actually fire. The
+            // foreground and viewWillAppear triggers cannot: the app never left the
+            // foreground -- the same blind spot that once kept ADR-0030's resume machinery
+            // unreachable. Measured on device: a 46s-old session died, the verdict landed,
+            // and the client then sat parked at "Paired (reconnecting)" with nothing ever
+            // dialing again. One delayed nudge is sufficient rather than a loop of them:
+            // the verdict is latched until evidence arrives, so the retry loop this starts
+            // cannot be re-ended by the same silence and keeps trying on its own cadence.
+            endedRetryTask?.cancel()
+            endedRetryTask = Task { [weak self] in
+                try? await Task.sleep(
+                    nanoseconds: UInt64(Config.sessionEndedRetryDelayMs) * 1_000_000
+                )
+                guard !Task.isCancelled else { return }
+                self?.triggerSessionIfPaired()
+            }
             return
         }
 

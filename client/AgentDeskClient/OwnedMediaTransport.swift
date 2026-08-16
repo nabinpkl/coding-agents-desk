@@ -130,6 +130,12 @@ private struct Channels {
     /// never a verdict -- the old design's grace timer here killed a real handover 98ms
     /// before the new path came up.
     private let pingNow = OSAllocatedUnfairLock(initialState: false)
+    /// When this carrier came up, for `SessionCarrierStaleness`: a fresh carrier gets its
+    /// full grace to produce evidence before it can be called quiet.
+    private let carrierStartedNs = DispatchTime.now().uptimeNanoseconds
+    /// One staleness report per carrier -- the report replaces the carrier, so a second one
+    /// would be a second teardown racing the first.
+    private let carrierStaleReported = OSAllocatedUnfairLock(initialState: false)
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
     private var datagramReceiveTask: Task<Void, Never>?
     private var inputReceiveTask: Task<Void, Never>?
@@ -1165,6 +1171,34 @@ private struct Channels {
             ? monitor.forcedPingSequence(nowNs: nowNs)
             : monitor.pingSequenceIfQuiet(nowNs: nowNs) {
             sendSessionPing(sequence: sequence)
+        }
+        // A quiet carrier is replaced before the session is judged. Measured: a connection
+        // went zombie without the OS ever reporting it failed, so no carrier-lost event
+        // fired and the session clock -- the only detector left -- ended a session whose
+        // host was answering the whole time. Quiet-despite-pings on a carrier that has had
+        // its full grace means swap the carrier; the verdict below is only for silence that
+        // survives the swapping. Latched per carrier: this transport is being replaced, so
+        // one report is all it gets to give.
+        let staleMs = monitor.msSinceEvidence(nowNs: nowNs)
+        if SessionCarrierStaleness.isStale(
+            msSinceEvidence: staleMs,
+            msSinceCarrierStart: Double(nowNs &- carrierStartedNs) / 1_000_000,
+            staleLimitMs: Double(Config.sessionCarrierStaleMs)
+        ) {
+            let firstReport = carrierStaleReported.withLock { reported -> Bool in
+                defer { reported = true }
+                return !reported
+            }
+            if firstReport {
+                logger.notice("carrier stale, replacing quietMs=\(Int(staleMs), privacy: .public)")
+                ClientDiagnostics.shared.record(
+                    type: "carrierStale",
+                    fields: ["quietMs": String(Int(staleMs))],
+                    level: .default
+                )
+                stateContinuation.yield(.failed(.transportFailed))
+            }
+            return
         }
         guard let silentMs = monitor.silentVerdict(nowNs: nowNs) else { return }
         logger.notice(
