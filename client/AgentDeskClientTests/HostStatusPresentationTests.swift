@@ -38,29 +38,28 @@ struct HostStatusPresentationTests {
 struct HostStatusResolutionTests {
     @Test func recoveryOutranksTheAvailabilityItsOwnTeardownSynthesizes() {
         let resolved = HostStatusPresentation.resolve(
-            activity: .recovering(.linkChanged),
+            activity: .recovering(.hostUnreachable),
             availability: .captureUnavailable
         )
-        #expect(resolved == HostStatusPresentation.forLoss(.linkChanged))
+        #expect(resolved == HostStatusPresentation.forLoss(.hostUnreachable))
         #expect(resolved != HostStatusPresentation.forAvailability(.captureUnavailable))
     }
 
-    /// A network switch blames the network. Naming the Mac here was the complaint.
-    @Test func aLinkChangeNeverBlamesTheMac() {
-        let message = HostStatusPresentation.forLoss(.linkChanged).message
-        #expect(message == "Switching network…")
-        #expect(HostStatusPresentation.forLoss(.linkChanged).showsActivity)
-    }
-
-    /// An unanswered probe on a path that never moved is the opposite diagnosis, and says so.
-    @Test func silenceOnAStablePathBlamesTheHost() {
-        #expect(HostStatusPresentation.forLoss(.hostSilent).message == "Mac stopped responding")
+    /// ADR-0104: the client cannot tell which end broke, so it must not say. "Mac stopped
+    /// responding" was shown thirteen times in one measured session while the Mac was answering
+    /// every probe -- a sentence about the user's hardware, produced by a detector that was
+    /// wrong. Asserted as an absence because that is the actual requirement: whatever this
+    /// string becomes, it may not name a culprit.
+    @Test func anUnreachableSessionBlamesNeitherEnd() {
+        let message = HostStatusPresentation.forLoss(.hostUnreachable).message
+        #expect(!message.contains("Mac"))
+        #expect(HostStatusPresentation.forLoss(.hostUnreachable).showsActivity)
         #expect(HostStatusPresentation.forLoss(.transportFailed).message == "Connection lost")
     }
 
     /// Every recovery keeps a way out, whatever it blames: any of them can fail to land.
     @Test func everyRecoveryKeepsAnEscapeHatch() {
-        for loss in [MediaSessionLoss.linkChanged, .hostSilent, .transportFailed] {
+        for loss in [MediaSessionLoss.hostUnreachable, .transportFailed] {
             #expect(HostStatusPresentation.forLoss(loss).offersReconnect)
         }
     }

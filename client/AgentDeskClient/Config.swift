@@ -177,38 +177,6 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_LINK_HEALTH_INTERVAL_MS",
         defaultValue: 500
     )
-    // ADR-0089 handover recovery: how long a detected link change is given to start carrying
-    // traffic again before the session is declared dead and re-dialed.
-    //
-    // Sized from the device measurement rather than taste. Detection fires within one report
-    // window (~0.5s); the measured freeze delivered nothing for 9s and the transport never
-    // reported a failure at all. 2s recovers roughly four times sooner than that freeze
-    // self-healed while still leaving a real handover time to settle, and it sits far inside
-    // the host's 20s resume window, so the resume material is still valid when we dial.
-    static let ownedMediaHandoverGraceMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_HANDOVER_GRACE_MS",
-        defaultValue: 2000
-    )
-    // ADR-0089 liveness: how often the client probes the host while nothing is arriving.
-    //
-    // Only spent when the downlink is already silent, so an active session pays nothing and an
-    // idle one pays one small datagram each way per interval. The radio is awake anyway -- the
-    // link-health report goes out at 2Hz -- so this adds bandwidth, not wakeups.
-    static let ownedMediaLivenessProbeIntervalMs = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_LIVENESS_PROBE_INTERVAL_MS",
-        defaultValue: 2000
-    )
-    // ADR-0089 liveness: unanswered probes before the downlink is declared dead.
-    //
-    // Three at a 2s interval declares roughly 6.5s after the last arrival: sooner than the 9.6s
-    // the transport took to notice the same death in R212, and far inside the host's 20s resume
-    // window so the session can be resumed rather than re-paired. Not lower, because a single
-    // lost datagram must never fire this -- three consecutive round trips lost at the 0.2% loss
-    // measured at rest is about one in ten million.
-    static let ownedMediaLivenessFailureThreshold = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_LIVENESS_FAILURE_THRESHOLD",
-        defaultValue: 3
-    )
     // ADR-0073: minimum gap between recovery keyframe requests. Gap skips coalesce
     // behind one request; a later completed delta retries after this interval if the
     // recovery keyframe itself was lost.

@@ -2,6 +2,7 @@
 status: accepted
 date: 2026-08-16
 supersedes: ADR-0089 (its liveness-probe mechanism only; handover detection is unchanged)
+superseded-by: ADR-0104
 ---
 
 # Liveness rides its own reliable lane

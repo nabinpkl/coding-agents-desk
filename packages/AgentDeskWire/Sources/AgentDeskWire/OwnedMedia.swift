@@ -213,8 +213,6 @@ public enum OwnedMediaControlKind: String, Codable, Equatable, Sendable {
     // over twelve seconds -- so the client manufactures traffic it is owed an answer to, and
     // an unanswered probe means the downlink is dead whatever killed it. `frameId` carries the
     // probe's sequence number and the echo returns it unchanged.
-    case livenessProbe = "liveness-probe"
-    case livenessEcho = "liveness-echo"
 }
 public struct OwnedMediaControlMessage: Codable, Equatable, Sendable {
     public let type: String

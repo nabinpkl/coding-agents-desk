@@ -74,18 +74,14 @@ struct HostStatusPresentation: Equatable {
     /// what they offer, because any of them can be a recovery that never lands.
     static func forLoss(_ loss: MediaSessionLoss) -> HostStatusPresentation {
         switch loss {
-        case .linkChanged:
-            // Says what actually happened, and says nothing about the Mac. The last decoded
-            // frame stays on screen underneath, so this reads as a transition over a live
+        case .hostUnreachable:
+            // Deliberately blames neither end. "Mac stopped responding" was shown thirteen times
+            // in one measured session while the Mac was answering every probe; the honest thing
+            // to say is that the two ends cannot reach each other, which is all we know. The last
+            // decoded frame stays on screen underneath, so this reads as a transition over a live
             // picture rather than an error over a blank one.
             return HostStatusPresentation(
-                message: "Switching network…",
-                showsActivity: true,
-                offersReconnect: true
-            )
-        case .hostSilent:
-            return HostStatusPresentation(
-                message: "Mac stopped responding",
+                message: "Reconnecting…",
                 showsActivity: true,
                 offersReconnect: true
             )
