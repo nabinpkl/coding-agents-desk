@@ -80,11 +80,27 @@ final class SettingsStore: @unchecked Sendable {
     static let defaultAccessoryKeyHeight: Double = 36
     static let defaultAccessoryKeySpacing: Double = 6
     static let defaultManualMediaBitrateKbps = 2_500
-    static let manualMediaBitrateKbpsRange: ClosedRange<Int> = 180...5_000
+    // Stops, not a range, and deliberately not evenly spaced in kbps: the interesting part of
+    // this axis is the bottom. A constrained cellular link is tuned somewhere between 60 and
+    // 300, so a linear slider would bury every useful choice in the first few percent of its
+    // travel. Even spacing between STOPS spends equal thumb distance per step instead, which
+    // makes the low end selectable and the top end coarse -- the way round it wants to be.
+    // Starts at 10 so the slider can reach below the adaptive controller's own 60kbps floor.
+    static let manualMediaBitrateKbpsValues = [
+        10, 20, 30, 40, 50, 60, 80, 100, 125, 150, 180, 220, 260, 300,
+        400, 500, 650, 800, 1_000, 1_250, 1_500, 2_000, 2_500, 3_000, 4_000, 5_000
+    ]
+    // Which stops get a printed caption under their tick. Every stop is marked; only these are
+    // named, because thirteen captions do not fit across a phone.
+    static let manualMediaBitrateCaptionedKbps: Set<Int> = [10, 60, 180, 500, 1_000, 2_500, 5_000]
     static let defaultManualMediaFps = 30
-    static let manualMediaFpsValues = [1, 6, 10, 15, 24, 30]
+    static let manualMediaFpsValues = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 24, 30]
+    static let manualMediaFpsCaptionedValues: Set<Int> = [1, 5, 10, 15, 20, 30]
     static let defaultManualMediaResolutionScale = 1.0
-    static let manualMediaResolutionScaleValues = [0.33, 0.5, 0.75, 1.0]
+    static let manualMediaResolutionScaleValues = [0.25, 0.33, 0.4, 0.5, 0.6, 0.75, 0.85, 1.0]
+    // Keyed on whole percent rather than the Double itself: a Set<Double> would make selection
+    // depend on exact binary equality with the literals above.
+    static let manualMediaResolutionCaptionedPercents: Set<Int> = [25, 50, 75, 100]
 
     // Materialize the current tuning as one value. PairingViewController
     // copies this onto the translator on each change; SettingsViewController
@@ -231,10 +247,12 @@ final class SettingsStore: @unchecked Sendable {
     var manualMediaBitrateKbps: Int {
         get { defaults.object(forKey: Key.manualMediaBitrateKbps) as? Int ?? Self.defaultManualMediaBitrateKbps }
         set {
-            defaults.set(
-                clamp(newValue, min: Self.manualMediaBitrateKbpsRange.lowerBound, max: Self.manualMediaBitrateKbpsRange.upperBound),
-                forKey: Key.manualMediaBitrateKbps
-            )
+            // Snapped to a stop rather than clamped to a range, so a value stored here is one
+            // the slider can show the thumb sitting on.
+            let nearest = Self.manualMediaBitrateKbpsValues.min {
+                abs($0 - newValue) < abs($1 - newValue)
+            } ?? Self.defaultManualMediaBitrateKbps
+            defaults.set(nearest, forKey: Key.manualMediaBitrateKbps)
             postChange()
         }
     }

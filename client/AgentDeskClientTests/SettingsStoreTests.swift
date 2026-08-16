@@ -113,8 +113,11 @@ struct SettingsStoreTests {
         store.manualMediaResolutionScale = 0.5
         store.adaptiveMediaQualityEnabled = false
 
-        #expect(SettingsStore.manualMediaBitrateKbpsRange.lowerBound == 180)
+        #expect(SettingsStore.manualMediaBitrateKbpsValues.contains(180))
         #expect(SettingsStore.manualMediaFpsValues.contains(1))
+        // The axis reaches below the adaptive controller's own floor (60kbps, ADR-0101), so a
+        // link too weak for the automatic path can still be tuned by hand.
+        #expect(SettingsStore.manualMediaBitrateKbpsValues.first == 10)
         #expect(store.mediaQualityConfig == ClientMediaQualityConfig(
             adaptiveEnabled: false,
             fixedTarget: ClientMediaQualityTarget(

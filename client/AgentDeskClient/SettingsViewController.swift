@@ -25,12 +25,40 @@ final class SettingsViewController: UIViewController {
     )
     private let adaptiveMediaQualitySwitch = UISwitch()
     private let diagnosticScreenshotsSwitch = UISwitch()
-    private let manualMediaBitrateSlider = UISlider()
-    private let manualMediaBitrateLabel = UILabel()
-    private let manualMediaFpsControl = UISegmentedControl(
-        items: SettingsStore.manualMediaFpsValues.map(String.init)
+    // All three manual axes are stepped sliders over the store's own stop lists, so the labels
+    // cannot drift from the values they select.
+    private let manualMediaBitrateRow = SteppedSliderRow(
+        title: "Manual bitrate",
+        stops: SettingsStore.manualMediaBitrateKbpsValues.map { kbps in
+            SteppedSliderRow.Stop(
+                title: "\(kbps) kbps",
+                caption: SettingsStore.manualMediaBitrateCaptionedKbps.contains(kbps)
+                    ? (kbps >= 1_000 ? String(format: "%.3gk", Double(kbps) / 1_000) : "\(kbps)")
+                    : nil
+            )
+        }
     )
-    private let manualMediaResolutionControl = UISegmentedControl(items: ["33%", "50%", "75%", "100%"])
+    private let manualMediaFpsRow = SteppedSliderRow(
+        title: "Manual FPS",
+        stops: SettingsStore.manualMediaFpsValues.map { fps in
+            SteppedSliderRow.Stop(
+                title: "\(fps)",
+                caption: SettingsStore.manualMediaFpsCaptionedValues.contains(fps) ? "\(fps)" : nil
+            )
+        }
+    )
+    private let manualMediaResolutionRow = SteppedSliderRow(
+        title: "Manual resolution",
+        stops: SettingsStore.manualMediaResolutionScaleValues.map { scale in
+            let percent = Int((scale * 100).rounded())
+            return SteppedSliderRow.Stop(
+                title: "\(percent)%",
+                caption: SettingsStore.manualMediaResolutionCaptionedPercents.contains(percent)
+                    ? "\(percent)%"
+                    : nil
+            )
+        }
+    )
     private let manualMediaRows = UIStackView()
     private let remoteInputModeControl = RemoteInputModeControl()
     private let accessoryContainerSlider = UISlider()
@@ -295,12 +323,15 @@ final class SettingsViewController: UIViewController {
         )
         adaptiveMediaQualitySwitch.addTarget(self, action: #selector(adaptiveMediaQualityChanged), for: .valueChanged)
         diagnosticScreenshotsSwitch.addTarget(self, action: #selector(diagnosticScreenshotsChanged), for: .valueChanged)
-        manualMediaBitrateSlider.minimumValue = Float(SettingsStore.manualMediaBitrateKbpsRange.lowerBound)
-        manualMediaBitrateSlider.maximumValue = Float(SettingsStore.manualMediaBitrateKbpsRange.upperBound)
-        manualMediaBitrateSlider.isContinuous = true
-        manualMediaBitrateSlider.addTarget(self, action: #selector(manualMediaBitrateChanged), for: .valueChanged)
-        manualMediaFpsControl.addTarget(self, action: #selector(manualMediaFpsChanged), for: .valueChanged)
-        manualMediaResolutionControl.addTarget(self, action: #selector(manualMediaResolutionChanged), for: .valueChanged)
+        manualMediaBitrateRow.onSelect = { [weak self] index in
+            self?.manualMediaBitrateSelected(index)
+        }
+        manualMediaFpsRow.onSelect = { [weak self] index in
+            self?.manualMediaFpsSelected(index)
+        }
+        manualMediaResolutionRow.onSelect = { [weak self] index in
+            self?.manualMediaResolutionSelected(index)
+        }
         configureManualMediaRows()
         remoteInputModeControl.addTarget(self, action: #selector(remoteInputModeChanged), for: .valueChanged)
 
@@ -346,9 +377,15 @@ final class SettingsViewController: UIViewController {
         diagnosticScreenshotsSwitch.isOn = store.diagnosticScreenshotsEnabled
         loadKeyboardDictationPreferences()
         loadKeyboardDictationServiceState()
-        manualMediaBitrateSlider.value = Float(store.manualMediaBitrateKbps)
-        manualMediaFpsControl.selectedSegmentIndex = index(for: store.manualMediaFps, in: manualFpsValues())
-        manualMediaResolutionControl.selectedSegmentIndex = index(for: store.manualMediaResolutionScale, in: manualResolutionValues())
+        manualMediaBitrateRow.selectedIndex = index(
+            for: store.manualMediaBitrateKbps,
+            in: SettingsStore.manualMediaBitrateKbpsValues
+        )
+        manualMediaFpsRow.selectedIndex = index(for: store.manualMediaFps, in: manualFpsValues())
+        manualMediaResolutionRow.selectedIndex = index(
+            for: store.manualMediaResolutionScale,
+            in: manualResolutionValues()
+        )
         remoteInputModeControl.layoutMode = store.videoLayoutMode
         remoteInputModeControl.videoTouchEnabled = store.videoTouchEnabled
         remoteInputModeControl.autoKeyboardEnabled = store.autoKeyboardEnabled
@@ -367,7 +404,6 @@ final class SettingsViewController: UIViewController {
         accessoryContainerLabel.text = formattedPoints(accessoryContainerSlider.value)
         accessoryKeyLabel.text = formattedPoints(accessoryKeySlider.value)
         accessoryGapLabel.text = formattedPoints(accessoryGapSlider.value)
-        manualMediaBitrateLabel.text = "\(roundedManualBitrate()) kbps"
         manualMediaRows.isHidden = adaptiveMediaQualitySwitch.isOn
     }
 
@@ -444,21 +480,20 @@ final class SettingsViewController: UIViewController {
         }
     }
 
-    @objc private func manualMediaBitrateChanged() {
-        store.manualMediaBitrateKbps = roundedManualBitrate()
-        refreshLabels()
+    private func manualMediaBitrateSelected(_ index: Int) {
+        let values = SettingsStore.manualMediaBitrateKbpsValues
+        guard values.indices.contains(index) else { return }
+        store.manualMediaBitrateKbps = values[index]
     }
 
-    @objc private func manualMediaFpsChanged() {
+    private func manualMediaFpsSelected(_ index: Int) {
         let values = manualFpsValues()
-        let index = manualMediaFpsControl.selectedSegmentIndex
         guard values.indices.contains(index) else { return }
         store.manualMediaFps = values[index]
     }
 
-    @objc private func manualMediaResolutionChanged() {
+    private func manualMediaResolutionSelected(_ index: Int) {
         let values = manualResolutionValues()
-        let index = manualMediaResolutionControl.selectedSegmentIndex
         guard values.indices.contains(index) else { return }
         store.manualMediaResolutionScale = values[index]
     }
@@ -726,19 +761,10 @@ final class SettingsViewController: UIViewController {
     private func configureManualMediaRows() {
         manualMediaRows.axis = .vertical
         manualMediaRows.spacing = 12
-        manualMediaRows.addArrangedSubview(makeSliderRow(
-            name: "Manual bitrate",
-            valueLabel: manualMediaBitrateLabel,
-            slider: manualMediaBitrateSlider
-        ))
-        manualMediaRows.addArrangedSubview(makeSegmentedRow(
-            name: "Manual FPS",
-            control: manualMediaFpsControl
-        ))
-        manualMediaRows.addArrangedSubview(makeSegmentedRow(
-            name: "Manual resolution",
-            control: manualMediaResolutionControl
-        ))
+
+        manualMediaRows.addArrangedSubview(manualMediaBitrateRow)
+        manualMediaRows.addArrangedSubview(manualMediaFpsRow)
+        manualMediaRows.addArrangedSubview(manualMediaResolutionRow)
     }
 
     private func makeSegmentedRow(name: String, control: UISegmentedControl) -> UIStackView {
@@ -826,14 +852,6 @@ final class SettingsViewController: UIViewController {
         } catch {
             return nil
         }
-    }
-
-    private func roundedManualBitrate() -> Int {
-        let minimum = SettingsStore.manualMediaBitrateKbpsRange.lowerBound
-        if manualMediaBitrateSlider.value < Float(minimum + 25) {
-            return minimum
-        }
-        return Int((manualMediaBitrateSlider.value / 50).rounded() * 50)
     }
 
     private func manualFpsValues() -> [Int] {
