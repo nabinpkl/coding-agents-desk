@@ -3,82 +3,55 @@ import Network
 import os
 import AgentDeskWire
 
-/// ADR-0104: host side of the session liveness lane. The client opens a stream, tags it
-/// `.liveness`, and then pings; the host answers each ping with a pong carrying the same
-/// sequence.
+/// ADR-0103: host side of the liveness lane. The client opens a stream, tags it `.liveness`,
+/// and then only listens; the host pushes a fixed 16-byte heartbeat at a steady interval.
 ///
-/// A round trip rather than a one-way beat, because what the client needs to know is not whether
-/// the host is running -- a host that is running behind a path that no longer carries anything
-/// is no use to it -- but whether the two ends can still complete an exchange. Only an exchange
-/// answers that, and only the end that is waiting for pixels is in a position to ask.
+/// One-way on purpose. The previous design was a client probe answered by a host echo, which
+/// needed BOTH directions to survive for the session to be considered alive -- and the reply
+/// leg shared a congestion window with video. Measured on device, the host answered 187 of 187
+/// probes while only 108 of 175 replies arrived, and three consecutive drops were read as a
+/// dead host. A one-way heartbeat on a reliable stream removes the leg that was failing and
+/// makes loss impossible rather than merely unlikely.
 ///
-/// The host is deliberately a pure responder with no timer of its own. It never decides that a
-/// client is gone from this lane, so there is no second opinion to reconcile: the client owns
-/// that verdict, and the host owns only the obligation to answer. That asymmetry is the point of
-/// the redesign -- the previous arrangement had a client watch and a host watch reaching
-/// independent conclusions about the same silence.
-///
-/// The pong echoes the session id from the ping rather than the one the lane was opened with, so
-/// a ping for a session this connection does not serve is answered as what it is and the client
-/// can discard it. Unlike the other lanes this has no ready-handler and nothing retains it:
-/// nothing anywhere needs to talk to this lane, so the task owns everything it needs and ends
-/// itself when the stream does.
+/// The heartbeat is deliberately unconditional: it does not stop when video is flowing. Making
+/// it conditional would reintroduce the thing that made the old probe fragile -- a signal that
+/// is absent both when the host is dead and when the host is simply busy.
+/// Unlike the other lanes this has no ready-handler and nothing retains it. Those exist so the
+/// host can send on a lane from elsewhere in the app; nothing anywhere needs to talk to this
+/// one, so wiring it through `AppDelegate` would add a hop that only forwards. The beat task
+/// owns everything it needs and ends itself when the stream does.
 @available(macOS 26.0, *)
 enum LivenessLaneServer {
     static func start(
         stream: QUIC.Stream<QUICStream>,
         fingerprint: DeviceFingerprint,
-        sessionId: String
+        intervalMs: Int = Config.livenessHeartbeatIntervalMs
     ) {
         let logger = Logger(subsystem: Config.logSubsystem, category: "liveness-lane")
-        logger.notice("liveness lane attached fp=\(fingerprint.rawValue, privacy: .public)")
-        Task { [stream, logger, fingerprint, sessionId] in
-            var answered: UInt64 = 0
+        let intervalMs = max(100, intervalMs)
+        logger.notice("liveness lane attached fp=\(fingerprint.rawValue, privacy: .public) intervalMs=\(intervalMs, privacy: .public)")
+        Task { [stream, logger, fingerprint, intervalMs] in
+            let startedAt = DispatchTime.now().uptimeNanoseconds
+            var sequence: UInt64 = 0
             while !Task.isCancelled {
-                let ping: SessionLivenessFrame
-                do {
-                    let head = try await stream.receive(exactly: SessionLivenessFrame.headByteCount).content
-                    guard let bodyLength = SessionLivenessFrame.bodyLength(ofHead: Data(head)) else {
-                        logger.error("liveness lane malformed ping head fp=\(fingerprint.rawValue, privacy: .public); closing")
-                        return
-                    }
-                    let body = try await stream.receive(exactly: bodyLength).content
-                    guard let frame = SessionLivenessFrame.decode(head: Data(head), body: Data(body)),
-                          frame.kind == .ping else {
-                        logger.error("liveness lane malformed ping fp=\(fingerprint.rawValue, privacy: .public); closing")
-                        return
-                    }
-                    ping = frame
-                } catch {
-                    // The stream ended. Nothing to report to the client -- it reads this same
-                    // stream and learns from its own side.
-                    logger.notice(
-                        "liveness lane ended fp=\(fingerprint.rawValue, privacy: .public) answered=\(answered, privacy: .public) error=\(String(describing: error), privacy: .public)"
-                    )
-                    return
-                }
-                if ping.sessionId != sessionId {
-                    // Answered anyway, with the id that was asked for. The client is the one that
-                    // knows which session it is waiting on; refusing here would turn a stale ping
-                    // into silence, and silence is the one thing this lane must never manufacture.
-                    logger.notice(
-                        "liveness ping for another session fp=\(fingerprint.rawValue, privacy: .public) seq=\(ping.sequence, privacy: .public)"
-                    )
-                }
-                let pong = SessionLivenessFrame(
-                    kind: .pong,
-                    sequence: ping.sequence,
-                    sessionId: ping.sessionId
+                sequence &+= 1
+                let elapsedMs = (DispatchTime.now().uptimeNanoseconds &- startedAt) / 1_000_000
+                let beat = LivenessHeartbeat(
+                    sequence: sequence,
+                    hostUptimeMs: UInt32(truncatingIfNeeded: elapsedMs)
                 )
                 do {
-                    try await stream.send(pong.encode())
-                    answered &+= 1
+                    try await stream.send(beat.encode())
                 } catch {
+                    // A failed send means the stream is gone. Stop rather than spin: the client
+                    // reads this same stream, so it learns the session died from the read side
+                    // without needing to be told.
                     logger.notice(
-                        "liveness lane send failed fp=\(fingerprint.rawValue, privacy: .public) seq=\(ping.sequence, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                        "liveness lane send failed fp=\(fingerprint.rawValue, privacy: .public) seq=\(sequence, privacy: .public) error=\(String(describing: error), privacy: .public)"
                     )
                     return
                 }
+                try? await Task.sleep(for: .milliseconds(intervalMs))
             }
         }
     }

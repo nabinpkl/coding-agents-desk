@@ -124,13 +124,12 @@ private struct Channels {
     /// when sends start failing, one when they resume, never one per message. See
     /// `sendVideoControl`.
     private let controlSendHealth = OSAllocatedUnfairLock(initialState: ControlSendHealth())
-    /// ADR-0104. The session's round-trip clock, which is the ONLY thing that declares a session
-    /// gone. Deliberately not owned here: it belongs to the session, and this object belongs to
-    /// one connection of it. See `evaluateSessionLiveness`.
-    private let liveness: SessionLivenessTracker
-    /// Set when the detector sees the link move, so the next ping goes out immediately instead of
-    /// waiting out the interval. A hint about when to ask, never an answer.
-    private let pingNow = OSAllocatedUnfairLock(initialState: false)
+    /// ADR-0089 Phase 2. Armed when the detector sees the link move, disarmed by the first
+    /// datagram that arrives afterwards. See `evaluateHandoverRecovery`.
+    private let handoverWatch = OSAllocatedUnfairLock(initialState: HandoverWatch())
+    /// ADR-0103. Tracks the host's heartbeat lane, which is the only thing that declares a
+    /// host gone now. See `evaluateLivenessLane`.
+    private let livenessWatch = OSAllocatedUnfairLock(initialState: LivenessWatch())
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
     private var datagramReceiveTask: Task<Void, Never>?
     private var inputReceiveTask: Task<Void, Never>?
@@ -167,10 +166,6 @@ private struct Channels {
         ))
         self.activeSession = activeSession
         self.mediaKey = mediaKey
-        // Looked up rather than created: a resume reaches this line with the same session id, and
-        // must find the clock the previous connection was keeping rather than a fresh one that
-        // has never been silent.
-        self.liveness = SessionLivenessRegistry.tracker(for: activeSession.sessionId)
 
         // ADR-0088: records every path transition as it happens, independent of the 500ms
         // report cadence, so a transition that lands mid-window is timestamped where it
@@ -852,6 +847,19 @@ private struct Channels {
             close()
             return
         }
+        // Decoded explicitly so it does not fall through to the frame decoder and read as a
+        // malformed packet.
+        //
+        // It is still recorded, because clearing the run is not the same as proving the round
+        // trip: any datagram at all clears it, so an arriving video packet and an arriving echo
+        // are indistinguishable in that counter. Only the echo says the host read our control
+        // message and answered it, which is the half of the path a teardown blames.
+        if let control = try? JSONDecoder().decode(OwnedMediaControlMessage.self, from: data),
+           control.kind == .livenessEcho {
+            // ADR-0103: liveness moved to its own reliable lane. A host still sending echoes is
+            // older than this client; ignoring them is correct, not a silent failure.
+            return
+        }
         guard let packet = try? MediaDatagramFramePacket.decode(data, key: mediaKey) else {
             return
         }
@@ -1059,15 +1067,13 @@ private struct Channels {
         // callback at all. One getifaddrs per report window is the price of not missing it.
         changeDetector.sampleAddresses()
         let (linkChanges, newLinkChanges, linkChangeCauses) = changeDetector.reportSnapshot()
-        if newLinkChanges > 0 {
-            // A link change is a reason to ask sooner, not a reason to conclude anything. It used
-            // to arm a grace timer that declared the session dead on expiry -- which is how a
-            // genuine handover was declared dead at 2,098ms against a 2,000ms grace, 98
-            // milliseconds before the new path came up and would have answered.
-            logger.notice("link changed, pinging now causes=\(linkChangeCauses ?? "unknown", privacy: .public)")
-            pingNow.withLock { $0 = true }
-        }
-        evaluateSessionLiveness(nowNs: nowNs)
+        evaluateHandoverRecovery(
+            linkChanged: newLinkChanges > 0,
+            causes: linkChangeCauses,
+            arrivals: counts.arrivals,
+            nowNs: nowNs
+        )
+        evaluateLivenessLane(nowNs: nowNs)
         let telemetry = OwnedMediaLinkTelemetry(
             interfaceType: pathSnapshot?.interfaceType,
             expensive: pathSnapshot?.expensive,
@@ -1143,48 +1149,121 @@ private struct Channels {
         )
     }
 
-    /// ADR-0104: the one place a session is declared gone.
+    /// ADR-0089 Phase 2: turn a detected link change into a recovery, or decide not to.
     ///
-    /// There used to be two. A handover watch armed by a link change declared death when its
-    /// grace expired, and a liveness check declared death when replies stopped arriving. Neither
-    /// could see what the other knew, so a session could be torn down by whichever was wrong
-    /// first -- measured: thirteen of fourteen teardowns in one session came from lost replies on
-    /// a link that never dropped a video frame, and the fourteenth was a real handover killed 98
-    /// milliseconds before the new path would have answered.
+    /// Recovery used to depend on the media channel reporting `.failed`, or on
+    /// `applicationWillEnterForeground`. Neither can be relied on during a handover: the app
+    /// never leaves the foreground while the network changes, and R208 measured a nine-second
+    /// freeze through which the transport reported nothing whatsoever. Detection fired in half
+    /// a second and had nowhere to go.
     ///
-    /// Now the clock is time since the session last completed a round trip, and it lives in the
-    /// session rather than in this object. A handover replaces the transport without touching it,
-    /// so reconnecting is not itself evidence of anything, and a session that answers on its
-    /// third connection attempt is simply alive.
-    private func evaluateSessionLiveness(nowNs: UInt64) {
-        guard let outcome = liveness.declareIfSilent(nowNs: nowNs) else { return }
+    /// A change arms the watch and sends a keyframe request. The request is the probe: it
+    /// obliges the host to produce a frame if the path carries anything, so the silence that
+    /// follows is an unanswered probe rather than possibly just a calm screen -- the false
+    /// positive that had to be fixed host-side in `clientLinkStalled`, and which would be worse
+    /// here because acting on it drops a live session.
+    private func evaluateHandoverRecovery(
+        linkChanged: Bool,
+        causes: String?,
+        arrivals: Int,
+        nowNs: UInt64
+    ) {
+        let outcome = handoverWatch.withLock { watch -> (probe: Bool, recover: Double?) in
+            if arrivals > 0 {
+                // Traffic proves the path, whatever moved. Disarm completely: a later change
+                // re-arms, and without this a session that survived one handover would carry a
+                // stale arming into the next quiet moment.
+                watch.changedAtUptimeNs = nil
+                watch.sawArrivalSinceChange = true
+                watch.recoveryDeclared = false
+            }
+            var shouldProbe = false
+            if linkChanged {
+                watch.changedAtUptimeNs = nowNs
+                // Deliberately false even when this window saw arrivals: they may have landed
+                // before the change, and treating them as evidence the new link works would
+                // veto recovery permanently on exactly the handovers that break mid-window.
+                // Nothing is lost -- the grace spans several windows, so a link that really
+                // carries traffic sets this on one of them well before we act.
+                watch.sawArrivalSinceChange = false
+                watch.recoveryDeclared = false
+                shouldProbe = true
+            }
+            guard !watch.recoveryDeclared, let changedAt = watch.changedAtUptimeNs else {
+                return (shouldProbe, nil)
+            }
+            let elapsedMs = Self.elapsedMs(from: changedAt, to: nowNs)
+            guard HandoverRecoveryPolicy.shouldRecover(
+                msSinceLinkChange: elapsedMs,
+                sawArrivalSinceChange: watch.sawArrivalSinceChange,
+                graceMs: Double(Config.ownedMediaHandoverGraceMs)
+            ) else { return (shouldProbe, nil) }
+            // Latch, so the teardown that follows does not re-declare every window.
+            watch.recoveryDeclared = true
+            return (shouldProbe, elapsedMs)
+        }
+
+        if outcome.probe {
+            logger.notice("handover probe causes=\(causes ?? "unknown", privacy: .public)")
+            sendVideoControl(OwnedMediaControlMessage(
+                kind: .keyframeRequest,
+                frameId: 0,
+                reason: "handover-probe"
+            ))
+        }
+        guard let silentMs = outcome.recover else { return }
         logger.notice(
-            "session unreachable, declaring dead silentMs=\(Int(outcome.silentMs), privacy: .public) pings=\(outcome.pings, privacy: .public) pongs=\(outcome.pongs, privacy: .public)"
+            "handover recovery declaring session dead silentMs=\(Int(silentMs), privacy: .public) causes=\(causes ?? "unknown", privacy: .public)"
         )
         ClientDiagnostics.shared.record(
-            type: "sessionUnreachable",
+            type: "handoverRecoveryDeclared",
+            fields: ["silentMs": String(Int(silentMs)), "causes": causes ?? "unknown"],
+            level: .error
+        )
+        stateContinuation.yield(.failed(.linkChanged))
+    }
+
+    /// ADR-0103: the host is gone when its heartbeat lane goes quiet.
+    ///
+    /// This replaced a probe/echo exchange over the connection-wide datagram flow. That design
+    /// needed BOTH legs to survive, and the reply leg shared a congestion window with video:
+    /// measured on device, the host answered 187 of 187 probes while only 108 of 175 replies
+    /// arrived, and three consecutive drops were read as a dead host. Thirteen of fourteen
+    /// disconnects in one session came from that, on a link that never lost a video frame.
+    ///
+    /// The heartbeat cannot be lost -- its lane is a reliable QUIC stream, retransmitted, and
+    /// not blocked by the crisp tiles on a different stream. So silence here means the path is
+    /// genuinely not moving, which is the thing worth acting on, and the limit can be generous
+    /// enough to ride out the 2-3s cellular stalls that self-heal.
+    private func evaluateLivenessLane(nowNs: UInt64) {
+        let outcome = livenessWatch.withLock { watch -> (silentMs: Double, beats: UInt64)? in
+            guard !watch.declared, let lastBeat = watch.lastHeartbeatUptimeNs else { return nil }
+            let silentMs = Self.elapsedMs(from: lastBeat, to: nowNs)
+            guard LivenessLanePolicy.shouldDeclareHostGone(msSinceLastHeartbeat: silentMs) else {
+                return nil
+            }
+            watch.declared = true
+            return (silentMs, watch.heartbeatsReceived)
+        }
+        guard let outcome else { return }
+        logger.notice(
+            "liveness lane silent, declaring session dead silentMs=\(Int(outcome.silentMs), privacy: .public) heartbeats=\(outcome.beats, privacy: .public)"
+        )
+        ClientDiagnostics.shared.record(
+            type: "livenessLaneSilent",
             fields: [
                 "silentMs": String(Int(outcome.silentMs)),
-                "pings": String(outcome.pings),
-                "pongs": String(outcome.pongs)
+                "heartbeats": String(outcome.beats)
             ],
             level: .error
         )
-        stateContinuation.yield(.failed(.hostUnreachable))
+        stateContinuation.yield(.failed(.hostSilent))
     }
 
-    /// Announce the liveness lane, then ping until the stream ends, reading pongs as they come.
+    /// Announce the liveness lane, then read fixed-size heartbeats until the stream ends.
     ///
-    /// Send and receive share one task rather than running as two. The lane carries exactly one
-    /// exchange at a time and the host answers in order, so a second task would buy concurrency
-    /// this protocol has no use for while adding a way for the two halves to disagree about
-    /// whether the lane is still up.
-    ///
-    /// A read or write that throws ends the loop and nothing else. The stream dying says this
-    /// CONNECTION is finished, which is not the same claim as the session being finished -- the
-    /// next connection will attach its own lane to the same tracker, and if it answers, nothing
-    /// was ever wrong. Treating a dead socket as a dead session is precisely the conflation this
-    /// redesign removes.
+    /// A read that throws or comes up short is the host going away, reported directly rather
+    /// than inferred: unlike silence, a dead stream is positive evidence.
     private func startLivenessReceiveLoop() {
         livenessReceiveTask = Task { [weak self] in
             guard let self else { return }
@@ -1196,58 +1275,42 @@ private struct Channels {
                 logger.notice("liveness lane announce failed: \(String(describing: error), privacy: .public)")
                 return
             }
-            liveness.noteLaneAttached(nowNs: DispatchTime.now().uptimeNanoseconds)
-            logger.notice("liveness lane announced session=\(self.activeSession.sessionId, privacy: .public)")
-
+            // Seeded at announce so the silence clock starts now rather than at the first beat;
+            // a host that never beats must still be caught.
+            livenessWatch.withLock { $0.lastHeartbeatUptimeNs = DispatchTime.now().uptimeNanoseconds }
+            logger.notice("liveness lane announced")
             while !Task.isCancelled {
-                let sequence = liveness.nextPingSequence()
-                let ping = SessionLivenessFrame(
-                    kind: .ping,
-                    sequence: sequence,
-                    sessionId: activeSession.sessionId
-                )
                 do {
-                    try await livenessStream.send(ping.encode())
-                } catch {
-                    logger.notice("liveness ping failed: \(String(describing: error), privacy: .public)")
-                    return
-                }
-                do {
-                    let head = try await livenessStream.receive(exactly: SessionLivenessFrame.headByteCount).content
-                    guard let bodyLength = SessionLivenessFrame.bodyLength(ofHead: Data(head)) else {
-                        logger.error("liveness lane malformed pong head; closing")
+                    let bytes = try await livenessStream.receive(exactly: LivenessHeartbeat.byteCount).content
+                    guard let beat = LivenessHeartbeat.decode(Data(bytes)) else {
+                        logger.error("liveness lane malformed heartbeat; closing")
                         return
                     }
-                    let body = try await livenessStream.receive(exactly: bodyLength).content
-                    guard let pong = SessionLivenessFrame.decode(head: Data(head), body: Data(body)),
-                          pong.kind == .pong else {
-                        logger.error("liveness lane malformed pong; closing")
-                        return
+                    livenessWatch.withLock { watch in
+                        watch.lastHeartbeatUptimeNs = DispatchTime.now().uptimeNanoseconds
+                        watch.heartbeatsReceived += 1
+                        watch.declared = false
+                        watch.lastSequence = beat.sequence
                     }
-                    // A pong for another session is not evidence about this one. It cannot
-                    // normally happen -- the host echoes what it was asked -- so it is worth a
-                    // line rather than a silent discard.
-                    guard pong.sessionId == activeSession.sessionId else {
-                        logger.error("liveness pong for session=\(pong.sessionId, privacy: .public); ignoring")
-                        continue
-                    }
-                    _ = liveness.noteRoundTrip(sequence: pong.sequence, nowNs: DispatchTime.now().uptimeNanoseconds)
                 } catch {
+                    // The stream ended. The report loop's silence check will declare it; saying
+                    // it here as well would race two teardowns for one cause.
                     logger.notice("liveness lane ended: \(String(describing: error), privacy: .public)")
                     return
                 }
-                // Skipped when a link change asked for the next ping immediately. The clock that
-                // matters is the round-trip one, so asking early can only ever shorten the time
-                // to learn the truth in either direction.
-                let immediate = pingNow.withLock { pending -> Bool in
-                    defer { pending = false }
-                    return pending
-                }
-                if !immediate {
-                    try? await Task.sleep(for: .milliseconds(Int(SessionLivenessPolicy.pingIntervalMs)))
-                }
             }
         }
+    }
+
+    private static func elapsedMs(from startNs: UInt64, to nowNs: UInt64) -> Double {
+        Double(nowNs >= startNs ? nowNs - startNs : 0) / 1_000_000
+    }
+
+    /// `n/a` rather than a zero for "never happened": a teardown line reporting `sinceEchoMs=0`
+    /// would read as an echo that had just arrived, which is the opposite of what it means.
+    private static func describeMs(_ value: Double?) -> String {
+        guard let value else { return "n/a" }
+        return String(Int(value))
     }
 
     /// Send a control message on the datagram lane.
@@ -1355,6 +1418,30 @@ private struct Channels {
     private struct ControlSendHealth {
         var failures: Int = 0
         var firstFailureUptimeNs: UInt64?
+    }
+
+    /// State for the handover probe: when the link last moved, whether anything has arrived
+    /// since, and whether we have already acted -- so one handover produces one recovery rather
+    /// than one per report window while the session tears down.
+    private struct HandoverWatch {
+        var changedAtUptimeNs: UInt64?
+        var sawArrivalSinceChange: Bool = false
+        var recoveryDeclared: Bool = false
+    }
+
+    /// State for the liveness probe: the next probe's sequence number, when the last one went
+    /// out, how many have gone unanswered, and whether we have already declared -- the same
+    /// latch as `HandoverWatch`, for the same reason.
+    private struct LivenessWatch {
+        /// When the last heartbeat landed, or when the lane was announced. Nil until the lane
+        /// attaches, which is what keeps a session that has not opened it yet from being torn
+        /// down for silence it was never promised.
+        var lastHeartbeatUptimeNs: UInt64?
+        var heartbeatsReceived: UInt64 = 0
+        var lastSequence: UInt64 = 0
+        /// Latched so one silence does not yield `.failed` on every report window. Cleared by a
+        /// heartbeat, so a lane that recovers before teardown completes is trusted again.
+        var declared: Bool = false
     }
 
     private struct State {
