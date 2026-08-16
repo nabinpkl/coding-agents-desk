@@ -402,12 +402,80 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     // once instead of being masked by a stale crisp tile for up to a crisp interval. Cheap:
     // rect overlap only, no hashing, no payload. Runs only once a lane is attached and the
     // surface baseline (resetSurface) has been sent.
+    /// The persistent tightly-packed BGRA scratch buffer, resized to the capture geometry.
+    /// `reallocated` is true when the memory is fresh and therefore uninitialized, which every
+    /// caller must treat as "these bytes mean nothing yet".
+    ///
+    /// Shared by both crisp paths: the crisp window renders its heal or damage region here,
+    /// and the eager-revert path renders just the tiles it is about to hash. One buffer rather
+    /// than two because they run back-to-back on the same serialized drain loop against the
+    /// same frame, so the second render is writing identical pixels for any region they share.
+    private func ensureCrispBuffer(
+        width: Int,
+        height: Int
+    ) -> (base: UnsafeMutableRawPointer, reallocated: Bool)? {
+        guard width > 0, height > 0 else { return nil }
+        let bytesPerRow = width * 4
+        return crispBufferGate.withLockUnchecked { buf in
+            if buf.base == nil || buf.width != width || buf.height != height {
+                if let old = buf.base { old.deallocate() }
+                let count = bytesPerRow * height
+                let fresh = UnsafeMutableRawPointer.allocate(
+                    byteCount: count, alignment: MemoryLayout<UInt8>.alignment
+                )
+                buf.base = fresh
+                buf.byteCount = count
+                buf.width = width
+                buf.height = height
+                buf.bytesPerRow = bytesPerRow
+                return (fresh, true)
+            }
+            return (buf.base!, false)
+        }
+    }
+
     private func processCrispDamage(_ frame: CapturedVideoFrame) {
         guard !frame.damageRects.isEmpty else { return }
         let nowMs = Int(frame.capturedAtUptimeNs / 1_000_000)
+        // Cheap first: does this damage touch any crisp tile, and how many? Rect arithmetic
+        // only. The overwhelmingly common answer is "none", and that answer must not cost a
+        // pixel convert at video cadence.
+        let overlap = crispGate.withLock { state -> (bounds: PixelRect, count: Int)? in
+            guard state.lane != nil, state.surfaceInitialized else { return nil }
+            return state.controller.crispTilesOverlapping(frame.damageRects)
+        }
+        guard let overlap else { return }
+        // Verify only when the tile count makes it worth a convert. Above the threshold the
+        // damage is a scroll or a window switch, where nearly every tile genuinely changed and
+        // hashing would pay a full convert to be told what the rectangle already said.
+        let verified: (pixels: Data, stride: Int)? = {
+            guard overlap.count <= Config.ownedMediaCrispVerifyMaxTiles else { return nil }
+            let width = CVPixelBufferGetWidth(frame.pixelBuffer)
+            let height = CVPixelBufferGetHeight(frame.pixelBuffer)
+            guard let ensured = ensureCrispBuffer(width: width, height: height),
+                  // A fresh allocation holds uninitialized memory; hashing it would call every
+                  // tile changed. Fall through to the rect-only path for this one frame.
+                  !ensured.reallocated,
+                  OwnedMediaCrispConvert.renderRegion(
+                      source: frame.pixelBuffer, into: ensured.base, destRowBytes: width * 4,
+                      region: overlap.bounds, fullWidth: width, fullHeight: height,
+                      context: Self.crispCIContext
+                  )
+            else { return nil }
+            let stride = width * 4
+            return (
+                Data(bytesNoCopy: ensured.base, count: stride * height, deallocator: .none),
+                stride
+            )
+        }()
         crispGate.withLock { state in
             guard let lane = state.lane, state.surfaceInitialized else { return }
-            let reverts = state.controller.reactToDamage(frame.damageRects, nowMs: nowMs)
+            let reverts = state.controller.reactToDamage(
+                frame.damageRects,
+                nowMs: nowMs,
+                verifying: verified?.pixels,
+                bytesPerRow: verified?.stride ?? 0
+            )
             guard !reverts.isEmpty else { return }
             state.crispFrameId &+= 1
             lane.send(OwnedGraphicsFrameEnvelope(
@@ -509,23 +577,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         // size change. A realloc yields uninitialized memory, so this window must do a FULL
         // render regardless of mode, or a gated sub-region render would leave the rest of
         // the buffer garbage that the controller could hash for a due candidate.
-        let ensured: (base: UnsafeMutableRawPointer, reallocated: Bool)? =
-            crispBufferGate.withLockUnchecked { buf in
-                if buf.base == nil || buf.width != width || buf.height != height {
-                    if let old = buf.base { old.deallocate() }
-                    let count = bytesPerRow * height
-                    let fresh = UnsafeMutableRawPointer.allocate(
-                        byteCount: count, alignment: MemoryLayout<UInt8>.alignment
-                    )
-                    buf.base = fresh
-                    buf.byteCount = count
-                    buf.width = width
-                    buf.height = height
-                    buf.bytesPerRow = bytesPerRow
-                    return (fresh, true)
-                }
-                return (buf.base!, false)
-            }
+        let ensured = ensureCrispBuffer(width: width, height: height)
         guard let ensured else { return }
         let base = ensured.base
 
@@ -621,7 +673,10 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 let payloadBytes = emission.payload.count
                 let dropped = state.controller.droppedCrispTileCount
                 let throttled = state.controller.throttledCrispTileCount
-                let eagerReverts = state.controller.eagerRevertCount
+                let eagerConfirmed = state.controller.eagerRevertConfirmedCount
+                let eagerSuppressed = state.controller.eagerRevertSuppressedCount
+                let eagerUnverified = state.controller.eagerRevertUnverifiedCount
+                let reconcileReverts = state.controller.reconcileRevertCount
                 // `fresh` vs `redraw` separates the two promotions that look identical in a
                 // bare tile count but cost wildly different things: a fresh cacheTile carries
                 // compressed pixels, a drawCachedTile carries nothing. A window that is mostly
@@ -637,7 +692,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     }
                 }
                 let laneAttached = state.lane != nil
-                logger.notice("crisp window tiles=\(tiles, privacy: .public) fresh=\(fresh, privacy: .public) redraw=\(redraw, privacy: .public) payloadBytes=\(payloadBytes, privacy: .public) budget=\(windowBudget, privacy: .public) dropped=\(dropped, privacy: .public) throttled=\(throttled, privacy: .public) eagerReverts=\(eagerReverts, privacy: .public) resized=\(emission.surfaceDidReset, privacy: .public) laneAttached=\(laneAttached, privacy: .public)")
+                logger.notice("crisp window tiles=\(tiles, privacy: .public) fresh=\(fresh, privacy: .public) redraw=\(redraw, privacy: .public) payloadBytes=\(payloadBytes, privacy: .public) budget=\(windowBudget, privacy: .public) dropped=\(dropped, privacy: .public) throttled=\(throttled, privacy: .public) eagerConfirmed=\(eagerConfirmed, privacy: .public) eagerSuppressed=\(eagerSuppressed, privacy: .public) eagerUnverified=\(eagerUnverified, privacy: .public) reconcileReverts=\(reconcileReverts, privacy: .public) resized=\(emission.surfaceDidReset, privacy: .public) laneAttached=\(laneAttached, privacy: .public)")
             }
             guard let lane = state.lane else {
                 // No lane to receive these assignments: discard the staged slot commits so

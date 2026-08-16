@@ -724,6 +724,21 @@ enum Config {
         defaultValue: true,
         environment: ProcessInfo.processInfo.environment
     )
+    // How many crisp tiles a damage rect may overlap before the eager revert stops verifying
+    // and just reverts them all. Verification re-hashes each overlapped crisp tile against the
+    // live pixels so a damage rect over static text stops un-crispening it -- measured at ~140
+    // needless reverts/s before this existed, each one a visible flip between crisp and video.
+    //
+    // The cost scales with tiles overlapped, not damage area, and it self-limits: during a
+    // scroll, tiles are reverted almost immediately and cannot re-settle while moving, so few
+    // are crisp to verify. The case this threshold actually guards is a fully-crisp static
+    // screen taking one full-surface change (a window or Space switch), where a single frame
+    // would otherwise convert and hash the whole grid. 32 sits far above ordinary cursor and
+    // text damage and well below a full screen (~150 tiles at 128px on a 1800x1168 capture).
+    static let ownedMediaCrispVerifyMaxTiles: Int = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_VERIFY_MAX_TILES",
+        defaultValue: 32
+    )
     static let ownedMediaCrispSettleWindowMs: Int = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_SETTLE_WINDOW_MS",
         defaultValue: 200
