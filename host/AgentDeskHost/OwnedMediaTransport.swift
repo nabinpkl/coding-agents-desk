@@ -242,6 +242,14 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             return outcome
         }
         guard let outcome else { return }
+        // A manual pin is this session's quality target just as much as a ladder decision is, so
+        // it has to be recorded as one. Reporting only adaptive outcomes left ADR-0090's resume
+        // pin nil for every manually-pinned session, which is what the daily driver runs: the
+        // next connection opened at the config default, the client's pin landed ~70ms later, and
+        // the resolution delta recreated the compression session -- destroying the entire
+        // long-term reference set (measured: 3018 acknowledged references) immediately after a
+        // resume whose whole purpose was to keep it.
+        onQualityTargetChanged(outcome.target)
         if outcome.bitrateChanged {
             applyBitrate(outcome.target.bitrateKbps)
         }

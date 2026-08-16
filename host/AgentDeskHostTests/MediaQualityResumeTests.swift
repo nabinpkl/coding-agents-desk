@@ -72,6 +72,38 @@ struct MediaQualityResumeTests {
         #expect(state.targetResolutionScale != 1.0, "a resume that opens at native scale forces the rescale this exists to avoid")
     }
 
+    /// The hole ADR-0090 left, and the one the daily driver actually fell into: only ladder
+    /// decisions were reported as this session's target, so a manually-pinned session carried
+    /// nothing. The next connection opened at the config default, the client's pin arrived a few
+    /// dozen milliseconds later, and that resolution delta recreated the compression session --
+    /// the exact rescale-in-the-path-of-a-resume this file exists to prevent, reached by a
+    /// different route. Measured on device: 3,018 acknowledged references destroyed ~70ms after
+    /// a resume that had correctly reused the encoder.
+    ///
+    /// The invariant is that re-applying the client's own config to a resumed session is a no-op
+    /// on resolution. Anything else means the pin did not carry.
+    @Test func aManualPinCarriesSoTheClientConfigDoesNotRescaleTheResumedSession() {
+        let manual = ClientMediaQualityConfig(
+            adaptiveEnabled: false,
+            fixedTarget: ClientMediaQualityTarget(bitrateKbps: 8_000, fps: 60, resolutionScale: 0.25)
+        )
+
+        var pinned = makeState()
+        let carried = pinned.applyClientMediaQuality(manual)?.target
+        #expect(carried?.resolutionScale == 0.25, "the manual pin must produce a target to carry")
+        guard let carried else { return }
+
+        var resumed = makeState(resuming: carried)
+        #expect(resumed.targetResolutionScale == carried.resolutionScale)
+
+        let reapplied = resumed.applyClientMediaQuality(manual)
+        #expect(
+            reapplied?.resolutionChanged != true,
+            "the client's own config re-arriving on a resumed session must not rescale it"
+        )
+        #expect(resumed.targetResolutionScale == carried.resolutionScale)
+    }
+
     /// Carried, not frozen. The link may genuinely have changed -- that is usually why the drop
     /// happened -- so the carried target is an opening bid the controller has to re-earn its
     /// way up from. Pinning clears the recovery credit rather than leaving it banked from
