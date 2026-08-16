@@ -724,6 +724,13 @@ enum Config {
         defaultValue: true,
         environment: ProcessInfo.processInfo.environment
     )
+    // ADR-0103: how often the host beats on the liveness lane. Must divide the client's
+    // silence limit several times over, so a single late beat is never mistaken for a dead
+    // host -- the client tolerates missing several in a row before it acts.
+    static let livenessHeartbeatIntervalMs: Int = positiveInt(
+        environmentKey: "AGENTDESK_LIVENESS_HEARTBEAT_INTERVAL_MS",
+        defaultValue: 1_000
+    )
     static let ownedMediaCrispSettleWindowMs: Int = positiveInt(
         environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_SETTLE_WINDOW_MS",
         defaultValue: 200

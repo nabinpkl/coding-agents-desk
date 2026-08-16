@@ -51,6 +51,10 @@ private struct Channels {
         // The Agent panel protocol (.agent role), carried on its own stream so the client forwards
         // it verbatim to the panel webview instead of demuxing it off the shared input lane.
         let agentStream: QUIC.Stream<QUICStream>
+        // ADR-0103: the reliable lane the host beats on. Its own stream so a heartbeat cannot
+        // queue behind crisp tiles, and reliable so it cannot be dropped the way the datagram
+        // probes it replaces were.
+        let livenessStream: QUIC.Stream<QUICStream>
     }
     private let channels: OSAllocatedUnfairLock<Channels?>
 
@@ -67,6 +71,7 @@ private struct Channels {
     private var connection: NetworkConnection<QUIC> { get throws { try liveChannels().connection } }
     private var inputStream: QUIC.Stream<QUICStream> { get throws { try liveChannels().inputStream } }
     private var graphicsStream: QUIC.Stream<QUICStream> { get throws { try liveChannels().graphicsStream } }
+    private var livenessStream: QUIC.Stream<QUICStream> { get throws { try liveChannels().livenessStream } }
     private var datagrams: QUIC.Datagrams<QUICDatagram> { get throws { try liveChannels().datagrams } }
     private var agentStream: QUIC.Stream<QUICStream> { get throws { try liveChannels().agentStream } }
     private let mediaRepairBuffer = MediaDatagramFrameRepairBuffer(
@@ -122,15 +127,15 @@ private struct Channels {
     /// ADR-0089 Phase 2. Armed when the detector sees the link move, disarmed by the first
     /// datagram that arrives afterwards. See `evaluateHandoverRecovery`.
     private let handoverWatch = OSAllocatedUnfairLock(initialState: HandoverWatch())
-    /// ADR-0089 Phase 3. Runs only while nothing is arriving, and catches the death a link
-    /// change cannot: a session that dies with the link completely stable. See
-    /// `evaluateLivenessProbe`.
+    /// ADR-0103. Tracks the host's heartbeat lane, which is the only thing that declares a
+    /// host gone now. See `evaluateLivenessLane`.
     private let livenessWatch = OSAllocatedUnfairLock(initialState: LivenessWatch())
     private let lock = OSAllocatedUnfairLock<State>(initialState: State())
     private var datagramReceiveTask: Task<Void, Never>?
     private var inputReceiveTask: Task<Void, Never>?
     private var agentReceiveTask: Task<Void, Never>?
     private var graphicsReceiveTask: Task<Void, Never>?
+    private var livenessReceiveTask: Task<Void, Never>?
     private var linkHealthTask: Task<Void, Never>?
     private weak var sink: (any OwnedMediaFrameSink)?
     // Set by PairingViewController to forward raw agent push JSON to AgentFeedSurface.
@@ -148,14 +153,16 @@ private struct Channels {
         datagrams: QUIC.Datagrams<QUICDatagram>,
         activeSession: ActiveSession,
         mediaKey: SymmetricKey,
-        agentStream: QUIC.Stream<QUICStream>
+        agentStream: QUIC.Stream<QUICStream>,
+        livenessStream: QUIC.Stream<QUICStream>
     ) {
         self.channels = OSAllocatedUnfairLock(initialState: Channels(
             connection: connection,
             inputStream: inputStream,
             graphicsStream: graphicsStream,
             datagrams: datagrams,
-            agentStream: agentStream
+            agentStream: agentStream,
+            livenessStream: livenessStream
         ))
         self.activeSession = activeSession
         self.mediaKey = mediaKey
@@ -297,6 +304,7 @@ private struct Channels {
             startLinkHealthReporting()
             // Now that the sink is installed, announce and run the graphics lane.
             startGraphicsReceiveLoop()
+            startLivenessReceiveLoop()
             await MainActor.run { [weak mediaSink] in
                 mediaSink?.setOwnedMediaStatus(.connected)
             }
@@ -470,6 +478,7 @@ private struct Channels {
         datagramReceiveTask?.cancel()
         inputReceiveTask?.cancel()
         graphicsReceiveTask?.cancel()
+        livenessReceiveTask?.cancel()
         linkHealthTask?.cancel()
         pathObserver.stop()
         radioObserver.stop()
@@ -623,10 +632,12 @@ private struct Channels {
     /// Read video datagrams for as long as the session lives, surviving transient errors.
     ///
     /// Same defect and same fix as the host's control loop: ending on the first throw made every
-    /// transient fault permanent. It matters more here, because this loop stopping is not merely
-    /// deafness -- arrivals are what clear the liveness run, so a dead receive loop manufactures
-    /// exactly the silence that `evaluateLivenessProbe` reads as a dead host, and the client
-    /// tears down a session over its own stopped task.
+    /// transient fault permanent.
+    ///
+    /// This loop stopping used to be worse than deafness: arrivals cleared the liveness run, so
+    /// a dead receive loop manufactured the silence that was read as a dead host, and the client
+    /// tore down a session over its own stopped task. Liveness now rides its own lane
+    /// (ADR-0103), so a stall here costs pictures rather than the session.
     private func startDatagramReceiveLoop() {
         datagramReceiveTask = Task { [weak self] in
             guard let self else { return }
@@ -836,10 +847,8 @@ private struct Channels {
             close()
             return
         }
-        // ADR-0089: the echo needs no handling beyond having arrived -- the receive loop already
-        // counted it, and that count is what clears the unanswered run in `evaluateLivenessProbe`.
-        // Decoded explicitly anyway so it does not fall through to the frame decoder and read as
-        // a malformed packet.
+        // Decoded explicitly so it does not fall through to the frame decoder and read as a
+        // malformed packet.
         //
         // It is still recorded, because clearing the run is not the same as proving the round
         // trip: any datagram at all clears it, so an arriving video packet and an arriving echo
@@ -847,7 +856,8 @@ private struct Channels {
         // message and answered it, which is the half of the path a teardown blames.
         if let control = try? JSONDecoder().decode(OwnedMediaControlMessage.self, from: data),
            control.kind == .livenessEcho {
-            noteLivenessEcho(probeId: control.frameId)
+            // ADR-0103: liveness moved to its own reliable lane. A host still sending echoes is
+            // older than this client; ignoring them is correct, not a silent failure.
             return
         }
         guard let packet = try? MediaDatagramFramePacket.decode(data, key: mediaKey) else {
@@ -1063,7 +1073,7 @@ private struct Channels {
             arrivals: counts.arrivals,
             nowNs: nowNs
         )
-        evaluateLivenessProbe(arrivals: counts.arrivals, nowNs: nowNs)
+        evaluateLivenessLane(nowNs: nowNs)
         let telemetry = OwnedMediaLinkTelemetry(
             interfaceType: pathSnapshot?.interfaceType,
             expensive: pathSnapshot?.expensive,
@@ -1213,127 +1223,83 @@ private struct Channels {
         stateContinuation.yield(.failed(.linkChanged))
     }
 
-    /// ADR-0089 Phase 3: catch a session that died without the link moving.
+    /// ADR-0103: the host is gone when its heartbeat lane goes quiet.
     ///
-    /// `evaluateHandoverRecovery` is armed by a link change, and R212 measured the death that
-    /// gate cannot see -- the connection timed out twice with the link completely stable, and
-    /// the client sat on a dead session showing "Mac display unavailable" until it was force
-    /// quit. This probes instead of inferring, because a quiet host is indistinguishable from a
-    /// dead one by silence alone: healthy idle windows in that same run went 12.4s with nothing
-    /// arriving.
-    private func evaluateLivenessProbe(arrivals: Int, nowNs: UInt64) {
-        let outcome = livenessWatch.withLock { watch -> LivenessOutcome in
-            if arrivals > 0 {
-                watch.hasEverArrived = true
-                watch.unanswered = 0
-                watch.declared = false
-                watch.lastArrivalUptimeNs = nowNs
+    /// This replaced a probe/echo exchange over the connection-wide datagram flow. That design
+    /// needed BOTH legs to survive, and the reply leg shared a congestion window with video:
+    /// measured on device, the host answered 187 of 187 probes while only 108 of 175 replies
+    /// arrived, and three consecutive drops were read as a dead host. Thirteen of fourteen
+    /// disconnects in one session came from that, on a link that never lost a video frame.
+    ///
+    /// The heartbeat cannot be lost -- its lane is a reliable QUIC stream, retransmitted, and
+    /// not blocked by the crisp tiles on a different stream. So silence here means the path is
+    /// genuinely not moving, which is the thing worth acting on, and the limit can be generous
+    /// enough to ride out the 2-3s cellular stalls that self-heal.
+    private func evaluateLivenessLane(nowNs: UInt64) {
+        let outcome = livenessWatch.withLock { watch -> (silentMs: Double, beats: UInt64)? in
+            guard !watch.declared, let lastBeat = watch.lastHeartbeatUptimeNs else { return nil }
+            let silentMs = Self.elapsedMs(from: lastBeat, to: nowNs)
+            guard LivenessLanePolicy.shouldDeclareHostGone(msSinceLastHeartbeat: silentMs) else {
+                return nil
             }
-            var outcome = LivenessOutcome()
-            outcome.echoesReceived = watch.echoesReceived
-            outcome.msSinceLastEcho = watch.lastEchoUptimeNs.map { Self.elapsedMs(from: $0, to: nowNs) }
-            outcome.msSinceLastArrival = watch.lastArrivalUptimeNs.map { Self.elapsedMs(from: $0, to: nowNs) }
-            guard !watch.declared else { return outcome }
-            let decision = LivenessProbePolicy.evaluate(
-                hasEverArrived: watch.hasEverArrived,
-                sawArrival: arrivals > 0,
-                msSinceLastProbe: watch.lastProbeUptimeNs.map { Self.elapsedMs(from: $0, to: nowNs) },
-                unansweredProbes: watch.unanswered,
-                probeIntervalMs: Double(Config.ownedMediaLivenessProbeIntervalMs),
-                failureThreshold: Config.ownedMediaLivenessFailureThreshold
-            )
-            if decision.declareDead {
-                // Latch, so the teardown that follows does not re-declare every window.
-                watch.declared = true
-                outcome.dead = watch.unanswered
-                return outcome
-            }
-            guard decision.sendProbe else { return outcome }
-            let probeId = watch.nextProbeId
-            watch.nextProbeId &+= 1
-            watch.lastProbeId = probeId
-            watch.lastProbeUptimeNs = nowNs
-            outcome.unansweredBefore = watch.unanswered
-            watch.unanswered += 1
-            outcome.probeId = probeId
-            return outcome
+            watch.declared = true
+            return (silentMs, watch.heartbeatsReceived)
         }
-
-        if let probeId = outcome.probeId {
-            // The send itself is not reported here: `sendVideoControl` already reports control
-            // sends failing and recovering, edge-triggered, which is the same question asked
-            // once per outage instead of once per probe.
-            logger.notice(
-                """
-                liveness probe sent probe=\(probeId, privacy: .public) \
-                unanswered=\(outcome.unansweredBefore, privacy: .public) \
-                sinceArrivalMs=\(Self.describeMs(outcome.msSinceLastArrival), privacy: .public) \
-                sinceEchoMs=\(Self.describeMs(outcome.msSinceLastEcho), privacy: .public) \
-                echoes=\(outcome.echoesReceived, privacy: .public)
-                """
-            )
-            ClientDiagnostics.shared.record(
-                type: "livenessProbeSent",
-                fields: [
-                    "probeId": String(probeId),
-                    "unansweredProbes": String(outcome.unansweredBefore),
-                    "msSinceLastArrival": Self.describeMs(outcome.msSinceLastArrival),
-                    "msSinceLastEcho": Self.describeMs(outcome.msSinceLastEcho),
-                    "echoesReceived": String(outcome.echoesReceived)
-                ]
-            )
-            sendVideoControl(OwnedMediaControlMessage(kind: .livenessProbe, frameId: probeId))
-        }
-        guard let unanswered = outcome.dead else { return }
-        // Carries the evidence, not just the verdict. `echoesReceived == 0` on a session that had
-        // been running says the host never answered a probe on this path at all, which is a
-        // different bug from a session that was answering until it stopped.
+        guard let outcome else { return }
         logger.notice(
-            """
-            liveness declaring session dead unansweredProbes=\(unanswered, privacy: .public) \
-            echoes=\(outcome.echoesReceived, privacy: .public) \
-            sinceEchoMs=\(Self.describeMs(outcome.msSinceLastEcho), privacy: .public) \
-            sinceArrivalMs=\(Self.describeMs(outcome.msSinceLastArrival), privacy: .public)
-            """
+            "liveness lane silent, declaring session dead silentMs=\(Int(outcome.silentMs), privacy: .public) heartbeats=\(outcome.beats, privacy: .public)"
         )
         ClientDiagnostics.shared.record(
-            type: "livenessRecoveryDeclared",
+            type: "livenessLaneSilent",
             fields: [
-                "unansweredProbes": String(unanswered),
-                "echoesReceived": String(outcome.echoesReceived),
-                "msSinceLastEcho": Self.describeMs(outcome.msSinceLastEcho),
-                "msSinceLastArrival": Self.describeMs(outcome.msSinceLastArrival)
+                "silentMs": String(Int(outcome.silentMs)),
+                "heartbeats": String(outcome.beats)
             ],
             level: .error
         )
         stateContinuation.yield(.failed(.hostSilent))
     }
 
-    /// Record an echo's arrival and, when it answers the outstanding probe, how long it took.
+    /// Announce the liveness lane, then read fixed-size heartbeats until the stream ends.
     ///
-    /// Runs on the receive path rather than the report loop, so the round trip is measured
-    /// against the datagram's actual arrival rather than the window that noticed it.
-    private func noteLivenessEcho(probeId: UInt64) {
-        let nowNs = DispatchTime.now().uptimeNanoseconds
-        let roundTripMs = livenessWatch.withLock { watch -> Double? in
-            watch.echoesReceived += 1
-            watch.lastEchoUptimeNs = nowNs
-            guard probeId == watch.lastProbeId, let sentNs = watch.lastProbeUptimeNs else {
-                return nil
+    /// A read that throws or comes up short is the host going away, reported directly rather
+    /// than inferred: unlike silence, a dead stream is positive evidence.
+    private func startLivenessReceiveLoop() {
+        livenessReceiveTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                // Non-empty announce for the same reason the graphics lane uses one: the host
+                // reads `length` bytes after the header, and receive(exactly: 0) stalls it.
+                try await QuicSessionStreamIO.sendPayload(Data([0]), role: .liveness, on: livenessStream)
+            } catch {
+                logger.notice("liveness lane announce failed: \(String(describing: error), privacy: .public)")
+                return
             }
-            return Self.elapsedMs(from: sentNs, to: nowNs)
+            // Seeded at announce so the silence clock starts now rather than at the first beat;
+            // a host that never beats must still be caught.
+            livenessWatch.withLock { $0.lastHeartbeatUptimeNs = DispatchTime.now().uptimeNanoseconds }
+            logger.notice("liveness lane announced")
+            while !Task.isCancelled {
+                do {
+                    let bytes = try await livenessStream.receive(exactly: LivenessHeartbeat.byteCount).content
+                    guard let beat = LivenessHeartbeat.decode(Data(bytes)) else {
+                        logger.error("liveness lane malformed heartbeat; closing")
+                        return
+                    }
+                    livenessWatch.withLock { watch in
+                        watch.lastHeartbeatUptimeNs = DispatchTime.now().uptimeNanoseconds
+                        watch.heartbeatsReceived += 1
+                        watch.declared = false
+                        watch.lastSequence = beat.sequence
+                    }
+                } catch {
+                    // The stream ended. The report loop's silence check will declare it; saying
+                    // it here as well would race two teardowns for one cause.
+                    logger.notice("liveness lane ended: \(String(describing: error), privacy: .public)")
+                    return
+                }
+            }
         }
-        // `stale`, not `n/a`: this echo answered a probe older than the outstanding one. It still
-        // proves the path -- that is why it is counted -- but timing it against a newer probe's
-        // send would invent a latency, and the two cases must not read alike in a log.
-        let roundTripText = roundTripMs.map { String(Int($0)) } ?? "stale"
-        logger.notice(
-            "liveness echo received probe=\(probeId, privacy: .public) roundTripMs=\(roundTripText, privacy: .public)"
-        )
-        ClientDiagnostics.shared.record(
-            type: "livenessEchoReceived",
-            fields: ["probeId": String(probeId), "roundTripMs": roundTripText]
-        )
     }
 
     private static func elapsedMs(from startNs: UInt64, to nowNs: UInt64) -> Double {
@@ -1467,33 +1433,15 @@ private struct Channels {
     /// out, how many have gone unanswered, and whether we have already declared -- the same
     /// latch as `HandoverWatch`, for the same reason.
     private struct LivenessWatch {
-        var hasEverArrived: Bool = false
-        var nextProbeId: UInt64 = 1
-        var lastProbeUptimeNs: UInt64?
-        var unanswered: Int = 0
+        /// When the last heartbeat landed, or when the lane was announced. Nil until the lane
+        /// attaches, which is what keeps a session that has not opened it yet from being torn
+        /// down for silence it was never promised.
+        var lastHeartbeatUptimeNs: UInt64?
+        var heartbeatsReceived: UInt64 = 0
+        var lastSequence: UInt64 = 0
+        /// Latched so one silence does not yield `.failed` on every report window. Cleared by a
+        /// heartbeat, so a lane that recovers before teardown completes is trusted again.
         var declared: Bool = false
-        // Round-trip evidence, kept beside the run rather than in it: the run is cleared by any
-        // arrival, so it cannot say whether the host ever answered. These can. `lastProbeId` is
-        // what dates a round trip -- an echo for an older probe still proves the path, but
-        // measuring it against the newest probe's send time would report a fictional latency.
-        var lastProbeId: UInt64?
-        var echoesReceived: Int = 0
-        var lastEchoUptimeNs: UInt64?
-        // Window-granular, not packet-granular: the report loop is the only place that reads the
-        // arrival count, so this is "the last window that carried anything", within one window.
-        var lastArrivalUptimeNs: UInt64?
-    }
-
-    /// What one liveness window decided, plus the evidence behind it. Grew from a bare
-    /// `(probeId, dead)` pair because the interesting part of a teardown is everything the pair
-    /// left out: how long the silence had run, and whether the host had *ever* answered.
-    private struct LivenessOutcome {
-        var probeId: UInt64?
-        var unansweredBefore: Int = 0
-        var dead: Int?
-        var echoesReceived: Int = 0
-        var msSinceLastEcho: Double?
-        var msSinceLastArrival: Double?
     }
 
     private struct State {
