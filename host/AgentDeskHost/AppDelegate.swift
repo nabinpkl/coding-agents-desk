@@ -260,12 +260,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
     // Agent feed sidecar: owns transcript discovery and exposes its loopback API.
     private lazy var agentFeedSidecar: AgentFeedSidecarProcess? = {
-        guard let binaryURL = Config.agentFeedSidecarURL else {
+        let launch = Config.agentFeedSidecarLaunch { [launchAgentLogger] message in
+            // A dev launch that asked for the live sidecar and did not get it must say so. Falling
+            // back silently would serve the frozen bundled binary and read as "my edit did nothing".
+            launchAgentLogger.error("agent sidecar: \(message, privacy: .public)")
+        }
+        guard let launch else {
             launchAgentLogger.error("agent sidecar binary not found in bundle")
             return nil
         }
         return AgentFeedSidecarProcess(
-            binaryURL: binaryURL,
+            launch: launch,
             port: Config.agentFeedSidecarPort
         )
     }()

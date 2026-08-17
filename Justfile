@@ -1445,7 +1445,7 @@ prepare-pty-runtime variant="stable": build-pty-runtime
 host-debug:
     lldb --wait-for --attach-name AgentDeskHost
 
-host-run-dev variant="stable" install_live_bridge="true" panel="live": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
+host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="bundled": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
     # Like host-run, this builds the real bundled artifacts (agent sidecar + webview,
@@ -1526,6 +1526,36 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live": build-age
             DEV_FEED_TOKEN="$(cat '{{agent_panel_dev_token_file}}')"
             export {{agent_feed_token_var}}="$DEV_FEED_TOKEN"
         fi
+    fi
+    # The sidecar, same live-or-frozen axis as the panel and for the same reason. `bundled` runs
+    # the compiled binary the app ships with, so a one-line change to the sidecar costs a rebuild,
+    # a relaunch, and a re-attach of every surface; `live` runs `bun --watch` over the source, which
+    # reloads in process and rebinds the port, so an edit is live in about a second with the host
+    # and every attached phone left alone. Measured on this tree: an edit to a sidecar constant was
+    # visible through /api/config ~4s later, with the pid unchanged.
+    #
+    # `bundled` is the default here, unlike the panel's `live`, because this arm executes the
+    # WORKING TREE rather than the artifact under test -- and unlike the panel, that includes a
+    # half-saved file. Ask for it when you are working on the sidecar.
+    case '{{sidecar}}' in
+        live|bundled) ;;
+        *) echo "ERROR: sidecar must be 'live' or 'bundled', got '{{sidecar}}'" >&2; exit 64 ;;
+    esac
+    if [ '{{sidecar}}' = live ]; then
+        # Resolved to an absolute path here rather than searched for in the host, whose child
+        # environment is deliberately stripped of the PATH that would find a Homebrew install.
+        BUN_PATH="$(command -v bun || true)"
+        if [ -z "$BUN_PATH" ]; then
+            echo "ERROR: sidecar=live needs bun on PATH" >&2
+            exit 1
+        fi
+        export AGENTDESK_BUN_PATH="$BUN_PATH"
+        export AGENTDESK_AGENT_FEED_SIDECAR_ENTRY='{{agent_feed_sidecar_dir}}/src/server.ts'
+        # Its dependencies are resolved from the source tree now, not baked into a binary, so the
+        # tree has to have them. Without this the host spawns bun, bun cannot resolve an import,
+        # and the failure arrives as a sidecar that never answers readiness.
+        node '{{justfile_directory()}}/tools/build-system/ensure-js-dependencies.mjs' \
+          agent-feed-sidecar '{{agent_feed_sidecar_dir}}' '{{justfile_directory()}}/.build/js-dependencies'
     fi
     just prepare-pty-runtime "{{variant}}"
     sh tools/xcodebuild-quiet.sh -project host/AgentDeskHost.xcodeproj -scheme AgentDeskHost -configuration Debug -derivedDataPath "$DD" MARKETING_VERSION='{{host_marketing_version}}' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" ${EXTRA[@]+"${EXTRA[@]}"} build
@@ -1622,7 +1652,7 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live": build-age
 # `panel` (live | bundled) selects where the Agent Panel's code comes from. Live is the default and
 # starts the Vite dev server if it is not already up, so a TSX edit changes the running host with
 # no rebuild. Choose bundled to judge the webview as it actually ships.
-host-run variant="stable" panel="live": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
+host-run variant="stable" panel="live" sidecar="bundled": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
     # DOM mirror is baked on by default (see host-run-dev); no enable override injected here.
@@ -1695,6 +1725,36 @@ host-run variant="stable" panel="live": build-agent-feed-sidecar build-agent-web
             DEV_FEED_TOKEN="$(cat '{{agent_panel_dev_token_file}}')"
             export {{agent_feed_token_var}}="$DEV_FEED_TOKEN"
         fi
+    fi
+    # The sidecar, same live-or-frozen axis as the panel and for the same reason. `bundled` runs
+    # the compiled binary the app ships with, so a one-line change to the sidecar costs a rebuild,
+    # a relaunch, and a re-attach of every surface; `live` runs `bun --watch` over the source, which
+    # reloads in process and rebinds the port, so an edit is live in about a second with the host
+    # and every attached phone left alone. Measured on this tree: an edit to a sidecar constant was
+    # visible through /api/config ~4s later, with the pid unchanged.
+    #
+    # `bundled` is the default here, unlike the panel's `live`, because this arm executes the
+    # WORKING TREE rather than the artifact under test -- and unlike the panel, that includes a
+    # half-saved file. Ask for it when you are working on the sidecar.
+    case '{{sidecar}}' in
+        live|bundled) ;;
+        *) echo "ERROR: sidecar must be 'live' or 'bundled', got '{{sidecar}}'" >&2; exit 64 ;;
+    esac
+    if [ '{{sidecar}}' = live ]; then
+        # Resolved to an absolute path here rather than searched for in the host, whose child
+        # environment is deliberately stripped of the PATH that would find a Homebrew install.
+        BUN_PATH="$(command -v bun || true)"
+        if [ -z "$BUN_PATH" ]; then
+            echo "ERROR: sidecar=live needs bun on PATH" >&2
+            exit 1
+        fi
+        export AGENTDESK_BUN_PATH="$BUN_PATH"
+        export AGENTDESK_AGENT_FEED_SIDECAR_ENTRY='{{agent_feed_sidecar_dir}}/src/server.ts'
+        # Its dependencies are resolved from the source tree now, not baked into a binary, so the
+        # tree has to have them. Without this the host spawns bun, bun cannot resolve an import,
+        # and the failure arrives as a sidecar that never answers readiness.
+        node '{{justfile_directory()}}/tools/build-system/ensure-js-dependencies.mjs' \
+          agent-feed-sidecar '{{agent_feed_sidecar_dir}}' '{{justfile_directory()}}/.build/js-dependencies'
     fi
     just prepare-pty-runtime "{{variant}}"
     # SWIFT_COMPILATION_MODE=singlefile keeps -O while making the unit of compilation the FILE

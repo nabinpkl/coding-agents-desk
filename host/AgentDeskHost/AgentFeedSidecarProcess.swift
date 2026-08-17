@@ -38,7 +38,7 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     private let tokenLock = NSLock()
     private var token: String?
 
-    private let binaryURL: URL
+    private let launch: Config.AgentFeedSidecarLaunch
     private let port: UInt16
     private let logger: Logger
     private let queue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).agent-feed-sidecar")
@@ -68,8 +68,8 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
     // Maximum backoff between restart attempts (seconds).
     private static let maxBackoffSeconds: TimeInterval = 16
 
-    init(binaryURL: URL, port: UInt16) {
-        self.binaryURL = binaryURL
+    init(launch: Config.AgentFeedSidecarLaunch, port: UInt16) {
+        self.launch = launch
         self.port = port
         self.logger = Logger(subsystem: Config.logSubsystem, category: "agent-feed-sidecar")
     }
@@ -136,7 +136,8 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         tokenLock.unlock()
 
         let proc = Process()
-        proc.executableURL = binaryURL
+        proc.executableURL = launch.executable
+        proc.arguments = launch.arguments
         // Merge into the inherited env rather than replacing it. Setting
         // Process.environment replaces the whole child env, which would strip
         // PATH/HOME and break transcript discovery. Inherit
@@ -181,7 +182,15 @@ final class AgentFeedSidecarProcess: @unchecked Sendable {
         do {
             try proc.run()
             self.process = proc
-            logger.notice("sidecar started port=\(self.port, privacy: .public)")
+            // The reload mode is logged on every spawn, not once at launch. A supervised restart
+            // is the moment someone is most likely to be asking "is this even running my edits",
+            // and the answer has to be in the same log line they are already reading.
+            logger.notice(
+                """
+                sidecar started port=\(self.port, privacy: .public) \
+                reloadsOnEdit=\(self.launch.reloadsOnEdit, privacy: .public)
+                """
+            )
         } catch {
             logger.error("sidecar launch failed: \(String(describing: error), privacy: .public)")
             scheduleRestart()

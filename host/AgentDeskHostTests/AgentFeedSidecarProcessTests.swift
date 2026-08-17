@@ -18,6 +18,20 @@ import Testing
 @Suite(.serialized)
 struct AgentFeedSidecarProcessTests {
 
+    /// A sidecar running a stub binary: the bundled shape, which is what these tests exercise.
+    /// The source-tree shape has no process to spawn here and is covered by
+    /// `AgentFeedSidecarLaunchTests`, which tests the selection rather than the supervision.
+    private func makeSidecar(binaryURL: URL, port: UInt16) -> AgentFeedSidecarProcess {
+        AgentFeedSidecarProcess(
+            launch: Config.AgentFeedSidecarLaunch(
+                executable: binaryURL,
+                arguments: [],
+                reloadsOnEdit: false
+            ),
+            port: port
+        )
+    }
+
     // Probe for a free loopback TCP port: bind a socket to 127.0.0.1:0, let the
     // OS assign an ephemeral port, read it back, then close the socket. Each test
     // calls this for its own unique port instead of sharing a fixed one, so runs
@@ -150,7 +164,7 @@ struct AgentFeedSidecarProcessTests {
         ])
         defer { try? FileManager.default.removeItem(at: stubURL) }
 
-        let sidecar = AgentFeedSidecarProcess(
+        let sidecar = makeSidecar(
             binaryURL: stubURL,
             port: port
         )
@@ -179,7 +193,7 @@ struct AgentFeedSidecarProcessTests {
         let stubURL = try makeStubBinary(port: port)
         defer { try? FileManager.default.removeItem(at: stubURL) }
 
-        let sidecar = AgentFeedSidecarProcess(
+        let sidecar = makeSidecar(
             binaryURL: stubURL,
             port: port
         )
@@ -202,7 +216,7 @@ struct AgentFeedSidecarProcessTests {
         let stubURL = try makeStubBinary(port: port)
         defer { try? FileManager.default.removeItem(at: stubURL) }
 
-        let sidecar = AgentFeedSidecarProcess(binaryURL: stubURL, port: port)
+        let sidecar = makeSidecar(binaryURL: stubURL, port: port)
         defer { sidecar.stop() }
 
         // Ask BEFORE starting, which is the launch ordering that broke the Agents
@@ -216,7 +230,7 @@ struct AgentFeedSidecarProcessTests {
 
     @Test func stoppingReleasesWaitersImmediatelyRatherThanLeavingThemToTimeOut() async throws {
         let port = try freePort()
-        let sidecar = AgentFeedSidecarProcess(
+        let sidecar = makeSidecar(
             binaryURL: URL(fileURLWithPath: "/nonexistent/agent-feed-sidecar"),
             port: port
         )
@@ -235,7 +249,7 @@ struct AgentFeedSidecarProcessTests {
         let port = try freePort()
         // Never started, so it never becomes ready. The wait must end on its own:
         // an unbounded one would trade a visible error for a permanently blank window.
-        let sidecar = AgentFeedSidecarProcess(
+        let sidecar = makeSidecar(
             binaryURL: URL(fileURLWithPath: "/nonexistent/agent-feed-sidecar"),
             port: port
         )
@@ -254,7 +268,7 @@ struct AgentFeedSidecarProcessTests {
         let stubURL = try makeStubBinary(port: port)
         defer { try? FileManager.default.removeItem(at: stubURL) }
 
-        let sidecar = AgentFeedSidecarProcess(
+        let sidecar = makeSidecar(
             binaryURL: stubURL,
             port: port
         )
@@ -310,7 +324,7 @@ struct AgentFeedSidecarProcessTests {
 
         let sidecarURL = try makeStubBinary(port: port)
         defer { try? FileManager.default.removeItem(at: sidecarURL) }
-        let sidecar = AgentFeedSidecarProcess(binaryURL: sidecarURL, port: port)
+        let sidecar = makeSidecar(binaryURL: sidecarURL, port: port)
         defer { sidecar.stop() }
         sidecar.start()
         try await Task.sleep(nanoseconds: 100_000_000)
@@ -340,7 +354,7 @@ struct AgentFeedSidecarProcessTests {
         ])
         defer { try? FileManager.default.removeItem(at: stubURL) }
 
-        let sidecar = AgentFeedSidecarProcess(
+        let sidecar = makeSidecar(
             binaryURL: stubURL,
             port: port
         )

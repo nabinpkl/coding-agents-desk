@@ -1087,6 +1087,77 @@ enum Config {
     static var agentFeedSidecarURL: URL? {
         Bundle.main.url(forResource: agentFeedSidecarResourceName, withExtension: nil)
     }
+    /// How to start the sidecar: the bundled binary, or the source tree with a file watcher.
+    ///
+    /// The bundled binary is what ships. `bun build --compile` freezes the sidecar into the app, so
+    /// changing one line of it costs a rebuild, a relaunch, and a re-attach of every surface -- the
+    /// same cost the panel's Vite dev origin was introduced to remove (ADR-0095, ADR-0096), for the
+    /// half of the panel that is not the panel.
+    ///
+    /// `reloadsOnEdit` is the dev arm of that pair, and it is deliberately spelled as a launch
+    /// DESCRIPTOR rather than a boolean flag threaded into the spawn: what changes is which program
+    /// runs, and saying so once here keeps `AgentFeedSidecarProcess` ignorant of the distinction.
+    struct AgentFeedSidecarLaunch {
+        let executable: URL
+        let arguments: [String]
+        /// True when the running program re-reads its own source, so an edit needs no relaunch.
+        let reloadsOnEdit: Bool
+    }
+    /// The launch this run should use, or nil when neither is available.
+    static func agentFeedSidecarLaunch(
+        log: (String) -> Void = { _ in }
+    ) -> AgentFeedSidecarLaunch? {
+        agentFeedSidecarLaunch(
+            from: ProcessInfo.processInfo.environment,
+            bundled: agentFeedSidecarURL,
+            log: log
+        )
+    }
+
+    /// Takes the environment and the bundled URL rather than reading them, so the fallbacks can be
+    /// tested. Reading the real ones would let a test pass on any machine that is not mid-dev-run,
+    /// which is every machine -- the same reason `childProcessEnvironment(from:)` is shaped this way.
+    ///
+    /// A dev launch that names an entry but no `bun`, or names a file that is not there, falls back
+    /// to the bundled binary and SAYS SO. The whole point of asking for the live sidecar is that
+    /// edits take effect; quietly serving the frozen one looks exactly like a change that did not
+    /// work, and that is the failure this logging exists to prevent.
+    static func agentFeedSidecarLaunch(
+        from environment: [String: String],
+        bundled bundledURL: URL?,
+        log: (String) -> Void = { _ in }
+    ) -> AgentFeedSidecarLaunch? {
+        let bundled = bundledURL.map {
+            AgentFeedSidecarLaunch(executable: $0, arguments: [], reloadsOnEdit: false)
+        }
+        func value(_ key: String) -> String? {
+            guard let raw = environment[key] else { return nil }
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        guard let entry = value("AGENTDESK_AGENT_FEED_SIDECAR_ENTRY") else { return bundled }
+        guard let bun = value("AGENTDESK_BUN_PATH") else {
+            log("sidecar source entry set without AGENTDESK_BUN_PATH; using the bundled binary")
+            return bundled
+        }
+        guard FileManager.default.isReadableFile(atPath: entry) else {
+            log("sidecar source entry \(entry) is not readable; using the bundled binary")
+            return bundled
+        }
+        guard FileManager.default.isExecutableFile(atPath: bun) else {
+            log("bun at \(bun) is not executable; using the bundled binary")
+            return bundled
+        }
+        return AgentFeedSidecarLaunch(
+            executable: URL(fileURLWithPath: bun),
+            // `--watch`, not `--hot`. Measured on this sidecar: watch reloads IN PROCESS and
+            // rebinds the port, so the pid never changes and the host's supervisor never sees an
+            // exit to restart. Hot module replacement would leave the catalog, the file watchers,
+            // and the live observers half-swapped, which is a worse failure than a clean re-read.
+            arguments: ["--watch", entry],
+            reloadsOnEdit: true
+        )
+    }
     /// A control token to use instead of minting one, or nil for the normal per-spawn mint.
     ///
     /// The mint is the default because a token nobody else can name is the strongest form of the
