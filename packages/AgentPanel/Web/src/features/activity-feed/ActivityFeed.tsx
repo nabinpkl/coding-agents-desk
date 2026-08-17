@@ -122,9 +122,9 @@ export function ActivityFeed({
 
   // Follow-the-tail: stick to the bottom as the thread grows, release when the
   // user scrolls up. The hook owns a ResizeObserver on the measured content and
-  // attributes scrolls by direction, so nothing here depends on estimated row
-  // heights or a from-bottom threshold. `pause()` detaches on user-driven
-  // restructures (collapse/expand, jump-to-message).
+  // reads intent off the input that caused a scroll, so nothing here depends on
+  // estimated row heights or a from-bottom threshold. `pause()` detaches on
+  // user-driven restructures (collapse/expand, jump-to-message).
   const { following, onScroll, scrollToBottom, pause } = useStickToBottom(
     parentRef,
     sizedRef,

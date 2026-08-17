@@ -22,12 +22,35 @@ function flushRaf() {
   q.forEach((cb) => cb(0));
 }
 
+type MockScrollEl = HTMLElement & {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+};
+
 function makeScrollEl(scrollHeight = 1000, clientHeight = 300) {
-  return { scrollTop: 0, scrollHeight, clientHeight } as unknown as HTMLElement & {
-    scrollTop: number;
-    scrollHeight: number;
-    clientHeight: number;
-  };
+  const listeners = new Map<string, Set<EventListener>>();
+  return {
+    scrollTop: 0,
+    scrollHeight,
+    clientHeight,
+    addEventListener(type: string, fn: EventListener) {
+      const set = listeners.get(type) ?? new Set();
+      set.add(fn);
+      listeners.set(type, set);
+    },
+    removeEventListener(type: string, fn: EventListener) {
+      listeners.get(type)?.delete(fn);
+    },
+    dispatch(type: string, event: unknown) {
+      for (const fn of listeners.get(type) ?? []) fn(event as Event);
+    },
+  } as unknown as MockScrollEl & { dispatch(type: string, event: unknown): void };
+}
+
+/** Two-finger flick. Negative deltaY is towards earlier content. */
+function wheel(el: ReturnType<typeof makeScrollEl>, deltaY: number) {
+  el.dispatch("wheel", { deltaY });
 }
 
 beforeEach(() => {
@@ -85,6 +108,85 @@ describe("useStickToBottom", () => {
     act(() => view.result.current.onScroll());
     expect(view.result.current.following).toBe(true);
     expect(scrollEl.scrollTop).toBe(300);
+  });
+
+  // The delivered scroll event carries a position from the layout that clamped
+  // it and a scrollHeight from the layout in force when it is handled. Streaming
+  // makes those differ constantly: the tail hands off (shorter, so scrollTop is
+  // clamped down) and the next tail grows the list back before the event runs.
+  // Judged on distance-from-end alone that reads as a pull far away from a tall
+  // list, which used to raise "Scroll down" over a viewport sitting on the last
+  // row.
+  it("does not detach when a clamp is delivered after the content grew back", () => {
+    const { view, scrollEl } = setup();
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    scrollEl.scrollTop = 300; // clamped when the list was briefly 600 tall
+    scrollEl.scrollHeight = 1400; // ...and the next tail is already growing
+    act(() => view.result.current.onScroll());
+    expect(view.result.current.following).toBe(true);
+  });
+
+  it("a flick DOWNWARD does not authorize the clamp that follows it", () => {
+    const { view, scrollEl } = setup();
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    act(() => wheel(scrollEl, 120)); // towards the tail: moves nothing, still fires
+    scrollEl.scrollTop = 300;
+    scrollEl.scrollHeight = 1400;
+    act(() => view.result.current.onScroll());
+    expect(view.result.current.following).toBe(true);
+  });
+
+  it("detaches on an upward flick even while the content is still growing", () => {
+    const { view, scrollEl } = setup();
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    act(() => wheel(scrollEl, -120));
+    scrollEl.scrollTop = 500;
+    scrollEl.scrollHeight = 1400; // the stream did not stop for the gesture
+    act(() => view.result.current.onScroll());
+    expect(view.result.current.following).toBe(false);
+  });
+
+  it("detaches on an upward key while the content is still growing", () => {
+    const { view, scrollEl } = setup();
+    act(() => {
+      roCallback!();
+      flushRaf();
+    });
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "PageUp" }));
+    });
+    scrollEl.scrollTop = 500;
+    scrollEl.scrollHeight = 1400;
+    act(() => view.result.current.onScroll());
+    expect(view.result.current.following).toBe(false);
+  });
+
+  it("a stale flick does not authorize a later clamp", () => {
+    vi.useFakeTimers({ toFake: ["performance"] });
+    try {
+      const { view, scrollEl } = setup();
+      act(() => {
+        roCallback!();
+        flushRaf();
+      });
+      act(() => wheel(scrollEl, -120));
+      vi.advanceTimersByTime(1000);
+      scrollEl.scrollTop = 300;
+      scrollEl.scrollHeight = 1400;
+      act(() => view.result.current.onScroll());
+      expect(view.result.current.following).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
 it("detaches when the user scrolls up (scrollTop decreases)", () => {
