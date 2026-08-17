@@ -1445,7 +1445,7 @@ prepare-pty-runtime variant="stable": build-pty-runtime
 host-debug:
     lldb --wait-for --attach-name AgentDeskHost
 
-host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="bundled": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
+host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="live": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
     # Like host-run, this builds the real bundled artifacts (agent sidecar + webview,
@@ -1534,9 +1534,11 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="b
     # and every attached phone left alone. Measured on this tree: an edit to a sidecar constant was
     # visible through /api/config ~4s later, with the pid unchanged.
     #
-    # `bundled` is the default here, unlike the panel's `live`, because this arm executes the
-    # WORKING TREE rather than the artifact under test -- and unlike the panel, that includes a
-    # half-saved file. Ask for it when you are working on the sidecar.
+    # `live` is the default, the same as the panel, so the two halves of the panel surface behave
+    # alike: an edit anywhere in it is live without a relaunch. The cost is real and is accepted --
+    # this arm executes the WORKING TREE, so a half-saved file is what runs, and a run that must
+    # judge the artifact as it ships has to say so. Arguments are POSITIONAL in just, so that is
+    # `just host-run stable live bundled`, not `sidecar=bundled` (which would land in `variant`).
     case '{{sidecar}}' in
         live|bundled) ;;
         *) echo "ERROR: sidecar must be 'live' or 'bundled', got '{{sidecar}}'" >&2; exit 64 ;;
@@ -1652,7 +1654,7 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="b
 # `panel` (live | bundled) selects where the Agent Panel's code comes from. Live is the default and
 # starts the Vite dev server if it is not already up, so a TSX edit changes the running host with
 # no rebuild. Choose bundled to judge the webview as it actually ships.
-host-run variant="stable" panel="live" sidecar="bundled": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
+host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar build-agent-webview build-gesture-webview build-voice-sidecar
     #!/usr/bin/env bash
     set -euo pipefail
     # DOM mirror is baked on by default (see host-run-dev); no enable override injected here.
@@ -1733,9 +1735,11 @@ host-run variant="stable" panel="live" sidecar="bundled": build-agent-feed-sidec
     # and every attached phone left alone. Measured on this tree: an edit to a sidecar constant was
     # visible through /api/config ~4s later, with the pid unchanged.
     #
-    # `bundled` is the default here, unlike the panel's `live`, because this arm executes the
-    # WORKING TREE rather than the artifact under test -- and unlike the panel, that includes a
-    # half-saved file. Ask for it when you are working on the sidecar.
+    # `live` is the default, the same as the panel, so the two halves of the panel surface behave
+    # alike: an edit anywhere in it is live without a relaunch. The cost is real and is accepted --
+    # this arm executes the WORKING TREE, so a half-saved file is what runs, and a run that must
+    # judge the artifact as it ships has to say so. Arguments are POSITIONAL in just, so that is
+    # `just host-run stable live bundled`, not `sidecar=bundled` (which would land in `variant`).
     case '{{sidecar}}' in
         live|bundled) ;;
         *) echo "ERROR: sidecar must be 'live' or 'bundled', got '{{sidecar}}'" >&2; exit 64 ;;
