@@ -1479,6 +1479,8 @@ struct InputChannelTests {
             level: OSLogType.error
         )
 
+        store.flush()
+
         let lines = try Self.readNDJSONLines(at: harness.configuration.currentRunURL)
         #expect(lines.contains { $0.contains("\"type\":\"pairingLifecycle\"") && $0.contains("[redacted]") })
         #expect(!lines.joined(separator: "\n").contains("top-secret-token"))
@@ -1497,6 +1499,7 @@ struct InputChannelTests {
         )
         firstStore.bootstrap()
         firstStore.record(type: "mediaReceive", fields: ["state": "active"], level: .info)
+        firstStore.flush()
 
         let secondCounter = Counter(value: 200)
         let reopenedStore = ClientDiagnosticsStore(
@@ -1884,7 +1887,9 @@ struct InputChannelTests {
             maxRuns: maxRuns,
             maxResponseBytes: 768 * 1024,
             maxChunkEncodedBytes: 48 * 1024,
-            authMaxSkewSeconds: 60
+            authMaxSkewSeconds: 60,
+            // Tests drive durability explicitly with `flush()`, so nothing waits on the timer.
+            manifestSaveCoalesceMs: 0
         )
         return DiagnosticsHarness(configuration: configuration, rootDirectory: root)
     }

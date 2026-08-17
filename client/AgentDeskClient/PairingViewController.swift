@@ -389,6 +389,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         isClientForeground = false
         ClientRuntimeTelemetry.shared.updateScenePhase(.background)
         ClientDiagnostics.shared.record(type: "applicationDidEnterBackground", fields: [:], level: .info)
+        // Recording is fire-and-forget now, and iOS kills suspended apps without warning, so
+        // backgrounding is where the store has to settle.
+        ClientDiagnostics.shared.flush()
         if case .connected = pairingClient.state {
             preservesSuspendedSessionSurfaces = true
         }

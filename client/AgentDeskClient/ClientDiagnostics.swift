@@ -18,6 +18,7 @@ struct ClientDiagnosticsStoreConfiguration {
     let maxResponseBytes: Int
     let maxChunkEncodedBytes: Int
     let authMaxSkewSeconds: Int
+    let manifestSaveCoalesceMs: Int
 
     static let live = ClientDiagnosticsStoreConfiguration(
         diagnosticsDirectory: Config.diagnosticsDirectory,
@@ -29,7 +30,8 @@ struct ClientDiagnosticsStoreConfiguration {
         maxRuns: Config.diagnosticsMaxRuns,
         maxResponseBytes: Config.diagnosticsMaxResponseBytes,
         maxChunkEncodedBytes: Config.diagnosticsMaxChunkEncodedBytes,
-        authMaxSkewSeconds: Config.diagnosticsAuthMaxSkewSeconds
+        authMaxSkewSeconds: Config.diagnosticsAuthMaxSkewSeconds,
+        manifestSaveCoalesceMs: Config.diagnosticsManifestSaveCoalesceMs
     )
 }
 
@@ -93,6 +95,9 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
     private var bootstrapped = false
     private var seenFallbackNonces: [String: Int] = [:]
     private var announcementSender: AnnouncementSender?
+    /// Manifest state changed in memory but has not reached disk yet. Guarded by `queue`.
+    private var manifestDirty = false
+    private var manifestSaveScheduled = false
 
     init(
         configuration: ClientDiagnosticsStoreConfiguration = .live,
@@ -123,12 +128,39 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         #endif
     }
 
+    /// Fire-and-forget: recording must never block the caller.
+    ///
+    /// This was `queue.sync` with a `saveManifest()` per event, which put an NDJSON append,
+    /// a stat of every stored file, and an ATOMIC manifest write (temp file plus rename) on
+    /// the calling thread. Both hot callers are the main thread: the video sink records per
+    /// frame (LTR acknowledgements, presentation skips, window summaries) and a settings
+    /// slider records twice per `valueChanged` tick. Measured at 3.45ms of main-thread block
+    /// per slider tick on a Mac SSD, which is ~41% of the thread while dragging at 120Hz,
+    /// and iPhone flash is slower. The two paths also serialized against each other on this
+    /// one queue, which is why settings felt worse while video was busy.
+    ///
+    /// Async is safe for ordering and for readers: the queue is serial, so events land in
+    /// call order and every reader below (`queue.sync`) sees all prior writes. The cost is
+    /// that an abrupt kill can lose the last few events, which a crash could already do.
     func record(type: String, fields: [String: String], level: OSLogType = .default) {
-        queue.sync {
-            guard bootstrapped else { return }
-            recordLocked(type: type, fields: fields, level: level)
-            saveManifest()
+        // Strong self on purpose: a weak capture would silently drop the tail of the log if
+        // the store went away with writes still queued, and losing exactly the last events
+        // before a teardown is losing the ones worth reading.
+        queue.async {
+            guard self.bootstrapped else { return }
+            self.recordLocked(type: type, fields: fields, level: level)
+            self.scheduleManifestSave()
         }
+    }
+
+    /// Drain every pending record and put the manifest on disk.
+    ///
+    /// `record` is fire-and-forget, so anything that needs the store settled -- app
+    /// backgrounding (iOS kills suspended apps without warning), or a test about to read the
+    /// files directly -- asks here. The `queue.sync` is the drain: the queue is serial, so
+    /// returning from it means every earlier `record` has been written.
+    func flush() {
+        queue.sync { saveManifestIfDirty() }
     }
 
     private static func buildIdentityFields() -> [String: String] {
@@ -575,7 +607,30 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         return size.intValue
     }
 
+    /// Mark the manifest dirty and write it at most once per coalescing interval.
+    ///
+    /// Per-event atomic writes were the expensive half of recording, and they bought
+    /// nothing: the NDJSON file is appended per event and is the authoritative record, while
+    /// the manifest only carries the run list and its counters. Must be called on `queue`.
+    private func scheduleManifestSave() {
+        manifestDirty = true
+        guard !manifestSaveScheduled else { return }
+        manifestSaveScheduled = true
+        queue.asyncAfter(deadline: .now() + .milliseconds(configuration.manifestSaveCoalesceMs)) { [weak self] in
+            guard let self else { return }
+            self.manifestSaveScheduled = false
+            self.saveManifestIfDirty()
+        }
+    }
+
+    /// Write the manifest now if anything is pending. Must be called on `queue`.
+    private func saveManifestIfDirty() {
+        guard manifestDirty else { return }
+        saveManifest()
+    }
+
     private func saveManifest() {
+        manifestDirty = false
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

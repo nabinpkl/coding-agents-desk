@@ -114,6 +114,10 @@ struct VoicePhoneAnalysisLogTests {
             timestamp: Date(timeIntervalSince1970: 1_700_000_001)
         )
 
+        // Recording is fire-and-forget, so settle the store before the relaunch rotates its
+        // file out from under the pending writes.
+        diagnostics.flush()
+
         let relaunchedDiagnostics = ClientDiagnosticsStore(
             configuration: configuration
         )
@@ -210,7 +214,8 @@ struct VoicePhoneAnalysisLogTests {
             maxRuns: 3,
             maxResponseBytes: 768 * 1024,
             maxChunkEncodedBytes: 48 * 1024,
-            authMaxSkewSeconds: 60
+            authMaxSkewSeconds: 60,
+            manifestSaveCoalesceMs: 0
         )
     }
 

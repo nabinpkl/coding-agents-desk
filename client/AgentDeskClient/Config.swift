@@ -180,6 +180,13 @@ enum Config {
     static let diagnosticsMaxResponseBytes = 768 * 1024
     static let diagnosticsMaxChunkEncodedBytes = 48 * 1024
     static let diagnosticsAuthMaxSkewSeconds = 60
+    // How long manifest writes are coalesced. The manifest is bookkeeping (run list, byte
+    // and event counts); the NDJSON file itself is the authoritative record and is appended
+    // per event regardless. Writing the manifest per event meant an atomic write (temp file
+    // plus rename) for every recorded event, which is what made recording expensive enough
+    // to matter on the main thread. Worst case on an abrupt kill is a current-run byte count
+    // up to this stale, which the reader recomputes anyway.
+    static let diagnosticsManifestSaveCoalesceMs = 1_000
     static let diagnosticsAuthNonceCacheLimit = 256
     static let screenshotMaxPixelDimension = 2_048
     static let screenshotMaxBytes = 4 * 1_024 * 1_024

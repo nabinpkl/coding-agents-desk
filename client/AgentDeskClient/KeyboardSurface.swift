@@ -111,6 +111,14 @@ final class KeyboardSurface: UITextField, UITextFieldDelegate {
     }
 
     @objc private func settingsChanged() {
+        // The accessory bar is built from exactly three settings, so only those three may
+        // cost a rebuild. `changedNotification` is posted by every setter in the store,
+        // including cursor and scroll tuning that this view knows nothing about, and the
+        // rebuild below is expensive: dropping the bar and bouncing first responder
+        // dismisses and re-presents the system keyboard.
+        let metrics = KeyboardAccessoryMetrics(store: SettingsStore.shared)
+        guard metrics != lastAccessoryMetrics else { return }
+        lastAccessoryMetrics = metrics
         // Drop the cached accessory so the next becomeFirstResponder
         // rebuilds it with the new tunings. If currently first
         // responder, bounce so the bar swaps in immediately.
@@ -169,6 +177,10 @@ final class KeyboardSurface: UITextField, UITextFieldDelegate {
     // becomeFirstResponder and assigned to UITextField.inputAccessoryView
     // (settable, so we can't shadow it with a getter-only override).
     private var accessoryView: KeyboardAccessoryView?
+    /// Not lazy: a lazy baseline would first be read inside `settingsChanged`, capturing the
+    /// already-changed values and comparing them against themselves, which would swallow the
+    /// first accessory change of the surface's life.
+    private var lastAccessoryMetrics = KeyboardAccessoryMetrics(store: SettingsStore.shared)
 
     override func becomeFirstResponder() -> Bool {
         if accessoryView == nil {
@@ -275,6 +287,22 @@ final class KeyboardSurface: UITextField, UITextFieldDelegate {
         if didChange {
             accessoryView?.refreshModifierStates()
         }
+    }
+}
+
+// MARK: - KeyboardAccessoryMetrics
+
+/// The only settings the accessory bar is built from, so `KeyboardSurface` can tell a
+/// settings change that affects it from the many that do not.
+struct KeyboardAccessoryMetrics: Equatable {
+    let containerHeight: Double
+    let keyHeight: Double
+    let keySpacing: Double
+
+    init(store: SettingsStore) {
+        containerHeight = store.accessoryContainerHeight
+        keyHeight = store.accessoryKeyHeight
+        keySpacing = store.accessoryKeySpacing
     }
 }
 

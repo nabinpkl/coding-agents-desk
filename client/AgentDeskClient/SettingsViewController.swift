@@ -307,6 +307,19 @@ final class SettingsViewController: UIViewController {
         // slider is continuous, so this just extends the bottom of the range;
         // scrollSpeed is an unclamped multiplier in GestureTranslator.
         scrollSpeedSlider.minimumValue = 0.1
+        // Dragging updates the labels; only letting go writes the store.
+        //
+        // Writing per `valueChanged` tick meant a full settings commit at touch-sampling
+        // rate (up to 120Hz): a UserDefaults write, a global `changedNotification`, a
+        // client-config resend over the network, two diagnostics events, and a keyboard
+        // accessory rebuild -- measured at 3.45ms of main-thread block per tick, which is
+        // most of what made the settings page feel stuck while video was busy. The commit
+        // events below cover every way a drag can end.
+        for slider in [cursorSpeedSlider, cursorAccelSlider, scrollSpeedSlider] {
+            slider.addTarget(self, action: #selector(sliderCommitted), for: .touchUpInside)
+            slider.addTarget(self, action: #selector(sliderCommitted), for: .touchUpOutside)
+            slider.addTarget(self, action: #selector(sliderCommitted), for: .touchCancel)
+        }
         cursorSpeedSlider.addTarget(self, action: #selector(cursorSpeedChanged), for: .valueChanged)
         cursorAccelSlider.addTarget(self, action: #selector(cursorAccelChanged), for: .valueChanged)
         scrollSpeedSlider.addTarget(self, action: #selector(scrollSpeedChanged), for: .valueChanged)
@@ -415,18 +428,40 @@ final class SettingsViewController: UIViewController {
         String(format: "%.0fpt", value)
     }
 
+    /// Live feedback while dragging. The store is written by `sliderCommitted`.
+    ///
+    /// A slider changed by anything other than a finger (VoiceOver adjustment, a
+    /// programmatic set) emits `valueChanged` with no touch-up to follow, so those commit
+    /// here instead -- `isTracking` is the difference between the two.
     @objc private func cursorSpeedChanged() {
-        store.cursorSpeed = Double(cursorSpeedSlider.value)
         refreshLabels()
+        if !cursorSpeedSlider.isTracking { commitSliderValues() }
     }
 
     @objc private func cursorAccelChanged() {
-        store.cursorAcceleration = Double(cursorAccelSlider.value)
         refreshLabels()
+        if !cursorAccelSlider.isTracking { commitSliderValues() }
     }
 
     @objc private func scrollSpeedChanged() {
-        store.scrollSpeed = Double(scrollSpeedSlider.value)
+        refreshLabels()
+        if !scrollSpeedSlider.isTracking { commitSliderValues() }
+    }
+
+    @objc private func sliderCommitted() {
+        commitSliderValues()
+    }
+
+    /// Writes only what actually moved: each setter posts `changedNotification`, and that
+    /// notification costs a client-config resend, so three unconditional writes would be
+    /// three round trips for one drag.
+    private func commitSliderValues() {
+        let cursorSpeed = Double(cursorSpeedSlider.value)
+        if store.cursorSpeed != cursorSpeed { store.cursorSpeed = cursorSpeed }
+        let cursorAcceleration = Double(cursorAccelSlider.value)
+        if store.cursorAcceleration != cursorAcceleration { store.cursorAcceleration = cursorAcceleration }
+        let scrollSpeed = Double(scrollSpeedSlider.value)
+        if store.scrollSpeed != scrollSpeed { store.scrollSpeed = scrollSpeed }
         refreshLabels()
     }
 
