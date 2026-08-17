@@ -4,6 +4,7 @@ import {
   busiestDescendant,
   type CommandRunner,
   descendantsOf,
+  matchShellsByCommand,
   outputTargetsOf,
   parseCpuTime,
   parseLsofDescriptors,
@@ -208,7 +209,15 @@ describe("unwrapShellCommand", () => {
     expect(unwrapShellCommand(WRAPPER)).toBe("sleep 30 > /dev/null 2>&1");
   });
 
-  test("an interior quote survives zsh's escaping", () => {
+  test("an interior quote survives the harness's splice, in the form it actually emits", () => {
+    // Measured: the harness spells an embedded single quote `'"'"'`, and a live watcher's python
+    // filter containing `line.startswith('{')` came back 88 characters longer than the transcript's
+    // copy until this was handled -- so every comparison against that command failed silently.
+    const argv = `/bin/zsh -c eval 'if not line.startswith('"'"'{'"'"'): continue' < /dev/null && pwd -P`;
+    expect(unwrapShellCommand(argv)).toBe("if not line.startswith('{'): continue");
+  });
+
+  test("the other standard spelling of the same splice also works", () => {
     const argv = `/bin/zsh -c eval 'echo '\\''hi there'\\''' < /dev/null && pwd -P`;
     expect(unwrapShellCommand(argv)).toBe("echo 'hi there'");
   });
@@ -331,5 +340,46 @@ describe("shellDetailFrom", () => {
 
   test("a pid that exited between the lsof and the ps is null, not a guess", () => {
     expect(shellDetailFrom(parseProcessTable(TABLE), 99_999)).toBeNull();
+  });
+});
+
+describe("matchShellsByCommand", () => {
+  const WATCH = 'tail -f /tmp/run20.log | python3 -u -c "\nimport json,sys\nprint(1)"';
+  const ARGV = WATCH.replaceAll("\n", "\\012");
+  const rows = (lines: string[]) => parseProcessTable(lines.join("\n"));
+
+  test("sees through ps's octal escaping of a multi-line command", () => {
+    // Without this the join never matches: a Monitor's command routinely embeds a script, and ps
+    // renders every newline in it as a literal \012.
+    const table = rows([`900 500 Mon Aug 17 01:02:03 2026 0:00.01 /bin/zsh -c eval '${ARGV}' < /dev/null`]);
+    const matched = matchShellsByCommand(table, 500, [{ key: "m1", command: WATCH, startedAt: null }]);
+    expect(matched.get("m1")?.pid).toBe(900);
+  });
+
+  test("only the named parent's children are candidates", () => {
+    // Command alone is not identity across the machine: another session running the same watcher
+    // would otherwise answer for this one.
+    const table = rows([`900 999 Mon Aug 17 01:02:03 2026 0:00.01 /bin/zsh -c eval '${ARGV}' < /dev/null`]);
+    expect(matchShellsByCommand(table, 500, [{ key: "m1", command: WATCH, startedAt: null }]).size)
+      .toBe(0);
+  });
+
+  test("a shell is claimed once, and the closest start time wins it", () => {
+    const table = rows([
+      `900 500 Mon Aug 17 01:00:00 2026 0:00.01 /bin/zsh -c eval '${ARGV}' < /dev/null`,
+      `901 500 Mon Aug 17 01:05:00 2026 0:00.01 /bin/zsh -c eval '${ARGV}' < /dev/null`,
+    ]);
+    const matched = matchShellsByCommand(table, 500, [
+      { key: "new", command: WATCH, startedAt: new Date(2026, 7, 17, 1, 5, 0).getTime() },
+      { key: "old", command: WATCH, startedAt: new Date(2026, 7, 17, 1, 0, 0).getTime() },
+    ]);
+    expect(matched.get("new")?.pid).toBe(901);
+    expect(matched.get("old")?.pid).toBe(900);
+  });
+
+  test("no live shell running that command yields no entry, not a wrong one", () => {
+    const table = rows([`900 500 Mon Aug 17 01:02:03 2026 0:00.01 /bin/zsh -c eval 'something else' < /dev/null`]);
+    expect(matchShellsByCommand(table, 500, [{ key: "m1", command: WATCH, startedAt: null }]).size)
+      .toBe(0);
   });
 });

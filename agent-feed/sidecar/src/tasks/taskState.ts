@@ -64,6 +64,35 @@ export function parseBackgroundStart(toolResultText: string): BackgroundTaskStar
 }
 
 /**
+ * A Monitor's start record, which is a different sentence and names no file.
+ *
+ * It names no file because a Monitor HAS no file. Measured on two live watchers: the shell's fd 1
+ * and fd 2 are a socket pair, not `tasks/<id>.output`, because the harness reads each line as it is
+ * written and turns it into a notification. So the descriptor join that finds every backgrounded
+ * shell finds nothing here, and a running Monitor was invisible to us while the harness's own panel
+ * listed it correctly.
+ *
+ * The timeout is carried because a Monitor is the one task kind with a known end: it is killed at
+ * that deadline whether or not it has seen anything.
+ */
+export interface MonitorStart {
+  taskId: string;
+  timeoutMs: number | null;
+}
+
+const MONITOR_RECORD = /Monitor started \(task (\w+)(?:, timeout (\d+)ms)?\)/;
+
+export function parseMonitorStart(toolResultText: string): MonitorStart | null {
+  const match = MONITOR_RECORD.exec(toolResultText);
+  if (!match) return null;
+  const timeout = match[2] === undefined ? null : Number(match[2]);
+  return {
+    taskId: match[1]!,
+    timeoutMs: timeout !== null && Number.isSafeInteger(timeout) ? timeout : null,
+  };
+}
+
+/**
  * A notification the harness queues back into the conversation when something long-running has
  * news. Modelled as a union so the Monitor trap is unrepresentable rather than merely documented:
  * a caller that wants completions cannot accidentally be handed a progress tick, because the two

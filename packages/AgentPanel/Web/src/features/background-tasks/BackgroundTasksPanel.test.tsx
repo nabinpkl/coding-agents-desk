@@ -148,6 +148,22 @@ describe("BackgroundTasksContent", () => {
     expect(screen.queryByTestId("task-activity")).toBeNull();
   });
 
+  it("calls a watcher watching, not output-redirected", () => {
+    // A Monitor's output is the notifications it sends the agent, so its empty output pane is
+    // correct rather than broken. `hasOutput: false` alone would render "output redirected",
+    // which states a redirect that never happened.
+    render(
+      <BackgroundTasksContent
+        snapshot={snapshot({ running: [running({ kind: "monitor", hasOutput: false })] })}
+        source={stubDataSource()}
+        session={SESSION}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.getByText(/watching/)).toBeInTheDocument();
+    expect(screen.queryByText(/output redirected/)).toBeNull();
+  });
+
   it("opens no output stream until a row is expanded, and closes it on collapse", () => {
     // The cost model: N tasks in flight must not become N open streams to a phone.
     const unsubscribe = vi.fn();

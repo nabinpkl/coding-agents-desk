@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { config } from "../config.ts";
 import { assembleSnapshot, type SnapshotSources } from "./backgroundTasks.ts";
 import { parseProcessTable } from "./processProbe.ts";
-import type { TaskIdentity } from "./taskIdentity.ts";
+import type { MonitorIdentity, TaskIdentity } from "./taskIdentity.ts";
 import type { TaskNotification } from "./taskState.ts";
 
 const NOW = Date.UTC(2026, 7, 14, 18, 0, 0);
@@ -45,6 +45,8 @@ function sources(overrides: Partial<SnapshotSources> = {}): SnapshotSources {
     markers: new Map(),
     captureSizes: new Map(),
     processes: [],
+    monitors: new Map(),
+    ownerPid: 1,
     uncorroboratedAfterMs: 5000,
     ownerAlive: true,
     now: NOW,
@@ -277,5 +279,154 @@ describe("assembleSnapshot activity", () => {
     const byId = new Map(snapshot.running.map((task) => [task.taskId, task.activity?.command]));
     expect(byId.get("b1")).toBe("cargo build");
     expect(byId.get("b2")).toBe("pytest -x");
+  });
+});
+
+describe("assembleSnapshot monitors", () => {
+  // The measured pair. A Monitor's command is routinely multi-line -- this one embeds a python
+  // filter -- and `ps` renders those newlines as a literal \012, which is what the join must see
+  // through.
+  const WATCH = 'tail -f /tmp/run20.log | python3 -u -c "\nimport json,sys\nfor line in sys.stdin:\n    print(line)"';
+  const ARGV = WATCH.replaceAll("\n", "\\012");
+
+  function watcher(overrides: Partial<MonitorIdentity> = {}): MonitorIdentity {
+    return {
+      taskId: "bf1g4k3ey",
+      description: "live tx-building run: tool calls and results",
+      command: WATCH,
+      startedAt: NOW - 480_000,
+      timeoutMs: 900_000,
+      ...overrides,
+    };
+  }
+
+  test("a watcher whose command is still running is running, found without any descriptor", () => {
+    // The gap this closes. A Monitor's shell holds a socket pair rather than tasks/<id>.output, so
+    // the fd join that finds every backgrounded shell finds nothing -- while the harness's own
+    // panel listed this watcher at 8m01s.
+    const snapshot = assembleSnapshot(sources({
+      monitors: new Map([["bf1g4k3ey", watcher()]]),
+      ownerPid: 92567,
+      processes: table([
+        `18816 92567 ${stamp(NOW - 480_000)} 0:00.01 /bin/zsh -c eval '${ARGV}' < /dev/null && pwd -P`,
+        `18818 18816 ${stamp(NOW - 480_000)} 0:00.07 tail -f /tmp/run20.log`,
+        `18819 18816 ${stamp(NOW - 480_000)} 0:00.17 python3 -u -c import json,sys`,
+      ].join("\n")),
+    }));
+    expect(snapshot.running).toHaveLength(1);
+    expect(snapshot.running[0]).toMatchObject({
+      taskId: "bf1g4k3ey",
+      kind: "monitor",
+      description: "live tx-building run: tool calls and results",
+      elapsedMs: 480_000,
+      // Its output is its notifications, not a file. Promising a stream would resolve to nothing.
+      hasOutput: false,
+      corroborated: true,
+    });
+    expect(snapshot.running[0]?.activity?.command).toBe("python3 -u -c import json,sys");
+  });
+
+  test("a watcher with no live shell is not running", () => {
+    // Monitors have a deadline and are killed at it. Nothing running that command means it is over,
+    // and the row must not persist on the strength of a transcript record alone.
+    const snapshot = assembleSnapshot(sources({
+      monitors: new Map([["bf1g4k3ey", watcher()]]),
+      ownerPid: 92567,
+      processes: table(`999 92567 ${stamp(NOW - 10_000)} 0:00.01 /bin/zsh -c eval 'something else' < /dev/null`),
+    }));
+    expect(snapshot.running).toEqual([]);
+  });
+
+  test("a shell belonging to another session is never claimed", () => {
+    // The candidate set is the owner's own children. Matching by command alone across the whole
+    // machine would let an identical watcher in a different session answer for this one.
+    const snapshot = assembleSnapshot(sources({
+      monitors: new Map([["bf1g4k3ey", watcher()]]),
+      ownerPid: 92567,
+      processes: table(`18816 55555 ${stamp(NOW - 480_000)} 0:00.01 /bin/zsh -c eval '${ARGV}' < /dev/null`),
+    }));
+    expect(snapshot.running).toEqual([]);
+  });
+
+  test("two watchers on the same command take different shells", () => {
+    // Restarting a watcher leaves two records with identical commands. Both must not land on the
+    // same process, or one row shows another's elapsed time.
+    const snapshot = assembleSnapshot(sources({
+      monitors: new Map([
+        ["bold", watcher({ taskId: "bold", startedAt: NOW - 480_000 })],
+        ["bnew", watcher({ taskId: "bnew", startedAt: NOW - 60_000 })],
+      ]),
+      ownerPid: 92567,
+      processes: table([
+        `18816 92567 ${stamp(NOW - 480_000)} 0:00.01 /bin/zsh -c eval '${ARGV}' < /dev/null`,
+        `18900 92567 ${stamp(NOW - 60_000)} 0:00.01 /bin/zsh -c eval '${ARGV}' < /dev/null`,
+      ].join("\n")),
+    }));
+    const elapsed = new Map(snapshot.running.map((task) => [task.taskId, task.elapsedMs]));
+    expect(elapsed.get("bold")).toBe(480_000);
+    expect(elapsed.get("bnew")).toBe(60_000);
+  });
+
+  test("a running watcher is not also listed as finished by its own progress ticks", () => {
+    // A Monitor emits many notifications while it runs. The finished pass must skip the ids the
+    // running pass already claimed, or a live watcher appears in both lists at once.
+    const snapshot = assembleSnapshot(sources({
+      monitors: new Map([["bf1g4k3ey", watcher()]]),
+      ownerPid: 92567,
+      notifications: new Map<string, TaskNotification>([
+        ["bf1g4k3ey", { kind: "progress", taskId: "bf1g4k3ey", summary: "Monitor event" }],
+      ]),
+      processes: table(`18816 92567 ${stamp(NOW - 480_000)} 0:00.01 /bin/zsh -c eval '${ARGV}' < /dev/null`),
+    }));
+    expect(snapshot.running.map((task) => task.taskId)).toEqual(["bf1g4k3ey"]);
+    expect(snapshot.finished).toEqual([]);
+  });
+});
+
+describe("assembleSnapshot finished monitors", () => {
+  const WATCH = "tail -f /tmp/run20.log | grep ERROR";
+
+  function watcher(): MonitorIdentity {
+    return {
+      taskId: "bf1g4k3ey",
+      description: "live tx-building run: tool calls and results",
+      command: WATCH,
+      startedAt: NOW - 900_000,
+      timeoutMs: 900_000,
+    };
+  }
+
+  test("a watcher that hit its deadline is finished, not vanished", () => {
+    // It ticked while it ran, so a progress notification is the last thing it left. That tick used
+    // to suppress the row entirely -- correct while we had no way to tell a live watcher from a
+    // dead one, wrong now that nothing is running its command.
+    const snapshot = assembleSnapshot(sources({
+      monitors: new Map([["bf1g4k3ey", watcher()]]),
+      ownerPid: 92567,
+      notifications: new Map<string, TaskNotification>([
+        ["bf1g4k3ey", { kind: "progress", taskId: "bf1g4k3ey", summary: "Monitor event" }],
+      ]),
+      processes: [],
+    }));
+    expect(snapshot.running).toEqual([]);
+    expect(snapshot.finished).toHaveLength(1);
+    expect(snapshot.finished[0]).toMatchObject({
+      taskId: "bf1g4k3ey",
+      kind: "monitor",
+      // Its own words, not the notification's summary and not the bare task id.
+      description: "live tx-building run: tool calls and results",
+    });
+  });
+
+  test("a progress tick for something that is not a known watcher still cannot close it", () => {
+    // The original rule, preserved for the shape it was written for: a tick from a task we have no
+    // other record of proves it was alive, and nothing about now.
+    const snapshot = assembleSnapshot(sources({
+      notifications: new Map<string, TaskNotification>([
+        ["bstranger", { kind: "progress", taskId: "bstranger", summary: "Monitor event" }],
+      ]),
+    }));
+    expect(snapshot.running).toEqual([]);
+    expect(snapshot.finished).toEqual([]);
   });
 });

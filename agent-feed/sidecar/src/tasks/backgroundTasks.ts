@@ -20,6 +20,7 @@ import {
   busiestDescendant,
   type CommandRunner,
   isInsideTaskRoot,
+  matchShellsByCommand,
   type ProcessRow,
   processTable,
   runCommand,
@@ -27,7 +28,12 @@ import {
   type TaskShell,
   taskShellsOf,
 } from "./processProbe.ts";
-import { claudeTranscriptPath, scanSessionTasks, type TaskIdentity } from "./taskIdentity.ts";
+import {
+  claudeTranscriptPath,
+  type MonitorIdentity,
+  scanSessionTasks,
+  type TaskIdentity,
+} from "./taskIdentity.ts";
 import { sessionOwner } from "./sessionRegistry.ts";
 import { parseTerminalMarker, resolveTaskState, type TaskNotification } from "./taskState.ts";
 
@@ -73,6 +79,10 @@ export interface SnapshotSources {
    * account for, and each task's descendant tree, for what it is executing now.
    */
   processes: readonly ProcessRow[];
+  /** Monitor watchers the transcript recorded, keyed by task id. */
+  monitors: ReadonlyMap<string, MonitorIdentity>;
+  /** The pid whose direct children are this session's task shells. */
+  ownerPid: number;
   /** How long an uncorroborated shell must have run before it is shown. */
   uncorroboratedAfterMs: number;
   ownerAlive: boolean;
@@ -100,6 +110,13 @@ export interface SnapshotSources {
  * `corroborated: false` so the panel can say which kind of knowledge it is. The threshold is a
  * heuristic, not a discriminator -- a foreground command that runs longer will appear too. That is
  * the accepted cost of the alternative being a task nobody can see.
+ *
+ * Monitors are found a third way, because neither of the first two reaches them. A Monitor's shell
+ * holds a socket pair instead of a capture file -- the harness reads each line as it is written and
+ * turns it into a notification -- so no descriptor names it and no threshold applies. What the
+ * transcript does record is its command, verbatim, and the harness runs that command verbatim, so
+ * the command is the join. Measured: two watchers the harness's own panel listed as running were
+ * invisible here for their whole lives.
  */
 export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapshot {
   const running: RunningBackgroundTask[] = [];
@@ -114,6 +131,14 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
         description: identity.description,
         command: identity.command,
         startedAt: identity.startedAt,
+      };
+    }
+    const watcher = sources.monitors.get(taskId);
+    if (watcher) {
+      return {
+        description: watcher.description,
+        command: watcher.command,
+        startedAt: watcher.startedAt,
       };
     }
     const notification = sources.notifications.get(taskId);
@@ -159,13 +184,64 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
     });
   }
 
-  const candidates = new Set<string>([...sources.identities.keys(), ...sources.notifications.keys()]);
+  // Monitors, which no descriptor can find. Their shells hold a socket pair rather than a capture
+  // file, so they are located by the command the transcript recorded instead.
+  const watchers = [...sources.monitors.values()];
+  const watcherShells = matchShellsByCommand(
+    sources.processes,
+    sources.ownerPid,
+    watchers.map((watcher) => ({
+      key: watcher.taskId,
+      command: watcher.command,
+      startedAt: watcher.startedAt,
+    })),
+  );
+  for (const watcher of watchers) {
+    const shell = watcherShells.get(watcher.taskId);
+    // No live shell running that command means the watcher is over -- it hit its deadline, or was
+    // stopped. It falls through to the loop below, which lists it as finished.
+    if (!shell) continue;
+    seen.add(watcher.taskId);
+    const busiest = busiestDescendant(sources.processes, shell.pid);
+    running.push({
+      taskId: watcher.taskId,
+      kind: "monitor",
+      description: watcher.description,
+      command: watcher.command,
+      startedAt: watcher.startedAt,
+      state: { status: "running" },
+      elapsedMs: Math.max(0, sources.now - shell.startedAt),
+      // A Monitor's output is its notifications, not a file. Saying it has output would promise a
+      // stream that resolves to nothing.
+      hasOutput: false,
+      corroborated: true,
+      activity: busiest === null ? null : activityOf(busiest, sources.now),
+    });
+  }
+
+  const candidates = new Set<string>([
+    ...sources.identities.keys(),
+    ...sources.monitors.keys(),
+    ...sources.notifications.keys(),
+  ]);
   for (const taskId of candidates) {
     if (seen.has(taskId)) continue;
     const notification = sources.notifications.get(taskId) ?? null;
-    // A Monitor watcher that has only ticked is neither running (no shell holds an output file)
-    // nor over. Listing it as finished would claim an ending that has not happened.
-    if (notification?.kind === "progress" && !sources.identities.has(taskId)) continue;
+    // A progress tick means the task was alive when it fired and says nothing about now, so on its
+    // own it cannot close a task -- that rule exists because a Monitor emits many of them over its
+    // life and treating any as a completion retired a watcher that was still watching.
+    //
+    // It no longer applies to a watcher we can actually look up. A Monitor in `monitors` that
+    // reached this loop was not matched to a live shell above, which means nothing is running its
+    // command: it is over, whatever its last tick said, and it belongs in `finished` rather than
+    // disappearing from both lists.
+    if (
+      notification?.kind === "progress" &&
+      !sources.identities.has(taskId) &&
+      !sources.monitors.has(taskId)
+    ) {
+      continue;
+    }
     const state = resolveTaskState({
       holdsOutputOpen: liveIds.has(taskId),
       marker: sources.markers.get(taskId) ?? null,
@@ -175,7 +251,11 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
     finished.push({
       ...describe(taskId),
       taskId,
-      kind: notification?.kind === "completion" ? notification.taskKind : "bash",
+      kind: sources.monitors.has(taskId)
+        ? "monitor"
+        : notification?.kind === "completion"
+        ? notification.taskKind
+        : "bash",
       state,
     });
   }
@@ -204,7 +284,11 @@ export async function backgroundTaskSnapshot(
   const transcriptPath = await claudeTranscriptPath(sessionId);
   const scan = transcriptPath
     ? await scanSessionTasks(sessionId, transcriptPath, new Set(shells.map((shell) => shell.taskId)))
-    : { starts: new Map<string, TaskIdentity>(), notifications: new Map<string, TaskNotification>() };
+    : {
+      starts: new Map<string, TaskIdentity>(),
+      monitors: new Map<string, MonitorIdentity>(),
+      notifications: new Map<string, TaskNotification>(),
+    };
 
   const markers = new Map<string, ReturnType<typeof parseTerminalMarker>>();
   const captureSizes = new Map<string, number>();
@@ -222,9 +306,9 @@ export async function backgroundTaskSnapshot(
     }
   }
 
-  // One table, or none. A session with no live shell has nothing to say about either question the
-  // table answers, so it does not pay the fork.
-  const processes = shells.length === 0 ? [] : await processTable(run);
+  // One table, or none. A Monitor holds no capture file, so a session can have watchers running
+  // with no `shells` at all -- the table is needed whenever either could be live.
+  const processes = shells.length === 0 && scan.monitors.size === 0 ? [] : await processTable(run);
 
   return assembleSnapshot({
     shells,
@@ -233,6 +317,8 @@ export async function backgroundTaskSnapshot(
     markers,
     captureSizes,
     processes,
+    monitors: scan.monitors,
+    ownerPid: owner.pid,
     uncorroboratedAfterMs: config.backgroundTaskUncorroboratedMs,
     ownerAlive: true,
     now,

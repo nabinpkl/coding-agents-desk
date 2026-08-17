@@ -50,6 +50,26 @@ function Activity({ activity }: { activity: TaskActivity }) {
   );
 }
 
+/**
+ * The qualifiers after a running task's elapsed time.
+ *
+ * Each says what kind of thing the row is, and each exists because the row would otherwise be read
+ * as something it is not:
+ *
+ *   watching  a Monitor. Its output is the notifications it sends the agent, not a file, so the
+ *             empty output pane below is correct rather than broken -- and calling it "output
+ *             redirected", which the byte count alone would, states a redirect that never happened.
+ *   shell     a live process the transcript never confirmed was backgrounded. Might be a command
+ *             promoted after it started; might be ordinary foreground work.
+ */
+function runningMeta(task: RunningBackgroundTask, elapsedMs: number): string {
+  const parts = [formatDuration(elapsedMs)];
+  if (task.kind === "monitor") parts.push("watching");
+  else if (!task.hasOutput) parts.push("output redirected");
+  if (!task.corroborated) parts.push("shell");
+  return parts.join(" · ");
+}
+
 function describeState(state: BackgroundTaskState): string {
   switch (state.status) {
     case "running":
@@ -259,14 +279,10 @@ export function BackgroundTasksContent({
                 // Prefer the clock the client keeps over the one that shipped, so the number moves
                 // between server messages instead of freezing for as long as nothing else changed.
                 //
-                // An uncorroborated row says so. The transcript never confirmed this one was
-                // backgrounded, so it is either a command promoted after it started or an ordinary
-                // foreground command that has run a while, and the panel cannot tell which. Naming
-                // it "shell" rather than dressing it as a task is the whole point of the flag: the
-                // title on such a row is a raw command line, not the agent's description.
-                meta={`${formatDuration(
+                meta={runningMeta(
+                  task,
                   task.startedAt === null ? task.elapsedMs : Math.max(0, now - task.startedAt),
-                )}${task.corroborated ? "" : " · shell"}${task.hasOutput ? "" : " · output redirected"}`}
+                )}
                 activity={task.activity}
                 expanded={expanded === task.taskId}
                 onToggle={() => setExpanded((current) => (current === task.taskId ? null : task.taskId))}

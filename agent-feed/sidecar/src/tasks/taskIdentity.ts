@@ -15,7 +15,12 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "../config.ts";
 import { isInsideTaskRoot } from "./processProbe.ts";
-import { parseBackgroundStart, parseTaskNotification, type TaskNotification } from "./taskState.ts";
+import {
+  parseBackgroundStart,
+  parseMonitorStart,
+  parseTaskNotification,
+  type TaskNotification,
+} from "./taskState.ts";
 
 export interface TaskIdentity {
   taskId: string;
@@ -26,8 +31,24 @@ export interface TaskIdentity {
   capturePath: string;
 }
 
+/**
+ * A Monitor watcher, which the transcript describes fully and the kernel describes not at all.
+ *
+ * Its `command` is load-bearing rather than decorative: a Monitor's shell holds no capture file, so
+ * the command IS the join between the transcript record and the live process. Everything else here
+ * is what the panel shows.
+ */
+export interface MonitorIdentity {
+  taskId: string;
+  description: string;
+  command: string;
+  startedAt: number | null;
+  timeoutMs: number | null;
+}
+
 export interface TranscriptTaskScan {
   starts: Map<string, TaskIdentity>;
+  monitors: Map<string, MonitorIdentity>;
   /** Keyed by task id; a later record replaces an earlier one, so a completion beats a tick. */
   notifications: Map<string, TaskNotification>;
 }
@@ -47,9 +68,10 @@ interface ToolUseInput {
  */
 export function parseTranscriptWindow(text: string): TranscriptTaskScan {
   const starts = new Map<string, TaskIdentity>();
+  const monitors = new Map<string, MonitorIdentity>();
   const notifications = new Map<string, TaskNotification>();
   // tool_use id -> what that call asked for, held until its result names the task id.
-  const pending = new Map<string, { input: ToolUseInput; at: number | null }>();
+  const pending = new Map<string, { input: ToolUseInput; at: number | null; name: string }>();
 
   for (const line of text.split("\n")) {
     if (!line.startsWith("{")) continue;
@@ -78,13 +100,35 @@ export function parseTranscriptWindow(text: string): TranscriptTaskScan {
       const typed = block as Record<string, unknown>;
       if (typed.type === "tool_use") {
         const input = typed.input as ToolUseInput | undefined;
-        if (!input?.run_in_background) continue;
-        if (typeof typed.id === "string") pending.set(typed.id, { input, at: timestamp });
+        const name = typeof typed.name === "string" ? typed.name : "";
+        // A Monitor is pended on its NAME, where a backgrounded shell is pended on the flag it
+        // set: Monitor has no `run_in_background`, it is background by nature.
+        if (!input?.run_in_background && name !== "Monitor") continue;
+        if (typeof typed.id === "string") pending.set(typed.id, { input: input ?? {}, at: timestamp, name });
         continue;
       }
       if (typed.type !== "tool_result") continue;
       const content = typed.content;
       const asText = typeof content === "string" ? content : JSON.stringify(content ?? "");
+      const watcher = parseMonitorStart(asText);
+      if (watcher) {
+        const call = typeof typed.tool_use_id === "string" ? pending.get(typed.tool_use_id) : undefined;
+        const command = typeof call?.input.command === "string" ? call.input.command : null;
+        // Without the command there is no way to find this watcher's process, and a Monitor row
+        // that cannot be shown to be alive is worse than no row. Dropped rather than guessed at.
+        if (command !== null) {
+          monitors.set(watcher.taskId, {
+            taskId: watcher.taskId,
+            description: typeof call?.input.description === "string" && call.input.description.trim()
+              ? call.input.description.trim()
+              : command.slice(0, 200),
+            command,
+            startedAt: call?.at ?? timestamp,
+            timeoutMs: watcher.timeoutMs,
+          });
+        }
+        continue;
+      }
       const started = parseBackgroundStart(asText);
       if (!started) continue;
       const call = typeof typed.tool_use_id === "string" ? pending.get(typed.tool_use_id) : undefined;
@@ -105,7 +149,7 @@ export function parseTranscriptWindow(text: string): TranscriptTaskScan {
       });
     }
   }
-  return { starts, notifications };
+  return { starts, monitors, notifications };
 }
 
 /**
@@ -187,16 +231,21 @@ export async function scanSessionTasks(
         const { text, consumed } = await readForward(transcriptPath, cached.offset, size);
         const fresh = parseTranscriptWindow(text);
         for (const [id, identity] of fresh.starts) cached.starts.set(id, identity);
+        for (const [id, watcher] of fresh.monitors) cached.monitors.set(id, watcher);
         for (const [id, notification] of fresh.notifications) {
           cached.notifications.set(id, notification);
         }
         cached.offset += consumed;
       }
-      return { starts: cached.starts, notifications: cached.notifications };
+      return {
+        starts: cached.starts,
+        monitors: cached.monitors,
+        notifications: cached.notifications,
+      };
     }
   }
 
-  let scan: TranscriptTaskScan = { starts: new Map(), notifications: new Map() };
+  let scan: TranscriptTaskScan = { starts: new Map(), monitors: new Map(), notifications: new Map() };
   let size = 0;
   for (const bytes of WINDOW_BYTES) {
     const window = await readBackwardWindow(transcriptPath, bytes);

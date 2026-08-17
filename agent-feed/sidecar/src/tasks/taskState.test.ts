@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   parseBackgroundStart,
+  parseMonitorStart,
   parseTaskNotification,
   parseTerminalMarker,
   resolveTaskState,
@@ -162,5 +163,27 @@ describe("resolveTaskState", () => {
     // A start with nothing behind it is a reaped task from a dead session. Calling it running
     // would inflate the chip's count forever, which is the failure transcript-only detection has.
     expect(resolveTaskState(none)).toEqual({ status: "unknown" });
+  });
+});
+
+describe("parseMonitorStart", () => {
+  test("reads the task id and deadline out of the harness's own sentence", () => {
+    // Measured, verbatim, from a live session.
+    expect(parseMonitorStart("Monitor started (task bf1g4k3ey, timeout 900000ms). You will be notified"))
+      .toEqual({ taskId: "bf1g4k3ey", timeoutMs: 900_000 });
+  });
+
+  test("a backgrounded shell's start record is not a monitor", () => {
+    // The two sentences share a transcript and must not be confused: a Monitor names no file, and
+    // treating one as the other would build a capture path that does not exist.
+    expect(parseMonitorStart("Command running in background with ID: b1. Output is being written to: /x.output"))
+      .toBeNull();
+  });
+
+  test("a monitor with no stated timeout still parses", () => {
+    expect(parseMonitorStart("Monitor started (task babc123)")).toEqual({
+      taskId: "babc123",
+      timeoutMs: null,
+    });
   });
 });

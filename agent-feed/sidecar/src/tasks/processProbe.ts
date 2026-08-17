@@ -235,8 +235,13 @@ export interface ShellDetail {
 export function unwrapShellCommand(argv: string): string {
   const match = /\beval '(.*)' < \/dev\/null\b/s.exec(argv);
   if (!match?.[1]) return argv.trim();
-  // zsh escapes an interior quote as '\'' -- close, literal, reopen.
-  return match[1].replaceAll(`'\\''`, "'").trim();
+  // An interior single quote cannot appear inside a single-quoted string, so it is spliced. The
+  // harness emits the `'"'"'` form -- close, double-quoted quote, reopen -- measured on a live
+  // watcher whose python filter contains `line.startswith('{')`. Missing it left the unwrapped
+  // command 88 characters longer than the one the transcript recorded, so every comparison against
+  // it failed and the watcher could not be found. `'\''` is the other standard spelling of the
+  // same trick and costs one line to accept.
+  return match[1].replaceAll(`'"'"'`, "'").replaceAll(`'\\''`, "'").trim();
 }
 
 /**
@@ -370,6 +375,62 @@ export function shellDetailFrom(rows: readonly ProcessRow[], pid: number): Shell
   const row = rows.find((candidate) => candidate.pid === pid);
   if (!row) return null;
   return { pid, startedAt: row.startedAt, command: unwrapShellCommand(row.command) };
+}
+
+/**
+ * Normalise an argv for comparison against a command the transcript recorded.
+ *
+ * `ps` renders control characters in octal, so a multi-line command comes back with a literal
+ * `\012` everywhere the agent wrote a newline. A Monitor's command is routinely multi-line -- the
+ * measured one embeds a whole `python3 -c` script -- so without this the join never matches and
+ * the feature silently does nothing.
+ */
+export function normaliseArgv(text: string): string {
+  return text.replaceAll("\\012", "\n").replaceAll("\\011", "\t").trim();
+}
+
+/**
+ * Match live shells to commands the transcript recorded, by what they are running.
+ *
+ * This is the join for tasks with no capture file. A Monitor's shell holds only a socket pair, so
+ * the descriptor trick that identifies every backgrounded shell has nothing to grip -- but the
+ * harness runs the agent's command verbatim, so the command itself is the identity.
+ *
+ * Each shell is claimed at most once, and the closest start time wins, so two watchers on the same
+ * command land on different shells instead of both on the first one. Ambiguity beyond that is
+ * resolved by order rather than left to chance, and a command with no live shell simply gets no
+ * answer: absence here means "not running", which is exactly the question being asked.
+ */
+export function matchShellsByCommand(
+  rows: readonly ProcessRow[],
+  parentPid: number,
+  wanted: readonly { key: string; command: string; startedAt: number | null }[],
+): Map<string, ProcessRow> {
+  const candidates = rows.filter((row) => row.ppid === parentPid).map((row) => ({
+    row,
+    command: normaliseArgv(unwrapShellCommand(row.command)),
+  }));
+  const claimed = new Set<number>();
+  const matched = new Map<string, ProcessRow>();
+  for (const entry of wanted) {
+    const target = normaliseArgv(entry.command);
+    let best: ProcessRow | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const candidate of candidates) {
+      if (claimed.has(candidate.row.pid) || candidate.command !== target) continue;
+      const distance = entry.startedAt === null
+        ? 0
+        : Math.abs(candidate.row.startedAt - entry.startedAt);
+      if (best === null || distance < bestDistance) {
+        best = candidate.row;
+        bestDistance = distance;
+      }
+    }
+    if (best === null) continue;
+    claimed.add(best.pid);
+    matched.set(entry.key, best);
+  }
+  return matched;
 }
 
 /**
