@@ -66,7 +66,7 @@ Option C uses each source where it is authoritative:
 | fact | source | why this one |
 | --- | --- | --- |
 | session ↔ owning process | `~/.claude/sessions/<pid>.json` | the harness maintains it; carries `procStart` specifically to defeat PID reuse |
-| which tasks are running | `lsof` fd 1 of the session's child shells | a task shell's fd 1 *is* `…/tasks/<task-id>.output`, so the process↔task join is exact and needs no command-string matching |
+| which tasks are running | `lsof` the writable descriptors of the session's child shells | a task shell holds `…/tasks/<task-id>.output` open for writing, so the process↔task join is exact and needs no command-string matching |
 | terminal state | trailing `[exited with code N]` / `[killed]` in the `.output` file | written by the harness, present for killed tasks, immediate |
 | description, command | the transcript's `tool_use.input` | the only human-readable source |
 | live output | the fds the task itself holds open | survives redirection, which the `.output` file does not |
@@ -126,6 +126,18 @@ elapsed time and follows one task's real output. Its acceptance signal is parity
 harness's own panel: for the session used to develop this, `Running 1 / Finished 4`, matching
 Claude Desktop exactly. When a harness release breaks one of the three artifacts above, the
 smoke fails rather than silently reporting nothing in flight.
+
+**Corrected 2026-08-17.** That parity check passed on a session whose tasks all happened to be
+plain commands, and it hid a fourth assumption nobody had written down: that the capture sits on
+**fd 1**. It does not when the agent's own command redirects or pipes its top-level stdout --
+`{ … } > results/bakeoff.log 2>&1` -- because zsh then puts the log on fd 1 and moves the capture
+to a saved descriptor (measured: fds 12 and 14). Those tasks were invisible to the probe, and
+since a running task holds no terminal marker, the panel showed them as finished with an unknown
+outcome, permanently. The join is now the descriptor's **name and write access**, on any
+descriptor number, and the measured descriptor table is a unit test -- the smoke cannot assert
+this one, since it only sees the shapes that happen to be running. The general lesson for the
+three artifacts above stands and gains a fourth: a parity check against one session proves the
+shapes that session happened to contain, and the failure is always the silent direction.
 
 ## Pros and Cons of the Options
 

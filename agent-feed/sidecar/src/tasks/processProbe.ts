@@ -2,9 +2,17 @@
 // is really going.
 //
 // The join that makes this exact rather than heuristic: a background task's shell holds its own
-// `…/tasks/<task-id>.output` open on fd 1. So the descriptor names the task. No matching of
+// `…/tasks/<task-id>.output` open for WRITING. So the descriptor names the task. No matching of
 // command strings, no guessing from timestamps, no chance of attributing one task's output to
 // another.
+//
+// It is the descriptor's NAME that identifies the task, never its number. The number was once
+// assumed to be 1, and that assumption cost a whole class of task: when the agent's own command
+// redirects or pipes its top-level stdout -- `{ … } > results/bakeoff.log 2>&1`, the shape a
+// well-behaved agent writes for anything long -- zsh puts the redirect on fd 1 and moves the
+// harness's capture to a saved descriptor in the teens. Measured on a live run: fd 1 and 2 were the
+// log, fds 12 and 14 were the capture. Those tasks were reported as not running, which the panel
+// then rendered as finished-with-unknown-outcome, forever.
 //
 // The second trick is why the feature exists at all. A well-behaved agent redirects a long
 // command into a log file and reads only the tail at the end, which leaves that stdout capture
@@ -82,21 +90,27 @@ export interface TaskShell {
 interface LsofDescriptor {
   pid: number;
   fd: string;
+  /** lsof's access mode: `r`, `w`, `u` (read-write), or a space for entries that have none. */
+  access: string;
   name: string;
 }
 
 /**
- * Parse `lsof -F pfn` output.
+ * Parse `lsof -F pfan` output.
  *
  * The field format emits one item per line, prefixed by a type character, and it is stateful: a
- * `p` line opens a process and every `f`/`n` pair after it belongs to that process until the next
- * `p`. Parsing it positionally is what keeps this readable; the human-facing table format would
- * need column alignment guesses.
+ * `p` line opens a process and every `f`/`a`/`n` group after it belongs to that process until the
+ * next `p`. Parsing it positionally is what keeps this readable; the human-facing table format
+ * would need column alignment guesses.
+ *
+ * The access mode is tracked because it is the only thing separating the shell WRITING a task's
+ * capture from some other process merely reading it.
  */
 export function parseLsofDescriptors(text: string): LsofDescriptor[] {
   const out: LsofDescriptor[] = [];
   let pid: number | null = null;
   let fd: string | null = null;
+  let access = "";
   for (const line of text.split("\n")) {
     if (!line) continue;
     const kind = line[0];
@@ -105,10 +119,15 @@ export function parseLsofDescriptors(text: string): LsofDescriptor[] {
       const parsed = Number(value);
       pid = Number.isSafeInteger(parsed) ? parsed : null;
       fd = null;
+      access = "";
     } else if (kind === "f") {
       fd = value;
+      // Each descriptor carries its own mode; a missing `a` field must not inherit the last one.
+      access = "";
+    } else if (kind === "a") {
+      access = value.trim();
     } else if (kind === "n" && pid !== null && fd !== null) {
-      out.push({ pid, fd, name: value });
+      out.push({ pid, fd, access, name: value });
     }
   }
   return out;
@@ -119,13 +138,20 @@ const CAPTURE_PATH = /\/tasks\/([A-Za-z0-9]+)\.output$/;
 /**
  * Task ids recovered from a set of descriptors.
  *
- * Only fd 1 counts. fd 2 points at the same file for these shells, and accepting it would report
- * each task twice; fd 0 is the null device the harness gives them.
+ * Any descriptor number is accepted, because the number is not stable -- see the note at the top of
+ * this file. The task id comes from the path, and the map is keyed by it, so the several
+ * descriptors one shell holds on the same capture collapse to one shell rather than to one task
+ * counted several times.
+ *
+ * Write access is required. It is what says this process OWNS the capture: a shell the harness
+ * started to run the task holds it `w`, where anything that merely reads a finished task's output
+ * -- the agent's own `cat`, for one -- holds it `r`, and counting that would resurrect a task that
+ * ended hours ago as running.
  */
 export function taskShellsFromDescriptors(descriptors: readonly LsofDescriptor[]): TaskShell[] {
   const shells = new Map<string, TaskShell>();
   for (const descriptor of descriptors) {
-    if (descriptor.fd !== "1") continue;
+    if (descriptor.access !== "w" && descriptor.access !== "u") continue;
     const match = CAPTURE_PATH.exec(descriptor.name);
     if (!match) continue;
     if (!isInsideTaskRoot(descriptor.name)) continue;
@@ -157,7 +183,13 @@ export async function taskShellsOf(run: CommandRunner, claudePid: number): Promi
   if (children.length === 0) return [];
   // One lsof for every child rather than one per child: the fork is the expensive part, and the
   // session's MCP servers and language servers are in this list too.
-  const text = await run([LSOF_BINARY, "-p", children.join(","), "-a", "-d", "0-3", "-F", "pfn"]);
+  //
+  // Every descriptor, not a range. `-d 0-3` was the original filter and it is exactly what hid a
+  // redirected task, whose capture sat on fd 12. Any range is a guess at where zsh parks a saved
+  // descriptor, and guessing wrong fails silently as "nothing is running"; the name filter in
+  // `taskShellsFromDescriptors` is the real discriminator. Measured on a live session with four
+  // children including three MCP servers: 244 lines, 19 ms.
+  const text = await run([LSOF_BINARY, "-p", children.join(","), "-F", "pfan"]);
   return taskShellsFromDescriptors(parseLsofDescriptors(text));
 }
 
@@ -180,9 +212,12 @@ export async function outputTargetsOf(run: CommandRunner, shell: TaskShell): Pro
     }
   }
   if (seen.size === 0) return [];
-  // `-F pfn`, not `pn`: the parser is stateful and pairs each name with the descriptor number that
+  // `-F pfan`, not `pn`: the parser is stateful and pairs each name with the descriptor that
   // preceded it, so omitting the `f` field yields a stream it cannot attribute and drops silently.
-  const text = await run([LSOF_BINARY, "-p", [...seen].join(","), "-a", "-d", "1", "-F", "pfn"]);
+  //
+  // fd 1 IS the right filter here, unlike in `taskShellsOf`. This asks a descendant where its
+  // stdout goes, which is the question; the shell's own saved descriptors are not.
+  const text = await run([LSOF_BINARY, "-p", [...seen].join(","), "-a", "-d", "1", "-F", "pfan"]);
   const targets: string[] = [];
   for (const descriptor of parseLsofDescriptors(text)) {
     if (descriptor.fd !== "1") continue;
