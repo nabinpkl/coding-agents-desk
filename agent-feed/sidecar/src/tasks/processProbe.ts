@@ -20,6 +20,7 @@
 // reading their fd 1 finds the file the work is really being written to.
 
 import { config } from "../config.ts";
+import { parseProcessLstart } from "./processStartTime.ts";
 
 /** Injected so tests never fork. Returns stdout; a failed command yields an empty string. */
 export type CommandRunner = (argv: readonly string[]) => Promise<string>;
@@ -191,6 +192,78 @@ export async function taskShellsOf(run: CommandRunner, claudePid: number): Promi
   // children including three MCP servers: 244 lines, 19 ms.
   const text = await run([LSOF_BINARY, "-p", children.join(","), "-F", "pfan"]);
   return taskShellsFromDescriptors(parseLsofDescriptors(text));
+}
+
+/** What a live shell is running, and since when, asked of the kernel rather than the transcript. */
+export interface ShellDetail {
+  pid: number;
+  /** Process start, epoch ms local, from `ps -o lstart=`. */
+  startedAt: number;
+  /** The agent's command, unwrapped from the harness's shell preamble. */
+  command: string;
+}
+
+/**
+ * Recover the agent's own command from a task shell's full argv.
+ *
+ * The harness does not hand the shell a bare command. It prepends a snapshot `source`, a `setopt`,
+ * and some alias cleanup, and appends a `pwd -P` that tracks the working directory -- then wraps
+ * the part the agent actually wrote in `eval '…' < /dev/null`. Measured on a live shell:
+ *
+ *   /bin/zsh -c source …/snapshot-zsh-….sh 2>/dev/null || true && setopt … || true
+ *     && { \builtin unalias -- 'unsetenv'; … } >/dev/null 2>&1 || true
+ *     && eval 'sleep 30 > /dev/null 2>&1' < /dev/null && pwd -P >| /tmp/claude-9b7a-cwd
+ *
+ * That wrapper is a fifth undocumented harness artifact, so a miss returns the whole argv rather
+ * than nothing: an unwrapped command line is ugly but still tells the viewer what is running, where
+ * an empty string would read as a task with no identity at all.
+ *
+ * The match is greedy to the LAST `' < /dev/null`, because the agent's own command may contain the
+ * same text and the outer wrapper is the one that closes last.
+ */
+export function unwrapShellCommand(argv: string): string {
+  const match = /\beval '(.*)' < \/dev\/null\b/s.exec(argv);
+  if (!match?.[1]) return argv.trim();
+  // zsh escapes an interior quote as '\'' -- close, literal, reopen.
+  return match[1].replaceAll(`'\\''`, "'").trim();
+}
+
+/**
+ * Parse `ps -o pid=,lstart=,command=`.
+ *
+ * Positional, and it has to be: the command field contains arbitrary spaces, so only the fixed
+ * shape of the first six tokens -- pid, then ctime's five -- makes the split unambiguous.
+ */
+export function parseShellDetails(text: string): ShellDetail[] {
+  const out: ShellDetail[] = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    const tokens = line.trim().split(/\s+/);
+    if (tokens.length < 7) continue;
+    const pid = Number(tokens[0]);
+    if (!Number.isSafeInteger(pid) || pid <= 0) continue;
+    const startedAt = parseProcessLstart(tokens.slice(1, 6).join(" "));
+    if (startedAt === null) continue;
+    // Rejoin from the ORIGINAL text rather than from the split tokens, so runs of spaces inside
+    // the command survive. `ps` right-pads `lstart`, so the command starts at the sixth token.
+    const commandStart = line.indexOf(tokens[6]!, line.indexOf(tokens[5]!) + tokens[5]!.length);
+    out.push({
+      pid,
+      startedAt,
+      command: unwrapShellCommand(commandStart === -1 ? tokens.slice(6).join(" ") : line.slice(commandStart)),
+    });
+  }
+  return out;
+}
+
+/** When each of these shells started and what it is running. One fork for the whole set. */
+export async function shellDetailsOf(
+  run: CommandRunner,
+  pids: readonly number[],
+): Promise<Map<number, ShellDetail>> {
+  if (pids.length === 0) return new Map();
+  const text = await run([PS_BINARY, "-p", pids.join(","), "-o", "pid=,lstart=,command="]);
+  return new Map(parseShellDetails(text).map((detail) => [detail.pid, detail]));
 }
 
 /**

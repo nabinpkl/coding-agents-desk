@@ -99,6 +99,30 @@ the instant a turn ends, while the task that turn launched runs on for minutes. 
 true simultaneously and they are different facts, so background tasks get their own field. A
 session also has several tasks at once, so that field is a list, not an enum.
 
+**Amended 2026-08-17: a promoted command is shown on a clock, and says so.**
+
+The original rule was that a shell counts only when the transcript corroborates it, because
+"backgrounded" is a property the agent declared and the transcript is the only record of the
+declaration. That is still true of tasks the agent declares. It is not true of a command
+**promoted** to the background after it started, by the operator or by the harness's own
+foreground timeout: measured on a live session, its `tool_use` carries no `run_in_background`,
+and the `tool_result` that would name its task id does not exist until the command ends. So for
+its entire life there is nothing on disk to corroborate it with -- the registry has no task
+fields, and neither the session's tmp directory nor anything else under `~/.claude` records the
+promotion. A six-minute run the harness's own panel listed under Running was invisible here.
+
+Relaxing the rule outright was rejected for the reason it was written: a foreground command's
+shell is byte-for-byte the same to the kernel, down to the capture file, the descriptor, and the
+process group. What separates them is only how long they live, so that is what is used --
+uncorroborated shells appear after `backgroundTaskUncorroboratedMs` (5s, owner's choice) and
+carry `corroborated: false`, which the panel renders as `· shell` and whose title is the shell's
+own command line rather than an agent description it does not have.
+
+Name the cost plainly: this is a duration heuristic, not a discriminator, and at 5s ordinary
+foreground work appears in the list. That was chosen over the alternative, which is a
+ten-minute build nobody can see. The flag exists so the panel never presents the two kinds of
+knowledge as one.
+
 ### Consequences
 
 - Good, because the signal covers every transcript-backed session, including ones with no live

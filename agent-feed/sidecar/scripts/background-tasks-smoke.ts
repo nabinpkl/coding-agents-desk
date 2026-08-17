@@ -143,8 +143,15 @@ for (const session of live) {
   console.log(`  running ${snapshot.running.length} | finished ${snapshot.finished.length}`);
   for (const task of snapshot.running) {
     console.log(
-      `  ● ${task.taskId}  ${Math.round(task.elapsedMs / 1000)}s  hasOutput=${task.hasOutput}  ${task.description.slice(0, 56)}`,
+      `  ${task.corroborated ? "●" : "○"} ${task.taskId}  ${Math.round(task.elapsedMs / 1000)}s  ` +
+        `hasOutput=${task.hasOutput}  ${task.description.slice(0, 56)}`,
     );
+    if (!task.corroborated) {
+      // A live shell the transcript says nothing about: promoted to the background after it
+      // started, or an ordinary foreground command that has run past the threshold. The smoke
+      // cannot tell which either, and saying so is the point.
+      console.log("     uncorroborated -- shown on elapsed time alone, description is the argv");
+    }
     const shell = (await taskShellsOf(runCommand, session.pid)).find((s) => s.taskId === task.taskId);
     if (!shell) continue;
     const targets = await outputTargetsOf(runCommand, shell);

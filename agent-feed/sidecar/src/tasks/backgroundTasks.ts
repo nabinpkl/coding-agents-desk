@@ -14,10 +14,13 @@ import type {
   BackgroundTaskSnapshot,
   RunningBackgroundTask,
 } from "@agentdesk/agent-feed-wire";
+import { config } from "../config.ts";
 import {
   type CommandRunner,
   isInsideTaskRoot,
   runCommand,
+  type ShellDetail,
+  shellDetailsOf,
   type TaskShell,
   taskShellsOf,
 } from "./processProbe.ts";
@@ -48,6 +51,10 @@ export interface SnapshotSources {
   notifications: ReadonlyMap<string, TaskNotification>;
   markers: ReadonlyMap<string, ReturnType<typeof parseTerminalMarker>>;
   captureSizes: ReadonlyMap<string, number>;
+  /** Kernel-side identity for shells the transcript cannot account for, keyed by shell pid. */
+  shellDetails: ReadonlyMap<number, ShellDetail>;
+  /** How long an uncorroborated shell must have run before it is shown. */
+  uncorroboratedAfterMs: number;
   ownerAlive: boolean;
   now: number;
 }
@@ -56,15 +63,23 @@ export interface SnapshotSources {
  * Fold the three sources into what the panel renders. Pure, so the precedence is testable without
  * a live session.
  *
- * A shell only counts as a background task when the transcript also carries a start record for it.
- * That corroboration is not bookkeeping, it is the discriminator: the harness gives FOREGROUND
- * commands a `tasks/<id>.output` file too and their shells hold it open exactly the same way, so
- * the kernel cannot tell the two apart. Without this rule the panel showed the agent's own
- * in-flight `curl` as a background task, and would have shown a running count of at least one
- * whenever the agent was doing anything at all.
+ * A shell corroborated by a transcript start record is a background task, immediately and without
+ * qualification. That corroboration is not bookkeeping, it is the discriminator: the harness gives
+ * FOREGROUND commands a `tasks/<id>.output` file too and their shells hold it open exactly the same
+ * way -- same descriptor, same process group, same state -- so the kernel cannot tell the two
+ * apart. Reporting every live shell showed the agent's own in-flight `curl` as a background task.
  *
- * "Backgrounded" is a property the agent declared, and the transcript is the only record of the
- * declaration.
+ * But requiring corroboration alone hid a case worth seeing. A command PROMOTED to the background
+ * after it started -- by the operator, or by the harness's own foreground timeout -- carries no
+ * `run_in_background` in its tool_use, and the tool_result that would name its task id does not
+ * exist until the command ends. Measured on a live session: a six-minute run that the harness's own
+ * panel listed under Running was, on disk, indistinguishable from a foreground command for its
+ * entire life. Waiting for corroboration means showing it only once it no longer matters.
+ *
+ * So an uncorroborated shell is shown once it has outlived `uncorroboratedAfterMs`, and is marked
+ * `corroborated: false` so the panel can say which kind of knowledge it is. The threshold is a
+ * heuristic, not a discriminator -- a foreground command that runs longer will appear too. That is
+ * the accepted cost of the alternative being a task nobody can see.
  */
 export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapshot {
   const running: RunningBackgroundTask[] = [];
@@ -90,11 +105,26 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
   };
 
   for (const shell of sources.shells) {
-    // No start record means this shell is a foreground command, not a background task. See the
-    // note above: the two are indistinguishable to the kernel.
-    if (!sources.identities.has(shell.taskId)) continue;
+    const corroborated = sources.identities.has(shell.taskId);
+    let identity: Pick<BackgroundTask, "description" | "command" | "startedAt">;
+    if (corroborated) {
+      identity = describe(shell.taskId);
+    } else {
+      // Without a start record the only clock is the shell's own, and without that there is
+      // nothing to measure the threshold against -- so it is dropped rather than shown at age
+      // zero, which would defeat the threshold for exactly the shells we know least about.
+      const detail = sources.shellDetails.get(shell.pid);
+      if (!detail) continue;
+      if (sources.now - detail.startedAt < sources.uncorroboratedAfterMs) continue;
+      // No agent words exist for this one, so the command line stands in. It is uglier and it is
+      // always true, which is the right trade for a row the panel is already qualifying.
+      identity = {
+        description: detail.command,
+        command: detail.command,
+        startedAt: detail.startedAt,
+      };
+    }
     seen.add(shell.taskId);
-    const identity = describe(shell.taskId);
     const captureSize = sources.captureSizes.get(shell.taskId) ?? 0;
     running.push({
       ...identity,
@@ -103,6 +133,7 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
       state: { status: "running" },
       elapsedMs: identity.startedAt === null ? 0 : Math.max(0, sources.now - identity.startedAt),
       hasOutput: captureSize > 0,
+      corroborated,
     });
   }
 
@@ -169,12 +200,20 @@ export async function backgroundTaskSnapshot(
     }
   }
 
+  // Only the shells the transcript could not account for. In the ordinary case that set is empty
+  // and this costs no fork at all; it is the promoted-task case that pays for one.
+  const unaccounted = shells
+    .filter((shell) => !scan.starts.has(shell.taskId))
+    .map((shell) => shell.pid);
+
   return assembleSnapshot({
     shells,
     identities: scan.starts,
     notifications: scan.notifications,
     markers,
     captureSizes,
+    shellDetails: await shellDetailsOf(run, unaccounted),
+    uncorroboratedAfterMs: config.backgroundTaskUncorroboratedMs,
     ownerAlive: true,
     now,
   });

@@ -64,6 +64,22 @@ export interface RunningBackgroundTask extends BackgroundTask {
   state: { status: "running" };
   elapsedMs: number;
   /**
+   * Whether the transcript confirms the agent declared this backgrounded.
+   *
+   * False means the kernel found a live shell the transcript says nothing about. That is what a
+   * command promoted to the background AFTER it started looks like -- the harness records the
+   * promotion nowhere on disk, and the task id only reaches the transcript once the command ends,
+   * so the whole time it runs there is nothing to corroborate it with. It is also what an ordinary
+   * foreground command looks like, because the two are indistinguishable to the kernel: same
+   * capture file, same fd, same process group. Only elapsed time separates them, and only
+   * statistically.
+   *
+   * So the flag is not decoration. `description` on an uncorroborated row is the shell's own
+   * command line, not the agent's words for it, and a viewer that presents the two identically is
+   * claiming knowledge it does not have.
+   */
+  corroborated: boolean;
+  /**
    * Absent until the task's output target has been resolved, which needs one process probe.
    * A running task with no progress yet is normal for the first tick, and is not an error.
    */

@@ -22,6 +22,7 @@ function running(overrides: Partial<RunningBackgroundTask> = {}): RunningBackgro
     state: { status: "running" },
     elapsedMs: 65_000,
     hasOutput: true,
+    corroborated: true,
     ...overrides,
   };
 }
@@ -79,6 +80,34 @@ describe("BackgroundTasksContent", () => {
       />,
     );
     expect(screen.getByText(/output redirected/)).toBeInTheDocument();
+  });
+
+  it("marks a row the transcript never corroborated, and leaves a declared one unmarked", () => {
+    // An uncorroborated row is a live shell that outlived the threshold: either a command promoted
+    // to the background after it started, or an ordinary foreground command still going. Its title
+    // is a raw command line rather than the agent's words, so presenting it identically to a
+    // declared task would claim knowledge the sidecar does not have.
+    const { rerender } = render(
+      <BackgroundTasksContent
+        snapshot={snapshot({
+          running: [running({ corroborated: false, description: "python3 run.py --model flash" })],
+        })}
+        source={stubDataSource()}
+        session={SESSION}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.getByText(/· shell/)).toBeInTheDocument();
+
+    rerender(
+      <BackgroundTasksContent
+        snapshot={snapshot({ running: [running()] })}
+        source={stubDataSource()}
+        session={SESSION}
+        onClose={() => {}}
+      />,
+    );
+    expect(screen.queryByText(/· shell/)).toBeNull();
   });
 
   it("opens no output stream until a row is expanded, and closes it on collapse", () => {

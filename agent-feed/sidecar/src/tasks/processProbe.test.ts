@@ -4,8 +4,11 @@ import {
   type CommandRunner,
   outputTargetsOf,
   parseLsofDescriptors,
+  parseShellDetails,
+  shellDetailsOf,
   taskShellsFromDescriptors,
   taskShellsOf,
+  unwrapShellCommand,
 } from "./processProbe.ts";
 
 const ROOT = config.claudeTaskRoot;
@@ -185,5 +188,78 @@ describe("outputTargetsOf", () => {
   test("a task that streams normally has no separate target", async () => {
     const run = fakeRunner({ "/usr/bin/pgrep -P 63854": "" });
     expect(await outputTargetsOf(run, shell)).toEqual([]);
+  });
+});
+
+// The harness's real wrapper, copied from `ps -o command=` on a live task shell rather than
+// imagined. Everything before `eval` is preamble the viewer must never be shown.
+const WRAPPER = "/bin/zsh -c source /Users/dev/.claude/shell-snapshots/snapshot-zsh-1786939825162-fgn1dk.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'sleep 30 > /dev/null 2>&1' < /dev/null && pwd -P >| /tmp/claude-9b7a-cwd";
+
+describe("unwrapShellCommand", () => {
+  test("recovers the agent's command from the harness wrapper", () => {
+    expect(unwrapShellCommand(WRAPPER)).toBe("sleep 30 > /dev/null 2>&1");
+  });
+
+  test("an interior quote survives zsh's escaping", () => {
+    const argv = `/bin/zsh -c eval 'echo '\\''hi there'\\''' < /dev/null && pwd -P`;
+    expect(unwrapShellCommand(argv)).toBe("echo 'hi there'");
+  });
+
+  test("a multi-line command keeps its newlines", () => {
+    // `.` does not cross a newline without the s flag, and a heredoc or a for-loop is exactly the
+    // kind of long command worth showing.
+    const argv = "/bin/zsh -c eval 'for m in a b; do\n  echo $m\ndone' < /dev/null && pwd -P";
+    expect(unwrapShellCommand(argv)).toBe("for m in a b; do\n  echo $m\ndone");
+  });
+
+  test("an unrecognised wrapper yields the whole argv rather than nothing", () => {
+    // The wrapper is an undocumented harness artifact. When it moves, an ugly row beats a blank
+    // one -- the viewer can still read what is running.
+    expect(unwrapShellCommand("  /bin/zsh -c make all  ")).toBe("/bin/zsh -c make all");
+  });
+});
+
+describe("parseShellDetails", () => {
+  test("splits pid, ctime, and a command full of spaces", () => {
+    // Real shape: `ps` right-pads lstart, so the command does not start at a fixed column.
+    const line = `54161 Mon Aug 17 00:35:26 2026     ${WRAPPER}`;
+    expect(parseShellDetails(line)).toEqual([{
+      pid: 54161,
+      startedAt: new Date(2026, 7, 17, 0, 35, 26).getTime(),
+      command: "sleep 30 > /dev/null 2>&1",
+    }]);
+  });
+
+  test("a process that exited between the pgrep and the ps is skipped, not guessed", () => {
+    expect(parseShellDetails("\n  \n")).toEqual([]);
+  });
+
+  test("a line whose clock will not parse is dropped rather than dated to now", () => {
+    expect(parseShellDetails("100 not a real timestamp here /bin/zsh -c make")).toEqual([]);
+  });
+});
+
+describe("shellDetailsOf", () => {
+  test("no unaccounted shells means no fork at all", async () => {
+    let calls = 0;
+    const run: CommandRunner = async () => {
+      calls += 1;
+      return "";
+    };
+    expect(await shellDetailsOf(run, [])).toEqual(new Map());
+    expect(calls).toBe(0);
+  });
+
+  test("asks ps once for the whole set and keys the answer by pid", async () => {
+    let asked: readonly string[] = [];
+    const run: CommandRunner = async (argv) => {
+      asked = argv;
+      return `100 Mon Aug 17 00:35:26 2026 /bin/zsh -c eval 'make all' < /dev/null && pwd -P\n` +
+        `101 Mon Aug 17 00:35:30 2026 /bin/zsh -c eval 'make test' < /dev/null && pwd -P\n`;
+    };
+    const details = await shellDetailsOf(run, [100, 101]);
+    expect(asked).toEqual(["/bin/ps", "-p", "100,101", "-o", "pid=,lstart=,command="]);
+    expect(details.get(100)?.command).toBe("make all");
+    expect(details.get(101)?.command).toBe("make test");
   });
 });

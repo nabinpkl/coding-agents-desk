@@ -25,6 +25,8 @@ function sources(overrides: Partial<SnapshotSources> = {}): SnapshotSources {
     notifications: new Map(),
     markers: new Map(),
     captureSizes: new Map(),
+    shellDetails: new Map(),
+    uncorroboratedAfterMs: 5000,
     ownerAlive: true,
     now: NOW,
     ...overrides,
@@ -47,6 +49,7 @@ describe("assembleSnapshot", () => {
       state: { status: "running" },
       elapsedMs: 60_000,
       hasOutput: true,
+      corroborated: true,
     }]);
     expect(snapshot.finished).toEqual([]);
   });
@@ -104,16 +107,51 @@ describe("assembleSnapshot", () => {
     expect(snapshot.finished).toEqual([]);
   });
 
-  test("a shell with no start record is a foreground command, not a background task", () => {
+  test("a young uncorroborated shell is a foreground command, not a background task", () => {
     // Caught against a live sidecar: the agent's own in-flight `curl` showed up as a running task.
     // The harness gives foreground commands a tasks/<id>.output file too and their shells hold it
-    // open identically, so the kernel cannot tell them apart -- only the transcript records that
-    // the agent asked for a background run.
+    // open identically, so the kernel cannot tell them apart. Under the threshold, the transcript
+    // is still the only thing that can say "backgrounded", and it says nothing.
     const snapshot = assembleSnapshot(sources({
-      shells: [{ taskId: "bforeground", pid: 100, capturePath: `${ROOT}/-p/s/tasks/bforeground.output` }],
+      shells: [{ taskId: "bcurl", pid: 100, capturePath: `${ROOT}/-p/s/tasks/bcurl.output` }],
+      shellDetails: new Map([[100, { pid: 100, startedAt: NOW - 200, command: "curl -s https://x" }]]),
     }));
     expect(snapshot.running).toEqual([]);
     expect(snapshot.finished).toEqual([]);
+  });
+
+  test("an uncorroborated shell that has outlived the threshold is shown, and marked", () => {
+    // The promoted-task case. A command moved to the background after it started never gets a
+    // `run_in_background` in its tool_use, and the tool_result naming its task id does not exist
+    // until it ends -- so nothing on disk corroborates it for its whole life. Elapsed time is the
+    // only separator there is, and the row says as much rather than posing as a declared task.
+    const snapshot = assembleSnapshot(sources({
+      shells: [{ taskId: "bpromoted", pid: 100, capturePath: `${ROOT}/-p/s/tasks/bpromoted.output` }],
+      shellDetails: new Map([
+        [100, { pid: 100, startedAt: NOW - 360_000, command: "python3 run.py --model flash" }],
+      ]),
+    }));
+    expect(snapshot.running).toEqual([{
+      taskId: "bpromoted",
+      kind: "bash",
+      // No agent description exists for this one, so the command line stands in for it.
+      description: "python3 run.py --model flash",
+      command: "python3 run.py --model flash",
+      startedAt: NOW - 360_000,
+      state: { status: "running" },
+      elapsedMs: 360_000,
+      hasOutput: false,
+      corroborated: false,
+    }]);
+  });
+
+  test("an uncorroborated shell whose start time is unknown is not shown at age zero", () => {
+    // Without the kernel's clock there is nothing to measure the threshold against. Showing it
+    // anyway would defeat the threshold entirely for exactly the shells we know least about.
+    const snapshot = assembleSnapshot(sources({
+      shells: [{ taskId: "bmystery", pid: 100, capturePath: `${ROOT}/-p/s/tasks/bmystery.output` }],
+    }));
+    expect(snapshot.running).toEqual([]);
   });
 
   test("one foreground shell does not suppress a real task running beside it", () => {
@@ -123,6 +161,18 @@ describe("assembleSnapshot", () => {
         { taskId: "b1", pid: 101, capturePath: `${ROOT}/-p/s/tasks/b1.output` },
       ],
       identities: new Map([["b1", identity("b1")]]),
+      shellDetails: new Map([[100, { pid: 100, startedAt: NOW - 200, command: "grep -r x ." }]]),
+    }));
+    expect(snapshot.running.map((task) => task.taskId)).toEqual(["b1"]);
+  });
+
+  test("a corroborated task is shown immediately, with no threshold to wait out", () => {
+    // The threshold exists only because uncorroborated shells are ambiguous. A declared one is
+    // not, so making it wait would be a regression dressed as consistency.
+    const snapshot = assembleSnapshot(sources({
+      shells: [{ taskId: "b1", pid: 100, capturePath: `${ROOT}/-p/s/tasks/b1.output` }],
+      identities: new Map([["b1", identity("b1", { startedAt: NOW - 10 })]]),
+      uncorroboratedAfterMs: 60_000,
     }));
     expect(snapshot.running.map((task) => task.taskId)).toEqual(["b1"]);
   });

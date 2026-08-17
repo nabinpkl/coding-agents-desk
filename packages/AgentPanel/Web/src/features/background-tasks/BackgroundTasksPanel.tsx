@@ -231,9 +231,15 @@ export function BackgroundTasksContent({
                 running
                 // Prefer the clock the client keeps over the one that shipped, so the number moves
                 // between server messages instead of freezing for as long as nothing else changed.
+                //
+                // An uncorroborated row says so. The transcript never confirmed this one was
+                // backgrounded, so it is either a command promoted after it started or an ordinary
+                // foreground command that has run a while, and the panel cannot tell which. Naming
+                // it "shell" rather than dressing it as a task is the whole point of the flag: the
+                // title on such a row is a raw command line, not the agent's description.
                 meta={`${formatDuration(
                   task.startedAt === null ? task.elapsedMs : Math.max(0, now - task.startedAt),
-                )}${task.hasOutput ? "" : " · output redirected"}`}
+                )}${task.corroborated ? "" : " · shell"}${task.hasOutput ? "" : " · output redirected"}`}
                 expanded={expanded === task.taskId}
                 onToggle={() => setExpanded((current) => (current === task.taskId ? null : task.taskId))}
                 source={source}

@@ -185,6 +185,22 @@ export const config = {
     250,
     60_000,
   ),
+  // How long a live shell the transcript cannot corroborate must have been running before the
+  // panel shows it.
+  //
+  // This is a duration heuristic and there is no honest way to dress it as anything else: a
+  // command promoted to the background after it started is indistinguishable from a foreground
+  // one until it ends (ADR-0099), so elapsed time is the only separator available. Lower catches
+  // promoted tasks sooner and shows more ordinary foreground work; higher is quieter and misses
+  // the first stretch of a promoted task. Chosen by the owner at 5s, which is deliberately near
+  // the noisy end -- seeing the agent's routine commands was judged the lesser cost against
+  // missing a ten-minute build entirely.
+  backgroundTaskUncorroboratedMs: integerEnvironment(
+    "AGENT_FEED_BACKGROUND_TASK_UNCORROBORATED_MS",
+    5000,
+    0,
+    10 * 60_000,
+  ),
   contextWindows: contextWindowEnvironment("AGENT_FEED_CONTEXT_WINDOWS"),
   proxyObserverEndpoint: urlEnvironment(
     "AGENT_FEED_PROXY_OBSERVER_ENDPOINT",
