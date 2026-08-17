@@ -4,6 +4,7 @@ import type {
   BackgroundTaskSnapshot,
   BackgroundTaskState,
   RunningBackgroundTask,
+  TaskActivity,
 } from "@agentdesk/agent-feed-wire";
 import type { AgentDataSource, SessionReference } from "../activity-feed/data-source/AgentDataSource";
 // The panel's own Shiki block, reused rather than reinvented: bash is already among its loaded
@@ -26,6 +27,27 @@ function formatRate(bytesPerSecond: number): string {
   if (bytesPerSecond >= 1_000_000) return `${(bytesPerSecond / 1_000_000).toFixed(1)} MB/s`;
   if (bytesPerSecond >= 1000) return `${(bytesPerSecond / 1000).toFixed(1)} kB/s`;
   return `${Math.round(bytesPerSecond)} B/s`;
+}
+
+/**
+ * What the task is executing, for the case where no bytes can say.
+ *
+ * A command piped into `tail` writes nothing to disk until it ends, so its output pane sits on
+ * "waiting for output…" for the whole run and there is no way to tell a working build from a hung
+ * one. This is what is left that the kernel will still answer: which step is running, how long it
+ * has been running, and how much CPU it has burned. The CPU figure is the one that distinguishes
+ * the two -- it climbs while the step computes and stops dead when it is blocked on something that
+ * is not coming.
+ */
+function Activity({ activity }: { activity: TaskActivity }) {
+  return (
+    <div className="border-t border-border px-3 py-1.5" data-testid="task-activity">
+      <p className="truncate font-mono text-[11px] text-foreground">{activity.command}</p>
+      <p className="text-[11px] text-muted-foreground tabular-nums">
+        running {formatDuration(activity.elapsedMs)} · {formatDuration(activity.cpuMs)} CPU
+      </p>
+    </div>
+  );
 }
 
 function describeState(state: BackgroundTaskState): string {
@@ -129,6 +151,7 @@ function TaskRow({
   task,
   meta,
   running,
+  activity,
   expanded,
   onToggle,
   source,
@@ -137,6 +160,7 @@ function TaskRow({
   task: BackgroundTask;
   meta: string;
   running: boolean;
+  activity?: TaskActivity | null;
   expanded: boolean;
   onToggle: () => void;
   source: AgentDataSource;
@@ -176,6 +200,9 @@ function TaskRow({
               <CodeBlock code={task.command} lang="bash" />
             </div>
           ) : null}
+          {/* Above the output, not below it: when the output pane is empty -- which is exactly
+              when this matters -- a line under a blank box reads as a footnote to nothing. */}
+          {activity ? <Activity activity={activity} /> : null}
           <TaskOutput source={source} session={session} taskId={task.taskId} />
         </div>
       ) : null}
@@ -240,6 +267,7 @@ export function BackgroundTasksContent({
                 meta={`${formatDuration(
                   task.startedAt === null ? task.elapsedMs : Math.max(0, now - task.startedAt),
                 )}${task.corroborated ? "" : " · shell"}${task.hasOutput ? "" : " · output redirected"}`}
+                activity={task.activity}
                 expanded={expanded === task.taskId}
                 onToggle={() => setExpanded((current) => (current === task.taskId ? null : task.taskId))}
                 source={source}

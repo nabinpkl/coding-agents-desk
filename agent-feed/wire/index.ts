@@ -26,6 +26,7 @@ export type {
   BackgroundTaskSnapshot,
   BackgroundTaskState,
   RunningBackgroundTask,
+  TaskActivity,
   TaskOutputMessage,
 } from "./tasks.ts";
 

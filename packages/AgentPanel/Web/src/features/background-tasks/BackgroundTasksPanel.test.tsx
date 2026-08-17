@@ -23,6 +23,7 @@ function running(overrides: Partial<RunningBackgroundTask> = {}): RunningBackgro
     elapsedMs: 65_000,
     hasOutput: true,
     corroborated: true,
+    activity: null,
     ...overrides,
   };
 }
@@ -108,6 +109,43 @@ describe("BackgroundTasksContent", () => {
       />,
     );
     expect(screen.queryByText(/· shell/)).toBeNull();
+  });
+
+  it("shows what the task is executing, for the case where no bytes can say", () => {
+    // A command piped into tail writes nothing until it ends, so its output pane sits on
+    // "waiting for output…" for the whole run. The current step and its CPU are what remain
+    // observable, and CPU is the figure that separates a working build from a hung one.
+    render(
+      <BackgroundTasksContent
+        snapshot={snapshot({
+          running: [running({
+            hasOutput: false,
+            activity: { pid: 702, command: "node build.ts", cpuMs: 83_450, elapsedMs: 299_000 },
+          })],
+        })}
+        source={stubDataSource()}
+        session={SESSION}
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("task-row-b1"));
+    const activity = screen.getByTestId("task-activity");
+    expect(activity).toHaveTextContent("node build.ts");
+    expect(activity).toHaveTextContent("1m 23s CPU");
+  });
+
+  it("renders no activity block for a task whose tree has nothing in it", () => {
+    // Normal for a command that just started. An empty block would read as "nothing is running".
+    render(
+      <BackgroundTasksContent
+        snapshot={snapshot({ running: [running()] })}
+        source={stubDataSource()}
+        session={SESSION}
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("task-row-b1"));
+    expect(screen.queryByTestId("task-activity")).toBeNull();
   });
 
   it("opens no output stream until a row is expanded, and closes it on collapse", () => {

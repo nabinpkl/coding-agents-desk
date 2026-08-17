@@ -152,6 +152,15 @@ for (const session of live) {
       // cannot tell which either, and saying so is the point.
       console.log("     uncorroborated -- shown on elapsed time alone, description is the argv");
     }
+    if (task.activity) {
+      // For a command piped into `tail` this is the only progress signal there is, so the smoke
+      // shows it: run twice and a climbing CPU figure is the difference between working and hung.
+      console.log(
+        `     doing: ${task.activity.command.slice(0, 60)}  ` +
+          `${Math.round(task.activity.elapsedMs / 1000)}s  ` +
+          `${(task.activity.cpuMs / 1000).toFixed(2)}s CPU`,
+      );
+    }
     const shell = (await taskShellsOf(runCommand, session.pid)).find((s) => s.taskId === task.taskId);
     if (!shell) continue;
     const targets = await outputTargetsOf(runCommand, shell);

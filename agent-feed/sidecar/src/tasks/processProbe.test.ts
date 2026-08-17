@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { config } from "../config.ts";
 import {
+  busiestDescendant,
   type CommandRunner,
+  descendantsOf,
   outputTargetsOf,
+  parseCpuTime,
   parseLsofDescriptors,
-  parseShellDetails,
-  shellDetailsOf,
+  parseProcessTable,
+  shellDetailFrom,
   taskShellsFromDescriptors,
   taskShellsOf,
   unwrapShellCommand,
@@ -158,8 +161,8 @@ describe("outputTargetsOf", () => {
     // The whole point: the capture is 0 bytes because the command redirected, and the work is
     // going to a log file a descendant holds open.
     const run = fakeRunner({
-      "/usr/bin/pgrep -P 63854": "63891\n",
-      "/usr/bin/pgrep -P 63891": "",
+      "/bin/ps -eo pid=,ppid=,lstart=,time=,command=":
+        `63854 1 Mon Aug 17 01:02:03 2026 0:00.02 /bin/zsh -c x\n63891 63854 Mon Aug 17 01:02:03 2026 0:00.01 make all\n`,
       "/usr/sbin/lsof -p 63891 -a -d 1 -F pfan": `p63891\nf1\naw\nn${REAL_LOG}\n`,
     });
     expect(await outputTargetsOf(run, shell)).toEqual([REAL_LOG]);
@@ -168,9 +171,10 @@ describe("outputTargetsOf", () => {
   test("a target held by both a subshell and its child is reported once", async () => {
     // Observed in the live smoke, where it rendered the same log twice.
     const run = fakeRunner({
-      "/usr/bin/pgrep -P 63854": "63891\n",
-      "/usr/bin/pgrep -P 63891": "63892\n",
-      "/usr/bin/pgrep -P 63892": "",
+      "/bin/ps -eo pid=,ppid=,lstart=,time=,command=":
+        `63854 1 Mon Aug 17 01:02:03 2026 0:00.02 /bin/zsh -c x\n` +
+        `63891 63854 Mon Aug 17 01:02:03 2026 0:00.01 sh -c make\n` +
+        `63892 63891 Mon Aug 17 01:02:04 2026 0:00.03 make all\n`,
       "/usr/sbin/lsof -p 63891,63892 -a -d 1 -F pfan": `p63891\nf1\naw\nn${REAL_LOG}\np63892\nf1\naw\nn${REAL_LOG}\n`,
     });
     expect(await outputTargetsOf(run, shell)).toEqual([REAL_LOG]);
@@ -178,15 +182,19 @@ describe("outputTargetsOf", () => {
 
   test("the capture itself is not reported as a redirect target", async () => {
     const run = fakeRunner({
-      "/usr/bin/pgrep -P 63854": "63891\n",
-      "/usr/bin/pgrep -P 63891": "",
+      "/bin/ps -eo pid=,ppid=,lstart=,time=,command=":
+        `63854 1 Mon Aug 17 01:02:03 2026 0:00.02 /bin/zsh -c x\n63891 63854 Mon Aug 17 01:02:03 2026 0:00.01 make all\n`,
       "/usr/sbin/lsof -p 63891 -a -d 1 -F pfan": `p63891\nf1\naw\nn${CAPTURE}\n`,
     });
     expect(await outputTargetsOf(run, shell)).toEqual([]);
   });
 
   test("a task that streams normally has no separate target", async () => {
-    const run = fakeRunner({ "/usr/bin/pgrep -P 63854": "" });
+    // No descendants at all: the shell itself is doing the work, so there is nowhere else to look.
+    const run = fakeRunner({
+      "/bin/ps -eo pid=,ppid=,lstart=,time=,command=":
+        `63854 1 Mon Aug 17 01:02:03 2026 0:00.02 /bin/zsh -c x\n`,
+    });
     expect(await outputTargetsOf(run, shell)).toEqual([]);
   });
 });
@@ -219,47 +227,109 @@ describe("unwrapShellCommand", () => {
   });
 });
 
-describe("parseShellDetails", () => {
-  test("splits pid, ctime, and a command full of spaces", () => {
-    // Real shape: `ps` right-pads lstart, so the command does not start at a fixed column.
-    const line = `54161 Mon Aug 17 00:35:26 2026     ${WRAPPER}`;
-    expect(parseShellDetails(line)).toEqual([{
-      pid: 54161,
-      startedAt: new Date(2026, 7, 17, 0, 35, 26).getTime(),
-      command: "sleep 30 > /dev/null 2>&1",
-    }]);
+describe("parseCpuTime", () => {
+  test("macOS minutes are unbounded, not rolled into hours", () => {
+    // Real: a long-lived daemon reads `4318:19.61`. Treating the first field as hours would
+    // report 4318 hours of CPU and make every activity line absurd.
+    expect(parseCpuTime("4318:19.61")).toBe((4318 * 60 + 19.61) * 1000);
+    expect(parseCpuTime("0:00.02")).toBe(20);
   });
 
-  test("a process that exited between the pgrep and the ps is skipped, not guessed", () => {
-    expect(parseShellDetails("\n  \n")).toEqual([]);
+  test("an hours field is tolerated in case the format grows one", () => {
+    expect(parseCpuTime("1:02:03")).toBe((3600 + 123) * 1000);
   });
 
-  test("a line whose clock will not parse is dropped rather than dated to now", () => {
-    expect(parseShellDetails("100 not a real timestamp here /bin/zsh -c make")).toEqual([]);
+  test("garbage is null rather than NaN propagating into the wire", () => {
+    expect(parseCpuTime("")).toBeNull();
+    expect(parseCpuTime("-")).toBeNull();
+    expect(parseCpuTime("1:2:3:4")).toBeNull();
   });
 });
 
-describe("shellDetailsOf", () => {
-  test("no unaccounted shells means no fork at all", async () => {
-    let calls = 0;
-    const run: CommandRunner = async () => {
-      calls += 1;
-      return "";
-    };
-    expect(await shellDetailsOf(run, [])).toEqual(new Map());
-    expect(calls).toBe(0);
+// Real `ps -eo pid=,ppid=,lstart=,time=,command=` shape, columns right-padded as ps pads them.
+const TABLE = [
+  "    1     0 Wed Jul 29 19:40:49 2026     283:15.55 /sbin/launchd",
+  " 7680 38081 Mon Aug 17 01:02:03 2026       0:00.02 /bin/zsh -c eval 'node build.ts | tail -16' < /dev/null && pwd -P",
+  " 7717  7680 Mon Aug 17 01:02:03 2026       0:00.01 /bin/zsh -c node build.ts",
+  " 7718  7717 Mon Aug 17 01:02:04 2026       1:23.45 node build.ts",
+  " 7719  7680 Mon Aug 17 01:02:03 2026       0:00.00 tail -16",
+].join("\n");
+
+describe("parseProcessTable", () => {
+  test("splits the fixed leading fields and keeps the command whole", () => {
+    const rows = parseProcessTable(TABLE);
+    expect(rows).toHaveLength(5);
+    expect(rows[3]).toEqual({
+      pid: 7718,
+      ppid: 7717,
+      startedAt: new Date(2026, 7, 17, 1, 2, 4).getTime(),
+      cpuMs: 83_450,
+      command: "node build.ts",
+    });
   });
 
-  test("asks ps once for the whole set and keys the answer by pid", async () => {
-    let asked: readonly string[] = [];
-    const run: CommandRunner = async (argv) => {
-      asked = argv;
-      return `100 Mon Aug 17 00:35:26 2026 /bin/zsh -c eval 'make all' < /dev/null && pwd -P\n` +
-        `101 Mon Aug 17 00:35:30 2026 /bin/zsh -c eval 'make test' < /dev/null && pwd -P\n`;
-    };
-    const details = await shellDetailsOf(run, [100, 101]);
-    expect(asked).toEqual(["/bin/ps", "-p", "100,101", "-o", "pid=,lstart=,command="]);
-    expect(details.get(100)?.command).toBe("make all");
-    expect(details.get(101)?.command).toBe("make test");
+  test("a task shell's argv is left wrapped here and unwrapped only where it is shown", () => {
+    // The table is the raw kernel answer. Unwrapping belongs to the shell-detail lookup, so a
+    // descendant's argv is never accidentally put through a wrapper stripper meant for shells.
+    expect(parseProcessTable(TABLE)[1]?.command).toContain("eval 'node build.ts | tail -16'");
+  });
+
+  test("a truncated or headerless line is skipped rather than half-parsed", () => {
+    expect(parseProcessTable("garbage\n  \n123 456 nope")).toEqual([]);
+  });
+});
+
+describe("descendantsOf", () => {
+  test("collects the whole tree, not just direct children", () => {
+    const pids = descendantsOf(parseProcessTable(TABLE), 7680).map((row) => row.pid).sort();
+    expect(pids).toEqual([7717, 7718, 7719]);
+  });
+
+  test("a leaf has no descendants and the walk terminates", () => {
+    expect(descendantsOf(parseProcessTable(TABLE), 7719)).toEqual([]);
+  });
+
+  test("a self-parenting row cannot spin the walk forever", () => {
+    // Not possible in a real table, but a pid reused between the ps snapshot and this walk could
+    // fake one, and an unbounded loop inside a 2s poll does not recover.
+    const rows = parseProcessTable(" 500   500 Mon Aug 17 01:02:03 2026       0:00.01 /bin/zsh");
+    expect(descendantsOf(rows, 500)).toEqual([]);
+  });
+});
+
+describe("busiestDescendant", () => {
+  test("names the step doing the work, not the plumbing around it", () => {
+    // The whole point: in `node build.ts | tail -16` the wrapper shell and `tail` sit at zero
+    // while node climbs, so CPU picks node without needing to know which is which.
+    expect(busiestDescendant(parseProcessTable(TABLE), 7680)?.command).toBe("node build.ts");
+  });
+
+  test("with no CPU burned anywhere, the most recent process wins", () => {
+    // A pipeline of sleeps. Any of them is true; the newest is the one that just started.
+    const rows = parseProcessTable([
+      " 600   500 Mon Aug 17 01:02:03 2026       0:00.00 sleep 100",
+      " 601   500 Mon Aug 17 01:02:09 2026       0:00.00 sleep 200",
+    ].join("\n"));
+    expect(busiestDescendant(rows, 500)?.pid).toBe(601);
+  });
+
+  test("a task with no descendants reports nothing rather than itself", () => {
+    // Normal for a command that has just started, and final for one done in the shell itself.
+    // Reporting the shell would show the viewer the harness's preamble as the current step.
+    expect(busiestDescendant(parseProcessTable(TABLE), 7719)).toBeNull();
+  });
+});
+
+describe("shellDetailFrom", () => {
+  test("unwraps the harness preamble for a shell in the table", () => {
+    expect(shellDetailFrom(parseProcessTable(TABLE), 7680)).toEqual({
+      pid: 7680,
+      startedAt: new Date(2026, 7, 17, 1, 2, 3).getTime(),
+      command: "node build.ts | tail -16",
+    });
+  });
+
+  test("a pid that exited between the lsof and the ps is null, not a guess", () => {
+    expect(shellDetailFrom(parseProcessTable(TABLE), 99_999)).toBeNull();
   });
 });

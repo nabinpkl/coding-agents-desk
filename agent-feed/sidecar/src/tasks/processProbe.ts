@@ -194,10 +194,21 @@ export async function taskShellsOf(run: CommandRunner, claudePid: number): Promi
   return taskShellsFromDescriptors(parseLsofDescriptors(text));
 }
 
+/** One row of the process table: enough to rebuild the tree and say what each node is doing. */
+export interface ProcessRow {
+  pid: number;
+  ppid: number;
+  /** Process start, epoch ms local, from `ps -o lstart=`. */
+  startedAt: number;
+  /** CPU consumed, ms, from `ps -o time=`. */
+  cpuMs: number;
+  /** The full argv, still wrapped if this is a task shell. */
+  command: string;
+}
+
 /** What a live shell is running, and since when, asked of the kernel rather than the transcript. */
 export interface ShellDetail {
   pid: number;
-  /** Process start, epoch ms local, from `ps -o lstart=`. */
   startedAt: number;
   /** The agent's command, unwrapped from the harness's shell preamble. */
   command: string;
@@ -229,41 +240,136 @@ export function unwrapShellCommand(argv: string): string {
 }
 
 /**
- * Parse `ps -o pid=,lstart=,command=`.
+ * `ps -o time=`, in ms.
+ *
+ * macOS prints `MM:SS.hh` with the minutes UNBOUNDED -- a long-lived daemon reads `4318:19.61`,
+ * not `71:58:19`. So the last field is seconds and everything before it is minutes, with an hours
+ * field tolerated in case a future format grows one.
+ */
+export function parseCpuTime(text: string): number | null {
+  const parts = text.trim().split(":");
+  if (parts.length < 2 || parts.length > 3) return null;
+  let ms = 0;
+  for (let index = 0; index < parts.length; index += 1) {
+    const value = Number(parts[index]);
+    if (!Number.isFinite(value) || value < 0) return null;
+    // Seconds last, minutes before it, hours before that.
+    const unit = [3_600_000, 60_000, 1000][index + (3 - parts.length)]!;
+    ms += value * unit;
+  }
+  return ms;
+}
+
+/**
+ * Parse `ps -eo pid=,ppid=,lstart=,time=,command=`.
  *
  * Positional, and it has to be: the command field contains arbitrary spaces, so only the fixed
- * shape of the first six tokens -- pid, then ctime's five -- makes the split unambiguous.
+ * shape of the leading fields -- pid, ppid, ctime's five, cpu time -- makes the split unambiguous.
  */
-export function parseShellDetails(text: string): ShellDetail[] {
-  const out: ShellDetail[] = [];
+export function parseProcessTable(text: string): ProcessRow[] {
+  const out: ProcessRow[] = [];
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     const tokens = line.trim().split(/\s+/);
-    if (tokens.length < 7) continue;
+    if (tokens.length < 9) continue;
     const pid = Number(tokens[0]);
-    if (!Number.isSafeInteger(pid) || pid <= 0) continue;
-    const startedAt = parseProcessLstart(tokens.slice(1, 6).join(" "));
-    if (startedAt === null) continue;
-    // Rejoin from the ORIGINAL text rather than from the split tokens, so runs of spaces inside
-    // the command survive. `ps` right-pads `lstart`, so the command starts at the sixth token.
-    const commandStart = line.indexOf(tokens[6]!, line.indexOf(tokens[5]!) + tokens[5]!.length);
+    const ppid = Number(tokens[1]);
+    if (!Number.isSafeInteger(pid) || pid <= 0 || !Number.isSafeInteger(ppid) || ppid < 0) continue;
+    const startedAt = parseProcessLstart(tokens.slice(2, 7).join(" "));
+    const cpuMs = parseCpuTime(tokens[7]!);
+    if (startedAt === null || cpuMs === null) continue;
+    // Rejoin from the ORIGINAL line rather than from the split tokens, so runs of spaces inside
+    // the command survive. `ps` right-pads its columns, so the command does not start at a fixed
+    // offset -- it starts at the first token after the cpu time.
+    const afterCpu = line.indexOf(tokens[7]!) + tokens[7]!.length;
+    const commandStart = line.indexOf(tokens[8]!, afterCpu);
     out.push({
       pid,
+      ppid,
       startedAt,
-      command: unwrapShellCommand(commandStart === -1 ? tokens.slice(6).join(" ") : line.slice(commandStart)),
+      cpuMs,
+      command: commandStart === -1 ? tokens.slice(8).join(" ") : line.slice(commandStart),
     });
   }
   return out;
 }
 
-/** When each of these shells started and what it is running. One fork for the whole set. */
-export async function shellDetailsOf(
-  run: CommandRunner,
-  pids: readonly number[],
-): Promise<Map<number, ShellDetail>> {
-  if (pids.length === 0) return new Map();
-  const text = await run([PS_BINARY, "-p", pids.join(","), "-o", "pid=,lstart=,command="]);
-  return new Map(parseShellDetails(text).map((detail) => [detail.pid, detail]));
+/**
+ * Every process on the machine, in one fork.
+ *
+ * One table rather than a `pgrep` per tree node: the probe needs both the task shells' own argv
+ * and their whole descendant trees, and walking with `pgrep -P` costs a fork per node while this
+ * costs one no matter how many tasks are in flight. Measured: 242 KB and 40 ms, against a poll
+ * that only runs while a panel is open.
+ *
+ * Not filtered to this user, deliberately. A task that starts something under another uid still
+ * belongs to that task, and the parent chain is what proves it.
+ */
+export async function processTable(run: CommandRunner): Promise<ProcessRow[]> {
+  return parseProcessTable(await run([PS_BINARY, "-eo", "pid=,ppid=,lstart=,time=,command="]));
+}
+
+/** Index a table by parent, so a tree walk is not quadratic in the process count. */
+function childrenByParent(rows: readonly ProcessRow[]): Map<number, ProcessRow[]> {
+  const index = new Map<number, ProcessRow[]>();
+  for (const row of rows) {
+    const bucket = index.get(row.ppid);
+    if (bucket) bucket.push(row);
+    else index.set(row.ppid, [row]);
+  }
+  return index;
+}
+
+/** Every process under `pid`, excluding `pid` itself. */
+export function descendantsOf(rows: readonly ProcessRow[], pid: number): ProcessRow[] {
+  const index = childrenByParent(rows);
+  const seen = new Set<number>([pid]);
+  const found: ProcessRow[] = [];
+  const frontier = [pid];
+  while (frontier.length > 0) {
+    for (const child of index.get(frontier.pop()!) ?? []) {
+      // A cycle cannot happen in a real process table, but a pid reused between the ps snapshot
+      // and this walk could fake one, and an unbounded loop inside a 2s poll is not recoverable.
+      if (seen.has(child.pid)) continue;
+      seen.add(child.pid);
+      found.push(child);
+      frontier.push(child.pid);
+    }
+  }
+  return found;
+}
+
+/**
+ * The descendant worth naming: the one that has used the most CPU.
+ *
+ * CPU rather than depth or recency, because it picks the step doing the work out of the plumbing
+ * around it without needing to know which is which. In `node build.ts | tail -16` the wrapper
+ * shells and `tail` sit at nearly zero while `node` climbs, so `node` is named. When a script
+ * moves to its next step the previous process is gone from the table, so the answer follows along
+ * by itself.
+ *
+ * Ties break toward the most recently started, which is the right answer for a tree that has not
+ * burned any CPU at all -- a pipeline of `sleep`s reports the newest `sleep`, not an arbitrary one.
+ */
+export function busiestDescendant(rows: readonly ProcessRow[], pid: number): ProcessRow | null {
+  let best: ProcessRow | null = null;
+  for (const row of descendantsOf(rows, pid)) {
+    if (
+      best === null ||
+      row.cpuMs > best.cpuMs ||
+      (row.cpuMs === best.cpuMs && row.startedAt > best.startedAt)
+    ) {
+      best = row;
+    }
+  }
+  return best;
+}
+
+/** A task shell's own identity, from a table already fetched. */
+export function shellDetailFrom(rows: readonly ProcessRow[], pid: number): ShellDetail | null {
+  const row = rows.find((candidate) => candidate.pid === pid);
+  if (!row) return null;
+  return { pid, startedAt: row.startedAt, command: unwrapShellCommand(row.command) };
 }
 
 /**
@@ -274,17 +380,11 @@ export async function shellDetailsOf(
  * would render the log twice.
  */
 export async function outputTargetsOf(run: CommandRunner, shell: TaskShell): Promise<string[]> {
-  const seen = new Set<number>();
-  const frontier = [shell.pid];
-  while (frontier.length > 0) {
-    const pid = frontier.pop()!;
-    for (const child of await childPids(run, pid)) {
-      if (seen.has(child)) continue;
-      seen.add(child);
-      frontier.push(child);
-    }
-  }
-  if (seen.size === 0) return [];
+  // One table and a pure walk, rather than a `pgrep -P` per node. There is exactly one tree walk
+  // in this module and this is it -- a second one written against `pgrep` would drift from this
+  // one the first time either grew a rule, and they answer the same question.
+  const seen = descendantsOf(await processTable(run), shell.pid).map((row) => row.pid);
+  if (seen.length === 0) return [];
   // `-F pfan`, not `pn`: the parser is stateful and pairs each name with the descriptor that
   // preceded it, so omitting the `f` field yields a stream it cannot attribute and drops silently.
   //

@@ -13,14 +13,17 @@ import type {
   BackgroundTask,
   BackgroundTaskSnapshot,
   RunningBackgroundTask,
+  TaskActivity,
 } from "@agentdesk/agent-feed-wire";
 import { config } from "../config.ts";
 import {
+  busiestDescendant,
   type CommandRunner,
   isInsideTaskRoot,
+  type ProcessRow,
+  processTable,
   runCommand,
-  type ShellDetail,
-  shellDetailsOf,
+  shellDetailFrom,
   type TaskShell,
   taskShellsOf,
 } from "./processProbe.ts";
@@ -30,6 +33,18 @@ import { parseTerminalMarker, resolveTaskState, type TaskNotification } from "./
 
 /** Enough to hold the marker, which is the last thing in the file. */
 const MARKER_TAIL_BYTES = 256;
+
+/** How much of a descendant's argv crosses to the panel. Enough to identify a step, not a script. */
+const ACTIVITY_COMMAND_LIMIT = 300;
+
+function activityOf(row: ProcessRow, now: number): TaskActivity {
+  return {
+    pid: row.pid,
+    command: row.command.slice(0, ACTIVITY_COMMAND_LIMIT),
+    cpuMs: row.cpuMs,
+    elapsedMs: Math.max(0, now - row.startedAt),
+  };
+}
 
 export async function readTerminalMarker(path: string): Promise<ReturnType<typeof parseTerminalMarker>> {
   if (!isInsideTaskRoot(path)) return null;
@@ -51,8 +66,13 @@ export interface SnapshotSources {
   notifications: ReadonlyMap<string, TaskNotification>;
   markers: ReadonlyMap<string, ReturnType<typeof parseTerminalMarker>>;
   captureSizes: ReadonlyMap<string, number>;
-  /** Kernel-side identity for shells the transcript cannot account for, keyed by shell pid. */
-  shellDetails: ReadonlyMap<number, ShellDetail>;
+  /**
+   * The machine's process table, or empty when no shell needed one.
+   *
+   * Serves two questions from one fork: a task shell's own argv, for shells the transcript cannot
+   * account for, and each task's descendant tree, for what it is executing now.
+   */
+  processes: readonly ProcessRow[];
   /** How long an uncorroborated shell must have run before it is shown. */
   uncorroboratedAfterMs: number;
   ownerAlive: boolean;
@@ -113,7 +133,7 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
       // Without a start record the only clock is the shell's own, and without that there is
       // nothing to measure the threshold against -- so it is dropped rather than shown at age
       // zero, which would defeat the threshold for exactly the shells we know least about.
-      const detail = sources.shellDetails.get(shell.pid);
+      const detail = shellDetailFrom(sources.processes, shell.pid);
       if (!detail) continue;
       if (sources.now - detail.startedAt < sources.uncorroboratedAfterMs) continue;
       // No agent words exist for this one, so the command line stands in. It is uglier and it is
@@ -126,6 +146,7 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
     }
     seen.add(shell.taskId);
     const captureSize = sources.captureSizes.get(shell.taskId) ?? 0;
+    const busiest = busiestDescendant(sources.processes, shell.pid);
     running.push({
       ...identity,
       taskId: shell.taskId,
@@ -134,6 +155,7 @@ export function assembleSnapshot(sources: SnapshotSources): BackgroundTaskSnapsh
       elapsedMs: identity.startedAt === null ? 0 : Math.max(0, sources.now - identity.startedAt),
       hasOutput: captureSize > 0,
       corroborated,
+      activity: busiest === null ? null : activityOf(busiest, sources.now),
     });
   }
 
@@ -200,11 +222,9 @@ export async function backgroundTaskSnapshot(
     }
   }
 
-  // Only the shells the transcript could not account for. In the ordinary case that set is empty
-  // and this costs no fork at all; it is the promoted-task case that pays for one.
-  const unaccounted = shells
-    .filter((shell) => !scan.starts.has(shell.taskId))
-    .map((shell) => shell.pid);
+  // One table, or none. A session with no live shell has nothing to say about either question the
+  // table answers, so it does not pay the fork.
+  const processes = shells.length === 0 ? [] : await processTable(run);
 
   return assembleSnapshot({
     shells,
@@ -212,7 +232,7 @@ export async function backgroundTaskSnapshot(
     notifications: scan.notifications,
     markers,
     captureSizes,
-    shellDetails: await shellDetailsOf(run, unaccounted),
+    processes,
     uncorroboratedAfterMs: config.backgroundTaskUncorroboratedMs,
     ownerAlive: true,
     now,

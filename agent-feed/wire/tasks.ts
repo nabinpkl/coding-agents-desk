@@ -48,6 +48,30 @@ export interface BackgroundTaskProgress {
   idleMs: number;
 }
 
+/**
+ * What a task's process tree is executing right now.
+ *
+ * The answer to "is it stuck", for the case where no bytes are available to answer it. A command
+ * written as `node build.ts 2>&1 | tail -16` puts its output in a kernel pipe and in `tail`'s
+ * memory, and there is no third copy: the stdout capture stays at zero bytes until the pipeline
+ * ends, so the panel has nothing to show and neither does the harness's own. What remains
+ * observable is the process tree, and it answers more than it looks like it does -- the command
+ * changes as a script moves between steps, and the CPU figure separates "computing" from "blocked
+ * on something that is never coming".
+ *
+ * Null when the task has no descendants, which is normal for a command that has just started and
+ * final for one whose work is done in the shell itself.
+ */
+export interface TaskActivity {
+  pid: number;
+  /** The descendant burning the most CPU, which is the step actually doing the work. */
+  command: string;
+  /** CPU consumed by that process, in ms. Moves while it computes; flat while it waits. */
+  cpuMs: number;
+  /** How long this particular process has been alive, which is not the task's own age. */
+  elapsedMs: number;
+}
+
 export interface BackgroundTask {
   taskId: string;
   kind: BackgroundTaskKind;
@@ -79,6 +103,13 @@ export interface RunningBackgroundTask extends BackgroundTask {
    * claiming knowledge it does not have.
    */
   corroborated: boolean;
+  /**
+   * What the task's tree is executing, when anything is.
+   *
+   * Carried on every running task rather than only on the ones with no readable output, because
+   * "which step is this on" is worth reading beside a log as well as instead of one.
+   */
+  activity: TaskActivity | null;
   /**
    * Absent until the task's output target has been resolved, which needs one process probe.
    * A running task with no progress yet is normal for the first tick, and is not an error.
