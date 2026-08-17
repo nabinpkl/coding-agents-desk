@@ -614,7 +614,9 @@ function Block({
         </button>
         {isExpanded ? (
           <>
-            {command !== null ? <CodeBlock code={command} lang="bash" /> : null}
+            {/* Wrapped: this is one command, not source, so it has no indentation to read and
+                nothing is gained by putting the rest of it behind a horizontal scroll. */}
+            {command !== null ? <CodeBlock code={command} lang="bash" wrap /> : null}
             {isEditDiff ? (
               <DiffBlock
                 filePath={b.input!.file_path as string}

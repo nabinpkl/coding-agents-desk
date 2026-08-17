@@ -22,10 +22,18 @@ export function CodeBlock({
   code,
   lang,
   highlight = true,
+  wrap = false,
 }: {
   code: string;
   lang: string;
   highlight?: boolean;
+  /**
+   * Wrap long lines instead of scrolling them. Off by default because a fence in
+   * the transcript is usually source, which is read by its indentation. Turn it
+   * on where the block is a single command, where there is no shape to lose and
+   * the horizontal scrollbar just hides the line behind a gesture.
+   */
+  wrap?: boolean;
 }) {
   const hl = useHighlighter();
   const html = useMemo(() => {
@@ -42,7 +50,7 @@ export function CodeBlock({
   }, [hl, code, lang, highlight]);
 
   return (
-    <div className="agent-panel-code">
+    <div className={wrap ? "agent-panel-code agent-panel-code--wrap" : "agent-panel-code"}>
       <div className="agent-panel-code__head">
         <span className="agent-panel-code__lang">{lang || "text"}</span>
         <CopyButton text={code} />

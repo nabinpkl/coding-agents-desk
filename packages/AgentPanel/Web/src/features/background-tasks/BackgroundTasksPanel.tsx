@@ -217,7 +217,10 @@ function TaskRow({
               first thing anyone reads when the output looks wrong. */}
           {task.command ? (
             <div className="border-t border-border px-2 py-2">
-              <CodeBlock code={task.command} lang="bash" />
+              {/* Wrapped, not scrolled: the panel is a narrow column on the Mac and a sheet on
+                  the phone, so a command of any length is mostly off-screen, and reading it is
+                  the entire reason the row was opened. */}
+              <CodeBlock code={task.command} lang="bash" wrap />
             </div>
           ) : null}
           {/* Above the output, not below it: when the output pane is empty -- which is exactly

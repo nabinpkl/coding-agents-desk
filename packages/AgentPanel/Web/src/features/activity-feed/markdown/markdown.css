@@ -209,6 +209,17 @@
   font-family: inherit;
   font-size: inherit;
 }
+/* Opt-in wrapping, for a block that is one long command rather than source.
+   Source is read by its indentation, so wrapping it costs more than the scroll
+   does; a shell command has no shape to lose and a scrollbar hides most of it
+   behind a gesture. `anywhere` because the part that overflows is usually a
+   path or a URL, a single token with nothing in it to break on. The overflow-x
+   stays as the backstop for what even that cannot break. */
+.agent-panel-code--wrap .agent-panel-code__fallback,
+.agent-panel-code--wrap .agent-panel-code__body .shiki {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 /* Shiki dual-theme: tokens carry --shiki-light / --shiki-dark; pick by theme. */
 .agent-panel-code__body .shiki,
 .agent-panel-code__body .shiki span {
