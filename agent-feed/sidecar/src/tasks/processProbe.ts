@@ -202,7 +202,10 @@ export interface ProcessRow {
   startedAt: number;
   /** CPU consumed, ms, from `ps -o time=`. */
   cpuMs: number;
-  /** The full argv, still wrapped if this is a task shell. */
+  /**
+   * The full argv, still wrapped if this is a task shell, with `ps`'s octal escapes already
+   * decoded back into the control characters they stand for.
+   */
   command: string;
 }
 
@@ -293,7 +296,12 @@ export function parseProcessTable(text: string): ProcessRow[] {
       ppid,
       startedAt,
       cpuMs,
-      command: commandStart === -1 ? tokens.slice(8).join(" ") : line.slice(commandStart),
+      // Decoded HERE, per row, and not before the line split: an argv's newlines are what `ps`
+      // spelled `\012` in the first place, so restoring them any earlier would tear one process's
+      // row into several unparseable ones.
+      command: decodeArgvEscapes(
+        commandStart === -1 ? tokens.slice(8).join(" ") : line.slice(commandStart),
+      ),
     });
   }
   return out;
@@ -378,15 +386,16 @@ export function shellDetailFrom(rows: readonly ProcessRow[], pid: number): Shell
 }
 
 /**
- * Normalise an argv for comparison against a command the transcript recorded.
+ * Undo `ps`'s octal rendering of the control characters in an argv.
  *
- * `ps` renders control characters in octal, so a multi-line command comes back with a literal
- * `\012` everywhere the agent wrote a newline. A Monitor's command is routinely multi-line -- the
- * measured one embeds a whole `python3 -c` script -- so without this the join never matches and
- * the feature silently does nothing.
+ * `ps` prints a literal `\012` everywhere the agent wrote a newline, and a multi-line command is
+ * routine here -- the measured Monitor embeds a whole `python3 -c` script. Left encoded it breaks
+ * two things at once: the join against the command the transcript recorded never matches, so the
+ * watcher cannot be found at all; and what does get shown is one unbroken line with `\012` sitting
+ * where every newline and indent should be, which no amount of wrapping in the panel can repair.
  */
-export function normaliseArgv(text: string): string {
-  return text.replaceAll("\\012", "\n").replaceAll("\\011", "\t").trim();
+function decodeArgvEscapes(text: string): string {
+  return text.replaceAll("\\012", "\n").replaceAll("\\011", "\t");
 }
 
 /**
@@ -408,12 +417,12 @@ export function matchShellsByCommand(
 ): Map<string, ProcessRow> {
   const candidates = rows.filter((row) => row.ppid === parentPid).map((row) => ({
     row,
-    command: normaliseArgv(unwrapShellCommand(row.command)),
+    command: unwrapShellCommand(row.command),
   }));
   const claimed = new Set<number>();
   const matched = new Map<string, ProcessRow>();
   for (const entry of wanted) {
-    const target = normaliseArgv(entry.command);
+    const target = entry.command.trim();
     let best: ProcessRow | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
     for (const candidate of candidates) {

@@ -341,6 +341,18 @@ describe("shellDetailFrom", () => {
   test("a pid that exited between the lsof and the ps is null, not a guess", () => {
     expect(shellDetailFrom(parseProcessTable(TABLE), 99_999)).toBeNull();
   });
+
+  test("a multi-line command comes back with its newlines and indentation", () => {
+    // This is the command the panel SHOWS for a shell the transcript never named, so ps's octal
+    // spelling has to be undone here too and not only where commands are compared. Left encoded,
+    // the panel renders one unbroken line with a literal \012 standing where every newline and
+    // indent belongs, which is exactly as unreadable as it sounds.
+    const script = 'python3 -c "\nfor line in sys.stdin:\n    print(line)"';
+    const rows = parseProcessTable(
+      `700 500 Mon Aug 17 01:02:03 2026 0:00.01 /bin/zsh -c eval '${script.replaceAll("\n", "\\012")}' < /dev/null`,
+    );
+    expect(shellDetailFrom(rows, 700)?.command).toBe(script);
+  });
 });
 
 describe("matchShellsByCommand", () => {
