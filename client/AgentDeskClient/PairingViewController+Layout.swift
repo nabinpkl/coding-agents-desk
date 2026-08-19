@@ -928,7 +928,7 @@ extension PairingViewController {
     }
 
     @objc func openSettings() {
-        let settings = SettingsViewController()
+        let settings = SettingsViewController(captureSize: lastDesktopState?.captureSizePixels)
         settings.onDisconnect = { [weak self] in
             self?.disconnectFromHost()
         }

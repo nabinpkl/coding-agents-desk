@@ -145,8 +145,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var spacesProvider = SpacesProvider(
         selectedDisplayIdProvider: { [displaySelection] in
             displaySelection.selectedDisplayId
+        },
+        captureSizeProvider: { [captureGeometry] in
+            captureGeometry.withLock { $0 }.map { ($0.widthPixels, $0.heightPixels) }
         }
     )
+    // What the capture stream last said it was running at, straight from the stream. Read off
+    // the main thread by the desktop-state builder and written from the capture queue, hence
+    // the lock. nil until the first stream starts, and never filled in with a guess: the
+    // client draws no resolution ladder rather than a ladder for a frame size we invented.
+    private let captureGeometry = OSAllocatedUnfairLock<CaptureGeometry?>(initialState: nil)
     // The phone's window picker raises windows through the same executor the Mac's Dock strip
     // uses (ADR-0055) rather than growing a second way to do it.
     private lazy var windowFocusExecutor = DockWindowFocusExecutor(
@@ -393,6 +401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installCursorPositionMonitor()
         installCursorMonitor()
         installCaptureAvailabilityHandler()
+        installCaptureGeometryHandler()
         startAgentSayServer()
         startSpaceAgent()
         startDictationBar()
@@ -2172,6 +2181,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case let .unavailable(reason):
                     self.updateHostAvailability(.captureUnavailable, reason: reason)
                 }
+            }
+        }
+    }
+
+    // The capture stream's own statement of its dimensions, forwarded to the client.
+    //
+    // It is broadcast rather than merely stored because it changes for reasons the client
+    // cannot see: a display switch, a window target, an unplug that re-homes the selection.
+    // The client sizes its resolution ladder from this, so a change that did not travel would
+    // leave the phone offering rungs of a frame the host stopped producing.
+    private func installCaptureGeometryHandler() {
+        (frameSource as? TargetSelectableVideoFrameSource)?.setCaptureGeometryHandler { [weak self] geometry in
+            guard let self else { return }
+            let changed = self.captureGeometry.withLock { stored -> Bool in
+                guard stored != geometry else { return false }
+                stored = geometry
+                return true
+            }
+            guard changed else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.signalingLogger.notice("capture geometry \(geometry.widthPixels, privacy: .public)x\(geometry.heightPixels, privacy: .public)")
+                self.broadcastDesktopState()
             }
         }
     }

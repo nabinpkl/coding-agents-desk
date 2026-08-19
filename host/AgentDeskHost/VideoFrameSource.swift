@@ -65,6 +65,21 @@ protocol TargetSelectableVideoFrameSource: AnyObject, Sendable {
     func setShowsCursorInVideo(_ enabled: Bool)
     // Reports capture health transitions only, not every frame.
     func setCaptureAvailabilityHandler(_ handler: @escaping @Sendable (CaptureAvailability) -> Void)
+    // Reports the dimensions the stream was actually configured with, each time one starts.
+    func setCaptureGeometryHandler(_ handler: @escaping @Sendable (CaptureGeometry) -> Void)
+}
+
+// The pixel dimensions the capture stream is really running at.
+//
+// This is measured, not derived. Anything downstream that wants to know what a fraction of
+// the capture comes to -- the client's resolution ladder, above all -- has to be working from
+// the number the stream was configured with, because every other route to it is a guess that
+// can be right for months and then quietly stop being right: points times an AppKit backing
+// scale, a display mode read at a different instant, a remembered value from the last target.
+// The stream knows. It says so here, and there is no second opinion to reconcile.
+struct CaptureGeometry: Equatable, Sendable {
+    let widthPixels: Int
+    let heightPixels: Int
 }
 
 extension TargetSelectableVideoFrameSource {

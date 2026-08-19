@@ -1,4 +1,5 @@
 import AVFoundation
+import AgentDeskWire
 import InteractionPanel
 import KeyboardDictation
 import UIKit
@@ -47,18 +48,14 @@ final class SettingsViewController: UIViewController {
             )
         }
     )
-    private let manualMediaResolutionRow = SteppedSliderRow(
-        title: "Manual resolution",
-        stops: SettingsStore.manualMediaResolutionScaleValues.map { scale in
-            let percent = Int((scale * 100).rounded())
-            return SteppedSliderRow.Stop(
-                title: "\(percent)%",
-                caption: SettingsStore.manualMediaResolutionCaptionedPercents.contains(percent)
-                    ? "\(percent)%"
-                    : nil
-            )
-        }
-    )
+    // Built from the capture size the host reported, so it cannot exist before that arrives.
+    // A percentage row could be built blind; a row that names real pixel dimensions cannot,
+    // and naming them is the point.
+    private lazy var manualMediaResolutionRow: SteppedSliderRow? = makeManualMediaResolutionRow()
+    private lazy var manualResolutionStops: [MediaResolutionLadder.Stop] = {
+        guard let captureSize else { return [] }
+        return MediaResolutionLadder.stops(nativeWidth: captureSize.width, nativeHeight: captureSize.height)
+    }()
     private let manualMediaRows = UIStackView()
     private let remoteInputModeControl = RemoteInputModeControl()
     private let accessoryContainerSlider = UISlider()
@@ -84,18 +81,47 @@ final class SettingsViewController: UIViewController {
     var onUnpair: (() -> Void)?
     var onKeyboardDictation: (() -> Void)?
 
+    // What the host says its capture stream is running at. nil until it has said, which is
+    // also the only honest state for the resolution row: without it there is no ladder to
+    // draw, and inventing one would put dimensions on screen that no frame will match.
+    private let captureSize: (width: Int, height: Int)?
+
     init(
+        captureSize: (width: Int, height: Int)? = nil,
         keyboardDictationStore: KeyboardDictationStore? =
             SettingsViewController.makeKeyboardDictationStore()
     ) {
+        self.captureSize = captureSize
         self.keyboardDictationStore = keyboardDictationStore
         super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) {
+        captureSize = nil
         keyboardDictationStore =
             SettingsViewController.makeKeyboardDictationStore()
         super.init(coder: coder)
+    }
+
+    private func makeManualMediaResolutionRow() -> SteppedSliderRow? {
+        let stops = manualResolutionStops
+        guard !stops.isEmpty else { return nil }
+        return SteppedSliderRow(
+            title: "Manual resolution",
+            stops: stops.map { stop in
+                // Naming every rung would overlap into mush, so ticks carry bare heights and
+                // the chosen rung's full dimensions are read off the value beside the title.
+                let caption: String?
+                if stop.isNative {
+                    caption = "Full"
+                } else if SettingsStore.manualMediaResolutionCaptionedHeights.contains(stop.nominalHeight) {
+                    caption = "\(stop.nominalHeight)"
+                } else {
+                    caption = nil
+                }
+                return SteppedSliderRow.Stop(title: stop.label, caption: caption)
+            }
+        )
     }
 
     override func viewDidLoad() {
@@ -342,7 +368,7 @@ final class SettingsViewController: UIViewController {
         manualMediaFpsRow.onSelect = { [weak self] index in
             self?.manualMediaFpsSelected(index)
         }
-        manualMediaResolutionRow.onSelect = { [weak self] index in
+        manualMediaResolutionRow?.onSelect = { [weak self] index in
             self?.manualMediaResolutionSelected(index)
         }
         configureManualMediaRows()
@@ -395,10 +421,17 @@ final class SettingsViewController: UIViewController {
             in: SettingsStore.manualMediaBitrateKbpsValues
         )
         manualMediaFpsRow.selectedIndex = index(for: store.manualMediaFps, in: manualFpsValues())
-        manualMediaResolutionRow.selectedIndex = index(
-            for: store.manualMediaResolutionScale,
-            in: manualResolutionValues()
-        )
+        // The row and the capture size exist together or not at all, so there is no size to
+        // stand in for here -- the pair is bound rather than defaulted on purpose.
+        if let row = manualMediaResolutionRow, let captureSize {
+            let selected = MediaResolutionLadder.stop(
+                forStoredHeight: store.manualMediaResolutionHeightPixels,
+                nativeWidth: captureSize.width,
+                nativeHeight: captureSize.height
+            )
+            row.selectedIndex = manualResolutionStops.firstIndex { $0 == selected }
+                ?? max(manualResolutionStops.count - 1, 0)
+        }
         remoteInputModeControl.layoutMode = store.videoLayoutMode
         remoteInputModeControl.videoTouchEnabled = store.videoTouchEnabled
         remoteInputModeControl.autoKeyboardEnabled = store.autoKeyboardEnabled
@@ -528,9 +561,8 @@ final class SettingsViewController: UIViewController {
     }
 
     private func manualMediaResolutionSelected(_ index: Int) {
-        let values = manualResolutionValues()
-        guard values.indices.contains(index) else { return }
-        store.manualMediaResolutionScale = values[index]
+        guard manualResolutionStops.indices.contains(index) else { return }
+        store.manualMediaResolutionHeightPixels = manualResolutionStops[index].nominalHeight
     }
 
     @objc private func remoteInputModeChanged() {
@@ -799,7 +831,11 @@ final class SettingsViewController: UIViewController {
 
         manualMediaRows.addArrangedSubview(manualMediaBitrateRow)
         manualMediaRows.addArrangedSubview(manualMediaFpsRow)
-        manualMediaRows.addArrangedSubview(manualMediaResolutionRow)
+        // Absent rather than disabled: a slider with no ladder has nothing to say, and a
+        // greyed one invites the reader to wonder what it would have offered.
+        if let row = manualMediaResolutionRow {
+            manualMediaRows.addArrangedSubview(row)
+        }
     }
 
     private func makeSegmentedRow(name: String, control: UISegmentedControl) -> UIStackView {
@@ -891,10 +927,6 @@ final class SettingsViewController: UIViewController {
 
     private func manualFpsValues() -> [Int] {
         SettingsStore.manualMediaFpsValues
-    }
-
-    private func manualResolutionValues() -> [Double] {
-        SettingsStore.manualMediaResolutionScaleValues
     }
 
     private func index<T: Equatable>(for value: T, in values: [T]) -> Int {

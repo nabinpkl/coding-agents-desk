@@ -1,6 +1,7 @@
 import CoreImage
 import CoreVideo
 import Foundation
+import AgentDeskWire
 
 enum OwnedMediaFrameScalerError: Error {
     case pixelBufferAllocationFailed
@@ -63,9 +64,11 @@ final class OwnedMediaFrameScaler: @unchecked Sendable {
         )
     }
 
+    // Delegated so the client's ladder labels and the frames this emits round identically.
+    // Two copies that merely looked alike would drift, and the symptom would be a slider
+    // reading 1663 x 1080 next to a 1662 x 1080 frame, which nobody would think to check.
     static func evenDimension(_ value: Double) -> Int {
-        let rounded = max(2, Int(value.rounded(.down)))
-        return rounded.isMultiple(of: 2) ? rounded : rounded - 1
+        MediaResolutionLadder.evenDimension(value)
     }
 
     private static func stampColorAttachments(_ pixelBuffer: CVPixelBuffer) {

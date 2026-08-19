@@ -618,7 +618,8 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
             windowListEnabled: windowPickerDemandActive(),
             crispTextOverlayEnabled: SettingsStore.shared.crispTextOverlayEnabled,
             showHostCursorInVideo: SettingsStore.shared.cursorDisplayMode.showsHostCursorInVideo,
-            mediaQuality: Config.launchMediaQualityOverride ?? SettingsStore.shared.mediaQualityConfig,
+            mediaQuality: Config.launchMediaQualityOverride
+                ?? SettingsStore.shared.mediaQualityConfig(captureSize: lastDesktopState?.captureSizePixels),
             autoKeyboardEnabled: SettingsStore.shared.autoKeyboardEnabled,
             diagnosticScreenshotsEnabled: SettingsStore.shared.diagnosticScreenshotsEnabled
         )

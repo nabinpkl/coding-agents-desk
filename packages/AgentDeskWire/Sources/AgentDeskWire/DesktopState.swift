@@ -88,6 +88,13 @@ public struct DesktopState: Codable, Equatable, Sendable {
     // is not at display center.
     public let cursorX: Float?
     public let cursorY: Float?
+    // The pixel dimensions the host's capture stream is actually running at, as reported by
+    // the stream itself. Nil means the host has not said yet -- it is never a stand-in for a
+    // guess. The client's resolution ladder is a fraction of exactly this, so a client that
+    // computed it instead (points times a backing scale it inferred) would be drawing rungs
+    // for a frame size the host is not producing.
+    public let captureWidthPixels: Int?
+    public let captureHeightPixels: Int?
 
     public enum CodingKeys: String, CodingKey, Sendable {
         case displays = "d"
@@ -97,6 +104,8 @@ public struct DesktopState: Codable, Equatable, Sendable {
         case activeSpaceId = "as"
         case cursorX = "cx"
         case cursorY = "cy"
+        case captureWidthPixels = "cw"
+        case captureHeightPixels = "ch"
     }
 
     // Convenience init that keeps cursor fields optional so call sites
@@ -108,7 +117,9 @@ public struct DesktopState: Codable, Equatable, Sendable {
         selectedDisplayId: String? = nil,
         activeSpaceId: UInt64?,
         cursorX: Float? = nil,
-        cursorY: Float? = nil
+        cursorY: Float? = nil,
+        captureWidthPixels: Int? = nil,
+        captureHeightPixels: Int? = nil
     ) {
         self.displays = displays
         self.spaces = spaces
@@ -117,6 +128,14 @@ public struct DesktopState: Codable, Equatable, Sendable {
         self.activeSpaceId = activeSpaceId
         self.cursorX = cursorX
         self.cursorY = cursorY
+        self.captureWidthPixels = captureWidthPixels
+        self.captureHeightPixels = captureHeightPixels
+    }
+
+    /// The capture size, present only when both dimensions arrived.
+    public var captureSizePixels: (width: Int, height: Int)? {
+        guard let captureWidthPixels, let captureHeightPixels else { return nil }
+        return (captureWidthPixels, captureHeightPixels)
     }
 
     public init(from decoder: Decoder) throws {
@@ -128,6 +147,8 @@ public struct DesktopState: Codable, Equatable, Sendable {
         activeSpaceId = try container.decodeIfPresent(UInt64.self, forKey: .activeSpaceId)
         cursorX = try container.decodeIfPresent(Float.self, forKey: .cursorX)
         cursorY = try container.decodeIfPresent(Float.self, forKey: .cursorY)
+        captureWidthPixels = try container.decodeIfPresent(Int.self, forKey: .captureWidthPixels)
+        captureHeightPixels = try container.decodeIfPresent(Int.self, forKey: .captureHeightPixels)
     }
 }
 public struct DesktopStatePush: Codable, Equatable, Sendable {

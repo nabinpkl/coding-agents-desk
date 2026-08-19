@@ -74,6 +74,27 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, TargetSelec
         controlState.withLock { $0.onAvailability = handler }
     }
 
+    func setCaptureGeometryHandler(_ handler: @escaping @Sendable (CaptureGeometry) -> Void) {
+        let pending = controlState.withLock { state -> CaptureGeometry? in
+            state.onGeometry = handler
+            return state.lastGeometry
+        }
+        // A stream that started before anyone was listening still has to be heard, or the
+        // client's ladder waits for a target switch that may never come.
+        if let pending { handler(pending) }
+    }
+
+    // Announce the dimensions the stream was configured with, from the configuration itself.
+    private func reportGeometry(width: Int, height: Int) {
+        let geometry = CaptureGeometry(widthPixels: width, heightPixels: height)
+        let handler = controlState.withLock { state -> (@Sendable (CaptureGeometry) -> Void)? in
+            guard state.lastGeometry != geometry else { return nil }
+            state.lastGeometry = geometry
+            return state.onGeometry
+        }
+        handler?(geometry)
+    }
+
     func setShowsCursorInVideo(_ enabled: Bool) {
         // showsCursor is a start-time SCStreamConfiguration field, so a change while running
         // restarts capture to rebuild the config (same path as a display switch). This is a
@@ -170,6 +191,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, TargetSelec
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         try await stream.startCapture()
         self.stream = stream
+        reportGeometry(width: pixelSize.width, height: pixelSize.height)
         let displayIdentity = HostDisplayResolver.skyLightId(for: display.displayID) ?? "cgID:\(display.displayID)"
         logger.notice("screen capture started display=\(displayIdentity, privacy: .public) points=\(Int(contentRect.width), privacy: .public)x\(Int(contentRect.height), privacy: .public) \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) pointPixelScale=\(scale, privacy: .public) captureScaleDown=\(self.baseScaleDownBy, privacy: .public) pixelFormat=\(Self.fourCC(self.pixelFormat), privacy: .public)")
     }
@@ -213,6 +235,7 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, TargetSelec
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         try await stream.startCapture()
         self.stream = stream
+        reportGeometry(width: pixelSize.width, height: pixelSize.height)
         let appName = window.owningApplication?.applicationName ?? "?"
         logger.notice("window capture started wid=\(windowID, privacy: .public) app=\(appName, privacy: .public) \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) pointPixelScale=\(scale, privacy: .public) onScreen=\(window.isOnScreen, privacy: .public)")
     }
@@ -446,6 +469,8 @@ private struct CaptureControlState: Sendable {
     var forceKeyframeNextFrame = true
     var onFrame: (@Sendable (CapturedVideoFrame) -> Void)?
     var onAvailability: (@Sendable (CaptureAvailability) -> Void)?
+    var onGeometry: (@Sendable (CaptureGeometry) -> Void)?
+    var lastGeometry: CaptureGeometry?
     // Last verdict handed to onAvailability. Reporting is transition-only: capture
     // status arrives per frame at 60 Hz and the consumer drives user-visible chrome.
     var lastReportedAvailability: CaptureAvailability?

@@ -110,7 +110,8 @@ struct SettingsStoreTests {
 
         store.manualMediaBitrateKbps = 180
         store.manualMediaFps = 1
-        store.manualMediaResolutionScale = 0.5
+        // 1080 of a 2160-line capture, i.e. exactly half.
+        store.manualMediaResolutionHeightPixels = 1080
         store.adaptiveMediaQualityEnabled = false
 
         #expect(SettingsStore.manualMediaBitrateKbpsValues.contains(180))
@@ -118,7 +119,7 @@ struct SettingsStoreTests {
         // The axis reaches below the adaptive controller's own floor (60kbps, ADR-0101), so a
         // link too weak for the automatic path can still be tuned by hand.
         #expect(SettingsStore.manualMediaBitrateKbpsValues.first == 10)
-        #expect(store.mediaQualityConfig == ClientMediaQualityConfig(
+        #expect(store.mediaQualityConfig(captureSize: (3840, 2160)) == ClientMediaQualityConfig(
             adaptiveEnabled: false,
             fixedTarget: ClientMediaQualityTarget(
                 bitrateKbps: 180,

@@ -263,6 +263,9 @@ final class SpacesProvider {
     private let directSpaceSetter: DirectSpaceSetter
     private let missionControlOpener: MissionControlOpener
     private let selectedDisplayIdProvider: () -> String?
+    // Supplied rather than computed: the capture stream is the only thing that knows what it
+    // is running at, and this type has no way to reach it.
+    private let captureSizeProvider: () -> (width: Int, height: Int)?
     // Dedicated serial queue for tap-to-jump chains. We can't run the
     // chain on InputDispatcher's queue because multi-step switching can
     // do private-API verification or Dock event chains, and that would
@@ -284,6 +287,7 @@ final class SpacesProvider {
         eventPoster: @escaping EventPoster = { $0.post(tap: .cgSessionEventTap) },
         spaceSwitchMode: Config.SpaceSwitchMode = Config.spaceSwitchMode,
         selectedDisplayIdProvider: @escaping () -> String? = { nil },
+        captureSizeProvider: @escaping () -> (width: Int, height: Int)? = { nil },
         currentStateProvider: (() -> DesktopState?)? = nil,
         directSpaceSetter: DirectSpaceSetter? = nil,
         missionControlOpener: MissionControlOpener? = nil
@@ -291,6 +295,7 @@ final class SpacesProvider {
         self.eventPoster = eventPoster
         self.spaceSwitchMode = spaceSwitchMode
         self.selectedDisplayIdProvider = selectedDisplayIdProvider
+        self.captureSizeProvider = captureSizeProvider
         self.currentStateOverride = currentStateProvider
         self.directSpaceSetter = directSpaceSetter ?? SpacesProvider.setCurrentSpaceDirectly
         self.missionControlOpener = missionControlOpener ?? SpacesProvider.openMissionControlApplication
@@ -361,6 +366,7 @@ final class SpacesProvider {
         // can seed its dead-reckoning model from the real location
         // instead of display center, eliminating the startup drift.
         let cursorLoc = CGEvent(source: nil)?.location
+        let captureSize = captureSizeProvider()
         return DesktopState(
             displays: displays,
             spaces: spaces,
@@ -368,7 +374,9 @@ final class SpacesProvider {
             selectedDisplayId: selectedDisplayIdProvider() ?? activeDisplayId,
             activeSpaceId: activeSpaceId,
             cursorX: cursorLoc.map { Float($0.x) },
-            cursorY: cursorLoc.map { Float($0.y) }
+            cursorY: cursorLoc.map { Float($0.y) },
+            captureWidthPixels: captureSize?.width,
+            captureHeightPixels: captureSize?.height
         )
     }
 

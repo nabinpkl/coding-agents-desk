@@ -61,7 +61,7 @@ final class SettingsStore: @unchecked Sendable {
         static let adaptiveMediaQualityEnabled = "agentDesk.adaptiveMediaQualityEnabled"
         static let manualMediaBitrateKbps = "agentDesk.manualMediaBitrateKbps"
         static let manualMediaFps = "agentDesk.manualMediaFps"
-        static let manualMediaResolutionScale = "agentDesk.manualMediaResolutionScale"
+        static let manualMediaResolutionHeightPixels = "agentDesk.manualMediaResolutionHeightPixels"
         static let domMirrorEnabled = "agentDesk.domMirrorEnabled"
         static let agentSayVoiceLanguage = "agentDesk.agentSayVoiceLanguage"
         static let agentSayVoiceIdentifier = "agentDesk.agentSayVoiceIdentifier"
@@ -105,11 +105,8 @@ final class SettingsStore: @unchecked Sendable {
     // it stops deriving at 30. Above 30 is a hand-picked experiment, so the stops thin out.
     static let manualMediaFpsValues = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 24, 30, 40, 48, 60]
     static let manualMediaFpsCaptionedValues: Set<Int> = [1, 5, 10, 15, 30, 60]
-    static let defaultManualMediaResolutionScale = 1.0
-    static let manualMediaResolutionScaleValues = [0.25, 0.33, 0.4, 0.5, 0.6, 0.75, 0.85, 1.0]
-    // Keyed on whole percent rather than the Double itself: a Set<Double> would make selection
-    // depend on exact binary equality with the literals above.
-    static let manualMediaResolutionCaptionedPercents: Set<Int> = [25, 50, 75, 100]
+    // Which ladder rungs get a caption under their tick. The rest are marked but unnamed.
+    static let manualMediaResolutionCaptionedHeights: Set<Int> = [360, 720, 1080, 1440]
 
     // Materialize the current tuning as one value. PairingViewController
     // copies this onto the translator on each change; SettingsViewController
@@ -275,24 +272,48 @@ final class SettingsStore: @unchecked Sendable {
         }
     }
 
-    var manualMediaResolutionScale: Double {
-        get { defaults.object(forKey: Key.manualMediaResolutionScale) as? Double ?? Self.defaultManualMediaResolutionScale }
+    // The chosen encode height, or nil for the capture's own full size.
+    //
+    // A height rather than a fraction because a fraction is only meaningful against the
+    // display it was chosen on: carrying 0.5 to a display with half the pixels silently
+    // halves the picture again, which is exactly the drift this replaced. A height carries
+    // over intact, and MediaResolutionLadder clamps it where a display cannot reach it.
+    var manualMediaResolutionHeightPixels: Int? {
+        get { defaults.object(forKey: Key.manualMediaResolutionHeightPixels) as? Int }
         set {
-            let nearest = Self.manualMediaResolutionScaleValues.min { abs($0 - newValue) < abs($1 - newValue) } ?? Self.defaultManualMediaResolutionScale
-            defaults.set(nearest, forKey: Key.manualMediaResolutionScale)
+            if let newValue {
+                defaults.set(newValue, forKey: Key.manualMediaResolutionHeightPixels)
+            } else {
+                defaults.removeObject(forKey: Key.manualMediaResolutionHeightPixels)
+            }
             postChange()
         }
     }
 
-    var mediaQualityConfig: ClientMediaQualityConfig {
+    // `captureSize` is what the host reported its stream is running at. The scale on the wire
+    // stays a fraction, because that is what the encode path applies; this is the only place
+    // that turns the stored height into one, against the size the host actually named. Nil
+    // capture size means the host has not said yet, and the honest fraction then is 1.0 --
+    // full capture, nothing resampled -- not a rung guessed against an imagined display.
+    func mediaQualityConfig(captureSize: (width: Int, height: Int)?) -> ClientMediaQualityConfig {
         ClientMediaQualityConfig(
             adaptiveEnabled: adaptiveMediaQualityEnabled,
             fixedTarget: adaptiveMediaQualityEnabled ? nil : ClientMediaQualityTarget(
                 bitrateKbps: manualMediaBitrateKbps,
                 fps: manualMediaFps,
-                resolutionScale: manualMediaResolutionScale
+                resolutionScale: resolutionScale(captureSize: captureSize)
             )
         )
+    }
+
+    func resolutionScale(captureSize: (width: Int, height: Int)?) -> Double {
+        guard let captureSize else { return 1.0 }
+        let stop = MediaResolutionLadder.stop(
+            forStoredHeight: manualMediaResolutionHeightPixels,
+            nativeWidth: captureSize.width,
+            nativeHeight: captureSize.height
+        )
+        return stop?.resolutionScale ?? 1.0
     }
 
     // Video touch input routing, layout density, and automatic keyboard opening are
