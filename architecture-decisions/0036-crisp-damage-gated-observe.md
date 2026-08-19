@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-07-01
+superseded-in-part-by: ADR-0105 (the staleness bound below, and the `processCrispDamage` backstop it relied on, did not hold; the damage-gated observe plus periodic heal decided here stands)
 ---
 
 # Crisp observe is damage-gated with a periodic full-surface heal

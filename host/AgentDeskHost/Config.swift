@@ -272,13 +272,7 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_DELIVERY_SNAP_RATIO",
         defaultValue: 0.85
     )
-    // Tile-path periodic full-surface heal cadence (ScrollDeltaEngine.healIntervalFrames).
-    // Named for the heal it actually drives, not a video keyframe. There is no longer a video
-    // GOP interval to confuse it with: ADR-0100 removed periodic keyframe placement entirely.
-    static let ownedMediaTileHealIntervalFrames = positiveInt(
-        environmentKey: "AGENTDESK_OWNED_MEDIA_TILE_HEAL_INTERVAL_FRAMES",
-        defaultValue: 120
-    )
+
     // ADR-0036: crisp observe is damage-gated between full-surface heals. This is how
     // many crisp windows (each >= ownedMediaCrispMinIntervalMs) may run gated before the
     // transport forces a full-surface heal that reconciles trusted crisp tiles against
@@ -600,21 +594,7 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_SCROLL_ACTIVE_WINDOW_MS",
         defaultValue: 600
     )
-    // Coverage above which a damage change is gridded as a whole-surface
-    // fullframe instead of damage-only tiles. This was 0.15 when an un-scrolled
-    // tile was a raw LZFSE bitmap on the reliable channel and a near-full tile
-    // (~600KB) froze the pump (R75 confirmed 0.6 froze). That premise is gone:
-    // .tiles and .fullFrame now share the rung-1/2/3 cache ladder and progressive
-    // chunking (hybridFrameSendBudgetBytes), so a high-coverage tiles set references
-    // cached cells (zero payload) and streams genuinely-new cells across several
-    // bounded envelopes, the same cost ceiling as fullframe. Raised to 0.6 so a regional
-    // 1/4-to-1/2-screen repaint or a scroll-detection miss stays a damage-only
-    // grid rather than a whole-surface resend. The exact ceiling is a device-data
-    // decision; this is the safe higher default, env-overridable for tuning.
-    static let hybridClassifierMaxTileCoverageRatio = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_CLASSIFIER_MAX_TILE_COVERAGE_RATIO",
-        defaultValue: 0.6
-    )
+
     // MotionGovernor policy table. These few knobs replace the deleted
     // congestion-EWMA trio and the three fullframe-quality knobs with one
     // cadence-first ladder (see MotionGovernor).
@@ -647,18 +627,7 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_BUSY_RESOLUTION_SCALE_FLOOR",
         defaultValue: 0.5
     )
-    // Hard ceiling on a single JPEG tile's wire size. A whole-screen change at
-    // Retina resolution was 0.9-2.0MB even as JPEG; one such frame clogged the
-    // reliable channel long enough that a reset stripe's ack timed out, and the
-    // resulting full-surface resync clogged it again, a self-feeding freeze
-    // cascade (device run: gen 1->2, 15 disconnects). Capping every fullframe to a
-    // drainable size keeps reset stripes (192KB each) flowing so the cascade cannot
-    // form. The starting quality is stepped down until the JPEG fits this budget,
-    // so a complex screen degrades gracefully instead of stalling the link.
-    static let hybridFullframeMaxWireBytes = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_FULLFRAME_MAX_WIRE_BYTES",
-        defaultValue: 450_000
-    )
+
     static let hybridResetStripeMaxDecodedBytes = positiveInt(
         environmentKey: "AGENTDESK_HYBRID_RESET_STRIPE_MAX_DECODED_BYTES",
         defaultValue: 2 * 1_024 * 1_024
@@ -709,22 +678,17 @@ enum Config {
         environmentKey: "AGENTDESK_HYBRID_GRAPHICS_FALLBACK_MIN_INTERVAL_MS",
         defaultValue: 1_500
     )
-    // Content tile cache: number of host/client-mirrored slots. Memory is
-    // slots * maxCellBytes on each side; at 512 * 64*64*4 that is ~8 MB.
-    static let hybridTileCacheSlots: Int = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_TILE_CACHE_SLOTS",
-        defaultValue: 512
-    )
+
     // ADR-0034 crisp-repair (RegionCrispController). A tile must hold the same content
     // for this long before it is promoted to a crisp tile over the reliable graphics
     // lane; shorter sharpens sooner but risks promoting mid-settle.
     // Master on/off for the crisp text layer. Crisp is the per-tile settle-detect +
     // BGRA-render + hash + cache pipeline that overlays sharp text on top of the video
     // floor; the video stream alone is fully functional without it. Default on. Set the
-    // env to 0/off to skip processCrisp entirely (no convert, no hash, no crisp lane
+    // env to 0/off to skip the crisp window entirely (no timer, no convert, no hash, no lane
     // sends) -- the clean gate for isolating crisp's CPU contribution and for a
-    // video-only fallback. This is a coarse gate: when off, processCrisp returns before
-    // any work; the video path is untouched.
+    // video-only fallback. This is a coarse gate: when off, no window timer starts and
+    // nothing is retained from capture; the video path is untouched.
     static let ownedMediaCrispEnabled: Bool = enabledFlag(
         environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_ENABLED",
         defaultValue: true,
@@ -780,55 +744,7 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_CRISP_MAX_BYTES_PER_SECOND",
         defaultValue: 131_072
     )
-    // Rung-3 busy-tile threshold. After LZFSE-compressing a new cache-miss cell,
-    // divide the compressed byte count by the cell's pixel count (width * height).
-    // If the result exceeds this value, the cell is "busy": photo or gradient
-    // content that LZFSE cannot shrink, where JPEG costs far fewer bytes.
-    // The cell is then re-encoded as JPEG at the current congestion quality/scale
-    // and emitted as a cacheTile with compression: .jpeg instead of .lzfse.
-    //
-    // Calibration: each BGRA pixel is 4 raw bytes, so a completely uncompressed
-    // LZFSE output is about 4 bytes/pixel. Random per-pixel noise approaches this
-    // ceiling (LZFSE inflates by ~5% for incompressible data). Solid-color and
-    // text content compresses well under 1 byte/pixel. Setting the threshold at
-    // 2.0 bpp sits cleanly between these poles: text and UI tiles stay LZFSE
-    // (well under 1 bpp), and near-incompressible photo/gradient tiles exceed
-    // 2 bpp and cross over to JPEG. 2.0 is a safe conservative choice: no real
-    // text tile reaches it, and any photo that compresses poorly is already in
-    // the regime where lossy JPEG quality is accepted (same path as the
-    // fullframe fallback). Override with AGENTDESK_HYBRID_TILE_BUSY_BYTES_PER_PIXEL.
-    static let hybridTileBusyBytesPerPixel: Double = positiveDouble(
-        environmentKey: "AGENTDESK_HYBRID_TILE_BUSY_BYTES_PER_PIXEL",
-        defaultValue: 2.0
-    )
-    // Per-frame payload byte budget for the tiler. A genuinely-new busy screen
-    // (app switch, photo wall) tiled all-LZFSE could sum to several MB and clog
-    // the ~2Mbps reliable channel, the exact freeze the fullframe-JPEG fallback
-    // existed to prevent. ADR-0022 progressive repaint: the tiler accumulates
-    // appended payload bytes across cells; once one envelope's running total crosses
-    // this budget, the envelope is closed and the remaining cells continue in the
-    // next envelope of the same surface generation (rising frameId). A large repaint
-    // therefore streams in as several bounded frames the client paints cell-by-cell
-    // into its retained surface, instead of one frame that head-of-line blocks the
-    // channel. Text stays lossless LZFSE at native resolution (no per-frame
-    // downscale); only content-busy photo cells re-encode to JPEG. Cells that hit
-    // rung 1 (omitted) or rung 2 (drawCachedTile) carry no payload and never count
-    // toward the budget, so a mostly-cached screen stays a single zero-byte envelope.
-    //
-    // Calibration: the link is ~2Mbps ~= 250KB/s, so a ~128KB envelope drains in
-    // ~0.5s. Smaller envelopes paint more smoothly but add per-frame overhead; this
-    // is the per-envelope size, not a per-screen cap. Tune to the link on device via
-    // AGENTDESK_HYBRID_FRAME_SEND_BUDGET_BYTES.
-    static let hybridFrameSendBudgetBytes: Int = positiveInt(
-        environmentKey: "AGENTDESK_HYBRID_FRAME_SEND_BUDGET_BYTES",
-        defaultValue: 131_072
-    )
-    // Kill switch; false falls back to rung-1 baseline skip only.
-    static let hybridTileCacheEnabled: Bool = enabledFlag(
-        environmentKey: "AGENTDESK_HYBRID_TILE_CACHE_ENABLED",
-        defaultValue: true,
-        environment: ProcessInfo.processInfo.environment
-    )
+
     static func positiveInt(environmentKey: String, defaultValue: Int) -> Int {
         positiveInt(
             environment: ProcessInfo.processInfo.environment,

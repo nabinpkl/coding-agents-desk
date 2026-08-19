@@ -78,7 +78,7 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0033 | Adaptive media quality ladder | proposed | 2026-06-28 |
 | ADR-0034 | Motion-region crisp-repair: revive tiles at rest as a per-region sharpen over video | proposed | 2026-06-28 |
 | ADR-0035 | Phone-side agent-feed observability surface fed by an embedded engine sidecar | superseded by ADR-0074 | 2026-06-30 |
-| ADR-0036 | Crisp observe is damage-gated with a periodic full-surface heal | accepted | 2026-07-01 |
+| ADR-0036 | Crisp observe is damage-gated with a periodic full-surface heal | partially superseded by ADR-0105 | 2026-07-01 |
 | ADR-0037 | Host identity is the bundle id; dev and stable hosts are concurrent variants | accepted | 2026-07-01 |
 | ADR-0038 | Mirror Chrome DOM over a dedicated reliable QUIC lane instead of pixels | superseded by ADR-0042 | 2026-07-01 |
 | ADR-0039 | Bridge Chrome to the host through a sacrificial native-messaging shim | proposed | 2026-07-01 |
@@ -127,6 +127,7 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0086 | Give the agent feed two views, with the raw one as the fidelity guarantee | accepted | 2026-07-30 |
 | ADR-0091 | Own live agent sessions behind provider-neutral backends | accepted | 2026-08-01 |
 | ADR-0092 | Restore every standalone tool window through one Desktop placement authority | accepted | 2026-08-02 |
+| ADR-0105 | The crisp window keeps its own clock | accepted | 2026-08-19 |
 | ADR-0093 | Let the DOM declare the window drag region | accepted | 2026-08-04 |
 | ADR-0094 | Stream and drive one window instead of the whole Desktop | accepted | 2026-08-07 |
 | ADR-0095 | Relay the agent feed instead of restating it in Swift | accepted | 2026-08-11 |

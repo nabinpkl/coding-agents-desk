@@ -38,7 +38,7 @@ The full non-goal list is in `PRD.md`.
   | GestureTranslator    |                        | CaptureEngine (ScreenCapture) |
   | KeyboardSurface      |    NormalizedInput     | Encoder (VideoToolbox)        |
   | VideoRenderer        | <===================>  | InputDispatcher (CGEventPost) |
-  | RetainedCompositor*  |    graphics commands   | ScrollDeltaEngine*            |
+  | RetainedCompositor*  |    graphics commands   | RegionCrispController         |
   | PairingClient        |    QUIC media packets  | SpacesProvider (private CGS)  |
   | OwnedMediaTransport  |                        | Pairing (picker + QR)         |
   | GraphicsTransport*   |                        | GraphicsTransport*            |

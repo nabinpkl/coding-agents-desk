@@ -3,46 +3,10 @@ import Foundation
 
 // ADR-0034 crisp-repair: pure tile-pixel helpers used by RegionCrispController to turn
 // a captured BGRA surface region into a lossless crisp tile. Lifted as a standalone
-// codec so the crisp emitter reuses the proven extraction and LZFSE encode without
-// dragging in the dormant ScrollDeltaEngine scroll routing.
+// codec so the crisp emitter has the extraction and LZFSE encode to itself. (It was
+// originally split out to avoid dragging in ScrollDeltaEngine's scroll routing; that
+// engine is gone, and this is now the only tile extractor in the tree.)
 enum OwnedTileCodec {
-    // Copy a width*height BGRA tile out of a surface buffer. Returns nil if the rect
-    // is out of bounds or degenerate, or the buffer is too small for the stated stride.
-    // bytesPerRow is the surface stride in bytes.
-    static func extractTile(
-        from pixels: Data,
-        surfaceWidth: Int,
-        surfaceHeight: Int,
-        bytesPerRow: Int,
-        x: Int,
-        y: Int,
-        width: Int,
-        height: Int
-    ) -> Data? {
-        guard x >= 0, y >= 0, width > 0, height > 0,
-              x <= surfaceWidth - width,
-              y <= surfaceHeight - height,
-              bytesPerRow >= surfaceWidth * 4,
-              pixels.count >= bytesPerRow * surfaceHeight else { return nil }
-        let rowBytes = width * 4
-        var data = Data(count: rowBytes * height)
-        pixels.withUnsafeBytes { sourceBytes in
-            data.withUnsafeMutableBytes { targetBytes in
-                guard let sourceBase = sourceBytes.baseAddress,
-                      let targetBase = targetBytes.baseAddress else { return }
-                for row in 0..<height {
-                    targetBase
-                        .advanced(by: row * rowBytes)
-                        .copyMemory(
-                            from: sourceBase.advanced(by: (y + row) * bytesPerRow + x * 4),
-                            byteCount: rowBytes
-                        )
-                }
-            }
-        }
-        return data
-    }
-
     // FNV-1a constants mirroring TileContentCache.hash(_:). Defined here so the
     // fused path can produce a bit-identical value without importing that type.
     private static let fnvOffsetBasis: UInt64 = 0xcbf29ce484222325
@@ -52,7 +16,7 @@ enum OwnedTileCodec {
     // content hash as each row is written. The returned hash is bit-identical to
     // TileContentCache.hash(extractTile(...)) for the same inputs, so callers can
     // skip the second buffer walk the cache dedup would otherwise require.
-    // Returns nil on the same conditions as extractTile(_:).
+    // Returns nil for a degenerate rect or a surface too small to hold it.
     static func extractTileWithHash(
         from pixels: Data,
         surfaceWidth: Int,

@@ -48,6 +48,12 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     // every report and must not contend with the encode drain for that.
     private let lastLinkHealthGate = OSAllocatedUnfairLock<UInt64?>(initialState: nil)
     private var linkHealthTickTask: Task<Void, Never>?
+    // The crisp window cadence. A DispatchSourceTimer on its own serial queue rather than a
+    // Task on the cooperative pool: a heal window is a full-surface hash that can run for
+    // milliseconds, and parking a cooperative thread that long would stall the encode drain
+    // it was just decoupled from. The serial queue also guarantees windows cannot overlap.
+    private let crispWindowQueue = DispatchQueue(label: "\(Config.dispatchQueuePrefix).crisp-window")
+    private var crispWindowTimer: DispatchSourceTimer?
     // ADR-0088: the host's own view of its path, so a client-reported change can be checked
     // against whether the Mac saw anything move at the same moment.
     //
@@ -67,13 +73,19 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var surfaceGeneration: UInt32 = 0
         var crispFrameId: UInt64 = 0
         var surfaceInitialized = false
-        var lastCrispNs: UInt64 = 0
         var lastConvertWarnNs: UInt64 = 0
-        // ADR-0036: crisp windows since the last full-surface heal. Advances on every
-        // window that clears the interval gate (including gated windows that early-out),
-        // so the periodic heal that reconciles trusted crisp tiles against OS damage
+        // ADR-0036: crisp windows since the last full-surface heal. Advances on every timer
+        // tick that has a frame to work from (including gated windows that early-out), so
+        // the periodic heal that reconciles trusted crisp tiles against OS damage
         // under-reporting fires on schedule regardless of how many gated windows ran.
         var crispWindowsSinceHeal: Int = 0
+        // The newest captured frame, and every damage rect since the last window. Crisp runs
+        // on its own timer now, so these are what a window works from: the frame is its pixel
+        // source and the accumulator is its visit set. Retaining the newest frame costs no
+        // extra capture buffer in the steady state -- encodeGate.latest already holds that
+        // same CVPixelBuffer, and this reference is replaced by the next captured frame.
+        var latestFrame: CapturedVideoFrame?
+        var pendingDamage = CrispDamageAccumulator()
         // Caps crisp's sustained link share at the per-second byte budget (see
         // CrispPacingGate) so a large settle cannot flood the QUIC link it shares with the
         // video datagrams. Which regions crisp is decided per-tile by the controller.
@@ -88,9 +100,8 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     // GPU->CPU readback AND the controller's per-tile hash reads are damage-proportional and
     // hit cached memory — unlike hashing straight from a CIContext IOSurface (GPU memory,
     // slow per-byte), which Unit C did. Guarded by its own lock (never nested under
-    // crispGate; only processCrisp and deinit touch it) because the class is @unchecked
-    // Sendable and this is mutated across the drain loop's frames. `base` is owned here and
-    // freed on realloc and in deinit.
+    // crispGate; only runCrispWindow and deinit touch it) because the class is @unchecked
+    // Sendable. `base` is owned here and freed on realloc and in deinit.
     private struct CrispBufferState {
         var base: UnsafeMutableRawPointer?
         var byteCount = 0
@@ -99,7 +110,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         var bytesPerRow = 0
     }
     // uncheckedState: CrispBufferState holds a raw pointer (not Sendable); the lock is the
-    // synchronization, and only the single serialized drain loop (plus deinit) touches it.
+    // synchronization, and only the serial crisp window queue (plus deinit) touches it.
     private let crispBufferGate = OSAllocatedUnfairLock<CrispBufferState>(
         uncheckedState: CrispBufferState()
     )
@@ -184,6 +195,32 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         }
         startControlReceiveLoop()
         startLinkHealthTickLoop()
+        startCrispWindowTimer()
+    }
+
+    // The crisp cadence is independent of capture (see runCrispWindow). Not started at all
+    // when the host kill switch is off, so a video-only host pays nothing for the timer; the
+    // client's per-session preference is re-read inside each window instead, because it can
+    // change while the session is live.
+    private func startCrispWindowTimer() {
+        guard Config.ownedMediaCrispEnabled else { return }
+        let intervalMs = Config.ownedMediaCrispMinIntervalMs
+        let timer = DispatchSource.makeTimerSource(queue: crispWindowQueue)
+        timer.schedule(
+            deadline: .now() + .milliseconds(intervalMs),
+            repeating: .milliseconds(intervalMs)
+        )
+        timer.setEventHandler { [weak self] in self?.runCrispWindow() }
+        crispWindowTimer = timer
+        timer.resume()
+    }
+
+    // Hand damage back to the accumulator after a window took it and then bailed before
+    // reconciling. Without this the reverts those rects would have produced are lost until
+    // the next heal, which is the failure mode this whole path exists to close.
+    private func restorePendingCrispDamage(_ damage: [PixelRect]) {
+        guard !damage.isEmpty else { return }
+        crispGate.withLock { state in state.pendingDamage.add(damage) }
     }
 
     private func startLinkHealthTickLoop() {
@@ -219,12 +256,21 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             guard state.isWatchingVideo != watching else { return false }
             state.isWatchingVideo = watching
             guard watching else {
-                // Anything captured while away is stale by definition.
                 state.latest = nil
                 return false
             }
             state.forceKeyframeReason = .resumeWatching
             return true
+        }
+        if !watching {
+            // Anything captured while away is stale by definition -- including the crisp
+            // window's retained pixel source. Dropping it (unnested: crispGate is never taken
+            // under encodeGate) stops a post-uncover heal from promoting a pre-cover screen
+            // to crisp; windows resume as soon as a real frame is ingested.
+            crispGate.withLock { state in
+                state.latestFrame = nil
+                _ = state.pendingDamage.take()
+            }
         }
         logger.notice("client watching video=\(watching, privacy: .public)")
         guard resumed else { return }
@@ -265,6 +311,8 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         controlTask = nil
         linkHealthTickTask?.cancel()
         linkHealthTickTask = nil
+        crispWindowTimer?.cancel()
+        crispWindowTimer = nil
         pathObserver.stop()
         source.stop()
         crispGate.withLock { state in
@@ -279,7 +327,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     // session-ready). Reset the crisp controller so the fresh client re-establishes a
     // baseline rather than referencing slots it never got. The surface generation bump and
     // the resetSurface emission happen together when the next crisp window initializes the
-    // surface (see processCrisp), so attach and resize share one baseline-establish point.
+    // surface (see runCrispWindow), so attach and resize share one baseline-establish point.
     func attachGraphicsLane(_ lane: GraphicsLaneServer) {
         crispGate.withLock { state in
             state.lane?.close()
@@ -291,9 +339,9 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     private func enqueue(_ frame: CapturedVideoFrame) {
-        let shouldStart = encodeGate.withLock { state -> Bool in
+        let outcome = encodeGate.withLock { state -> (watching: Bool, startDrain: Bool) in
             // Dropped before the encoder, so a covered video costs nothing.
-            guard state.isWatchingVideo else { return false }
+            guard state.isWatchingVideo else { return (false, false) }
             if state.latest != nil {
                 state.mediaState.noteCaptureReplaced()
             }
@@ -301,13 +349,32 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             if frame.forceKeyframe {
                 state.forceKeyframeReason = .captureRequested
             }
-            if state.encoding { return false }
+            if state.encoding { return (true, false) }
             state.encoding = true
-            return true
+            return (true, true)
         }
-        guard shouldStart else { return }
+        guard outcome.watching else { return }
+        // Crisp samples EVERY captured frame, not just the ones the encoder gets to. The
+        // encode path coalesces (`state.latest` above) and is time-gated downstream, so
+        // driving crisp from it meant a window saw one 16ms sample of a 100ms interval and
+        // never visited -- therefore never reverted -- the tiles whose damage arrived on the
+        // frames in between. See CrispDamageAccumulator.
+        ingestCrispFrame(frame)
+        guard outcome.startDrain else { return }
         Task { [weak self] in
             await self?.drainEncodeQueue()
+        }
+    }
+
+    // Record a captured frame for the crisp window timer: it is the pixel source the next
+    // window renders from, and its damage joins everything accumulated since the last one.
+    // Deliberately cheap (a lock, an array append) because this runs on the capture callback
+    // at up to 60fps; all the convert and hash work happens on the crisp timer.
+    private func ingestCrispFrame(_ frame: CapturedVideoFrame) {
+        guard Config.ownedMediaCrispEnabled, clientCrispEnabledGate.withLock({ $0 }) else { return }
+        crispGate.withLock { state in
+            state.latestFrame = frame
+            state.pendingDamage.add(frame.damageRects)
         }
     }
 
@@ -372,19 +439,6 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     continue
                 }
                 await send(envelope)
-                // The crisp text layer is a coarse-gated add-on to the video floor; when
-                // disabled the video stream above is fully functional on its own. Skipping
-                // both calls here means no eager-revert, no convert, no hash, no crisp lane
-                // sends -- the clean video-only path (and the isolation gate for crisp CPU).
-                // Gate = host env (hard kill switch) AND the client's per-session preference.
-                let clientCrispEnabled = clientCrispEnabledGate.withLock { $0 }
-                if Config.ownedMediaCrispEnabled, clientCrispEnabled {
-                    // Crisp runs on the native capture, never the downscaled video frame.
-                    // Reverts belong to this pass alone: the damage-driven eager revert that
-                    // used to run first is gone (ADR-0102), because it decided from rectangles
-                    // and was wrong 94% of the time.
-                    processCrisp(job.frame)
-                }
             }
         }
     }
@@ -404,11 +458,6 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         }
     }
 
-    // ADR-0034 eager revert: on the video cadence (not the time-gated crisp pass), clear any
-    // crisp tile that overlaps this frame's OS damage, so the live video update is shown at
-    // once instead of being masked by a stale crisp tile for up to a crisp interval. Cheap:
-    // rect overlap only, no hashing, no payload. Runs only once a lane is attached and the
-    // surface baseline (resetSurface) has been sent.
     /// The persistent tightly-packed BGRA scratch buffer, resized to the capture geometry.
     /// `reallocated` is true when the memory is fresh and therefore uninitialized, which every
     /// caller must treat as "these bytes mean nothing yet".
@@ -443,22 +492,28 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
 
     // ADR-0034 crisp-repair: run the per-tile crisp policy on the full-resolution capture
     // (independent of the video's downscale) and push crisp tiles over the reliable lane.
-    // Time-gated so the full-surface rehash does not load the CPU at video frame rate.
     // Runs (and logs) even before a lane attaches so the host can be verified alone.
-    private func processCrisp(_ frame: CapturedVideoFrame) {
-        let nowNs = frame.capturedAtUptimeNs
-        let intervalNs = UInt64(Config.ownedMediaCrispMinIntervalMs) * 1_000_000
-        let shouldRun = crispGate.withLock { state -> Bool in
-            if nowNs &- state.lastCrispNs < intervalNs { return false }
-            state.lastCrispNs = nowNs
-            // A new crisp window started: advance the heal counter here, before the pacing
-            // gate, so it counts every interval-clearing window. Incrementing after the
-            // pacing gate would freeze it during a pacing-saturated settle (the byte budget
-            // spent across consecutive windows) and defer the heal indefinitely.
-            state.crispWindowsSinceHeal += 1
-            return true
-        }
-        guard shouldRun else { return }
+    //
+    // Driven by its own timer, NOT by the encode drain. Crisp used to be a tail call on the
+    // encode of whichever frame happened to clear a 100ms interval gate, which made it
+    // frame-starvable in both directions:
+    //   - it saw one frame's damage per window and discarded the rest (see enqueue), so
+    //     tiles that changed in between were never visited and never reverted; and
+    //   - ScreenCaptureKit produces on change, so once the screen went static after an
+    //     update there were no more frames, no more windows, and no more heals. A crisp
+    //     tile left stale by the change that ENDED the motion stayed stale indefinitely,
+    //     which is the "crisp does not clear" symptom exactly.
+    // A timer makes the window cadence independent of capture: the heal still fires on
+    // schedule against the last frame captured, which on a static screen is by definition
+    // the current screen.
+    private func runCrispWindow() {
+        // Read live each window so a settings toggle takes effect without a restart.
+        // Gate = host env (hard kill switch) AND the client's per-session preference.
+        guard Config.ownedMediaCrispEnabled, clientCrispEnabledGate.withLock({ $0 }) else { return }
+        // A covered video is a covered crisp overlay. setWatchingVideo(false) also drops the
+        // retained frame and pending damage, so nothing here works from a pre-cover screen.
+        guard encodeGate.withLock({ $0.isWatchingVideo }) else { return }
+        let nowNs = DispatchTime.now().uptimeNanoseconds
         // Pace crisp against its per-second byte budget; skip this window if the budget for
         // the current second is spent. This bounds crisp's sustained link share so a large
         // settle trickles out instead of bursting. It is NOT a motion gate: which regions
@@ -485,41 +540,56 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         // before paying for their compression. The mode gate above already skips windows with
         // no damage and nothing due, so this does not run the convert for nothing.
         let nowMs = Int(nowNs / 1_000_000)
-        // ADR-0036: decide this window's mode and possibly early-out before the expensive
-        // YUV->BGRA convert and full-surface hash. The heal counter was already advanced in
-        // the interval-gate lock above (it counts every interval-clearing window); here we
-        // only read it.
+        // ADR-0036: take this window's inputs and decide its mode in one lock, so a frame
+        // arriving mid-window cannot land between the damage read and the damage clear.
+        // Then possibly early-out before the expensive YUV->BGRA convert and hash.
         //
         // A full heal is due when the surface has no baseline yet, gating is disabled
         // (healInterval == 0), or the counter has reached the interval. Otherwise this is a
         // damage-gated window: if it has no damage AND no settled tile due for promotion,
         // there is nothing to do, so skip the convert and hash entirely.
         //
-        // Staleness bound: a damaged tile is visited by the very next gated window, which
-        // re-hashes it and reverts it if it truly changed, so an ordinary change is covered
-        // within one crisp interval (~100ms). This pass is now the ONLY thing that reverts a
-        // crisp tile (ADR-0102), so that interval is the whole staleness budget for a change
-        // the OS did report. A change the OS does NOT report is caught by the periodic heal,
-        // bounded by healInterval windows.
+        // Staleness bound: a damaged tile is visited by the very next window, which re-hashes
+        // it and reverts it if it truly changed, so an ordinary change is covered within one
+        // crisp interval (~100ms) regardless of which capture frame carried the damage. This
+        // pass is the ONLY thing that reverts a crisp tile (ADR-0102), so that interval is
+        // the whole staleness budget for a change the OS did report. A change the OS does NOT
+        // report is caught by the periodic heal, bounded by healInterval windows.
         //
         // Reverts carry no payload and are not gated on the byte budget, so a pacing-saturated
         // stretch delays new tiles, never the clearing of a stale one.
-        let mode: CrispWindowMode? = crispGate.withLock { state in
+        let window = crispGate.withLock {
+            state -> (frame: CapturedVideoFrame, damage: [PixelRect], mode: CrispWindowMode)? in
+            // Advance the heal counter before the pacing gate and before any early-out, so it
+            // counts every window the timer ran. Advancing later would freeze it during a
+            // pacing-saturated settle and defer the heal indefinitely.
+            state.crispWindowsSinceHeal += 1
+            // Nothing captured yet (or capture went away while covered): no pixel source, so
+            // no window. Taken before the damage read so an empty accumulator stays empty.
+            guard let frame = state.latestFrame else { return nil }
             let healInterval = Config.ownedMediaCrispHealIntervalWindows
             let healDue = !state.surfaceInitialized
                 || healInterval == 0
                 || state.crispWindowsSinceHeal >= healInterval
-            if healDue { return .heal }
-            let hasWork = !frame.damageRects.isEmpty
-                || state.controller.hasDueCandidates(nowMs: nowMs)
-            return hasWork ? .gated : nil
+            let damage = state.pendingDamage.take()
+            if healDue { return (frame, damage, .heal) }
+            // No damage and nothing due: `damage` is empty here, so taking it above lost
+            // nothing. Nothing was staged either, so no commit/discard is needed and the
+            // heal counter still fires the next heal on time.
+            guard !damage.isEmpty || state.controller.hasDueCandidates(nowMs: nowMs) else {
+                return nil
+            }
+            return (frame, damage, .gated)
         }
-        // Gated window with no work: nothing was staged, so no commit/discard is needed and
-        // the heal counter (already incremented) still fires the next heal on time.
-        guard let mode else { return }
+        guard let window else { return }
+        let frame = window.frame
+        let mode = window.mode
         let width = CVPixelBufferGetWidth(frame.pixelBuffer)
         let height = CVPixelBufferGetHeight(frame.pixelBuffer)
-        guard width > 0, height > 0 else { return }
+        guard width > 0, height > 0 else {
+            restorePendingCrispDamage(window.damage)
+            return
+        }
         let bytesPerRow = width * 4 // the persistent buffer is tightly packed BGRA
 
         // Ensure the persistent FAST buffer matches the source geometry; realloc only on a
@@ -527,16 +597,22 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         // render regardless of mode, or a gated sub-region render would leave the rest of
         // the buffer garbage that the controller could hash for a due candidate.
         let ensured = ensureCrispBuffer(width: width, height: height)
-        guard let ensured else { return }
+        guard let ensured else {
+            restorePendingCrispDamage(window.damage)
+            return
+        }
         let base = ensured.base
 
         // The region to render this window: the whole frame on a heal (or a just-realloc'd
-        // buffer), else only the grid-aligned union bbox of this frame's damage. An empty
-        // damage bbox on a gated window renders nothing — the controller then reads STALE
-        // buffer bytes for its due candidates, which is correct: a due candidate is stable
-        // (unchanged since its settle timer started), so its last-rendered bytes still equal
-        // its current pixels (the ADR-0036 bounded-staleness contract). Every tracked cell
-        // was rendered at the last heal, so the buffer is always populated for it.
+        // buffer), else only the grid-aligned union bbox of the damage accumulated since the
+        // last window. An empty damage bbox on a gated window renders nothing — the
+        // controller then reads STALE buffer bytes for its due candidates, which is correct:
+        // a due candidate is stable (unchanged since its settle timer started), so its
+        // last-rendered bytes still equal its current pixels (the ADR-0036 bounded-staleness
+        // contract). That argument only holds because the damage is now ACCUMULATED: when a
+        // window sampled a single frame, a cell could change on a frame the window never saw,
+        // keep a settled-looking timestamp, and get promoted to crisp from stale buffer bytes.
+        // Every tracked cell was rendered at the last heal, so the buffer is always populated.
         let grid = Config.hybridTileGridPx
         let fullFrame = PixelRect(x: 0, y: 0, width: width, height: height)
         let region: PixelRect?
@@ -547,7 +623,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
             region = ensured.reallocated
                 ? fullFrame
                 : OwnedMediaCrispConvert.gridAlignedDamageBounds(
-                    frame.damageRects, grid: grid, width: width, height: height
+                    window.damage, grid: grid, width: width, height: height
                 )
         }
         if let region, region.area > 0 {
@@ -568,6 +644,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                 if warn {
                     logger.error("crisp surface unavailable; not BGRA-renderable pixelFormat=\(format, privacy: .public)")
                 }
+                restorePendingCrispDamage(window.damage)
                 return
             }
         }
@@ -576,7 +653,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
         // by crispBufferState (freed on realloc / in deinit), not by Data. Fast to hash: it
         // is malloc/CPU-cached, not IOSurface/GPU memory. The controller copies each visited
         // tile into its own Data and never retains `pixels`, and the buffer is only rewritten
-        // by the next processCrisp on the same serialized drain loop, so the alias is safe.
+        // by the next window on the same serial crisp queue, so the alias is safe.
         let pixels = Data(
             bytesNoCopy: base,
             count: bytesPerRow * height,
@@ -607,7 +684,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     height: height,
                     bytesPerRow: bytesPerRow,
                     nowMs: nowMs,
-                    changedRects: frame.damageRects,
+                    changedRects: window.damage,
                     maxPayloadBytes: windowBudget
                 )
             }
@@ -663,7 +740,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     header: OwnedGraphicsFrameHeader(
                         surfaceGeneration: state.surfaceGeneration,
                         frameId: state.crispFrameId,
-                        capturedAtUptimeNs: nowNs,
+                        capturedAtUptimeNs: frame.capturedAtUptimeNs,
                         commandCount: 1,
                         payloadLength: 0
                     ),
@@ -683,7 +760,7 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
                     header: OwnedGraphicsFrameHeader(
                         surfaceGeneration: state.surfaceGeneration,
                         frameId: state.crispFrameId,
-                        capturedAtUptimeNs: nowNs,
+                        capturedAtUptimeNs: frame.capturedAtUptimeNs,
                         commandCount: emission.commands.count,
                         payloadLength: emission.payload.count
                     ),
@@ -720,16 +797,20 @@ final class QuicSessionHostMediaTransport: MediaTransport, @unchecked Sendable {
     }
 
     deinit {
-        // Free the persistent FAST crisp buffer. Safe outside the lock: deinit runs when the
-        // last reference is gone, so no drain-loop window can be concurrently touching it.
+        // Cancel before freeing: the window timer is the only other thing that touches the
+        // crisp buffer, and a `stop()`-less deallocation would otherwise race it.
+        crispWindowTimer?.cancel()
+        crispWindowTimer = nil
+        // Free the persistent FAST crisp buffer.
         crispBufferGate.withLockUnchecked { buf in
             buf.base?.deallocate()
             buf.base = nil
         }
     }
 
-    // Reused across crisp windows; CIContext is thread-safe for rendering and the crisp tap
-    // is the only caller. cacheIntermediates off keeps it from holding frame-sized buffers.
+    // Reused across crisp windows; CIContext is thread-safe for rendering and the crisp
+    // window queue is its only caller. cacheIntermediates off keeps it from holding
+    // frame-sized buffers.
     private static let crispCIContext = CIContext(options: [.cacheIntermediates: false])
 
     // The region-render helpers (gridAlignedDamageBounds, renderRegion) live in

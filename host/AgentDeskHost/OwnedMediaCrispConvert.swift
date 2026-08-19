@@ -2,6 +2,41 @@ import CoreImage
 import CoreVideo
 import Foundation
 
+// Damage accumulated across every captured frame since the last crisp window.
+//
+// Crisp runs on its own ~100ms timer while capture delivers up to 60fps, so reading one
+// frame's rects would discard roughly five sixths of what changed. That is not a lost
+// optimization, it is a lost revert: since ADR-0102 the crisp pass is the ONLY thing
+// entitled to un-crispen a tile, and it only re-hashes tiles it visits, so a tile whose
+// damage landed on a frame that missed the window boundary kept showing stale pixels until
+// the next full heal. Accumulating keeps the visit set damage-proportional AND complete.
+struct CrispDamageAccumulator {
+    // Past this many rects the set collapses to its union bounding box. A union is always a
+    // safe over-approximation (it can only make the pass visit more tiles, never fewer), so
+    // this trades a little extra hashing for a per-window walk that cannot grow without
+    // bound when the OS reports finely-fragmented damage on every frame.
+    static let maxRects = 64
+
+    private(set) var rects: [PixelRect] = []
+
+    var isEmpty: Bool { rects.isEmpty }
+
+    mutating func add(_ incoming: [PixelRect]) {
+        guard !incoming.isEmpty else { return }
+        rects.append(contentsOf: incoming)
+        guard rects.count > Self.maxRects, let union = PixelRect.union(of: rects) else { return }
+        rects = [union]
+    }
+
+    // Hand the accumulated rects to a window and start a fresh accumulation. A window that
+    // takes these and then bails before reconciling MUST hand them back via `add`, or the
+    // reverts they would have produced are lost until the next heal.
+    mutating func take() -> [PixelRect] {
+        defer { rects = [] }
+        return rects
+    }
+}
+
 // ADR-0036: pure region-render helpers for the damage-proportional crisp convert, lifted out
 // of QuicSessionHostMediaTransport so they are unit-testable without the transport, lanes, or
 // locks. The transport renders only the region a crisp window needs (the whole frame on a
