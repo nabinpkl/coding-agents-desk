@@ -86,12 +86,22 @@ final class SessionDialer {
             throw SessionRejected(reason: .badSignature)
         }
         let hostFingerprint = hostPub.agentDeskFingerprint
+        // Every phase below is one await in this chain. `connect` also covers the
+        // establishment report, which describes an already-completed connection; the
+        // link-telemetry line it emits carries the QUIC-only duration to compare against.
+        var phases = SessionDialPhaseTimer()
+        var success = false
+        // Installed before the first await, so the phase that matters most -- a dial that
+        // never got past `connect` and died on the ready budget -- reports rather than
+        // vanishing. Reported phases are the ones that completed; anything missing is where
+        // it stopped.
+        defer { Self.reportDialPhases(phases, kind: "durable-pairing", succeeded: success) }
         let connection = try await openConnection(
             host: host,
             port: port,
             abandonWhenBlockedAfterMs: Config.sessionConnectionWaitingTimeoutMs
         )
-        var success = false
+        phases.mark("connect")
         defer {
             if !success {
                 connection.applicationError = .init(code: 1, reason: "session-failed")
@@ -99,6 +109,7 @@ final class SessionDialer {
         }
 
         let control = try await connection.openStream()
+        phases.mark("control")
         let clientNonce = try randomBytes(32)
         try await QuicSessionStreamIO.send(
             SessionInit(
@@ -129,6 +140,7 @@ final class SessionDialer {
         guard hostPub.isValidSignature(hostSig, for: signingInput) else {
             throw SessionRejected(reason: .badSignature)
         }
+        phases.mark("challenge")
 
         try await QuicSessionStreamIO.send(
             SessionProof(clientSignature: try deviceKey.signature(for: signingInput).rawRepresentation),
@@ -146,6 +158,7 @@ final class SessionDialer {
             hostNonce: challenge.hostNonce,
             protocolVersion: challenge.protocolVersion
         )
+        phases.mark("ready")
         let active = ActiveSession(
             sessionId: ready.sessionId,
             deviceFingerprint: deviceFingerprint,
@@ -156,6 +169,7 @@ final class SessionDialer {
         let domMirror = try await Self.openDomMirrorIfEnabled(connection)
         let datagrams = try await connection.datagrams
         let agentStream = try await connection.openStream()
+        phases.mark("lanes")
         let mediaKey = MediaDatagramCrypto.sessionKey(
             sessionId: ready.sessionId,
             clientNonce: clientNonce,
@@ -211,12 +225,15 @@ final class SessionDialer {
             throw SessionRejected(reason: .badSignature)
         }
         let hostFingerprint = hostPub.agentDeskFingerprint
+        var phases = SessionDialPhaseTimer()
+        var success = false
+        defer { Self.reportDialPhases(phases, kind: "resume", succeeded: success) }
         let connection = try await openConnection(
             host: host,
             port: port,
             abandonWhenBlockedAfterMs: Config.sessionConnectionWaitingTimeoutMs
         )
-        var success = false
+        phases.mark("connect")
         defer {
             if !success {
                 connection.applicationError = .init(code: 1, reason: "resume-failed")
@@ -224,6 +241,7 @@ final class SessionDialer {
         }
 
         let control = try await connection.openStream()
+        phases.mark("control")
         let clientNonce = try randomBytes(32)
         try await QuicSessionStreamIO.send(
             SessionResumeInit(
@@ -257,6 +275,7 @@ final class SessionDialer {
                 hostFingerprint: hostFingerprint
             )
         )
+        phases.mark("challenge")
         let proof = SessionResumeSigning.proof(
             sessionId: active.sessionId,
             deviceFingerprint: deviceFingerprint,
@@ -288,12 +307,14 @@ final class SessionDialer {
             hostNonce: challenge.hostNonce,
             protocolVersion: Config.protocolVersion
         )
+        phases.mark("ready")
 
         let inputStream = try await connection.openStream()
         let graphicsStream = try await connection.openStream()
         let domMirror = try await Self.openDomMirrorIfEnabled(connection)
         let datagrams = try await connection.datagrams
         let agentStream = try await connection.openStream()
+        phases.mark("lanes")
         let mediaKey = MediaDatagramCrypto.sessionKey(
             sessionId: ready.sessionId,
             clientNonce: clientNonce,
@@ -368,6 +389,25 @@ final class SessionDialer {
                 .notice("session established durationMs=\(report.duration * 1000, format: .fixed(precision: 1), privacy: .public) previousAttempts=\(report.previousAttemptCount, privacy: .public) handshakes=\(report.handshakes.count, privacy: .public) resolutions=\(report.resolutions.count, privacy: .public)")
         }
         return connection
+    }
+
+    /// Emits the phase split for one dial, whether it completed or threw.
+    ///
+    /// Both a log line and a diagnostics event on purpose: the log is what an attached console
+    /// shows live, and the event is what `just client-diagnostics` can pull off a phone that was
+    /// never attached to one -- which is every cold start the user actually notices.
+    private static func reportDialPhases(
+        _ phases: SessionDialPhaseTimer,
+        kind: String,
+        succeeded: Bool
+    ) {
+        Logger(subsystem: Config.logSubsystem, category: "link-telemetry")
+            .notice("dial phases kind=\(kind, privacy: .public) succeeded=\(succeeded, privacy: .public) \(phases.summary, privacy: .public) total=\(phases.totalMs, privacy: .public)")
+        var fields = phases.diagnosticsFields
+        fields["kind"] = kind
+        fields["succeeded"] = String(succeeded)
+        fields["slowestPhase"] = phases.slowestPhase?.name ?? "none"
+        ClientDiagnostics.shared.record(type: "sessionDialPhases", fields: fields, level: .info)
     }
 
     @available(iOS 26.0, *)

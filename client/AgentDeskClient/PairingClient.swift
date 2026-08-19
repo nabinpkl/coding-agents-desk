@@ -329,8 +329,17 @@ final class PairingClient {
         }
         state = .sessionConnecting
 
+        // Timed because `resolvedHost` runs a BLOCKING getaddrinfo on this actor, and it
+        // finishes before the attempt is recorded -- so until now anything it cost was
+        // invisible here and read as app-launch time in the log.
+        let resolveStartNs = DispatchTime.now().uptimeNanoseconds
         let host = resolvedHost(fqdn: record.tailnetFQDN, ipv4: record.tailnetIPv4)
-        ClientDiagnostics.shared.record(type: "sessionAttemptStarted", fields: ["host": host], level: .info)
+        let resolveMs = Int((DispatchTime.now().uptimeNanoseconds &- resolveStartNs) / 1_000_000)
+        ClientDiagnostics.shared.record(
+            type: "sessionAttemptStarted",
+            fields: ["host": host, "resolveMs": String(resolveMs)],
+            level: .info
+        )
         do {
             try Task.checkCancellation()
             let fingerprint = DeviceFingerprint(try deviceKeyProvider.publicKey.agentDeskFingerprint)
