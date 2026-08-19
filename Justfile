@@ -1987,8 +1987,17 @@ client-reinstall variant="stable":
 # says nothing about the client.
 #
 # Builds `generic/platform=iOS` rather than the paired device, for the reason in client-install.
+# The Release client for feel runs and device installs.
+#
+# SWIFT_COMPILATION_MODE=singlefile for the same reason `host-run` uses it: Release does not
+# have to mean a slow build. It keeps -O and makes the unit of compilation the FILE rather than
+# the module, so one edited file stops costing a whole-module rebuild. Measured here at 2m20s
+# on the wholemodule default for a one-file change, which is the whole reason iterating on the
+# device felt expensive. `client-archive-release` deliberately does NOT set it: what TestFlight
+# ships should be optimized across the module, and that build happens once per release rather
+# than once per idea.
 client-install-release: build-agent-webview
-    sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'generic/platform=iOS' AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
+    sh tools/xcodebuild-quiet.sh -project client/AgentDeskClient.xcodeproj -scheme AgentDeskClient -configuration Release -derivedDataPath '{{derived_data}}' -destination 'generic/platform=iOS' SWIFT_COMPILATION_MODE="${AGENTDESK_CLIENT_SWIFT_COMPILATION_MODE:-singlefile}" AGENTDESK_GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)" build
     xcrun devicectl device install app --device {{ios_device}} '{{client_app_release}}'
 
 # Historical recipe name retained for callers. Updates the stable Release app
