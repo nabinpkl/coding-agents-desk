@@ -10,7 +10,8 @@ import AgentDeskWire
 // ADR-0004 production VideoFrameSource impl, host side. Captures the
 // selected display via ScreenCaptureKit at native pixel size and 60 Hz,
 // using the configured capture pixel format. Selection comes from the
-// input-channel client config and falls back to the first display.
+// input-channel client config; a selection that names a display which is not
+// attached is refused rather than quietly swapped (see selectDisplay).
 
 final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, TargetSelectableVideoFrameSource, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let logger = Logger(subsystem: Config.logSubsystem, category: "capture")
@@ -126,21 +127,28 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, TargetSelec
         // capture-side latency from 33 ms to 17 ms.
         config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
         // ADR-0008: encode at native pixel density, not point density.
-        // SCDisplay.width and .height are documented points; on Retina
-        // the actual framebuffer is points * backingScaleFactor pixels.
-        // Setting config.width/.height to the point value (what we used
-        // to do) makes SCK downsample the framebuffer to half resolution
-        // before encode, leaving text consistently soft on the phone.
-        // The backing scale comes from NSScreen matched by displayID.
+        // `SCDisplay.width`/`.height` and `filter.contentRect` are documented points; on
+        // Retina the actual framebuffer is points * backing scale pixels. Setting
+        // config.width/.height to the point value (what we used to do) makes SCK
+        // downsample the framebuffer to half resolution before encode, leaving text
+        // consistently soft on the phone.
+        //
+        // The scale comes from the filter, not from an NSScreen lookup keyed by
+        // displayID. The filter is the same object we are about to capture through and
+        // it already knows the exact density of its own content, so there is no lookup
+        // to miss and no 2.0 default to be wrong about -- which is how the window branch
+        // below has always done it.
+        //
         // Capture always runs at native resolution. The media quality ladder's
         // resolutionScale is applied later in the encode pump (see
         // QuicSessionHostMediaTransport.videoFrameForEncode), so capture never
         // downsamples and the crisp emitter keeps full pixels.
-        let scale = Self.backingScale(for: display.displayID)
+        let scale = Double(filter.pointPixelScale)
+        let contentRect = filter.contentRect
         let pixelSize = CaptureSizing.pixelSize(
-            widthPoints: Double(display.width),
-            heightPoints: Double(display.height),
-            backingScale: Double(scale),
+            widthPoints: Double(contentRect.width),
+            heightPoints: Double(contentRect.height),
+            backingScale: scale,
             scaleDownBy: baseScaleDownBy
         )
         config.width = pixelSize.width
@@ -162,15 +170,15 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, TargetSelec
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: sampleQueue)
         try await stream.startCapture()
         self.stream = stream
-        logger.notice("screen capture started \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) backingScale=\(scale, privacy: .public) captureScaleDown=\(self.baseScaleDownBy, privacy: .public) pixelFormat=\(Self.fourCC(self.pixelFormat), privacy: .public)")
+        let displayIdentity = HostDisplayResolver.skyLightId(for: display.displayID) ?? "cgID:\(display.displayID)"
+        logger.notice("screen capture started display=\(displayIdentity, privacy: .public) points=\(Int(contentRect.width), privacy: .public)x\(Int(contentRect.height), privacy: .public) \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) pointPixelScale=\(scale, privacy: .public) captureScaleDown=\(self.baseScaleDownBy, privacy: .public) pixelFormat=\(Self.fourCC(self.pixelFormat), privacy: .public)")
     }
 
     // Stream one window through `SCContentFilter(desktopIndependentWindow:)`.
     //
-    // Sizing comes from the filter's own `contentRect` and `pointPixelScale` rather than
-    // the display branch's NSScreen lookup: the filter already knows the exact backing
-    // scale for whichever display the window sits on, so there is no 2.0 fallback to be
-    // wrong about. Dimensions are forced even for the encoder.
+    // Sizing comes from the filter's own `contentRect` and `pointPixelScale`, the same way
+    // the display branch above does it: the filter already knows the exact backing scale
+    // for whichever display the window sits on. Dimensions are forced even for the encoder.
     //
     // A window resized after this point keeps streaming into the dimensions captured here,
     // scaled to fit. That is imperfect, not broken; live reconfiguration through
@@ -209,16 +217,41 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, TargetSelec
         logger.notice("window capture started wid=\(windowID, privacy: .public) app=\(appName, privacy: .public) \(pixelSize.width, privacy: .public)x\(pixelSize.height, privacy: .public) pointPixelScale=\(scale, privacy: .public) onScreen=\(window.isOnScreen, privacy: .public)")
     }
 
+    // Resolve the selected display, or nothing.
+    //
+    // This used to fall back to `displays.first` when the selection did not resolve, which
+    // is why "50%" meant two different pixel densities on two different days: with the
+    // laptop closed, capture quietly streamed the external monitor while the client's
+    // picker still named the built-in, and the resolution ladder is a fraction of whatever
+    // capture produced. The substitution itself was reasonable; doing it here, silently,
+    // where nothing could report it, was not.
+    //
+    // Choosing a display is now the selection store's job (DisplaySelectionStore.reconcile,
+    // driven by the screen-parameters observer), so an unplugged display is replaced before
+    // capture ever reads it -- and the client is told. A miss reaching this point therefore
+    // means a genuinely unresolvable target, which belongs on the wire as `.unavailable`
+    // rather than as a picture of some other screen.
     private func selectDisplay(from displays: [SCDisplay]) -> SCDisplay? {
         var selectedDisplayId: String?
         if case let .display(id) = controlState.withLock({ $0.target }) {
             selectedDisplayId = id
         }
-        if let cgDisplayId = HostDisplayResolver.displayID(forSkyLightId: selectedDisplayId),
-           let selected = displays.first(where: { $0.displayID == cgDisplayId }) {
-            return selected
+        // No selection at all is not the case this guards against: nothing has been asked
+        // for yet, so there is no client belief to contradict. That happens on a launch
+        // where capture beats the first desktop-state read, and the main display is the
+        // only sensible answer. It is logged because "which display did we default to"
+        // is exactly the question the old silent fallback made unanswerable.
+        guard let selectedDisplayId else {
+            let main = displays.first(where: { $0.displayID == CGMainDisplayID() }) ?? displays.first
+            logger.notice("capture target display unset; defaulting to main display cgID=\(main?.displayID ?? 0, privacy: .public)")
+            return main
         }
-        return displays.first
+        guard let cgDisplayId = HostDisplayResolver.displayID(forSkyLightId: selectedDisplayId),
+              let selected = displays.first(where: { $0.displayID == cgDisplayId }) else {
+            logger.error("capture target display \(selectedDisplayId, privacy: .public) is not attached; not substituting another")
+            return nil
+        }
+        return selected
     }
 
     // Restart capture for a capture-target switch (display to display, display to
@@ -244,20 +277,6 @@ final class ScreenCaptureKitFrameSource: NSObject, VideoFrameSource, TargetSelec
             // its last frame with a healthy decoder, which reads as a freeze.
             report(.unavailable(reason: "capture-start-failed"))
         }
-    }
-
-    // Pull the backing scale factor for a CGDirectDisplayID off NSScreen.
-    // Falls back to 2.0 (the Retina default) if the displayID doesn't
-    // resolve, which keeps a desk-clone monitor working without
-    // exploding the encoder dimensions.
-    private static func backingScale(for displayID: CGDirectDisplayID) -> CGFloat {
-        let key = NSDeviceDescriptionKey("NSScreenNumber")
-        for screen in NSScreen.screens {
-            if let n = screen.deviceDescription[key] as? NSNumber, CGDirectDisplayID(n.uint32Value) == displayID {
-                return screen.backingScaleFactor
-            }
-        }
-        return 2.0
     }
 
     private static func fourCC(_ value: OSType) -> String {

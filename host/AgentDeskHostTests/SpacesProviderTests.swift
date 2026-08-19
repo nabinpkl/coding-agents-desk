@@ -15,6 +15,45 @@ struct SpacesProviderTests {
         #expect(store.select("display-a", availableDisplayIds: ["display-a"]) == false)
     }
 
+    @Test func displaySelectionReconcileSeedsEmptySelectionWithFirstAttachedCandidate() {
+        let store = DisplaySelectionStore()
+
+        // The most-wanted candidate is not attached, so the next one wins.
+        #expect(store.reconcile(availableDisplayIds: ["display-a"], preferring: [nil, "display-b", "display-a"]) == true)
+        #expect(store.selectedDisplayId == "display-a")
+    }
+
+    @Test func displaySelectionReconcileLeavesAnAttachedSelectionAlone() {
+        let store = DisplaySelectionStore()
+        store.select("display-a", availableDisplayIds: ["display-a", "display-b"])
+
+        // "display-b" is preferred, but the current selection is still attached, so a
+        // reconcile is not a re-pick: only a missing display moves it.
+        #expect(store.reconcile(availableDisplayIds: ["display-a", "display-b"], preferring: ["display-b"]) == false)
+        #expect(store.selectedDisplayId == "display-a")
+    }
+
+    @Test func displaySelectionReconcileReHomesWhenTheSelectedDisplayIsUnplugged() {
+        let store = DisplaySelectionStore()
+        store.select("display-a", availableDisplayIds: ["display-a", "display-b"])
+
+        // "display-a" is gone. `select` refuses to overwrite with an id it cannot verify
+        // and there is no clear-on-absence anywhere else, so without `reconcile` the
+        // selection would point at "display-a" forever and capture would have to guess.
+        #expect(store.reconcile(availableDisplayIds: ["display-b"], preferring: ["display-a", "display-b"]) == true)
+        #expect(store.selectedDisplayId == "display-b")
+    }
+
+    @Test func displaySelectionReconcileKeepsAStaleSelectionWhenNoCandidateIsAttached() {
+        let store = DisplaySelectionStore()
+        store.select("display-a", availableDisplayIds: ["display-a"])
+
+        // Nothing to move to. Holding the stale id is what makes capture report
+        // `.unavailable` instead of substituting a display nobody asked for.
+        #expect(store.reconcile(availableDisplayIds: [], preferring: ["display-a", "display-b"]) == false)
+        #expect(store.selectedDisplayId == "display-a")
+    }
+
     @Test func spaceSwitchModeDefaultsToDockSwipeAndAcceptsDirectSetAliases() {
         #expect(Config.SpaceSwitchMode(rawEnvironmentValue: nil) == .dockSwipe)
         #expect(Config.SpaceSwitchMode(rawEnvironmentValue: "dock-swipe") == .dockSwipe)

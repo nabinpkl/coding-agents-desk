@@ -653,7 +653,7 @@ enum HostDisplayResolver {
         return CGDisplayBounds(CGMainDisplayID())
     }
 
-    private static func skyLightId(for displayID: CGDirectDisplayID) -> String? {
+    static func skyLightId(for displayID: CGDirectDisplayID) -> String? {
         guard let uuid = CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue() else {
             return nil
         }
@@ -683,12 +683,33 @@ final class DisplaySelectionStore: @unchecked Sendable {
         return true
     }
 
+    // Seed an empty selection, and re-home one whose display is gone.
+    //
+    // Both halves have to live here because neither of the other entry points can do
+    // it: `select` deliberately refuses an id that is not attached, so it keeps the
+    // stale one, and a seed-only variant never writes into a non-nil selection. Without
+    // this, unplugging the selected display leaves a selection nothing can ever clear.
+    //
+    // That mattered more than it sounds. Capture used to paper over the stale selection
+    // by silently streaming whichever display came back first, so the client's picker
+    // named one display while the encoder was fed another -- and since the resolution
+    // ladder is a fraction of whatever capture produced, the same "50%" landed at two
+    // different pixel densities with no visible cause. Reconciling in the store instead
+    // keeps the substitution honest: the selection actually changes, so it rides the
+    // normal desktop-state broadcast back to the client.
+    //
+    // `preferring` is a caller-ordered candidate list, most-wanted first; the first one
+    // that is actually attached wins.
     @discardableResult
-    func selectDefaultIfNeeded(_ displayId: String?) -> Bool {
+    func reconcile(availableDisplayIds: Set<String>, preferring candidates: [String?]) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard selected == nil, let displayId else { return false }
-        selected = displayId
+        if let selected, availableDisplayIds.contains(selected) { return false }
+        guard let replacement = candidates.compactMap({ $0 }).first(where: { availableDisplayIds.contains($0) }) else {
+            return false
+        }
+        guard selected != replacement else { return false }
+        selected = replacement
         return true
     }
 

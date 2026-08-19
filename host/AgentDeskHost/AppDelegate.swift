@@ -387,6 +387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         resumePreArms()
         installSpacesSwitchHandler()
         installSpacesChangeObserver()
+        installScreenParametersObserver()
         installLockAvailabilityObserver()
         installThumbnailsBroadcast()
         installCursorPositionMonitor()
@@ -1803,11 +1804,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func currentDesktopState() -> DesktopState? {
         guard let state = spacesProvider.current() else { return nil }
-        let fallback = state.selectedDisplayId ?? state.activeDisplayId ?? state.displays.first?.id
-        if displaySelection.selectDefaultIfNeeded(fallback) {
+        if reconcileDisplaySelection(with: state) {
             return spacesProvider.current() ?? state
         }
         return state
+    }
+
+    // Point the selection at a display that actually exists, and report whether it moved.
+    //
+    // The candidate order is deliberate: keep what was asked for, else follow the cursor,
+    // else take anything. `state.selectedDisplayId` is the store's own value, so on the
+    // ordinary path the first candidate is already the selection and this is a no-op.
+    @discardableResult
+    private func reconcileDisplaySelection(with state: DesktopState) -> Bool {
+        displaySelection.reconcile(
+            availableDisplayIds: Set(state.displays.map(\.id)),
+            preferring: [state.selectedDisplayId, state.activeDisplayId, state.displays.first?.id]
+        )
     }
 
     private func broadcastDesktopState() {
@@ -1887,6 +1900,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // cheap, but a background timer is exactly how the thumbnail path became a CPU
             // line item.
             Task { @MainActor in self?.broadcastWindowList() }
+        }
+    }
+
+    // A display coming or going is the one event that can invalidate the capture target
+    // without anyone asking for a change, and NSWorkspace's Space notification does not
+    // cover it. Reconciling here is what lets `selectDisplay` refuse to guess: by the
+    // time capture reads the selection, an unplugged display has already been replaced
+    // and the client has been told which display it is now watching.
+    private func installScreenParametersObserver() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let state = self.spacesProvider.current() else { return }
+                guard self.reconcileDisplaySelection(with: state) else { return }
+                self.signalingLogger.notice("display selection re-homed to \(self.displaySelection.selectedDisplayId ?? "nil", privacy: .public) after screen parameters changed")
+                self.applyCaptureTarget()
+                self.broadcastDesktopState()
+            }
         }
     }
 
