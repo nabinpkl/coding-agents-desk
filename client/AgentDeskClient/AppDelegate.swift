@@ -13,6 +13,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         if #available(iOS 26.0, *) {
             SessionPathReadiness.shared.start()
         }
+        // Started here so the cadence is running before anything interesting is logged. The
+        // drain only sees its own process, so a launch that never starts it leaves the run's
+        // Logger output out of the durable store entirely.
+        OSLogDrain.shared.start()
         return true
     }
 

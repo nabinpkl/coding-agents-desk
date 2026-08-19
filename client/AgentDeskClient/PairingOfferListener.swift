@@ -24,7 +24,10 @@ final class PairingOfferListener: @unchecked Sendable {
     // when the listener starts.
     var localIdentity: DeviceIdentity?
     var storedPairingRecordProvider: (() -> StoredPairingRecord?)?
-    var diagnosticsResponseProvider: ((DiagnosticsRequest) -> Result<ClientDiagnosticsPreparedResponse, DiagnosticsError>)?
+    // Async like the screenshot provider beside it, and for the same reason: this listener
+    // runs on the main queue, and preparing a diagnostics response now drains the unified log
+    // first, which is far too slow to do there.
+    var diagnosticsResponseProvider: ((DiagnosticsRequest) async -> Result<ClientDiagnosticsPreparedResponse, DiagnosticsError>)?
     var screenshotResponseProvider: ((ClientScreenshotRequest) async -> Result<PreparedClientScreenshot, ClientScreenshotError>)?
     var screenshotDeliveryHandler: (@MainActor @Sendable () -> Void)?
 
@@ -148,17 +151,23 @@ final class PairingOfferListener: @unchecked Sendable {
             }
             return
         }
-        switch responseProvider(request.request) {
-        case .failure(let error):
-            sendFrames([error], on: connection) {
+        Task { @MainActor [weak self] in
+            guard let self else {
                 connection.cancel()
+                return
             }
-        case .success(let prepared):
-            var frames: [Encodable] = [prepared.summary]
-            frames.append(contentsOf: prepared.chunks)
-            sendFrames(frames, on: connection) {
-                ClientDiagnostics.shared.completeResponse(prepared)
-                connection.cancel()
+            switch await responseProvider(request.request) {
+            case .failure(let error):
+                self.sendFrames([error], on: connection) {
+                    connection.cancel()
+                }
+            case .success(let prepared):
+                var frames: [Encodable] = [prepared.summary]
+                frames.append(contentsOf: prepared.chunks)
+                self.sendFrames(frames, on: connection) {
+                    ClientDiagnostics.shared.completeResponse(prepared)
+                    connection.cancel()
+                }
             }
         }
     }

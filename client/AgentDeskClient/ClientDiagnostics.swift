@@ -87,7 +87,7 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         let rc: DiagnosticsRetention
     }
 
-    private let logger = Logger(subsystem: Config.logSubsystem, category: "client-diagnostics")
+    private let logger = Logger(subsystem: Config.logSubsystem, category: Config.diagnosticsLogCategory)
     private let queue = DispatchQueue(label: "com.example.agentdesk.AgentDeskClient.diagnostics")
     private let configuration: ClientDiagnosticsStoreConfiguration
     private let fileManager: FileManager
@@ -152,18 +152,29 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
     /// Async is safe for ordering and for readers: the queue is serial, so events land in
     /// call order and every reader below (`queue.sync`) sees all prior writes. The cost is
     /// that an abrupt kill can lose the last few events, which a crash could already do.
+    /// - Parameter atMs: when the event HAPPENED, for events that did not happen just now.
+    ///   Only the unified-log drain passes it, and it has to: entries harvested seconds late
+    ///   would otherwise all be stamped with the drain and lose their order against each other
+    ///   and against everything the store recorded natively.
     func record(
         type: String,
         fields: [String: String],
         level: OSLogType = .default,
-        retention: DiagnosticsRetention = .lifecycle
+        retention: DiagnosticsRetention = .lifecycle,
+        atMs: Int? = nil
     ) {
         // Strong self on purpose: a weak capture would silently drop the tail of the log if
         // the store went away with writes still queued, and losing exactly the last events
         // before a teardown is losing the ones worth reading.
         queue.async {
             guard self.bootstrapped else { return }
-            self.recordLocked(type: type, fields: fields, level: level, retention: retention)
+            self.recordLocked(
+                type: type,
+                fields: fields,
+                level: level,
+                retention: retention,
+                atMs: atMs
+            )
             self.scheduleManifestSave()
         }
     }
@@ -558,7 +569,8 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         type: String,
         fields: [String: String],
         level: OSLogType,
-        retention: DiagnosticsRetention = .lifecycle
+        retention: DiagnosticsRetention = .lifecycle,
+        atMs: Int? = nil
     ) {
         guard var current = manifest.current else { return }
         let sanitizedFields = sanitize(fields: fields)
@@ -566,7 +578,8 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
             type: type,
             runId: current.runId,
             fields: sanitizedFields,
-            retention: retention
+            retention: retention,
+            atMs: atMs ?? nowMs()
         )
         appendLine(line, to: configuration.currentRunURL)
         current.byteCount += line.count
@@ -703,10 +716,11 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         type: String,
         runId: String,
         fields: [String: String],
-        retention: DiagnosticsRetention
+        retention: DiagnosticsRetention,
+        atMs: Int
     ) -> Data {
         let event = StoredEvent(
-            tsMs: nowMs(),
+            tsMs: atMs,
             runId: runId,
             type: type,
             fields: fields,
@@ -723,7 +737,7 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
             "originalBytes": String((try? encoder.encode(event).count) ?? 0)
         ]
         let truncatedEvent = StoredEvent(
-            tsMs: nowMs(),
+            tsMs: atMs,
             runId: runId,
             type: type,
             fields: truncatedFields,

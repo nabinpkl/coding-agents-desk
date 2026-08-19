@@ -173,6 +173,18 @@ enum Config {
         .appendingPathComponent("manifest.json", isDirectory: false)
     static let diagnosticsCurrentRunURL = diagnosticsDirectory
         .appendingPathComponent("current.ndjson", isDirectory: false)
+    // The os_log category the diagnostics store mirrors every recorded event to. The unified
+    // log drain excludes exactly this, or each recorded event would come back in as a log line
+    // and be recorded again. One name, so the writer and the exclusion cannot drift apart.
+    static let diagnosticsLogCategory = "client-diagnostics"
+    // How often the unified log is drained into the durable store while foregrounded. This is
+    // purely the ceiling on what an unclean kill can lose, since backgrounding and every
+    // diagnostics request drain on their own; a tighter cadence would buy a narrower crash
+    // window at a cost paid continuously, on every run, by every user.
+    static let osLogDrainIntervalMs = 30_000
+    // Ceiling on one drain, because `getEntries` is slow and a burst of logging should not turn
+    // a drain into a long blocking walk. Exceeding it is recorded, never silent.
+    static let osLogDrainMaxEntries = 2_000
     static let diagnosticsMaxEventBytes = 8 * 1024
     static let diagnosticsMaxRunBytes = 2 * 1024 * 1024
     // How far below the cap a trim brings a run, so the next one is due after a batch of

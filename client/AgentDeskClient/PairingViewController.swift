@@ -390,7 +390,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         ClientRuntimeTelemetry.shared.updateScenePhase(.background)
         ClientDiagnostics.shared.record(type: "applicationDidEnterBackground", fields: [:], level: .info)
         // Recording is fire-and-forget now, and iOS kills suspended apps without warning, so
-        // backgrounding is where the store has to settle.
+        // backgrounding is where the store has to settle. The drain goes with it, under its own
+        // background-task assertion: its cadence may never get another tick, and anything
+        // logged since the last one lives only in a unified log the next launch cannot read.
+        OSLogDrain.shared.drainBeforeSuspension()
         ClientDiagnostics.shared.flush()
         if case .connected = pairingClient.state {
             preservesSuspendedSessionSurfaces = true
@@ -1302,7 +1305,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             self?.pairingClient.storedPairingMaterial
         }
         listener.diagnosticsResponseProvider = { request in
-            ClientDiagnostics.shared.prepareResponse(for: request)
+            await OSLogDrain.shared.drain()
+            return ClientDiagnostics.shared.prepareResponse(for: request)
         }
         listener.screenshotResponseProvider = { [weak self] request in
             guard let self else {
@@ -1336,6 +1340,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     private func respondToDiagnosticsRequest(_ request: DiagnosticsRequest, on channel: InputChannel) async {
+        // The live lane and the tailnet fallback are two ways to ask the same question, so
+        // both take everything logged up to the ask, not up to the last cadence tick. Awaited
+        // rather than blocking: this runs on the main actor.
+        await OSLogDrain.shared.drain()
         switch ClientDiagnostics.shared.prepareResponse(for: request) {
         case .failure(let error):
             try? await channel.sendDiagnosticsError(error)
