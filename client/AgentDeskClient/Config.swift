@@ -41,6 +41,48 @@ enum Config {
         environmentKey: "AGENTDESK_SESSION_CONNECTION_WAITING_TIMEOUT_MS",
         defaultValue: 2_000
     )
+    // How long a session dial may take to reach .ready before it is abandoned for a fresh one.
+    //
+    // Reaching .ready is not evidence the carrier works. Measured on one cold start: a dial
+    // reached .ready after 3509ms, opened its control stream in 2ms, and then died at the very
+    // first exchange with `streamEnded(expected: 5, received: 0)` -- the host never answered.
+    // A fresh dial one second later reached .ready in 103ms and completed the handshake in 298.
+    // Healthy connects on that same path in the same session measured 51, 103, 191 and 317ms,
+    // so how long a dial takes to come up is the earliest signal that it will not work at all.
+    //
+    // Neither existing bound catches it. The blocked budget above only arms on .waiting, and
+    // such a dial sits in .preparing, which reads as progress; the 10s overall budget is for a
+    // dial that never arrives, not one that arrives useless.
+    //
+    // Sized well above the observed healthy spread but under the 2s inside which minimal-quality
+    // cellular dials were observed to succeed. Being wrong costs an immediate redial with no
+    // backoff, so the bound is deliberately tighter than the cost of tripping it.
+    //
+    // The risk this accepts: a path that consistently needs longer than this to come up would
+    // be abandoned every time, and the reconnect loop would spin rather than connect. Raise
+    // this rather than restoring a patient attempt if that is ever observed -- a patient
+    // attempt was measured and it made a bad cold start 2.6s WORSE, because the dials that
+    // need patience are the ones that were never going to work.
+    static let sessionConnectionSlowDialMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_CONNECTION_SLOW_DIAL_MS",
+        defaultValue: 1_500
+    )
+    // How long one session attempt keeps hammering short dials before handing the failure up.
+    //
+    // Measured, the path this dials over is DORMANT at cold start and wakes on its own: with
+    // the app dead, 45% of tailnet probes to the phone went unanswered, including a 25-second
+    // unbroken blackout, while the same path ran at 8.8% once traffic flowed. So a cold dial is
+    // not racing a broken link, it is waiting for a sleeping one to wake -- and the moment it
+    // wakes, connecting is cheap (292ms measured, immediately after a 12-second stall).
+    //
+    // That is the whole argument for hammering rather than waiting. A single patient dial only
+    // discovers the wake-up when its own timeout expires; short dials in a loop discover it
+    // within one bound of it actually happening. Nothing here makes the link wake sooner, so
+    // this does not remove cold-start latency -- it stops us sleeping through the recovery.
+    static let sessionDialHammerBudgetMs = positiveInt(
+        environmentKey: "AGENTDESK_SESSION_DIAL_HAMMER_BUDGET_MS",
+        defaultValue: 12_000
+    )
     // How long the path must look unchanged before a post-handover redial trusts it. Covers the
     // stretch where a phone leaving WiFi still reports the dying interface as satisfied.
     static let sessionPathSettleDebounceMs = positiveInt(

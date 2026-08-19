@@ -74,6 +74,9 @@ enum SessionFailureCause: Equatable {
         if let reason = error as? SessionRejectionReason { return .rejected(reason) }
         // No answer within the whole budget. Indistinguishable from a Mac that is off.
         if error is SessionConnectionReadyTimeout { return .hostUnreachable }
+        // Every dial in the attempt came up too slowly to trust and was abandoned. From the
+        // screen's point of view that is the same fact as never coming up at all.
+        if error is SessionConnectionSlow { return .hostUnreachable }
         // Abandoned while blocked. The transport's own reason string is the only detail, and
         // it carries the same POSIX vocabulary the structured errors do.
         if let blocked = error as? SessionConnectionBlocked {

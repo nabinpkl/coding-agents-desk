@@ -70,6 +70,67 @@ final class SessionDialer {
         }
     }
 
+    /// Hammers short dials at the host until one comes up, rather than waiting out a long one.
+    ///
+    /// The path this dials over is asleep at cold start, not broken, and it wakes on its own
+    /// schedule (see `sessionDialHammerBudgetMs`). Nothing the client does makes it wake sooner,
+    /// so the only thing worth optimising is how quickly we NOTICE. A patient dial notices when
+    /// its own timeout expires; a hammer notices within one bound of the path actually waking.
+    ///
+    /// Dials are strictly sequential. Two QUIC connections to one host:port from one process
+    /// collapse onto a single UDP endpoint that the listener cannot demultiplex, and it resets
+    /// both -- so this cannot be made concurrent, however much faster that would be.
+    @available(iOS 26.0, *)
+    private func openSessionConnection(host: String, port: UInt16) async throws -> NetworkConnection<QUIC> {
+        try await Self.hammeringUntilReady(
+            budgetMs: Config.sessionDialHammerBudgetMs,
+            dial: {
+                try await openConnection(
+                    host: host,
+                    port: port,
+                    abandonWhenBlockedAfterMs: Config.sessionConnectionWaitingTimeoutMs,
+                    abandonWhenSlowAfterMs: Config.sessionConnectionSlowDialMs
+                )
+            },
+            onAbandon: { slow, attempt in
+                Logger(subsystem: Config.logSubsystem, category: "link-telemetry")
+                    .notice("\(slow.description, privacy: .public) attempt=\(attempt, privacy: .public)")
+                ClientDiagnostics.shared.record(
+                    type: "sessionDialAbandonedSlow",
+                    fields: ["afterMs": String(slow.afterMs), "attempt": String(attempt)],
+                    level: .error
+                )
+            }
+        )
+    }
+
+    /// Re-runs a bounded dial until one succeeds or the budget is spent.
+    ///
+    /// Shaped as closures for the same reason `resumeOrRetryDurablePairing` is: what is worth
+    /// testing is when it keeps hammering and what escapes, and that should be checkable
+    /// without a network. Only `SessionConnectionSlow` is hammered through -- every other
+    /// failure is a real answer and belongs to the reconnect loop above, which owns backoff.
+    static func hammeringUntilReady<Connection>(
+        budgetMs: Int,
+        nowMs: () -> Int = { Int(DispatchTime.now().uptimeNanoseconds / 1_000_000) },
+        dial: () async throws -> Connection,
+        onAbandon: (SessionConnectionSlow, Int) -> Void
+    ) async throws -> Connection {
+        let deadline = nowMs() + max(0, budgetMs)
+        var attempt = 0
+        while true {
+            attempt += 1
+            do {
+                return try await dial()
+            } catch let slow as SessionConnectionSlow {
+                onAbandon(slow, attempt)
+                // No delay between swings on purpose: the next dial is how we find out the
+                // path woke, and sleeping in here is the waiting this replaced.
+                guard nowMs() < deadline else { throw slow }
+            }
+        }
+    }
+
     @available(iOS 26.0, *)
     func dial(
         host: String,
@@ -96,11 +157,7 @@ final class SessionDialer {
         // vanishing. Reported phases are the ones that completed; anything missing is where
         // it stopped.
         defer { Self.reportDialPhases(phases, kind: "durable-pairing", succeeded: success) }
-        let connection = try await openConnection(
-            host: host,
-            port: port,
-            abandonWhenBlockedAfterMs: Config.sessionConnectionWaitingTimeoutMs
-        )
+        let connection = try await openSessionConnection(host: host, port: port)
         phases.mark("connect")
         defer {
             if !success {
@@ -228,11 +285,7 @@ final class SessionDialer {
         var phases = SessionDialPhaseTimer()
         var success = false
         defer { Self.reportDialPhases(phases, kind: "resume", succeeded: success) }
-        let connection = try await openConnection(
-            host: host,
-            port: port,
-            abandonWhenBlockedAfterMs: Config.sessionConnectionWaitingTimeoutMs
-        )
+        let connection = try await openSessionConnection(host: host, port: port)
         phases.mark("connect")
         defer {
             if !success {
@@ -356,7 +409,8 @@ final class SessionDialer {
     private func openConnection(
         host: String,
         port: UInt16,
-        abandonWhenBlockedAfterMs: Int?
+        abandonWhenBlockedAfterMs: Int?,
+        abandonWhenSlowAfterMs: Int? = nil
     ) async throws -> NetworkConnection<QUIC> {
         guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
             throw SessionRejected(reason: .malformed)
@@ -377,7 +431,19 @@ final class SessionDialer {
                     }
             })
         )
-        try await waitUntilReady(connection, abandonWhenBlockedAfterMs: abandonWhenBlockedAfterMs)
+        do {
+            try await waitUntilReady(
+                connection,
+                abandonWhenBlockedAfterMs: abandonWhenBlockedAfterMs,
+                abandonWhenSlowAfterMs: abandonWhenSlowAfterMs
+            )
+        } catch {
+            // Abandoned dials are closed, not dropped. A connection left to deallocate keeps
+            // its carrier alive to be reaped later as a corpse in the logs, and this path fires
+            // more often now that a slow dial is abandoned rather than waited out.
+            connection.applicationError = .init(code: 2, reason: "dial-abandoned")
+            throw error
+        }
         // ADR-0088: the one platform report that DOES work on the new API. Unlike
         // `dataTransferReport()` (which returns a zero-length window and all-zero fields),
         // `establishmentReport()` describes a completed fact rather than an interval, and the
@@ -413,7 +479,8 @@ final class SessionDialer {
     @available(iOS 26.0, *)
     private func waitUntilReady(
         _ connection: NetworkConnection<QUIC>,
-        abandonWhenBlockedAfterMs: Int?
+        abandonWhenBlockedAfterMs: Int?,
+        abandonWhenSlowAfterMs: Int?
     ) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let gate = ResumeGate()
@@ -424,14 +491,26 @@ final class SessionDialer {
                 blocked.disarm()
                 continuation.resume(throwing: SessionConnectionReadyTimeout())
             }
+            // Runs against the wall clock rather than against a state, because the dial this
+            // catches never enters a state that looks wrong: it is .preparing the whole way.
+            let slowTask: Task<Void, Never>? = abandonWhenSlowAfterMs.map { budgetMs in
+                Task { [gate, blocked] in
+                    try? await Task.sleep(nanoseconds: UInt64(budgetMs) * 1_000_000)
+                    guard !Task.isCancelled, gate.claim() else { return }
+                    blocked.disarm()
+                    continuation.resume(throwing: SessionConnectionSlow(afterMs: budgetMs))
+                }
+            }
             connection.onStateUpdate { _, state in
                 switch SessionConnectionReadiness.decision(for: state) {
                 case .ready:
                     timeoutTask.cancel()
+                    slowTask?.cancel()
                     blocked.disarm()
                     if gate.claim() { continuation.resume() }
                 case .fail(let error):
                     timeoutTask.cancel()
+                    slowTask?.cancel()
                     blocked.disarm()
                     if gate.claim() { continuation.resume(throwing: error) }
                 case .blocked(let reason):
@@ -441,6 +520,7 @@ final class SessionDialer {
                             try? await Task.sleep(nanoseconds: UInt64(budgetMs) * 1_000_000)
                             guard !Task.isCancelled, gate.claim() else { return }
                             timeoutTask.cancel()
+                            slowTask?.cancel()
                             continuation.resume(
                                 throwing: SessionConnectionBlocked(reason: reason, afterMs: budgetMs)
                             )
@@ -605,6 +685,19 @@ enum SessionConnectionReadyRuntimeDecision {
 struct SessionConnectionReadyTimeout: Error, CustomStringConvertible {
     var description: String {
         "session connection did not become ready within \(Config.sessionConnectionReadyTimeoutMs)ms"
+    }
+}
+
+/// A dial abandoned because it took too long to come up, though nothing reported it stuck.
+///
+/// The measured shape: .ready after 3509ms, control stream in 2ms, then `streamEnded` with
+/// nothing received, while a fresh dial seconds later came up in 103ms and worked. Reaching
+/// .ready says the transport connected, not that the peer is there.
+struct SessionConnectionSlow: Error, CustomStringConvertible {
+    let afterMs: Int
+
+    var description: String {
+        "session connection was still not ready after \(afterMs)ms; redialing"
     }
 }
 
