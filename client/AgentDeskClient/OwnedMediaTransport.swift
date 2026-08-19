@@ -301,7 +301,8 @@ private struct Channels {
                     ClientDiagnostics.shared.record(
                         type: "mediaLtrAcknowledged",
                         fields: ["token": String(token)],
-                        level: .default
+                        level: .default,
+                        retention: .stream
                     )
                 }
                 mediaSink?.setOwnedMediaPresentationSkipHandler { [weak self] bytes in
@@ -913,7 +914,8 @@ private struct Channels {
             ClientDiagnostics.shared.record(
                 type: "mediaRecoveryArmed",
                 fields: ["skippedFrameId": String(skipped.frameId)],
-                level: .info
+                level: .info,
+                retention: .stream
             )
         }
         for (completed, decision) in zip(handling.result.completedFrames, handling.decisions) {
@@ -940,7 +942,8 @@ private struct Channels {
                         "discardedDeltas": String(handling.discardedAtResolve),
                         "armedMs": String(Int(Double(handling.resolvedArmedNs ?? 0) / 1_000_000))
                     ],
-                    level: .info
+                    level: .info,
+                    retention: .stream
                 )
             }
             ClientRuntimeTelemetry.shared.advanceVideoMilestone(.frameCompleted)
@@ -958,7 +961,8 @@ private struct Channels {
                     "frameId": String(request.frameId),
                     "missingPacketCount": String(request.packetIndexes.count)
                 ],
-                level: .info
+                level: .info,
+                retention: .stream
             )
             sendVideoControl(OwnedMediaControlMessage(
                 kind: .packetResendRequest,
@@ -977,7 +981,8 @@ private struct Channels {
                     "frameId": String(skipped.frameId),
                     "skippedFrameCount": String(skippedCount)
                 ],
-                level: .info
+                level: .info,
+                retention: .stream
             )
         }
         if let request = handling.requestKeyframe {
@@ -1156,7 +1161,8 @@ private struct Channels {
                 "maxPendingFrameDepth": String(counts.maxPendingFrameDepth),
                 "telemetry": telemetry.logDescription
             ],
-            level: .info
+            level: .info,
+            retention: .stream
         )
     }
 

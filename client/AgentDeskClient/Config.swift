@@ -175,6 +175,10 @@ enum Config {
         .appendingPathComponent("current.ndjson", isDirectory: false)
     static let diagnosticsMaxEventBytes = 8 * 1024
     static let diagnosticsMaxRunBytes = 2 * 1024 * 1024
+    // How far below the cap a trim brings a run, so the next one is due after a batch of
+    // events rather than after the very next one. At the cap, trimming exactly to it made
+    // every recorded event rewrite the whole file.
+    static let diagnosticsTrimLowWaterPercent = 90
     static let diagnosticsMaxTotalBytes = 6 * 1024 * 1024
     static let diagnosticsMaxRuns = 3
     static let diagnosticsMaxResponseBytes = 768 * 1024

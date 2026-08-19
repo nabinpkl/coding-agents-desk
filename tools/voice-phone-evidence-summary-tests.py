@@ -237,13 +237,13 @@ class VoicePhoneEvidenceSummaryTests(unittest.TestCase):
         payload = diagnostics / "run-previous.ndjson.gz"
         events = [
             {
-                "ts": 1_753_480_000,
+                "tsMs": 1_753_480_000_000,
                 "runId": "previous",
                 "type": "runStarted",
                 "fields": {},
             },
             {
-                "ts": 1_753_480_001,
+                "tsMs": 1_753_480_001_000,
                 "runId": "previous",
                 "type": "voicePhoneAnalysisStage",
                 "fields": {
@@ -255,7 +255,7 @@ class VoicePhoneEvidenceSummaryTests(unittest.TestCase):
                 },
             },
             {
-                "ts": 1_753_480_002,
+                "tsMs": 1_753_480_002_000,
                 "runId": "previous",
                 "type": "voicePhoneAnalysisStage",
                 "fields": {
@@ -299,7 +299,7 @@ class VoicePhoneEvidenceSummaryTests(unittest.TestCase):
             output.write(
                 json.dumps(
                     {
-                        "ts": 1_753_480_000,
+                        "tsMs": 1_753_480_000_000,
                         "runId": "current",
                         "type": "runStarted",
                         "fields": {},

@@ -357,7 +357,7 @@ def diagnostics_events(diagnostics_directory: Path) -> list[dict[str, Any]]:
                             f"{payload_path}:{line_number} analyzer event is "
                             "missing attemptID, stage, or modelHash"
                         )
-                    timestamp = event.get("ts")
+                    timestamp = event.get("tsMs")
                     if (
                         not isinstance(timestamp, int)
                         or isinstance(timestamp, bool)
@@ -365,7 +365,7 @@ def diagnostics_events(diagnostics_directory: Path) -> list[dict[str, Any]]:
                     ):
                         raise SummaryError(
                             f"{payload_path}:{line_number} analyzer event has "
-                            "an invalid timestamp"
+                            "an invalid tsMs timestamp"
                         )
                     events.append(
                         {
@@ -418,7 +418,7 @@ def summarize_diagnostics(diagnostics_directory: Path) -> list[str]:
             )
             lines.append(
                 "  log "
-                f"timestampUnix={event['timestamp']} "
+                f"timestampUnixMs={event['timestamp']} "
                 f"eventTimestamp={quoted(fields.get('eventTimestamp'))} "
                 f"stage={quoted(fields['stage'])} "
                 f"residentBytes={fields.get('residentMemoryBytes', '?')} "

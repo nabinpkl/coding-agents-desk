@@ -35,7 +35,8 @@ private final class ClientRuntimeCheckpointEmitter: @unchecked Sendable {
                         "mediaState": checkpoint.mediaState.rawValue,
                         "videoMilestone": checkpoint.videoMilestone.rawValue
                     ],
-                    level: .info
+                    level: .info,
+                    retention: .stream
                 )
                 guard let sender = emission.sender else { continue }
                 do {

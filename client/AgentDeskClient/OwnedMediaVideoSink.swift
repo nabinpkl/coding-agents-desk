@@ -620,12 +620,14 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                     ClientDiagnostics.shared.record(
                         type: "mediaSummary",
                         fields: snapshot.diagnosticsFields,
-                        level: .info
+                        level: .info,
+                        retention: .stream
                     )
                     ClientDiagnostics.shared.record(
                         type: "mediaPresentationWindow",
                         fields: snapshot.diagnosticsFields,
-                        level: .info
+                        level: .info,
+                        retention: .stream
                     )
                     // The window boundary already reports the enqueue-side summary; pair it
                     // with the render side unconditionally, so a steady healthy-looking stream
@@ -639,7 +641,8 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 ClientDiagnostics.shared.record(
                     type: "mediaStalePresentationSkipped",
                     fields: ["frameId": String(envelope.header.frameId)],
-                    level: .info
+                    level: .info,
+                    retention: .stream
                 )
             }
         case .recoveredRequestKeyframe, .droppedMismatchedDimensionsRequestKeyframe:
@@ -674,7 +677,8 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                     "frameId": String(envelope.header.frameId),
                     "reason": String(describing: result)
                 ],
-                level: .error
+                level: .error,
+                retention: .stream
             )
         case .formatDescriptionUnavailable, .sampleBufferBuildFailed:
             videoStatusTracker.noteDroppedFrames(1)
@@ -687,7 +691,8 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                     "frameId": String(envelope.header.frameId),
                     "reason": String(describing: result)
                 ],
-                level: .error
+                level: .error,
+                retention: .stream
             )
         }
     }
@@ -821,7 +826,8 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                     "dropped": String(metrics.numberOfDroppedFrames),
                     "corrupted": String(metrics.numberOfCorruptedFrames)
                 ],
-                level: .info
+                level: .info,
+                retention: .stream
             )
         }
     }
@@ -868,7 +874,8 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         ClientDiagnostics.shared.record(
             type: "videoRenderDiagnostics",
             fields: fields,
-            level: changed ? .error : .info
+            level: changed ? .error : .info,
+            retention: .stream
         )
         ownedMediaStderrTrace("video-render-diagnostics reason=\(reason) enqueued=\(videoEnqueueCount) \(key)")
     }

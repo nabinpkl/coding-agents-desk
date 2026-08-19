@@ -210,6 +210,7 @@ struct VoicePhoneAnalysisLogTests {
             ),
             maxEventBytes: 8 * 1024,
             maxRunBytes: 2 * 1024 * 1024,
+            trimLowWaterPercent: 90,
             maxTotalBytes: 6 * 1024 * 1024,
             maxRuns: 3,
             maxResponseBytes: 768 * 1024,

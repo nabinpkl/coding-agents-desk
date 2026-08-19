@@ -1400,7 +1400,7 @@ struct InputChannelTests {
         let now = 1_800_000_000
         let harness = try Self.makeDiagnosticsHarness(name: #function)
         defer { harness.cleanup() }
-        let store = ClientDiagnosticsStore(configuration: harness.configuration, nowProvider: { now })
+        let store = ClientDiagnosticsStore(configuration: harness.configuration, nowMsProvider: { now * 1000 })
         store.bootstrap()
 
         let hostKey = P256.Signing.PrivateKey()
@@ -1461,7 +1461,7 @@ struct InputChannelTests {
         let counter = Counter(value: 10)
         let store = ClientDiagnosticsStore(
             configuration: harness.configuration,
-            nowProvider: { counter.next() }
+            nowMsProvider: { counter.next() * 1000 }
         )
         store.bootstrap()
         store.record(
@@ -1495,7 +1495,7 @@ struct InputChannelTests {
         let firstCounter = Counter(value: 100)
         let firstStore = ClientDiagnosticsStore(
             configuration: uncleanHarness.configuration,
-            nowProvider: { firstCounter.next() }
+            nowMsProvider: { firstCounter.next() * 1000 }
         )
         firstStore.bootstrap()
         firstStore.record(type: "mediaReceive", fields: ["state": "active"], level: .info)
@@ -1504,7 +1504,7 @@ struct InputChannelTests {
         let secondCounter = Counter(value: 200)
         let reopenedStore = ClientDiagnosticsStore(
             configuration: uncleanHarness.configuration,
-            nowProvider: { secondCounter.next() }
+            nowMsProvider: { secondCounter.next() * 1000 }
         )
         reopenedStore.bootstrap()
 
@@ -1522,7 +1522,7 @@ struct InputChannelTests {
         let cleanCounter = Counter(value: 300)
         let cleanStore = ClientDiagnosticsStore(
             configuration: cleanHarness.configuration,
-            nowProvider: { cleanCounter.next() }
+            nowMsProvider: { cleanCounter.next() * 1000 }
         )
         cleanStore.bootstrap()
         cleanStore.record(type: "sessionConnected", fields: ["host": "mac"], level: .info)
@@ -1531,7 +1531,7 @@ struct InputChannelTests {
         let cleanReopenCounter = Counter(value: 400)
         let cleanReopenedStore = ClientDiagnosticsStore(
             configuration: cleanHarness.configuration,
-            nowProvider: { cleanReopenCounter.next() }
+            nowMsProvider: { cleanReopenCounter.next() * 1000 }
         )
         cleanReopenedStore.bootstrap()
 
@@ -1558,7 +1558,7 @@ struct InputChannelTests {
             let counter = Counter(value: 1_000 + run * 100)
             let store = ClientDiagnosticsStore(
                 configuration: harness.configuration,
-                nowProvider: { counter.next() }
+                nowMsProvider: { counter.next() * 1000 }
             )
             store.bootstrap()
             store.record(
@@ -1588,7 +1588,7 @@ struct InputChannelTests {
         let counter = Counter(value: 450)
         let store = ClientDiagnosticsStore(
             configuration: harness.configuration,
-            nowProvider: { counter.next() }
+            nowMsProvider: { counter.next() * 1000 }
         )
         let recorder = DiagnosticsSummaryRecorder()
         store.bootstrap()
@@ -1620,7 +1620,7 @@ struct InputChannelTests {
         let counter = Counter(value: 500)
         let store = ClientDiagnosticsStore(
             configuration: harness.configuration,
-            nowProvider: { counter.next() }
+            nowMsProvider: { counter.next() * 1000 }
         )
         store.bootstrap()
         try FileManager.default.removeItem(at: harness.configuration.currentRunURL)
@@ -1645,7 +1645,7 @@ struct InputChannelTests {
         let counter = Counter(value: 600)
         let store = ClientDiagnosticsStore(
             configuration: harness.configuration,
-            nowProvider: { counter.next() }
+            nowMsProvider: { counter.next() * 1000 }
         )
         store.bootstrap()
         try Data().write(to: harness.configuration.currentRunURL, options: .atomic)
@@ -1671,7 +1671,7 @@ struct InputChannelTests {
     @Test func runtimeCheckpointDeduplicatesSnapshotsAndResetsVideoPerSession() async throws {
         let harness = try Self.makeDiagnosticsHarness(name: #function)
         defer { harness.cleanup() }
-        let store = ClientDiagnosticsStore(configuration: harness.configuration, nowProvider: { 700 })
+        let store = ClientDiagnosticsStore(configuration: harness.configuration, nowMsProvider: { 700 * 1000 })
         store.bootstrap()
         let recorder = CheckpointRecorder()
         let telemetry = ClientRuntimeTelemetry(
@@ -1883,6 +1883,7 @@ struct InputChannelTests {
             currentRunURL: diagnosticsDirectory.appendingPathComponent("current.ndjson", isDirectory: false),
             maxEventBytes: maxEventBytes,
             maxRunBytes: maxRunBytes,
+            trimLowWaterPercent: 90,
             maxTotalBytes: maxTotalBytes,
             maxRuns: maxRuns,
             maxResponseBytes: 768 * 1024,

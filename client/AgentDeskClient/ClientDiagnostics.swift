@@ -13,6 +13,7 @@ struct ClientDiagnosticsStoreConfiguration {
     let currentRunURL: URL
     let maxEventBytes: Int
     let maxRunBytes: Int
+    let trimLowWaterPercent: Int
     let maxTotalBytes: Int
     let maxRuns: Int
     let maxResponseBytes: Int
@@ -26,6 +27,7 @@ struct ClientDiagnosticsStoreConfiguration {
         currentRunURL: Config.diagnosticsCurrentRunURL,
         maxEventBytes: Config.diagnosticsMaxEventBytes,
         maxRunBytes: Config.diagnosticsMaxRunBytes,
+        trimLowWaterPercent: Config.diagnosticsTrimLowWaterPercent,
         maxTotalBytes: Config.diagnosticsMaxTotalBytes,
         maxRuns: Config.diagnosticsMaxRuns,
         maxResponseBytes: Config.diagnosticsMaxResponseBytes,
@@ -71,17 +73,25 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
     }
 
     private struct StoredEvent: Encodable {
-        let ts: Int
+        /// Milliseconds, and named for it. Seconds could not decompose a nine-second dial, and
+        /// a unit change under an unchanged `ts` would have been invisible to every reader.
+        let tsMs: Int
         let runId: String
         let type: String
         let fields: [String: String]
+        let rc: DiagnosticsRetention
+    }
+
+    /// Just enough of a stored line to decide whether the budget may sacrifice it.
+    private struct StoredEventClass: Decodable {
+        let rc: DiagnosticsRetention
     }
 
     private let logger = Logger(subsystem: Config.logSubsystem, category: "client-diagnostics")
     private let queue = DispatchQueue(label: "com.example.agentdesk.AgentDeskClient.diagnostics")
     private let configuration: ClientDiagnosticsStoreConfiguration
     private let fileManager: FileManager
-    private let nowProvider: @Sendable () -> Int
+    private let nowMsProvider: @Sendable () -> Int
     #if canImport(MetricKit)
     private var metricKitSubscriber: ClientDiagnosticsMetricKitSubscriber?
     #endif
@@ -102,11 +112,11 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
     init(
         configuration: ClientDiagnosticsStoreConfiguration = .live,
         fileManager: FileManager = .default,
-        nowProvider: @escaping @Sendable () -> Int = { Int(Date().timeIntervalSince1970) }
+        nowMsProvider: @escaping @Sendable () -> Int = { Int(Date().timeIntervalSince1970 * 1000) }
     ) {
         self.configuration = configuration
         self.fileManager = fileManager
-        self.nowProvider = nowProvider
+        self.nowMsProvider = nowMsProvider
     }
 
     func bootstrap() {
@@ -142,13 +152,18 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
     /// Async is safe for ordering and for readers: the queue is serial, so events land in
     /// call order and every reader below (`queue.sync`) sees all prior writes. The cost is
     /// that an abrupt kill can lose the last few events, which a crash could already do.
-    func record(type: String, fields: [String: String], level: OSLogType = .default) {
+    func record(
+        type: String,
+        fields: [String: String],
+        level: OSLogType = .default,
+        retention: DiagnosticsRetention = .lifecycle
+    ) {
         // Strong self on purpose: a weak capture would silently drop the tail of the log if
         // the store went away with writes still queued, and losing exactly the last events
         // before a teardown is losing the ones worth reading.
         queue.async {
             guard self.bootstrapped else { return }
-            self.recordLocked(type: type, fields: fields, level: level)
+            self.recordLocked(type: type, fields: fields, level: level, retention: retention)
             self.scheduleManifestSave()
         }
     }
@@ -349,7 +364,7 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
                 guard remaining > 0 else {
                     return .failure(DiagnosticsError(requestId: request.requestId, reason: "diagnostics-cap-too-small"))
                 }
-                guard let bounded = boundedCompressedTail(sourceData: sourceData, remainingBytes: remaining) else {
+                guard let bounded = boundedCompressedPayload(sourceData: sourceData, remainingBytes: remaining) else {
                     return .failure(DiagnosticsError(requestId: request.requestId, reason: "diagnostics-cap-too-small"))
                 }
                 let chunkPayloadLimit = max(1, (configuration.maxChunkEncodedBytes * 3) / 4)
@@ -539,10 +554,20 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         applyFileProtectionBestEffort(to: configuration.currentRunURL)
     }
 
-    private func recordLocked(type: String, fields: [String: String], level: OSLogType) {
+    private func recordLocked(
+        type: String,
+        fields: [String: String],
+        level: OSLogType,
+        retention: DiagnosticsRetention = .lifecycle
+    ) {
         guard var current = manifest.current else { return }
         let sanitizedFields = sanitize(fields: fields)
-        let line = encodeLine(type: type, runId: current.runId, fields: sanitizedFields)
+        let line = encodeLine(
+            type: type,
+            runId: current.runId,
+            fields: sanitizedFields,
+            retention: retention
+        )
         appendLine(line, to: configuration.currentRunURL)
         current.byteCount += line.count
         current.eventCount += 1
@@ -552,6 +577,12 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         mirrorToLogger(type: type, fields: sanitizedFields, level: level)
     }
 
+    /// Brings an over-budget run back under it, sacrificing stream telemetry before lifecycle.
+    ///
+    /// Trims down to a low-water mark rather than to the limit. Trimming to the limit meant that
+    /// once a run reached the cap, EVERY subsequent event re-read, re-split and rewrote the
+    /// whole file -- 2MB of work per recorded event, on the busiest path in the app. The
+    /// headroom turns that back into one rewrite per however many events fit in the gap.
     private func trimCurrentRunIfNeeded() {
         guard var current = manifest.current,
               current.byteCount > configuration.maxRunBytes,
@@ -559,7 +590,7 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
             return
         }
         let lines = splitNDJSON(data)
-        let trimmed = trimLinesToLimit(lines, limit: configuration.maxRunBytes)
+        let trimmed = trimLinesToLimit(lines, limit: trimLowWaterBytes)
         guard trimmed.droppedCount > 0 else { return }
         writeLines(trimmed.keptLines, to: configuration.currentRunURL)
         current.byteCount = trimmed.totalBytes
@@ -567,6 +598,18 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         manifest.current = current
         manifest.droppedEvents += trimmed.droppedCount
         manifest.droppedBytes += trimmed.droppedBytes
+    }
+
+    private var trimLowWaterBytes: Int {
+        max(1, configuration.maxRunBytes * configuration.trimLowWaterPercent / 100)
+    }
+
+    /// The retention class a stored line declares, for the budget to act on.
+    ///
+    /// A line that will not decode carries no information, so it is sacrificed first rather
+    /// than defended: treating corruption as precious would let it crowd out real events.
+    private func retention(ofStoredLine line: Data) -> DiagnosticsRetention {
+        (try? JSONDecoder().decode(StoredEventClass.self, from: line))?.rc ?? .stream
     }
 
     private func enforceArchiveRetention() {
@@ -656,8 +699,19 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         try? handle.close()
     }
 
-    private func encodeLine(type: String, runId: String, fields: [String: String]) -> Data {
-        let event = StoredEvent(ts: now(), runId: runId, type: type, fields: fields)
+    private func encodeLine(
+        type: String,
+        runId: String,
+        fields: [String: String],
+        retention: DiagnosticsRetention
+    ) -> Data {
+        let event = StoredEvent(
+            tsMs: nowMs(),
+            runId: runId,
+            type: type,
+            fields: fields,
+            rc: retention
+        )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         if let data = try? encoder.encode(event), data.count + 1 <= configuration.maxEventBytes {
@@ -668,7 +722,13 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
             "originalType": type,
             "originalBytes": String((try? encoder.encode(event).count) ?? 0)
         ]
-        let truncatedEvent = StoredEvent(ts: now(), runId: runId, type: type, fields: truncatedFields)
+        let truncatedEvent = StoredEvent(
+            tsMs: nowMs(),
+            runId: runId,
+            type: type,
+            fields: truncatedFields,
+            rc: retention
+        )
         let data = (try? encoder.encode(truncatedEvent)) ?? Data("{}".utf8)
         return data + Data([0x0A])
     }
@@ -743,7 +803,14 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         )
     }
 
-    private func boundedCompressedTail(sourceData: Data, remainingBytes: Int) -> (compressed: Data, uncompressedBytes: Int)? {
+    /// The largest slice of a run that fits the response budget once compressed.
+    ///
+    /// This used to keep a TAIL, which made the fetch undo what the on-disk budget now
+    /// protects: the newest frame telemetry would arrive and the launch and dial records that
+    /// explain it would be cut off, because they are the oldest lines in the file. It searches
+    /// an uncompressed byte budget instead, and every candidate is chosen by the same policy
+    /// the trim uses, so what survives the disk also survives the wire.
+    private func boundedCompressedPayload(sourceData: Data, remainingBytes: Int) -> (compressed: Data, uncompressedBytes: Int)? {
         guard let fullCompressed = try? DiagnosticsGzip.compress(sourceData) else {
             return nil
         }
@@ -752,19 +819,32 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         }
         let lines = splitNDJSON(sourceData)
         guard !lines.isEmpty else { return nil }
+        // Classified once, not per probe: the search runs the policy a dozen-odd times, and
+        // re-decoding every line each pass would cost more than the compression it is sizing.
+        let classified = lines.map { (line: $0, retention: retention(ofStoredLine: $0)) }
         var low = 0
-        var high = lines.count - 1
+        var high = sourceData.count
         var best: (compressed: Data, uncompressedBytes: Int)?
         while low <= high {
             let mid = (low + high) / 2
-            let candidate = joinedLines(Array(lines[mid...]))
+            let kept = DiagnosticsTrimPolicy.keep(
+                classified,
+                limit: mid,
+                bytes: { $0.line.count + 1 },
+                retention: { $0.retention }
+            )
+            let candidate = joinedLines(kept.map(\.line))
             guard let compressed = try? DiagnosticsGzip.compress(candidate) else { return nil }
             if compressed.count <= remainingBytes {
-                best = (compressed, candidate.count)
-                if mid == 0 { break }
-                high = mid - 1
-            } else {
+                // An empty slice always fits, and answering a request with nothing would read
+                // as a delivered log rather than as the budget being too small for one event.
+                // It still searches upward from here; it just refuses to call this an answer.
+                if !kept.isEmpty {
+                    best = (compressed, candidate.count)
+                }
                 low = mid + 1
+            } else {
+                high = mid - 1
             }
         }
         return best
@@ -778,8 +858,15 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
         "run-\(runId).ndjson"
     }
 
+    /// Seconds, for run bookkeeping and the signed-request skew check, both of which are
+    /// wall-clock facts shared with the host and need no more resolution than they have.
+    /// Derived from the millisecond clock so there is only one source of time here.
     private func now() -> Int {
-        nowProvider()
+        nowMs() / 1000
+    }
+
+    private func nowMs() -> Int {
+        nowMsProvider()
     }
 
     private func iso8601(_ date: Date) -> String {
@@ -801,17 +888,16 @@ final class ClientDiagnosticsStore: @unchecked Sendable {
 
     private func trimLinesToLimit(_ lines: [Data], limit: Int) -> (keptLines: [Data], totalBytes: Int, droppedCount: Int, droppedBytes: Int) {
         guard !lines.isEmpty else { return ([], 0, 0, 0) }
-        var kept = lines
-        var total = joinedLines(kept).count
-        var droppedCount = 0
-        var droppedBytes = 0
-        while total > limit, !kept.isEmpty {
-            let removed = kept.removeFirst()
-            droppedCount += 1
-            droppedBytes += removed.count + 1
-            total -= removed.count + 1
-        }
-        return (kept, max(total, 0), droppedCount, droppedBytes)
+        let before = joinedLines(lines).count
+        let kept = DiagnosticsTrimPolicy.keep(
+            lines,
+            limit: limit,
+            // The newline each line gets on the way back to disk is part of what it costs.
+            bytes: { $0.count + 1 },
+            retention: { self.retention(ofStoredLine: $0) }
+        )
+        let total = joinedLines(kept).count
+        return (kept, max(total, 0), lines.count - kept.count, max(before - total, 0))
     }
 
     private func writeLines(_ lines: [Data], to url: URL) {
