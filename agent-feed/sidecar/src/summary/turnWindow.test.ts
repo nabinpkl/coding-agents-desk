@@ -35,6 +35,45 @@ test("window starts at the most recent user message", async () => {
   expect(window.coverage).toMatchObject({ fromEventIndex: 3, toEventIndex: 5, truncated: false });
 });
 
+test("a tool result does not start a turn, however the harness typed it", async () => {
+  // The bug this rule exists for. Both harnesses record tool results as user lines, so looking
+  // back for `type === "user"` found the tail of a tool loop: the window became the two events
+  // after it, and the digest described a tool result as the person speaking.
+  const toolResult: ActivityEvent = {
+    ...event(4, "user"),
+    blocks: [{ kind: "tool_result", text: "File created successfully at: /tmp/a.ts" }],
+  };
+  const events = [
+    event(0, "assistant"),
+    { ...event(1, "user"), blocks: [{ kind: "text" as const, text: "fix the parser" }] },
+    event(2, "assistant"),
+    event(3, "assistant"),
+    toolResult,
+    event(5, "assistant"),
+  ];
+
+  const window = (await resolveTurnWindow({ ...options, readPage: reader(events) }))!;
+
+  expect(window.events.map((e) => e.index)).toEqual([1, 2, 3, 4, 5]);
+  expect(window.coverage.truncated).toBe(false);
+});
+
+test("a slash command's own output does not start a turn", async () => {
+  // `/compact` writes its stdout as a user message, and it reads as ordinary prose. Left
+  // unfiltered it became the most recent "user message" and the turn was the compaction.
+  const events = [
+    { ...event(0, "user"), blocks: [{ kind: "text" as const, text: "commit both suitably" }] },
+    event(1, "assistant"),
+    { ...event(2, "user"), blocks: [{ kind: "text" as const, text: "<command-name>/compact</command-name>" }] },
+    { ...event(3, "user"), blocks: [{ kind: "text" as const, text: "<local-command-stdout>Compacted </local-command-stdout>" }] },
+    event(4, "assistant"),
+  ];
+
+  const window = (await resolveTurnWindow({ ...options, readPage: reader(events) }))!;
+
+  expect(window.coverage.fromEventIndex).toBe(0);
+});
+
 test("pages back for a boundary outside the first scan page", async () => {
   // 250 events with the only user message at 5: the boundary is three pages back.
   const events = Array.from({ length: 250 }, (_, i) => event(i, i === 5 ? "user" : "assistant"));

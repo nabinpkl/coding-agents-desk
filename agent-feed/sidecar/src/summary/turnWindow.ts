@@ -11,6 +11,7 @@
 // which is the whole reason the model-facing half is a separate file.
 
 import type { SummaryCoverage, SummaryFileChange } from "@agentdesk/agent-feed-wire";
+import { isHumanTurnStart } from "../transcripts/humanTurns.ts";
 import type { ActivityEvent, EventMode } from "../transcripts/sources/transcriptTypes.ts";
 import { renderEvent } from "./summaryPrompt.ts";
 import { filesTouchedIn } from "./toolCalls.ts";
@@ -59,7 +60,7 @@ export interface TurnWindowOptions {
 }
 
 /**
- * The window from the most recent user message to the end of the transcript.
+ * The window from the most recent message a PERSON sent to the end of the transcript.
  *
  * Returns null only when the session has no events at all. A session whose last user message
  * cannot be found within the scan limit still yields a window -- the deepest page reached --
@@ -82,7 +83,7 @@ export async function resolveTurnWindow(options: TurnWindowOptions): Promise<Tur
     const read = limit > 0 ? await readPage(offset, limit) : null;
     const events = read?.events ?? [];
     collected.unshift(...events);
-    const boundary = lastUserIndex(collected);
+    const boundary = lastHumanIndex(collected);
     if (boundary !== -1) {
       collected.splice(0, boundary);
       boundaryFound = true;
@@ -110,10 +111,16 @@ export async function resolveTurnWindow(options: TurnWindowOptions): Promise<Tur
   };
 }
 
-/** Index of the last `user` event, or -1. */
-function lastUserIndex(events: readonly ActivityEvent[]): number {
+/**
+ * Index of the last event a PERSON wrote, or -1.
+ *
+ * Not the last `user` event, which is what this asked for originally and is almost never the
+ * same thing: both harnesses record tool results as user lines, so the answer was reliably the
+ * tail of a tool loop and the window was the two or three events after it. See `humanTurns.ts`.
+ */
+function lastHumanIndex(events: readonly ActivityEvent[]): number {
   for (let i = events.length - 1; i >= 0; i -= 1) {
-    if (events[i]!.type === "user") return i;
+    if (isHumanTurnStart(events[i]!)) return i;
   }
   return -1;
 }

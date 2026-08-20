@@ -2,12 +2,14 @@
 //   - transcript layout at ~/.claude/projects/<slug>/<sessionId>.jsonl
 //   - per-message envelope shape (`{type, message:{content:[blocks]}}`)
 //   - stop_reason → turn-boundary signals (end_turn closes the turn)
-//   - synthetic-user filter patterns (Caveat:, [Request interrupted, ...)
 //   - tool-name vocabulary (Read/Edit/Write/Bash/Grep/Glob/...)
 //
+// Which user lines came from a person rather than the harness is NOT here: both sources inject
+// the same kinds of envelope, so that list lives in `../humanTurns.ts` and is shared.
 import { open } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { config, contextWindowFor } from '../../config.ts';
+import { isHarnessUserText } from '../humanTurns.ts';
 import type {
   ActivityBlock,
   EventCacheHit,
@@ -49,19 +51,6 @@ function turnClosedFor(ev: Record<string, unknown>): boolean | undefined {
     ? ev.message as Record<string, unknown>
     : {};
   return message.stop_reason === 'end_turn';
-}
-
-// Bracketed strings the harness injects as user messages (interrupts,
-// caveats, etc). Not real user prose, so they are stripped from the rail
-// snippet but still surface as ActivityEvents.
-const SYNTHETIC_USER_PATTERNS = [
-  /^\[Request interrupted/i,
-  /^\[no content/i,
-  /^Caveat:/i,
-];
-
-function isSyntheticUser(s: string): boolean {
-  return SYNTHETIC_USER_PATTERNS.some((re) => re.test(s.trim()));
 }
 
 function truncate(s: string, n: number): string {
@@ -525,7 +514,7 @@ function snippetFor(parsed: ParsedLine): string {
   if (parsed.type === 'user') {
     for (const b of parsed.blocks) {
       if (b.kind === 'text' && b.text && b.text.trim()) {
-        if (isSyntheticUser(b.text)) return '';
+        if (isHarnessUserText(b.text)) return '';
         return truncate(`→ ${b.text}`, 800);
       }
     }
@@ -629,9 +618,9 @@ function promptText(ev: Record<string, unknown>): string | undefined {
   if (ev.type === 'user') {
     if (ev.isCompactSummary === true) return undefined;
     const text = userText(ev.message);
-    // The harness writes interrupts and caveats as user messages. They are not
-    // prose a person chose, so they are no more useful as a title than the id.
-    if (text && SYNTHETIC_USER_PATTERNS.some((pattern) => pattern.test(text))) return undefined;
+    // The harness writes interrupts, caveats, slash-command echoes and task notifications as
+    // user messages. None is prose a person chose, so none is more useful as a title than the id.
+    if (text && isHarnessUserText(text)) return undefined;
     return text;
   }
   if (ev.type === 'queue-operation' && ev.operation === 'enqueue') {

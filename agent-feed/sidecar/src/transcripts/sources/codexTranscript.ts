@@ -12,6 +12,7 @@ import { basename, join } from 'node:path';
 import { readdirSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { config } from '../../config.ts';
+import { isHarnessUserText } from '../humanTurns.ts';
 import type {
   ActivityBlock,
   LineResult,
@@ -595,7 +596,12 @@ function snippetFor(parsed: ParsedLine): string {
   }
   if (parsed.type === 'user') {
     for (const b of parsed.blocks) {
-      if (b.kind === 'text' && b.text && b.text.trim()) return truncate(`→ ${b.text}`, 800);
+      if (b.kind === 'text' && b.text && b.text.trim()) {
+        // Codex injects the project's AGENTS.md ahead of the first real prompt, so without this
+        // a session's rail snippet is the repository's instructions rather than what was asked.
+        if (isHarnessUserText(b.text)) return '';
+        return truncate(`→ ${b.text}`, 800);
+      }
     }
   }
   return '';
