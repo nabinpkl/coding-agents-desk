@@ -375,6 +375,14 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         isClientForeground = true
         ClientRuntimeTelemetry.shared.updateScenePhase(.foreground)
         ClientDiagnostics.shared.record(type: "applicationWillEnterForeground", fields: [:], level: .info)
+        // Render BEFORE dialing, and unconditionally. Background stopped the offer listener and
+        // left "media suspended" on the pill, and `startOfferListenerIfNeeded` is reachable only
+        // from `render()` -- so without this the listener stayed down until something else
+        // happened to render, which on a foreground that fails to dial is never. That is the
+        // state where the host-initiated path is the last way back in, and it is also the state
+        // where `just client-diagnostics` needs the listener for its offer-port fallback: the
+        // one moment worth inspecting was the one moment the client could not be reached.
+        render()
         triggerSessionIfPaired()
     }
 

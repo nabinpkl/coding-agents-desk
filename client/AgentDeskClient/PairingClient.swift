@@ -16,6 +16,34 @@ enum PairingClientState: Equatable {
     case rejected(String)
 }
 
+extension PairingClientState {
+    /// Where a client lands when the session underneath it is gone, or nil to stay put.
+    ///
+    /// BOTH live session states have to fall back, not just `.connected`. `triggerSessionIfPaired`
+    /// re-dials only from `.pairedDisconnected`, so a state it does not recognise is not a
+    /// cosmetic wrong label, it is a client that never dials again: nothing observes this state
+    /// reactively, and every re-dial trigger is an explicit call site (`viewWillAppear`,
+    /// `applicationWillEnterForeground`, `onCarrierLost`). Backgrounding mid-dial used to strand
+    /// `.sessionConnecting` exactly that way -- the cancelled attempt reset it ~10s later, long
+    /// after the foreground handler had already looked, and against a generation nobody was
+    /// listening to any more.
+    ///
+    /// The pairing-flow states are deliberately left alone: they belong to a different flow that
+    /// may not even have stored material yet. `.revoked` and `.rejected` are terminal verdicts and
+    /// must never be resurrected into a dialable state by a transport event.
+    ///
+    /// Exhaustive on purpose, with no `default`, so a new state has to answer this question.
+    var afterSessionTeardown: PairingClientState? {
+        switch self {
+        case .connected, .sessionConnecting:
+            return .pairedDisconnected
+        case .unpaired, .scanning, .pairing, .awaitingApproval, .approved,
+             .pairedDisconnected, .revoked, .rejected:
+            return nil
+        }
+    }
+}
+
 enum PairingClientError: Error {
     case invalidState
     case signatureMismatch
@@ -307,8 +335,8 @@ final class PairingClient {
             applyRejection(rejection)
             return
         }
-        if case .connected = state {
-            state = .pairedDisconnected
+        if let next = state.afterSessionTeardown {
+            state = next
         }
         ClientDiagnostics.shared.record(type: "mediaSessionFailed", fields: [:], level: .error)
     }

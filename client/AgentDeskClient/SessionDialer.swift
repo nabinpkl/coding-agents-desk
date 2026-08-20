@@ -119,6 +119,9 @@ final class SessionDialer {
         let deadline = nowMs() + max(0, budgetMs)
         var attempt = 0
         while true {
+            // Hammering is a retry loop, so it needs its own cancellation check: without one a
+            // dial cancelled mid-swing would be followed by the next swing.
+            try Task.checkCancellation()
             attempt += 1
             do {
                 return try await dial()
@@ -482,57 +485,81 @@ final class SessionDialer {
         abandonWhenBlockedAfterMs: Int?,
         abandonWhenSlowAfterMs: Int?
     ) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let gate = ResumeGate()
-            let blocked = BlockedDialWatchdog()
-            let timeoutTask = Task { [gate, blocked] in
-                try? await Task.sleep(nanoseconds: UInt64(Config.sessionConnectionReadyTimeoutMs) * 1_000_000)
-                guard !Task.isCancelled, gate.claim() else { return }
-                blocked.disarm()
-                continuation.resume(throwing: SessionConnectionReadyTimeout())
-            }
-            // Runs against the wall clock rather than against a state, because the dial this
-            // catches never enters a state that looks wrong: it is .preparing the whole way.
-            let slowTask: Task<Void, Never>? = abandonWhenSlowAfterMs.map { budgetMs in
-                Task { [gate, blocked] in
-                    try? await Task.sleep(nanoseconds: UInt64(budgetMs) * 1_000_000)
+        // Cancellation has to reach the transport, because it reaches nothing else here. Every
+        // resume path below is either a connection state update or an unstructured `Task {}`,
+        // and `Task {}` does NOT inherit its parent's cancellation -- so cancelling the dial
+        // used to leave this continuation waiting on a timer that would answer up to
+        // `sessionConnectionReadyTimeoutMs` later, by which time the caller had moved on and
+        // the state that answer was supposed to reset was stranded. Ending the connection
+        // drives a terminal state update, which the readiness table maps to `.fail` either way
+        // (`.cancelled` to a CancellationError, `.failed` to the transport's own), so the
+        // existing handler unwinds the continuation at once and the caller's catch runs.
+        //
+        // The overall timeout task remains the backstop: it is unstructured, so it fires even
+        // if a terminal state never arrives. Worst case is exactly the old behaviour.
+        //
+        // Checked before anything is wired up, so a dial already cancelled on entry never
+        // builds the timers. That leaves only the sliver between this check and the handler
+        // being installed, which the backstop above covers.
+        try Task.checkCancellation()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let gate = ResumeGate()
+                let blocked = BlockedDialWatchdog()
+                let timeoutTask = Task { [gate, blocked] in
+                    try? await Task.sleep(nanoseconds: UInt64(Config.sessionConnectionReadyTimeoutMs) * 1_000_000)
                     guard !Task.isCancelled, gate.claim() else { return }
                     blocked.disarm()
-                    continuation.resume(throwing: SessionConnectionSlow(afterMs: budgetMs))
+                    continuation.resume(throwing: SessionConnectionReadyTimeout())
                 }
-            }
-            connection.onStateUpdate { _, state in
-                switch SessionConnectionReadiness.decision(for: state) {
-                case .ready:
-                    timeoutTask.cancel()
-                    slowTask?.cancel()
-                    blocked.disarm()
-                    if gate.claim() { continuation.resume() }
-                case .fail(let error):
-                    timeoutTask.cancel()
-                    slowTask?.cancel()
-                    blocked.disarm()
-                    if gate.claim() { continuation.resume(throwing: error) }
-                case .blocked(let reason):
-                    guard let budgetMs = abandonWhenBlockedAfterMs else { break }
-                    blocked.arm {
-                        Task { [gate] in
-                            try? await Task.sleep(nanoseconds: UInt64(budgetMs) * 1_000_000)
-                            guard !Task.isCancelled, gate.claim() else { return }
-                            timeoutTask.cancel()
-                            slowTask?.cancel()
-                            continuation.resume(
-                                throwing: SessionConnectionBlocked(reason: reason, afterMs: budgetMs)
-                            )
-                        }
+                // Runs against the wall clock rather than against a state, because the dial this
+                // catches never enters a state that looks wrong: it is .preparing the whole way.
+                let slowTask: Task<Void, Never>? = abandonWhenSlowAfterMs.map { budgetMs in
+                    Task { [gate, blocked] in
+                        try? await Task.sleep(nanoseconds: UInt64(budgetMs) * 1_000_000)
+                        guard !Task.isCancelled, gate.claim() else { return }
+                        blocked.disarm()
+                        continuation.resume(throwing: SessionConnectionSlow(afterMs: budgetMs))
                     }
-                case .keepWaiting:
-                    // Back to making progress, so the block is over and only the overall
-                    // budget applies again.
-                    blocked.disarm()
                 }
+                connection.onStateUpdate { _, state in
+                    switch SessionConnectionReadiness.decision(for: state) {
+                    case .ready:
+                        timeoutTask.cancel()
+                        slowTask?.cancel()
+                        blocked.disarm()
+                        if gate.claim() { continuation.resume() }
+                    case .fail(let error):
+                        timeoutTask.cancel()
+                        slowTask?.cancel()
+                        blocked.disarm()
+                        if gate.claim() { continuation.resume(throwing: error) }
+                    case .blocked(let reason):
+                        guard let budgetMs = abandonWhenBlockedAfterMs else { break }
+                        blocked.arm {
+                            Task { [gate] in
+                                try? await Task.sleep(nanoseconds: UInt64(budgetMs) * 1_000_000)
+                                guard !Task.isCancelled, gate.claim() else { return }
+                                timeoutTask.cancel()
+                                slowTask?.cancel()
+                                continuation.resume(
+                                    throwing: SessionConnectionBlocked(reason: reason, afterMs: budgetMs)
+                                )
+                            }
+                        }
+                    case .keepWaiting:
+                        // Back to making progress, so the block is over and only the overall
+                        // budget applies again.
+                        blocked.disarm()
+                    }
+                }
+                connection.start()
             }
-            connection.start()
+        } onCancel: {
+            // Runs on whatever thread cancelled us. Its own reason code rather than reusing
+            // `dial-abandoned`: the host logs this, and "the client walked away deliberately"
+            // reads differently from "the dial was too slow to keep".
+            connection.applicationError = .init(code: 3, reason: "dial-cancelled")
         }
     }
 
