@@ -53,11 +53,9 @@ extension PairingViewController {
             stopCamera()
             pairingClient.cancelScanning()
         }
-        // A pending reconnect exists only to reach host-backed surfaces. Voice
-        // must become usable immediately even when that host is unavailable.
-        if sessionTask != nil {
-            cancelSessionAttempt()
-        }
+        // A pending reconnect exists only to reach host-backed surfaces. Voice must become
+        // usable immediately even when that host is unavailable -- so this assignment does the
+        // cancelling, via the observer that closes the supervisor's gate.
         activeControlSurface = .voice
         surfaceControlRail.select(.voice)
         ensureVoiceSurface()
@@ -67,9 +65,9 @@ extension PairingViewController {
     func leaveVoiceSurface() {
         guard activeControlSurface == .voice else { return }
         suspendVoiceSurfaceIfNeeded()
+        // Reopens the supervisor's gate through the observer; no separate dial call.
         activeControlSurface = .control
         render()
-        triggerSessionIfPaired()
     }
 
     func teardownVoiceSurface() {

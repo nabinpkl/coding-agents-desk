@@ -238,10 +238,9 @@ extension PairingViewController: GestureTranslatorDelegate, ThumbnailStripViewDe
 
     /// Force a fresh session from a state the client believes is healthy.
     ///
-    /// `triggerSessionIfPaired` alone cannot do this: it no-ops unless the state is already
-    /// `.pairedDisconnected`, and the whole problem here is that the client is still
-    /// `.connected`. So this tears the session down first, which is what moves the state, and
-    /// the redial follows from there.
+    /// Signalling the supervisor alone cannot do this: `.connected` is not a dialable state, and
+    /// the whole problem here is that the client still believes it is connected. So this tears
+    /// the session down first, which is what moves the state, and the redial follows from there.
     @objc func reconnectTapped() {
         ClientDiagnostics.shared.record(
             type: "manualReconnectRequested",

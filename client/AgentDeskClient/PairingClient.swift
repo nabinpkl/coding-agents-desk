@@ -19,14 +19,10 @@ enum PairingClientState: Equatable {
 extension PairingClientState {
     /// Where a client lands when the session underneath it is gone, or nil to stay put.
     ///
-    /// BOTH live session states have to fall back, not just `.connected`. `triggerSessionIfPaired`
-    /// re-dials only from `.pairedDisconnected`, so a state it does not recognise is not a
-    /// cosmetic wrong label, it is a client that never dials again: nothing observes this state
-    /// reactively, and every re-dial trigger is an explicit call site (`viewWillAppear`,
-    /// `applicationWillEnterForeground`, `onCarrierLost`). Backgrounding mid-dial used to strand
-    /// `.sessionConnecting` exactly that way -- the cancelled attempt reset it ~10s later, long
-    /// after the foreground handler had already looked, and against a generation nobody was
-    /// listening to any more.
+    /// BOTH live session states have to fall back, not just `.connected`. Only
+    /// `.pairedDisconnected` is dialable, so a live state that does not fall back is not a
+    /// cosmetic wrong label, it is a client that never dials again. Backgrounding mid-dial used
+    /// to strand `.sessionConnecting` exactly that way.
     ///
     /// The pairing-flow states are deliberately left alone: they belong to a different flow that
     /// may not even have stored material yet. `.revoked` and `.rejected` are terminal verdicts and
@@ -40,6 +36,23 @@ extension PairingClientState {
         case .unpaired, .scanning, .pairing, .awaitingApproval, .approved,
              .pairedDisconnected, .revoked, .rejected:
             return nil
+        }
+    }
+
+    /// Whether a session may be dialed from here. The other half of the same question as
+    /// `afterSessionTeardown`, and exhaustive for the same reason: a state that answers neither
+    /// is a client that goes quiet.
+    ///
+    /// `.sessionConnecting` is false because a dial is already under way, and `.connected`
+    /// because one succeeded. The pairing-flow states have their own handshake to finish, and
+    /// the terminal verdicts have nothing to dial with.
+    var isDialable: Bool {
+        switch self {
+        case .pairedDisconnected:
+            return true
+        case .unpaired, .scanning, .pairing, .awaitingApproval, .approved,
+             .sessionConnecting, .connected, .revoked, .rejected:
+            return false
         }
     }
 }
@@ -100,7 +113,22 @@ struct SystemDNSResolver: DNSResolving {
 
 @MainActor
 final class PairingClient {
-    private(set) var state: PairingClientState = .unpaired
+    /// Every consequence of the session state now hangs off this, rather than off each writer
+    /// remembering to re-render and re-evaluate. Twenty call sites write `state`; before this,
+    /// twenty-three others had to notice, and the ones that forgot were the bugs.
+    ///
+    /// A closure rather than an `AsyncStream`: this class is `@MainActor` and so is its only
+    /// observer, so a direct call keeps the notification synchronous and ordered with the
+    /// mutation. A stream would introduce a hop, and with it the possibility of acting on a
+    /// state that has already moved on.
+    var onStateChanged: (() -> Void)?
+
+    private(set) var state: PairingClientState = .unpaired {
+        didSet {
+            guard oldValue != state else { return }
+            onStateChanged?()
+        }
+    }
     private let tokenStore: SessionTokenStoring
     let deviceKeyProvider: DeviceSigningKeyProviding
     private let resolver: DNSResolving

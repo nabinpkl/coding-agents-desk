@@ -33,7 +33,12 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // ADR-0019: listens for a Mac-pushed pairing offer while unpaired and
     // foregrounded. Started/stopped from render() and the background hook.
     var pairingOfferListener: PairingOfferListener?
-    var isClientForeground = true
+    /// The three policy inputs that are not `pairingClient.state` all carry an observer, for the
+    /// same reason the state does: if each mutation site had to remember to signal, the
+    /// supervisor would just be the old forgetfulness moved one level up.
+    var isClientForeground = true {
+        didSet { if oldValue != isClientForeground { sessionSupervisor?.signal() } }
+    }
     private let statusLabel = UILabel()
     private let actionButton = UIButton(type: .system)
     private let forgetButton = UIButton(type: .system)
@@ -43,12 +48,20 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     // transient drop, which should still auto-reconnect.
     /// Internal rather than private: the Reconnect button lives in the gestures extension and
     /// must clear this, or an explicit disconnect would leave the button visibly inert.
-    var userRequestedDisconnect = false
+    var userRequestedDisconnect = false {
+        didSet { if oldValue != userRequestedDisconnect { sessionSupervisor?.signal() } }
+    }
     var captureSession: AVCaptureSession?
     var previewLayer: AVCaptureVideoPreviewLayer?
     var handshakeTask: Task<Void, Never>?
-    var sessionTask: Task<Void, Never>?
-    var sessionAttemptGeneration: UInt64 = 0
+    /// The single owner of the dial. Built in `setUp` and never rebuilt; backgrounding closes
+    /// its gate rather than stopping it.
+    var sessionSupervisor: SessionSupervisor?
+    /// Re-entrancy guard for `render()`. It is not a pure view function -- it starts the offer
+    /// listener, mounts and tears down surfaces, and forces layout -- and now that a state
+    /// change calls it, a callee that reaches a state mutation would recurse. Coalesce instead.
+    private var isRendering = false
+    private var needsRerender = false
     // Why the last dial failed, and how many in a row have failed the same way. The reconnect
     // loop never gives up, so without these the screen says "Paired (reconnecting)" identically
     // for a two-second blip and for a Mac whose host process died and is not coming back.
@@ -57,7 +70,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var mediaTransport: MediaTransport?
     var videoSink: VideoFrameSink?
     var preservesSuspendedSessionSurfaces = false
-    var activeControlSurface: ControlSurface = .control
+    var activeControlSurface: ControlSurface = .control {
+        didSet { if oldValue != activeControlSurface { sessionSupervisor?.signal() } }
+    }
     // R21: pinch-zoom container around the owned media sink. Local-only zoom
     // via UIScrollView transform; ADR-0008 dropped the host-side
     // sourceRect crop path in favour of native-pixel encoder density.
@@ -154,12 +169,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     var mediaStateTask: Task<Void, Never>?
     /// ADR-0104: delays the "Reconnecting…" overlay so a fast carrier swap is invisible.
     var reattachOverlayTask: Task<Void, Never>?
-    /// ADR-0104: the one delayed nudge that restarts dialing after an unreachable verdict.
-    var endedRetryTask: Task<Void, Never>?
-    // R11: observes the input channel's desktopStateUpdates stream and
-    // pushes each DesktopState into the strip. Lifecycle matches
-    // sessionTask: cancelled on background, restarted on the next
-    // attemptSession.
+    // R11: observes the input channel's desktopStateUpdates stream and pushes each
+    // DesktopState into the strip. Cancelled on background, restarted by the next successful
+    // dial.
     var desktopStateTask: Task<Void, Never>?
     var agentSayTask: Task<Void, Never>?
     var agentSaySpeechTask: Task<Void, Never>?
@@ -319,9 +331,22 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             self.hostSessionActivity = .reattaching
             self.preservesSuspendedSessionSurfaces = true
             self.teardownMediaTransport(preservingSessionSurfaces: true)
+            // Render, but do not dial. The caller sets `.pairedDisconnected` BEFORE firing this,
+            // so the observer has already signalled the supervisor, which sees `.clean` (a
+            // healthy session cleared the rung) and dials at once -- ADR-0089's "re-dial NOW"
+            // survives as a property of the policy rather than as a call nobody must delete.
+            // MainActor serialisation puts this teardown ahead of that dial.
+            //
+            // The render IS needed: the observer fired before the three lines above ran, so it
+            // drew the pre-teardown UI.
             self.render()
-            self.triggerSessionIfPaired()
         }
+        pairingClient.onStateChanged = { [weak self] in
+            guard let self else { return }
+            self.render()
+            self.sessionSupervisor?.signal()
+        }
+        startSessionSupervisor()
         render()
         NotificationCenter.default.addObserver(
             self,
@@ -357,7 +382,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        triggerSessionIfPaired()
+        sessionSupervisor?.signal()
     }
 
     override func viewDidLayoutSubviews() {
@@ -375,24 +400,24 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         isClientForeground = true
         ClientRuntimeTelemetry.shared.updateScenePhase(.foreground)
         ClientDiagnostics.shared.record(type: "applicationWillEnterForeground", fields: [:], level: .info)
-        // Render BEFORE dialing, and unconditionally. Background stopped the offer listener and
-        // left "media suspended" on the pill, and `startOfferListenerIfNeeded` is reachable only
-        // from `render()` -- so without this the listener stayed down until something else
-        // happened to render, which on a foreground that fails to dial is never. That is the
-        // state where the host-initiated path is the last way back in, and it is also the state
-        // where `just client-diagnostics` needs the listener for its offer-port fallback: the
-        // one moment worth inspecting was the one moment the client could not be reached.
+        // Unconditionally, and not because the state changed -- it did not. Background stopped
+        // the offer listener and left "media suspended" on the pill, and
+        // `startOfferListenerIfNeeded` is reachable only from `render()`, so without this the
+        // listener stayed down until something else happened to render, which on a foreground
+        // that fails to dial is never. That is the state where the host-initiated path is the
+        // last way back in, and it is also the state where `just client-diagnostics` needs the
+        // listener for its offer-port fallback: the one moment worth inspecting was the one
+        // moment the client could not be reached. The dial itself needs nothing here; setting
+        // `isClientForeground` above reopened the supervisor's gate.
         render()
-        triggerSessionIfPaired()
     }
 
-    // R13.1: on background, suspend transport explicitly while retaining the
-    // mounted surfaces. iOS suspends the app and the media / input connections
-    // quietly die in some network conditions; if we don't flip state here,
-    // foreground sees state=.connected and triggerSessionIfPaired
-    // short-circuits, leaving the user with a zombie session that produces no
-    // input and no video. Closing here forces state to .pairedDisconnected so
-    // the next foreground reliably re-attempts.
+    // R13.1: on background, suspend transport explicitly while retaining the mounted surfaces.
+    // iOS suspends the app and the media / input connections quietly die in some network
+    // conditions, so the session state has to be forced down here or the client comes back
+    // believing it still holds one. `isClientForeground = false` closes the supervisor's gate,
+    // which cancels any dial in flight and parks the loop; it is NOT stopped, because a
+    // supervisor that is torn down on background is not there to notice the foreground.
     @objc func applicationDidEnterBackground() {
         isClientForeground = false
         ClientRuntimeTelemetry.shared.updateScenePhase(.background)
@@ -406,13 +431,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         if case .connected = pairingClient.state {
             preservesSuspendedSessionSurfaces = true
         }
-        cancelSessionAttempt()
         handshakeTask?.cancel()
         handshakeTask = nil
         reattachOverlayTask?.cancel()
         reattachOverlayTask = nil
-        endedRetryTask?.cancel()
-        endedRetryTask = nil
         mediaStateTask?.cancel()
         mediaStateTask = nil
         desktopStateTask?.cancel()
@@ -464,111 +486,113 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         render()
     }
 
-    func triggerSessionIfPaired() {
-        guard sessionTask == nil else { return }
-        // Voice is a fully local mode. Showing it must not wait for or start a
-        // host session; toggling back calls this method again.
-        guard activeControlSurface != .voice else { return }
-        // A user-requested disconnect stays down until they explicitly reconnect.
-        guard !userRequestedDisconnect else { return }
-        guard case .pairedDisconnected = pairingClient.state else { return }
-        sessionAttemptGeneration &+= 1
-        let generation = sessionAttemptGeneration
-        sessionTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                if self.sessionAttemptGeneration == generation {
-                    self.sessionTask = nil
-                }
-            }
-            // ADR-0104: EVERY dial waits for the path to hold still, not just reattaches.
-            // The gate is history-based, so a long-stable path settles instantly and a calm
-            // foreground resume pays nothing. The case that made this universal: a
-            // foreground wake dialed into a radio still associating, won the race, and
-            // minted a carrier that connected in 350ms and then never delivered a byte.
-            // The settle gate is the event-driven mechanism for exactly that window, and it
-            // was only guarding the reattach path.
-            await SessionPathReadiness.shared.waitUntilSettled()
-            guard !Task.isCancelled, self.sessionAttemptGeneration == generation else { return }
-            var shouldDelay = false
-            while !Task.isCancelled, self.sessionAttemptGeneration == generation {
-                guard case .pairedDisconnected = self.pairingClient.state else { return }
-                if shouldDelay {
-                    try? await Task.sleep(
-                        nanoseconds: UInt64(Config.sessionReconnectRetryDelayMs) * 1_000_000
+    /// Builds the one supervisor that owns dialing, and starts it. The three closures are the
+    /// only things it knows about this client: how to read the world, how to make one attempt,
+    /// and how to classify a failure. Everything else -- when to try, how long to wait, whether
+    /// to try at all -- is the supervisor's, and is decided by `SessionDialPolicy`.
+    func startSessionSupervisor() {
+        guard sessionSupervisor == nil else { return }
+        let supervisor = SessionSupervisor(
+            environment: { [weak self] in
+                guard let self else {
+                    // Deallocated: describe a world where dialing is not allowed, so the loop
+                    // parks rather than acting on a client that is gone.
+                    return SessionDialInputs(
+                        state: .unpaired,
+                        userRequestedDisconnect: true,
+                        surface: .control,
+                        isForeground: false
                     )
-                    guard !Task.isCancelled, self.sessionAttemptGeneration == generation else { return }
-                    guard case .pairedDisconnected = self.pairingClient.state else { return }
                 }
-                do {
-                    _ = try await self.pairingClient.attemptSession()
-                    guard self.sessionAttemptGeneration == generation else { return }
-                    self.lastSessionFailureCause = nil
-                    self.consecutiveSessionFailures = 0
-                    if let channel = self.pairingClient.activeInputChannel {
-                        ClientRuntimeTelemetry.shared.setSender { checkpoint in
-                            try await channel.sendRuntimeCheckpoint(checkpoint)
-                        }
-                        ClientDiagnostics.shared.setLiveAnnouncementSender { summary in
-                            try await channel.sendDiagnosticsSummary(summary)
-                        }
-                        self.startDiagnosticsHandlingIfNeeded(channel: channel)
-                        self.startScreenshotHandlingIfNeeded(channel: channel)
-                        self.sendReconnectDiagnosticsAnnouncementIfNeeded(channel: channel)
-                        self.sendCurrentClientConfig()
-                    }
-                    self.render()
-                    return
-                } catch is CancellationError {
-                    return
-                } catch {
-                    guard self.sessionAttemptGeneration == generation else { return }
-                    // PairingClient.attemptSession already reset the state for
-                    // transient failures. Keep retrying while foregrounded so a
-                    // launch-time duplicate lifecycle callback cannot strand the
-                    // app at "Paired (reconnecting)" after one pre-handshake drop.
-                    let cause = SessionFailureCause.classify(error)
-                    if cause == self.lastSessionFailureCause {
-                        self.consecutiveSessionFailures += 1
-                    } else {
-                        self.lastSessionFailureCause = cause
-                        self.consecutiveSessionFailures = 1
-                    }
-                    self.sessionLogger.notice(
-                        "session reconnect attempt failed cause=\(String(describing: cause), privacy: .public) consecutive=\(self.consecutiveSessionFailures, privacy: .public) error=\(String(describing: error), privacy: .public)"
-                    )
-                    // ADR-0104: with no carrier there is no report loop, so the retry loop is
-                    // what carries the session's silence clock to its verdict. Without this a
-                    // dead host would leave the session reattaching forever.
-                    if let silentMs = self.pairingClient.sessionSilenceVerdict() {
-                        ClientDiagnostics.shared.record(
-                            type: "sessionUnreachable",
-                            fields: ["silentMs": String(silentMs), "driver": "redial-loop"],
-                            level: .error
-                        )
-                        self.failMediaSession(loss: .unreachable(silentMs: silentMs))
-                        return
-                    }
-                    self.render()
-                    shouldDelay = true
-                }
+                return SessionDialInputs(
+                    state: self.pairingClient.state,
+                    userRequestedDisconnect: self.userRequestedDisconnect,
+                    surface: self.activeControlSurface,
+                    isForeground: self.isClientForeground
+                )
+            },
+            dial: { [weak self] in
+                try await self?.performSessionDial()
+            },
+            onFailure: { [weak self] error in
+                self?.classifySessionDialFailure(error) ?? .failed
             }
-        }
+        )
+        sessionSupervisor = supervisor
+        supervisor.start()
     }
 
-    func cancelSessionAttempt() {
-        sessionAttemptGeneration &+= 1
-        sessionTask?.cancel()
-        sessionTask = nil
+    /// One dial attempt. Throws on failure; the supervisor owns what happens next.
+    private func performSessionDial() async throws {
+        // ADR-0104: EVERY dial waits for the path to hold still, not just reattaches. The gate
+        // is history-based, so a long-stable path settles instantly and a calm foreground resume
+        // pays nothing. The case that made this universal: a foreground wake dialed into a radio
+        // still associating, won the race, and minted a carrier that connected in 350ms and then
+        // never delivered a byte. Inside the attempt rather than before the loop, so every
+        // retry gets the same gate the first try did.
+        await SessionPathReadiness.shared.waitUntilSettled()
+        try Task.checkCancellation()
+        // Re-check after the settle: the plan was computed before it, and a state that moved in
+        // between would otherwise earn a backoff rung for a failure that says nothing about the
+        // host. Cancellation rather than an error, so the rung is left alone and the loop simply
+        // re-reads the world.
+        guard pairingClient.state.isDialable else { throw CancellationError() }
+        _ = try await pairingClient.attemptSession()
+        lastSessionFailureCause = nil
+        consecutiveSessionFailures = 0
+        if let channel = pairingClient.activeInputChannel {
+            ClientRuntimeTelemetry.shared.setSender { checkpoint in
+                try await channel.sendRuntimeCheckpoint(checkpoint)
+            }
+            ClientDiagnostics.shared.setLiveAnnouncementSender { summary in
+                try await channel.sendDiagnosticsSummary(summary)
+            }
+            startDiagnosticsHandlingIfNeeded(channel: channel)
+            startScreenshotHandlingIfNeeded(channel: channel)
+            sendReconnectDiagnosticsAnnouncementIfNeeded(channel: channel)
+            sendCurrentClientConfig()
+        }
+        // The state change to `.connected` renders on its own. This renders the things that are
+        // NOT state: the failure counters the status text reads.
+        render()
+    }
+
+    /// Which backoff rung a failed attempt earns, and the reporting that goes with it.
+    private func classifySessionDialFailure(_ error: Error) -> SessionDialOutcome {
+        let cause = SessionFailureCause.classify(error)
+        if cause == lastSessionFailureCause {
+            consecutiveSessionFailures += 1
+        } else {
+            lastSessionFailureCause = cause
+            consecutiveSessionFailures = 1
+        }
+        sessionLogger.notice(
+            "session reconnect attempt failed cause=\(String(describing: cause), privacy: .public) consecutive=\(self.consecutiveSessionFailures, privacy: .public) error=\(String(describing: error), privacy: .public)"
+        )
+        // ADR-0104: with no carrier there is no report loop, so this loop is what carries the
+        // session's silence clock to its verdict. Without it a dead host would leave the session
+        // reattaching forever.
+        if let silentMs = pairingClient.sessionSilenceVerdict() {
+            ClientDiagnostics.shared.record(
+                type: "sessionUnreachable",
+                fields: ["silentMs": String(silentMs), "driver": "redial-loop"],
+                level: .error
+            )
+            failMediaSession(loss: .unreachable(silentMs: silentMs))
+            return .unreachable
+        }
+        // Same as the success path: the counters this just moved are not session state, so the
+        // status text they feed needs an explicit render.
+        render()
+        return .failed
     }
 
     deinit {
         ClientDiagnostics.shared.setLiveAnnouncementSender(nil)
         handshakeTask?.cancel()
-        sessionTask?.cancel()
+        sessionSupervisor?.stop()
         mediaStateTask?.cancel()
         reattachOverlayTask?.cancel()
-        endedRetryTask?.cancel()
         desktopStateTask?.cancel()
         cursorTask?.cancel()
         cursorReconciliationTask?.cancel()
@@ -778,7 +802,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 guard let self else { return }
                 self.teardownMediaTransport()
                 self.pairingClient.handleMediaSessionFailed(rejection: rejection)
-                self.render()
             }
             return
         }
@@ -788,6 +811,13 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             // full teardown, rather than spinning a hot retry loop against a host that has
             // not answered in 15 seconds.
             hostSessionActivity = .live
+            // The verdict is a BACKOFF RUNG, not a stop. "Ended but still retrying" used to need
+            // its own delayed nudge here, because the foreground and viewWillAppear triggers
+            // could not fire during a handover the app never left the foreground for -- measured
+            // on device as a 46s-old session dying and the client then sitting at "Paired
+            // (reconnecting)" with nothing ever dialing again. The supervisor is always there,
+            // so the nudge is just the long rung.
+            sessionSupervisor?.noteUnreachable()
             teardownMediaTransport()
             pairingClient.handleMediaSessionFailed()
             ClientDiagnostics.shared.record(
@@ -796,37 +826,20 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 level: .error
             )
             render()
-            // "Ended but still retrying" needs a retry path that can actually fire. The
-            // foreground and viewWillAppear triggers cannot: the app never left the
-            // foreground -- the same blind spot that once kept ADR-0030's resume machinery
-            // unreachable. Measured on device: a 46s-old session died, the verdict landed,
-            // and the client then sat parked at "Paired (reconnecting)" with nothing ever
-            // dialing again. One delayed nudge is sufficient rather than a loop of them:
-            // the verdict is latched until evidence arrives, so the retry loop this starts
-            // cannot be re-ended by the same silence and keeps trying on its own cadence.
-            endedRetryTask?.cancel()
-            endedRetryTask = Task { [weak self] in
-                try? await Task.sleep(
-                    nanoseconds: UInt64(Config.sessionEndedRetryDelayMs) * 1_000_000
-                )
-                guard !Task.isCancelled else { return }
-                self?.triggerSessionIfPaired()
-            }
             return
         }
 
         // Carrier lost, session alive: keep the surfaces and the last frame, replace the
         // carrier underneath. ADR-0089's insight survives its detectors: re-dial NOW, because
         // during a network handover the app never leaves the foreground, so the
-        // foreground-triggered paths cannot fire. `triggerSessionIfPaired` carries the guards
-        // (no-ops unless `.pairedDisconnected`, respects a user disconnect, owns the
-        // retry-with-delay loop).
+        // foreground-triggered paths cannot fire. It survives the supervisor too, and without a
+        // call: the teardown moves the state, the observer signals, and a session that was
+        // healthy until this moment left the rung on `.clean`, so the plan is `.dial`.
         hostSessionActivity = .reattaching
         preservesSuspendedSessionSurfaces = true
         teardownMediaTransport(preservingSessionSurfaces: true)
         pairingClient.handleMediaSessionFailed()
         render()
-        triggerSessionIfPaired()
     }
 
     func suspendMediaTransportForBackground() {
@@ -1060,12 +1073,11 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             }
             guard let self else { return }
             self.userRequestedDisconnect = false
-            self.cancelSessionAttempt()
             self.handshakeTask?.cancel()
             self.stopCamera()
             self.teardownMediaTransport()
+            // clearStoredCredentials moves the state, which renders.
             self.pairingClient.clearStoredCredentials()
-            self.render()
         }
     }
 
@@ -1076,9 +1088,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     func disconnectFromHost() {
         guard !userRequestedDisconnect else { return }
         turnOffKeyboardDictation()
+        // Closes the supervisor's gate, which cancels a dial in flight and parks the loop.
         userRequestedDisconnect = true
         preservesSuspendedSessionSurfaces = false
-        cancelSessionAttempt()
         handshakeTask?.cancel()
         let terminalCloseTask = agentTerminalLifecycleRouter.route(.disconnect, to: agentSurface)
         Task { @MainActor [weak self] in
@@ -1086,7 +1098,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             guard let self else { return }
             self.teardownMediaTransport()
             self.pairingClient.handleMediaSessionFailed()
-            self.render()
         }
     }
 
@@ -1094,7 +1105,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     @objc func reconnect() {
         userRequestedDisconnect = false
         render()
-        triggerSessionIfPaired()
+        // Not merely a signal: the user tapping Connect should not wait out a rung earned by a
+        // machine failure they may well have just fixed.
+        sessionSupervisor?.requestImmediateDial()
     }
 
     private func reconnectingStatusText() -> String {
@@ -1104,7 +1117,28 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         )
     }
 
+    /// Draws the client from `pairingClient.state` plus the view-controller state the status
+    /// text reads. A state change calls this on its own now; call it directly only for the
+    /// things that are NOT session state (failure counters, surface toggles, toasts).
+    ///
+    /// Re-entrancy is coalesced rather than allowed. This is not a pure view function -- it
+    /// mounts and tears down surfaces, starts the offer listener, and forces layout -- so a
+    /// callee that reaches a state mutation would re-enter through the observer. Rather than
+    /// audit every callee forever, the second pass is folded into the first.
     func render() {
+        guard !isRendering else {
+            needsRerender = true
+            return
+        }
+        isRendering = true
+        defer { isRendering = false }
+        repeat {
+            needsRerender = false
+            renderOnce()
+        } while needsRerender
+    }
+
+    private func renderOnce() {
         forgetButton.isHidden = true
         statusLabel.isHidden = false
         // Default label; the .pairedDisconnected user-disconnect case overrides it to
@@ -1493,8 +1527,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
     }
 
     func handleIncomingPairingURL(_ url: URL) {
-        // A fresh pair URL supersedes whatever state we're in.
-        cancelSessionAttempt()
+        // A fresh pair URL supersedes whatever state we're in. Scanning is not a dialable
+        // state, so the gate stands the supervisor down without being told.
         handshakeTask?.cancel()
         stopCamera()
         pairingClient.clearStoredCredentials()
@@ -1502,12 +1536,10 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             try pairingClient.startScanning()
         } catch {
             pairingClient.reject("\(error)")
-            render()
             return
         }
         do {
             let payload = try pairingClient.acceptScannedCode(url.absoluteString)
-            render()
             handshakeTask?.cancel()
             handshakeTask = Task { @MainActor [weak self] in
                 do {
@@ -1515,12 +1547,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 } catch {
                     self?.pairingClient.reject("\(error)")
                 }
-                self?.render()
-                self?.triggerSessionIfPaired()
             }
         } catch {
             pairingClient.reject("\(error)")
-            render()
         }
     }
 
@@ -1538,10 +1567,8 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         do {
             try pairingClient.startScanning()
             try startCamera()
-            render()
         } catch {
             pairingClient.reject("\(error)")
-            render()
         }
     }
 
@@ -1596,7 +1623,6 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         stopCamera()
         do {
             let payload = try pairingClient.acceptScannedCode(code)
-            render()
             handshakeTask?.cancel()
             handshakeTask = Task { @MainActor [weak self] in
                 do {
@@ -1604,12 +1630,9 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
                 } catch {
                     self?.pairingClient.reject("\(error)")
                 }
-                self?.render()
-                self?.triggerSessionIfPaired()
             }
         } catch {
             pairingClient.reject("\(error)")
-            render()
         }
     }
 }

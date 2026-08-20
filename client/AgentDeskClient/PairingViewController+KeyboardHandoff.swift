@@ -59,7 +59,7 @@ extension PairingViewController {
             keyboardDictationServiceViewController = screen
             screen.onRetry = { [weak self, weak coordinator] in
                 guard let self, let coordinator else { return }
-                triggerSessionIfPaired()
+                sessionSupervisor?.requestImmediateDial()
                 coordinator.arm { [weak self] in
                     self?.pairingClient.activeSessionTransport
                 }
@@ -77,7 +77,7 @@ extension PairingViewController {
             let navigation = UINavigationController(rootViewController: screen)
             navigation.modalPresentationStyle = .fullScreen
             topmostPresentedViewController.present(navigation, animated: true)
-            triggerSessionIfPaired()
+            sessionSupervisor?.requestImmediateDial()
             coordinator.arm { [weak self] in
                 self?.pairingClient.activeSessionTransport
             }
