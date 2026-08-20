@@ -1940,15 +1940,16 @@ describe("the turn summarizer", () => {
     });
     expect(transport.subscriptions.some((open) => open.path === SUMMARY_PATH)).toBe(true);
 
-    // The half-minute the digest takes is not dead time: the run is on screen while it happens.
+    // The wait for the digest is not dead time: the run is on screen while it happens, first as
+    // the reasoning arrives in pieces and then as the block that supersedes them.
     await act(async () => {
-      transport.deliver(SUMMARY_PATH, { type: "thinking-delta", text: "Open the dial policy." });
-      transport.deliver(SUMMARY_PATH, {
-        type: "step",
-        step: { kind: "tool", name: "read", target: "client/SessionDialPolicy.swift", failed: false },
-      });
+      transport.deliver(SUMMARY_PATH, { type: "thinking-delta", text: "Open the dial " });
     });
-    expect(screen.getByText("Open the dial policy.")).toBeTruthy();
+    expect(screen.getByText("Open the dial")).toBeTruthy();
+    await act(async () => {
+      transport.deliver(SUMMARY_PATH, { type: "reasoning", text: "It names the dial policy." });
+    });
+    expect(screen.getByText("It names the dial policy.")).toBeTruthy();
 
     await act(async () => {
       transport.deliver(SUMMARY_PATH, {
@@ -1959,9 +1960,11 @@ describe("the turn summarizer", () => {
           model: "opencode-go/deepseek-v4-flash",
           headline: "Renamed the dial policy",
           narrative: "It moved the retry decision into a pure function.",
-          filesTouched: [{ path: "client/SessionDialPolicy.swift", status: "A", added: 40, removed: 0 }],
+          filesTouched: [
+            { path: "client/SessionDialPolicy.swift", action: "wrote", edits: 1, added: 40, removed: 0 },
+          ],
           risks: [],
-          steps: [{ kind: "tool", name: "read", target: "client/SessionDialPolicy.swift", failed: false }],
+          reasoning: ["It names the dial policy."],
           coverage: { fromEventIndex: 2, toEventIndex: 9, mode: "nice", truncated: false },
           runState: "idle",
         },

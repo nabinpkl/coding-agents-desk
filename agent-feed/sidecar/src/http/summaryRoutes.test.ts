@@ -69,9 +69,9 @@ function result(headline: string): SummaryResult {
     model: "m",
     headline,
     narrative: "n",
-    filesTouched: [],
+    filesTouched: [{ path: "src/a.ts", action: "edited", edits: 1, added: 2, removed: 1 }],
     risks: [],
-    steps: [{ kind: "tool", name: "read", target: "src/a.ts", failed: false }],
+    reasoning: ["The turn names src/a.ts and the file list confirms it."],
     coverage: { fromEventIndex: 0, toEventIndex: 1, mode: "nice", truncated: false },
     runState: "idle",
   };
@@ -144,10 +144,7 @@ test("what the run does reaches the stream while it is still running", async () 
     async run(input: SummaryRunInput) {
       input.onMessage?.({ type: "thinking-delta", text: "Read " });
       input.onMessage?.({ type: "thinking-delta", text: "the runtime." });
-      input.onMessage?.({
-        type: "step",
-        step: { kind: "tool", name: "read", target: "src/a.ts", failed: false },
-      });
+      input.onMessage?.({ type: "reasoning", text: "Read the runtime." });
       return result("done");
     },
   });
@@ -155,7 +152,7 @@ test("what the run does reaches the stream while it is still running", async () 
   const messages = await collect(await route(...get(), server)!);
 
   expect(messages.map((message) => message.type))
-    .toEqual(["thinking-delta", "thinking-delta", "step", "result"]);
+    .toEqual(["thinking-delta", "thinking-delta", "reasoning", "result"]);
 });
 
 test("no credential answers 503 with a code the panel can branch on", async () => {
@@ -208,7 +205,7 @@ test("a viewer who opens mid-run is replayed what it has already said", async ()
   const route = routes({
     async run(input: SummaryRunInput) {
       emit = (message) => input.onMessage?.(message);
-      emit({ type: "step", step: { kind: "tool", name: "read", target: "early.ts", failed: false } });
+      emit({ type: "reasoning", text: "early" });
       running();
       await gate;
       return result("done");
@@ -220,11 +217,11 @@ test("a viewer who opens mid-run is replayed what it has already said", async ()
   // The phone opening the same thread the Mac is already watching: it should not see a blank
   // panel just because it arrived second.
   const late = (await route(...get(), server)!) as Response;
-  emit({ type: "step", step: { kind: "tool", name: "grep", target: "late", failed: false } });
+  emit({ type: "reasoning", text: "late" });
   open();
 
   const [a, b] = await Promise.all([collect(first), collect(late)]);
-  expect(a.map((message) => message.type)).toEqual(["step", "step", "result"]);
+  expect(a.map((message) => message.type)).toEqual(["reasoning", "reasoning", "result"]);
   expect(b).toEqual(a);
 });
 

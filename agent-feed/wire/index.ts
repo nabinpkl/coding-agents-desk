@@ -28,13 +28,11 @@ export type {
 
 export type {
   SummaryCoverage,
+  SummaryFileAction,
   SummaryFileChange,
   SummaryPhase,
   SummaryResult,
-  SummaryStep,
   SummaryStreamMessage,
-  SummaryThought,
-  SummaryToolCall,
 } from "./summary.ts";
 
 export type {

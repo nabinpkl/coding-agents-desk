@@ -281,20 +281,16 @@ export const config = {
   summaryEnabled: summaryApiKey !== null,
   summaryProvider: process.env.AGENT_FEED_SUMMARY_PROVIDER?.trim() || "opencode-go",
   summaryModel: process.env.AGENT_FEED_SUMMARY_MODEL?.trim() || "deepseek-v4-flash",
-  // How much of a turn the summarizer is allowed to be shown. A turn longer than this is
-  // truncated in the middle and SAYS SO on the result; the alternative is a request the model
-  // refuses, which reads to the viewer as a broken button rather than a long conversation.
+  // How much of a turn the summarizer is allowed to be shown, measured against the RENDERED
+  // prompt rather than the raw events -- a tool result costs a few hundred characters there, not
+  // the megabyte it came from. A turn longer than this is truncated in the middle and SAYS SO on
+  // the result; the alternative is a request the model refuses, which reads to the viewer as a
+  // broken button rather than a long conversation.
   summaryTokenCeiling: integerEnvironment(
     "AGENT_FEED_SUMMARY_TOKEN_CEILING",
     200_000,
     1_000,
     1_000_000,
-  ),
-  summaryToolCallBudget: integerEnvironment(
-    "AGENT_FEED_SUMMARY_TOOL_CALL_BUDGET",
-    24,
-    1,
-    256,
   ),
   // A summarizer that never answers has to fail rather than hold the request open: the panel
   // shows a spinner until this fires, and an unbounded one is indistinguishable from a hang.

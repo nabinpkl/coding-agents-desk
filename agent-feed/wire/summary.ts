@@ -1,8 +1,11 @@
 // A digest of one turn: what the agent did between the last user message and now.
 //
-// Produced on demand by a SECOND agent, not by the session being summarized. That agent reads
-// the turn's events and the project's working tree, so a digest can say "it edited these four
-// files and two of them no longer compile" -- a fact the transcript alone does not contain.
+// Produced on demand by a SECOND model, not by the session being summarized, and produced from
+// the TRANSCRIPT ALONE. It opens no files and runs no commands. The first version did -- it had
+// read-only tools and was told to verify the agent's claims against the checkout -- and it was
+// slow enough that people stopped pressing the button: a minute of tool round trips to confirm
+// things the transcript had already said. Reading one well-shaped transcript is a single model
+// call, and the transcript is where the answer was.
 //
 // Deliberately one shape for both timings. Pressing the button mid-turn and pressing it after
 // the turn ends produce the same artifact; only `phase` differs. There is no separate live
@@ -20,16 +23,28 @@ import type { AgentRunState } from "./session.ts";
  */
 export type SummaryPhase = "running" | "final";
 
+/** What the turn did to a file, as its own tool calls record it. */
+export type SummaryFileAction = "wrote" | "edited" | "deleted";
+
 /**
- * One file the turn changed, as git reports it.
+ * One file the turn changed, read from the turn's own tool calls.
  *
- * From `git diff`, not from the transcript's tool calls: an Edit that was later reverted, or a
- * file written by a build the agent ran, are both invisible to a reading of the tool log and
- * both present here. `status` is git's name-status letter (`M`, `A`, `D`, `R`...).
+ * From the transcript rather than from `git diff`, and the difference is attribution. The
+ * working tree is the state of the checkout right now: it carries what other sessions and the
+ * person did before and since, so a digest built on it confidently described another session's
+ * uncommitted work as this turn's. A turn's own Write and Edit calls are unambiguously the
+ * turn's. The cost is honest and worth naming: an edit the agent later reverted still appears
+ * here, and a file changed by a build the agent ran does not appear at all. This says what the
+ * turn DID, not what the checkout now holds.
  */
 export interface SummaryFileChange {
   path: string;
-  status: string;
+  action: SummaryFileAction;
+  /** How many separate calls in this turn touched it. Three edits to one file is a different
+   *  story from one, and it is the shape of an agent going back and forth. */
+  edits: number;
+  /** Lines added and removed, counted from the edit payloads themselves. Zero for a call whose
+   *  payload does not say -- an `apply_patch` that named only a path, for instance. */
   added: number;
   removed: number;
 }
@@ -50,49 +65,19 @@ export interface SummaryCoverage {
 }
 
 /**
- * One thing the summarizer did on its way to the digest.
- *
- * A digest is a claim about someone else's work, written by a model, and the only way to judge
- * it is to see what it looked at. `thinking` is the model's own reasoning text; `tool` is a file
- * it opened or a search it ran. Both are shown, in the order they happened.
- *
- * Bounded without a truncation flag, on purpose: the tool-call budget caps the `tool` entries,
- * one reasoning block precedes each of them at most, and each block's text is capped where it is
- * collected. There is no unbounded axis here, so there is nothing for a viewer to be told about.
- */
-export type SummaryStep = SummaryThought | SummaryToolCall;
-
-export interface SummaryThought {
-  kind: "thinking";
-  /** Capped at collection. Ends with an ellipsis when the model's block ran longer. */
-  text: string;
-}
-
-export interface SummaryToolCall {
-  kind: "tool";
-  /** One of the read-only four: read, grep, find, ls. */
-  name: string;
-  /** What it was pointed at, as `pattern in path`. Empty when the call carried neither. */
-  target: string;
-  /** The tool reported an error. A summarizer that read a file that is not there is worth
-   *  seeing, because it explains a digest that guessed. */
-  failed: boolean;
-}
-
-/**
  * What the summary stream says while it works.
  *
- * The digest takes half a minute to write, and a spinner for that long is indistinguishable
- * from a hang. These are the same steps the finished `SummaryResult` carries, sent as they
- * happen, so the wait shows the work instead of hiding it.
+ * The digest takes long enough to write that a spinner for it is indistinguishable from a hang.
+ * This is the same reasoning the finished `SummaryResult` carries, sent as it happens, so the
+ * wait shows the work instead of hiding it.
  *
  * `thinking-delta` is the model's reasoning arriving in pieces, appended to the thought in
- * progress; the `step` that follows carries the same block assembled and REPLACES what the
- * deltas built, so a reader never has to reconcile two versions of one thought. Exactly one
- * `result` or one `error` ends the stream.
+ * progress; the `reasoning` message that follows carries the same block assembled and REPLACES
+ * what the deltas built, so a reader never has to reconcile two versions of one thought. Exactly
+ * one `result` or one `error` ends the stream.
  */
 export type SummaryStreamMessage =
-  | { type: "step"; step: SummaryStep }
+  | { type: "reasoning"; text: string }
   | { type: "thinking-delta"; text: string }
   | { type: "result"; result: SummaryResult }
   | { type: "error"; error: { code: string; message: string; retryable: boolean } };
@@ -109,9 +94,14 @@ export interface SummaryResult {
   filesTouched: SummaryFileChange[];
   /** What the summarizer thinks is unfinished or wrong. Empty is a real answer. */
   risks: string[];
-  /** How it got there, in order. Empty when the model answered from the prompt alone and its
-   *  reasoning was not visible, which a non-reasoning model does. */
-  steps: SummaryStep[];
+  /**
+   * The summarizer's own reasoning blocks, in order.
+   *
+   * A digest is a claim about someone else's work written by a model, and this is the only thing
+   * that makes the claim checkable: what it noticed, what it weighed, where it hedged. Empty
+   * when the model's reasoning was not visible, which a non-reasoning model gives.
+   */
+  reasoning: string[];
   coverage: SummaryCoverage;
   /** The watched session's run state at the moment the digest was produced. */
   runState: AgentRunState;

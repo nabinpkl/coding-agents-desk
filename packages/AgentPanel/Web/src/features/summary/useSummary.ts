@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SummaryResult, SummaryStep } from "@agentdesk/agent-feed-wire";
+import type { SummaryResult } from "@agentdesk/agent-feed-wire";
 import type {
   SessionAddress,
   SidecarDataSource,
@@ -10,7 +10,7 @@ import type {
 export type SummaryState =
   | { kind: "idle" }
   /** The run, as far as it has got. `thought` is the reasoning block still arriving. */
-  | { kind: "pending"; steps: SummaryStep[]; thought: string }
+  | { kind: "pending"; reasoning: string[]; thought: string }
   | { kind: "ready"; result: SummaryResult }
   | { kind: "error"; message: string };
 
@@ -79,7 +79,7 @@ export function useSummary(
 
   const summarize = useCallback(() => {
     if (!session || stream.current) return;
-    setState({ kind: "pending", steps: [], thought: "" });
+    setState({ kind: "pending", reasoning: [], thought: "" });
     stream.current = feed.summarizeTurn(session, {
       onMessage: (message) => {
         switch (message.type) {
@@ -89,17 +89,12 @@ export function useSummary(
                 ? { ...current, thought: current.thought + message.text }
                 : current);
             return;
-          case "step":
+          case "reasoning":
+            // The finished block replaces what its own deltas built rather than being appended
+            // beside it: they are the same thought, and showing both reads as two.
             setState((current) =>
               current.kind === "pending"
-                ? {
-                    kind: "pending",
-                    steps: [...current.steps, message.step],
-                    // A finished thought replaces what its own deltas built, rather than being
-                    // appended beside it: they are the same thought and showing both reads as
-                    // two. A lookup clears nothing -- it is not what the deltas were building.
-                    thought: message.step.kind === "thinking" ? "" : current.thought,
-                  }
+                ? { kind: "pending", reasoning: [...current.reasoning, message.text], thought: "" }
                 : current);
             return;
           case "result":

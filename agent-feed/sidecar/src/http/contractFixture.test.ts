@@ -162,11 +162,13 @@ test("the fixture's digest is internally consistent", () => {
   // disagrees with itself would let a panel render "still running" over a finished turn.
   expect(summaryResult.phase).toBe(summaryResult.runState === "running" ? "running" : "final");
   expect(summaryResult.coverage.mode).toBe("nice");
-  // The steps are observed from the session's events, so a tool step that names no tool would
-  // mean the recorder read the wrong field off the event.
-  for (const step of summaryResult.steps) {
-    if (step.kind === "tool") expect(step.name.length).toBeGreaterThan(0);
-    else expect(step.text.length).toBeGreaterThan(0);
+  // The reasoning is observed from the session's events, never asked of the model, so an empty
+  // entry would mean the recorder read the wrong field off the event.
+  for (const thought of summaryResult.reasoning) expect(thought.length).toBeGreaterThan(0);
+  // Files come from the turn's own calls, so every entry says what the turn did to it.
+  for (const file of summaryResult.filesTouched) {
+    expect(["wrote", "edited", "deleted"]).toContain(file.action);
+    expect(file.edits).toBeGreaterThan(0);
   }
   expect(summaryResult.coverage.fromEventIndex).toBeLessThanOrEqual(summaryResult.coverage.toEventIndex);
 });

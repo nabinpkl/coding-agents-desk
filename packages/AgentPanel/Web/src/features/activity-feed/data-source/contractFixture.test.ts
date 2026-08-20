@@ -179,13 +179,13 @@ describe("the summary contract", () => {
     // empty panel.
     expect(result.headline.length).toBeGreaterThan(0);
     expect(result.narrative.length).toBeGreaterThan(0);
-    expect(result.filesTouched[0]).toMatchObject({ path: expect.any(String), status: expect.any(String) });
+    expect(result.filesTouched[0]).toMatchObject({ path: expect.any(String), action: expect.any(String) });
     expect(result.coverage.mode).toBe("nice");
     expect(["running", "final"]).toContain(result.phase);
-    // The band renders the trace as a discriminated union; a step that is neither kind would
-    // render as nothing at all.
-    expect(result.steps.map((step) => step.kind)).toEqual(["thinking", "tool", "tool", "tool"]);
-    expect(result.steps.filter((step) => step.kind === "tool" && step.failed)).toHaveLength(1);
+    // The band renders these as the digest's receipt; an empty one would render as a disclosure
+    // that opens onto nothing.
+    expect(result.reasoning.every((thought) => thought.length > 0)).toBe(true);
+    expect(result.filesTouched.map((file) => file.action)).toEqual(["edited", "wrote"]);
   });
 
   it("carries the sidecar's error code down the stream rather than a generic failure", () => {
@@ -208,7 +208,7 @@ describe("the summary contract", () => {
     }]);
   });
 
-  it("streams the thinking and the lookups before the digest", () => {
+  it("streams the reasoning before the digest", () => {
     const transport = new FakeHttpTransport();
     const messages: SummaryStreamMessage[] = [];
     new SidecarDataSource(transport).summarizeTurn(
@@ -217,13 +217,10 @@ describe("the summary contract", () => {
     );
     transport.deliver("/summary", { type: "thinking-delta", text: "Read " });
     transport.deliver("/summary", { type: "thinking-delta", text: "the runtime." });
-    transport.deliver("/summary", {
-      type: "step",
-      step: { kind: "tool", name: "read", target: "src/a.ts", failed: false },
-    });
+    transport.deliver("/summary", { type: "reasoning", text: "Read the runtime." });
 
     expect(messages.map((message) => message.type))
-      .toEqual(["thinking-delta", "thinking-delta", "step"]);
+      .toEqual(["thinking-delta", "thinking-delta", "reasoning"]);
   });
 
   it("reads the config body the summarize button gates on", async () => {

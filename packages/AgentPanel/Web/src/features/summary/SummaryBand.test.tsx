@@ -11,12 +11,11 @@ function digest(overrides: Partial<SummaryResult> = {}): SummaryResult {
     model: "opencode-go/deepseek-v4-flash",
     headline: "Narrowed the summarizer to read-only tools",
     narrative: "It restricted the tool set and added a test.",
-    filesTouched: [{ path: "src/summary/summaryRuntime.ts", status: "M", added: 12, removed: 3 }],
-    risks: ["No test covers the budget abort path."],
-    steps: [
-      { kind: "thinking", text: "The turn names summaryRuntime.ts, so read that first." },
-      { kind: "tool", name: "read", target: "src/summary/summaryRuntime.ts", failed: false },
+    filesTouched: [
+      { path: "src/summary/summaryRuntime.ts", action: "edited" as const, edits: 3, added: 12, removed: 3 },
     ],
+    risks: ["No test covers the budget abort path."],
+    reasoning: ["The turn names summaryRuntime.ts, and the file list confirms it was edited."],
     coverage: { fromEventIndex: 40, toEventIndex: 47, mode: "nice", truncated: false },
     runState: "idle",
     ...overrides,
@@ -34,7 +33,7 @@ describe("the summary band", () => {
   it("announces progress while the second model reads the turn", () => {
     render(
       <SummaryBand
-        state={{ kind: "pending", steps: [], thought: "" }}
+        state={{ kind: "pending", reasoning: [], thought: "" }}
         model={null}
         onDismiss={() => {}}
       />,
@@ -47,7 +46,7 @@ describe("the summary band", () => {
       <SummaryBand
         state={{
           kind: "pending",
-          steps: [{ kind: "tool", name: "read", target: "src/a.ts", failed: false }],
+          reasoning: ["It named the parser, so start there"],
           thought: "Now check whether the test asserts it",
         }}
         model={null}
@@ -56,7 +55,7 @@ describe("the summary band", () => {
     );
     // Nothing to click: a viewer is looking at this precisely because the answer is not here.
     expect(screen.queryByText(/how it read the turn/)).toBeNull();
-    expect(screen.getByText("src/a.ts")).toBeTruthy();
+    expect(screen.getByText("It named the parser, so start there")).toBeTruthy();
     expect(screen.getByText("Now check whether the test asserts it")).toBeTruthy();
   });
 
@@ -64,7 +63,7 @@ describe("the summary band", () => {
     const onDismiss = vi.fn();
     render(
       <SummaryBand
-        state={{ kind: "pending", steps: [], thought: "" }}
+        state={{ kind: "pending", reasoning: [], thought: "" }}
         model={null}
         onDismiss={onDismiss}
       />,
@@ -117,40 +116,28 @@ describe("the summary band", () => {
     expect(screen.getByText("It restricted the tool set and added a test.")).toBeTruthy();
   });
 
-  it("keeps what it read out of the way until asked, then shows it in order", () => {
+  it("keeps its reasoning out of the way until asked", () => {
     render(<SummaryBand state={{ kind: "ready", result: digest() }} model={null} onDismiss={() => {}} />);
     // The digest is the answer; the receipt for it is one click away.
-    expect(screen.queryByText("The turn names summaryRuntime.ts, so read that first.")).toBeNull();
+    const thought = "The turn names summaryRuntime.ts, and the file list confirms it was edited.";
+    expect(screen.queryByText(thought)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /how it read the turn/ }));
 
-    expect(screen.getByText("The turn names summaryRuntime.ts, so read that first.")).toBeTruthy();
-    expect(screen.getByText("read")).toBeTruthy();
+    expect(screen.getByText(thought)).toBeTruthy();
   });
 
-  it("counts the lookups, not the reasoning, on the closed disclosure", () => {
+  it("says what the turn did to each file, and how often", () => {
     render(<SummaryBand state={{ kind: "ready", result: digest() }} model={null} onDismiss={() => {}} />);
-    expect(screen.getByRole("button", { name: /how it read the turn · 1 lookup$/ })).toBeTruthy();
+    expect(screen.getByText("edited")).toBeTruthy();
+    expect(screen.getByText("src/summary/summaryRuntime.ts")).toBeTruthy();
+    // Three calls to one file is a different story from one.
+    expect(screen.getByText("×3")).toBeTruthy();
   });
 
-  it("says a lookup failed rather than showing it as an ordinary read", () => {
+  it("offers no disclosure for a model whose reasoning was not visible", () => {
     render(
-      <SummaryBand
-        state={{
-          kind: "ready",
-          result: digest({ steps: [{ kind: "tool", name: "read", target: "gone.ts", failed: true }] }),
-        }}
-        model={null}
-        onDismiss={() => {}}
-      />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: /how it read the turn/ }));
-    expect(screen.getByText("failed")).toBeTruthy();
-  });
-
-  it("offers no disclosure for a run that recorded nothing", () => {
-    render(
-      <SummaryBand state={{ kind: "ready", result: digest({ steps: [] }) }} model={null} onDismiss={() => {}} />,
+      <SummaryBand state={{ kind: "ready", result: digest({ reasoning: [] }) }} model={null} onDismiss={() => {}} />,
     );
     expect(screen.queryByText(/how it read the turn/)).toBeNull();
   });
@@ -184,7 +171,7 @@ describe("the summarize control", () => {
     const onSummarize = vi.fn();
     render(
       <SummaryControl
-        state={{ kind: "pending", steps: [], thought: "" }}
+        state={{ kind: "pending", reasoning: [], thought: "" }}
         running={false}
         onSummarize={onSummarize}
       />,

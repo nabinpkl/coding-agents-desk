@@ -13,7 +13,7 @@ const enabled: SidecarConfig = {
 function digest(headline: string): SummaryResult {
   return {
     phase: "final", generatedAt: 1, model: "m", headline, narrative: "n",
-    filesTouched: [], risks: [], steps: [],
+    filesTouched: [], risks: [], reasoning: [],
     coverage: { fromEventIndex: 0, toEventIndex: 1, mode: "nice", truncated: false },
     runState: "idle",
   };
@@ -52,8 +52,8 @@ function Probe({ feed, session }: { feed: Parameters<typeof useSummary>[0]; sess
       <span data-testid="available">{String(summary.available)}</span>
       <span data-testid="model">{summary.model ?? "-"}</span>
       <span data-testid="kind">{summary.state.kind}</span>
-      <span data-testid="steps">
-        {summary.state.kind === "pending" ? summary.state.steps.length : "-"}
+      <span data-testid="reasoning">
+        {summary.state.kind === "pending" ? summary.state.reasoning.length : "-"}
       </span>
       <span data-testid="thought">
         {summary.state.kind === "pending" ? summary.state.thought : "-"}
@@ -115,26 +115,23 @@ describe("useSummary", () => {
     await stream.send({ type: "thinking-delta", text: "the runtime." });
     expect(screen.getByTestId("thought").textContent).toBe("Read the runtime.");
 
-    await stream.send({ type: "step", step: { kind: "thinking", text: "Read the runtime." } });
+    await stream.send({ type: "reasoning", text: "Read the runtime." });
     // One thought, not two: the partial is cleared by the block that completes it.
     expect(screen.getByTestId("thought").textContent).toBe("");
-    expect(screen.getByTestId("steps").textContent).toBe("1");
+    expect(screen.getByTestId("reasoning").textContent).toBe("1");
   });
 
-  it("collects the lookups as they land, without disturbing a thought in progress", async () => {
+  it("collects each finished block as it lands", async () => {
     const stream = fakeStream();
     render(<Probe feed={stream.feed} session={S1} />);
     await flush();
     act(() => { screen.getByText("go").click(); });
 
-    await stream.send({ type: "thinking-delta", text: "half a thought" });
-    await stream.send({ type: "step", step: { kind: "tool", name: "read", target: "a.ts", failed: false } });
-    await stream.send({ type: "step", step: { kind: "tool", name: "grep", target: "x", failed: true } });
+    await stream.send({ type: "reasoning", text: "first" });
+    await stream.send({ type: "reasoning", text: "second" });
 
-    expect(screen.getByTestId("steps").textContent).toBe("2");
-    // Only the thought's own completion clears it. A lookup is not what the deltas were
-    // building, and wiping the text on one loses reasoning the viewer was mid-way through.
-    expect(screen.getByTestId("thought").textContent).toBe("half a thought");
+    expect(screen.getByTestId("reasoning").textContent).toBe("2");
+    expect(screen.getByTestId("thought").textContent).toBe("");
   });
 
   it("goes ready on the result, and closes the stream behind it", async () => {

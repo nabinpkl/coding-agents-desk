@@ -178,18 +178,22 @@
     "filesTouched": [
       {
         "path": "agent-feed/sidecar/src/summary/summaryRuntime.ts",
-        "status": "M",
+        "action": "edited",
+        "edits": 3,
         "added": 12,
         "removed": 3
       },
-      { "path": "agent-feed/sidecar/src/summary/summaryRuntime.test.ts", "status": "?", "added": 0, "removed": 0 }
+      {
+        "path": "agent-feed/sidecar/src/summary/summaryRuntime.test.ts",
+        "action": "wrote",
+        "edits": 1,
+        "added": 40,
+        "removed": 0
+      }
     ],
     "risks": ["No test covers the tool-call budget abort path."],
-    "steps": [
-      { "kind": "thinking", "text": "The turn names summaryRuntime.ts, so read it before describing what changed." },
-      { "kind": "tool", "name": "read", "target": "agent-feed/sidecar/src/summary/summaryRuntime.ts", "failed": false },
-      { "kind": "tool", "name": "grep", "target": "getAllTools in agent-feed/sidecar/src", "failed": false },
-      { "kind": "tool", "name": "read", "target": "agent-feed/sidecar/src/summary/toolAllowlist.ts", "failed": true }
+    "reasoning": [
+      "The turn names summaryRuntime.ts and its test, and the file list confirms both were written. The tool calls show the allowlist option going in before the assertion, so the test was written against the finished behaviour rather than ahead of it."
     ],
     "coverage": { "fromEventIndex": 40, "toEventIndex": 47, "mode": "nice", "truncated": false },
     "runState": "idle"

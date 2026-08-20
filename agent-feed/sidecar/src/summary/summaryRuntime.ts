@@ -1,4 +1,4 @@
-// The second agent: a Pi session that reads one turn and writes a digest of it.
+// The second model: a Pi session that reads one turn and writes a digest of it.
 //
 // Three things make it different from the Pi sessions `piAgentBackend` owns, and all three are
 // deliberate:
@@ -6,10 +6,13 @@
 //   1. It is NOT catalogued. `SessionManager.inMemory` leaves no transcript on disk, so the
 //      summarizer never appears in the sidebar and the panel never ends up observing the thing
 //      that is observing it.
-//   2. Its tools are read-only. Verified rather than assumed: with this allowlist Pi reports
-//      `getAllTools()` as exactly read/grep/find/ls, where the default is read/bash/edit/write.
-//      Its input is a transcript full of third-party text, so a bash tool here would be a
-//      remote-execution path with extra steps.
+//   2. It has NO TOOLS AT ALL. It cannot open a file, run a command, or search the project; the
+//      whole turn is handed to it in one prompt and it answers in one call. It used to have
+//      read-only tools and instructions to verify the agent's claims against the checkout, and
+//      that version was too slow to press -- a minute of round trips re-reading what the
+//      transcript had already said. Removing them is what made it fast, and it also makes the
+//      security argument trivial rather than careful: the input is transcript text an attacker
+//      can shape, and there is now nothing for shaped text to reach.
 //   3. Its model is separate and cheap. Named as a provider/model pair in Pi's OWN catalog, so
 //      `opencode-go/deepseek-v4-flash` arrives with its base URL, thinking format, context
 //      window and cost table already correct.
@@ -24,7 +27,6 @@ import {
 import type {
   SummaryPhase,
   SummaryResult,
-  SummaryStep,
   SummaryStreamMessage,
 } from "@agentdesk/agent-feed-wire";
 import { config } from "../config.ts";
@@ -36,8 +38,15 @@ import {
 } from "./summaryPrompt.ts";
 import type { TurnWindow } from "./turnWindow.ts";
 
-/** The read-only set. Ordered as Pi reports it, so a test can compare without sorting. */
-export const SUMMARY_TOOLS = ["read", "grep", "find", "ls"] as const;
+/**
+ * No tools. Not a short list -- an empty one.
+ *
+ * Asserted against Pi rather than assumed, because Pi's default for a session is
+ * read/bash/edit/write: a summarizer that silently regained `bash` would be a remote-execution
+ * path fed by attacker-shaped transcript text, and the difference between that and this is one
+ * option being honoured.
+ */
+export const SUMMARY_TOOLS: readonly string[] = [];
 
 /**
  * How much of one reasoning block is kept.
@@ -48,9 +57,6 @@ export const SUMMARY_TOOLS = ["read", "grep", "find", "ls"] as const;
  * keeping.
  */
 const THINKING_CHARS = 2_000;
-
-/** Enough to identify what a call was pointed at, short enough to stay one line. */
-const TARGET_CHARS = 200;
 
 /**
  * How much reasoning accumulates before it is sent.
@@ -79,10 +85,6 @@ export class SummaryUnconfiguredError extends Error {}
  */
 export interface SummarySessionEvent {
   type: string;
-  toolCallId?: string;
-  toolName?: string;
-  args?: unknown;
-  isError?: boolean;
   /**
    * Present on `message_update`. Reasoning arrives as `thinking_delta` events carrying `delta`,
    * then one `thinking_end` carrying the assembled block as `content`. The two field names are
@@ -99,8 +101,6 @@ export interface SummarySessionEvent {
  * it is one this file actually calls.
  */
 export interface SummarySession {
-  /** What Pi says the session can do, for the assertion that the allowlist held. */
-  activeToolNames(): string[];
   prompt(text: string): Promise<void>;
   subscribe(listener: (event: SummarySessionEvent) => void): () => void;
   abort(): Promise<void>;
@@ -116,7 +116,7 @@ export interface SummaryRunInput {
   runState: AgentRunState;
   /**
    * Called as the run happens, for a viewer watching it. Optional because the digest does not
-   * depend on anyone listening: the same steps are on the returned result either way, so a
+   * depend on anyone listening: the same reasoning is on the returned result either way, so a
    * caller that only wants the artifact passes nothing and loses nothing.
    */
   onMessage?: (message: SummaryStreamMessage) => void;
@@ -141,21 +141,14 @@ export function createSummaryRunner(
         project: input.project,
         phase,
         events: input.window.events,
-        gitBlock: input.window.gitBlock,
+        filesTouched: input.window.filesTouched,
         truncated: input.window.coverage.truncated,
       });
 
-      // A summarizer that reads the whole repository is a summarizer nobody will press twice.
-      // The budget is enforced here rather than trusted to the prompt, the same way
-      // `piAgentBackend` enforces its own.
-      //
-      // The same subscription records what the run did. Both readings are of the same events, so
-      // a tool call that counts against the budget is by construction a tool call the viewer is
-      // shown; there is no way for one to know about a call the other missed.
-      let toolCalls = 0;
-      let overBudget = false;
-      const steps: SummaryStep[] = [];
-      const stepByToolCall = new Map<string, SummaryToolStep>();
+      // Everything the run says, recorded and forwarded as it happens. With no tools there is
+      // one kind of event worth watching -- the model's reasoning as it reads the turn -- and it
+      // is the only evidence a viewer has for whether the digest was arrived at or guessed.
+      const reasoning: string[] = [];
       const emit = input.onMessage ?? (() => {});
       // How much of the thought in progress has already gone out as deltas, so the live text and
       // the block that replaces it are cut at the same place. Without this a viewer would watch
@@ -168,61 +161,26 @@ export function createSummaryRunner(
         buffered = "";
       };
       const unsubscribe = session.subscribe((event) => {
-        if (event.type === "message_update") {
-          const inner = event.assistantMessageEvent;
-          if (inner?.type === "thinking_delta" && typeof inner.delta === "string") {
-            const room = THINKING_CHARS - deltaChars;
-            if (room > 0 && inner.delta) {
-              const text = inner.delta.slice(0, room);
-              deltaChars += text.length;
-              buffered += text;
-              if (buffered.length >= DELTA_FLUSH_CHARS) flush();
-            }
-            return;
-          }
-          if (inner?.type === "thinking_end" && typeof inner.content === "string") {
-            deltaChars = 0;
-            buffered = "";
-            const text = clamp(inner.content.trim(), THINKING_CHARS);
-            if (text) {
-              const step: SummaryStep = { kind: "thinking", text };
-              steps.push(step);
-              emit({ type: "step", step });
-            }
+        if (event.type !== "message_update") return;
+        const inner = event.assistantMessageEvent;
+        if (inner?.type === "thinking_delta" && typeof inner.delta === "string") {
+          const room = THINKING_CHARS - deltaChars;
+          if (room > 0 && inner.delta) {
+            const text = inner.delta.slice(0, room);
+            deltaChars += text.length;
+            buffered += text;
+            if (buffered.length >= DELTA_FLUSH_CHARS) flush();
           }
           return;
         }
-        if (event.type === "tool_execution_end") {
-          const started = event.toolCallId ? stepByToolCall.get(event.toolCallId) : undefined;
-          if (!started) return;
-          // Buffered reasoning first, so a lookup never appears above the thought that led to it.
-          flush();
-          if (event.isError) started.failed = true;
-          // Sent at the END, not the start: `failed` is only known here, and a tool row that
-          // appeared as fine and then turned red would be the one row a viewer stops trusting.
-          // These four tools answer in milliseconds, so nothing perceptible is lost.
-          emit({ type: "step", step: { ...started } });
-          return;
-        }
-        if (event.type !== "tool_execution_start") return;
-        const step: SummaryToolStep = {
-          kind: "tool",
-          name: event.toolName ?? "unknown",
-          target: toolTarget(event.args, input.project),
-          failed: false,
-        };
-        steps.push(step);
-        // An event with no id can never be matched to its end, so it goes out now rather than
-        // never. Pi always sets one; this is what keeps a viewer's list equal to the result's.
-        if (event.toolCallId) stepByToolCall.set(event.toolCallId, step);
-        else {
-          flush();
-          emit({ type: "step", step: { ...step } });
-        }
-        toolCalls += 1;
-        if (toolCalls > config.summaryToolCallBudget && !overBudget) {
-          overBudget = true;
-          void session.abort();
+        if (inner?.type === "thinking_end" && typeof inner.content === "string") {
+          deltaChars = 0;
+          buffered = "";
+          const text = clamp(inner.content.trim(), THINKING_CHARS);
+          if (text) {
+            reasoning.push(text);
+            emit({ type: "reasoning", text });
+          }
         }
       });
 
@@ -235,15 +193,12 @@ export function createSummaryRunner(
         flush();
       }
 
-      if (overBudget) {
-        throw new Error(`summarizer exceeded its ${config.summaryToolCallBudget} tool-call budget`);
-      }
       const reply = session.lastAssistantText();
       if (reply === null) throw new Error("summarizer produced no reply");
 
       return composeSummaryResult({
         payload: parseSummaryPayload(reply),
-        steps,
+        reasoning,
         phase,
         model: `${config.summaryProvider}/${config.summaryModel}`,
         filesTouched: input.window.filesTouched,
@@ -253,40 +208,6 @@ export function createSummaryRunner(
       });
     },
   };
-}
-
-/** The mutable half of the union, so a later `tool_execution_end` can mark it failed. */
-type SummaryToolStep = Extract<SummaryStep, { kind: "tool" }>;
-
-/**
- * What a tool call was pointed at, as one line.
- *
- * All four read-only tools take `path`, `pattern`, `glob` or some combination, so this reads
- * them by name rather than dumping the argument object: a viewer wants to see WHICH file was
- * opened, not the offset and limit it was opened with. An unrecognised shape yields an empty
- * target rather than a guess, and the tool name alone still tells the story.
- *
- * Paths inside the project are shown relative to it, matching the file list the digest already
- * renders above this one. A path OUTSIDE the project keeps its absolute form, because a
- * summarizer that went looking outside the checkout is the one case worth seeing in full.
- */
-function toolTarget(args: unknown, project: string): string {
-  if (typeof args !== "object" || args === null) return "";
-  const read = (key: string): string => {
-    const value = (args as Record<string, unknown>)[key];
-    return typeof value === "string" ? value.trim() : "";
-  };
-  const what = [read("pattern"), read("glob")].filter(Boolean).join(" ");
-  const where = relativeToProject(read("path"), project);
-  const target = what && where ? `${what} in ${where}` : what || where;
-  return clamp(target, TARGET_CHARS);
-}
-
-function relativeToProject(path: string, project: string): string {
-  const root = project.endsWith("/") ? project : `${project}/`;
-  // The project itself, named as itself rather than collapsing to nothing.
-  if (path === project) return ".";
-  return path.startsWith(root) ? path.slice(root.length) : path;
 }
 
 /** Truncation that says it truncated. A silently cut reasoning block reads as a model that
@@ -365,7 +286,6 @@ const createPiSummarySession: SummarySessionFactory = async (project) => {
   });
   const session = created.session;
   return {
-    activeToolNames: () => session.getActiveToolNames(),
     prompt: (text) => session.prompt(text),
     subscribe: (listener) => session.subscribe(listener as never),
     abort: () => session.abort(),

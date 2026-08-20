@@ -23,7 +23,6 @@ const options = {
   project: "/tmp/project",
   mode: "nice" as const,
   tokenCeiling: 100_000,
-  runCommand: (async () => "") as (argv: readonly string[]) => Promise<string>,
 };
 
 test("window starts at the most recent user message", async () => {
@@ -70,35 +69,46 @@ test("an empty session yields no window", async () => {
   expect(await resolveTurnWindow({ ...options, readPage: reader([]) })).toBeNull();
 });
 
-test("git state becomes both a prompt block and parsed file changes", async () => {
-  const runCommand = async (argv: readonly string[]): Promise<string> => {
-    if (argv.includes("--numstat")) return "12\t3\tsrc/a.ts\n-\t-\tassets/logo.png\n";
-    if (argv.includes("--name-status")) return "M\tsrc/a.ts\nA\tassets/logo.png\n";
-    if (argv.includes("--others")) return "notes/new.md\n";
-    return "";
+test("the files the window reports are the ones its own events changed", async () => {
+  const wrote: ActivityEvent = {
+    ...event(4, "assistant"),
+    blocks: [{ kind: "tool_use", tool: "Write", input: { file_path: "src/a.ts", content: "one\ntwo" } }],
   };
   const window = (await resolveTurnWindow({
     ...options,
-    runCommand,
-    readPage: reader([event(0, "user"), event(1, "assistant")]),
+    readPage: reader([event(0, "user"), event(1, "assistant"), event(3, "user"), wrote]),
   }))!;
+  // From the turn, not from the checkout: the earlier events belong to a previous turn and
+  // whatever they wrote is not this turn's doing.
   expect(window.filesTouched).toEqual([
-    { path: "src/a.ts", status: "M", added: 12, removed: 3 },
-    // A binary file reports `-` for both counts; it must not become NaN.
-    { path: "assets/logo.png", status: "A", added: 0, removed: 0 },
-    // Untracked files are invisible to every form of `git diff` and are the most common
-    // thing a turn produces.
-    { path: "notes/new.md", status: "?", added: 0, removed: 0 },
+    { path: "src/a.ts", action: "wrote", edits: 1, added: 2, removed: 0 },
   ]);
-  expect(window.gitBlock).toContain("src/a.ts");
-  expect(window.gitBlock).toContain("notes/new.md");
 });
 
-test("a project with no changes carries an empty block, not the word undefined", async () => {
+test("a turn that changed nothing reports no files", async () => {
   const window = (await resolveTurnWindow({
     ...options,
-    readPage: reader([event(0, "user")]),
+    readPage: reader([event(0, "user"), event(1, "assistant")]),
   }))!;
-  expect(window.gitBlock).toBe("");
+  expect(window.filesTouched).toEqual([]);
+});
+
+test("a file whose edit fell in the dropped middle is not claimed", async () => {
+  // The window is what the summarizer will be shown; listing a file it cannot see would invite a
+  // digest that describes a change with no evidence for it anywhere in the prompt.
+  const body = "y".repeat(4_000);
+  const buried: ActivityEvent = {
+    ...event(30, "assistant"),
+    blocks: [{ kind: "tool_use", tool: "Write", input: { file_path: "buried.ts", content: body } }],
+  };
+  const events = [
+    event(0, "user", "the request"),
+    ...Array.from({ length: 29 }, (_, i) => event(i + 1, "assistant", body)),
+    buried,
+    ...Array.from({ length: 29 }, (_, i) => event(i + 31, "assistant", body)),
+    event(60, "assistant", "the last word"),
+  ];
+  const window = (await resolveTurnWindow({ ...options, tokenCeiling: 2_000, readPage: reader(events) }))!;
+  expect(window.coverage.truncated).toBe(true);
   expect(window.filesTouched).toEqual([]);
 });

@@ -1,9 +1,9 @@
 // `GET /api/sessions/<source>/<id>/summary` -- one turn, digested on demand, streamed.
 //
 // This was a synchronous POST, on the reasoning that a digest is one artifact that is either
-// finished or not. That was wrong in practice: the artifact takes half a minute, and for half a
-// minute the panel showed a spinner that was indistinguishable from a hang. What the second
-// agent reads and thinks on the way is worth watching, so the wait now shows the work.
+// finished or not. That was wrong in practice: the artifact takes ten to twenty seconds, and for
+// all of them the panel showed a spinner that was indistinguishable from a hang. What the second
+// model reasons on the way is worth watching, so the wait now shows the work.
 //
 // A GET because that is what a stream can be: `EventSource` cannot POST, and the relay's own
 // subscribe path is GET-only, so a streamed endpoint has no other shape available. It is not a

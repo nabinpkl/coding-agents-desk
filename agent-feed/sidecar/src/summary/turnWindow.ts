@@ -1,61 +1,19 @@
-// What the summarizer is shown: one turn's events, plus what the working tree looks like now.
+// What the summarizer is shown: one turn's events, and the files those events changed.
 //
-// Two facts, gathered together because a digest needs both and neither is sufficient. The
-// transcript says what the agent SAID it did; `git diff` says what is actually on disk. They
-// disagree more often than is comfortable -- an edit reverted three tool calls later, a file
-// written by a build the agent ran, a change the agent made and forgot to mention.
+// Both come from the transcript. An earlier version also ran `git diff` and put the working tree
+// in the prompt, on the reasoning that the transcript says what the agent CLAIMED and the tree
+// says what is actually on disk. The tree turned out to be the wrong source for this question:
+// it holds whatever other sessions and the person have done before and since, and the first real
+// digest confidently attributed another session's uncommitted files to the turn it was reading.
+// A turn's own Write and Edit calls cannot be anyone else's.
 //
-// Nothing here calls a model. This module is pure enough to test against a fake page reader and
-// a fake command runner, which is the whole reason the model-facing half is a separate file.
+// Nothing here calls a model. This module is pure enough to test against a fake page reader,
+// which is the whole reason the model-facing half is a separate file.
 
 import type { SummaryCoverage, SummaryFileChange } from "@agentdesk/agent-feed-wire";
-import type { CommandRunner } from "../tasks/processProbe.ts";
 import type { ActivityEvent, EventMode } from "../transcripts/sources/transcriptTypes.ts";
-
-/** Absolute for the same reason `processProbe` resolves its binaries absolutely: the sidecar is
- *  spawned by the Mac host, whose PATH is not a developer shell's. */
-const GIT_BINARY = "/usr/bin/git";
-
-/**
- * Git, run quietly.
- *
- * Its own runner rather than `processProbe`'s: that one is shaped for `pgrep`/`lsof` and logs
- * failures as `agent-feed-task-probe-failed`, which is a misleading thing to print when what
- * actually happened is that a project is not a git repository. That is not an error here -- a
- * summary of a directory with no VCS is a perfectly good summary with no working-tree block --
- * so exit 128 with nothing on stdout is silent, and only an unexpected failure says anything.
- */
-export const runGit: CommandRunner = async (argv) => {
-  try {
-    const proc = Bun.spawn(argv as string[], {
-      stdout: "pipe",
-      stderr: "pipe",
-      // The C locale, because we PARSE this output. Same scar as processProbe.
-      env: { ...process.env, LC_ALL: "C" },
-    });
-    const [text, diagnostic] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-    const code = await proc.exited;
-    // 128 is git's "this is not a repository", which is an ordinary answer.
-    if (code !== 0 && code !== 128 && diagnostic.trim()) {
-      console.error(JSON.stringify({
-        event: "agent-feed-summary-git-failed",
-        command: argv.slice(0, 4).join(" "),
-        exitCode: code,
-        detail: diagnostic.trim().slice(0, 200),
-      }));
-    }
-    return text;
-  } catch (error) {
-    console.error(JSON.stringify({
-      event: "agent-feed-summary-git-unavailable",
-      detail: String(error).slice(0, 200),
-    }));
-    return "";
-  }
-};
+import { renderEvent } from "./summaryPrompt.ts";
+import { filesTouchedIn } from "./toolCalls.ts";
 
 /**
  * How many events one page of the backwards walk reads.
@@ -88,19 +46,16 @@ export interface TurnWindow {
   /** The events the summarizer will be shown, oldest first, starting at the user message. */
   events: ActivityEvent[];
   coverage: SummaryCoverage;
-  /** Human-readable git state, injected into the prompt verbatim. Empty when the project is not
-   *  a git repository or has no changes. */
-  gitBlock: string;
+  /** Read from the events above, so it describes the same window the digest describes. */
   filesTouched: SummaryFileChange[];
 }
 
 export interface TurnWindowOptions {
+  /** Only so file paths can be named relative to it. Nothing here reads the checkout. */
   project: string;
   mode: EventMode;
   readPage: PageReader;
   tokenCeiling: number;
-  /** Injected only by tests; production takes the module's own quiet git runner. */
-  runCommand?: CommandRunner;
 }
 
 /**
@@ -138,7 +93,6 @@ export async function resolveTurnWindow(options: TurnWindowOptions): Promise<Tur
   }
 
   const { events, truncated } = fitToCeiling(collected, tokenCeiling);
-  const git = await readGitState(options.project, options.runCommand ?? runGit);
 
   return {
     events,
@@ -150,8 +104,9 @@ export async function resolveTurnWindow(options: TurnWindowOptions): Promise<Tur
       // truncation rather than as a silently partial window.
       truncated: truncated || !boundaryFound,
     },
-    gitBlock: git.block,
-    filesTouched: git.files,
+    // From the events the digest will be shown, not from the whole turn: a file whose edit fell
+    // in the dropped middle is not one the summarizer can say anything about.
+    filesTouched: filesTouchedIn(events, options.project),
   };
 }
 
@@ -203,65 +158,15 @@ function fitToCeiling(
   return { events: [...head, ...tail], truncated: true };
 }
 
+/**
+ * What this event will cost in the prompt, measured by rendering it.
+ *
+ * The rendered size, not the raw one, because the two differ by orders of magnitude: the prompt
+ * caps a tool result at a few hundred characters, and budgeting against the megabyte it came
+ * from would drop the middle of a turn to save bytes that were never going to be sent.
+ */
 function eventChars(event: ActivityEvent): number {
-  let count = 0;
-  for (const block of event.blocks) {
-    count += (block.text?.length ?? 0) + (block.preview?.length ?? 0) + (block.summary?.length ?? 0);
-    if (block.input) count += JSON.stringify(block.input).length;
-  }
   // Floor, so a page of empty-bodied machinery lines still costs something and cannot make the
   // estimate claim a 10,000-event window fits.
-  return Math.max(count, 32);
-}
-
-interface GitState {
-  block: string;
-  files: SummaryFileChange[];
-}
-
-/**
- * The working tree against HEAD, plus untracked files.
- *
- * `diff HEAD` rather than a bare `diff` because a turn that staged its work would otherwise
- * report nothing changed. Untracked files come from `status --porcelain` and carry status `?`:
- * a newly created file is the single most common thing a turn does, and it is invisible to
- * every form of `git diff`.
- */
-async function readGitState(project: string, runCommand: CommandRunner): Promise<GitState> {
-  const [numstat, nameStatus, untracked] = await Promise.all([
-    runCommand([GIT_BINARY, "-C", project, "diff", "HEAD", "--numstat"]),
-    runCommand([GIT_BINARY, "-C", project, "diff", "HEAD", "--name-status"]),
-    runCommand([GIT_BINARY, "-C", project, "ls-files", "--others", "--exclude-standard"]),
-  ]);
-
-  const statusByPath = new Map<string, string>();
-  for (const line of nameStatus.split("\n")) {
-    const [status, ...rest] = line.split("\t");
-    const path = rest[rest.length - 1];
-    if (status && path) statusByPath.set(path, status);
-  }
-
-  const files: SummaryFileChange[] = [];
-  for (const line of numstat.split("\n")) {
-    const [added, removed, ...rest] = line.split("\t");
-    const path = rest[rest.length - 1];
-    if (!path || added === undefined || removed === undefined) continue;
-    files.push({
-      path,
-      status: statusByPath.get(path) ?? "M",
-      // `-` is git's marker for a binary file, where a line count is not defined.
-      added: added === "-" ? 0 : Number(added) || 0,
-      removed: removed === "-" ? 0 : Number(removed) || 0,
-    });
-  }
-  for (const path of untracked.split("\n")) {
-    if (!path.trim()) continue;
-    files.push({ path: path.trim(), status: "?", added: 0, removed: 0 });
-  }
-
-  if (files.length === 0) return { block: "", files };
-  const rendered = files
-    .map((file) => `${file.status}\t+${file.added}\t-${file.removed}\t${file.path}`)
-    .join("\n");
-  return { block: `Working tree vs HEAD (status, added, removed, path):\n${rendered}`, files };
+  return Math.max(renderEvent(event).length, 32);
 }

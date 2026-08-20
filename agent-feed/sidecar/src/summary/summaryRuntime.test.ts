@@ -21,12 +21,10 @@ import type { TurnWindow } from "./turnWindow.ts";
 /** `config` is `as const` for readers, not frozen. Tests drive the two flags it gates on. */
 const mutable = config as unknown as {
   summaryEnabled: boolean;
-  summaryToolCallBudget: number;
   summaryTimeoutMs: number;
 };
 const original = {
   summaryEnabled: mutable.summaryEnabled,
-  summaryToolCallBudget: mutable.summaryToolCallBudget,
   summaryTimeoutMs: mutable.summaryTimeoutMs,
 };
 mutable.summaryEnabled = true;
@@ -38,8 +36,7 @@ afterEach(() => {
 const window: TurnWindow = {
   events: [],
   coverage: { fromEventIndex: 4, toEventIndex: 9, mode: "nice", truncated: false },
-  gitBlock: "M\t+1\t-0\tsrc/a.ts",
-  filesTouched: [{ path: "src/a.ts", status: "M", added: 1, removed: 0 }],
+  filesTouched: [{ path: "src/a.ts", action: "edited", edits: 1, added: 1, removed: 0 }],
 };
 
 const goodReply = '{"headline":"h","narrative":"n","risks":["r"]}';
@@ -62,7 +59,6 @@ function fakeSession(overrides: Partial<SummarySession> & { reply?: string | nul
   const prompts: string[] = [];
   let aborted = 0;
   const session: SummarySession = {
-    activeToolNames: () => [...SUMMARY_TOOLS],
     async prompt(text) {
       prompts.push(text);
       for (const listener of listeners) listener({ type: "agent_end" });
@@ -126,30 +122,6 @@ test("a silent run raises rather than returning an empty summary", async () => {
   await expect(runner.run({ project: "/p", window, runState: "idle" })).rejects.toThrow(/no reply/);
 });
 
-test("exceeding the tool-call budget aborts the session and fails the run", async () => {
-  mutable.summaryToolCallBudget = 2;
-  const fake = fakeSession();
-  fake.session.prompt = async () => {
-    for (let i = 0; i < 5; i += 1) fake.emit("tool_execution_start");
-  };
-  const runner = createSummaryRunner(async () => fake.session);
-  await expect(runner.run({ project: "/p", window, runState: "idle" }))
-    .rejects.toThrow(/tool-call budget/);
-  // Aborted once, not once per call over the line.
-  expect(fake.abortCount()).toBe(1);
-});
-
-test("a run inside the budget does not abort", async () => {
-  mutable.summaryToolCallBudget = 5;
-  const fake = fakeSession();
-  fake.session.prompt = async () => {
-    for (let i = 0; i < 5; i += 1) fake.emit("tool_execution_start");
-  };
-  const runner = createSummaryRunner(async () => fake.session);
-  await runner.run({ project: "/p", window, runState: "idle" });
-  expect(fake.abortCount()).toBe(0);
-});
-
 test("a session that never answers times out and aborts", async () => {
   mutable.summaryTimeoutMs = 5_000;
   const fake = fakeSession();
@@ -159,73 +131,6 @@ test("a session that never answers times out and aborts", async () => {
     .rejects.toThrow(/did not answer within/);
   expect(fake.abortCount()).toBe(1);
 }, 20_000);
-
-test("the digest carries what the run thought and looked at, in order", async () => {
-  const fake = fakeSession();
-  fake.session.prompt = async () => {
-    fake.emit({
-      type: "message_update",
-      assistantMessageEvent: { type: "thinking_end", [BLOCK_FIELD]: "  Read the runtime first.  " },
-    });
-    fake.emit({
-      type: "tool_execution_start",
-      toolCallId: "c1",
-      toolName: "read",
-      args: { path: "src/a.ts", offset: 1, limit: 200 },
-    });
-    fake.emit({
-      type: "tool_execution_start",
-      toolCallId: "c2",
-      toolName: "grep",
-      args: { pattern: "getAllTools", glob: "*.ts", path: "src" },
-    });
-  };
-  const runner = createSummaryRunner(async () => fake.session);
-
-  const result = await runner.run({ project: "/p", window, runState: "idle" });
-
-  expect(result.steps).toEqual([
-    { kind: "thinking", text: "Read the runtime first." },
-    // The offset and limit are dropped: a viewer wants the file, not how much of it was read.
-    { kind: "tool", name: "read", target: "src/a.ts", failed: false },
-    { kind: "tool", name: "grep", target: "getAllTools *.ts in src", failed: false },
-  ]);
-});
-
-test("a path inside the project is shown relative to it, one outside is not", async () => {
-  const fake = fakeSession();
-  fake.session.prompt = async () => {
-    // What the model actually sends: Pi's read tool takes absolute paths, so left alone the
-    // trace reads as a column of /Users/... noise beside a file list that is repo-relative.
-    fake.emit({ type: "tool_execution_start", toolName: "read", args: { path: "/p/src/a.ts" } });
-    fake.emit({ type: "tool_execution_start", toolName: "read", args: { path: "/etc/hosts" } });
-    fake.emit({ type: "tool_execution_start", toolName: "ls", args: { path: "/p" } });
-  };
-  const runner = createSummaryRunner(async () => fake.session);
-
-  const result = await runner.run({ project: "/p", window, runState: "idle" });
-
-  expect(result.steps.map((step) => (step as { target: string }).target))
-    .toEqual(["src/a.ts", "/etc/hosts", "."]);
-});
-
-test("a lookup that failed says so, and the ones around it do not", async () => {
-  const fake = fakeSession();
-  fake.session.prompt = async () => {
-    fake.emit({ type: "tool_execution_start", toolCallId: "c1", toolName: "read", args: { path: "gone.ts" } });
-    fake.emit({ type: "tool_execution_start", toolCallId: "c2", toolName: "ls", args: { path: "src" } });
-    fake.emit({ type: "tool_execution_end", toolCallId: "c1", toolName: "read", isError: true });
-    fake.emit({ type: "tool_execution_end", toolCallId: "c2", toolName: "ls", isError: false });
-  };
-  const runner = createSummaryRunner(async () => fake.session);
-
-  const result = await runner.run({ project: "/p", window, runState: "idle" });
-
-  expect(result.steps).toEqual([
-    { kind: "tool", name: "read", target: "gone.ts", failed: true },
-    { kind: "tool", name: "ls", target: "src", failed: false },
-  ]);
-});
 
 test("a long reasoning block is cut with a mark, not silently", async () => {
   const fake = fakeSession();
@@ -245,10 +150,7 @@ test("a long reasoning block is cut with a mark, not silently", async () => {
 
   const result = await runner.run({ project: "/p", window, runState: "idle" });
 
-  expect(result.steps).toHaveLength(1);
-  const [thought] = result.steps;
-  expect(thought).toMatchObject({ kind: "thinking" });
-  expect((thought as { text: string }).text).toBe(`${"x".repeat(2_000)}…`);
+  expect(result.reasoning).toEqual([`${"x".repeat(2_000)}…`]);
 });
 
 test("the run is reported as it happens, not only when it finishes", async () => {
@@ -266,8 +168,6 @@ test("the run is reported as it happens, not only when it finishes", async () =>
       type: "message_update",
       assistantMessageEvent: { type: "thinking_end", [BLOCK_FIELD]: "Read the runtime." },
     });
-    fake.emit({ type: "tool_execution_start", toolCallId: "c1", toolName: "read", args: { path: "src/a.ts" } });
-    fake.emit({ type: "tool_execution_end", toolCallId: "c1", toolName: "read", isError: false });
   };
   const messages: SummaryStreamMessage[] = [];
   const runner = createSummaryRunner(async () => fake.session);
@@ -282,12 +182,11 @@ test("the run is reported as it happens, not only when it finishes", async () =>
   expect(messages).toEqual([
     // The two token-sized deltas coalesce, and the tail is superseded by the block that
     // completes it rather than sent twice.
-    { type: "step", step: { kind: "thinking", text: "Read the runtime." } },
-    { type: "step", step: { kind: "tool", name: "read", target: "src/a.ts", failed: false } },
+    { type: "reasoning", text: "Read the runtime." },
   ]);
   // Whoever watched the run and whoever only reads the artifact see the same thing.
-  expect(result.steps).toEqual(
-    messages.filter((message) => message.type === "step").map((message) => message.step),
+  expect(result.reasoning).toEqual(
+    messages.filter((message) => message.type === "reasoning").map((message) => message.text),
   );
 });
 
@@ -301,7 +200,10 @@ test("reasoning is sent by the sentence, not by the token", async () => {
         assistantMessageEvent: { type: "thinking_delta", [DELTA_FIELD]: "word " },
       });
     }
-    fake.emit({ type: "tool_execution_start", toolName: "ls", args: { path: "." } });
+    fake.emit({
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_end", [BLOCK_FIELD]: "word ".repeat(400).trim() },
+    });
   };
   const messages: SummaryStreamMessage[] = [];
   const runner = createSummaryRunner(async () => fake.session);
@@ -317,32 +219,8 @@ test("reasoning is sent by the sentence, not by the token", async () => {
   expect(deltas.length).toBeLessThan(20);
   // Nothing is lost by coalescing: 600 tokens, capped at 2,000 characters, all present.
   expect(deltas.map((message) => message.text).join("")).toBe("word ".repeat(400));
-  // And the lookup still lands after the reasoning that led to it, not before.
-  expect(messages.at(-1)).toEqual({
-    type: "step",
-    step: { kind: "tool", name: "ls", target: ".", failed: false },
-  });
-});
-
-test("a tool step is sent once its outcome is known, so a row never turns red after the fact", async () => {
-  const fake = fakeSession();
-  fake.session.prompt = async () => {
-    fake.emit({ type: "tool_execution_start", toolCallId: "c1", toolName: "read", args: { path: "gone.ts" } });
-    fake.emit({ type: "tool_execution_end", toolCallId: "c1", toolName: "read", isError: true });
-  };
-  const messages: SummaryStreamMessage[] = [];
-  const runner = createSummaryRunner(async () => fake.session);
-
-  await runner.run({
-    project: "/p",
-    window,
-    runState: "idle",
-    onMessage: (message) => messages.push(message),
-  });
-
-  expect(messages).toEqual([
-    { type: "step", step: { kind: "tool", name: "read", target: "gone.ts", failed: true } },
-  ]);
+  // And the assembled block still lands last, superseding what the deltas built.
+  expect(messages.at(-1)).toEqual({ type: "reasoning", text: "word ".repeat(400).trim() });
 });
 
 test("the deltas stop where the recorded block is cut, so live and final agree", async () => {
@@ -378,23 +256,23 @@ test("the deltas stop where the recorded block is cut, so live and final agree",
   // run turned 4,450 characters into 918 messages and 918 React updates, and the panel stopped
   // repainting part-way through.
   expect(deltas.length).toBeLessThanOrEqual(2_000 / 200);
-  expect((result.steps[0] as { text: string }).text).toBe(`${"x".repeat(2_000)}…`);
+  expect(result.reasoning[0]).toBe(`${"x".repeat(2_000)}…`);
 });
 
-test("a run that used no tools and showed no reasoning reports no steps", async () => {
+test("a run whose reasoning was not visible reports none, rather than inventing it", async () => {
   const runner = createSummaryRunner(async () => fakeSession().session);
-  expect((await runner.run({ project: "/p", window, runState: "idle" })).steps).toEqual([]);
+  expect((await runner.run({ project: "/p", window, runState: "idle" })).reasoning).toEqual([]);
 });
 
 /**
  * The security claim, checked against Pi rather than against our own constant.
  *
  * Offline: building a session resolves a model definition and a tool registry, and calls no
- * model. Without the allowlist Pi reports read/bash/edit/write, so this fails loudly if the
- * `tools` option ever stops being honoured -- which is the failure that would silently hand a
- * bash tool to a model reading attacker-influenced transcript text.
+ * model. Pi's default for a session is read/bash/edit/write, so this fails loudly if the `tools`
+ * option ever stops being honoured -- which is the failure that would hand a bash tool to a
+ * model whose entire input is transcript text an attacker can shape.
  */
-test("Pi honours the read-only allowlist", async () => {
+test("Pi honours an empty tool set", async () => {
   const credentials = new InMemoryCredentialStore();
   await credentials.modify(config.summaryProvider, async () => ({ type: "api_key", key: "not-used-offline" }));
   const modelRuntime = await ModelRuntime.create({ credentials, allowModelNetwork: false });
@@ -408,9 +286,5 @@ test("Pi honours the read-only allowlist", async () => {
     model: model!,
     tools: [...SUMMARY_TOOLS],
   });
-  const names = restricted.session.getAllTools().map((tool) => tool.name).sort();
-  expect(names).toEqual([...SUMMARY_TOOLS].sort());
-  expect(names).not.toContain("bash");
-  expect(names).not.toContain("write");
-  expect(names).not.toContain("edit");
+  expect(restricted.session.getAllTools().map((tool) => tool.name)).toEqual([]);
 }, 60_000);
