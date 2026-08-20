@@ -13,7 +13,7 @@ const enabled: SidecarConfig = {
 function digest(headline: string): SummaryResult {
   return {
     phase: "final", generatedAt: 1, model: "m", headline, narrative: "n",
-    filesTouched: [], risks: [],
+    filesTouched: [], risks: [], steps: [],
     coverage: { fromEventIndex: 0, toEventIndex: 1, mode: "nice", truncated: false },
     runState: "idle",
   };

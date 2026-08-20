@@ -49,6 +49,36 @@ export interface SummaryCoverage {
   truncated: boolean;
 }
 
+/**
+ * One thing the summarizer did on its way to the digest.
+ *
+ * A digest is a claim about someone else's work, written by a model, and the only way to judge
+ * it is to see what it looked at. `thinking` is the model's own reasoning text; `tool` is a file
+ * it opened or a search it ran. Both are shown, in the order they happened.
+ *
+ * Bounded without a truncation flag, on purpose: the tool-call budget caps the `tool` entries,
+ * one reasoning block precedes each of them at most, and each block's text is capped where it is
+ * collected. There is no unbounded axis here, so there is nothing for a viewer to be told about.
+ */
+export type SummaryStep = SummaryThought | SummaryToolCall;
+
+export interface SummaryThought {
+  kind: "thinking";
+  /** Capped at collection. Ends with an ellipsis when the model's block ran longer. */
+  text: string;
+}
+
+export interface SummaryToolCall {
+  kind: "tool";
+  /** One of the read-only four: read, grep, find, ls. */
+  name: string;
+  /** What it was pointed at, as `pattern in path`. Empty when the call carried neither. */
+  target: string;
+  /** The tool reported an error. A summarizer that read a file that is not there is worth
+   *  seeing, because it explains a digest that guessed. */
+  failed: boolean;
+}
+
 export interface SummaryResult {
   phase: SummaryPhase;
   /** Epoch ms the digest was produced, not the timestamp of any event in it. */
@@ -61,6 +91,9 @@ export interface SummaryResult {
   filesTouched: SummaryFileChange[];
   /** What the summarizer thinks is unfinished or wrong. Empty is a real answer. */
   risks: string[];
+  /** How it got there, in order. Empty when the model answered from the prompt alone and its
+   *  reasoning was not visible, which a non-reasoning model does. */
+  steps: SummaryStep[];
   coverage: SummaryCoverage;
   /** The watched session's run state at the moment the digest was produced. */
   runState: AgentRunState;

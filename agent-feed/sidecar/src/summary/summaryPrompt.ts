@@ -7,6 +7,7 @@ import type {
   SummaryFileChange,
   SummaryPhase,
   SummaryResult,
+  SummaryStep,
 } from "@agentdesk/agent-feed-wire";
 import type { ActivityEvent } from "../transcripts/sources/transcriptTypes.ts";
 
@@ -177,6 +178,9 @@ function extractJsonObject(reply: string): string | null {
 /** Assembles the wire result from the model's three fields and the facts we already knew. */
 export function composeSummaryResult(options: {
   payload: SummaryPayload;
+  /** Observed from the session's events, not asked of the model. A model that narrated its own
+   *  tool calls would narrate ones it did not make. */
+  steps: SummaryStep[];
   phase: SummaryPhase;
   model: string;
   filesTouched: SummaryFileChange[];
@@ -194,6 +198,7 @@ export function composeSummaryResult(options: {
     // because a model that lists files invents one eventually and this list is checkable.
     filesTouched: options.filesTouched,
     risks: options.payload.risks,
+    steps: options.steps,
     coverage: options.coverage,
     runState: options.runState,
   };

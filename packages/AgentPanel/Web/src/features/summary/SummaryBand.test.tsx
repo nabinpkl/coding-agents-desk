@@ -13,6 +13,10 @@ function digest(overrides: Partial<SummaryResult> = {}): SummaryResult {
     narrative: "It restricted the tool set and added a test.",
     filesTouched: [{ path: "src/summary/summaryRuntime.ts", status: "M", added: 12, removed: 3 }],
     risks: ["No test covers the budget abort path."],
+    steps: [
+      { kind: "thinking", text: "The turn names summaryRuntime.ts, so read that first." },
+      { kind: "tool", name: "read", target: "src/summary/summaryRuntime.ts", failed: false },
+    ],
     coverage: { fromEventIndex: 40, toEventIndex: 47, mode: "nice", truncated: false },
     runState: "idle",
     ...overrides,
@@ -74,6 +78,44 @@ describe("the summary band", () => {
     expect(screen.queryByText("It restricted the tool set and added a test.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { expanded: false }));
     expect(screen.getByText("It restricted the tool set and added a test.")).toBeTruthy();
+  });
+
+  it("keeps what it read out of the way until asked, then shows it in order", () => {
+    render(<SummaryBand state={{ kind: "ready", result: digest() }} model={null} onDismiss={() => {}} />);
+    // The digest is the answer; the receipt for it is one click away.
+    expect(screen.queryByText("The turn names summaryRuntime.ts, so read that first.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /how it read the turn/ }));
+
+    expect(screen.getByText("The turn names summaryRuntime.ts, so read that first.")).toBeTruthy();
+    expect(screen.getByText("read")).toBeTruthy();
+  });
+
+  it("counts the lookups, not the reasoning, on the closed disclosure", () => {
+    render(<SummaryBand state={{ kind: "ready", result: digest() }} model={null} onDismiss={() => {}} />);
+    expect(screen.getByRole("button", { name: /how it read the turn · 1 lookup$/ })).toBeTruthy();
+  });
+
+  it("says a lookup failed rather than showing it as an ordinary read", () => {
+    render(
+      <SummaryBand
+        state={{
+          kind: "ready",
+          result: digest({ steps: [{ kind: "tool", name: "read", target: "gone.ts", failed: true }] }),
+        }}
+        model={null}
+        onDismiss={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /how it read the turn/ }));
+    expect(screen.getByText("failed")).toBeTruthy();
+  });
+
+  it("offers no disclosure for a run that recorded nothing", () => {
+    render(
+      <SummaryBand state={{ kind: "ready", result: digest({ steps: [] }) }} model={null} onDismiss={() => {}} />,
+    );
+    expect(screen.queryByText(/how it read the turn/)).toBeNull();
   });
 
   it("reports a failure as an alert rather than an empty band", () => {

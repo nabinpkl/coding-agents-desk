@@ -178,6 +178,10 @@ describe("the summary contract", () => {
     expect(result.filesTouched[0]).toMatchObject({ path: expect.any(String), status: expect.any(String) });
     expect(result.coverage.mode).toBe("nice");
     expect(["running", "final"]).toContain(result.phase);
+    // The band renders the trace as a discriminated union; a step that is neither kind would
+    // render as nothing at all.
+    expect(result.steps.map((step) => step.kind)).toEqual(["thinking", "tool", "tool", "tool"]);
+    expect(result.steps.filter((step) => step.kind === "tool" && step.failed)).toHaveLength(1);
   });
 
   it("surfaces the sidecar's error code rather than a generic failure", async () => {

@@ -71,6 +71,7 @@ function result(headline: string): SummaryResult {
     narrative: "n",
     filesTouched: [],
     risks: [],
+    steps: [{ kind: "tool", name: "read", target: "src/a.ts", failed: false }],
     coverage: { fromEventIndex: 0, toEventIndex: 1, mode: "nice", truncated: false },
     runState: "idle",
   };

@@ -12,6 +12,7 @@ import {
   SUMMARY_TOOLS,
   SummaryUnconfiguredError,
   type SummarySession,
+  type SummarySessionEvent,
 } from "./summaryRuntime.ts";
 import type { TurnWindow } from "./turnWindow.ts";
 
@@ -43,7 +44,7 @@ const goodReply = '{"headline":"h","narrative":"n","risks":["r"]}';
 
 /** A session that answers with a fixed reply and records what it was asked. */
 function fakeSession(overrides: Partial<SummarySession> & { reply?: string | null } = {}) {
-  const listeners: Array<(event: { type: string }) => void> = [];
+  const listeners: Array<(event: SummarySessionEvent) => void> = [];
   const prompts: string[] = [];
   let aborted = 0;
   const session: SummarySession = {
@@ -65,7 +66,9 @@ function fakeSession(overrides: Partial<SummarySession> & { reply?: string | nul
   return {
     session,
     prompts,
-    emit: (type: string) => listeners.forEach((listener) => listener({ type })),
+    emit: (event: SummarySessionEvent | string) =>
+      listeners.forEach((listener) =>
+        listener(typeof event === "string" ? { type: event } : event)),
     abortCount: () => aborted,
   };
 }
@@ -142,6 +145,102 @@ test("a session that never answers times out and aborts", async () => {
     .rejects.toThrow(/did not answer within/);
   expect(fake.abortCount()).toBe(1);
 }, 20_000);
+
+test("the digest carries what the run thought and looked at, in order", async () => {
+  const fake = fakeSession();
+  fake.session.prompt = async () => {
+    fake.emit({
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_end", content: "  Read the runtime first.  " },
+    });
+    fake.emit({
+      type: "tool_execution_start",
+      toolCallId: "c1",
+      toolName: "read",
+      args: { path: "src/a.ts", offset: 1, limit: 200 },
+    });
+    fake.emit({
+      type: "tool_execution_start",
+      toolCallId: "c2",
+      toolName: "grep",
+      args: { pattern: "getAllTools", glob: "*.ts", path: "src" },
+    });
+  };
+  const runner = createSummaryRunner(async () => fake.session);
+
+  const result = await runner.run({ project: "/p", window, runState: "idle" });
+
+  expect(result.steps).toEqual([
+    { kind: "thinking", text: "Read the runtime first." },
+    // The offset and limit are dropped: a viewer wants the file, not how much of it was read.
+    { kind: "tool", name: "read", target: "src/a.ts", failed: false },
+    { kind: "tool", name: "grep", target: "getAllTools *.ts in src", failed: false },
+  ]);
+});
+
+test("a path inside the project is shown relative to it, one outside is not", async () => {
+  const fake = fakeSession();
+  fake.session.prompt = async () => {
+    // What the model actually sends: Pi's read tool takes absolute paths, so left alone the
+    // trace reads as a column of /Users/... noise beside a file list that is repo-relative.
+    fake.emit({ type: "tool_execution_start", toolName: "read", args: { path: "/p/src/a.ts" } });
+    fake.emit({ type: "tool_execution_start", toolName: "read", args: { path: "/etc/hosts" } });
+    fake.emit({ type: "tool_execution_start", toolName: "ls", args: { path: "/p" } });
+  };
+  const runner = createSummaryRunner(async () => fake.session);
+
+  const result = await runner.run({ project: "/p", window, runState: "idle" });
+
+  expect(result.steps.map((step) => (step as { target: string }).target))
+    .toEqual(["src/a.ts", "/etc/hosts", "."]);
+});
+
+test("a lookup that failed says so, and the ones around it do not", async () => {
+  const fake = fakeSession();
+  fake.session.prompt = async () => {
+    fake.emit({ type: "tool_execution_start", toolCallId: "c1", toolName: "read", args: { path: "gone.ts" } });
+    fake.emit({ type: "tool_execution_start", toolCallId: "c2", toolName: "ls", args: { path: "src" } });
+    fake.emit({ type: "tool_execution_end", toolCallId: "c1", toolName: "read", isError: true });
+    fake.emit({ type: "tool_execution_end", toolCallId: "c2", toolName: "ls", isError: false });
+  };
+  const runner = createSummaryRunner(async () => fake.session);
+
+  const result = await runner.run({ project: "/p", window, runState: "idle" });
+
+  expect(result.steps).toEqual([
+    { kind: "tool", name: "read", target: "gone.ts", failed: true },
+    { kind: "tool", name: "ls", target: "src", failed: false },
+  ]);
+});
+
+test("a long reasoning block is cut with a mark, not silently", async () => {
+  const fake = fakeSession();
+  fake.session.prompt = async () => {
+    fake.emit({
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_end", content: "x".repeat(5_000) },
+    });
+    // Deltas are noise: only the assembled block is recorded, or every reasoning token would
+    // arrive as its own step.
+    fake.emit({
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_delta", content: "ignored" },
+    });
+  };
+  const runner = createSummaryRunner(async () => fake.session);
+
+  const result = await runner.run({ project: "/p", window, runState: "idle" });
+
+  expect(result.steps).toHaveLength(1);
+  const [thought] = result.steps;
+  expect(thought).toMatchObject({ kind: "thinking" });
+  expect((thought as { text: string }).text).toBe(`${"x".repeat(2_000)}…`);
+});
+
+test("a run that used no tools and showed no reasoning reports no steps", async () => {
+  const runner = createSummaryRunner(async () => fakeSession().session);
+  expect((await runner.run({ project: "/p", window, runState: "idle" })).steps).toEqual([]);
+});
 
 /**
  * The security claim, checked against Pi rather than against our own constant.

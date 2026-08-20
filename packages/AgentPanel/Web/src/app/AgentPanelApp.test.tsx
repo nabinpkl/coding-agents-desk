@@ -1945,6 +1945,7 @@ describe("the turn summarizer", () => {
         narrative: "It moved the retry decision into a pure function.",
         filesTouched: [{ path: "client/SessionDialPolicy.swift", status: "A", added: 40, removed: 0 }],
         risks: [],
+        steps: [{ kind: "tool", name: "read", target: "client/SessionDialPolicy.swift", failed: false }],
         coverage: { fromEventIndex: 2, toEventIndex: 9, mode: "nice", truncated: false },
         runState: "idle",
       }),

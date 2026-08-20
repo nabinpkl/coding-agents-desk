@@ -31,6 +31,9 @@ export type {
   SummaryFileChange,
   SummaryPhase,
   SummaryResult,
+  SummaryStep,
+  SummaryThought,
+  SummaryToolCall,
 } from "./summary.ts";
 
 export type {

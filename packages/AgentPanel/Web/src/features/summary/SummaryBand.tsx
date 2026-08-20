@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
-import type { SummaryResult } from "@agentdesk/agent-feed-wire";
+import type { SummaryResult, SummaryStep } from "@agentdesk/agent-feed-wire";
 import type { SummaryState } from "./useSummary";
 
 /**
@@ -27,7 +27,11 @@ export function SummaryBand({
   return (
     <section
       aria-label="Turn summary"
-      className="shrink-0 border-t border-border bg-card px-3 py-2 text-(length:--agent-panel-fs-sidebar-body,15px)"
+      // Capped and scrolled inside itself. Measured on a real digest: thirteen changed files
+      // plus risks came to 731px against a 720px pane, so the band pushed the transcript it was
+      // describing entirely off screen. It is a note about the thread, never a replacement for
+      // it, and the trace below only makes a long digest longer.
+      className="max-h-[45vh] shrink-0 overflow-y-auto border-t border-border bg-card px-3 py-2 text-(length:--agent-panel-fs-sidebar-body,15px)"
     >
       {state.kind === "pending" ? (
         <p className="text-muted-foreground" aria-live="polite">
@@ -112,6 +116,8 @@ function Digest({
             </ul>
           ) : null}
 
+          <StepList steps={result.steps} />
+
           {/* Provenance, not decoration: a digest is only as trustworthy as what wrote it, and
               a truncated window is a claim about coverage the viewer has to be able to see. */}
           <p className="text-xs text-muted-foreground">
@@ -120,6 +126,62 @@ function Digest({
             {result.coverage.truncated ? " · window truncated, the middle of this turn was not read" : ""}
           </p>
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * What the summarizer read and thought, under a disclosure.
+ *
+ * Collapsed by default and deliberately below the digest: the digest is the answer, and this is
+ * the receipt for it. It is here at all because a digest is a claim about someone else's work
+ * written by a model -- "it opened these three files" is what makes the claim checkable, and a
+ * summarizer that read nothing is worth catching.
+ */
+function StepList({ steps }: { steps: SummaryStep[] }) {
+  const [open, setOpen] = useState(false);
+  if (steps.length === 0) return null;
+
+  const tools = steps.filter((step) => step.kind === "tool").length;
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        onClick={() => setOpen((shown) => !shown)}
+        aria-expanded={open}
+        className="flex w-fit cursor-pointer items-center gap-1 rounded text-xs text-muted-foreground transition-colors hover:text-foreground active:text-foreground/80 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      >
+        {open
+          ? <ChevronDown className="size-3.5 shrink-0" aria-hidden />
+          : <ChevronRight className="size-3.5 shrink-0" aria-hidden />}
+        how it read the turn · {tools} {tools === 1 ? "lookup" : "lookups"}
+      </button>
+
+      {open ? (
+        <ol className="flex flex-col gap-1 border-l border-border pl-2.5">
+          {steps.map((step, index) => (
+            <li key={index}>
+              {step.kind === "thinking" ? (
+                <p className="whitespace-pre-wrap text-xs text-muted-foreground italic">
+                  {step.text}
+                </p>
+              ) : (
+                <p
+                  className={`flex gap-2 font-mono text-xs ${
+                    step.failed ? "text-destructive" : "text-muted-foreground"
+                  }`}
+                >
+                  <span className="shrink-0 text-foreground">{step.name}</span>
+                  <span className="min-w-0 break-all">{step.target}</span>
+                  {/* Said, not styled away: a lookup that failed explains a digest that
+                      guessed, which is the reason to keep reading. */}
+                  {step.failed ? <span className="shrink-0">failed</span> : null}
+                </p>
+              )}
+            </li>
+          ))}
+        </ol>
       ) : null}
     </div>
   );
