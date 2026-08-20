@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@testing-library/react";
-import type { SidecarConfig, SummaryResult } from "@agentdesk/agent-feed-wire";
+import type { SidecarConfig, SummaryResult, SummaryStreamMessage } from "@agentdesk/agent-feed-wire";
 import type { SessionAddress } from "../activity-feed/data-source/SidecarDataSource";
 import { useSummary } from "./useSummary";
 
@@ -19,6 +19,31 @@ function digest(headline: string): SummaryResult {
   };
 }
 
+/**
+ * A summarizer stream the test drives by hand, and can ask whether the hook closed.
+ *
+ * Closing matters enough to be observable here: this stream is finite and expensive, and a
+ * subscription left open on an ended one is a subscription `EventSource` reopens, which buys
+ * another digest.
+ */
+function fakeStream() {
+  let deliver: ((message: SummaryStreamMessage) => void) | null = null;
+  let fail: ((reason: string) => void) | null = null;
+  let open = 0;
+  const summarizeTurn = vi.fn().mockImplementation((_session, handlers) => {
+    deliver = handlers.onMessage;
+    fail = handlers.onError;
+    open += 1;
+    return () => { open -= 1; };
+  });
+  return {
+    feed: { fetchConfig: vi.fn().mockResolvedValue(enabled), summarizeTurn },
+    send: (message: SummaryStreamMessage) => act(() => deliver!(message)),
+    fail: (reason: string) => act(() => fail!(reason)),
+    openStreams: () => open,
+  };
+}
+
 /** Renders the hook's state as text, which is all these tests need to read. */
 function Probe({ feed, session }: { feed: Parameters<typeof useSummary>[0]; session: SessionAddress | null }) {
   const summary = useSummary(feed, session);
@@ -27,6 +52,12 @@ function Probe({ feed, session }: { feed: Parameters<typeof useSummary>[0]; sess
       <span data-testid="available">{String(summary.available)}</span>
       <span data-testid="model">{summary.model ?? "-"}</span>
       <span data-testid="kind">{summary.state.kind}</span>
+      <span data-testid="steps">
+        {summary.state.kind === "pending" ? summary.state.steps.length : "-"}
+      </span>
+      <span data-testid="thought">
+        {summary.state.kind === "pending" ? summary.state.thought : "-"}
+      </span>
       <span data-testid="headline">
         {summary.state.kind === "ready" ? summary.state.result.headline : "-"}
       </span>
@@ -73,77 +104,129 @@ describe("useSummary", () => {
     expect(screen.getByTestId("kind").textContent).toBe("idle");
   });
 
-  it("goes pending, then ready", async () => {
-    const feed = {
-      fetchConfig: vi.fn().mockResolvedValue(enabled),
-      summarizeTurn: vi.fn().mockResolvedValue(digest("done")),
-    };
-    render(<Probe feed={feed} session={S1} />);
+  it("accumulates reasoning as it arrives, then lets the finished block replace it", async () => {
+    const stream = fakeStream();
+    render(<Probe feed={stream.feed} session={S1} />);
     await flush();
     act(() => { screen.getByText("go").click(); });
     expect(screen.getByTestId("kind").textContent).toBe("pending");
-    await flush();
-    expect(screen.getByTestId("kind").textContent).toBe("ready");
-    expect(screen.getByTestId("headline").textContent).toBe("done");
+
+    await stream.send({ type: "thinking-delta", text: "Read " });
+    await stream.send({ type: "thinking-delta", text: "the runtime." });
+    expect(screen.getByTestId("thought").textContent).toBe("Read the runtime.");
+
+    await stream.send({ type: "step", step: { kind: "thinking", text: "Read the runtime." } });
+    // One thought, not two: the partial is cleared by the block that completes it.
+    expect(screen.getByTestId("thought").textContent).toBe("");
+    expect(screen.getByTestId("steps").textContent).toBe("1");
   });
 
-  it("surfaces a failed run as an error state", async () => {
-    const feed = {
-      fetchConfig: vi.fn().mockResolvedValue(enabled),
-      summarizeTurn: vi.fn().mockRejectedValue(new Error("model refused")),
-    };
-    render(<Probe feed={feed} session={S1} />);
+  it("collects the lookups as they land, without disturbing a thought in progress", async () => {
+    const stream = fakeStream();
+    render(<Probe feed={stream.feed} session={S1} />);
     await flush();
     act(() => { screen.getByText("go").click(); });
+
+    await stream.send({ type: "thinking-delta", text: "half a thought" });
+    await stream.send({ type: "step", step: { kind: "tool", name: "read", target: "a.ts", failed: false } });
+    await stream.send({ type: "step", step: { kind: "tool", name: "grep", target: "x", failed: true } });
+
+    expect(screen.getByTestId("steps").textContent).toBe("2");
+    // Only the thought's own completion clears it. A lookup is not what the deltas were
+    // building, and wiping the text on one loses reasoning the viewer was mid-way through.
+    expect(screen.getByTestId("thought").textContent).toBe("half a thought");
+  });
+
+  it("goes ready on the result, and closes the stream behind it", async () => {
+    const stream = fakeStream();
+    render(<Probe feed={stream.feed} session={S1} />);
     await flush();
+    act(() => { screen.getByText("go").click(); });
+    expect(stream.openStreams()).toBe(1);
+
+    await stream.send({ type: "result", result: digest("done") });
+
+    expect(screen.getByTestId("kind").textContent).toBe("ready");
+    expect(screen.getByTestId("headline").textContent).toBe("done");
+    // Finite and expensive: an EventSource left on an ended stream reopens it, and reopening
+    // this one starts another digest.
+    expect(stream.openStreams()).toBe(0);
+  });
+
+  it("surfaces an error message from the stream and closes it", async () => {
+    const stream = fakeStream();
+    render(<Probe feed={stream.feed} session={S1} />);
+    await flush();
+    act(() => { screen.getByText("go").click(); });
+
+    await stream.send({
+      type: "error",
+      error: { code: "summary-failed", message: "model refused", retryable: true },
+    });
+
     expect(screen.getByTestId("kind").textContent).toBe("error");
     expect(screen.getByTestId("message").textContent).toBe("model refused");
+    expect(stream.openStreams()).toBe(0);
+  });
+
+  it("reports a stream that never opened rather than spinning", async () => {
+    const stream = fakeStream();
+    render(<Probe feed={stream.feed} session={S1} />);
+    await flush();
+    act(() => { screen.getByText("go").click(); });
+
+    await stream.fail("sidecar answered 503");
+
+    expect(screen.getByTestId("kind").textContent).toBe("error");
+    expect(screen.getByTestId("message").textContent).toBe("sidecar answered 503");
+    expect(stream.openStreams()).toBe(0);
+  });
+
+  it("does not open a second stream while one is running", async () => {
+    const stream = fakeStream();
+    render(<Probe feed={stream.feed} session={S1} />);
+    await flush();
+    act(() => { screen.getByText("go").click(); });
+    act(() => { screen.getByText("go").click(); });
+    expect(stream.feed.summarizeTurn).toHaveBeenCalledTimes(1);
   });
 
   it("clears the digest when the viewer switches threads", async () => {
-    const feed = {
-      fetchConfig: vi.fn().mockResolvedValue(enabled),
-      summarizeTurn: vi.fn().mockResolvedValue(digest("about s1")),
-    };
-    const { rerender } = render(<Probe feed={feed} session={S1} />);
+    const stream = fakeStream();
+    const { rerender } = render(<Probe feed={stream.feed} session={S1} />);
     await flush();
     act(() => { screen.getByText("go").click(); });
-    await flush();
+    await stream.send({ type: "result", result: digest("about s1") });
     expect(screen.getByTestId("headline").textContent).toBe("about s1");
 
-    rerender(<Probe feed={feed} session={S2} />);
+    rerender(<Probe feed={stream.feed} session={S2} />);
     // The one failure worth designing against: one thread's digest under another thread's title.
     expect(screen.getByTestId("kind").textContent).toBe("idle");
   });
 
-  it("drops an answer that lands after the viewer moved on", async () => {
-    let settle!: (result: SummaryResult) => void;
-    const feed = {
-      fetchConfig: vi.fn().mockResolvedValue(enabled),
-      summarizeTurn: vi.fn().mockImplementation(
-        () => new Promise<SummaryResult>((resolve) => { settle = resolve; }),
-      ),
-    };
-    const { rerender } = render(<Probe feed={feed} session={S1} />);
+  it("abandons a run in progress when the viewer moves on", async () => {
+    const stream = fakeStream();
+    const { rerender } = render(<Probe feed={stream.feed} session={S1} />);
     await flush();
     act(() => { screen.getByText("go").click(); });
-    rerender(<Probe feed={feed} session={S2} />);
-    await act(async () => { settle(digest("late answer for s1")); await Promise.resolve(); });
+    expect(stream.openStreams()).toBe(1);
+
+    rerender(<Probe feed={stream.feed} session={S2} />);
+
+    // The run itself continues on the sidecar and is joinable; only this reader goes, which is
+    // what stops a late answer from landing under the wrong thread's title.
+    expect(stream.openStreams()).toBe(0);
     expect(screen.getByTestId("kind").textContent).toBe("idle");
-    expect(screen.getByTestId("headline").textContent).toBe("-");
   });
 
-  it("dismisses", async () => {
-    const feed = {
-      fetchConfig: vi.fn().mockResolvedValue(enabled),
-      summarizeTurn: vi.fn().mockResolvedValue(digest("done")),
-    };
-    render(<Probe feed={feed} session={S1} />);
+  it("dismisses, closing the stream if one is still open", async () => {
+    const stream = fakeStream();
+    render(<Probe feed={stream.feed} session={S1} />);
     await flush();
     act(() => { screen.getByText("go").click(); });
-    await flush();
     act(() => { screen.getByText("clear").click(); });
     expect(screen.getByTestId("kind").textContent).toBe("idle");
+    expect(stream.openStreams()).toBe(0);
   });
 
   it("does nothing with no thread selected", async () => {

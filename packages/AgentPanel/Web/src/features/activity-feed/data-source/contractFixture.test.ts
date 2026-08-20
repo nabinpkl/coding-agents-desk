@@ -11,6 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import type { SummaryResult, SummaryStreamMessage } from "@agentdesk/agent-feed-wire";
 import fixture from "../../../../../../../agent-feed/wire/contract-fixture.json";
 import { SidecarDataSource } from "./SidecarDataSource";
 import { FakeHttpTransport } from "../transport/FakeHttpTransport";
@@ -161,15 +162,18 @@ describe("the shared wire contract", () => {
 });
 
 describe("the summary contract", () => {
-  it("reads the sidecar's digest into the shape the band renders", async () => {
+  it("reads the sidecar's digest into the shape the band renders", () => {
     const transport = new FakeHttpTransport();
-    transport.responses.set(
-      "POST /api/sessions/pi/s1/summary",
-      { status: 200, body: JSON.stringify(fixture.summaryResult) },
+    const messages: SummaryStreamMessage[] = [];
+    new SidecarDataSource(transport).summarizeTurn(
+      { source: "pi", sessionId: "s1" },
+      { onMessage: (message) => messages.push(message), onError: () => {} },
     );
-    const source = new SidecarDataSource(transport);
-    const result = await source.summarizeTurn({ source: "pi", sessionId: "s1" });
+    transport.deliver("/summary", { type: "result", result: fixture.summaryResult });
 
+    const [message] = messages;
+    expect(message?.type).toBe("result");
+    const result = (message as { result: SummaryResult }).result;
     expect(result).toEqual(fixture.summaryResult);
     // The band reads exactly these; a rename on the sidecar side lands here rather than as an
     // empty panel.
@@ -184,17 +188,42 @@ describe("the summary contract", () => {
     expect(result.steps.filter((step) => step.kind === "tool" && step.failed)).toHaveLength(1);
   });
 
-  it("surfaces the sidecar's error code rather than a generic failure", async () => {
+  it("carries the sidecar's error code down the stream rather than a generic failure", () => {
     const transport = new FakeHttpTransport();
-    transport.responses.set("POST /api/sessions/pi/s1/summary", {
-      status: 503,
-      body: JSON.stringify({
-        error: { code: "summary-unconfigured", message: "no model credential", retryable: false },
-      }),
+    const messages: SummaryStreamMessage[] = [];
+    new SidecarDataSource(transport).summarizeTurn(
+      { source: "pi", sessionId: "s1" },
+      { onMessage: (message) => messages.push(message), onError: () => {} },
+    );
+    // A run can only fail after the response is committed as a 200 event-stream, so the code
+    // travels in the body. The panel branches on it exactly as it did on a status.
+    transport.deliver("/summary", {
+      type: "error",
+      error: { code: "summary-unconfigured", message: "no model credential", retryable: false },
     });
-    const source = new SidecarDataSource(transport);
-    await expect(source.summarizeTurn({ source: "pi", sessionId: "s1" }))
-      .rejects.toMatchObject({ code: "summary-unconfigured", status: 503 });
+
+    expect(messages).toEqual([{
+      type: "error",
+      error: { code: "summary-unconfigured", message: "no model credential", retryable: false },
+    }]);
+  });
+
+  it("streams the thinking and the lookups before the digest", () => {
+    const transport = new FakeHttpTransport();
+    const messages: SummaryStreamMessage[] = [];
+    new SidecarDataSource(transport).summarizeTurn(
+      { source: "pi", sessionId: "s1" },
+      { onMessage: (message) => messages.push(message), onError: () => {} },
+    );
+    transport.deliver("/summary", { type: "thinking-delta", text: "Read " });
+    transport.deliver("/summary", { type: "thinking-delta", text: "the runtime." });
+    transport.deliver("/summary", {
+      type: "step",
+      step: { kind: "tool", name: "read", target: "src/a.ts", failed: false },
+    });
+
+    expect(messages.map((message) => message.type))
+      .toEqual(["thinking-delta", "thinking-delta", "step"]);
   });
 
   it("reads the config body the summarize button gates on", async () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { SummaryResult } from "@agentdesk/agent-feed-wire";
+import type { SummaryResult, SummaryStep } from "@agentdesk/agent-feed-wire";
 import type {
   SessionAddress,
   SidecarDataSource,
@@ -9,7 +9,8 @@ import type {
 
 export type SummaryState =
   | { kind: "idle" }
-  | { kind: "pending" }
+  /** The run, as far as it has got. `thought` is the reasoning block still arriving. */
+  | { kind: "pending"; steps: SummaryStep[]; thought: string }
   | { kind: "ready"; result: SummaryResult }
   | { kind: "error"; message: string };
 
@@ -24,7 +25,7 @@ export interface SummaryHandle {
 }
 
 /**
- * The Summarize button's whole state.
+ * The Summarize button's whole state, and the stream behind it.
  *
  * Availability is read once per mount from `/api/config` rather than per session: whether a
  * summarizer model is configured is a property of the sidecar, not of the thread on screen.
@@ -40,9 +41,9 @@ export function useSummary(
   const [available, setAvailable] = useState(false);
   const [model, setModel] = useState<string | null>(null);
   const [state, setState] = useState<SummaryState>({ kind: "idle" });
-  // Which session the in-flight request was issued for, so a slow answer that lands after the
-  // viewer moved on is dropped instead of rendered against the wrong thread.
-  const pendingFor = useRef<string | null>(null);
+  // The open stream, so a terminal message can close it and a thread switch can abandon it.
+  // Held in a ref rather than state because closing it is not a render.
+  const stream = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,32 +62,68 @@ export function useSummary(
     };
   }, [feed]);
 
+  const close = useCallback(() => {
+    stream.current?.();
+    stream.current = null;
+  }, []);
+
   const key = session ? `${session.source}/${session.sessionId}` : null;
   useEffect(() => {
-    pendingFor.current = null;
+    close();
     setState({ kind: "idle" });
-  }, [key]);
+  }, [close, key]);
+
+  // A viewer who navigates away mid-run should not leave a stream open behind them. The run
+  // itself continues on the sidecar and is joinable; only this reader goes.
+  useEffect(() => close, [close]);
 
   const summarize = useCallback(() => {
-    if (!session || !key) return;
-    pendingFor.current = key;
-    setState({ kind: "pending" });
-    void feed.summarizeTurn(session).then(
-      (result) => {
-        if (pendingFor.current !== key) return;
-        setState({ kind: "ready", result });
+    if (!session || stream.current) return;
+    setState({ kind: "pending", steps: [], thought: "" });
+    stream.current = feed.summarizeTurn(session, {
+      onMessage: (message) => {
+        switch (message.type) {
+          case "thinking-delta":
+            setState((current) =>
+              current.kind === "pending"
+                ? { ...current, thought: current.thought + message.text }
+                : current);
+            return;
+          case "step":
+            setState((current) =>
+              current.kind === "pending"
+                ? {
+                    kind: "pending",
+                    steps: [...current.steps, message.step],
+                    // A finished thought replaces what its own deltas built, rather than being
+                    // appended beside it: they are the same thought and showing both reads as
+                    // two. A lookup clears nothing -- it is not what the deltas were building.
+                    thought: message.step.kind === "thinking" ? "" : current.thought,
+                  }
+                : current);
+            return;
+          case "result":
+            close();
+            setState({ kind: "ready", result: message.result });
+            return;
+          case "error":
+            close();
+            setState({ kind: "error", message: message.error.message });
+        }
       },
-      (error: unknown) => {
-        if (pendingFor.current !== key) return;
-        setState({ kind: "error", message: error instanceof Error ? error.message : String(error) });
+      // A stream that never opened, or that dropped mid-run. Either way the digest is not
+      // coming, and the band says so rather than spinning until the viewer gives up.
+      onError: (reason) => {
+        close();
+        setState({ kind: "error", message: reason });
       },
-    );
-  }, [feed, key, session]);
+    });
+  }, [close, feed, session]);
 
   const dismiss = useCallback(() => {
-    pendingFor.current = null;
+    close();
     setState({ kind: "idle" });
-  }, []);
+  }, [close]);
 
   return { available, model, state, summarize, dismiss };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import type { SummaryResult, SummaryStep } from "@agentdesk/agent-feed-wire";
 import type { SummaryState } from "./useSummary";
@@ -22,10 +22,24 @@ export function SummaryBand({
   onDismiss: () => void;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const band = useRef<HTMLElement>(null);
+  const pendingLength = state.kind === "pending"
+    ? state.steps.length + state.thought.length
+    : 0;
+
+  // Follows the run while it is running, and only then. The band is short and the newest line is
+  // the one being written, so a viewer watching it should not have to chase it downward; once
+  // the digest lands, the top of it is what they want to read, so this stops.
+  useEffect(() => {
+    if (pendingLength === 0 || !band.current) return;
+    band.current.scrollTop = band.current.scrollHeight;
+  }, [pendingLength]);
+
   if (state.kind === "idle") return null;
 
   return (
     <section
+      ref={band}
       aria-label="Turn summary"
       // Capped and scrolled inside itself. Measured on a real digest: thirteen changed files
       // plus risks came to 731px against a 720px pane, so the band pushed the transcript it was
@@ -34,9 +48,7 @@ export function SummaryBand({
       className="max-h-[45vh] shrink-0 overflow-y-auto border-t border-border bg-card px-3 py-2 text-(length:--agent-panel-fs-sidebar-body,15px)"
     >
       {state.kind === "pending" ? (
-        <p className="text-muted-foreground" aria-live="polite">
-          Reading the turn and the working tree…
-        </p>
+        <RunInProgress steps={state.steps} thought={state.thought} onDismiss={onDismiss} />
       ) : state.kind === "error" ? (
         <div className="flex items-start gap-2">
           <p className="min-w-0 flex-1 text-destructive" role="alert">{state.message}</p>
@@ -132,12 +144,51 @@ function Digest({
 }
 
 /**
+ * The run, while it is still running.
+ *
+ * Open, not under a disclosure, and that is the whole difference from the finished digest: a
+ * viewer looking at this is looking at it BECAUSE the answer is not here yet. Half a minute of
+ * spinner reads as a hang; half a minute of watching a second agent open the files it is about
+ * to describe reads as work.
+ */
+function RunInProgress({
+  steps,
+  thought,
+  onDismiss,
+}: {
+  steps: SummaryStep[];
+  thought: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-start gap-2">
+        <p className="min-w-0 flex-1 text-muted-foreground" aria-live="polite">
+          Reading the turn and the working tree…
+        </p>
+        <DismissButton onDismiss={onDismiss} />
+      </div>
+      {steps.length > 0 || thought ? (
+        <ol className="flex flex-col gap-1 border-l border-border pl-2.5">
+          {steps.map((step, index) => <StepRow key={index} step={step} />)}
+          {/* The reasoning block still arriving. Replaced by its finished `step` rather than
+              kept beside it, so one thought never appears twice. */}
+          {thought ? (
+            <li className="whitespace-pre-wrap text-xs text-muted-foreground italic">{thought}</li>
+          ) : null}
+        </ol>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * What the summarizer read and thought, under a disclosure.
  *
- * Collapsed by default and deliberately below the digest: the digest is the answer, and this is
- * the receipt for it. It is here at all because a digest is a claim about someone else's work
- * written by a model -- "it opened these three files" is what makes the claim checkable, and a
- * summarizer that read nothing is worth catching.
+ * Collapsed by default and deliberately below the digest: once the answer exists, the answer is
+ * what someone reads, and this is the receipt for it. It is here at all because a digest is a
+ * claim about someone else's work written by a model -- "it opened these three files" is what
+ * makes the claim checkable, and a summarizer that read nothing is worth catching.
  */
 function StepList({ steps }: { steps: SummaryStep[] }) {
   const [open, setOpen] = useState(false);
@@ -160,30 +211,32 @@ function StepList({ steps }: { steps: SummaryStep[] }) {
 
       {open ? (
         <ol className="flex flex-col gap-1 border-l border-border pl-2.5">
-          {steps.map((step, index) => (
-            <li key={index}>
-              {step.kind === "thinking" ? (
-                <p className="whitespace-pre-wrap text-xs text-muted-foreground italic">
-                  {step.text}
-                </p>
-              ) : (
-                <p
-                  className={`flex gap-2 font-mono text-xs ${
-                    step.failed ? "text-destructive" : "text-muted-foreground"
-                  }`}
-                >
-                  <span className="shrink-0 text-foreground">{step.name}</span>
-                  <span className="min-w-0 break-all">{step.target}</span>
-                  {/* Said, not styled away: a lookup that failed explains a digest that
-                      guessed, which is the reason to keep reading. */}
-                  {step.failed ? <span className="shrink-0">failed</span> : null}
-                </p>
-              )}
-            </li>
-          ))}
+          {steps.map((step, index) => <StepRow key={index} step={step} />)}
         </ol>
       ) : null}
     </div>
+  );
+}
+
+/** One step, rendered the same whether the run is still going or long finished. */
+function StepRow({ step }: { step: SummaryStep }) {
+  if (step.kind === "thinking") {
+    return (
+      <li className="whitespace-pre-wrap text-xs text-muted-foreground italic">{step.text}</li>
+    );
+  }
+  return (
+    <li
+      className={`flex gap-2 font-mono text-xs ${
+        step.failed ? "text-destructive" : "text-muted-foreground"
+      }`}
+    >
+      <span className="shrink-0 text-foreground">{step.name}</span>
+      <span className="min-w-0 break-all">{step.target}</span>
+      {/* Said, not styled away: a lookup that failed explains a digest that guessed, which is
+          the reason to keep reading. */}
+      {step.failed ? <span className="shrink-0">failed</span> : null}
+    </li>
   );
 }
 

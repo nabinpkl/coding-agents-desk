@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import type { SummaryResult } from "@agentdesk/agent-feed-wire";
+import type { SummaryResult, SummaryStreamMessage } from "@agentdesk/agent-feed-wire";
 import type { AgentBackend, AgentSessionDescriptor } from "../agents/agentBackend.ts";
 import { config } from "../config.ts";
 import type { SummaryRunInput, SummaryRunner } from "../summary/summaryRuntime.ts";
@@ -99,28 +99,69 @@ function routes(runner: SummaryRunner) {
   );
 }
 
-function post(path = "/api/sessions/pi/s1/summary"): [Request, URL] {
+function get(path = "/api/sessions/pi/s1/summary"): [Request, URL] {
   const url = new URL(`http://127.0.0.1${path}`);
-  return [new Request(url.toString(), { method: "POST" }), url];
+  return [new Request(url.toString()), url];
 }
 
-test("a GET is not this route's business", async () => {
+/**
+ * Everything one stream said, in order.
+ *
+ * `response.text()` returns only because the route closes its own stream after the terminal
+ * message. A stream left open would hang this helper, which is the same thing it would do to an
+ * `EventSource` waiting for more.
+ */
+async function collect(response: Response): Promise<SummaryStreamMessage[]> {
+  return (await response.text())
+    .split("\n\n")
+    .map((chunk) => chunk.trim())
+    .filter((chunk) => chunk.startsWith("data: "))
+    .map((chunk) => JSON.parse(chunk.slice("data: ".length)) as SummaryStreamMessage);
+}
+
+function terminal(messages: SummaryStreamMessage[]): SummaryStreamMessage | undefined {
+  return messages.at(-1);
+}
+
+test("a POST is not this route's business", async () => {
   const route = routes(countingRunner());
   const url = new URL("http://127.0.0.1/api/sessions/pi/s1/summary");
-  expect(route(new Request(url.toString()), url, server)).toBeUndefined();
+  expect(route(new Request(url.toString(), { method: "POST" }), url, server)).toBeUndefined();
 });
 
-test("the happy path returns the runner's result", async () => {
+test("the happy path streams the run and ends with the digest", async () => {
   const route = routes(countingRunner());
-  const response = await route(...post(), server)!;
+  const response = await route(...get(), server)!;
   expect(response.status).toBe(200);
-  expect(((await response.json()) as SummaryResult).headline).toBe("run 1");
+  expect(response.headers.get("content-type")).toBe("text/event-stream");
+
+  const messages = await collect(response);
+  expect(terminal(messages)).toEqual({ type: "result", result: result("run 1") });
+});
+
+test("what the run does reaches the stream while it is still running", async () => {
+  const route = routes({
+    async run(input: SummaryRunInput) {
+      input.onMessage?.({ type: "thinking-delta", text: "Read " });
+      input.onMessage?.({ type: "thinking-delta", text: "the runtime." });
+      input.onMessage?.({
+        type: "step",
+        step: { kind: "tool", name: "read", target: "src/a.ts", failed: false },
+      });
+      return result("done");
+    },
+  });
+
+  const messages = await collect(await route(...get(), server)!);
+
+  expect(messages.map((message) => message.type))
+    .toEqual(["thinking-delta", "thinking-delta", "step", "result"]);
 });
 
 test("no credential answers 503 with a code the panel can branch on", async () => {
   mutable.summaryEnabled = false;
   const runner = countingRunner();
-  const response = await routes(runner)(...post(), server)!;
+  const response = await routes(runner)(...get(), server)!;
   expect(response.status).toBe(503);
   expect((await response.json() as { error: { code: string } }).error.code).toBe("summary-unconfigured");
   expect(runner.runs()).toBe(0);
@@ -128,51 +169,90 @@ test("no credential answers 503 with a code the panel can branch on", async () =
 
 test("a session no source claims is 404", async () => {
   const route = routes(countingRunner());
-  const response = await route(...post("/api/sessions/pi/unknown/summary"), server)!;
+  const response = await route(...get("/api/sessions/pi/unknown/summary"), server)!;
   expect(response.status).toBe(404);
 });
 
 test("a starting catalog answers 503 rather than summarizing a partial inventory", async () => {
   const route = routes(countingRunner());
   state.watcherState = "idle";
-  const response = await route(...post(), server)!;
+  const response = await route(...get(), server)!;
   expect(response.status).toBe(503);
   expect((await response.json() as { error: { code: string } }).error.code).toBe("inventory-not-ready");
 });
 
-test("a second press while the first is thinking joins it instead of paying twice", async () => {
+test("a second viewer joins the run instead of paying for a second one", async () => {
   let open!: () => void;
   const gate = new Promise<void>((resolve) => { open = resolve; });
   const runner = countingRunner(gate);
   const route = routes(runner);
-  const first = route(...post(), server)!;
-  const second = route(...post(), server)!;
+  const first = (await route(...get(), server)!) as Response;
+  const second = (await route(...get(), server)!) as Response;
   open();
-  const [a, b] = await Promise.all([first, second]);
+
+  const [a, b] = await Promise.all([collect(first), collect(second)]);
+
   expect(runner.runs()).toBe(1);
-  expect(((await a.json()) as SummaryResult).headline).toBe("run 1");
-  expect(((await b.json()) as SummaryResult).headline).toBe("run 1");
+  expect(terminal(a)).toEqual({ type: "result", result: result("run 1") });
+  expect(terminal(b)).toEqual({ type: "result", result: result("run 1") });
 });
 
-test("pressing again with no new events is served from cache", async () => {
+test("a viewer who opens mid-run is replayed what it has already said", async () => {
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => { open = resolve; });
+  let emit!: (message: SummaryStreamMessage) => void;
+  let running!: () => void;
+  // The run does not begin the instant the stream opens -- the turn window is resolved first --
+  // so the test waits for it rather than racing it.
+  const started = new Promise<void>((resolve) => { running = resolve; });
+  const route = routes({
+    async run(input: SummaryRunInput) {
+      emit = (message) => input.onMessage?.(message);
+      emit({ type: "step", step: { kind: "tool", name: "read", target: "early.ts", failed: false } });
+      running();
+      await gate;
+      return result("done");
+    },
+  });
+
+  const first = (await route(...get(), server)!) as Response;
+  await started;
+  // The phone opening the same thread the Mac is already watching: it should not see a blank
+  // panel just because it arrived second.
+  const late = (await route(...get(), server)!) as Response;
+  emit({ type: "step", step: { kind: "tool", name: "grep", target: "late", failed: false } });
+  open();
+
+  const [a, b] = await Promise.all([collect(first), collect(late)]);
+  expect(a.map((message) => message.type)).toEqual(["step", "step", "result"]);
+  expect(b).toEqual(a);
+});
+
+test("asking again with no new events is served from cache", async () => {
   const runner = countingRunner();
   const route = routes(runner);
-  await route(...post(), server)!;
-  const again = await route(...post(), server)!;
+  await collect(await route(...get(), server)!);
+  const again = await collect(await route(...get(), server)!);
   expect(runner.runs()).toBe(1);
-  expect(((await again.json()) as SummaryResult).headline).toBe("run 1");
+  expect(terminal(again)).toEqual({ type: "result", result: result("run 1") });
 });
 
-test("a failing run answers 502 and is retryable", async () => {
+test("a failing run reports the code in the stream, which itself opened fine", async () => {
   const route = routes({ async run() { throw new Error("model refused"); } });
-  const response = await route(...post(), server)!;
-  expect(response.status).toBe(502);
-  const body = await response.json() as { error: { code: string; message: string; retryable: boolean } };
-  expect(body.error).toMatchObject({ code: "summary-failed", retryable: true });
-  expect(body.error.message).toContain("model refused");
+  const response = await route(...get(), server)!;
+  // 200: by the time a run can fail, the response has been committed as an event stream. The
+  // code the panel branches on is the same either way.
+  expect(response.status).toBe(200);
+
+  const last = terminal(await collect(response));
+  expect(last).toMatchObject({
+    type: "error",
+    error: { code: "summary-failed", retryable: true },
+  });
+  expect((last as { error: { message: string } }).error.message).toContain("model refused");
 });
 
-test("a failed run is not cached, so the next press retries", async () => {
+test("a failed run is not cached, so the next viewer retries", async () => {
   let calls = 0;
   const route = routes({
     async run() {
@@ -181,8 +261,7 @@ test("a failed run is not cached, so the next press retries", async () => {
       return result("second time lucky");
     },
   });
-  expect((await route(...post(), server)!).status).toBe(502);
-  const retry = await route(...post(), server)!;
-  expect(retry.status).toBe(200);
-  expect(((await retry.json()) as SummaryResult).headline).toBe("second time lucky");
+  expect(terminal(await collect(await route(...get(), server)!))).toMatchObject({ type: "error" });
+  const retry = terminal(await collect(await route(...get(), server)!));
+  expect(retry).toEqual({ type: "result", result: result("second time lucky") });
 });

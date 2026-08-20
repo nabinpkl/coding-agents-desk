@@ -32,6 +32,7 @@ export type {
   SummaryPhase,
   SummaryResult,
   SummaryStep,
+  SummaryStreamMessage,
   SummaryThought,
   SummaryToolCall,
 } from "./summary.ts";

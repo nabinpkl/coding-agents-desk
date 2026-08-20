@@ -21,7 +21,12 @@ import {
   createAgentSessionFromServices,
   createAgentSessionServices,
 } from "@earendil-works/pi-coding-agent";
-import type { SummaryPhase, SummaryResult, SummaryStep } from "@agentdesk/agent-feed-wire";
+import type {
+  SummaryPhase,
+  SummaryResult,
+  SummaryStep,
+  SummaryStreamMessage,
+} from "@agentdesk/agent-feed-wire";
 import { config } from "../config.ts";
 import type { AgentRunState } from "@agentdesk/agent-feed-wire";
 import {
@@ -47,6 +52,22 @@ const THINKING_CHARS = 2_000;
 /** Enough to identify what a call was pointed at, short enough to stay one line. */
 const TARGET_CHARS = 200;
 
+/**
+ * How much reasoning accumulates before it is sent.
+ *
+ * Pi emits one event per token. Measured on a real run: 4,450 characters of reasoning arrived as
+ * 918 events, and forwarding each one meant 918 wire messages and 918 React updates over a
+ * transcript-sized tree. The panel stopped repainting part-way through and the run finished with
+ * the viewer still looking at half of it.
+ *
+ * Coalescing by size rather than on a timer keeps this deterministic and needs no cleanup: the
+ * buffer is flushed by the next event of any other kind and again when the run ends, so the tail
+ * of a thought is never held back waiting for a threshold it will not reach. About a sentence at
+ * a time, which is what reads as live anyway -- a single word appearing is not more informative,
+ * it is just more expensive.
+ */
+const DELTA_FLUSH_CHARS = 200;
+
 /** Raised when the feature has no credential. Distinct from a run that failed, because the
  *  route answers 503 for one and 502 for the other. */
 export class SummaryUnconfiguredError extends Error {}
@@ -62,9 +83,13 @@ export interface SummarySessionEvent {
   toolName?: string;
   args?: unknown;
   isError?: boolean;
-  /** Present on `message_update`. Reasoning arrives as deltas and then one `thinking_end`
-   *  carrying the assembled block, which is the one worth recording. */
-  assistantMessageEvent?: { type?: string; content?: unknown };
+  /**
+   * Present on `message_update`. Reasoning arrives as `thinking_delta` events carrying `delta`,
+   * then one `thinking_end` carrying the assembled block as `content`. The two field names are
+   * Pi's, and they are NOT the same one -- reading `content` off a delta silently yields nothing
+   * at all, which is what it did here until a live run showed a stream with no reasoning in it.
+   */
+  assistantMessageEvent?: { type?: string; content?: unknown; delta?: unknown };
 }
 
 /**
@@ -89,6 +114,12 @@ export interface SummaryRunInput {
   project: string;
   window: TurnWindow;
   runState: AgentRunState;
+  /**
+   * Called as the run happens, for a viewer watching it. Optional because the digest does not
+   * depend on anyone listening: the same steps are on the returned result either way, so a
+   * caller that only wants the artifact passes nothing and loses nothing.
+   */
+  onMessage?: (message: SummaryStreamMessage) => void;
 }
 
 export interface SummaryRunner {
@@ -125,18 +156,52 @@ export function createSummaryRunner(
       let overBudget = false;
       const steps: SummaryStep[] = [];
       const stepByToolCall = new Map<string, SummaryToolStep>();
+      const emit = input.onMessage ?? (() => {});
+      // How much of the thought in progress has already gone out as deltas, so the live text and
+      // the block that replaces it are cut at the same place. Without this a viewer would watch
+      // a long thought stream past the cap and then visibly shrink when it settled.
+      let deltaChars = 0;
+      let buffered = "";
+      const flush = (): void => {
+        if (!buffered) return;
+        emit({ type: "thinking-delta", text: buffered });
+        buffered = "";
+      };
       const unsubscribe = session.subscribe((event) => {
         if (event.type === "message_update") {
           const inner = event.assistantMessageEvent;
+          if (inner?.type === "thinking_delta" && typeof inner.delta === "string") {
+            const room = THINKING_CHARS - deltaChars;
+            if (room > 0 && inner.delta) {
+              const text = inner.delta.slice(0, room);
+              deltaChars += text.length;
+              buffered += text;
+              if (buffered.length >= DELTA_FLUSH_CHARS) flush();
+            }
+            return;
+          }
           if (inner?.type === "thinking_end" && typeof inner.content === "string") {
+            deltaChars = 0;
+            buffered = "";
             const text = clamp(inner.content.trim(), THINKING_CHARS);
-            if (text) steps.push({ kind: "thinking", text });
+            if (text) {
+              const step: SummaryStep = { kind: "thinking", text };
+              steps.push(step);
+              emit({ type: "step", step });
+            }
           }
           return;
         }
         if (event.type === "tool_execution_end") {
           const started = event.toolCallId ? stepByToolCall.get(event.toolCallId) : undefined;
-          if (started && event.isError) started.failed = true;
+          if (!started) return;
+          // Buffered reasoning first, so a lookup never appears above the thought that led to it.
+          flush();
+          if (event.isError) started.failed = true;
+          // Sent at the END, not the start: `failed` is only known here, and a tool row that
+          // appeared as fine and then turned red would be the one row a viewer stops trusting.
+          // These four tools answer in milliseconds, so nothing perceptible is lost.
+          emit({ type: "step", step: { ...started } });
           return;
         }
         if (event.type !== "tool_execution_start") return;
@@ -147,7 +212,13 @@ export function createSummaryRunner(
           failed: false,
         };
         steps.push(step);
+        // An event with no id can never be matched to its end, so it goes out now rather than
+        // never. Pi always sets one; this is what keeps a viewer's list equal to the result's.
         if (event.toolCallId) stepByToolCall.set(event.toolCallId, step);
+        else {
+          flush();
+          emit({ type: "step", step: { ...step } });
+        }
         toolCalls += 1;
         if (toolCalls > config.summaryToolCallBudget && !overBudget) {
           overBudget = true;
@@ -159,6 +230,9 @@ export function createSummaryRunner(
         await withTimeout(session.prompt(prompt), config.summaryTimeoutMs, () => session.abort());
       } finally {
         unsubscribe();
+        // A run that stopped mid-thought -- aborted, timed out, or simply ended without a
+        // closing block -- still owes the viewer the reasoning it already produced.
+        flush();
       }
 
       if (overBudget) {

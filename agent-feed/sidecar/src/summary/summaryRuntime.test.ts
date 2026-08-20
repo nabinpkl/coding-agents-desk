@@ -6,6 +6,8 @@ import {
   createAgentSessionFromServices,
   createAgentSessionServices,
 } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessageEvent } from "@earendil-works/pi-ai";
+import type { SummaryStreamMessage } from "@agentdesk/agent-feed-wire";
 import { config } from "../config.ts";
 import {
   createSummaryRunner,
@@ -41,6 +43,18 @@ const window: TurnWindow = {
 };
 
 const goodReply = '{"headline":"h","narrative":"n","risks":["r"]}';
+
+/**
+ * The two field names Pi uses for reasoning, taken from Pi's own event union rather than
+ * retyped here.
+ *
+ * They are NOT the same name -- a delta carries `delta` and the assembled block carries
+ * `content` -- and reading the wrong one produces no error and no reasoning, just a stream that
+ * is quietly missing half of what it was built to show. That is what happened, and it took a
+ * live run against the real model to notice. `satisfies` makes a rename in Pi fail here instead.
+ */
+const DELTA_FIELD = "delta" satisfies keyof Extract<AssistantMessageEvent, { type: "thinking_delta" }>;
+const BLOCK_FIELD = "content" satisfies keyof Extract<AssistantMessageEvent, { type: "thinking_end" }>;
 
 /** A session that answers with a fixed reply and records what it was asked. */
 function fakeSession(overrides: Partial<SummarySession> & { reply?: string | null } = {}) {
@@ -151,7 +165,7 @@ test("the digest carries what the run thought and looked at, in order", async ()
   fake.session.prompt = async () => {
     fake.emit({
       type: "message_update",
-      assistantMessageEvent: { type: "thinking_end", content: "  Read the runtime first.  " },
+      assistantMessageEvent: { type: "thinking_end", [BLOCK_FIELD]: "  Read the runtime first.  " },
     });
     fake.emit({
       type: "tool_execution_start",
@@ -218,13 +232,13 @@ test("a long reasoning block is cut with a mark, not silently", async () => {
   fake.session.prompt = async () => {
     fake.emit({
       type: "message_update",
-      assistantMessageEvent: { type: "thinking_end", content: "x".repeat(5_000) },
+      assistantMessageEvent: { type: "thinking_end", [BLOCK_FIELD]: "x".repeat(5_000) },
     });
     // Deltas are noise: only the assembled block is recorded, or every reasoning token would
     // arrive as its own step.
     fake.emit({
       type: "message_update",
-      assistantMessageEvent: { type: "thinking_delta", content: "ignored" },
+      assistantMessageEvent: { type: "thinking_delta", [DELTA_FIELD]: "ignored" },
     });
   };
   const runner = createSummaryRunner(async () => fake.session);
@@ -235,6 +249,136 @@ test("a long reasoning block is cut with a mark, not silently", async () => {
   const [thought] = result.steps;
   expect(thought).toMatchObject({ kind: "thinking" });
   expect((thought as { text: string }).text).toBe(`${"x".repeat(2_000)}…`);
+});
+
+test("the run is reported as it happens, not only when it finishes", async () => {
+  const fake = fakeSession();
+  fake.session.prompt = async () => {
+    fake.emit({
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_delta", [DELTA_FIELD]: "Read " },
+    });
+    fake.emit({
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_delta", [DELTA_FIELD]: "the runtime." },
+    });
+    fake.emit({
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_end", [BLOCK_FIELD]: "Read the runtime." },
+    });
+    fake.emit({ type: "tool_execution_start", toolCallId: "c1", toolName: "read", args: { path: "src/a.ts" } });
+    fake.emit({ type: "tool_execution_end", toolCallId: "c1", toolName: "read", isError: false });
+  };
+  const messages: SummaryStreamMessage[] = [];
+  const runner = createSummaryRunner(async () => fake.session);
+
+  const result = await runner.run({
+    project: "/p",
+    window,
+    runState: "idle",
+    onMessage: (message) => messages.push(message),
+  });
+
+  expect(messages).toEqual([
+    // The two token-sized deltas coalesce, and the tail is superseded by the block that
+    // completes it rather than sent twice.
+    { type: "step", step: { kind: "thinking", text: "Read the runtime." } },
+    { type: "step", step: { kind: "tool", name: "read", target: "src/a.ts", failed: false } },
+  ]);
+  // Whoever watched the run and whoever only reads the artifact see the same thing.
+  expect(result.steps).toEqual(
+    messages.filter((message) => message.type === "step").map((message) => message.step),
+  );
+});
+
+test("reasoning is sent by the sentence, not by the token", async () => {
+  const fake = fakeSession();
+  fake.session.prompt = async () => {
+    // Pi's real shape: one event per token.
+    for (let i = 0; i < 600; i += 1) {
+      fake.emit({
+        type: "message_update",
+        assistantMessageEvent: { type: "thinking_delta", [DELTA_FIELD]: "word " },
+      });
+    }
+    fake.emit({ type: "tool_execution_start", toolName: "ls", args: { path: "." } });
+  };
+  const messages: SummaryStreamMessage[] = [];
+  const runner = createSummaryRunner(async () => fake.session);
+
+  await runner.run({
+    project: "/p",
+    window,
+    runState: "idle",
+    onMessage: (message) => messages.push(message),
+  });
+
+  const deltas = messages.filter((message) => message.type === "thinking-delta");
+  expect(deltas.length).toBeLessThan(20);
+  // Nothing is lost by coalescing: 600 tokens, capped at 2,000 characters, all present.
+  expect(deltas.map((message) => message.text).join("")).toBe("word ".repeat(400));
+  // And the lookup still lands after the reasoning that led to it, not before.
+  expect(messages.at(-1)).toEqual({
+    type: "step",
+    step: { kind: "tool", name: "ls", target: ".", failed: false },
+  });
+});
+
+test("a tool step is sent once its outcome is known, so a row never turns red after the fact", async () => {
+  const fake = fakeSession();
+  fake.session.prompt = async () => {
+    fake.emit({ type: "tool_execution_start", toolCallId: "c1", toolName: "read", args: { path: "gone.ts" } });
+    fake.emit({ type: "tool_execution_end", toolCallId: "c1", toolName: "read", isError: true });
+  };
+  const messages: SummaryStreamMessage[] = [];
+  const runner = createSummaryRunner(async () => fake.session);
+
+  await runner.run({
+    project: "/p",
+    window,
+    runState: "idle",
+    onMessage: (message) => messages.push(message),
+  });
+
+  expect(messages).toEqual([
+    { type: "step", step: { kind: "tool", name: "read", target: "gone.ts", failed: true } },
+  ]);
+});
+
+test("the deltas stop where the recorded block is cut, so live and final agree", async () => {
+  const fake = fakeSession();
+  fake.session.prompt = async () => {
+    for (let i = 0; i < 3; i += 1) {
+      fake.emit({
+        type: "message_update",
+        assistantMessageEvent: { type: "thinking_delta", [DELTA_FIELD]: "x".repeat(900) },
+      });
+    }
+    fake.emit({
+      type: "message_update",
+      assistantMessageEvent: { type: "thinking_end", [BLOCK_FIELD]: "x".repeat(2_700) },
+    });
+  };
+  const messages: SummaryStreamMessage[] = [];
+  const runner = createSummaryRunner(async () => fake.session);
+
+  const result = await runner.run({
+    project: "/p",
+    window,
+    runState: "idle",
+    onMessage: (message) => messages.push(message),
+  });
+
+  const deltas = messages.filter((message) => message.type === "thinking-delta");
+  const streamed = deltas.map((message) => message.text).join("");
+  // 2,700 characters of reasoning, cut at the same 2,000 on both paths. Without this the viewer
+  // would watch the text run past the cap and then visibly shrink when the block settled.
+  expect(streamed).toBe("x".repeat(2_000));
+  // And sent as a handful of messages, not one per token. Pi emits a token at a time; a real
+  // run turned 4,450 characters into 918 messages and 918 React updates, and the panel stopped
+  // repainting part-way through.
+  expect(deltas.length).toBeLessThanOrEqual(2_000 / 200);
+  expect((result.steps[0] as { text: string }).text).toBe(`${"x".repeat(2_000)}…`);
 });
 
 test("a run that used no tools and showed no reasoning reports no steps", async () => {

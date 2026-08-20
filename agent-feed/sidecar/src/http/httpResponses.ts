@@ -28,10 +28,23 @@ export function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
+/**
+ * `onStart` receives `write` and a `close`.
+ *
+ * Most streams here are endless -- a session's events, a task's output -- and end only when the
+ * reader goes away, so they ignore `close`. A stream over a FINITE piece of work has to end
+ * itself: leaving it open says "more is coming" to a reader that would otherwise wait, and to an
+ * `EventSource` an ended stream is also the signal not to reconnect. Call it once the stream has
+ * said everything it has to say, never synchronously inside `onStart` -- at that point the
+ * teardown it closes over does not exist yet.
+ */
 export function startServerSentEventStream(
   request: Request,
   server: Server<undefined>,
-  onStart: (write: (bytes: Uint8Array) => void) => (() => void) | void,
+  onStart: (
+    write: (bytes: Uint8Array) => void,
+    close: () => void,
+  ) => (() => void) | void,
   options: { lagLimit?: number } = {},
 ): Response {
   server.timeout(request, 0);
@@ -66,7 +79,7 @@ export function startServerSentEventStream(
           record?.teardown();
         }
       };
-      const stopConsumer = onStart(write) ?? (() => {});
+      const stopConsumer = onStart(write, () => teardown()) ?? (() => {});
       const heartbeat = setInterval(
         () => write(encoder.encode(": ping\n\n")),
         SSE_HEARTBEAT_MS,

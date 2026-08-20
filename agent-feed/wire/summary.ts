@@ -79,6 +79,24 @@ export interface SummaryToolCall {
   failed: boolean;
 }
 
+/**
+ * What the summary stream says while it works.
+ *
+ * The digest takes half a minute to write, and a spinner for that long is indistinguishable
+ * from a hang. These are the same steps the finished `SummaryResult` carries, sent as they
+ * happen, so the wait shows the work instead of hiding it.
+ *
+ * `thinking-delta` is the model's reasoning arriving in pieces, appended to the thought in
+ * progress; the `step` that follows carries the same block assembled and REPLACES what the
+ * deltas built, so a reader never has to reconcile two versions of one thought. Exactly one
+ * `result` or one `error` ends the stream.
+ */
+export type SummaryStreamMessage =
+  | { type: "step"; step: SummaryStep }
+  | { type: "thinking-delta"; text: string }
+  | { type: "result"; result: SummaryResult }
+  | { type: "error"; error: { code: string; message: string; retryable: boolean } };
+
 export interface SummaryResult {
   phase: SummaryPhase;
   /** Epoch ms the digest was produced, not the timestamp of any event in it. */

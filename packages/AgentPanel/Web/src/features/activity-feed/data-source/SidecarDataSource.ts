@@ -23,7 +23,7 @@ import type {
   ProjectSummary,
   SessionSummary,
   SidecarConfig,
-  SummaryResult,
+  SummaryStreamMessage,
   TaskOutputMessage,
   TimelineMessage,
   TokenUsage,
@@ -81,6 +81,10 @@ function timelinePath(session: SessionReference): string {
 
 function cliInputPath(session: SessionAddress): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/input`;
+}
+
+function summaryPath(session: SessionAddress): string {
+  return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/summary`;
 }
 
 function tasksPath(session: SessionReference): string {
@@ -349,21 +353,25 @@ export class SidecarDataSource implements AgentDataSource {
   }
 
   /**
-   * Digests one turn: the window from the last user message to now.
+   * Digests one turn -- the window from the last user message to now -- and streams the work.
    *
    * Takes a `SessionAddress` rather than a `SessionReference` for the same reason the commands
-   * do -- the digest is always taken over the `nice` view, so a mode passed here could only be
-   * wrong. Slow by nature (a second model reads the turn and opens files), so callers show
-   * progress rather than assuming this returns promptly.
+   * do: the digest is always taken over the `nice` view, so a mode passed here could only be
+   * wrong. Returns unsubscribe, and the CALLER MUST CALL IT once a `result` or `error` arrives.
+   * This stream is finite and expensive; a subscription left open on an ended stream is one an
+   * `EventSource` reopens, which starts another digest.
    */
-  async summarizeTurn(session: SessionAddress): Promise<SummaryResult> {
-    return parse<SummaryResult>(
-      await this.transport.request(
-        "POST",
-        `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/summary`,
-        { body: {} },
-      ),
-    );
+  summarizeTurn(
+    session: SessionAddress,
+    handlers: {
+      onMessage: (message: SummaryStreamMessage) => void;
+      onError: (reason: string) => void;
+    },
+  ): () => void {
+    return this.transport.subscribe(summaryPath(session), {
+      onMessage: (payload) => handlers.onMessage(JSON.parse(payload) as SummaryStreamMessage),
+      onError: (reason) => handlers.onError(reason),
+    });
   }
 
   /** The sidecar's process-global facts, read once so the panel knows what to offer. */

@@ -1890,7 +1890,7 @@ const SUMMARY_CONFIG = {
   summaryModel: "opencode-go/deepseek-v4-flash",
 };
 
-const SUMMARY_PATH = "POST /api/sessions/claude/sid-claude-01/summary";
+const SUMMARY_PATH = "/api/sessions/claude/sid-claude-01/summary";
 
 /**
  * Its own harness rather than `setup()`, for one reason: the panel reads `/api/config` in a
@@ -1930,36 +1930,49 @@ describe("the turn summarizer", () => {
     expect(screen.queryByLabelText(/^Summarize/)).toBeNull();
   });
 
-  it("posts to the selected thread and renders the digest above the composer", async () => {
+  it("opens a stream for the selected thread and shows the work before the digest", async () => {
     const { transport } = setupSummary();
     openClaudeThread(transport);
     await act(async () => {});
 
-    transport.responses.set(SUMMARY_PATH, {
-      status: 200,
-      body: JSON.stringify({
-        phase: "final",
-        generatedAt: 1,
-        model: "opencode-go/deepseek-v4-flash",
-        headline: "Renamed the dial policy",
-        narrative: "It moved the retry decision into a pure function.",
-        filesTouched: [{ path: "client/SessionDialPolicy.swift", status: "A", added: 40, removed: 0 }],
-        risks: [],
-        steps: [{ kind: "tool", name: "read", target: "client/SessionDialPolicy.swift", failed: false }],
-        coverage: { fromEventIndex: 2, toEventIndex: 9, mode: "nice", truncated: false },
-        runState: "idle",
-      }),
-    });
-
     await act(async () => {
       fireEvent.click(screen.getByLabelText("Summarize this turn"));
     });
+    expect(transport.subscriptions.some((open) => open.path === SUMMARY_PATH)).toBe(true);
 
-    expect(transport.requests.some((request) =>
-      `${request.method} ${request.path}` === SUMMARY_PATH
-    )).toBe(true);
+    // The half-minute the digest takes is not dead time: the run is on screen while it happens.
+    await act(async () => {
+      transport.deliver(SUMMARY_PATH, { type: "thinking-delta", text: "Open the dial policy." });
+      transport.deliver(SUMMARY_PATH, {
+        type: "step",
+        step: { kind: "tool", name: "read", target: "client/SessionDialPolicy.swift", failed: false },
+      });
+    });
+    expect(screen.getByText("Open the dial policy.")).toBeTruthy();
+
+    await act(async () => {
+      transport.deliver(SUMMARY_PATH, {
+        type: "result",
+        result: {
+          phase: "final",
+          generatedAt: 1,
+          model: "opencode-go/deepseek-v4-flash",
+          headline: "Renamed the dial policy",
+          narrative: "It moved the retry decision into a pure function.",
+          filesTouched: [{ path: "client/SessionDialPolicy.swift", status: "A", added: 40, removed: 0 }],
+          risks: [],
+          steps: [{ kind: "tool", name: "read", target: "client/SessionDialPolicy.swift", failed: false }],
+          coverage: { fromEventIndex: 2, toEventIndex: 9, mode: "nice", truncated: false },
+          runState: "idle",
+        },
+      });
+    });
+
     expect(screen.getByText("Renamed the dial policy")).toBeTruthy();
     expect(screen.getByText("client/SessionDialPolicy.swift")).toBeTruthy();
+    // Closed on the terminal message. An EventSource left on an ended stream reopens it, and
+    // reopening this one buys another digest.
+    expect(transport.subscriptions.some((open) => open.path === SUMMARY_PATH)).toBe(false);
   });
 
   it("reports a failed summary instead of leaving the button spinning", async () => {
@@ -1967,14 +1980,14 @@ describe("the turn summarizer", () => {
     openClaudeThread(transport);
     await act(async () => {});
 
-    transport.responses.set(SUMMARY_PATH, {
-      status: 502,
-      body: JSON.stringify({
-        error: { code: "summary-failed", message: "the model timed out", retryable: true },
-      }),
-    });
     await act(async () => {
       fireEvent.click(screen.getByLabelText("Summarize this turn"));
+    });
+    await act(async () => {
+      transport.deliver(SUMMARY_PATH, {
+        type: "error",
+        error: { code: "summary-failed", message: "the model timed out", retryable: true },
+      });
     });
 
     expect(screen.getByRole("alert").textContent).toContain("the model timed out");

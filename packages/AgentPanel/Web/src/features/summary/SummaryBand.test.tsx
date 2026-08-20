@@ -32,8 +32,45 @@ describe("the summary band", () => {
   });
 
   it("announces progress while the second model reads the turn", () => {
-    render(<SummaryBand state={{ kind: "pending" }} model={null} onDismiss={() => {}} />);
+    render(
+      <SummaryBand
+        state={{ kind: "pending", steps: [], thought: "" }}
+        model={null}
+        onDismiss={() => {}}
+      />,
+    );
     expect(screen.getByText(/Reading the turn/)).toBeTruthy();
+  });
+
+  it("shows the run as it happens, open, with no disclosure to find", () => {
+    render(
+      <SummaryBand
+        state={{
+          kind: "pending",
+          steps: [{ kind: "tool", name: "read", target: "src/a.ts", failed: false }],
+          thought: "Now check whether the test asserts it",
+        }}
+        model={null}
+        onDismiss={() => {}}
+      />,
+    );
+    // Nothing to click: a viewer is looking at this precisely because the answer is not here.
+    expect(screen.queryByText(/how it read the turn/)).toBeNull();
+    expect(screen.getByText("src/a.ts")).toBeTruthy();
+    expect(screen.getByText("Now check whether the test asserts it")).toBeTruthy();
+  });
+
+  it("can be dismissed mid-run, not only once the digest lands", () => {
+    const onDismiss = vi.fn();
+    render(
+      <SummaryBand
+        state={{ kind: "pending", steps: [], thought: "" }}
+        model={null}
+        onDismiss={onDismiss}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText("Dismiss summary"));
+    expect(onDismiss).toHaveBeenCalledOnce();
   });
 
   it("shows the digest, its files and its risks", () => {
@@ -145,7 +182,13 @@ describe("the summarize control", () => {
 
   it("is busy and unclickable while a digest is in flight", () => {
     const onSummarize = vi.fn();
-    render(<SummaryControl state={{ kind: "pending" }} running={false} onSummarize={onSummarize} />);
+    render(
+      <SummaryControl
+        state={{ kind: "pending", steps: [], thought: "" }}
+        running={false}
+        onSummarize={onSummarize}
+      />,
+    );
     const button = screen.getByRole("button");
     expect(button.getAttribute("aria-busy")).toBe("true");
     fireEvent.click(button);

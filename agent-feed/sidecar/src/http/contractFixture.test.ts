@@ -140,12 +140,18 @@ test("the summary route emits the fixture's digest, field for field", async () =
       () => descriptor,
       { async run() { return summaryResult; } },
     );
-    const request = new Request("http://localhost/api/sessions/pi/s1/summary", { method: "POST" });
+    const request = new Request("http://localhost/api/sessions/pi/s1/summary");
     const response = (await route(request, new URL(request.url), server)) as Response;
     expect(response.status).toBe(200);
+    const last = (await response.text())
+      .split("\n\n")
+      .map((chunk) => chunk.trim())
+      .filter((chunk) => chunk.startsWith("data: "))
+      .map((chunk) => JSON.parse(chunk.slice("data: ".length)))
+      .at(-1);
     // Field for field, not field-by-field: a route that quietly added or dropped a key would
     // still satisfy a spot check, and the panel reads this body as the whole contract.
-    expect(await response.json()).toEqual(summaryResult);
+    expect(last).toEqual({ type: "result", result: summaryResult });
   } finally {
     (config as unknown as { summaryEnabled: boolean }).summaryEnabled = wasEnabled;
   }

@@ -1,13 +1,23 @@
-// `POST /api/sessions/<source>/<id>/summary` -- one turn, digested on demand.
+// `GET /api/sessions/<source>/<id>/summary` -- one turn, digested on demand, streamed.
 //
-// Synchronous rather than streamed. A digest is one artifact that is either finished or not,
-// and there is nothing useful to render from half of it; the panel shows a spinner and gets a
-// result or an error. If this later grows a live mode, that mode gets a stream and this stays.
+// This was a synchronous POST, on the reasoning that a digest is one artifact that is either
+// finished or not. That was wrong in practice: the artifact takes half a minute, and for half a
+// minute the panel showed a spinner that was indistinguishable from a hang. What the second
+// agent reads and thinks on the way is worth watching, so the wait now shows the work.
+//
+// A GET because that is what a stream can be: `EventSource` cannot POST, and the relay's own
+// subscribe path is GET-only, so a streamed endpoint has no other shape available. It is not a
+// pure read -- it spends model tokens -- which is why one run is shared by every viewer of the
+// same session rather than started once per open.
 //
 // Ordering note, the same one the timeline and task routes carry: this must be registered
 // BEFORE `createSessionRoutes`, whose catch-all rejects unknown `/api/sessions/` paths.
 
-import type { AgentRunState, SummaryResult } from "@agentdesk/agent-feed-wire";
+import type {
+  AgentRunState,
+  SummaryResult,
+  SummaryStreamMessage,
+} from "@agentdesk/agent-feed-wire";
 import type { AgentBackend } from "../agents/agentBackend.ts";
 import { config } from "../config.ts";
 import {
@@ -23,7 +33,11 @@ import {
   type AgentSessionDescriptorResolver,
 } from "../transcripts/transcriptCatalog.ts";
 import type { SourceId, TranscriptSourceId } from "../transcripts/sources/transcriptTypes.ts";
-import { jsonResponse } from "./httpResponses.ts";
+import {
+  encodeServerSentEvent,
+  jsonResponse,
+  startServerSentEventStream,
+} from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 import { readTranscriptPage } from "./sessionRoutes.ts";
 
@@ -49,20 +63,33 @@ interface CacheEntry {
   result: SummaryResult;
 }
 
+/**
+ * One run, and everyone watching it.
+ *
+ * A second viewer -- the phone beside the Mac, or the same person pressing twice -- joins the
+ * run in progress instead of starting a competing one, and is replayed what it has already said
+ * so it does not open onto a blank panel mid-run.
+ */
+interface ActiveRun {
+  history: SummaryStreamMessage[];
+  listeners: Set<(message: SummaryStreamMessage) => void>;
+  done: Promise<SummaryResult>;
+}
+
 export function createSummaryRoutes(
   resolveBackend: (id: string) => AgentBackend | undefined,
   resolveAgentSession: AgentSessionDescriptorResolver,
   runner: SummaryRunner = createSummaryRunner(),
 ): RouteHandler {
-  // Keyed by session, not by session-and-window: a second press while the first is still
-  // thinking should join that run rather than start a competing one.
-  const inFlight = new Map<string, Promise<SummaryResult>>();
-  // Keyed by session, holding the window it was computed over. Pressing again with nothing new
-  // in the transcript is free; pressing again after the agent has spoken re-runs.
+  // Keyed by session, not by session-and-window: a second viewer while the first is still
+  // watching joins that run rather than starting a competing one.
+  const active = new Map<string, ActiveRun>();
+  // Keyed by session, holding the window it was computed over. Asking again with nothing new
+  // in the transcript is free; asking again after the agent has spoken re-runs.
   const cache = new Map<string, CacheEntry>();
 
   return (request, url, server) => {
-    if (request.method !== "POST") return undefined;
+    if (request.method !== "GET") return undefined;
     const match = SUMMARY_ROUTE.exec(url.pathname);
     if (!match) return undefined;
 
@@ -76,12 +103,6 @@ export function createSummaryRoutes(
     if (getWatcherState() !== "live") {
       return errorResponse("inventory-not-ready", "session inventory is still starting", 503);
     }
-
-    // Bun closes an idle request after 10 seconds, which every summary exceeds. Disabled here
-    // rather than raised, because the deadline already has an owner: `summaryTimeoutMs` bounds
-    // the run, and Bun's own cap (255s) is below what that setting allows. One deadline, one
-    // place to change it. The SSE helper disables it the same way for the same reason.
-    server.timeout(request, 0);
 
     const source = match[1]! as SourceId;
     const sessionId = match[2]!;
@@ -110,25 +131,77 @@ export function createSummaryRoutes(
       ? summarizeSession(record, resolveAgentSession).activity
       : descriptor?.activity;
 
-    const existing = inFlight.get(key);
-    if (existing) return existing.then(jsonResponse, (error: unknown) => failure(error));
+    // The stream is opened before the run is joined or started, so that everything from here on
+    // -- including a window that turns out to be empty -- is reported inside it. A reader that
+    // got a 200 and then a silent close would have no way to tell success from failure.
+    return startServerSentEventStream(request, server, (write, close) => {
+      const send = (message: SummaryStreamMessage): void => write(encodeServerSentEvent(message));
 
-    const work = summarize({
-      runner,
-      project,
-      // A durable transcript answers for the events even when a live backend also knows this
-      // session, matching how the timeline route arbitrates.
-      readPage: pageReader(transcript, backend, sessionId),
-      // `Bin` is coarser than `AgentRunState`, and coarser is enough: the digest only needs to
-      // know whether the turn is still moving, not how it ended.
-      runState: activity === "live" ? "running" : "idle",
-      cache,
-      key,
+      const run = active.get(key) ?? startRun({
+        runner,
+        project,
+        // A durable transcript answers for the events even when a live backend also knows this
+        // session, matching how the timeline route arbitrates.
+        readPage: pageReader(transcript, backend, sessionId),
+        // `Bin` is coarser than `AgentRunState`, and coarser is enough: the digest only needs to
+        // know whether the turn is still moving, not how it ended.
+        runState: activity === "live" ? "running" : "idle",
+        cache,
+        key,
+        active,
+      });
+
+      for (const message of run.history) send(message);
+      run.listeners.add(send);
+
+      // Every stream ends itself. The run outlives this reader only if another one is still
+      // attached, and an `EventSource` that is not closed by an ended stream reopens it -- which
+      // for this endpoint would mean paying for another digest.
+      void run.done.then(
+        (result) => {
+          send({ type: "result", result });
+          close();
+        },
+        (error: unknown) => {
+          send({ type: "error", error: describeFailure(error) });
+          close();
+        },
+      );
+
+      return () => run.listeners.delete(send);
     });
-    inFlight.set(key, work);
-    void work.catch(() => {}).finally(() => inFlight.delete(key));
-    return work.then(jsonResponse, (error: unknown) => failure(error));
   };
+}
+
+/**
+ * Starts one run and registers it, so later viewers join rather than duplicate it.
+ *
+ * Everything the run says is kept in `history` as well as broadcast, because the two readers
+ * this serves are not simultaneous: the Mac may be watching from the first token and the phone
+ * may open halfway through, and both should see the same run.
+ */
+function startRun(options: {
+  runner: SummaryRunner;
+  project: string;
+  readPage: PageReader;
+  runState: AgentRunState;
+  cache: Map<string, CacheEntry>;
+  key: string;
+  active: Map<string, ActiveRun>;
+}): ActiveRun {
+  const run: ActiveRun = {
+    history: [],
+    listeners: new Set(),
+    done: undefined as unknown as Promise<SummaryResult>,
+  };
+  const broadcast = (message: SummaryStreamMessage): void => {
+    run.history.push(message);
+    for (const listener of run.listeners) listener(message);
+  };
+  run.done = summarize({ ...options, onMessage: broadcast });
+  options.active.set(options.key, run);
+  void run.done.catch(() => {}).finally(() => options.active.delete(options.key));
+  return run;
 }
 
 async function summarize(options: {
@@ -138,6 +211,7 @@ async function summarize(options: {
   runState: AgentRunState;
   cache: Map<string, CacheEntry>;
   key: string;
+  onMessage: (message: SummaryStreamMessage) => void;
 }): Promise<SummaryResult> {
   const window = await resolveTurnWindow({
     project: options.project,
@@ -158,6 +232,7 @@ async function summarize(options: {
     project: options.project,
     window,
     runState: options.runState,
+    onMessage: options.onMessage,
   });
   options.cache.set(options.key, { toEventIndex: window.coverage.toEventIndex, result });
   return result;
@@ -185,17 +260,27 @@ function pageReader(
 /** A session with no events at all, which is a 404 rather than a failed summary. */
 class EmptySessionError extends Error {}
 
-function failure(error: unknown): Response {
+/**
+ * A failed run, as a coded error.
+ *
+ * These reach the panel inside the stream rather than as a status, because by the time the run
+ * can fail the response has already been committed as a 200 event-stream. Same codes either
+ * way: what went wrong does not depend on how far the request had got.
+ */
+function describeFailure(error: unknown): { code: string; message: string; retryable: boolean } {
   if (error instanceof SummaryUnconfiguredError) {
-    return errorResponse("summary-unconfigured", error.message, 503);
+    return { code: "summary-unconfigured", message: error.message, retryable: false };
   }
   if (error instanceof EmptySessionError) {
-    return errorResponse("session-empty", error.message, 404);
+    return { code: "session-empty", message: error.message, retryable: false };
   }
-  const message = error instanceof Error ? error.message : String(error);
   // Retryable: the failures this reports are a model that timed out, refused, or answered
-  // unparseably, and pressing the button again is a reasonable response to all three.
-  return errorResponse("summary-failed", message, 502, true);
+  // unparseably, and asking again is a reasonable response to all three.
+  return {
+    code: "summary-failed",
+    message: error instanceof Error ? error.message : String(error),
+    retryable: true,
+  };
 }
 
 function errorResponse(code: string, message: string, status: number, retryable = false): Response {
