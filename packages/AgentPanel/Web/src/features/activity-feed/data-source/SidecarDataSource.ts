@@ -17,6 +17,8 @@ import type {
   AgentSessionDescriptor,
   AgentUiEvent,
   BackgroundTaskSnapshot,
+  CliInputReceipt,
+  CliInputStatus,
   EventsPage as WireEventsPage,
   ProjectSummary,
   SessionSummary,
@@ -73,6 +75,10 @@ function parse<T>(response: { status: number; body: string }): T {
 
 function timelinePath(session: SessionReference): string {
   return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/timeline?mode=${session.mode}`;
+}
+
+function cliInputPath(session: SessionAddress): string {
+  return `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/input`;
 }
 
 function tasksPath(session: SessionReference): string {
@@ -310,6 +316,33 @@ export class SidecarDataSource implements AgentDataSource {
         `/api/agent-sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/messages`,
         { body: { text, delivery } },
       ),
+    );
+  }
+
+  /**
+   * Whether a Claude session running in someone's terminal can be typed into, and how it was
+   * launched.
+   *
+   * Read rather than derived from `capabilities`, because it is a fact about a PROCESS and the
+   * capabilities describe a session. A CLI session's row looks identical whether its terminal is
+   * open or was closed an hour ago; only the harness's live registry knows the difference.
+   */
+  async cliInputStatus(session: SessionAddress): Promise<CliInputStatus> {
+    return parse<CliInputStatus>(
+      await this.transport.request("GET", cliInputPath(session)),
+    );
+  }
+
+  /**
+   * Puts one turn in a running CLI session's inbox.
+   *
+   * Resolves with `delivered: false` rather than throwing when the session cannot take it: a
+   * closed terminal is an outcome the composer explains, not an exception. It still throws for a
+   * refused request (an empty or oversized turn), which is the panel's own bug.
+   */
+  async sendCliInput(session: SessionAddress, text: string): Promise<CliInputReceipt> {
+    return parse<CliInputReceipt>(
+      await this.transport.request("POST", cliInputPath(session), { body: { text } }),
     );
   }
 

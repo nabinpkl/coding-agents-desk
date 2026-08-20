@@ -6,6 +6,7 @@ import {
 } from "./http/httpResponses.ts";
 import { authorizeApiRequest } from "./http/auth.ts";
 import { createAgentRoutes } from "./http/agentRoutes.ts";
+import { createCliInputRoutes } from "./http/cliInputRoutes.ts";
 import { createInventoryRoutes } from "./http/inventoryRoutes.ts";
 import type { RouteHandler } from "./http/route.ts";
 import { createSessionRoutes } from "./http/sessionRoutes.ts";
@@ -59,6 +60,8 @@ const routes: RouteHandler[] = [
   // Ahead of them for the same reason: `/tasks` and `/tasks/<id>/output` live under
   // `/api/sessions/` and would otherwise be rejected before they are matched.
   createTaskRoutes(),
+  // And again: `/input` is under `/api/sessions/` too.
+  createCliInputRoutes(),
   createSessionRoutes(describeAgentSession),
 ];
 const SHUTDOWN_GRACE_MS = 500;

@@ -11,6 +11,13 @@ export type {
 } from "./activity.ts";
 
 export type {
+  ClaudeSessionEntrypoint,
+  CliInputReceipt,
+  CliInputStatus,
+  CliInputUnavailableReason,
+} from "./cliInput.ts";
+
+export type {
   AgentQueueState,
   AgentRunState,
   AgentSessionCapabilities,

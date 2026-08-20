@@ -1,15 +1,17 @@
 // Which running process, if any, owns a session.
 //
 // The harness keeps `~/.claude/sessions/<pid>.json` naming the session each live Claude process is
-// serving. That file is the only bridge from a transcript on disk to a process able to own
-// background shells, and it is why background-task detection works for a session the panel found
-// by reading files rather than by observing the network (ADR-0099).
+// serving. That file is the only bridge from a transcript on disk to the process running it, which
+// is why background-task detection works for a session the panel found by reading files rather than
+// by observing the network (ADR-0099), and why a session can be typed into at all (ADR-0107): the
+// row names the process, and the process publishes both the shells and the inbox.
 //
 // A pid alone is not identity. The record carries `procStart` for exactly that reason, and this
 // module refuses to trust a pid whose start time disagrees.
 
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { ClaudeSessionEntrypoint } from "@agentdesk/agent-feed-wire";
 import { config } from "../config.ts";
 import type { CommandRunner } from "./processProbe.ts";
 import { PS_BINARY, runCommand } from "./processProbe.ts";
@@ -25,6 +27,17 @@ export interface ClaudeSessionProcess {
   cwd: string;
   /** Process start, epoch ms, as agreed by BOTH the registry and the kernel. */
   startedAt: number;
+  /**
+   * The session's cross-session message inbox, when this build publishes one.
+   *
+   * null is ordinary rather than exceptional: the inbox is gated, and a session started by an
+   * older harness simply has no socket. Present here rather than in a second reader because
+   * this is already the one module that decides which registry rows describe a LIVE process,
+   * and a path taken from a row nobody verified is a path to some other session's inbox.
+   */
+  messagingSocketPath: string | null;
+  /** How the session was launched. `cli` is a terminal; `claude-desktop` is an app window. */
+  entrypoint: ClaudeSessionEntrypoint;
 }
 
 interface RegistryRecord {
@@ -32,6 +45,18 @@ interface RegistryRecord {
   sessionId?: unknown;
   cwd?: unknown;
   procStart?: unknown;
+  messagingSocketPath?: unknown;
+  entrypoint?: unknown;
+}
+
+/**
+ * The launch surfaces we distinguish, with everything else collapsed.
+ *
+ * Unknown values become `other` rather than being rejected: a new entrypoint the harness invents
+ * must not make a live session read as not running, and nothing downstream needs to name it.
+ */
+function readEntrypoint(value: unknown): ClaudeSessionEntrypoint {
+  return value === "cli" || value === "claude-desktop" ? value : "other";
 }
 
 /**
@@ -88,6 +113,11 @@ export async function liveSessionProcesses(
       sessionId,
       cwd: typeof cwd === "string" ? cwd : "",
       startedAt: kernelStart,
+      messagingSocketPath: typeof record.messagingSocketPath === "string" &&
+          record.messagingSocketPath !== ""
+        ? record.messagingSocketPath
+        : null,
+      entrypoint: readEntrypoint(record.entrypoint),
     });
   }
   return live;

@@ -30,7 +30,14 @@ describe("liveSessionProcesses", () => {
 
   test("accepts a record whose start time the kernel confirms", async () => {
     const directory = await registryWith({
-      "9672.json": { pid: 9672, sessionId: SESSION, cwd: "/Users/dev/projects/agent-desk", procStart },
+      "9672.json": {
+        pid: 9672,
+        sessionId: SESSION,
+        cwd: "/Users/dev/projects/agent-desk",
+        procStart,
+        messagingSocketPath: "/tmp/cc-socks/9672.sock",
+        entrypoint: "cli",
+      },
     });
     const run: CommandRunner = async () => kernelStamp;
     expect(await liveSessionProcesses(run, directory)).toEqual([
@@ -39,8 +46,30 @@ describe("liveSessionProcesses", () => {
         sessionId: SESSION,
         cwd: "/Users/dev/projects/agent-desk",
         startedAt: Date.UTC(2026, 7, 14, 17, 10, 48),
+        messagingSocketPath: "/tmp/cc-socks/9672.sock",
+        entrypoint: "cli",
       },
     ]);
+  });
+
+  test("a record with no inbox is live, just not writable", async () => {
+    // An older harness, or one with the gate off. It still owns background shells, so refusing
+    // the whole row over a missing socket would take task detection down with it.
+    const directory = await registryWith({
+      "9672.json": { pid: 9672, sessionId: SESSION, cwd: "/x", procStart, entrypoint: "claude-desktop" },
+    });
+    const run: CommandRunner = async () => kernelStamp;
+    const [live] = await liveSessionProcesses(run, directory);
+    expect(live?.messagingSocketPath).toBeNull();
+    expect(live?.entrypoint).toBe("claude-desktop");
+  });
+
+  test("an entrypoint we do not know reads as other rather than rejecting the row", async () => {
+    const directory = await registryWith({
+      "9672.json": { pid: 9672, sessionId: SESSION, cwd: "/x", procStart, entrypoint: "sdk-harness-9" },
+    });
+    const run: CommandRunner = async () => kernelStamp;
+    expect((await liveSessionProcesses(run, directory))[0]?.entrypoint).toBe("other");
   });
 
   test("a dead pid is skipped, because stale records are the normal state of that directory", async () => {

@@ -122,7 +122,9 @@ export const config = {
   ),
   // The harness's own pid -> session registry. Each `<pid>.json` names the session a
   // running Claude process is serving, which is the only bridge between a transcript on
-  // disk and a live process able to own background shells (ADR-0099).
+  // disk and the live process running it: the one that owns its background shells
+  // (ADR-0099) and publishes the inbox a turn is delivered to (ADR-0107). The auth keys
+  // for those inboxes sit in the same directory.
   claudeSessionsDirectory: directoryEnvironment(
     "AGENT_FEED_CLAUDE_SESSIONS_DIR",
     join(userHomeDirectory, ".claude", "sessions"),

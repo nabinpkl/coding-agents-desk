@@ -1874,3 +1874,130 @@ describe("remembered selection", () => {
   });
 });
 
+
+
+/**
+ * A Claude session running in a terminal takes a different composer from one running in a window.
+ *
+ * The distinction is not cosmetic. The window band mirrors an actual text field, so it has a draft
+ * to read back, an Enter to press in someone else's app, and a Desktop to bring the window from. A
+ * terminal session has none of that: there is one thing to do, which is hand it a turn.
+ */
+describe("terminal session composer", () => {
+  const INPUT_PATH = "/api/sessions/claude/sid-claude-01/input";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    restoreViewport();
+  });
+
+  function setupInput(status: Record<string, unknown>, receipt?: Record<string, unknown>) {
+    const harness = setup();
+    harness.transport.responses.set(`GET ${INPUT_PATH}`, {
+      status: 200,
+      body: JSON.stringify(status),
+    });
+    if (receipt) {
+      harness.transport.responses.set(`POST ${INPUT_PATH}`, {
+        status: 200,
+        body: JSON.stringify(receipt),
+      });
+    }
+    return harness;
+  }
+
+  it("replaces the window composer for a session running in a terminal", async () => {
+    const { transport, unmount } = setupInput({ available: true, entrypoint: "cli", reason: null });
+    openClaudeThread(transport);
+    expect(await screen.findByLabelText("Message this terminal session")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Claude composer text")).toBeNull();
+    unmount();
+  });
+
+  it("keeps the window composer for a Desktop session, which has a field to mirror", async () => {
+    const { transport, unmount } = setupInput({
+      available: true,
+      entrypoint: "claude-desktop",
+      reason: null,
+    });
+    openClaudeThread(transport);
+    await waitFor(() => {
+      expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
+    });
+    expect(screen.queryByLabelText("Message this terminal session")).toBeNull();
+    unmount();
+  });
+
+  it("posts the turn to the session's inbox and clears the draft", async () => {
+    const { transport, unmount } = setupInput(
+      { available: true, entrypoint: "cli", reason: null },
+      { delivered: true, reason: null },
+    );
+    openClaudeThread(transport);
+    const field = await screen.findByLabelText("Message this terminal session");
+    fireEvent.change(field, { target: { value: "run the tests" } });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Send to the terminal session"));
+      await Promise.resolve();
+    });
+    expect(transport.requests).toContainEqual({
+      method: "POST",
+      path: INPUT_PATH,
+      body: { text: "run the tests" },
+    });
+    await waitFor(() => {
+      expect((field as HTMLTextAreaElement).value).toBe("");
+    });
+    unmount();
+  });
+
+  it("keeps the draft when the session refused it, and says why", async () => {
+    // The turn is the expensive thing the viewer typed on a phone. Losing it because a terminal
+    // was closed is the failure worth designing against.
+    const { transport, unmount } = setupInput(
+      { available: true, entrypoint: "cli", reason: null },
+      { delivered: false, reason: "unreachable" },
+    );
+    openClaudeThread(transport);
+    const field = await screen.findByLabelText("Message this terminal session");
+    fireEvent.change(field, { target: { value: "still here" } });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Send to the terminal session"));
+      await Promise.resolve();
+    });
+    expect((field as HTMLTextAreaElement).value).toBe("still here");
+    await waitFor(() => {
+      expect(screen.getByText(/stopped listening/)).toBeInTheDocument();
+    });
+    unmount();
+  });
+
+  it("re-asks on focus, so a session started after the panel opened becomes writable", async () => {
+    const { transport, unmount } = setupInput({
+      available: false,
+      entrypoint: "cli",
+      reason: "not-running",
+    });
+    openClaudeThread(transport);
+    const field = await screen.findByLabelText("Message this terminal session");
+    expect(field).toBeDisabled();
+    transport.responses.set(`GET ${INPUT_PATH}`, {
+      status: 200,
+      body: JSON.stringify({ available: true, entrypoint: "cli", reason: null }),
+    });
+    await act(async () => {
+      fireEvent.focus(field);
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Message this terminal session")).not.toBeDisabled();
+    });
+    unmount();
+  });
+});

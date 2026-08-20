@@ -22,6 +22,7 @@ import type { TokenUsage } from "../features/activity-feed/useSessionEventsStrea
 import { FontSizeRoot } from "../features/activity-feed/fontStore";
 import { loadEventMode, storeEventMode } from "../features/activity-feed/eventModeStore";
 import { loadCacheHitsVisible, storeCacheHitsVisible } from "../features/activity-feed/cacheHitStore";
+import { cliInputReasonText, useCliInput, type CliInputHandle } from "../features/cli-input/useCliInput";
 import type { OpenAskUserQuestion } from "./askUserQuestion";
 import {
   AgentSidebar,
@@ -175,6 +176,16 @@ export function App({ feed, host }: Props) {
     runState: "idle",
     queue: { steer: 0, followUp: 0 },
   });
+  // Whether the selected thread is a Claude Code session running in someone's terminal, which is
+  // what decides between the window composer and a plain send. Asked only for claude rows; every
+  // other source leaves the hook inert and never issues a request.
+  const cliInput = useCliInput(
+    feed,
+    selectedThread
+      ? { source: selectedThread.session.source, sessionId: selectedThread.session.sessionId }
+      : null,
+    selectedThread?.session.source === "claude",
+  );
   // The selected thread's context-window occupancy, mirrored up from ActivityFeed
   // and owned here so the composer band below the transcript can render it. Reset
   // when the thread changes so a stale count never survives a switch.
@@ -783,6 +794,7 @@ export function App({ feed, host }: Props) {
               pending={commandPending}
               error={commandError}
               question={openQuestion}
+              cliInput={cliInput}
               onSendMessage={sendPrompt}
               onAbort={abortRun}
             />
@@ -824,6 +836,7 @@ function SessionComposer({
   pending,
   error,
   question,
+  cliInput,
   onSendMessage,
   onAbort,
 }: {
@@ -839,34 +852,57 @@ function SessionComposer({
    * watch exists.
    */
   question: OpenAskUserQuestion | null;
+  /**
+   * Whether this session is a Claude Code process in a terminal, and the way to type into it.
+   * Resolved by the app, because it is a sidecar read and this component takes only the host.
+   */
+  cliInput: CliInputHandle;
   onSendMessage: (text: string, delivery: "next" | "steer") => Promise<void>;
   onAbort: () => Promise<void>;
 }) {
   const { source, sessionId, capabilities } = session;
   const isClaude = source === "claude";
   const isCodex = source === "codex";
-  const windowBand = isClaude || isCodex;
+  // A Claude session running in a terminal has no window field to mirror, so it takes the plain
+  // send band instead of the window one. The two are exclusive by construction: a session is
+  // either being rendered into an app window or into a pty, never both.
+  const inboxBand = isClaude && cliInput.isTerminalSession;
+  const windowBand = (isClaude || isCodex) && !inboxBand;
   const running = state.runState === "running";
   const queued = state.queue.followUp + state.queue.steer;
 
-  // Claude and Codex reach the session's prompt through their window composer.
-  // The hook is inert -- and never subscribes -- for every other source, so
-  // hook order here never varies. Codex reads are free on any Desktop, so it
+  // A Claude or Codex session being shown in a window reaches its prompt through that window's
+  // composer. The hook is inert -- and never subscribes -- for every other source AND for a
+  // terminal session, so hook order here never varies. Codex reads are free on any Desktop, so it
   // skips the off-Desktop bring-and-move-back round trip Claude's windows need.
   const windowComposer = useWindowComposer(host, sessionId, windowBand, isCodex ? "Codex" : "Claude", isCodex);
   // The AskUserQuestion mirror is Claude-only too, and only while the feed says a
   // question is open. Its content comes from the transcript JSON; the hook adds
   // the focus-gated watch for live state and the press actions.
+  //
+  // Left running for a terminal session, where it renders the question and disables its buttons,
+  // because that is what it did before this band existed and what it should keep doing: the
+  // question is real and worth reading. Pressing one would mean delivering the answer through the
+  // inbox instead of through a window, which is a different feature from typing a turn.
   const questionPanel = useClaudeWindowQuestion(host, sessionId, isClaude && question != null, question);
 
-  // The harness band (Pi) composes against local draft state; the window
-  // band (Claude/Codex) composes against the live window's text.
+  // Two of the three bands compose against local draft state -- Pi, and a terminal session, which
+  // has no field to mirror. Only the window band composes against the live window's text.
   const [localDraft, setLocalDraft] = useState("");
   const editorValue = windowBand ? windowComposer.draft : localDraft;
   const autoGrow = useAutoGrowingTextArea(editorValue);
 
+  const [inboxPending, setInboxPending] = useState(false);
+  const [inboxError, setInboxError] = useState<string | null>(null);
+
   const piUnavailable = !isClaude && !isCodex && !capabilities.canSend;
-  const unavailable = windowBand ? false : piUnavailable;
+  const unavailable = windowBand
+    ? false
+    : inboxBand
+      // A terminal session that stopped running: the field stays visible with the reason under
+      // it, rather than swapping the whole band out from under someone mid-sentence.
+      ? !cliInput.available
+      : piUnavailable;
 
   const editor: {
     value: string;
@@ -897,6 +933,23 @@ function SessionComposer({
         onFocus: windowComposer.onFocus,
         onBlur: windowComposer.onBlur,
       }
+    : inboxBand
+    ? {
+        value: localDraft,
+        onChange: unavailable ? () => {} : setLocalDraft,
+        disabled: unavailable || inboxPending,
+        ariaLabel: "Message this terminal session",
+        placeholder: unavailable
+          ? "Session not reachable"
+          : "Send to the terminal session\u2026",
+        // The window band's limit, not Pi's: this is the same act, typing into a session someone
+        // else owns, and the sidecar refuses more than the harness's inbox should carry.
+        maxLength: 100_000,
+        sendOnEnter: !unavailable,
+        // The status is re-read here rather than on a timer: focus is the moment someone intends
+        // to type, so it is the moment a stale "not running" is worth correcting.
+        onFocus: cliInput.refresh,
+      }
     : {
         value: localDraft,
         onChange: unavailable ? () => {} : setLocalDraft,
@@ -911,7 +964,29 @@ function SessionComposer({
         sendOnEnter: !unavailable,
       };
 
+  /**
+   * One turn into a terminal session's inbox.
+   *
+   * Separate from `submit` rather than folded into it because the two do different things: this
+   * is a delivery to a session someone else owns, with no queue to join, nothing to steer, and no
+   * receipt beyond whether the bytes landed. The draft survives a refusal so nothing is lost.
+   */
+  const submitInbox = async () => {
+    if (inboxPending || !editorValue.trim()) return;
+    const text = editorValue.trim();
+    setInboxPending(true);
+    setInboxError(null);
+    try {
+      if (await cliInput.send(text)) setLocalDraft("");
+    } catch (failure) {
+      setInboxError(String((failure as Error).message ?? failure));
+    } finally {
+      setInboxPending(false);
+    }
+  };
+
   const submit = async (delivery: "next" | "steer") => {
+    if (inboxBand) return await submitInbox();
     if (pending || !editorValue.trim()) return;
     const text = editorValue.trim();
     try {
@@ -942,6 +1017,23 @@ function SessionComposer({
       className:
         "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
       onClick: () => void windowComposer.submitWindow(),
+    });
+  } else if (inboxBand) {
+    // One action, deliberately. Steer and Stop act on a queue the panel owns; a terminal session
+    // owns its own, and the person at that keyboard is the one who can interrupt it.
+    actions.push({
+      key: "send-inbox",
+      ariaLabel: "Send to the terminal session",
+      title: "Send to the terminal session",
+      icon: inboxPending ? (
+        <LoaderCircle className="size-4 animate-spin" aria-hidden />
+      ) : (
+        <Send className="size-4" aria-hidden />
+      ),
+      disabled: unavailable || inboxPending || !editorValue.trim(),
+      className:
+        "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
+      onClick: () => void submitInbox(),
     });
   } else if (!unavailable) {
     if (running && capabilities.canSteer) {
@@ -989,6 +1081,11 @@ function SessionComposer({
   if (windowBand) {
     caption = windowComposer.error ?? windowComposer.notice;
     captionIsError = windowComposer.error != null;
+  } else if (inboxBand) {
+    // The reason outranks a transport error: "this session is not running" explains the failure,
+    // where the message from a request that never had anywhere to go does not.
+    caption = cliInput.reason ? cliInputReasonText(cliInput.reason) : inboxError;
+    captionIsError = cliInput.reason != null || inboxError != null;
   } else if (unavailable) {
     caption = "This session's composer is unavailable.";
   } else if (error) {
@@ -998,7 +1095,9 @@ function SessionComposer({
     caption = `${queued} queued${state.queue.steer ? `, ${state.queue.steer} steering` : ""}`;
   }
 
-  const sectionLabel = isClaude
+  const sectionLabel = inboxBand
+    ? "Terminal session composer"
+    : isClaude
     ? "Claude window composer"
     : isCodex
       ? "Codex composer"
