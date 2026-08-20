@@ -8,6 +8,7 @@ const enabled: SidecarConfig = {
   staleThresholdMs: 1, readyThresholdMs: 1, liveWindowMs: 1,
   watcherState: "live", sessionCount: 1,
   summaryEnabled: true, summaryModel: "opencode-go/deepseek-v4-flash",
+  usageVendors: ["codex"],
 };
 
 function digest(headline: string): SummaryResult {

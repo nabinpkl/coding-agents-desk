@@ -12,6 +12,7 @@ import type {
   ProjectSummary,
   SessionSummary,
 } from "./session.ts";
+import type { UsageVendorId } from "./usage.ts";
 
 /**
  * A surface's whole inventory arrives on one stream:
@@ -184,4 +185,12 @@ export interface SidecarConfig {
   summaryEnabled: boolean;
   /** `provider/model`, for naming what wrote a digest. Null when disabled. */
   summaryModel: string | null;
+  /**
+   * Vendors whose local usage records this machine actually has.
+   *
+   * Empty means the Usage surface is not offered at all, rather than offered and then opening
+   * onto nothing. A process-global fact for the same reason `summaryEnabled` is: it describes
+   * the machine, not the thread on screen.
+   */
+  usageVendors: UsageVendorId[];
 }

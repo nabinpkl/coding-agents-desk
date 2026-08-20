@@ -1797,10 +1797,14 @@ describe("safe area insets", () => {
 
     const drawer = screen.getByRole("dialog", { name: "Projects" });
     expect(drawer.className).toContain("pl-[env(safe-area-inset-left)]");
-    // Inside the scroller, so the last project can be scrolled clear of the home indicator rather
-    // than the list simply stopping short of it.
-    const scroller = drawer.querySelector(".overflow-y-auto")!;
-    expect(scroller.className).toContain("pb-[env(safe-area-inset-bottom)]");
+    // Paid by the Profile row, which is what actually touches the home indicator now that the
+    // sidebar ends in one. It used to be padding inside the scroller, back when the list was the
+    // last thing in the column; leaving it there would hold back a strip under a row that is
+    // already clear of it, and the row itself would sit in the unsafe area.
+    const profile = screen.getByRole("button", { name: "Profile" }).parentElement!;
+    expect(profile.className).toContain("pb-[env(safe-area-inset-bottom)]");
+    expect(drawer.querySelector(".overflow-y-auto")!.className)
+      .not.toContain("pb-[env(safe-area-inset-bottom)]");
     unmount();
   });
 });

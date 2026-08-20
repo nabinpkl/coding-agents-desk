@@ -300,6 +300,17 @@ export const config = {
     5_000,
     900_000,
   ),
+
+  // Where the per-day usage sweep remembers which session files it has already summed.
+  //
+  // A cache in the macOS sense of the word -- derived, disposable, rebuilt by rereading the
+  // vendors' own files -- so it lives in `Library/Caches` rather than beside durable state. The
+  // two host tiers share one file deliberately: its contents are a function of the vendor
+  // records alone, identical for both, and writes are atomic.
+  usageCachePath: resolve(
+    process.env.AGENT_FEED_USAGE_CACHE_PATH?.trim()
+      || join(userHomeDirectory, "Library", "Caches", "agentdesk-agent-feed", "usage.json"),
+  ),
 } as const;
 
 /**

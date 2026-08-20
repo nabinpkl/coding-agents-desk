@@ -20,11 +20,13 @@ import type {
   SessionsPayload,
   SummaryResult,
   TimelineMessage,
+  UsageReport,
   WireErrorPayload,
 } from "@agentdesk/agent-feed-wire";
 import { state } from "../transcripts/transcriptState.ts";
 import { createSummaryRoutes } from "./summaryRoutes.ts";
 import { createTimelineRoutes } from "./timelineRoutes.ts";
+import { createUsageRoutes } from "./usageRoutes.ts";
 import { config } from "../config.ts";
 import fixture from "../../../wire/contract-fixture.json";
 
@@ -46,6 +48,7 @@ const descriptor = fixture.sessionDescriptor as AgentSessionDescriptor;
 const receipt = fixture.commandReceipt as AgentCommandReceipt;
 const errorPayload = fixture.errorPayload as WireErrorPayload;
 const summaryResult = fixture.summaryResult as SummaryResult;
+const usageReport = fixture.usageReport as UsageReport;
 
 const server = { timeout() {} } as never;
 
@@ -171,4 +174,32 @@ test("the fixture's digest is internally consistent", () => {
     expect(file.edits).toBeGreaterThan(0);
   }
   expect(summaryResult.coverage.fromEventIndex).toBeLessThanOrEqual(summaryResult.coverage.toEventIndex);
+});
+
+test("the usage route emits the fixture's report, field for field", async () => {
+  const route = createUsageRoutes({ cached: () => null, scan: async () => usageReport });
+  const request = new Request("http://localhost/api/usage");
+  const response = (await route(request, new URL(request.url), server)) as Response;
+  expect(response.status).toBe(200);
+  const messages = (await response.text())
+    .split("\n\n")
+    .map((chunk) => chunk.trim())
+    .filter((chunk) => chunk.startsWith("data: "))
+    .map((chunk) => JSON.parse(chunk.slice("data: ".length)));
+  expect(messages).toEqual([{ type: "report", report: usageReport }, { type: "settled" }]);
+});
+
+test("the fixture's usage report is internally consistent", () => {
+  const codex = usageReport.vendors[0]!;
+  for (const day of codex.days) {
+    // The one invariant the whole feature rests on: cached input is a SUBSET of input, never a
+    // number to be added to it. A fixture that broke this would bless the inflating bug.
+    expect(day.totals.cachedInputTokens).toBeLessThanOrEqual(day.totals.inputTokens);
+    expect(day.totals.reasoningTokens).toBeLessThanOrEqual(day.totals.outputTokens);
+    // A day's split has to account for the day, or the detail rows and the cell disagree.
+    const summed = day.byModel.reduce((total, entry) => total + entry.totals.inputTokens, 0);
+    expect(summed).toBe(day.totals.inputTokens);
+    expect(day.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  }
+  expect(codex.coverage.from).toBe(codex.days[0]!.date);
 });

@@ -14,7 +14,10 @@
       {
         "projectPath": "/Users/dev/projects/agent-desk",
         "displayName": "agent-desk",
-        "sourceCounts": { "claude": 2, "pi": 1 },
+        "sourceCounts": {
+          "claude": 2,
+          "pi": 1
+        },
         "sessionCount": 3,
         "lastEventAt": 1750000000
       }
@@ -30,7 +33,9 @@
         "lastEventAt": 1750000000,
         "activity": "ready",
         "capabilities": {
-          "modes": ["nice"],
+          "modes": [
+            "nice"
+          ],
           "canSend": true,
           "canSteer": true,
           "canAbort": true,
@@ -56,7 +61,12 @@
           "phase": "complete",
           "ts": 0,
           "type": "user",
-          "blocks": [{ "kind": "text", "text": "hello" }]
+          "blocks": [
+            {
+              "kind": "text",
+              "text": "hello"
+            }
+          ]
         },
         {
           "id": "e1",
@@ -65,13 +75,21 @@
           "phase": "complete",
           "ts": 1,
           "type": "assistant",
-          "blocks": [{ "kind": "text", "text": "hi" }]
+          "blocks": [
+            {
+              "kind": "text",
+              "text": "hi"
+            }
+          ]
         }
       ],
       "windowStart": 0,
       "total": 2,
       "runState": "idle",
-      "queue": { "steer": 0, "followUp": 0 },
+      "queue": {
+        "steer": 0,
+        "followUp": 0
+      },
       "usage": null
     }
   },
@@ -89,14 +107,27 @@
           "phase": "streaming",
           "ts": 2,
           "type": "assistant",
-          "blocks": [{ "kind": "text", "text": "thinking" }]
+          "blocks": [
+            {
+              "kind": "text",
+              "text": "thinking"
+            }
+          ]
         }
       ],
       "windowStart": 0,
       "total": 3,
       "runState": "running",
-      "queue": { "steer": 1, "followUp": 0 },
-      "usage": { "current": 1200, "limit": 200000, "updatedAt": 1750000001, "model": "opus" }
+      "queue": {
+        "steer": 1,
+        "followUp": 0
+      },
+      "usage": {
+        "current": 1200,
+        "limit": 200000,
+        "updatedAt": 1750000001,
+        "model": "opus"
+      }
     }
   },
   "timelineTail": {
@@ -108,7 +139,12 @@
       "phase": "streaming",
       "ts": 3,
       "type": "assistant",
-      "blocks": [{ "kind": "text", "text": "partial" }]
+      "blocks": [
+        {
+          "kind": "text",
+          "text": "partial"
+        }
+      ]
     }
   },
   "timelineUi": {
@@ -119,14 +155,21 @@
         "requestId": "ui-1",
         "kind": "select",
         "title": "Pick one",
-        "options": ["one", "two"],
+        "options": [
+          "one",
+          "two"
+        ],
         "expectsResponse": true
       }
     }
   },
   "timelineError": {
     "type": "error",
-    "error": { "code": "stream-dropped", "message": "the backend stopped", "retryable": true }
+    "error": {
+      "code": "stream-dropped",
+      "message": "the backend stopped",
+      "retryable": true
+    }
   },
   "eventsPage": {
     "events": [
@@ -137,7 +180,12 @@
         "phase": "complete",
         "ts": 0,
         "type": "user",
-        "blocks": [{ "kind": "text", "text": "hello" }]
+        "blocks": [
+          {
+            "kind": "text",
+            "text": "hello"
+          }
+        ]
       }
     ],
     "total": 2,
@@ -145,7 +193,10 @@
     "usage": null,
     "sequence": 2,
     "runState": "idle",
-    "queue": { "steer": 0, "followUp": 0 }
+    "queue": {
+      "steer": 0,
+      "followUp": 0
+    }
   },
   "sessionDescriptor": {
     "sessionId": "s2",
@@ -155,7 +206,9 @@
     "lastEventAt": 1750000002,
     "activity": "ready",
     "capabilities": {
-      "modes": ["nice"],
+      "modes": [
+        "nice"
+      ],
       "canSend": true,
       "canSteer": true,
       "canAbort": true,
@@ -165,9 +218,16 @@
       "canStreamLive": false
     }
   },
-  "commandReceipt": { "requestId": "send-1", "delivery": "immediate" },
+  "commandReceipt": {
+    "requestId": "send-1",
+    "delivery": "immediate"
+  },
   "errorPayload": {
-    "error": { "code": "session-not-found", "message": "no session pi/s9", "retryable": false }
+    "error": {
+      "code": "session-not-found",
+      "message": "no session pi/s9",
+      "retryable": false
+    }
   },
   "summaryResult": {
     "phase": "final",
@@ -191,11 +251,65 @@
         "removed": 0
       }
     ],
-    "risks": ["No test covers the tool-call budget abort path."],
+    "risks": [
+      "No test covers the tool-call budget abort path."
+    ],
     "reasoning": [
       "The turn names summaryRuntime.ts and its test, and the file list confirms both were written. The tool calls show the allowlist option going in before the assertion, so the test was written against the finished behaviour rather than ahead of it."
     ],
-    "coverage": { "fromEventIndex": 40, "toEventIndex": 47, "mode": "nice", "truncated": false },
+    "coverage": {
+      "fromEventIndex": 40,
+      "toEventIndex": 47,
+      "mode": "nice",
+      "truncated": false
+    },
     "runState": "idle"
+  },
+  "usageReport": {
+    "vendors": [
+      {
+        "vendor": "codex",
+        "displayName": "Codex",
+        "installed": true,
+        "days": [
+          {
+            "date": "2026-08-13",
+            "totals": {
+              "inputTokens": 485224170,
+              "cachedInputTokens": 476362112,
+              "outputTokens": 1334902,
+              "reasoningTokens": 486208,
+              "requests": 3291
+            },
+            "byModel": [
+              {
+                "model": "gpt-5.6-sol",
+                "totals": {
+                  "inputTokens": 485224170,
+                  "cachedInputTokens": 476362112,
+                  "outputTokens": 1334902,
+                  "reasoningTokens": 486208,
+                  "requests": 3291
+                }
+              }
+            ]
+          }
+        ],
+        "quota": {
+          "label": "Weekly limit",
+          "usedPercent": 13,
+          "windowMinutes": 10080,
+          "resetsAt": 1787801862000,
+          "planType": "prolite"
+        },
+        "coverage": {
+          "from": "2026-08-13",
+          "to": "2026-08-13",
+          "sessions": 977,
+          "unreadable": 0
+        },
+        "scannedAt": 1755676800000
+      }
+    ]
   }
 }

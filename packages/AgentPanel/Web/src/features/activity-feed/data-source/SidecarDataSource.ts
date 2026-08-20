@@ -27,6 +27,7 @@ import type {
   TaskOutputMessage,
   TimelineMessage,
   TokenUsage,
+  UsageStreamMessage,
 } from "@agentdesk/agent-feed-wire";
 import type {
   AgentDataSource,
@@ -370,6 +371,24 @@ export class SidecarDataSource implements AgentDataSource {
   ): () => void {
     return this.transport.subscribe(summaryPath(session), {
       onMessage: (payload) => handlers.onMessage(JSON.parse(payload) as SummaryStreamMessage),
+      onError: (reason) => handlers.onError(reason),
+    });
+  }
+
+  /**
+   * Follows this machine's per-day token usage. Returns unsubscribe.
+   *
+   * Not addressed to a session: usage is a fact about the machine, read from vendor files that no
+   * open thread necessarily corresponds to. The stream is finite -- a report from cache, then a
+   * report from the sweep if anything moved -- and the CALLER MUST UNSUBSCRIBE when it ends,
+   * because an `EventSource` reopens a stream the server closed.
+   */
+  subscribeUsage(handlers: {
+    onMessage: (message: UsageStreamMessage) => void;
+    onError: (reason: string) => void;
+  }): () => void {
+    return this.transport.subscribe("/api/usage", {
+      onMessage: (payload) => handlers.onMessage(JSON.parse(payload) as UsageStreamMessage),
       onError: (reason) => handlers.onError(reason),
     });
   }

@@ -25,6 +25,7 @@ import { loadCacheHitsVisible, storeCacheHitsVisible } from "../features/activit
 import { SummaryBand } from "../features/summary/SummaryBand";
 import { SummaryControl } from "../features/summary/SummaryControl";
 import { useSummary } from "../features/summary/useSummary";
+import { useUsage } from "../features/usage/useUsage";
 import { cliInputReasonText, useCliInput, type CliInputHandle } from "../features/cli-input/useCliInput";
 import type { OpenAskUserQuestion } from "./askUserQuestion";
 import {
@@ -187,6 +188,9 @@ export function App({ feed, host }: Props) {
       ? { source: selectedThread.session.source, sessionId: selectedThread.session.sessionId }
       : null,
   );
+  // This machine's per-day token usage, behind the sidebar's Profile section. The stream opens
+  // when somebody asks for it, not on mount.
+  const usage = useUsage(feed);
   // Whether the selected thread is a Claude Code session running in someone's terminal, which is
   // what decides between the window composer and a plain send. Asked only for claude rows; every
   // other source leaves the hook inert and never issues a request.
@@ -634,7 +638,12 @@ export function App({ feed, host }: Props) {
     setTasksPanelOpen(false);
   }, [selectedThread?.session.sessionId]);
 
+  // One subscription for all three sidebar mounts. Owned here rather than inside the sidebar so
+  // the pinned rail, the hover preview, and the phone drawer share one stream instead of opening
+  // one each; only two of them are ever mounted at once, but the report should not be fetched
+  // twice when they are.
   const sidebarProps = {
+    usage,
     projects,
     sessionsByProject,
     loading: loadingLayer,

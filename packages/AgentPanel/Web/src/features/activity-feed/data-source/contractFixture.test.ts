@@ -11,7 +11,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { SummaryResult, SummaryStreamMessage } from "@agentdesk/agent-feed-wire";
+import type { SummaryResult, SummaryStreamMessage, UsageReport } from "@agentdesk/agent-feed-wire";
+import { formatTokens } from "../../usage/formatTokens";
+import { buildUsageGrid, cachedShare, uncachedInput } from "../../usage/usageGrid";
 import fixture from "../../../../../../../agent-feed/wire/contract-fixture.json";
 import { SidecarDataSource } from "./SidecarDataSource";
 import { FakeHttpTransport } from "../transport/FakeHttpTransport";
@@ -231,10 +233,36 @@ describe("the summary contract", () => {
         staleThresholdMs: 1, readyThresholdMs: 1, liveWindowMs: 1,
         watcherState: "live", sessionCount: 3,
         summaryEnabled: true, summaryModel: "opencode-go/deepseek-v4-flash",
+        usageVendors: ["codex"],
       }),
     });
     const config = await new SidecarDataSource(transport).fetchConfig();
     expect(config.summaryEnabled).toBe(true);
     expect(config.summaryModel).toBe("opencode-go/deepseek-v4-flash");
+    expect(config.usageVendors).toEqual(["codex"]);
+  });
+
+  it("reads the usage report the calendar renders", () => {
+    const report = fixture.usageReport as UsageReport;
+    const codex = report.vendors[0]!;
+    const day = codex.days[0]!;
+
+    // The fixture is the sidecar's own emitted body. What the panel needs from it is the split:
+    // total input, the cached subset, and the difference between them. A report the panel read as
+    // input-plus-cache would show a day at nearly twice its real size and still look plausible.
+    expect(uncachedInput(day.totals)).toBe(day.totals.inputTokens - day.totals.cachedInputTokens);
+    expect(cachedShare(day.totals)).toBeGreaterThan(0.9);
+    expect(formatTokens(day.totals.inputTokens)).toBe("485.22M");
+    expect(formatTokens(uncachedInput(day.totals))).toBe("8.86M");
+
+    // And that a grid built from it puts the day where the sidecar said it was.
+    const grid = buildUsageGrid(codex.days, {
+      weeks: 4,
+      today: new Date(2026, 7, 19, 12),
+      coverageFrom: codex.coverage.from,
+    });
+    const cell = grid.weeks.flat().find((entry) => entry.date === day.date)!;
+    expect(cell.day?.totals).toEqual(day.totals);
+    expect(cell.covered).toBe(true);
   });
 });

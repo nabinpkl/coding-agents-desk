@@ -14,6 +14,8 @@ import { createSessionRoutes } from "./http/sessionRoutes.ts";
 import { createSummaryRoutes } from "./http/summaryRoutes.ts";
 import { createTaskRoutes } from "./http/taskRoutes.ts";
 import { createTimelineRoutes } from "./http/timelineRoutes.ts";
+import { createUsageRoutes } from "./http/usageRoutes.ts";
+import { detectUsageVendors } from "./usage/usageReport.ts";
 import { state } from "./transcripts/transcriptState.ts";
 import {
   getSnapshot,
@@ -66,6 +68,9 @@ const routes: RouteHandler[] = [
   createCliInputRoutes(),
   // Same reason again: `/summary` lives under `/api/sessions/`.
   createSummaryRoutes(resolveBackend, describeAgentSession),
+  // Not under `/api/sessions/` at all -- usage is a fact about the machine -- so its position
+  // here is only for readability.
+  createUsageRoutes(),
   createSessionRoutes(describeAgentSession),
 ];
 const SHUTDOWN_GRACE_MS = 500;
@@ -90,6 +95,10 @@ const server = Bun.serve<undefined>({
         // lives here rather than being copied identically onto every session's capabilities.
         summaryEnabled: config.summaryEnabled,
         summaryModel: config.summaryEnabled ? `${config.summaryProvider}/${config.summaryModel}` : null,
+        // Recomputed per request rather than at startup: a machine that installs Codex while the
+        // host is running should offer the surface without a relaunch, and the check is one
+        // `existsSync`.
+        usageVendors: detectUsageVendors(),
       };
       return jsonResponse(body);
     }

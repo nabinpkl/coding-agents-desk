@@ -12,6 +12,8 @@ import {
   type RefObject,
 } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import { ProfileRow } from "../profile/ProfileRow";
+import type { UsageHandle } from "../usage/useUsage";
 
 const INITIAL_SESSION_COUNT = 3;
 const SESSION_BATCH_SIZE = 10;
@@ -41,6 +43,9 @@ interface AgentSidebarProps {
   onCreatePiSession: (project: ProjectSummary) => void;
   onClose?: () => void;
   ownsWindowTitlebar?: boolean;
+  /** Drives the Profile section's Usage entry. Owned by the app, so all three sidebar mounts
+   *  share one subscription rather than opening one each. */
+  usage: UsageHandle;
 }
 
 export function AgentSidebar(props: AgentSidebarProps) {
@@ -67,10 +72,10 @@ export function AgentSidebar(props: AgentSidebarProps) {
         ) : null}
       </div>
 
-      {/* The bottom safe area is padding INSIDE the scroller, not a shorter scroller: the list keeps
-          the full height and gains scrollable room past its last row, so the row the home indicator
-          would sit on can be scrolled clear of it. Zero everywhere but the phone drawer. */}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">
+      {/* The bottom safe area is no longer spent here. It moved to the Profile row below, which is
+          now what touches the home indicator; leaving it on the scroller would hold back a strip
+          under a row that is already clear of it. */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {props.loading ? (
           <SidebarStatus>Loading projects…</SidebarStatus>
         ) : props.error ? (
@@ -101,6 +106,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
           </ul>
         )}
       </div>
+
+      <ProfileRow usage={props.usage} />
     </div>
   );
 }

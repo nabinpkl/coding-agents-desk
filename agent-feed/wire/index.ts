@@ -36,6 +36,18 @@ export type {
 } from "./summary.ts";
 
 export type {
+  UsageCoverage,
+  UsageDay,
+  UsageModelTotals,
+  UsageQuota,
+  UsageReport,
+  UsageStreamMessage,
+  UsageTotals,
+  UsageVendorId,
+  VendorUsage,
+} from "./usage.ts";
+
+export type {
   BackgroundTask,
   BackgroundTaskKind,
   BackgroundTaskProgress,
