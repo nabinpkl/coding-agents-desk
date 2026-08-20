@@ -103,7 +103,8 @@ export interface UsageReport {
  * What `GET /api/usage` streams.
  *
  * Up to two `report` messages -- one from cache, immediately, so a warm open paints without a
- * wait, then one after the incremental sweep if anything moved -- followed always by `settled`.
+ * wait, then one after the incremental sweep if anything moved -- and then exactly one terminal
+ * message: `settled` when the sweep finished, `error` when it could not.
  *
  * `settled` is not decoration. Without it a reader cannot tell "the sweep finished and changed
  * nothing" from "the sweep is still running", because both look like a stream that has gone

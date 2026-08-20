@@ -13,6 +13,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { readJsonLines } from "./readJsonLines.ts";
 import {
+  addInto,
   emptyTuple,
   localDayKey,
   type DayModelTotals,
@@ -123,8 +124,7 @@ export async function scanCodexSession(path: string): Promise<ScannedSession> {
       ];
       const date = localDayKey(atMs);
       const byModel = (days[date] ??= {});
-      const target = (byModel[model] ??= emptyTuple());
-      for (let index = 0; index < target.length; index += 1) target[index]! += tuple[index]!;
+      addInto((byModel[model] ??= emptyTuple()), tuple);
     }
 
     const primary = record.payload.rate_limits?.primary;

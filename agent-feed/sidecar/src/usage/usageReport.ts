@@ -22,6 +22,7 @@ import {
 } from "./codexUsage.ts";
 import { loadUsageCache, saveUsageCache, type UsageCache } from "./usageCache.ts";
 import {
+  addInto,
   emptyTuple,
   mergeDayModelTotals,
   toTotals,
@@ -197,7 +198,7 @@ function buildDays(totals: DayModelTotals): UsageDay[] {
     const dayTotal: UsageTuple = emptyTuple();
     for (const [model, tuple] of Object.entries(totals[date]!)) {
       byModel.push({ model, totals: toTotals(tuple) });
-      for (let index = 0; index < dayTotal.length; index += 1) dayTotal[index]! += tuple[index]!;
+      addInto(dayTotal, tuple);
     }
     // Heaviest first, by the same number the calendar colours by, so the detail list reads in
     // the order that explains the cell.
