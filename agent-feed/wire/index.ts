@@ -27,6 +27,13 @@ export type {
 } from "./session.ts";
 
 export type {
+  SummaryCoverage,
+  SummaryFileChange,
+  SummaryPhase,
+  SummaryResult,
+} from "./summary.ts";
+
+export type {
   BackgroundTask,
   BackgroundTaskKind,
   BackgroundTaskProgress,
@@ -46,6 +53,7 @@ export type {
   EventsPage,
   ProjectsPayload,
   SessionsPayload,
+  SidecarConfig,
   TimelineEnvelope,
   TimelineMessage,
   WireErrorPayload,

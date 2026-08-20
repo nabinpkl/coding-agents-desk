@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act, waitFor, within } from "@testing-library/react";
+import { render, screen, fireEvent, act, cleanup, waitFor, within } from "@testing-library/react";
 import { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
 import { HostActionsClient } from "../features/activity-feed/data-source/HostActionsClient";
 import { FakeHostBridge } from "../features/activity-feed/data-source/HostBridge";
@@ -1875,6 +1875,111 @@ describe("remembered selection", () => {
 });
 
 
+
+// ---------------------------------------------------------------------------
+// Turn summarizer
+// ---------------------------------------------------------------------------
+
+const SUMMARY_CONFIG = {
+  staleThresholdMs: 1,
+  readyThresholdMs: 1,
+  liveWindowMs: 1,
+  watcherState: "live",
+  sessionCount: 1,
+  summaryEnabled: true,
+  summaryModel: "opencode-go/deepseek-v4-flash",
+};
+
+const SUMMARY_PATH = "POST /api/sessions/claude/sid-claude-01/summary";
+
+/**
+ * Its own harness rather than `setup()`, for one reason: the panel reads `/api/config` in a
+ * mount effect, so the answer has to be on the transport BEFORE the App renders. A canned
+ * response registered afterwards is registered too late and the button never appears -- which
+ * is exactly what the real panel does when the sidecar has no summarizer.
+ */
+function setupSummary(enabled = true) {
+  const fake = new FakeHostBridge();
+  const transport = new FakeHttpTransport();
+  transport.responses.set("GET /api/config", {
+    status: 200,
+    body: JSON.stringify(
+      enabled ? SUMMARY_CONFIG : { ...SUMMARY_CONFIG, summaryEnabled: false, summaryModel: null },
+    ),
+  });
+  const host = new HostActionsClient(fake, {
+    requestIDFactory: (prefix) => `${prefix}-1`,
+  });
+  render(<App feed={new SidecarDataSource(transport)} host={host} />);
+  return { transport };
+}
+
+describe("the turn summarizer", () => {
+  // The panel persists the selected thread, so without this the second test starts with a
+  // thread already open and the title appears in both the sidebar and the header.
+  beforeEach(() => {
+    localStorage.clear();
+  });
+  afterEach(cleanup);
+
+  it("offers no button when the sidecar has no summarizer model", async () => {
+    const { transport } = setupSummary(false);
+    openClaudeThread(transport);
+    await act(async () => {});
+
+    expect(screen.queryByLabelText(/^Summarize/)).toBeNull();
+  });
+
+  it("posts to the selected thread and renders the digest above the composer", async () => {
+    const { transport } = setupSummary();
+    openClaudeThread(transport);
+    await act(async () => {});
+
+    transport.responses.set(SUMMARY_PATH, {
+      status: 200,
+      body: JSON.stringify({
+        phase: "final",
+        generatedAt: 1,
+        model: "opencode-go/deepseek-v4-flash",
+        headline: "Renamed the dial policy",
+        narrative: "It moved the retry decision into a pure function.",
+        filesTouched: [{ path: "client/SessionDialPolicy.swift", status: "A", added: 40, removed: 0 }],
+        risks: [],
+        coverage: { fromEventIndex: 2, toEventIndex: 9, mode: "nice", truncated: false },
+        runState: "idle",
+      }),
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Summarize this turn"));
+    });
+
+    expect(transport.requests.some((request) =>
+      `${request.method} ${request.path}` === SUMMARY_PATH
+    )).toBe(true);
+    expect(screen.getByText("Renamed the dial policy")).toBeTruthy();
+    expect(screen.getByText("client/SessionDialPolicy.swift")).toBeTruthy();
+  });
+
+  it("reports a failed summary instead of leaving the button spinning", async () => {
+    const { transport } = setupSummary();
+    openClaudeThread(transport);
+    await act(async () => {});
+
+    transport.responses.set(SUMMARY_PATH, {
+      status: 502,
+      body: JSON.stringify({
+        error: { code: "summary-failed", message: "the model timed out", retryable: true },
+      }),
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Summarize this turn"));
+    });
+
+    expect(screen.getByRole("alert").textContent).toContain("the model timed out");
+    expect(screen.getByLabelText("Summarize this turn").getAttribute("aria-busy")).toBe("false");
+  });
+});
 
 /**
  * A Claude session running in a terminal takes a different composer from one running in a window.

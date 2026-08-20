@@ -1,4 +1,5 @@
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
+import type { SidecarConfig } from "@agentdesk/agent-feed-wire";
 import { config } from "./config.ts";
 import {
   BYE_BYTES,
@@ -10,6 +11,7 @@ import { createCliInputRoutes } from "./http/cliInputRoutes.ts";
 import { createInventoryRoutes } from "./http/inventoryRoutes.ts";
 import type { RouteHandler } from "./http/route.ts";
 import { createSessionRoutes } from "./http/sessionRoutes.ts";
+import { createSummaryRoutes } from "./http/summaryRoutes.ts";
 import { createTaskRoutes } from "./http/taskRoutes.ts";
 import { createTimelineRoutes } from "./http/timelineRoutes.ts";
 import { state } from "./transcripts/transcriptState.ts";
@@ -62,6 +64,8 @@ const routes: RouteHandler[] = [
   createTaskRoutes(),
   // And again: `/input` is under `/api/sessions/` too.
   createCliInputRoutes(),
+  // Same reason again: `/summary` lives under `/api/sessions/`.
+  createSummaryRoutes(resolveBackend, describeAgentSession),
   createSessionRoutes(describeAgentSession),
 ];
 const SHUTDOWN_GRACE_MS = 500;
@@ -76,13 +80,18 @@ const server = Bun.serve<undefined>({
       if (denied) return denied;
     }
     if (request.method === "GET" && url.pathname === "/api/config") {
-      return jsonResponse({
+      const body: SidecarConfig = {
         staleThresholdMs: config.staleThresholdMs,
         readyThresholdMs: config.readyThresholdMs,
         liveWindowMs: config.liveWindowMs,
         watcherState: getWatcherState(),
         sessionCount: getSnapshot().length,
-      });
+        // Whether the panel should offer the Summarize button. A process-global fact, so it
+        // lives here rather than being copied identically onto every session's capabilities.
+        summaryEnabled: config.summaryEnabled,
+        summaryModel: config.summaryEnabled ? `${config.summaryProvider}/${config.summaryModel}` : null,
+      };
+      return jsonResponse(body);
     }
     for (const route of routes) {
       const response = route(request, url, bunServer);

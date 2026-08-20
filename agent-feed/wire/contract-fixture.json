@@ -168,5 +168,24 @@
   "commandReceipt": { "requestId": "send-1", "delivery": "immediate" },
   "errorPayload": {
     "error": { "code": "session-not-found", "message": "no session pi/s9", "retryable": false }
+  },
+  "summaryResult": {
+    "phase": "final",
+    "generatedAt": 1750000900000,
+    "model": "opencode-go/deepseek-v4-flash",
+    "headline": "Narrowed the summarizer session to read-only tools",
+    "narrative": "The turn restricted the summarizer's Pi session to read/grep/find/ls and added a test that asserts the allowlist held. It verified by reading back getAllTools() rather than trusting the option.",
+    "filesTouched": [
+      {
+        "path": "agent-feed/sidecar/src/summary/summaryRuntime.ts",
+        "status": "M",
+        "added": 12,
+        "removed": 3
+      },
+      { "path": "agent-feed/sidecar/src/summary/summaryRuntime.test.ts", "status": "?", "added": 0, "removed": 0 }
+    ],
+    "risks": ["No test covers the tool-call budget abort path."],
+    "coverage": { "fromEventIndex": 40, "toEventIndex": 47, "mode": "nice", "truncated": false },
+    "runState": "idle"
   }
 }

@@ -22,6 +22,9 @@ import type { TokenUsage } from "../features/activity-feed/useSessionEventsStrea
 import { FontSizeRoot } from "../features/activity-feed/fontStore";
 import { loadEventMode, storeEventMode } from "../features/activity-feed/eventModeStore";
 import { loadCacheHitsVisible, storeCacheHitsVisible } from "../features/activity-feed/cacheHitStore";
+import { SummaryBand } from "../features/summary/SummaryBand";
+import { SummaryControl } from "../features/summary/SummaryControl";
+import { useSummary } from "../features/summary/useSummary";
 import { cliInputReasonText, useCliInput, type CliInputHandle } from "../features/cli-input/useCliInput";
 import type { OpenAskUserQuestion } from "./askUserQuestion";
 import {
@@ -176,6 +179,14 @@ export function App({ feed, host }: Props) {
     runState: "idle",
     queue: { steer: 0, followUp: 0 },
   });
+  // The on-demand turn digest. Keyed to the selected thread inside the hook, so switching
+  // threads clears it rather than leaving one thread's summary under another's title.
+  const summary = useSummary(
+    feed,
+    selectedThread
+      ? { source: selectedThread.session.source, sessionId: selectedThread.session.sessionId }
+      : null,
+  );
   // Whether the selected thread is a Claude Code session running in someone's terminal, which is
   // what decides between the window composer and a plain send. Asked only for claude rows; every
   // other source leaves the hook inert and never issues a request.
@@ -715,6 +726,13 @@ export function App({ feed, host }: Props) {
               {selectedThread?.session.title || selectedThread?.session.sessionId || "Agent Feed"}
             </h1>
             <div ref={setThreadControlsHost} className="flex shrink-0 items-center" />
+            {selectedThread && summary.available ? (
+              <SummaryControl
+                state={summary.state}
+                running={sessionState.runState === "running"}
+                onSummarize={summary.summarize}
+              />
+            ) : null}
             {selectedThread?.session.capabilities.canOpenTerminal && isTerminalSource(selectedThread.session.source) ? (
               <TerminalControl
                 source={selectedThread.session.source}
@@ -777,6 +795,9 @@ export function App({ feed, host }: Props) {
               instead of in the header. Keyed by session so switching threads
               remounts rather than carrying a draft written for one session into
               another. */}
+          {/* Above the composer, below the transcript. Not rows in the feed: ActivityFeed is the
+              thread's only scroll owner and synthetic rows would fight its tail-follow. */}
+          <SummaryBand state={summary.state} model={summary.model} onDismiss={summary.dismiss} />
           {taskSession ? (
             <RunningTasksChip
               count={runningTaskCount}

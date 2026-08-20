@@ -113,6 +113,13 @@ if (readyThresholdMs >= staleThresholdMs) {
 const controlToken = process.env.AGENT_FEED_CONTROL_TOKEN?.trim() || null;
 delete process.env.AGENT_FEED_CONTROL_TOKEN;
 
+// The turn summarizer's model credential, taken out of the environment for the same reason and
+// with more force. Pi is handed this key directly (`ModelRuntimeAuthOverrides`), so nothing needs
+// it in `process.env`, and leaving it there would put a paid API key in the environment of every
+// tool subprocess the agent backends spawn.
+const summaryApiKey = process.env.AGENT_FEED_SUMMARY_API_KEY?.trim() || null;
+delete process.env.AGENT_FEED_SUMMARY_API_KEY;
+
 export const config = {
   host: process.env.AGENT_FEED_HOST ?? "127.0.0.1",
   port: integerEnvironment("AGENT_FEED_PORT", 7682, 1, 65_535),
@@ -257,6 +264,45 @@ export const config = {
     30_000,
     1_000,
     10 * 60_000,
+  ),
+
+  // The on-demand turn summarizer.
+  //
+  // Provider and model name entries in Pi's OWN catalog rather than describing an endpoint:
+  // `opencode-go/deepseek-v4-flash` arrives from Pi already carrying its base URL, its
+  // `thinkingFormat`, its 1M context window and its cost table, all of which a hand-written
+  // models.json here would have restated worse. A different provider is a config change; an
+  // endpoint Pi has never heard of would be a models.json, and is not v0.
+  //
+  // Absent key means the feature reports itself off rather than rendering a button that fails on
+  // press, which is why `summaryEnabled` is derived here and not inferred from a request that
+  // already went out.
+  summaryApiKey,
+  summaryEnabled: summaryApiKey !== null,
+  summaryProvider: process.env.AGENT_FEED_SUMMARY_PROVIDER?.trim() || "opencode-go",
+  summaryModel: process.env.AGENT_FEED_SUMMARY_MODEL?.trim() || "deepseek-v4-flash",
+  // How much of a turn the summarizer is allowed to be shown. A turn longer than this is
+  // truncated in the middle and SAYS SO on the result; the alternative is a request the model
+  // refuses, which reads to the viewer as a broken button rather than a long conversation.
+  summaryTokenCeiling: integerEnvironment(
+    "AGENT_FEED_SUMMARY_TOKEN_CEILING",
+    200_000,
+    1_000,
+    1_000_000,
+  ),
+  summaryToolCallBudget: integerEnvironment(
+    "AGENT_FEED_SUMMARY_TOOL_CALL_BUDGET",
+    24,
+    1,
+    256,
+  ),
+  // A summarizer that never answers has to fail rather than hold the request open: the panel
+  // shows a spinner until this fires, and an unbounded one is indistinguishable from a hang.
+  summaryTimeoutMs: integerEnvironment(
+    "AGENT_FEED_SUMMARY_TIMEOUT_MS",
+    180_000,
+    5_000,
+    900_000,
   ),
 } as const;
 

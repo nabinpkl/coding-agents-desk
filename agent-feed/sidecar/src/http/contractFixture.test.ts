@@ -18,11 +18,14 @@ import type {
   EventsPage,
   ProjectsPayload,
   SessionsPayload,
+  SummaryResult,
   TimelineMessage,
   WireErrorPayload,
 } from "@agentdesk/agent-feed-wire";
 import { state } from "../transcripts/transcriptState.ts";
+import { createSummaryRoutes } from "./summaryRoutes.ts";
 import { createTimelineRoutes } from "./timelineRoutes.ts";
+import { config } from "../config.ts";
 import fixture from "../../../wire/contract-fixture.json";
 
 // Each body, named as the type it claims to be.
@@ -42,6 +45,7 @@ const eventsPage = fixture.eventsPage as EventsPage;
 const descriptor = fixture.sessionDescriptor as AgentSessionDescriptor;
 const receipt = fixture.commandReceipt as AgentCommandReceipt;
 const errorPayload = fixture.errorPayload as WireErrorPayload;
+const summaryResult = fixture.summaryResult as SummaryResult;
 
 const server = { timeout() {} } as never;
 
@@ -123,4 +127,34 @@ test("every fixture body is one of the wire's own message shapes", () => {
   expect(eventsPage.mode).toBe("nice");
   expect(receipt.delivery).toBe("immediate");
   expect(errorPayload.error.retryable).toBe(false);
+});
+
+test("the summary route emits the fixture's digest, field for field", async () => {
+  state.watcherState = "live";
+  const wasEnabled = config.summaryEnabled;
+  (config as unknown as { summaryEnabled: boolean }).summaryEnabled = true;
+  try {
+    const backend = fixtureBackend();
+    const route = createSummaryRoutes(
+      (id) => (id === backend.id ? backend : undefined),
+      () => descriptor,
+      { async run() { return summaryResult; } },
+    );
+    const request = new Request("http://localhost/api/sessions/pi/s1/summary", { method: "POST" });
+    const response = (await route(request, new URL(request.url), server)) as Response;
+    expect(response.status).toBe(200);
+    // Field for field, not field-by-field: a route that quietly added or dropped a key would
+    // still satisfy a spot check, and the panel reads this body as the whole contract.
+    expect(await response.json()).toEqual(summaryResult);
+  } finally {
+    (config as unknown as { summaryEnabled: boolean }).summaryEnabled = wasEnabled;
+  }
+});
+
+test("the fixture's digest is internally consistent", () => {
+  // `phase` and `runState` are set from the same fact by the runner, so a fixture that
+  // disagrees with itself would let a panel render "still running" over a finished turn.
+  expect(summaryResult.phase).toBe(summaryResult.runState === "running" ? "running" : "final");
+  expect(summaryResult.coverage.mode).toBe("nice");
+  expect(summaryResult.coverage.fromEventIndex).toBeLessThanOrEqual(summaryResult.coverage.toEventIndex);
 });

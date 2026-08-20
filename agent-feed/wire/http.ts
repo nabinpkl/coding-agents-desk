@@ -165,3 +165,23 @@ export interface WireErrorPayload {
 export interface WireStreamError {
   error: string | WireErrorPayload["error"];
 }
+
+/**
+ * `GET /api/config` -- the sidecar's process-global facts.
+ *
+ * Declared here late: this body predates the wire module and was the last one still stated only
+ * by the route that emits it. The summarizer's availability is the first field on it the panel
+ * actually branches on, and a flag whose only definition is a route literal is exactly the drift
+ * this module exists to prevent.
+ */
+export interface SidecarConfig {
+  staleThresholdMs: number;
+  readyThresholdMs: number;
+  liveWindowMs: number;
+  watcherState: string;
+  sessionCount: number;
+  /** False when no model credential is configured; the panel hides Summarize entirely. */
+  summaryEnabled: boolean;
+  /** `provider/model`, for naming what wrote a digest. Null when disabled. */
+  summaryModel: string | null;
+}

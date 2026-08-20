@@ -159,3 +159,52 @@ describe("the shared wire contract", () => {
     });
   });
 });
+
+describe("the summary contract", () => {
+  it("reads the sidecar's digest into the shape the band renders", async () => {
+    const transport = new FakeHttpTransport();
+    transport.responses.set(
+      "POST /api/sessions/pi/s1/summary",
+      { status: 200, body: JSON.stringify(fixture.summaryResult) },
+    );
+    const source = new SidecarDataSource(transport);
+    const result = await source.summarizeTurn({ source: "pi", sessionId: "s1" });
+
+    expect(result).toEqual(fixture.summaryResult);
+    // The band reads exactly these; a rename on the sidecar side lands here rather than as an
+    // empty panel.
+    expect(result.headline.length).toBeGreaterThan(0);
+    expect(result.narrative.length).toBeGreaterThan(0);
+    expect(result.filesTouched[0]).toMatchObject({ path: expect.any(String), status: expect.any(String) });
+    expect(result.coverage.mode).toBe("nice");
+    expect(["running", "final"]).toContain(result.phase);
+  });
+
+  it("surfaces the sidecar's error code rather than a generic failure", async () => {
+    const transport = new FakeHttpTransport();
+    transport.responses.set("POST /api/sessions/pi/s1/summary", {
+      status: 503,
+      body: JSON.stringify({
+        error: { code: "summary-unconfigured", message: "no model credential", retryable: false },
+      }),
+    });
+    const source = new SidecarDataSource(transport);
+    await expect(source.summarizeTurn({ source: "pi", sessionId: "s1" }))
+      .rejects.toMatchObject({ code: "summary-unconfigured", status: 503 });
+  });
+
+  it("reads the config body the summarize button gates on", async () => {
+    const transport = new FakeHttpTransport();
+    transport.responses.set("GET /api/config", {
+      status: 200,
+      body: JSON.stringify({
+        staleThresholdMs: 1, readyThresholdMs: 1, liveWindowMs: 1,
+        watcherState: "live", sessionCount: 3,
+        summaryEnabled: true, summaryModel: "opencode-go/deepseek-v4-flash",
+      }),
+    });
+    const config = await new SidecarDataSource(transport).fetchConfig();
+    expect(config.summaryEnabled).toBe(true);
+    expect(config.summaryModel).toBe("opencode-go/deepseek-v4-flash");
+  });
+});

@@ -22,6 +22,8 @@ import type {
   EventsPage as WireEventsPage,
   ProjectSummary,
   SessionSummary,
+  SidecarConfig,
+  SummaryResult,
   TaskOutputMessage,
   TimelineMessage,
   TokenUsage,
@@ -344,6 +346,29 @@ export class SidecarDataSource implements AgentDataSource {
     return parse<CliInputReceipt>(
       await this.transport.request("POST", cliInputPath(session), { body: { text } }),
     );
+  }
+
+  /**
+   * Digests one turn: the window from the last user message to now.
+   *
+   * Takes a `SessionAddress` rather than a `SessionReference` for the same reason the commands
+   * do -- the digest is always taken over the `nice` view, so a mode passed here could only be
+   * wrong. Slow by nature (a second model reads the turn and opens files), so callers show
+   * progress rather than assuming this returns promptly.
+   */
+  async summarizeTurn(session: SessionAddress): Promise<SummaryResult> {
+    return parse<SummaryResult>(
+      await this.transport.request(
+        "POST",
+        `/api/sessions/${encodeURIComponent(session.source)}/${encodeURIComponent(session.sessionId)}/summary`,
+        { body: {} },
+      ),
+    );
+  }
+
+  /** The sidecar's process-global facts, read once so the panel knows what to offer. */
+  async fetchConfig(): Promise<SidecarConfig> {
+    return parse<SidecarConfig>(await this.transport.request("GET", "/api/config"));
   }
 
   async abortSession(session: SessionAddress): Promise<AgentCommandReceipt> {
