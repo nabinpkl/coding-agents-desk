@@ -1955,3 +1955,30 @@ default, unlike Claude.
   test was attempted but WKWebView answers every `callAsyncJavaScript` with undefined in this
   package's CLI test environment (even `1 + 1`), so the argument-type pin is the regression guard.
   Verified: `just check` green and the fix is in the rebuilt Release app bundle.
+- D265. Foregrounding after a background froze the picture black and never recovered, which is
+  R230 reached through a second door. The cause is a distinction the code did not make: a dead
+  TRANSPORT leaves the decoder's reference pictures intact, which is what ADR-0090 and
+  `prepareForStreamHandover` are built on, but a background makes iOS reclaim the hardware decoder
+  itself. We do not own that session -- `AVSampleBufferDisplayLayer` does -- and the entire API for
+  getting a new one is `flush()`, which empties the decoded-picture buffer. So a keyframe is
+  required by the flush, not by the invalidation. The renderer says so verbatim via
+  `requiresFlushToResumeDecodingDidChangeNotification`, and that notification was being written to
+  the log and acted on by nothing.
+  New `noteDecoderInvalidated(reason:)` on the sink flushes, drops the format description, and
+  asks for a keyframe carrying `clientHasNoReferences`. Called from `applicationWillEnterForeground`
+  and from the renderer notification. The request is ARMED rather than sent, because the background
+  teardown removes the transport before the foreground discovers the loss and the re-dial installs
+  a handler seconds later -- firing eagerly would write it to a nil closure, which is a client that
+  comes back black with nothing on the wire to explain it.
+  Found while fixing it: the host was spending that flag on the wrong frame. It arrives on a
+  control datagram while the keyframe request it accompanies is only QUEUED, so an ordinary delta
+  encoded in between consumed it, and the real answer that followed came back as an LTR refresh
+  against references the client had just said were gone -- undecodable, so it asks again and gets
+  the same answer. `clientHasNoReferences` is now cleared only by the frame that actually emits an
+  IDR. Confirmed by negative control: with the encoder line reverted and the new test kept,
+  `testClientHasNoReferencesSurvivesAnInterveningFrame` fails (EXIT=65) on exactly that assertion.
+  Verified: `just check` and `just sim-test` both green, six new client tests and one host test.
+  NOT verified on hardware, and R230 stays OPEN -- this fixes the invalidation cause, not the
+  wedge that reports `status=rendering` with `requiresFlush=false` and shows nothing. That one
+  still needs a display-side trigger; `renderer.displayedPixelBuffer()` is already sampled into
+  `videoRenderDiagnostics` and still drives nothing.

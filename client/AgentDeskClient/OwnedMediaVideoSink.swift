@@ -46,6 +46,19 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
     /// Same mechanism the render-stall watchdog already relies on -- reset the decoder and
     /// pacer, do not flush the layer.
     @MainActor func prepareForStreamHandover()
+    /// The decoder we were feeding no longer exists, so the next frame must be a keyframe.
+    ///
+    /// The exact inverse of `prepareForStreamHandover`, and the two must not be confused: there
+    /// the TRANSPORT died and the decoder did not, so its reference pictures are still good and
+    /// a delta is decodable, which is the whole point of ADR-0090. Here the decoder died and
+    /// the transport is merely being rebuilt around it.
+    ///
+    /// iOS reclaims the hardware video decoder from a backgrounded app. We do not own that
+    /// session -- `AVSampleBufferDisplayLayer` does, and the entire API for getting a new one
+    /// is `flush()`, which empties the decoded-picture buffer by definition. An empty buffer
+    /// predicts from nothing, so a keyframe is required by the flush itself, not by the
+    /// invalidation: it would be required even if we chose to flush a perfectly healthy layer.
+    @MainActor func noteDecoderInvalidated(reason: String)
 }
 
 // Default no-ops so non-video conformers (test stubs) need not implement them.
@@ -54,6 +67,7 @@ extension OwnedMediaFrameSink {
     @MainActor func noteOwnedMediaDroppedFrames(_ count: Int) {}
     @MainActor func setOwnedMediaStatus(_ status: OwnedMediaStatus) {}
     @MainActor func prepareForStreamHandover() {}
+    @MainActor func noteDecoderInvalidated(reason: String) {}
     @MainActor func setLtrAcknowledgementHandler(_ handler: @escaping @Sendable (UInt64) -> Void) {}
     @MainActor func noteOwnedMediaRepairRequested(_ count: Int) {}
     @MainActor func noteOwnedMediaRepairExpired(_ count: Int) {}
@@ -338,6 +352,9 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     /// Whether the request that set `lastKeyframeRequestUptimeNs` declared discarded
     /// references. A flagged request may coalesce into a flagged one, never into a plain one.
     private var lastKeyframeRequestDiscardedReferences = false
+    /// A resync owed to the host because our decoder was taken away, held until there is a
+    /// transport to carry it. Non-nil means armed; the value is the reason it will ride with.
+    private var pendingDecoderLossResync: String?
     private var videoStatusTracker = OwnedMediaVideoStatusTracker()
     private var videoPresentationPacer = OwnedMediaLatestFramePacer<QueuedVideoFrame>(
         expectedFrameRate: Config.ownedMediaExpectedFrameRate
@@ -429,6 +446,11 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
 
     func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable (Bool, String) -> Void) {
         videoKeyframeRequestHandler = handler
+        // A decoder lost while no transport was attached armed a request nobody could send.
+        // The handler arriving IS the moment it becomes sendable, so send it here rather than
+        // waiting for a frame: waiting would mean the first frames of the new stream are the
+        // undecodable deltas this request exists to prevent.
+        sendPendingDecoderLossResync(now: DispatchTime.now().uptimeNanoseconds)
     }
 
     func setOwnedMediaPresentationSkipHandler(_ handler: @escaping @Sendable (Int) -> Void) {
@@ -503,6 +525,55 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         lastVideoEnqueueUptimeNs = nil
         lastKeyframeRequestUptimeNs = nil
         lastKeyframeRequestDiscardedReferences = false
+    }
+
+    func noteDecoderInvalidated(reason: String) {
+        noteDecoderInvalidated(reason: reason, now: DispatchTime.now().uptimeNanoseconds)
+    }
+
+    /// Internal rather than private, and taking its clock, so a test can drive the request
+    /// rate-limiter deterministically.
+    ///
+    /// The request cannot always be sent from here. The background teardown removes the
+    /// transport, and with it the handler, before the foreground that discovers the decoder is
+    /// gone; the next transport installs a handler some seconds later, after its re-dial.
+    /// So the resync is ARMED here and fired by whichever comes first, this call or the next
+    /// handler installation. Arming rather than firing-and-hoping is the difference between a
+    /// request the host receives and one written to a nil closure.
+    func noteDecoderInvalidated(reason: String, now: UInt64) {
+        ClientDiagnostics.shared.record(
+            type: "videoDecoderInvalidated",
+            fields: ["reason": reason],
+            level: .default
+        )
+        // `reset()` is the flush. It also drops the format description, which is correct here
+        // and only here: parameter sets describe how to PARSE a delta, never what to predict
+        // it from, so keeping them across a lost decoder would let an undecodable frame through
+        // looking healthy. Requiring the next frame to carry fresh ones costs nothing, because
+        // the keyframe we are about to ask for carries them anyway.
+        videoDecoder.reset()
+        videoPresentationPacer.reset()
+        pendingVideoPresentationTask?.cancel()
+        pendingVideoPresentationTask = nil
+        lastVideoArrivalUptimeNs = nil
+        lastVideoEnqueueUptimeNs = nil
+        // Deliberately publishes no status. This runs before the re-dial, so the honest label
+        // for the moment is the transport's own `connecting`, and the drop-pending-keyframe path
+        // already says `videoWaitingKeyframe` once frames are actually arriving and being held.
+        pendingDecoderLossResync = reason
+        sendPendingDecoderLossResync(now: now)
+    }
+
+    /// Deliberately does NOT clear the request rate-limiter first. Two invalidation reports for
+    /// one event are normal -- the renderer's notification and the foreground both fire -- and
+    /// coalescing the second into the first is right: an identical flagged request went out
+    /// moments ago, so the host already knows. The arm is consumed once a handler exists,
+    /// because at that point the message has been delivered or deliberately merged, and a
+    /// surviving arm would re-send it at every later transport swap.
+    private func sendPendingDecoderLossResync(now: UInt64) {
+        guard let reason = pendingDecoderLossResync, videoKeyframeRequestHandler != nil else { return }
+        pendingDecoderLossResync = nil
+        requestKeyframe(now: now, discardingReferences: true, reason: reason)
     }
 
     // Single rate-limited keyframe-request point shared by the watchdog and the
@@ -730,10 +801,15 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     // Read through self rather than capturing the renderer, which is not Sendable.
-                    self.noteRendererFailure(
-                        kind: "requires-flush-changed",
-                        detail: String(self.videoLayer.sampleBufferRenderer.requiresFlushToResumeDecoding)
-                    )
+                    let requiresFlush = self.videoLayer.sampleBufferRenderer.requiresFlushToResumeDecoding
+                    self.noteRendererFailure(kind: "requires-flush-changed", detail: String(requiresFlush))
+                    // This notification IS the decoder being taken away, said by the only party
+                    // that knows. It used to be written to the log and nothing else, which is
+                    // why a backgrounded app came back to a renderer that had stopped decoding
+                    // and no code anywhere had reacted to being told so.
+                    if requiresFlush {
+                        self.noteDecoderInvalidated(reason: "requires-flush")
+                    }
                 }
             }
         )

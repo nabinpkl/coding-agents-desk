@@ -289,9 +289,23 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
                 && ltrTokensAcknowledged > 0
             let refreshWithLtr = (forceKeyframe && ltrEnabled && !requiresTrueKeyframe)
                 || (referenceAckedOnly && !requiresTrueKeyframe && !forceKeyframe)
-            clientHasNoReferences = false
+            // The frame that actually emits an IDR, as opposed to one that merely knows an IDR
+            // is owed. Named once because three decisions below key off it and they must not
+            // drift apart.
+            let emitsTrueKeyframe = forceKeyframe && !refreshWithLtr
+            // Cleared by the frame that answers it, not by the next frame to be encoded.
+            //
+            // The flag arrives on a control datagram while the keyframe request it accompanies
+            // is QUEUED for the next drain, so an ordinary delta can be encoded in between. That
+            // delta used to consume the flag: `requiresTrueKeyframe` went true on a frame with
+            // `forceKeyframe` false, which forces nothing, and the real answer that followed a
+            // moment later found the flag already spent and sent an LTR refresh against
+            // references the client had just told us it no longer holds. The client cannot
+            // decode it, asks again, and gets the same answer -- the exact resync loop this flag
+            // exists to end, reintroduced by the line that cleared it.
+            if emitsTrueKeyframe { clientHasNoReferences = false }
             var options: [CFString: Any] = [:]
-            if forceKeyframe, !refreshWithLtr {
+            if emitsTrueKeyframe {
                 options[kVTEncodeFrameOptionKey_ForceKeyFrame] = kCFBooleanTrue
             }
             if refreshWithLtr {
@@ -304,7 +318,7 @@ final class VideoToolboxOwnedMediaEncoder: @unchecked Sendable {
                 pendingLtrAcknowledgements.removeAll(keepingCapacity: true)
             }
             frameProperties = options.isEmpty ? nil : options as CFDictionary
-            if forceKeyframe, !refreshWithLtr {
+            if emitsTrueKeyframe {
                 // The expensive branch, and until now the silent one. `ltr-refresh-requested`
                 // below only fires when the CHEAP path is taken, so every true keyframe left no
                 // record of why it was unavoidable -- which reads, when you count reasons in the

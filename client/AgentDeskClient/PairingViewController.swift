@@ -409,6 +409,18 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         // listener for its offer-port fallback: the one moment worth inspecting was the one
         // moment the client could not be reached. The dial itself needs nothing here; setting
         // `isClientForeground` above reopened the supervisor's gate.
+        //
+        // Unconditional, and before the dial. iOS reclaims the hardware decoder from a
+        // backgrounded app, so the sink we are about to hand to the next transport cannot
+        // decode until it flushes, and a flush empties the picture buffer that every delta on
+        // the wire is predicted from. The host cannot infer this: an acknowledged long-term
+        // reference stays acknowledged forever, so unless we say the references are gone it
+        // answers the resync with a delta we cannot decode, we ask again, and it answers the
+        // same way. That loop is what left the picture black until a force quit (R230).
+        //
+        // Safe with no session up: the sink flushes now and the request waits, armed, for a
+        // transport to carry it.
+        (videoSink as? any OwnedMediaFrameSink)?.noteDecoderInvalidated(reason: "foreground-resume")
         render()
     }
 

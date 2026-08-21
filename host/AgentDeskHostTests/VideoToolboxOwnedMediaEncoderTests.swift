@@ -777,4 +777,49 @@ final class VideoToolboxOwnedMediaEncoderTests: XCTestCase {
         XCTAssertTrue(forced.header.isKeyframe)
         XCTAssertEqual(forced.header.refreshReason, .reset, "a client-requested keyframe is a reset refresh")
     }
+
+    // R230. A client whose decoder iOS reclaimed sends `clientHasNoReferences` on the control
+    // datagram, but the keyframe request it accompanies is only QUEUED, so an ordinary frame can
+    // be encoded between the two. That frame must not spend the flag: if it does, the request
+    // that follows is answered with a long-term-reference delta against references the client
+    // has just said are gone, which is undecodable, so it asks again and gets the same answer.
+    //
+    // The acknowledged reference is what makes this test able to fail. With nothing
+    // acknowledged VideoToolbox answers every ForceLTRRefresh with an IDR anyway, and the bug
+    // and the fix produce byte-identical output.
+    func testClientHasNoReferencesSurvivesAnInterveningFrame() async throws {
+        let encoder = VideoToolboxOwnedMediaEncoder(codec: .hevc, configuration: config())
+        defer { encoder.invalidate() }
+        var acknowledged = false
+        for index in 0..<24 {
+            let envelope = try await encodeFrame(
+                encoder, frameIndex: UInt64(index), frameId: UInt64(index + 1)
+            )
+            if let token = envelope.header.ltrToken {
+                encoder.acknowledgeLtrTokens([token])
+                acknowledged = true
+                break
+            }
+        }
+        try XCTSkipUnless(
+            acknowledged,
+            "this machine's HEVC encoder offered no long-term reference to acknowledge"
+        )
+        // The queued acknowledgement reaches the session on the next encode, not on the call.
+        _ = try await encodeFrame(encoder, frameIndex: 30, frameId: 31)
+        encoder.noteClientHasNoReferences()
+        let intervening = try await encodeFrame(encoder, frameIndex: 31, frameId: 32)
+        XCTAssertFalse(
+            intervening.header.isKeyframe,
+            "the flag records what the next KEYFRAME must be, and must not force one of its own"
+        )
+        let answer = try await encodeFrame(
+            encoder, frameIndex: 32, frameId: 33,
+            forceKeyframe: true, requestedKeyframeReason: .clientRequest
+        )
+        XCTAssertTrue(
+            answer.header.isKeyframe,
+            "a client with no references must be answered with a true keyframe, not an LTR refresh"
+        )
+    }
 }
