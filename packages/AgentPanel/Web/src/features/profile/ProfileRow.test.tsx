@@ -80,6 +80,16 @@ function handle(overrides: Partial<UsageHandle> = {}): UsageHandle {
   };
 }
 
+/** The whole day panel, hint and figures alike. */
+function dayDetail(): HTMLElement {
+  return screen.getByRole("group", { name: "Selected day" });
+}
+
+/** Just the day's own figures, not the week lines under them. */
+function dayFigures(): HTMLElement {
+  return dayDetail().querySelector("dl")!;
+}
+
 function openMenu() {
   fireEvent.click(screen.getByRole("button", { name: /^Profile/ }));
 }
@@ -153,20 +163,33 @@ describe("the usage modal", () => {
 
   it("shows a day's input, cached and uncached totals when it is hovered", () => {
     openModal();
-    const cell = document.querySelector('[data-date="2026-08-13"]')!;
-    fireEvent.mouseEnter(cell);
+    fireEvent.mouseEnter(document.querySelector('[data-date="2026-08-13"]')!);
 
     // The three numbers the feature exists for. 485.22M sent, of which 476.36M came from cache,
     // leaving 8.86M that did not: reading only the first would be reading mostly cache traffic.
-    // The day's own figures, not the week line below them, which for this date holds the same
-    // number because nothing else ran that week.
-    const readout = within(
-      screen.getByRole("group", { name: "Selected day" }).querySelector("dl")!,
-    );
+    // Read from the day's own figures, not the week lines below them.
+    const readout = within(dayFigures());
     expect(readout.getByText("485.22M")).toBeInTheDocument();
-    expect(readout.getByText("476.36M (98.2%)")).toBeInTheDocument();
+    expect(readout.getByText("cached (98.2%)")).toBeInTheDocument();
+    expect(readout.getByText("476.36M")).toBeInTheDocument();
     expect(readout.getByText("8.86M")).toBeInTheDocument();
     expect(readout.getByText("3,291")).toBeInTheDocument();
+  });
+
+  it("opens on the most recent recorded day rather than on nothing", () => {
+    // Both because it is the more useful thing to open on, and because it is what keeps the panel
+    // from being a reserved rectangle of empty space in its resting state.
+    openModal();
+    expect(within(dayDetail()).getByText("Tue, Aug 18, 2026")).toBeInTheDocument();
+    expect(document.querySelector('[data-date="2026-08-18"]')).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("falls back to that day when the pointer leaves the grid", () => {
+    openModal();
+    fireEvent.mouseEnter(document.querySelector('[data-date="2026-08-13"]')!);
+    expect(within(dayDetail()).getByText("Thu, Aug 13, 2026")).toBeInTheDocument();
+    fireEvent.mouseLeave(document.querySelector("[role='grid']")!);
+    expect(within(dayDetail()).getByText("Tue, Aug 18, 2026")).toBeInTheDocument();
   });
 
   it("puts the same numbers on the cell for a screen reader", () => {
@@ -193,9 +216,36 @@ describe("the usage modal", () => {
     fireEvent.mouseEnter(document.querySelector('[data-date="2026-08-18"]')!);
     // 2026-08-18 is in the week of the 17th, which holds 4M; the week before holds the 13th's
     // 485.22M. The comparison is stated and left there; the panel draws no conclusion from it.
-    const readout = screen.getByText(/previous week/);
-    expect(readout).toHaveTextContent("4.00M that week");
-    expect(readout).toHaveTextContent("485.22M");
+    const weeks = screen.getByText("that week").parentElement!;
+    expect(weeks).toHaveTextContent("4.00M");
+    expect(weeks).toHaveTextContent("485.22M");
+  });
+
+  it("holds one shape whether or not a day is showing, so the grid cannot move", () => {
+    // jsdom has no layout, so this asserts the structure that produces the stable height rather
+    // than the height itself: the same element tree either way, and a model list that reserves its
+    // rows. Measured in a browser before this was fixed, hovering moved the grid up 8px and moving
+    // to a two-model day moved it another 10px -- under a pointer aimed at a 12px square.
+    const shapeOf = () => {
+      const detail = dayDetail();
+      return {
+        figures: detail.querySelectorAll("dl")[0]!.children.length,
+        weekRows: detail.querySelectorAll("dl")[1]!.children.length,
+        modelList: detail.querySelector("ul")!.getAttribute("style"),
+      };
+    };
+
+    openModal();
+    const resting = shapeOf();
+    fireEvent.mouseEnter(document.querySelector('[data-date="2026-08-13"]')!);
+    const oneModel = shapeOf();
+    fireEvent.mouseEnter(document.querySelector('[data-date="2026-08-18"]')!);
+    const noModels = shapeOf();
+
+    expect(oneModel).toEqual(resting);
+    expect(noModels).toEqual(resting);
+    // Three 1.25rem rows plus two 0.25rem gaps, whether the day fills them or not.
+    expect(resting.modelList).toContain("4.25rem");
   });
 
   it("keeps the grid to one tab stop", () => {
@@ -227,11 +277,17 @@ describe("the usage modal", () => {
     expect(screen.getByText(/3 unreadable/)).toBeInTheDocument();
   });
 
-  it("shows a skeleton at final size while the first sweep runs", () => {
+  it("draws the whole panel while the first sweep runs, withholding only the figures", () => {
+    // Not a spinner and not a different layout: a cold sweep reads gigabytes and takes seconds,
+    // and the grid, the readout and the footer are all at their final size throughout, so the
+    // report landing moves nothing. Verified in a browser at 472px tall before and after.
     openModal(handle({ state: { kind: "loading" } }));
-    // Not a spinner: the grid's dimensions are known before its data is, so nothing reflows when
-    // the sweep lands.
-    expect(screen.getByLabelText("Loading usage")).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "Token usage" });
+    expect(within(dialog).getAllByText("—").length).toBeGreaterThan(0);
+    expect(dialog.querySelector("[role='grid']")).toBeInTheDocument();
+    expect(within(dialog).getByText("Reading session records…")).toBeInTheDocument();
+    // Withheld, not invented: a zero would read as a real range in which nothing ran.
+    expect(within(screen.getByLabelText(/^Last \d+ weeks$/)).queryByText("0")).toBeNull();
   });
 
   it("says a sweep failed instead of showing an empty calendar", () => {
