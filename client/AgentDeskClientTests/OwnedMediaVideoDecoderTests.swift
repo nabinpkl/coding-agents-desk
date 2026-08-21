@@ -14,6 +14,7 @@ final class OwnedMediaVideoDecoderTests: XCTestCase {
         var flushAndRemoveImageCount = 0
         var displayStatus = "rendering"
         var requiresFlushToResumeDecoding = false
+        var hasDisplayedFrame = true
         func enqueue(_ sampleBuffer: CMSampleBuffer) { enqueued.append(sampleBuffer) }
         func flush() { flushCount += 1 }
         func flushAndRemoveImage() { flushAndRemoveImageCount += 1 }

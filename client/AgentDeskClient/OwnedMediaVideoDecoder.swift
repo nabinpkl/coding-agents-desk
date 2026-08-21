@@ -22,6 +22,11 @@ protocol OwnedMediaVideoEnqueuing: AnyObject {
     func flushAndRemoveImage()
     var displayStatus: String { get }
     var requiresFlushToResumeDecoding: Bool { get }
+    /// R230. Whether a frame is ON THE GLASS, as opposed to having been accepted. The only
+    /// signal in the whole path taken at the display end, and the only one that can tell a
+    /// wedged layer from a working one: everything else is counted at enqueue and reads
+    /// identically either way.
+    var hasDisplayedFrame: Bool { get }
     /// R230. Everything about the layer that could explain a black picture, sampled together.
     ///
     /// The recovery policy above reads exactly two properties, `displayStatus` and
@@ -73,6 +78,10 @@ final class OwnedMediaVideoDecoder {
     /// R230. Passthrough so the sink can report layer state alongside its enqueue counters
     /// without reaching past the decoder for the layer it owns.
     var renderDiagnostics: [String: String] { layer.renderDiagnostics }
+
+    /// R230. Passthrough so the sink's display-side watchdog reads the glass without reaching
+    /// past the decoder for the layer it owns.
+    var hasDisplayedFrame: Bool { layer.hasDisplayedFrame }
 
     @discardableResult
     func decodeAndEnqueue(
@@ -140,6 +149,19 @@ final class OwnedMediaVideoDecoder {
         formatDescription = nil
         currentDimensions = nil
         layer.flush()
+    }
+
+    /// R230. `reset()` for a layer that is showing nothing anyway.
+    ///
+    /// The difference is the whole point: `flush()` keeps the current image and, on a layer that
+    /// has stopped producing, keeps whatever wedged state came with it. `flushAndRemoveImage()`
+    /// is the stronger clear the in-frame recovery path already uses, and it costs nothing here
+    /// because there is by definition no picture to preserve -- that is what the caller just
+    /// finished measuring.
+    func resetRemovingImage() {
+        formatDescription = nil
+        currentDimensions = nil
+        layer.flushAndRemoveImage()
     }
 
     static func makeSampleBuffer(
@@ -324,6 +346,8 @@ final class OwnedMediaVideoLayerEnqueuer: OwnedMediaVideoEnqueuing {
         renderer.requiresFlushToResumeDecoding
     }
 
+    var hasDisplayedFrame: Bool { renderer.displayedPixelBuffer() != nil }
+
     var renderDiagnostics: [String: String] {
         let bounds = displayLayer.bounds
         let frame = displayLayer.frame
@@ -337,8 +361,10 @@ final class OwnedMediaVideoLayerEnqueuer: OwnedMediaVideoEnqueuing {
             "legacyStatus": describe(displayLayer.status),
             // The only signal that measures pixels rather than intent: what is displayed right
             // now, as opposed to what has been handed over. nil here while frames are being
-            // enqueued is the black screen, stated directly for the first time.
-            "displayedFrame": renderer.displayedPixelBuffer() != nil ? "present" : "none",
+            // enqueued is the black screen, and since R230 it is a trigger as well as a field --
+            // read through the same property the watchdog reads, so the log and the decision can
+            // never disagree about what was on the glass.
+            "displayedFrame": hasDisplayedFrame ? "present" : "none",
             // Geometry: any of these alone renders a correctly-decoding layer invisible, and
             // none of them was being read.
             "hidden": String(displayLayer.isHidden),

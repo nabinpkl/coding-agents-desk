@@ -285,6 +285,16 @@ enum Config {
         environmentKey: "AGENTDESK_OWNED_MEDIA_RENDER_STALL_MS",
         defaultValue: 1_000
     )
+    // R230: the DISPLAY-side counterpart of the interval above, and a separate knob because it
+    // measures a different end of the pipe. The one above asks "are frames still being accepted";
+    // this one asks "is anything actually on the glass". How long the renderer may display
+    // nothing while frames are landing before the sink blanks the layer and forces a true
+    // keyframe. Doubles on each consecutive failed recovery, because the remedy is the most
+    // expensive frame in the system and a wedge it cannot fix must not be re-fought forever.
+    static let ownedMediaDisplayOutputStallMs = positiveInt(
+        environmentKey: "AGENTDESK_OWNED_MEDIA_DISPLAY_OUTPUT_STALL_MS",
+        defaultValue: 2_000
+    )
     // ADR-0027: how often the client reports link health (window completed/expired
     // frame counts) to the host adaptive bitrate controller. Each report carries that
     // window's counts, and at 2Hz it doubles as the traffic that keeps the QUIC idle

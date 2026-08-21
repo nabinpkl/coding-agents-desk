@@ -395,6 +395,17 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     private var presentationSkipHandler: (@Sendable (Int) -> Void)?
     private var ltrAcknowledgementHandler: (@Sendable (UInt64) -> Void)?
     private var stallWatchdog: OwnedMediaRenderStallWatchdog
+    /// R230. The display-side watchdog, beside the enqueue-side one because they answer
+    /// different questions: that one asks whether frames are still being accepted, this one
+    /// asks whether any of them reached the glass.
+    private let displayOutputWatchdog: OwnedMediaDisplayOutputWatchdog
+    /// When the display last had a frame on it. Seeded from the first enqueue, so a stream that
+    /// never displays anything at all still has an origin to measure the wedge from.
+    private var lastDisplayOutputNs: UInt64?
+    /// Failed display recoveries since anything was last on the glass. Drives the backoff, and
+    /// is the number to read in a diagnostics pull: a rising count is this watchdog saying its
+    /// own remedy is not working, which is the finding rather than a detail.
+    private var displayOutputRecoveries = 0
     private let stallTimer: DispatchSourceTimer
 
     init() {
@@ -402,6 +413,9 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         stallWatchdog = OwnedMediaRenderStallWatchdog.configured(
             expectedFrameRate: Config.ownedMediaExpectedFrameRate,
             minimumStallNs: stallNs
+        )
+        displayOutputWatchdog = OwnedMediaDisplayOutputWatchdog.configured(
+            stallNs: UInt64(Config.ownedMediaDisplayOutputStallMs) * 1_000_000
         )
         stallTimer = DispatchSource.makeTimerSource(queue: .main)
         let container = LayerBackedVideoContainerView()
@@ -434,7 +448,10 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         let pollSeconds = max(0.25, Double(Config.ownedMediaRenderStallMs) / 1000.0 / 2.0)
         stallTimer.schedule(deadline: .now() + pollSeconds, repeating: pollSeconds)
         stallTimer.setEventHandler { [weak self] in
-            Task { @MainActor in self?.checkRenderStall() }
+            Task { @MainActor in
+                self?.checkRenderStall()
+                self?.checkDisplayOutput()
+            }
         }
         stallTimer.resume()
     }
@@ -492,6 +509,64 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         pendingVideoPresentationTask = nil
     }
 
+    /// R230. The check every other counter in this file is structurally unable to make.
+    ///
+    /// Timer-driven beside `checkRenderStall`, and deliberately not folded into it: that one
+    /// fires when frames stop being ACCEPTED, which is the failure where the enqueue side is
+    /// visibly broken. This one fires when they keep being accepted and none of them arrive on
+    /// screen, which is the failure where the enqueue side looks perfect. Measured, that state
+    /// held for minutes at a reported 23-26fps with zero stalls, zero decode drops and zero
+    /// dropped frames, and survived two full transport rebuilds.
+    private func checkDisplayOutput() {
+        let now = DispatchTime.now().uptimeNanoseconds
+        let hasDisplayedFrame = videoDecoder.hasDisplayedFrame
+        if hasDisplayedFrame {
+            // The glass is the arbiter. Anything on it clears both the clock and the verdict
+            // that recovery was failing, including a picture that arrived by some other route.
+            lastDisplayOutputNs = now
+            displayOutputRecoveries = 0
+            return
+        }
+        guard displayOutputWatchdog.shouldRecover(
+            hasDisplayedFrame: hasDisplayedFrame,
+            lastEnqueueNs: lastVideoEnqueueUptimeNs,
+            lastOutputNs: lastDisplayOutputNs,
+            consecutiveRecoveries: displayOutputRecoveries,
+            nowNs: now
+        ) else { return }
+        displayOutputRecoveries &+= 1
+        logger.error("owned media video display-output-stall recovery=\(self.displayOutputRecoveries, privacy: .public) enqueueAgeMs=\(self.ageMs(self.lastVideoEnqueueUptimeNs, now), privacy: .public) outputAgeMs=\(self.ageMs(self.lastDisplayOutputNs, now), privacy: .public)")
+        ownedMediaStderrTrace("video-display-output-stall recovery=\(displayOutputRecoveries) enqueueAgeMs=\(ageMs(lastVideoEnqueueUptimeNs, now)) outputAgeMs=\(ageMs(lastDisplayOutputNs, now))")
+        ClientDiagnostics.shared.record(
+            type: "videoDisplayOutputStall",
+            fields: [
+                "recovery": String(displayOutputRecoveries),
+                "enqueueAgeMs": String(Int(ageMs(lastVideoEnqueueUptimeNs, now))),
+                "outputAgeMs": String(Int(ageMs(lastDisplayOutputNs, now))),
+                "enqueued": String(videoEnqueueCount)
+            ],
+            level: .error
+        )
+        // Forced, because this is the one moment where the full layer state is worth having
+        // whether or not it changed: the whole point of the failure is that it does not change.
+        reportRenderDiagnostics(reason: "display-output-stall", force: true)
+        videoStatusTracker.noteRenderStall()
+        setOwnedMediaStatus(.videoRepairing)
+        // Blank rather than flush. There is no image to preserve -- that is exactly what was
+        // just measured -- and the stronger clear is the one the in-frame recovery path already
+        // uses on a layer it has given up on.
+        videoDecoder.resetRemovingImage()
+        videoPresentationPacer.reset()
+        pendingVideoPresentationTask?.cancel()
+        pendingVideoPresentationTask = nil
+        // The blank threw the reference pictures away with the image, so a long-term-reference
+        // delta would be undecodable however healthy the host believes our references to be.
+        requestKeyframe(now: now, discardingReferences: true, reason: "display-output-stall")
+        // Restart the clock from the recovery, not from the next enqueue, so the backoff is
+        // measured from when we acted rather than from when the host next answered.
+        lastDisplayOutputNs = now
+    }
+
     /// Adopt a new transport's stream, keeping both the displayed frame and the decoder state
     /// behind it.
     ///
@@ -525,6 +600,11 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         lastVideoEnqueueUptimeNs = nil
         lastKeyframeRequestUptimeNs = nil
         lastKeyframeRequestDiscardedReferences = false
+        // R230: a new stream is a fresh judgement about the glass. Carrying the old clock over
+        // would date the wedge from the previous stream, and carrying the failure count over
+        // would start the new one already backed off.
+        lastDisplayOutputNs = nil
+        displayOutputRecoveries = 0
     }
 
     func noteDecoderInvalidated(reason: String) {
@@ -557,6 +637,8 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         pendingVideoPresentationTask = nil
         lastVideoArrivalUptimeNs = nil
         lastVideoEnqueueUptimeNs = nil
+        lastDisplayOutputNs = nil
+        displayOutputRecoveries = 0
         // Deliberately publishes no status. This runs before the re-dial, so the honest label
         // for the moment is the transport's own `connecting`, and the drop-pending-keyframe path
         // already says `videoWaitingKeyframe` once frames are actually arriving and being held.
@@ -666,6 +748,12 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
             }
             ClientRuntimeTelemetry.shared.advanceVideoMilestone(.decoderEnqueued)
             lastVideoEnqueueUptimeNs = nowNs
+            // R230: the origin for the display-side clock. A stream that never puts anything on
+            // the glass has no display timestamp to measure a wedge from, so the first frame we
+            // hand over stands in for one. Set once and then left alone: the poll owns it from
+            // here, and overwriting it per frame would restart the grace on every frame and make
+            // the wedge permanently undetectable.
+            if lastDisplayOutputNs == nil { lastDisplayOutputNs = nowNs }
             videoEnqueueCount &+= 1
             // Cheap on the hot path: this only emits when the layer state actually changed.
             reportRenderDiagnostics(reason: "enqueued")

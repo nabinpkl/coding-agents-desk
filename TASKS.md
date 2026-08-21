@@ -1638,6 +1638,19 @@ signal (layer attached, bounds non-zero, samples actually dequeued or rendered),
 that acts on it. Note the client already has recovery paths for a wedged layer -- they just fire
 on signals this state does not trip.
 
+R230 update (D265, D266): both pieces of work now exist. The display-side signal landed as
+`renderer.displayedPixelBuffer()` in `videoRenderDiagnostics`; the recovery that acts on it landed
+as `OwnedMediaDisplayOutputWatchdog`. D265 separately fixed the ONE cause of a black picture that
+was fully explainable from the code -- a background makes iOS reclaim the decoder, which nothing
+was reacting to. STAYS OPEN because the cause of the reported-healthy wedge measured on D229 was
+never determined, and the recovery for it is therefore untried rather than proven: two transport
+rebuilds did not clear that wedge, but neither rebuild flushed, so the flush this watchdog now
+performs has genuinely never been attempted against it. Closing this needs a device run that
+reproduces the black screen and shows `videoDisplayOutputStall` firing and the picture returning.
+If it fires with a rising `recovery=` count and the screen stays black, the remedy is wrong rather
+than the detector, and the next rung is rebuilding the display layer -- the in-process equivalent
+of the force quit that is the only thing known to work.
+
 R231 detail: measured live during the same run: `scale=0.75` keyframe 86,644B at 00:34:00,
 `scale=0.50` keyframe 68,598B at 00:34:06, `scale=0.75` keyframe 122,041B at 00:34:17. Three
 resolution changes in seventeen seconds, each a full keyframe by construction, on the cellular
@@ -1982,3 +1995,21 @@ default, unlike Claude.
   wedge that reports `status=rendering` with `requiresFlush=false` and shows nothing. That one
   still needs a display-side trigger; `renderer.displayedPixelBuffer()` is already sampled into
   `videoRenderDiagnostics` and still drives nothing.
+- D266. Make `displayedPixelBuffer()` a trigger instead of a log field, which is R230's second
+  half. `OwnedMediaDisplayOutputWatchdog` is a pure policy beside the enqueue-side one, and the
+  pair state the distinction the client was missing: that one asks whether frames are still being
+  ACCEPTED, this one asks whether any of them reached the glass. Nothing displayed, while frames
+  are still landing, past a grace, is a wedge; the sink then blanks the layer with
+  `flushAndRemoveImage` (there is no picture to preserve, which is exactly what was measured) and
+  forces a true keyframe, since the blank takes the reference pictures with it.
+  Three guards keep it from being a keyframe storm, and each is a test: a displayed frame is never
+  a wedge, a quiet host is never a wedge (nothing out with nothing in is a resting desktop), and
+  the moment before a session's first frame reaches the glass is never a wedge. The grace doubles
+  per consecutive failed recovery to a cap, because the remedy is the most expensive frame in the
+  system. `hasDisplayedFrame` is now one property read by both the watchdog and the diagnostics
+  line, so the log and the decision cannot disagree about what was on screen.
+  The rising `recovery=` count in `videoDisplayOutputStall` is the point as much as the fix is: it
+  is the watchdog reporting that its own remedy is not working, which is the one thing the D229
+  run had no way to say.
+  Verified: `just sim-test` green, 706 tests, 8 new. NOT verified on hardware, and the wedge this
+  targets has an undetermined cause, so the detector is sound and the remedy is a hypothesis.
