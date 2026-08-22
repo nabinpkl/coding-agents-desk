@@ -2013,3 +2013,32 @@ default, unlike Claude.
   run had no way to say.
   Verified: `just sim-test` green, 706 tests, 8 new. NOT verified on hardware, and the wedge this
   targets has an undetermined cause, so the detector is sound and the remedy is a hypothesis.
+- D267. Authorized device run on the physical iPhone, host and client both at `7cd6fc38`, and the
+  first hardware evidence for D265. The background half is CONFIRMED: the console caught
+  `requires-flush-changed detail=true` with `status=failed`, `displayedFrame=none` and
+  AVFoundation `-11847 Operation Interrupted` (OSStatus `-12084`) -- the decoder being reclaimed,
+  exactly as D265 argued from the code -- immediately followed by `detail=false`, the flag going
+  back down, with `enqueued=1531` identical either side. No frame was enqueued between them, which
+  rules out the in-decode recovery path and leaves `noteDecoderInvalidated` as the only flusher.
+  The same pull holds an old-build run (`53e8d083`) with the same background and foreground and
+  zero `videoDecoderInvalidated`, so this is a before/after rather than a reading.
+  The run also found a bug in D265. The client recorded three `foreground-resume` requests with
+  `discardingReferences=true`; the host recorded NONE. Cause: background stops the transport but
+  nothing clears the closure it installed on the sink, so the arm-until-a-transport-exists logic
+  saw a non-nil handler, fired into the closed transport, and discharged the debt 450ms before the
+  re-dial installed a live one. The keyframe request the whole ADR-0090 interaction depends on was
+  never sent. Fixed by making the handler answer whether a LIVE transport took it (the transport
+  is the only party that knows; it checks the same `liveChannels()` accessor `sendVideoControl`
+  uses), holding the arm until delivery, advancing the request rate-limiter only on delivery, and
+  recording `delivered` on `videoKeyframeRequested` so a swallowed request stops reading in the
+  pull exactly like a sent one. Confirmed by negative control: the reverted arm logic fails
+  `aStaleHandlerDoesNotDischargeTheRequest` with `fresh.hasReferences → []`, the device symptom.
+  Two things stay UNPROVEN and should not be read as verified. The host built a FRESH encoder for
+  every session in this run (`true-keyframe encFrame=1 cause=first-frame`, three times), so the
+  IDR that restored the picture was owed to `encFrame=1`, not to our request -- D265's encoder-side
+  fix and the no-references path are still unexercised end to end, and the proof to look for is a
+  host line reading `cause=client-has-no-references`. And `videoDisplayOutputStall` never fired in
+  any run, so D266 remains untriggered as well as unproven.
+  Open question worth its own look: ADR-0090 says the host keeps its encoder across a reconnect,
+  and this run shows it building a new one each time. If encoder reuse is not happening on this
+  path, the LTR machinery is doing less than the ADR claims.

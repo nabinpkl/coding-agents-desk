@@ -25,6 +25,7 @@ struct OwnedMediaDecodeRecoveryTests {
         sink.setVideoKeyframeRequestHandler { hasReferences, reason in
             requests.hasReferences.append(hasReferences)
             requests.reasons.append(reason)
+            return true
         }
         return (sink, requests)
     }

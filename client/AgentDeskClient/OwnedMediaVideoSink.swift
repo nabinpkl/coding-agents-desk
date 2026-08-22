@@ -21,7 +21,14 @@ protocol OwnedMediaFrameSink: VideoFrameSink {
     @MainActor func setOwnedMediaExpectedFrameRate(_ fps: Int)
     // ADR-0027: the transport installs how the sink asks for a keyframe (the render
     // -stall watchdog and the wedged-layer recovery both use it).
-    @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable (Bool, String) -> Void)
+    //
+    // Returns whether a LIVE transport took the request. The sink cannot tell a live handler
+    // from one left behind by a transport that has since closed -- both are non-nil closures --
+    // and measured on device that difference was the whole ball game: three `foreground-resume`
+    // requests were recorded as sent by the client and none of them reached the host, because
+    // the closure still captured the transport the background had already closed. Only the
+    // transport knows whether it can still send, so only the transport can answer this.
+    @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable (Bool, String) -> Bool)
     // ADR-0088: the transport installs where presentation skips are counted, so the waste
     // lands in the same 500ms link-health window as everything else rather than only in the
     // client's own three-run diagnostics store. Push rather than pull: `flushLinkHealth` is
@@ -72,7 +79,7 @@ extension OwnedMediaFrameSink {
     @MainActor func noteOwnedMediaRepairRequested(_ count: Int) {}
     @MainActor func noteOwnedMediaRepairExpired(_ count: Int) {}
     @MainActor func setOwnedMediaExpectedFrameRate(_ fps: Int) {}
-    @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable (Bool, String) -> Void) {}
+    @MainActor func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable (Bool, String) -> Bool) {}
     @MainActor func setOwnedMediaPresentationSkipHandler(_ handler: @escaping @Sendable (Int) -> Void) {}
     @MainActor var onOwnedMediaStatusChange: ((OwnedMediaStatus) -> Void)? {
         get { nil }
@@ -365,7 +372,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     /// would arrive undecodable and the request would repeat forever. The reason rides the wire
     /// so the host log attributes every request without a client diagnostics pull -- 857
     /// unattributed requests in one session is the measurement that bought this parameter.
-    private var videoKeyframeRequestHandler: (@Sendable (Bool, String) -> Void)?
+    private var videoKeyframeRequestHandler: (@Sendable (Bool, String) -> Bool)?
     /// The last few enqueued frames, kept so a decode failure can say what it was fed.
     ///
     /// `didFailToDecodeNotification` arrives asynchronously and names no sample, so the only
@@ -461,7 +468,7 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         stallTimer.cancel()
     }
 
-    func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable (Bool, String) -> Void) {
+    func setVideoKeyframeRequestHandler(_ handler: @escaping @Sendable (Bool, String) -> Bool) {
         videoKeyframeRequestHandler = handler
         // A decoder lost while no transport was attached armed a request nobody could send.
         // The handler arriving IS the moment it becomes sendable, so send it here rather than
@@ -648,14 +655,20 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
 
     /// Deliberately does NOT clear the request rate-limiter first. Two invalidation reports for
     /// one event are normal -- the renderer's notification and the foreground both fire -- and
-    /// coalescing the second into the first is right: an identical flagged request went out
-    /// moments ago, so the host already knows. The arm is consumed once a handler exists,
-    /// because at that point the message has been delivered or deliberately merged, and a
-    /// surviving arm would re-send it at every later transport swap.
+    /// coalescing the second into the first is right: an identical flagged request already
+    /// reached the host.
+    ///
+    /// The arm survives anything short of delivery. An earlier version cleared it whenever a
+    /// handler existed, which measured on device as a silent no-op: the background stops the
+    /// transport but nothing clears the closure it installed, so `foreground-resume` fired into
+    /// a closed transport, the arm was discharged, and the new transport attached 450ms later
+    /// with nothing owed. The host logged zero requests while the client logged three. A
+    /// non-nil handler is not evidence of a live one, so delivery is now the only thing that
+    /// discharges the debt.
     private func sendPendingDecoderLossResync(now: UInt64) {
-        guard let reason = pendingDecoderLossResync, videoKeyframeRequestHandler != nil else { return }
+        guard let reason = pendingDecoderLossResync else { return }
+        guard requestKeyframe(now: now, discardingReferences: true, reason: reason) else { return }
         pendingDecoderLossResync = nil
-        requestKeyframe(now: now, discardingReferences: true, reason: reason)
     }
 
     // Single rate-limited keyframe-request point shared by the watchdog and the
@@ -667,7 +680,12 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
     /// - Parameter reason: names the caller on the wire and in diagnostics. A request with no
     ///   reason is unattributable from the host log, and the host log is the only surface that
     ///   sees every request.
-    private func requestKeyframe(now: UInt64, discardingReferences: Bool = false, reason: String) {
+    /// - Returns: whether the host can be expected to have heard this. True also for a request
+    ///   coalesced into a recent one, because the rate-limiter's clock is now only advanced by
+    ///   requests that were actually delivered -- so a coalesce means a live request went out
+    ///   moments ago, not that one was written into a closed transport.
+    @discardableResult
+    private func requestKeyframe(now: UInt64, discardingReferences: Bool = false, reason: String) -> Bool {
         // The min-gap coalesces bursts, but an ESCALATION must break through it. Measured on
         // device (2026-08-16): a plain gap-recovery request went out first, the host answered
         // it with a delta resync, the delta hit the flushed decoder as -11821, and the
@@ -678,16 +696,29 @@ final class OwnedMediaVideoSink: OwnedMediaFrameSink, @unchecked Sendable {
         if let last = lastKeyframeRequestUptimeNs,
            now < last &+ UInt64(Config.ownedMediaRenderStallMs) * 1_000_000,
            !(discardingReferences && !lastKeyframeRequestDiscardedReferences) {
-            return
+            return true
         }
-        lastKeyframeRequestDiscardedReferences = discardingReferences
-        lastKeyframeRequestUptimeNs = now
+        let delivered = videoKeyframeRequestHandler?(!discardingReferences, reason) ?? false
+        // Only a delivered request advances the limiter. A swallowed one must not buy silence:
+        // that is how a client ends up rate-limiting itself against a request the host never
+        // received.
+        if delivered {
+            lastKeyframeRequestDiscardedReferences = discardingReferences
+            lastKeyframeRequestUptimeNs = now
+        }
+        // Recorded either way, and saying which. The record used to be written before the call
+        // and unconditionally, so a swallowed request read in the pull exactly like a delivered
+        // one -- which is what made three missing requests look like a host-side fault.
         ClientDiagnostics.shared.record(
             type: "videoKeyframeRequested",
-            fields: ["discardingReferences": String(discardingReferences), "reason": reason],
-            level: .default
+            fields: [
+                "discardingReferences": String(discardingReferences),
+                "reason": reason,
+                "delivered": String(delivered)
+            ],
+            level: delivered ? .default : .error
         )
-        videoKeyframeRequestHandler?(!discardingReferences, reason)
+        return delivered
     }
 
     private func ageMs(_ thenNs: UInt64?, _ nowNs: UInt64) -> Double {

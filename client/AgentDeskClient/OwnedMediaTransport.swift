@@ -273,7 +273,18 @@ private struct Channels {
                 // message most likely to be sent into a broken link and the one whose loss
                 // hurts most, so it must be covered by the send-failure reporting too.
                 mediaSink?.setVideoKeyframeRequestHandler { [weak self] hasReferences, reason in
-                    self?.sendVideoControl(
+                    // Answer whether a LIVE transport is taking this, because the sink cannot
+                    // tell. The sink holds this closure until another transport replaces it, so
+                    // after a background it is still here, still non-nil, and attached to a
+                    // transport that closed minutes ago. Reporting that honestly is what lets
+                    // the sink hold the request until the re-dial instead of discharging it
+                    // into nothing -- measured on device as three requests the client recorded
+                    // as sent and the host never saw.
+                    //
+                    // `liveChannels` is the same accessor `sendVideoControl` uses, so this
+                    // cannot answer true for a transport that send would then find closed.
+                    guard let self, (try? self.liveChannels()) != nil else { return false }
+                    self.sendVideoControl(
                         OwnedMediaControlMessage(
                             kind: .keyframeRequest,
                             frameId: 0,
@@ -281,6 +292,7 @@ private struct Channels {
                             clientHasNoReferences: hasReferences ? nil : true
                         )
                     )
+                    return true
                 }
                 // ADR-0090: an acknowledged long-term reference is what lets the host answer
                 // the next resync with a delta instead of a keyframe. Sent as its own frame ack

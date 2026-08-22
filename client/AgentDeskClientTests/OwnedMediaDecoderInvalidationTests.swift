@@ -20,13 +20,19 @@ struct OwnedMediaDecoderInvalidationTests {
     private final class Requests: @unchecked Sendable {
         var hasReferences: [Bool] = []
         var reasons: [String] = []
+        /// What this handler claims about its transport. A handler left behind by a closed
+        /// transport still runs and still receives the request; it just cannot send it.
+        var live = true
     }
 
-    private static func install(on sink: OwnedMediaVideoSink) -> Requests {
+    private static func install(on sink: OwnedMediaVideoSink, live: Bool = true) -> Requests {
         let requests = Requests()
+        requests.live = live
         sink.setVideoKeyframeRequestHandler { hasReferences, reason in
+            guard requests.live else { return false }
             requests.hasReferences.append(hasReferences)
             requests.reasons.append(reason)
+            return true
         }
         return requests
     }
@@ -90,5 +96,43 @@ struct OwnedMediaDecoderInvalidationTests {
         sink.noteDecoderInvalidated(reason: "requires-flush", now: Self.windowNs)
         sink.noteDecoderInvalidated(reason: "foreground-resume", now: Self.windowNs * 4)
         #expect(requests.hasReferences == [false, false])
+    }
+
+    // The device run this was written from. Background stops the transport but nothing clears
+    // the closure it installed on the sink, so at foreground the handler is present, stale, and
+    // silently discards the request. The client recorded three `foreground-resume` requests and
+    // the host log recorded none of them.
+    //
+    // A non-nil handler is therefore not evidence of a live one, and only the transport can say
+    // which it is.
+    @Test func aStaleHandlerDoesNotDischargeTheRequest() {
+        let sink = OwnedMediaVideoSink()
+        let stale = Self.install(on: sink, live: false)
+        sink.noteDecoderInvalidated(reason: "foreground-resume", now: Self.windowNs)
+        #expect(stale.hasReferences.isEmpty, "a closed transport cannot have taken it")
+
+        // The re-dial, 450ms later on the measured run.
+        let fresh = Self.install(on: sink)
+        #expect(fresh.hasReferences == [false], "the debt survives to the transport that can pay it")
+        #expect(fresh.reasons == ["foreground-resume"], "and keeps the reason it was raised with")
+    }
+
+    // The second half of the same bug. A swallowed request must not advance the rate limiter,
+    // or the client spends the whole coalescing window staying quiet about a request the host
+    // never received -- silence bought with a message nobody heard.
+    //
+    // The spy is flipped live rather than reinstalled, deliberately: installing a handler sends
+    // the arm on its own, which would mask whether the limiter was the thing that let the second
+    // request through. This isolates the limiter.
+    @Test func aSwallowedRequestDoesNotBuySilence() {
+        let sink = OwnedMediaVideoSink()
+        let handler = Self.install(on: sink, live: false)
+        sink.noteDecoderInvalidated(reason: "foreground-resume", now: Self.windowNs)
+        #expect(handler.reasons.isEmpty)
+        handler.live = true
+        // Well inside the coalescing gap. A delivered first request would suppress this one,
+        // which is correct; a SWALLOWED one must not.
+        sink.noteDecoderInvalidated(reason: "requires-flush", now: Self.windowNs + 1_000_000)
+        #expect(handler.reasons == ["requires-flush"])
     }
 }
