@@ -4,12 +4,14 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   canonicalProjectPath,
+  refreshCodexRollout,
   isClaudeSessionCandidate,
   projectSummaries,
   registerPiSession,
   resolveClaudeProject,
   sessionSummaries,
   sessionKey,
+  subscribeCatalog,
   stopCatalog,
 } from "./transcriptCatalog.ts";
 import { PI_AGENT_CAPABILITIES } from "../agents/piAgentBackend.ts";
@@ -289,5 +291,114 @@ describe("transcript catalog identity", () => {
     });
     expect(sessionSummaries(project).map((summary) => summary.title))
       .toEqual(["pi thread", "11111111-1111-1111-1111-111111111111"]);
+  });
+});
+
+describe("codex rollout refresh", () => {
+  const SESSION = "33333333-3333-3333-3333-333333333333";
+
+  /** A rollout file named the way Codex names them, with a session already known. */
+  async function knownRollout(
+    metadata: Partial<Pick<Session, "title" | "lastTurnClosed">> = {},
+  ): Promise<{ path: string; record: Session }> {
+    const root = await mkdtemp(join(tmpdir(), "codex-rollout-"));
+    temporaryDirectories.push(root);
+    const path = join(root, `rollout-2026-08-22T01-02-03-${SESSION}.jsonl`);
+    await writeFile(path, '{"timestamp":"2026-08-22T01:02:03.000Z","type":"turn_context"}\n');
+    const record: Session = {
+      source: "codex",
+      sessionId: SESSION,
+      project: "/repo",
+      transcriptPath: path,
+      lastEventAt: 1,
+      title: "from the database",
+      gitBranch: "main",
+      ...metadata,
+    };
+    observe(record);
+    return { path, record };
+  }
+
+  // The point of the whole path: a line appended to a live session must not cost a
+  // re-read of every thread Codex has ever had. Proven by what is NOT re-read --
+  // the title and branch only exist in the state database, so a record that still
+  // carries them was refreshed from the file alone.
+  test("advances a known session from its file without re-reading the database", async () => {
+    const { path } = await knownRollout();
+
+    await refreshCodexRollout(path);
+
+    const refreshed = state.sessions.get(sessionKey("codex", SESSION));
+    expect(refreshed?.lastEventAt).toBeGreaterThan(1);
+    expect(refreshed?.title).toBe("from the database");
+    expect(refreshed?.gitBranch).toBe("main");
+  });
+
+  test("tells the catalog's subscribers", async () => {
+    const { path } = await knownRollout();
+    let broadcasts = 0;
+    const unsubscribe = subscribeCatalog(() => {
+      broadcasts += 1;
+    });
+    try {
+      await refreshCodexRollout(path);
+      // The per-file paths coalesce their broadcast, so wait past that window.
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(broadcasts).toBe(1);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("says nothing when the file moved but the record did not change", async () => {
+    const { path } = await knownRollout();
+    await refreshCodexRollout(path);
+    // Past the first refresh's own coalesce window, so its broadcast is not counted
+    // against the second one.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const settled = { ...state.sessions.get(sessionKey("codex", SESSION))! };
+
+    let broadcasts = 0;
+    const unsubscribe = subscribeCatalog(() => {
+      broadcasts += 1;
+    });
+    try {
+      await refreshCodexRollout(path);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(broadcasts).toBe(0);
+      expect(state.sessions.get(sessionKey("codex", SESSION))).toEqual(settled);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  // A rollout with no record is a thread the catalog has not seen, and the row that
+  // would describe it lives in the database. This path must not invent one.
+  test("leaves an unknown session to the full pass", async () => {
+    const root = await mkdtemp(join(tmpdir(), "codex-rollout-"));
+    temporaryDirectories.push(root);
+    const path = join(root, `rollout-2026-08-22T01-02-03-${SESSION}.jsonl`);
+    await writeFile(path, "{}\n");
+
+    await refreshCodexRollout(path);
+
+    expect(state.sessions.has(sessionKey("codex", SESSION))).toBe(false);
+  });
+
+  // Archiving moves the file. Refreshing the record in place would leave the catalog
+  // pointing at a path that is about to stop existing.
+  test("leaves a record whose transcript lives somewhere else alone", async () => {
+    const { path, record } = await knownRollout();
+    record.transcriptPath = "/somewhere/else.jsonl";
+
+    await refreshCodexRollout(path);
+
+    expect(state.sessions.get(sessionKey("codex", SESSION))?.lastEventAt).toBe(1);
+  });
+
+  test("ignores a file that is not a rollout", async () => {
+    const { record } = await knownRollout();
+    await refreshCodexRollout("/tmp/notes.jsonl");
+    expect(record.lastEventAt).toBe(1);
   });
 });

@@ -53,6 +53,11 @@ const ROLLOUT_PATTERN = /^rollout-[\d-]+T[\d-]+-([0-9a-f-]{36})\.jsonl$/i;
  */
 const BROADCAST_COALESCE_MS = 40;
 let codexReconcileTimer: ReturnType<typeof setTimeout> | null = null;
+let codexReconcileSettledAt = 0;
+// Full passes are chained rather than fired independently: two of them mutating
+// `state.sessions` at once would interleave their deletions with each other's
+// insertions.
+let codexReconcilePass: Promise<void> = Promise.resolve();
 let piReconcileTimer: ReturnType<typeof setTimeout> | null = null;
 let broadcastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -342,9 +347,29 @@ function readCodexRows(): CodexThreadRow[] {
 async function reconcileCodex(): Promise<void> {
   const startedAt = performance.now();
   const rows = readCodexRows();
+  // One resolution per DIRECTORY, not per row. 953 threads live in 113 directories
+  // here, so the pass was asking the filesystem the same question eight times over.
+  // Worth most where it is felt most: on the first pass of a fresh process the
+  // kernel's path cache is cold and the 953 cost 188ms, against 0.8ms for the 113.
+  // Once warm the same 953 cost about 9ms, so on a running sidecar this is a real
+  // but small share of a 50-70ms pass -- too small to separate from run-to-run noise
+  // by timing the pass, and kept because it is strictly less work rather than
+  // because a measurement showed it.
+  //
+  // Local to the pass and thrown away with it: deduplication of one snapshot's work,
+  // not a cache, so there is no lifetime to reason about and nothing to invalidate.
+  // Promises are stored rather than results because these all run at once.
+  const projects = new Map<string, Promise<string | null>>();
+  const projectOf = (cwd: string): Promise<string | null> => {
+    const known = projects.get(cwd);
+    if (known) return known;
+    const resolving = canonicalDirectory(cwd);
+    projects.set(cwd, resolving);
+    return resolving;
+  };
   const resolved = await Promise.all(rows.map(async (row): Promise<Session | null> => {
     if (!row.id || !row.cwd || !row.rollout_path) return null;
-    const project = await canonicalDirectory(row.cwd);
+    const project = await projectOf(row.cwd);
     if (!project) return null;
     // The database and the rollout file are two records of the same session and the
     // file is the one that moves first, so the catalog takes the newer. Resolved here
@@ -441,14 +466,99 @@ export function resolvePiSession(sessionId: string): PiSessionLocation | undefin
   return session ? piLocation(session) : undefined;
 }
 
+/**
+ * Refreshes ONE Codex session from its own rollout file.
+ *
+ * A rollout append changes exactly two things about a session: when it last moved,
+ * and whether its last turn is still open. Everything else on the record -- which
+ * project it belongs to, its title, its branch -- comes from Codex's state database
+ * and cannot change without a write there, which has a watcher of its own. So the
+ * overwhelmingly common event, an agent writing a line, now costs one `stat` and at
+ * most one bounded tail read.
+ *
+ * It used to cost a re-read of the whole catalog: 953 rows out of SQLite, then a
+ * `realpath` and two `stat`s per row. Measured on this machine that was 50-200ms,
+ * fired 10-30 times a minute and bursting to twice a second with several Codex
+ * agents running -- the sidecar's entire idle CPU, spent re-deriving 952 records
+ * that had not changed.
+ *
+ * Anything this cannot answer from the record it already holds falls through to the
+ * full pass, which stays the authority on what the catalog CONTAINS.
+ */
+export async function refreshCodexRollout(filePath: string): Promise<void> {
+  const sessionId = ROLLOUT_PATTERN.exec(basename(filePath))?.[1];
+  if (!sessionId) return;
+  const key = sessionKey("codex", sessionId);
+  const known = state.sessions.get(key);
+  // No record, or a record pointing somewhere else (an archived thread whose file
+  // moved): both are questions about membership, which is the full pass's job.
+  if (!known || known.transcriptPath !== filePath) {
+    scheduleCodexReconcile();
+    return;
+  }
+
+  let mtimeMs: number;
+  try {
+    mtimeMs = (await stat(filePath)).mtimeMs;
+  } catch {
+    scheduleCodexReconcile();
+    return;
+  }
+  const lastEventAt = Math.max(known.lastEventAt, mtimeMs);
+  // Same rule the full pass uses: outside the live window `computeActivity` decides
+  // from age alone, so opening the transcript there would buy nothing.
+  const lastTurnClosed = Date.now() - lastEventAt < config.liveWindowMs
+    ? await codexAdapter.readTail(filePath, CODEX_TAIL_BYTES)
+    : known.lastTurnClosed;
+
+  // Re-read rather than writing into the record captured above: a full pass may have
+  // replaced it while the tail read was in flight, and updating the old object would
+  // throw away whatever that pass learned.
+  const current = state.sessions.get(key);
+  if (!current || current.transcriptPath !== filePath) return;
+  if (current.lastEventAt === lastEventAt && current.lastTurnClosed === lastTurnClosed) return;
+  current.lastEventAt = lastEventAt;
+  current.lastTurnClosed = lastTurnClosed;
+  scheduleBroadcast();
+}
+
+/**
+ * How long the full Codex pass must wait after finishing before it may run again.
+ *
+ * A floor, not a delay: the first request after a quiet spell still runs within
+ * `CODEX_RECONCILE_COALESCE_MS`. It exists because the trigger is a file watcher on
+ * files that a running agent writes continuously, and the pass is the expensive one.
+ */
+const CODEX_RECONCILE_FLOOR_MS = 1000;
+const CODEX_RECONCILE_COALESCE_MS = 40;
+
+/**
+ * Asks for a full Codex pass, at most one pending at a time.
+ *
+ * Throttle, not debounce. The old shape restarted its timer on every event, which
+ * has two failure modes against a continuous writer: a burst fires the pass once per
+ * gap in it, and a truly continuous stream postpones it forever. Holding the
+ * already-scheduled pass instead makes the rate an upper bound rather than a
+ * function of how the writes happen to land.
+ */
 function scheduleCodexReconcile(): void {
-  if (codexReconcileTimer) clearTimeout(codexReconcileTimer);
+  if (codexReconcileTimer) return;
+  const wait = Math.max(
+    CODEX_RECONCILE_COALESCE_MS,
+    codexReconcileSettledAt + CODEX_RECONCILE_FLOOR_MS - Date.now(),
+  );
   codexReconcileTimer = setTimeout(() => {
     codexReconcileTimer = null;
-    void reconcileCodex().then(broadcast).catch((error) => {
-      console.error("agent feed Codex catalog reconcile failed", error);
-    });
-  }, 40);
+    codexReconcilePass = codexReconcilePass
+      .then(() => reconcileCodex())
+      .then(broadcast)
+      .catch((error) => {
+        console.error("agent feed Codex catalog reconcile failed", error);
+      })
+      .finally(() => {
+        codexReconcileSettledAt = Date.now();
+      });
+  }, wait);
 }
 
 function attachSourceWatchers(): void {
@@ -501,12 +611,20 @@ function attachSourceWatchers(): void {
     persistent: true,
     awaitWriteFinish: false,
   });
-  const onRollout = (path: string): void => {
+  // Appearing and disappearing change what the catalog CONTAINS, which only the
+  // database can answer. Growing changes what one record SAYS, which the file can.
+  const onRolloutMembership = (path: string): void => {
     if (ROLLOUT_PATTERN.test(basename(path))) scheduleCodexReconcile();
   };
-  rolloutWatcher.on("add", onRollout);
-  rolloutWatcher.on("change", onRollout);
-  rolloutWatcher.on("unlink", onRollout);
+  const onRolloutWritten = (path: string): void => {
+    if (!ROLLOUT_PATTERN.test(basename(path))) return;
+    void refreshCodexRollout(path).catch((error) => {
+      console.error("agent feed Codex rollout refresh failed", error);
+    });
+  };
+  rolloutWatcher.on("add", onRolloutMembership);
+  rolloutWatcher.on("change", onRolloutWritten);
+  rolloutWatcher.on("unlink", onRolloutMembership);
   rolloutWatcher.on("error", (error) => {
     console.error("agent feed Codex rollout watcher failed", error);
   });
@@ -791,6 +909,9 @@ export async function stopCatalog(): Promise<void> {
     clearTimeout(codexReconcileTimer);
     codexReconcileTimer = null;
   }
+  // The floor is measured from the last pass of the run that just ended, so a fresh
+  // one must not inherit it and sit out its first second.
+  codexReconcileSettledAt = 0;
   if (piReconcileTimer) {
     clearTimeout(piReconcileTimer);
     piReconcileTimer = null;
