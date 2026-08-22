@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { resolveLang, SHIKI_THEMES, useHighlighter } from "./highlighter";
 // Declared here, not inherited. This component is exported and used outside the markdown
@@ -18,7 +18,10 @@ import "./markdown.css";
 // tokenizes differently on every reveal tick (an unterminated string, a half-typed
 // keyword), so highlighting one recolors it thirty times a second; the plain <pre>
 // is the same text without the strobe, and the real colors arrive when it lands.
-export function CodeBlock({
+// Memoized: while a message streams, the renderer re-runs about thirty times a
+// second, and every fence ABOVE the one being typed is handed the same three
+// primitive props each time. Nothing here depends on anything but those props.
+export const CodeBlock = memo(function CodeBlock({
   code,
   lang,
   highlight = true,
@@ -64,7 +67,7 @@ export function CodeBlock({
       )}
     </div>
   );
-}
+});
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);

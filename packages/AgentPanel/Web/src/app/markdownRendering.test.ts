@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toBlocks, scrubStyle } from "../features/activity-feed/markdown/Markdown";
+import { toBlocks, scrubStyle } from "../features/activity-feed/markdown/proseBlocks";
 
 // Guards the security + correctness gaps surfaced in review of the synchronous
 // Markdown renderer (ADR-0006). The module's prose path runs untrusted
