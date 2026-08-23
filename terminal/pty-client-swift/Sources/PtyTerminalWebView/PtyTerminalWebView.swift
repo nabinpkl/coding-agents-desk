@@ -313,9 +313,14 @@ public final class PtyTerminalWebView: PtyTerminalWebPlatformView {
         slot.driver?.sendInput(data, viewerDimensions: viewportAuthorityDimensions(for: slot))
     }
 
+    /// Put host-authored text on screen in the selected terminal. Inbound only: this is
+    /// text the owner already has, so telling the owner about it via `didReceiveStatus`
+    /// would be both redundant and, for any owner that displays what it is told, a cycle.
+    /// That cycle overflowed the stack and killed the host (2026-08-20) -- keeping the two
+    /// directions disjoint is what makes it unrepresentable rather than merely unused.
     public func feedLocalStatus(_ data: Data) {
         guard let text = String(data: data, encoding: .utf8), let terminalID = selectedSlot?.terminalID else { return }
-        feedStatus(text, terminalID: terminalID)
+        displayStatus(text, terminalID: terminalID)
     }
 
     public func closeAfterManagerDetach() {

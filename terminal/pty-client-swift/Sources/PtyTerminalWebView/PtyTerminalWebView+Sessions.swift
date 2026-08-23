@@ -100,8 +100,15 @@ extension PtyTerminalWebView {
         ], terminalID: terminalID)
     }
 
+    /// Runtime status: shown in the terminal and announced to the owner. The announcement
+    /// is a notification, not a request to render -- see `feedLocalStatus`.
     func feedStatus(_ text: String, terminalID: String) {
         delegate?.ptyTerminalContent(self, didReceiveStatus: text)
+        displayStatus(text, terminalID: terminalID)
+    }
+
+    /// The one way a status line reaches the renderer.
+    func displayStatus(_ text: String, terminalID: String) {
         deliver(["type": "status", "terminalId": terminalID, "text": String(text.prefix(4_096))], terminalID: terminalID)
     }
 

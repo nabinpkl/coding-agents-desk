@@ -254,8 +254,13 @@ final class WebPtyManagerTerminalWindow: NSObject,
         _ content: PtyTerminalWebView,
         didReceiveStatus text: String
     ) {
+        // Do not feed this back into `content`. Runtime status already reaches the
+        // renderer through `feedStatus`, so echoing it drew every line twice -- and while
+        // the display path still announced what it displayed, it recursed until the stack
+        // guard page killed the host. This is a notification; the other two delegates in
+        // this repo log it, so this one does too.
         guard !closed else { return }
-        content.feedLocalStatus(Data(text.utf8))
+        logger.info("pty manager terminal status: \(text, privacy: .public)")
     }
 
     func ptyTerminalContent(
