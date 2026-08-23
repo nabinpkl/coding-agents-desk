@@ -96,30 +96,62 @@ public final class FilePane: NSObject {
     /// Reconcile the tree against disk and redraw, preserving which folders are expanded
     /// and the selected row across the reload (the reconcile keeps node identity, so the
     /// outline re-expands the same items). Used by the live watcher on a filesystem change.
+    ///
+    /// The capture happens BEFORE the reconcile, and that ordering is the whole point.
+    /// Reading it afterwards crashed the host (2026-08-23): `captureState` walks the
+    /// outline's rows, an unmaterialized row makes AppKit fill it from the data source,
+    /// and the data source answers out of a `children()` array the reconcile had already
+    /// shortened -- `Index out of range` inside `-[NSOutlineView itemAtRow:]`. Ask the
+    /// outline what it is showing only while it and the tree still agree.
     public func refreshPreservingState() {
         guard let root else { return }
+        let state = captureState()
         root.reconcile()
-        reloadPreservingState()
+        outline.reloadData()
+        restore(state)
     }
 
+    /// Redraw without touching the tree. Safe to capture either side of the reload, since
+    /// nothing invalidates the rows in between; it shares the same two halves so there is
+    /// one definition of what "preserved" means.
     private func reloadPreservingState() {
         guard root != nil else {
             outline.reloadData()
             return
         }
+        let state = captureState()
+        outline.reloadData()
+        restore(state)
+    }
+
+    /// What the outline is showing, held as nodes rather than row indices because a reload
+    /// moves rows and the nodes survive it.
+    private struct OutlineState {
+        let expanded: [FileNode]
+        let selected: FileNode?
+    }
+
+    private func captureState() -> OutlineState {
         let expanded = (0..<outline.numberOfRows)
             .compactMap { outline.item(atRow: $0) as? FileNode }
             .filter { outline.isItemExpanded($0) }
-        let selected = outline.item(atRow: outline.selectedRow) as? FileNode
-
-        outline.reloadData()
-
-        for node in expanded { outline.expandItem(node) }
-        if let selected {
-            let row = outline.row(forItem: selected)
-            if row >= 0 { outline.selectRowIndexes([row], byExtendingSelection: false) }
-        }
+        let selectedRow = outline.selectedRow
+        return OutlineState(
+            expanded: expanded,
+            selected: selectedRow >= 0 ? outline.item(atRow: selectedRow) as? FileNode : nil
+        )
     }
+
+    private func restore(_ state: OutlineState) {
+        for node in state.expanded { outline.expandItem(node) }
+        guard let selected = state.selected else { return }
+        let row = outline.row(forItem: selected)
+        if row >= 0 { outline.selectRowIndexes([row], byExtendingSelection: false) }
+    }
+
+    /// Test seam: the outline itself, so a test can expand rows and read what is displayed
+    /// without a window.
+    var outlineForTesting: NSOutlineView { outline }
 
     /// Drop the workspace root and its decorations, leaving an empty tree (used when the
     /// folder is closed).
@@ -167,7 +199,13 @@ extension FilePane: NSOutlineViewDataSource {
     }
 
     public func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        node(for: item)!.children()[index]
+        // AppKit only ever asks for an index this data source published, so a miss means
+        // the tree was mutated without a reload in between. Named rather than left as a
+        // bare `Index out of range`, which is what the 2026-08-23 crash report showed.
+        guard let children = node(for: item)?.children(), index < children.count else {
+            preconditionFailure("FilePane: child \(index) of \(node(for: item)?.name ?? "root") no longer exists; the tree changed under the outline")
+        }
+        return children[index]
     }
 
     public func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {

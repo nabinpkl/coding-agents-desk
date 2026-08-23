@@ -34,9 +34,14 @@ const LONG_PROSE = Array.from(
 ).join("\n");
 
 describe("createStreamingBlocks", () => {
+  // ~170 ticks, each rendering the document twice through marked and DOMPurify. Roughly
+  // 0.9s on an idle machine, and it timed out at vitest's 5s default once while sharing
+  // the box with 35 other test files. The exhaustiveness is the point, so it gets room
+  // rather than fewer ticks -- shrinking the document does not help, because the reveal's
+  // step count grows with the log of its length, not its length.
   it("matches the whole-document reader at every tick of a long reveal", () => {
     expectMatchesWholeDocumentAtEveryTick(LONG_PROSE);
-  });
+  }, 30_000);
 
   for (
     const [name, text] of [
