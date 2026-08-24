@@ -252,7 +252,7 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
             return CodexWindowTargeting.target(
                 sessionId: sessionId,
                 mainPid: mainPids[0],
-                frame: summary.frame,
+                windowID: summary.windowID,
                 in: snapshot
             ).map(ResolvedTarget.codex)
         case .ambiguous:

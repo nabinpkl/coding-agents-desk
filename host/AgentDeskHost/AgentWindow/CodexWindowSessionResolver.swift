@@ -33,8 +33,11 @@ struct CodexSessionIndexEntry: Equatable, Sendable {
 ///   window's thread even when another thread had more recent activity, and it followed the window
 ///   when the thread switched.
 ///
-/// `frame` is what correlates the window to its audited `CGWindowID` for a Space move.
+/// `windowID` is WindowServer's own id for the window, read straight off the accessibility element,
+/// and it is what correlates the window to the desktop audit for a Space move. `frame` is carried
+/// for the target struct, not for identification.
 struct CodexWindowSummary: Equatable, Sendable {
+    let windowID: CGWindowID
     let threadTitle: String
     let projectName: String
     /// The title of the first row of the window's Recents list: the thread this window is showing.
@@ -229,40 +232,29 @@ struct CodexWindowState: CodexWindowStateReading {
     }
 }
 
-/// Turns a resolved Codex Desktop window frame into the window and Desktop the composer writer needs.
+/// Turns a resolved Codex Desktop window into the window and Desktop the composer writer needs.
 ///
 /// Like the Claude targeting, windows come from the shared desktop audit rather than a window list of
-/// this feature's own. Unlike Claude, the pid owns several windows, so the AUDIT window is chosen by
-/// the frame the accessibility scan matched -- the AX API exposes no window id, and the frame is the
-/// only shared fact between the two views. A single layer-0 window needs no disambiguation.
+/// this feature's own. Unlike Claude, the pid owns several windows, and they are told apart by
+/// WindowServer's id, which the accessibility scan reads off the window element directly. It used to
+/// be a frame comparison with a single-window escape hatch, and both were wrong for the case this
+/// feature exists for: two maximized codex windows on two Desktops carry the same frame.
 enum CodexWindowTargeting {
     static func target(
         sessionId: String,
         mainPid: pid_t,
-        frame: CGRect,
+        windowID: CGWindowID,
         in snapshot: WorkspaceDesktopSnapshot
     ) -> Result<AgentWindowSessionTarget, AgentWindowInputReason> {
         guard let activeSpaceID = snapshot.activeSpaceID, snapshot.diagnostic == nil else {
             return .failure(.placementUnavailable)
         }
-        let candidates = snapshot.windows
-            .filter { $0.ownerPID == mainPid && $0.layer == 0 }
-            .filter { $0.spaceIDs.count == 1 }
-            .sorted { $0.windowID < $1.windowID }
-        guard !candidates.isEmpty else { return .failure(.noWindow) }
-        let window: WorkspaceDesktopWindow
-        if candidates.count == 1 {
-            window = candidates[0]
-        } else if let matched = candidates.first(where: {
-            abs($0.bounds.origin.x - frame.origin.x) < 2
-                && abs($0.bounds.origin.y - frame.origin.y) < 2
-                && abs($0.bounds.size.width - frame.size.width) < 2
-                && abs($0.bounds.size.height - frame.size.height) < 2
-        }) {
-            window = matched
-        } else {
-            return .failure(.noWindow)
-        }
+        // Both views name the window by the same id, so this is a lookup rather than a comparison.
+        // The pid and layer conditions stay: an id that resolves to another app's window, or to a
+        // panel rather than a real window, is a bug worth refusing rather than addressing.
+        guard let window = snapshot.windows.first(where: {
+            $0.windowID == windowID && $0.ownerPID == mainPid && $0.layer == 0 && $0.spaceIDs.count == 1
+        }) else { return .failure(.noWindow) }
         guard let homeSpaceID = window.spaceID else { return .failure(.noWindow) }
         return .success(AgentWindowSessionTarget(
             sessionId: sessionId,

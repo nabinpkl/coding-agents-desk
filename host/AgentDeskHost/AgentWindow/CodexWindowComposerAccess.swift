@@ -11,6 +11,16 @@ import os
 /// as the header bar identity (title button + `Project:` popup) or as the first row of its Recents
 /// list -- so the scan is the access's job and the pure matcher in `CodexWindowSessionResolver`
 /// consumes its summaries.
+/// WindowServer's id for an accessibility element's window.
+///
+/// Private, and load-bearing: the public Accessibility API exposes no window id, so correlating an
+/// `AXUIElement` to the audited `CGWindowID` was a frame comparison. Frames do not identify a window
+/// -- two maximized codex windows on two Desktops have the SAME frame, and the comparison does not
+/// degrade there, it refuses. Measured against every AX window on this machine: the call resolved
+/// all of them, and every correlation failure was a window `AXWindows` had not listed at all.
+@_silgen_name("_AXUIElementGetWindow")
+private func _AXUIElementGetWindow(_ element: AXUIElement, _ out: UnsafeMutablePointer<CGWindowID>) -> AXError
+
 protocol CodexWindowSummarizing {
     /// Identity of every window the codex process exposes, in AX enumeration order.
     func windowSummaries(mainPid: pid_t) -> [CodexWindowSummary]
@@ -48,6 +58,9 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
         let app = AXUIElementCreateApplication(mainPid)
         AXUIElementSetMessagingTimeout(app, Self.messagingTimeout)
         return windowElements(of: app).compactMap { window in
+            // A window with no id cannot be addressed later, so it is not a candidate. Skipped
+            // rather than frame-guessed: guessing is how a prompt lands in the wrong conversation.
+            guard let windowID = windowID(of: window) else { return nil }
             guard let frame = frame(of: window) else { return nil }
             let popup = projectPopup(in: window)
             // The popup counts as window identity ONLY when it sits in the header bar: the sidebar
@@ -59,6 +72,7 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
                 .map { string($0, kAXTitleAttribute) } ?? ""
             let recentsFirstRow = recentsFirstRow(in: window)
             return CodexWindowSummary(
+                windowID: windowID,
                 threadTitle: title,
                 projectName: project,
                 recentsFirstRow: recentsFirstRow,
@@ -252,12 +266,12 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
 
     /// Waits for the composer to exist in the target window's tree. The recovery-move path brings the
     /// window to this Desktop first; the web contents can take a moment to build its tree after that.
-    func awaitComposer(frame: CGRect, mainPid: pid_t) throws {
+    func awaitComposer(windowID: CGWindowID, mainPid: pid_t) throws {
         let deadline = Date().addingTimeInterval(Config.codexComposerMaterializeTimeout)
         var lastError: AgentWindowInputReason = .composerMissing
         while Date() < deadline {
             do {
-                _ = try composerElement(frame: frame, mainPid: mainPid)
+                _ = try composerElement(windowID: windowID, mainPid: mainPid)
                 return
             } catch let reason as AgentWindowInputReason {
                 lastError = reason
@@ -267,30 +281,30 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
         throw lastError
     }
 
-    func readComposer(frame: CGRect, mainPid: pid_t) throws -> String {
-        try composerValue(for: try composerElement(frame: frame, mainPid: mainPid))
+    func readComposer(windowID: CGWindowID, mainPid: pid_t) throws -> String {
+        try composerValue(for: try composerElement(windowID: windowID, mainPid: mainPid))
     }
 
-    func composerElementIfAvailable(frame: CGRect, mainPid: pid_t) -> AXUIElement? {
-        try? composerElement(frame: frame, mainPid: mainPid)
+    func composerElementIfAvailable(windowID: CGWindowID, mainPid: pid_t) -> AXUIElement? {
+        try? composerElement(windowID: windowID, mainPid: mainPid)
     }
 
-    func writeComposer(_ text: String, frame: CGRect, mainPid: pid_t) throws -> String {
-        let composer = try composerElement(frame: frame, mainPid: mainPid)
+    func writeComposer(_ text: String, windowID: CGWindowID, mainPid: pid_t) throws -> String {
+        let composer = try composerElement(windowID: windowID, mainPid: mainPid)
         let result = AXUIElementSetAttributeValue(composer, kAXValueAttribute as CFString, text as CFString)
         guard result == .success else { throw AgentWindowInputReason.writeFailed }
         // The value commits asynchronously in Chromium, so a landed write must not fail reconciliation
         // on a stale first read; the writer still judges the final value, never a guessed success.
-        return try settledReadBack(of: text, frame: frame, mainPid: mainPid)
+        return try settledReadBack(of: text, windowID: windowID, mainPid: mainPid)
     }
 
     /// Polls the composer until it reads back the written text, or the settle budget expires.
-    private func settledReadBack(of text: String, frame: CGRect, mainPid: pid_t) throws -> String {
+    private func settledReadBack(of text: String, windowID: CGWindowID, mainPid: pid_t) throws -> String {
         let expected = AgentWindowComposerWriter.lineEndCanonical(text)
         let deadline = Date().addingTimeInterval(Config.codexComposerVerifySettleTimeout)
         while Date() < deadline {
             do {
-                let readBack = try readComposer(frame: frame, mainPid: mainPid)
+                let readBack = try readComposer(windowID: windowID, mainPid: mainPid)
                 if AgentWindowComposerWriter.lineEndCanonical(readBack) == expected {
                     return readBack
                 }
@@ -299,7 +313,7 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
             }
             Thread.sleep(forTimeInterval: Config.codexComposerVerifySettlePollInterval)
         }
-        return (try? readComposer(frame: frame, mainPid: mainPid)) ?? ""
+        return (try? readComposer(windowID: windowID, mainPid: mainPid)) ?? ""
     }
 
     /// Focuses the composer and presses Return, committing whatever it holds.
@@ -308,9 +322,9 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
     /// `kAXFocusedAttribute` tells the web contents where Return is destined; the Return itself is
     /// posted per-pid because `AXUIElementPostKeyboardEvent` is marked unavailable in Swift. Returns
     /// the value read after a bounded settle, which a successful send clears.
-    func submitComposer(frame: CGRect, mainPid: pid_t) throws -> String {
+    func submitComposer(windowID: CGWindowID, mainPid: pid_t) throws -> String {
         guard AXIsProcessTrusted() else { throw AgentWindowInputReason.accessibilityDenied }
-        let composer = try composerElement(frame: frame, mainPid: mainPid)
+        let composer = try composerElement(windowID: windowID, mainPid: mainPid)
         let focusResult = AXUIElementSetAttributeValue(composer, kAXFocusedAttribute as CFString, kCFBooleanTrue)
         guard focusResult == .success else { throw AgentWindowInputReason.writeFailed }
         let returnKey: CGKeyCode = 36
@@ -322,11 +336,11 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
         keyUp.postToPid(mainPid)
         let deadline = Date().addingTimeInterval(Config.codexComposerSubmitSettleTimeout)
         while Date() < deadline {
-            let current = try readComposer(frame: frame, mainPid: mainPid)
+            let current = try readComposer(windowID: windowID, mainPid: mainPid)
             if current.isEmpty { return "" }
             Thread.sleep(forTimeInterval: Config.codexComposerSubmitSettlePollInterval)
         }
-        return try readComposer(frame: frame, mainPid: mainPid)
+        return try readComposer(windowID: windowID, mainPid: mainPid)
     }
 
     // MARK: - Placeholder normalization
@@ -353,14 +367,14 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
 
     // MARK: - Element lookup
 
-    private func composerElement(frame: CGRect, mainPid: pid_t) throws -> AXUIElement {
+    private func composerElement(windowID: CGWindowID, mainPid: pid_t) throws -> AXUIElement {
         guard AXIsProcessTrusted() else { throw AgentWindowInputReason.accessibilityDenied }
         materializeTree(mainPid: mainPid)
         let app = AXUIElementCreateApplication(mainPid)
         AXUIElementSetMessagingTimeout(app, Self.messagingTimeout)
         let windows = windowElements(of: app)
         guard !windows.isEmpty else { throw AgentWindowInputReason.noWindow }
-        guard let window = matchingWindow(targetFrame: frame, among: windows) else {
+        guard let window = matchingWindow(windowID: windowID, among: windows) else {
             throw AgentWindowInputReason.noWindow
         }
         var visited: Set<UInt> = []
@@ -396,22 +410,14 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
         return found
     }
 
-    /// Correlates the audited `CGWindowID`'s frame to an `AXUIElement`.
+    /// The `AXUIElement` for an audited `CGWindowID`.
     ///
-    /// The Accessibility API exposes no window id, so the only shared fact between the two views is the
-    /// frame. A single window needs no disambiguation; several windows require an unambiguous frame
-    /// match, because typing a prompt into the wrong conversation is worse than reporting the window
-    /// missing.
-    private func matchingWindow(targetFrame: CGRect, among windows: [AXUIElement]) -> AXUIElement? {
-        if windows.count == 1 { return windows[0] }
-        let matches = windows.filter { window in
-            guard let windowFrame = frame(of: window) else { return false }
-            return abs(windowFrame.origin.x - targetFrame.origin.x) < 2
-                && abs(windowFrame.origin.y - targetFrame.origin.y) < 2
-                && abs(windowFrame.size.width - targetFrame.size.width) < 2
-                && abs(windowFrame.size.height - targetFrame.size.height) < 2
-        }
-        return matches.count == 1 ? matches[0] : nil
+    /// An identity, not a heuristic: both views name the same window by the same id. There is
+    /// deliberately no "only one window, so it must be that one" shortcut -- with several codex
+    /// windows open, that shortcut is precisely how a prompt reaches the wrong conversation, and
+    /// with one window it buys nothing the id does not already give.
+    private func matchingWindow(windowID: CGWindowID, among windows: [AXUIElement]) -> AXUIElement? {
+        windows.first { self.windowID(of: $0) == windowID }
     }
 
     /// Finds the prompt composer by role AND description together, never "the first text area found".
@@ -442,6 +448,13 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
               let children = raw as? [AXUIElement]
         else { return [] }
         return children
+    }
+
+    /// WindowServer's id for this window element, nil when the private call refuses it.
+    private func windowID(of element: AXUIElement) -> CGWindowID? {
+        var id: CGWindowID = 0
+        guard _AXUIElementGetWindow(element, &id) == .success, id != 0 else { return nil }
+        return id
     }
 
     private func frame(of element: AXUIElement) -> CGRect? {

@@ -12,12 +12,14 @@ struct CodexWindowSessionResolverTests {
     private let frameB = CGRect(x: 1000, y: 100, width: 830, height: 877)
 
     private func summary(
+        windowID: CGWindowID = 10,
         title: String = "",
         project: String = "",
         recentsFirstRow: String? = nil,
         frame: CGRect? = nil
     ) -> CodexWindowSummary {
         CodexWindowSummary(
+            windowID: windowID,
             threadTitle: title,
             projectName: project,
             recentsFirstRow: recentsFirstRow,
@@ -254,14 +256,14 @@ struct CodexWindowSessionResolverTests {
         let target = CodexWindowTargeting.target(
             sessionId: "id",
             mainPid: 700,
-            frame: frameB,
+            windowID: 11,
             in: snapshot
         )
         #expect(target.map(\.windowID) == .success(11))
         #expect(target.map(\.homeSpaceID) == .success(7))
     }
 
-    @Test func targetingRefusesWhenNoAuditedWindowMatchesTheFrame() {
+    @Test func targetingRefusesWhenNoAuditedWindowCarriesTheID() {
         let snapshot = WorkspaceDesktopSnapshot(
             activeSpaceID: 3,
             desktops: [],
@@ -289,17 +291,20 @@ struct CodexWindowSessionResolverTests {
             ],
             diagnostic: nil
         )
-        // Two windows and a frame the AX scan never matched: addressing would be a guess.
+        // An id the audit does not carry: addressing anything would be a guess.
         let target = CodexWindowTargeting.target(
             sessionId: "id",
             mainPid: 700,
-            frame: CGRect(x: 500, y: 500, width: 300, height: 300),
+            windowID: 99,
             in: snapshot
         )
         #expect(target == .failure(.noWindow))
     }
 
-    @Test func targetingUsesTheSingleWindowWithoutAFrameMatch() {
+    @Test func targetingTellsApartTwoWindowsSharingAFrame() {
+        // The case the frame comparison could not express: two maximized codex windows on two
+        // Desktops have byte-identical bounds, and only the id separates them.
+        let shared = CGRect(x: 0, y: 0, width: 1920, height: 1080)
         let snapshot = WorkspaceDesktopSnapshot(
             activeSpaceID: 3,
             desktops: [],
@@ -311,20 +316,55 @@ struct CodexWindowSessionResolverTests {
                     title: "ChatGPT",
                     spaceIDs: [5],
                     layer: 0,
+                    bounds: shared,
+                    expectation: .otherApp
+                ),
+                WorkspaceDesktopWindow(
+                    windowID: 11,
+                    ownerPID: 700,
+                    ownerName: "ChatGPT",
+                    title: "ChatGPT",
+                    spaceIDs: [7],
+                    layer: 0,
+                    bounds: shared,
+                    expectation: .otherApp
+                ),
+            ],
+            diagnostic: nil
+        )
+        #expect(
+            CodexWindowTargeting.target(sessionId: "id", mainPid: 700, windowID: 10, in: snapshot)
+                .map(\.homeSpaceID) == .success(5)
+        )
+        #expect(
+            CodexWindowTargeting.target(sessionId: "id", mainPid: 700, windowID: 11, in: snapshot)
+                .map(\.homeSpaceID) == .success(7)
+        )
+    }
+
+    @Test func targetingRefusesAnIDOwnedByAnotherProcess() {
+        // A stale id that WindowServer has since handed to another app must not be addressed.
+        let snapshot = WorkspaceDesktopSnapshot(
+            activeSpaceID: 3,
+            desktops: [],
+            windows: [
+                WorkspaceDesktopWindow(
+                    windowID: 10,
+                    ownerPID: 999,
+                    ownerName: "Notes",
+                    title: "Notes",
+                    spaceIDs: [5],
+                    layer: 0,
                     bounds: frameA,
                     expectation: .otherApp
                 )
             ],
             diagnostic: nil
         )
-        let target = CodexWindowTargeting.target(
-            sessionId: "id",
-            mainPid: 700,
-            frame: frameB,
-            in: snapshot
+        #expect(
+            CodexWindowTargeting.target(sessionId: "id", mainPid: 700, windowID: 10, in: snapshot)
+                == .failure(.noWindow)
         )
-        // One window, nothing to disambiguate: the frame mismatch is not a refusal.
-        #expect(target.map(\.windowID) == .success(10))
     }
 
     // MARK: - Placeholder normalization

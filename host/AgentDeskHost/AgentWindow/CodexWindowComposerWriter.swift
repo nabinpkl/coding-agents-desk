@@ -12,16 +12,16 @@ protocol CodexWindowAccessing {
     /// The process owning the active application, sampled to prove the write did not activate anything.
     func frontmostApplicationPID() -> pid_t?
     /// Blocks until the composer exists in the target window's tree, or fails saying it never did.
-    func awaitComposer(frame: CGRect, mainPid: pid_t) throws
-    func readComposer(frame: CGRect, mainPid: pid_t) throws -> String
+    func awaitComposer(windowID: CGWindowID, mainPid: pid_t) throws
+    func readComposer(windowID: CGWindowID, mainPid: pid_t) throws -> String
     /// The composer element when the scan is free, nil when the window or its tree is unavailable.
     /// Non-throwing on purpose: observer registration is opportunistic.
-    func composerElementIfAvailable(frame: CGRect, mainPid: pid_t) -> AXUIElement?
+    func composerElementIfAvailable(windowID: CGWindowID, mainPid: pid_t) -> AXUIElement?
     /// Writes the composer and returns what it reads back. Never sends Return.
-    func writeComposer(_ text: String, frame: CGRect, mainPid: pid_t) throws -> String
+    func writeComposer(_ text: String, windowID: CGWindowID, mainPid: pid_t) throws -> String
     /// Focuses the composer and presses Return, committing whatever it holds. Returns the composer
     /// value read after the send (expected to be the cleared field). Deliberately activates the window.
-    func submitComposer(frame: CGRect, mainPid: pid_t) throws -> String
+    func submitComposer(windowID: CGWindowID, mainPid: pid_t) throws -> String
 }
 
 /// Fills a Codex Desktop window's composer for one thread, without activating it and without sending.
@@ -58,9 +58,9 @@ struct CodexWindowComposerWriter {
     private func read(_ target: AgentWindowSessionTarget) -> Result<String, AgentWindowInputReason> {
         withFrontmostGuard(target: target) {
             do {
-                return .success(try access.readComposer(frame: target.frame, mainPid: target.claudeMainPid))
+                return .success(try access.readComposer(windowID: target.windowID, mainPid: target.claudeMainPid))
             } catch AgentWindowInputReason.composerMissing {
-                return recover(target) { try access.readComposer(frame: target.frame, mainPid: target.claudeMainPid) }
+                return recover(target) { try access.readComposer(windowID: target.windowID, mainPid: target.claudeMainPid) }
             } catch let reason as AgentWindowInputReason {
                 return .failure(reason)
             } catch {
@@ -71,7 +71,7 @@ struct CodexWindowComposerWriter {
 
     /// The composer element when it costs nothing to find, for observer registration.
     func composerElementIfAvailable(for target: AgentWindowSessionTarget) -> AXUIElement? {
-        access.composerElementIfAvailable(frame: target.frame, mainPid: target.claudeMainPid)
+        access.composerElementIfAvailable(windowID: target.windowID, mainPid: target.claudeMainPid)
     }
 
     /// Fills the composer, returning the text the window reads back.
@@ -79,9 +79,9 @@ struct CodexWindowComposerWriter {
         withFrontmostGuard(target: target) {
             let result: Result<String, AgentWindowInputReason>
             do {
-                result = .success(try access.writeComposer(text, frame: target.frame, mainPid: target.claudeMainPid))
+                result = .success(try access.writeComposer(text, windowID: target.windowID, mainPid: target.claudeMainPid))
             } catch AgentWindowInputReason.composerMissing {
-                result = recover(target) { try access.writeComposer(text, frame: target.frame, mainPid: target.claudeMainPid) }
+                result = recover(target) { try access.writeComposer(text, windowID: target.windowID, mainPid: target.claudeMainPid) }
             } catch let reason as AgentWindowInputReason {
                 result = .failure(reason)
             } catch {
@@ -107,12 +107,12 @@ struct CodexWindowComposerWriter {
     func writeAndSubmit(_ text: String, to target: AgentWindowSessionTarget) -> Result<String, AgentWindowInputReason> {
         let result: Result<String, AgentWindowInputReason>
         do {
-            _ = try access.writeComposer(text, frame: target.frame, mainPid: target.claudeMainPid)
-            result = .success(try access.submitComposer(frame: target.frame, mainPid: target.claudeMainPid))
+            _ = try access.writeComposer(text, windowID: target.windowID, mainPid: target.claudeMainPid)
+            result = .success(try access.submitComposer(windowID: target.windowID, mainPid: target.claudeMainPid))
         } catch AgentWindowInputReason.composerMissing {
             result = recover(target) {
-                _ = try access.writeComposer(text, frame: target.frame, mainPid: target.claudeMainPid)
-                return try access.submitComposer(frame: target.frame, mainPid: target.claudeMainPid)
+                _ = try access.writeComposer(text, windowID: target.windowID, mainPid: target.claudeMainPid)
+                return try access.submitComposer(windowID: target.windowID, mainPid: target.claudeMainPid)
             }
         } catch let reason as AgentWindowInputReason {
             result = .failure(reason)
@@ -144,7 +144,7 @@ struct CodexWindowComposerWriter {
         }
         let outcome: Result<Value, AgentWindowInputReason>
         do {
-            try access.awaitComposer(frame: target.frame, mainPid: target.claudeMainPid)
+            try access.awaitComposer(windowID: target.windowID, mainPid: target.claudeMainPid)
             outcome = .success(try body())
         } catch let reason as AgentWindowInputReason {
             outcome = .failure(reason)

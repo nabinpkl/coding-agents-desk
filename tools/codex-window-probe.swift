@@ -62,6 +62,17 @@ private enum DriverError: LocalizedError {
 
 // MARK: - AX helpers
 
+/// WindowServer's id for an accessibility element's window. Private, and the only exact join between
+/// the AX view of a window and WindowServer's; frames do not identify a window.
+@_silgen_name("_AXUIElementGetWindow")
+private func _AXUIElementGetWindow(_ element: AXUIElement, _ out: UnsafeMutablePointer<CGWindowID>) -> AXError
+
+private func axWindowID(_ element: AXUIElement) -> CGWindowID? {
+    var id: CGWindowID = 0
+    guard _AXUIElementGetWindow(element, &id) == .success, id != 0 else { return nil }
+    return id
+}
+
 private func axString(_ element: AXUIElement, _ attribute: String) -> String {
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else { return "" }
@@ -281,6 +292,7 @@ private func codexMainPid() -> pid_t? {
 }
 
 private struct WindowSummary {
+    let windowID: CGWindowID
     let title: String
     let project: String
     let recentsFirstRow: String?
@@ -290,9 +302,10 @@ private struct WindowSummary {
 private func windowSummaries(pid: pid_t) -> [WindowSummary] {
     materializeTree(pid: pid)
     return codexWindows(pid: pid).compactMap { window in
-        guard let frame = axFrame(window) else { return nil }
+        guard let windowID = axWindowID(window), let frame = axFrame(window) else { return nil }
         let identity = windowIdentity(window)
         return WindowSummary(
+            windowID: windowID,
             title: identity.title,
             project: identity.project,
             recentsFirstRow: recentsFirstRow(in: window),
@@ -490,7 +503,7 @@ do {
             let identity = windowIdentity(window)
             let recents = recentsFirstRow(in: window) ?? ""
             let frame = axFrame(window).map(String.init(describing:)) ?? "nil"
-            print("win[\(index)] title=\"\(identity.title)\" project=\"\(identity.project)\" recentsFirst=\"\(recents)\" frame=\(frame)")
+            print("win[\(index)] id=\(axWindowID(window).map(String.init) ?? "nil") title=\"\(identity.title)\" project=\"\(identity.project)\" recentsFirst=\"\(recents)\" frame=\(frame)")
         }
 
     case "resolve-thread":

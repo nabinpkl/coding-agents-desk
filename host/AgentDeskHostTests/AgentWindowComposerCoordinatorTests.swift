@@ -240,18 +240,18 @@ struct AgentWindowComposerCoordinatorTests {
 
         // CodexWindowAccessing
         func frontmostApplicationPID() -> pid_t? { 100 }
-        func awaitComposer(frame: CGRect, mainPid: pid_t) throws {}
-        func readComposer(frame: CGRect, mainPid: pid_t) throws -> String {
+        func awaitComposer(windowID: CGWindowID, mainPid: pid_t) throws {}
+        func readComposer(windowID: CGWindowID, mainPid: pid_t) throws -> String {
             lock.lock()
             defer { lock.unlock() }
             return composerText
         }
 
-        func composerElementIfAvailable(frame: CGRect, mainPid: pid_t) -> AXUIElement? {
+        func composerElementIfAvailable(windowID: CGWindowID, mainPid: pid_t) -> AXUIElement? {
             AXUIElementCreateApplication(mainPid)
         }
 
-        func writeComposer(_ text: String, frame: CGRect, mainPid: pid_t) throws -> String {
+        func writeComposer(_ text: String, windowID: CGWindowID, mainPid: pid_t) throws -> String {
             lock.lock()
             _writes.append(text)
             composerText = text
@@ -259,7 +259,7 @@ struct AgentWindowComposerCoordinatorTests {
             return text
         }
 
-        func submitComposer(frame: CGRect, mainPid: pid_t) throws -> String {
+        func submitComposer(windowID: CGWindowID, mainPid: pid_t) throws -> String {
             lock.lock()
             let submitted = composerText
             composerText = ""
@@ -814,12 +814,14 @@ struct AgentWindowComposerCoordinatorTests {
     }
 
     private func codexSummary(
+        windowID: CGWindowID = 77,
         title: String = "Find stream details",
         project: String = "",
         recentsFirstRow: String? = "Find stream details",
         frame: CGRect? = nil
     ) -> CodexWindowSummary {
         CodexWindowSummary(
+            windowID: windowID,
             threadTitle: title,
             projectName: project,
             recentsFirstRow: recentsFirstRow,
@@ -917,7 +919,7 @@ struct AgentWindowComposerCoordinatorTests {
         // Two windows, same generic Recents first row: the write cannot be addressed.
         codex.summaries = [
             codexSummary(title: "New chat", recentsFirstRow: "New chat"),
-            codexSummary(title: "New chat", recentsFirstRow: "New chat", frame: CGRect(x: 1000, y: 100, width: 830, height: 877)),
+            codexSummary(windowID: 78, title: "New chat", recentsFirstRow: "New chat", frame: CGRect(x: 1000, y: 100, width: 830, height: 877)),
         ]
         let observer = FakeValueObserver()
         let coordinator = makeCodexCoordinator(codexAccess: codex, observer: observer)
