@@ -37,7 +37,7 @@ private let composerDescription = ProcessInfo.processInfo.environment["AGENTDESK
     ?? "Do anything"
 
 private let headerChromeTitles: Set<String> = [
-    "Back", "Forward", "Hide sidebar", "Search", "Open in",
+    "Back", "Forward", "Hide sidebar", "Show sidebar", "Search", "Open in",
     "Pull requests", "Sites", "Scheduled", "Plugins",
     "New chat", "Quick chat", "Add to chat", "More details", "Ask in side chat",
 ]
@@ -109,6 +109,16 @@ private func firstDescendant(
     return nil
 }
 
+/// Both spellings of the sidebar toggle: the label flips with the sidebar's state.
+private let sidebarToggleLabels: Set<String> = ["Hide sidebar", "Show sidebar"]
+
+/// A control's visible label. Codex Desktop labels text buttons through `AXTitle` and icon-only
+/// chrome through `AXDescription`, and it moves controls between the two.
+private func axLabel(_ element: AXUIElement) -> String {
+    let title = axString(element, kAXTitleAttribute as String)
+    return title.isEmpty ? axString(element, kAXDescriptionAttribute as String) : title
+}
+
 private func axParent(_ element: AXUIElement) -> AXUIElement? {
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &value) == .success,
@@ -169,7 +179,7 @@ private func windowIdentity(_ window: AXUIElement) -> (title: String, project: S
             visited: &visitedHeader,
             matching: { element in
                 axString(element, kAXRoleAttribute as String) == kAXButtonRole
-                    && axString(element, kAXTitleAttribute as String) == "Hide sidebar"
+                    && sidebarToggleLabels.contains(axLabel(element))
             }
         ) != nil {
             headerGroup = parent
@@ -301,7 +311,7 @@ private func recentsFirstRow(in window: AXUIElement) -> String? {
         visited: &visited,
         matching: { element in
             axString(element, kAXRoleAttribute as String) == kAXButtonRole
-                && axString(element, kAXTitleAttribute as String) == "Recents"
+                && axLabel(element) == "Recents"
         }
     ), let listParent = axParent(recents) else { return nil }
     var listVisited: Set<UInt> = []

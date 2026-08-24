@@ -83,7 +83,7 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
             visited: &visited,
             matching: { element in
                 string(element, kAXRoleAttribute) == kAXButtonRole
-                    && string(element, kAXTitleAttribute) == "Recents"
+                    && label(of: element) == "Recents"
             }
         ), let listParent = parent(of: recents) else { return nil }
         var listVisited: Set<UInt> = []
@@ -181,8 +181,15 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
     }
 
     /// The header bar holding the project popup: the popup's ancestor group that also contains the
-    /// `Hide sidebar` button. The thread title button is found INSIDE this group, so the sidebar's
+    /// sidebar toggle. The thread title button is found INSIDE this group, so the sidebar's
     /// thread list -- a separate region that also carries titles -- can never satisfy the match.
+    ///
+    /// The toggle is matched by `label`, not by title, and under BOTH of its spellings. Matching
+    /// `AXTitle == "Hide sidebar"` is what broke this path (2026-08-24): the app now labels its
+    /// icon-only chrome through `AXDescription`, so the anchor read empty, every window resolved
+    /// to no identity, and the panel showed "no window" for every codex thread. The collapsed
+    /// spelling matters just as much -- a window whose sidebar is hidden says `Show sidebar`, and
+    /// the sidebar being collapsed is not a reason to refuse to type into the composer.
     private func headerGroup(of window: AXUIElement, containingProjectPopup popup: AXUIElement?) -> AXUIElement? {
         guard let popup else { return nil }
         var cursor: AXUIElement = popup
@@ -196,7 +203,7 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
                 visited: &visited,
                 matching: { element in
                     string(element, kAXRoleAttribute) == kAXButtonRole
-                        && string(element, kAXTitleAttribute) == "Hide sidebar"
+                        && Self.sidebarToggleLabels.contains(label(of: element))
                 }
             ) != nil {
                 return parent
@@ -205,10 +212,22 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
         return nil
     }
 
+    /// Both spellings of the sidebar toggle: the label flips with the sidebar's state.
+    static let sidebarToggleLabels: Set<String> = ["Hide sidebar", "Show sidebar"]
+
+    /// A control's visible label. Codex Desktop labels text buttons through `AXTitle` and icon-only
+    /// chrome through `AXDescription`, and it has moved controls between the two, so anything
+    /// matched by its label reads both. Deliberately NOT used for the thread title button: falling
+    /// back to the description there would make every icon button in the header a candidate.
+    private func label(of element: AXUIElement) -> String {
+        let title = string(element, kAXTitleAttribute)
+        return title.isEmpty ? string(element, kAXDescriptionAttribute) : title
+    }
+
     /// Chrome buttons that share the header bar with the thread title, excluded so a title match never
     /// lands on navigation or section chrome.
     static let headerChromeTitles: Set<String> = [
-        "Back", "Forward", "Hide sidebar", "Search", "Open in",
+        "Back", "Forward", "Hide sidebar", "Show sidebar", "Search", "Open in",
         "Pull requests", "Sites", "Scheduled", "Plugins",
         "New chat", "Quick chat", "Add to chat", "More details", "Ask in side chat",
     ]
