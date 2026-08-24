@@ -5,12 +5,6 @@ import CoreGraphics
 import Foundation
 import os
 
-/// The seam that hands the resolver the identity of every open Codex Desktop window.
-///
-/// The codex mapping lives in the accessibility tree -- a window exposes the thread it shows either
-/// as the header bar identity (title button + `Project:` popup) or as the first row of its Recents
-/// list -- so the scan is the access's job and the pure matcher in `CodexWindowSessionResolver`
-/// consumes its summaries.
 /// WindowServer's id for an accessibility element's window.
 ///
 /// Private, and load-bearing: the public Accessibility API exposes no window id, so correlating an
@@ -21,6 +15,12 @@ import os
 @_silgen_name("_AXUIElementGetWindow")
 private func _AXUIElementGetWindow(_ element: AXUIElement, _ out: UnsafeMutablePointer<CGWindowID>) -> AXError
 
+/// The seam that hands the resolver the identity of every open Codex Desktop window.
+///
+/// The codex mapping lives in the accessibility tree -- a window exposes the thread it shows either
+/// as the header bar identity (title button + `Project:` popup) or as the first row of its Recents
+/// list -- so the scan is the access's job and the pure matcher in `CodexWindowSessionResolver`
+/// consumes its summaries.
 protocol CodexWindowSummarizing {
     /// Identity of every window the codex process exposes, in AX enumeration order.
     func windowSummaries(mainPid: pid_t) -> [CodexWindowSummary]
@@ -31,11 +31,22 @@ protocol CodexWindowSummarizing {
 /// Deliberately does nothing that raises, activates, or focuses an application: setting `AXValue` on a
 /// field does not require the target to be frontmost, which is why the panel can fill a composer on
 /// another Desktop without taking the user's screen. Unlike Claude Desktop, NO `AXManualAccessibility`
-/// latch is needed or accepted here -- the codex app exposes its full Chromium tree to AX clients
-/// natively (probed live: the latch attribute is unsupported on the app element while the tree is
-/// fully materialized), and unlike Claude the tree exists for windows on OTHER Spaces too (probed
-/// live), so reads and writes are free without a Space round trip. A window whose tree is missing
-/// entirely is the one case the writer pays a bring-and-restore round trip for.
+/// latch is needed or accepted here -- the latch attribute is unsupported on the app element while
+/// the tree is fully materialized.
+///
+/// The window list is the hard part, and the reason this type holds state. Measured 2026-08-24 with
+/// two codex windows open on two Desktops: `AXWindows` lists ONLY the windows on the active Space
+/// (and read 0 when both were elsewhere), and `AXFocusedWindow` names one more, the last-focused. So
+/// the app can never be asked "what windows do you have"; a window elsewhere is invisible. An earlier
+/// note here claimed the tree exists for windows on every Desktop. That is true only of the
+/// last-focused one.
+///
+/// What rescues it is that a window element captured while its window was on the active Space keeps
+/// working after the window goes home: measured, a held handle read its project, its thread title,
+/// its composer and that composer's live value for twenty seconds while `AXWindows` reported zero.
+/// So handles are captured once, during an acquisition sweep the writer performs, and every read,
+/// identity check and write afterwards goes through them with no window movement at all. The sweep
+/// is the only thing that ever moves a window for identity, and it happens once per window.
 final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummarizing {
     /// Bounded so an unresponsive renderer cannot stall the caller. Chromium answers AX queries on its
     /// main thread, which a busy session can occupy.
@@ -51,6 +62,43 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
     }
 
     // MARK: - Window identity
+
+    /// Window elements captured by an acquisition sweep, keyed by WindowServer's id.
+    ///
+    /// One authoritative home for "which codex windows can this host reach". Guarded because the
+    /// composer coordinator's queue and the AX value observer both read it.
+    private let handleLock = NSLock()
+    private var handles: [CGWindowID: AXUIElement] = [:]
+
+    /// True when a handle for this window is already held, so no sweep is needed to reach it.
+    func holdsWindow(_ windowID: CGWindowID) -> Bool {
+        handleLock.lock()
+        defer { handleLock.unlock() }
+        return handles[windowID] != nil
+    }
+
+    /// Captures a handle for every window the app currently lists. Called by the sweep while the
+    /// windows are on the active Desktop, which is the only moment the app admits to them.
+    func captureWindows(mainPid: pid_t) {
+        guard AXIsProcessTrusted() else { return }
+        materializeTree(mainPid: mainPid)
+        let app = AXUIElementCreateApplication(mainPid)
+        AXUIElementSetMessagingTimeout(app, Self.messagingTimeout)
+        for window in scanWindowElements(of: app) {
+            guard let id = windowID(of: window) else { continue }
+            handleLock.lock()
+            handles[id] = window
+            handleLock.unlock()
+        }
+    }
+
+    /// Drops handles for windows that no longer exist, so a reused `CGWindowID` cannot be addressed
+    /// through a dead element.
+    func forgetWindows(keeping liveWindowIDs: Set<CGWindowID>) {
+        handleLock.lock()
+        defer { handleLock.unlock() }
+        handles = handles.filter { liveWindowIDs.contains($0.key) }
+    }
 
     func windowSummaries(mainPid: pid_t) -> [CodexWindowSummary] {
         guard AXIsProcessTrusted() else { return [] }
@@ -384,12 +432,43 @@ final class CodexWindowComposerAccess: CodexWindowAccessing, CodexWindowSummariz
         return composer
     }
 
-    /// Every window an application element will admit to, deduplicated.
+    /// Every window this access can reach: the handles it holds, plus whatever the app admits to now.
     ///
-    /// `AXWindows` alone comes back empty for a process whose windows are all on another Space, which
-    /// is precisely the case this feature must not miss; `AXFocusedWindow` and `AXMainWindow` still
-    /// answer in that state, so the union is what actually describes the application.
+    /// Held handles come first because they are the complete set; the live scan only ever adds the
+    /// active Space's windows and the last-focused one, which a sweep would already have captured.
+    /// A handle whose window has gone is dropped here rather than returned as a summary, so a closed
+    /// window disappears from resolution on the next pass without waiting for a prune.
     private func windowElements(of app: AXUIElement) -> [AXUIElement] {
+        handleLock.lock()
+        let held = handles
+        handleLock.unlock()
+        var found: [AXUIElement] = []
+        var seenIDs: Set<CGWindowID> = []
+        var dead: [CGWindowID] = []
+        for (id, window) in held.sorted(by: { $0.key < $1.key }) {
+            // A detached element still answers its id but has no frame; that is the liveness probe.
+            guard frame(of: window) != nil else { dead.append(id); continue }
+            seenIDs.insert(id)
+            found.append(window)
+        }
+        if !dead.isEmpty {
+            handleLock.lock()
+            for id in dead { handles[id] = nil }
+            handleLock.unlock()
+        }
+        for window in scanWindowElements(of: app) {
+            guard let id = windowID(of: window), !seenIDs.contains(id) else { continue }
+            seenIDs.insert(id)
+            found.append(window)
+        }
+        return found
+    }
+
+    /// What the application itself will admit to right now, which is never the whole story: `AXWindows`
+    /// lists only the active Space's windows and comes back empty when they are all elsewhere, while
+    /// `AXFocusedWindow` and `AXMainWindow` still name the last-focused one. The union of the three is
+    /// as much as the app can be asked for, which is why the sweep exists.
+    private func scanWindowElements(of app: AXUIElement) -> [AXUIElement] {
         var found: [AXUIElement] = []
         var seen: Set<UInt> = []
         func add(_ element: AXUIElement) {

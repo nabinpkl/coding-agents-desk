@@ -17,6 +17,13 @@ protocol CodexWindowAccessing {
     /// The composer element when the scan is free, nil when the window or its tree is unavailable.
     /// Non-throwing on purpose: observer registration is opportunistic.
     func composerElementIfAvailable(windowID: CGWindowID, mainPid: pid_t) -> AXUIElement?
+    /// True when a handle for this window is already held, so the sweep can skip it.
+    func holdsWindow(_ windowID: CGWindowID) -> Bool
+    /// Captures a handle for every window the app currently lists. Only meaningful while the windows
+    /// the caller cares about are on the active Desktop.
+    func captureWindows(mainPid: pid_t)
+    /// Drops handles for windows that no longer exist.
+    func forgetWindows(keeping liveWindowIDs: Set<CGWindowID>)
     /// Writes the composer and returns what it reads back. Never sends Return.
     func writeComposer(_ text: String, windowID: CGWindowID, mainPid: pid_t) throws -> String
     /// Focuses the composer and presses Return, committing whatever it holds. Returns the composer
@@ -26,11 +33,19 @@ protocol CodexWindowAccessing {
 
 /// Fills a Codex Desktop window's composer for one thread, without activating it and without sending.
 ///
-/// Unlike the Claude writer, the codex composer needs no `AXManualAccessibility` latch and no Space
-/// round trip for the common case: the app materializes full trees for every window on every Desktop
-/// (probed live), so reads and writes are free. A window whose tree is missing entirely -- the
-/// materialization case -- pays one bring-to-this-Desktop / await / act / restore round trip, because
-/// a moved window is a visible flash and should not happen on every write.
+/// Unlike the Claude writer, the codex composer needs no `AXManualAccessibility` latch, and after
+/// acquisition it needs no Space round trip either. The two differ because of how the apps are built:
+/// Claude Desktop runs one process per window, so a pid names a window and the round trip exists only
+/// to make Chromium build the tree. Codex Desktop runs ONE process for every window and will not list
+/// the windows that are elsewhere, so a window has to be identified from inside its own tree, and a
+/// window elsewhere has no tree to read.
+///
+/// `acquireWindows` is the answer to that, and the only thing here that moves a window for identity:
+/// it brings the unknown windows to this Desktop together, takes a handle for each, and puts them all
+/// back. Handles keep working afterwards (measured: twenty seconds of correct reads while the app
+/// reported zero windows), so every later read, identity check and write is free. A sweep costs about
+/// half a second for two windows and is visible, which is why it runs on thread selection rather than
+/// on the resolve poll.
 ///
 /// This never sends Return, and there is no code path that could: the writer sets a text value and
 /// reads it back. Committing the prompt stays a human action in the real window.
@@ -120,6 +135,66 @@ struct CodexWindowComposerWriter {
             result = .failure(.writeFailed)
         }
         return result
+    }
+
+    // MARK: - Acquisition
+
+    /// Brings every codex window the host holds no handle for to this Desktop, captures one, and puts
+    /// them back. Returns true when a sweep actually happened.
+    ///
+    /// The restore is unconditional, in a `defer`: a window stranded on the wrong Desktop is a visible
+    /// change to the user's workspace and outranks reporting whatever went wrong on the way.
+    /// Windows already here are never moved, so a sweep on a Desktop that holds all of them is free
+    /// and invisible.
+    @discardableResult
+    func acquireWindows(mainPid: pid_t, in snapshot: WorkspaceDesktopSnapshot) -> Bool {
+        guard let activeSpaceID = snapshot.activeSpaceID, snapshot.diagnostic == nil else { return false }
+        let candidates = snapshot.windows.filter {
+            $0.ownerPID == mainPid && $0.layer == 0 && $0.spaceIDs.count == 1
+        }
+        access.forgetWindows(keeping: Set(candidates.map(\.windowID)))
+        let missing = candidates.filter { !access.holdsWindow($0.windowID) }
+        guard !missing.isEmpty else { return false }
+
+        var relocated: [(windowID: UInt32, homeSpaceID: UInt64)] = []
+        defer {
+            for window in relocated {
+                do {
+                    try placement.move(windowID: window.windowID, toSpaceID: window.homeSpaceID)
+                } catch {
+                    logger.error(
+                        "codex acquisition restore failed window=\(window.windowID, privacy: .public) home=\(window.homeSpaceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                    )
+                }
+            }
+        }
+        for window in missing {
+            guard let homeSpaceID = window.spaceID, homeSpaceID != activeSpaceID else { continue }
+            do {
+                try placement.move(windowID: window.windowID, toSpaceID: activeSpaceID)
+                relocated.append((window.windowID, homeSpaceID))
+            } catch {
+                logger.error(
+                    "codex acquisition move-in failed window=\(window.windowID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+        // The app lists a window a moment after it arrives, so capture until every one asked for is
+        // held or the budget runs out. Capturing repeatedly is cheap; the alternative is a fixed sleep
+        // that is either too short for a busy renderer or wasted on an idle one.
+        let deadline = Date().addingTimeInterval(Config.codexComposerMaterializeTimeout)
+        repeat {
+            access.captureWindows(mainPid: mainPid)
+            if missing.allSatisfy({ access.holdsWindow($0.windowID) }) { break }
+            Thread.sleep(forTimeInterval: Config.codexComposerMaterializePollInterval)
+        } while Date() < deadline
+        let unreachable = missing.filter { !access.holdsWindow($0.windowID) }
+        if !unreachable.isEmpty {
+            logger.notice(
+                "codex acquisition left \(unreachable.count, privacy: .public) window(s) unreachable ids=\(unreachable.map(\.windowID), privacy: .public)"
+            )
+        }
+        return true
     }
 
     // MARK: - Recovery move

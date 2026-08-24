@@ -267,7 +267,48 @@ struct AgentWindowComposerCoordinatorTests {
             return submitted
         }
 
-        func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {}
+        // Handle registry. `held` stands in for the windows a sweep has captured; `captureWindows`
+        // records everything the fake's summaries claim exists, which is what the live one does while
+        // the windows are on the active Desktop.
+        private var held: Set<CGWindowID> = []
+        private var _captures = 0
+        var captures: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return _captures
+        }
+
+        func holdsWindow(_ windowID: CGWindowID) -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return held.contains(windowID)
+        }
+
+        func captureWindows(mainPid: pid_t) {
+            lock.lock()
+            _captures += 1
+            for summary in summaries { held.insert(summary.windowID) }
+            lock.unlock()
+        }
+
+        func forgetWindows(keeping liveWindowIDs: Set<CGWindowID>) {
+            lock.lock()
+            held.formIntersection(liveWindowIDs)
+            lock.unlock()
+        }
+
+        private var _moves: [(UInt32, UInt64)] = []
+        var moves: [(UInt32, UInt64)] {
+            lock.lock()
+            defer { lock.unlock() }
+            return _moves
+        }
+
+        func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {
+            lock.lock()
+            _moves.append((windowID, targetSpaceID))
+            lock.unlock()
+        }
     }
 
     /// The observer seam, recording registrations and letting tests fire value-changed events.
@@ -900,7 +941,8 @@ struct AgentWindowComposerCoordinatorTests {
 
         let status = try decodeStatus(await mac.wait(count: 1)[0])
         #expect(status.enabled)
-        // The codex tree is readable on any Desktop, so the free read prefills without a move.
+        // The window is already on the active Desktop, so it needed no sweep and the read is free.
+        #expect(codex.moves.isEmpty)
         #expect(status.composerText == "existing codex draft")
         #expect(observer.observed == [700])
 
@@ -910,6 +952,66 @@ struct AgentWindowComposerCoordinatorTests {
         #expect(result.ok)
         #expect(result.text == "typed here")
         #expect(codex.writes == ["typed here"])
+    }
+
+    @Test func selectingACodexThreadSweepsAnUnheldWindowHereAndPutsItBack() async throws {
+        let codex = CodexAccess()
+        codex.record = codexRecord()
+        codex.threadNameValue = "Find stream details"
+        codex.summaries = [codexSummary()]
+        let observer = FakeValueObserver()
+        // The window lives on Desktop 5 while Desktop 1 is active: Codex Desktop will not list it, so
+        // selecting its thread has to bring it here to take a handle.
+        let coordinator = makeCodexCoordinator(codexAccess: codex, observer: observer, windowSpaceID: 5)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-mac", sessionId: codexSession), from: "mac")
+        _ = try decodeStatus(await mac.wait(count: 1)[0])
+
+        // In to the active Desktop, then back to its own. A window left on the wrong Desktop is a
+        // visible change to the user's workspace, so the restore is the part worth pinning.
+        #expect(codex.moves.map(\.0) == [77, 77])
+        #expect(codex.moves.map(\.1) == [1, 5])
+        #expect(codex.captures >= 1)
+    }
+
+    @Test func aSecondSelectionDoesNotSweepAWindowTheHostAlreadyHolds() async throws {
+        let codex = CodexAccess()
+        codex.record = codexRecord()
+        codex.threadNameValue = "Find stream details"
+        codex.summaries = [codexSummary()]
+        let observer = FakeValueObserver()
+        let coordinator = makeCodexCoordinator(codexAccess: codex, observer: observer, windowSpaceID: 5)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-1", sessionId: codexSession), from: "mac")
+        _ = try decodeStatus(await mac.wait(count: 1)[0])
+        let afterFirst = codex.moves.count
+
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-2", sessionId: codexSession), from: "mac")
+        _ = try decodeStatus(await mac.wait(count: 2)[1])
+
+        // The handle survives, so the flash happens once per window rather than once per selection.
+        #expect(codex.moves.count == afterFirst)
+    }
+
+    @Test func selectingASessionCodexDoesNotKnowNeverMovesAWindow() async throws {
+        let codex = CodexAccess()
+        // The app's registry has no such thread, so this is not a codex session at all.
+        codex.record = nil
+        codex.summaries = [codexSummary()]
+        let observer = FakeValueObserver()
+        let coordinator = makeCodexCoordinator(codexAccess: codex, observer: observer, windowSpaceID: 5)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-mac", sessionId: codexSession), from: "mac")
+        _ = try decodeStatus(await mac.wait(count: 1)[0])
+
+        #expect(codex.moves.isEmpty)
+        #expect(codex.captures == 0)
     }
 
     @Test func aCodexThreadShownInTwoWindowsIsRefusedRatherThanGuessed() async throws {

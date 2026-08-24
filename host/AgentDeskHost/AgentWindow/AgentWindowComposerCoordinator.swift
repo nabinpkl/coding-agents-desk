@@ -115,6 +115,11 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
             queue.async { [self] in
                 subscriptions[sink, default: [:]][subscriptionId] = sessionId
                 startPollingIfNeeded()
+                // Selecting a thread is the one moment a sweep is allowed. Codex Desktop will not list
+                // the windows on other Desktops, so a thread living in one cannot be resolved until the
+                // host has taken a handle for it, and taking one means bringing the window here briefly.
+                // Doing it here rather than in the poll is what keeps that flash to once per window.
+                acquireCodexWindowsIfNeeded(for: sessionId)
                 // Forced for THIS subscription only: a re-watch under an id this sink already knows would
                 // otherwise stay silent and leave the panel with no status at all. Forcing globally would
                 // let one surface's subscribe rewrite every other panel's field mid-edit.
@@ -170,6 +175,21 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         default:
             break
         }
+    }
+
+    /// Sweeps for codex window handles when the newly watched session is a codex thread.
+    ///
+    /// Gated on the app's own thread registry knowing the id, which is one indexed sqlite lookup and
+    /// is false for every Claude session, so selecting a Claude thread never moves a codex window. The
+    /// sweep itself no-ops when every window already has a handle, which is the steady state.
+    private func acquireCodexWindowsIfNeeded(for sessionId: String) {
+        guard codexState.threadRecord(sessionId) != nil else { return }
+        let mainPids = CodexWindowSessionResolver.codexMainPids(
+            in: processRows(),
+            mainPath: Config.codexMainPath
+        )
+        guard mainPids.count == 1 else { return }
+        codexWriter.acquireWindows(mainPid: mainPids[0], in: audit.snapshot())
     }
 
     // MARK: - Resolution
