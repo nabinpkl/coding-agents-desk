@@ -185,3 +185,17 @@ Measured on macOS 25.4, Codex Desktop (`com.openai.codex`), one 1800x1169 displa
   measurable quality difference between them. Occlusion is a threshold, not a gradient.
 - Two real codex windows in a 16px staircase behind one opaque cover both kept painting; the
   same two under a full-screen cover both went dark.
+- Occlusion is computed against the **union** of what is in front, not against any single
+  window. Two covers each spanning half the target, neither covering it alone, both left it
+  painting individually and put it to sleep together.
+- Move order does not impose stacking order: bringing the two windows to a Space as A-then-B
+  and then as B-then-A left the same window in front both times, and a frame move never
+  reordered anything.
+
+Those last two are why the ladder reads the stacking order rather than assuming or dictating
+one. Because occlusion is union-based, a window in the middle of a tightly stepped ladder is
+covered by its two neighbours together whenever both happen to be in front of it -- for 600pt
+windows stepped by 16, the neighbours' union spans `[16k-16, 16k+616]` and the window itself
+only `[16k, 16k+600]`. Offsets have to run monotonically with the real z-order, and since
+nothing the park does disturbs that order, one read at park time holds until something external
+raises a window.
