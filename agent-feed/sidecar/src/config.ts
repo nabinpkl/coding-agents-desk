@@ -350,6 +350,10 @@ export const config = {
   // Top of the shallowest rung. Clears the menu bar, which is the one edge
   // macOS refuses to let a window hide under.
   parkTopMargin: integerEnvironment("AGENT_FEED_PARK_TOP_MARGIN", 39, 0, 400),
+  // How long to let the window server finish reordering after a gather, before
+  // the stacking order is re-read. Offsets have to run monotonically with the
+  // real order, so reading it too early lays a ladder against a stale one.
+  parkSettleMs: integerEnvironment("AGENT_FEED_PARK_SETTLE_MS", 900, 0, 10_000),
   // Durable state, not a cache: it is the only record of where each parked
   // window came from, so losing it makes the park a one-way trip.
   parkManifestPath: resolve(

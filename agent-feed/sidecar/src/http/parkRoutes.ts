@@ -1,12 +1,16 @@
-// `GET /api/park/state` -- what the Desktops currently hold.
-// `GET /api/park/plan`  -- where a park would put everything, and whether that plan holds up.
+// `GET  /api/park/state`   -- what the Desktops currently hold.
+// `GET  /api/park/plan`    -- where a park would put everything, and whether that plan holds up.
+// `POST /api/park`         -- gather, re-read the order, lay the ladder.
+// `POST /api/park/restore` -- put everything back where the manifest says it came from.
 //
 // Not under `/api/sessions/`: a Desktop is a fact about the machine, not about a
 // thread, which is the same reason `/api/usage` sits at the top level.
 //
-// Both are READ-ONLY. Nothing here moves a window. Parking is a durable
-// rearrangement of someone's entire workspace and it needs the manifest landed
-// first, so the mutation lives behind its own route and its own confirmation.
+// The two GETs are read-only. The two POSTs move windows, so they require an
+// explicit `{"confirm": true}` body: parking is a durable rearrangement of
+// someone's entire workspace, and a request that reaches this endpoint by
+// accident must do nothing. `{"app": "..."}` narrows it to one application,
+// which is how this gets tried on two windows before it is tried on twenty.
 //
 // The interesting property of this file is how little it is: every fact below
 // comes from one `yabai` subprocess, and the geometry is pure TypeScript. No
@@ -14,12 +18,40 @@
 
 import { config } from "../config.ts";
 import { plan as planLadder } from "../park/ladder.ts";
+import { park, restore } from "../park/park.ts";
 import { activeSpace, displays, parkable, windows, YabaiUnavailable } from "../park/yabai.ts";
 import { jsonResponse } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 
 const STATE_ROUTE = "/api/park/state";
 const PLAN_ROUTE = "/api/park/plan";
+const PARK_ROUTE = "/api/park";
+const RESTORE_ROUTE = "/api/park/restore";
+
+interface ParkRequestBody {
+  confirm?: unknown;
+  app?: unknown;
+  dryRun?: unknown;
+}
+
+async function body(request: Request): Promise<ParkRequestBody> {
+  try {
+    const parsed = await request.json();
+    return parsed && typeof parsed === "object" ? (parsed as ParkRequestBody) : {};
+  } catch {
+    return {};
+  }
+}
+
+function unconfirmed(): Response {
+  return jsonResponse(
+    {
+      code: "park-unconfirmed",
+      message: 'this endpoint moves windows; send {"confirm": true} to proceed',
+    },
+    400,
+  );
+}
 
 function unavailable(error: unknown): Response {
   return jsonResponse(
@@ -115,16 +147,40 @@ async function planResponse(url: URL): Promise<Response> {
   });
 }
 
+async function parkResponse(request: Request): Promise<Response> {
+  const input = await body(request);
+  const dryRun = input.dryRun === true;
+  // A dry run touches nothing, so it does not need the confirmation that a real
+  // park does.
+  if (!dryRun && input.confirm !== true) return unconfirmed();
+  const app = typeof input.app === "string" && input.app.trim() !== "" ? input.app.trim() : undefined;
+  return jsonResponse(await park({ app, dryRun }));
+}
+
+async function restoreResponse(request: Request): Promise<Response> {
+  const input = await body(request);
+  if (input.confirm !== true) return unconfirmed();
+  return jsonResponse(await restore());
+}
+
 export function createParkRoutes(): RouteHandler {
   // Deliberately not an async function: the "not my route" answer is `undefined`
   // and must be returned synchronously, so only the matched paths become a
   // promise.
   return (request, url) => {
-    if (request.method !== "GET") return undefined;
-    if (url.pathname !== STATE_ROUTE && url.pathname !== PLAN_ROUTE) return undefined;
+    const isGet = request.method === "GET"
+      && (url.pathname === STATE_ROUTE || url.pathname === PLAN_ROUTE);
+    const isPost = request.method === "POST"
+      && (url.pathname === PARK_ROUTE || url.pathname === RESTORE_ROUTE);
+    if (!isGet && !isPost) return undefined;
     if (!config.yabaiPath) {
       return unavailable(new YabaiUnavailable("no yabai binary found on this machine"));
     }
-    return (url.pathname === STATE_ROUTE ? state() : planResponse(url)).catch(unavailable);
+    let work: Promise<Response>;
+    if (url.pathname === STATE_ROUTE) work = state();
+    else if (url.pathname === PLAN_ROUTE) work = planResponse(url);
+    else if (url.pathname === PARK_ROUTE) work = parkResponse(request);
+    else work = restoreResponse(request);
+    return work.catch(unavailable);
   };
 }

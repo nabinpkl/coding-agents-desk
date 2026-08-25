@@ -8,8 +8,9 @@
 // The one load-bearing undocumented behaviour: **`query --windows` returns
 // windows in front-to-back stacking order.** Verified against
 // `CGWindowListCopyWindowInfo` with six windows through a non-trivial shuffle.
-// yabai does not promise this, so `assertStackingOrder` exists to fail loudly if
-// a future version changes it, rather than silently starving middle rungs.
+// yabai does not promise this. If a future version changes it the ladder starves
+// its middle rungs silently, so pin the version and treat the ordering as a
+// contract this file depends on rather than an incidental detail.
 
 import { config } from "../config.ts";
 import type { Rect } from "./ladder.ts";
@@ -116,6 +117,19 @@ export async function windows(): Promise<YabaiWindow[]> {
 export async function activeSpace(): Promise<{ index: number; id: number; display: number }> {
   const s = await query<{ index: number; id: number; display: number }>(["--spaces", "--space"]);
   return { index: s.index, id: s.id, display: s.display };
+}
+
+export interface YabaiSpace {
+  index: number;
+  id: number;
+  /** Durable identity. The index shifts when Desktops are added or reordered. */
+  uuid: string;
+  display: number;
+}
+
+export async function spaces(): Promise<YabaiSpace[]> {
+  const list = await query<{ index: number; id: number; uuid: string; display: number }[]>(["--spaces"]);
+  return list.map((s) => ({ index: s.index, id: s.id, uuid: s.uuid, display: s.display }));
 }
 
 export async function displays(): Promise<{ index: number; frame: Rect }[]> {
