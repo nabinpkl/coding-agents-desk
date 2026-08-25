@@ -251,12 +251,18 @@ observer processes, so treat the absolute percentages as contaminated and the de
 result). Twenty windows, one `SCStream` each, cost charged to both the capturing process and
 WindowServer.
 
-ScreenCaptureKit **damage-gates a window on the active Space**. Twenty static windows streamed
-for eight seconds delivered 0 `.complete` frames and 4714 `.idle` ones, costing 3.5% of a core
-in the client and nothing measurable in WindowServer. Genuinely idle tiles are close to free.
+ScreenCaptureKit damage-gates a window on the active Space **when the application cooperates**.
+Twenty static AppKit windows streamed for eight seconds delivered 0 `.complete` frames and 4714
+`.idle` ones, costing 3.5% of a core in the client and nothing measurable in WindowServer.
 
-Real agent windows are not idle, though. A live Codex window with nobody typing still produced
-138 complete frames in eight seconds, about 17fps, from cursor blink alone. Budget for busy.
+Chromium does not cooperate, and every window this canvas would show is Chromium. A Codex window
+with nobody typing emits `.complete` at the full cap and never goes `.idle`. Hashing the frames
+shows what those frames actually carry: **189 complete frames over six seconds contained 3
+distinct images.** The status flag is not a content signal for these apps, so a canvas has to
+dedupe by content hash rather than trust `.idle`. Doing so turns a 30fps stream into about half
+an update per second. At 2.1MB a frame that is 63MB/s of hashing per stream, which is
+comfortable at one tile and 1.26GB/s at twenty, so a lower capture rate underneath the hash is
+still the first lever for unfocused tiles.
 
 Twenty busy tiles at 30fps cost, over an animating-but-uncaptured baseline of 21.2% WindowServer
 and 6.2% client: **60.3% WindowServer and 19.9% client**. The shape of that cost is worth
@@ -271,13 +277,14 @@ Two levers, only one of which works:
   size and slightly worse in the client, because downscaling adds a step rather than removing
   one.
 
-The result that bears on the park itself: **damage gating does not survive leaving the Desktop.**
-The same Codex window, same stream configuration, measured back to back -- on the active Space,
-138 complete frames in 8s (17fps); parked one Space away, 243 complete frames (29.6fps, the full
-cap) with zero idle frames, of content that is provably not being drawn. Capturing a parked
-window costs more than capturing a live one and shows a frozen image for the money. That is a
-second, independent reason to bring windows onto the active Space rather than stream them where
-they sit.
+The result that bears on the park itself: **an off-Space window streams at the same rate and
+carries nothing.** The same Codex window, same stream configuration, measured back to back at
+6s each: fully on screen, 189 complete frames containing 3 distinct images; parked at the
+display edge with 40pt showing, 187 frames and the same 3 distinct images; one Space away, 183
+frames containing **1** distinct image. Frame rate is identical in all three and tells you
+nothing. Only the distinct count separates a live window from a frozen one, and it confirms both
+halves of the design: leaving the Desktop freezes a window, and parking it at the display edge
+does not.
 
 ## Evidence behind the shape
 
