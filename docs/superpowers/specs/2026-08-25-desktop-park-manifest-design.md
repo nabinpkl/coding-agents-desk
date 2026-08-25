@@ -172,6 +172,23 @@ to apply it.
 No per-window capture or canvas layout. Those are canvas state and belong wherever the canvas
 persists its own; the manifest's single job is getting windows home.
 
+## Where the pile goes
+
+The park does not have to fit the windows on the display, only their exposed strips. macOS
+clamps a window to keeping 40pt on screen horizontally and 32pt vertically, and refuses to put
+one under the menu bar at all, so the bulk of every parked window hangs off an edge.
+
+The layout that measured clean at twenty windows: split them across the **left and right** edges
+(`x = screenWidth - 40` and `x = 40 - windowWidth`), ten per side, laddered **upward** by 24pt
+so a deeper rung sits higher than the one in front of it. Every exposed strip is then a top edge
+in `y 39..255`, and the visible cost of the whole pile is two 40pt bands at the screen's sides.
+
+Both choices avoid the Dock, which is the one system surface that can wander into a band. The
+sides are clear of a centred Dock horizontally; laddering upward keeps the strips clear of its
+reveal zone vertically. The bottom edge would give a smaller footprint -- twenty windows fit a
+268x32pt corner -- but puts every strip exactly where the Dock appears, and whether a revealed
+Dock counts as opaque coverage has not been measured.
+
 ## Evidence behind the shape
 
 Measured on macOS 25.4, Codex Desktop (`com.openai.codex`), one 1800x1169 display:
@@ -191,6 +208,13 @@ Measured on macOS 25.4, Codex Desktop (`com.openai.codex`), one 1800x1169 displa
 - Move order does not impose stacking order: bringing the two windows to a Space as A-then-B
   and then as B-then-A left the same window in front both times, and a frame move never
   reordered anything.
+- Offscreen clamps, 1800x1169 display, 600x877 window: pushing right lands at `x=1760` and
+  pushing left at `x=-560`, both leaving 40pt on screen; pushing down lands at `y=1137`,
+  leaving 32pt; pushing up is refused outright and the window stays fully on screen at `y=39`.
+- Twenty windows laddered ten per side at a 24pt step, with an opaque canvas covering
+  everything between the two 40pt bands, all reported `NSWindow.occlusionState` visible.
+  Widening that canvas to the full screen took all twenty to not-visible, and shrinking it back
+  recovered all twenty.
 
 Those last two are why the ladder reads the stacking order rather than assuming or dictating
 one. Because occlusion is union-based, a window in the middle of a tightly stepped ladder is
