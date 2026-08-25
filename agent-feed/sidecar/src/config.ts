@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -119,6 +120,27 @@ delete process.env.AGENT_FEED_CONTROL_TOKEN;
 // tool subprocess the agent backends spawn.
 const summaryApiKey = process.env.AGENT_FEED_SUMMARY_API_KEY?.trim() || null;
 delete process.env.AGENT_FEED_SUMMARY_API_KEY;
+
+
+/**
+ * Absolute path to the `yabai` binary, or null when this machine has none.
+ *
+ * Searched rather than assumed, and absolute rather than resolved from PATH,
+ * because the host deliberately strips the PATH that would find a Homebrew
+ * install from its children (the same reason `bun` is passed in by absolute
+ * path). Null is a real answer: the park routes answer 503 with a reason
+ * instead of failing at spawn time.
+ */
+function yabaiBinary(): string | null {
+  const override = process.env.AGENT_FEED_YABAI_PATH?.trim();
+  if (override) return existsSync(override) ? resolve(override) : null;
+  const candidates = [
+    join(userHomeDirectory, ".local", "bin", "yabai"),
+    "/opt/homebrew/bin/yabai",
+    "/usr/local/bin/yabai",
+  ];
+  return candidates.find((candidate) => existsSync(candidate)) ?? null;
+}
 
 export const config = {
   host: process.env.AGENT_FEED_HOST ?? "127.0.0.1",
@@ -310,6 +332,35 @@ export const config = {
   usageCachePath: resolve(
     process.env.AGENT_FEED_USAGE_CACHE_PATH?.trim()
       || join(userHomeDirectory, "Library", "Caches", "agentdesk-agent-feed", "usage.json"),
+  ),
+
+  // Desktop park. A window renders only while it is on the active Space and not
+  // completely covered, so showing many windows at once means bringing them all
+  // to one Desktop and leaving a strip of each one uncovered. Geometry and
+  // rationale: docs/superpowers/specs/2026-08-25-desktop-park-manifest-design.md
+  yabaiPath: yabaiBinary(),
+  // How much of each parked window stays on the display. macOS clamps to 40pt
+  // horizontally, so this is the ceiling as well as the default.
+  parkStrip: integerEnvironment("AGENT_FEED_PARK_STRIP", 40, 1, 400),
+  // Vertical distance between rungs, and so the height of each window's
+  // exclusive band. 1pt was measured to be enough; this is not 1pt because the
+  // clamp is undocumented and a band that vanishes is a window that stops
+  // rendering with nothing to report it.
+  parkStep: integerEnvironment("AGENT_FEED_PARK_STEP", 24, 1, 400),
+  // Top of the shallowest rung. Clears the menu bar, which is the one edge
+  // macOS refuses to let a window hide under.
+  parkTopMargin: integerEnvironment("AGENT_FEED_PARK_TOP_MARGIN", 39, 0, 400),
+  // Durable state, not a cache: it is the only record of where each parked
+  // window came from, so losing it makes the park a one-way trip.
+  parkManifestPath: resolve(
+    process.env.AGENT_FEED_PARK_MANIFEST_PATH?.trim()
+      || join(
+        userHomeDirectory,
+        "Library",
+        "Application Support",
+        "agentdesk-agent-feed",
+        "park-manifest.json",
+      ),
   ),
 } as const;
 

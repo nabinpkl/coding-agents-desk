@@ -4,8 +4,23 @@
     {
       "name": "agent-panel-web",
       "runtimeExecutable": "bun",
-      "runtimeArgs": ["run", "--cwd", "packages/AgentPanel/Web", "vite", "--port", "5183"],
+      "runtimeArgs": [
+        "run",
+        "--cwd",
+        "packages/AgentPanel/Web",
+        "vite",
+        "--port",
+        "5183"
+      ],
       "port": 5183
+    },
+    {
+      "name": "agent-feed-sidecar-dev",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "tools/park-sidecar-dev.sh"
+      ],
+      "port": 7690
     }
   ]
 }

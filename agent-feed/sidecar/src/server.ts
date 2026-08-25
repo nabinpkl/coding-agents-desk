@@ -9,6 +9,7 @@ import { authorizeApiRequest } from "./http/auth.ts";
 import { createAgentRoutes } from "./http/agentRoutes.ts";
 import { createCliInputRoutes } from "./http/cliInputRoutes.ts";
 import { createInventoryRoutes } from "./http/inventoryRoutes.ts";
+import { createParkRoutes } from "./http/parkRoutes.ts";
 import type { RouteHandler } from "./http/route.ts";
 import { createSessionRoutes } from "./http/sessionRoutes.ts";
 import { createSummaryRoutes } from "./http/summaryRoutes.ts";
@@ -71,6 +72,8 @@ const routes: RouteHandler[] = [
   // Not under `/api/sessions/` at all -- usage is a fact about the machine -- so its position
   // here is only for readability.
   createUsageRoutes(),
+  // Same: a Desktop belongs to the machine, not to a thread.
+  createParkRoutes(),
   createSessionRoutes(describeAgentSession),
 ];
 const SHUTDOWN_GRACE_MS = 500;
