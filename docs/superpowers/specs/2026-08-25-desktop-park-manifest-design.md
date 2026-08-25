@@ -189,6 +189,40 @@ reveal zone vertically. The bottom edge would give a smaller footprint -- twenty
 268x32pt corner -- but puts every strip exactly where the Dock appears, and whether a revealed
 Dock counts as opaque coverage has not been measured.
 
+## Drift, and how long a tile stays frozen
+
+The ladder assumes offsets run monotonically with the stacking order, and nothing the park does
+disturbs that order. Something else can: an app raising its own window for a dialog or a
+notification. Measured by raising the deepest rung of a twenty-rung ladder to the front:
+
+```
+rungs that went dark:              8 of 20, all at t=0.052s
+window-list order change visible:  t=0.053s
+repair (re-rank + re-lay, moves):  all 20 back in 0.058s
+```
+
+Three things follow.
+
+**Detection cannot beat the darkening, and there is nothing to beat.** The order change and the
+coverage change are the same window-server transaction, so they land together. A poller reading
+`CGWindowListCopyWindowInfo` sees the new order in the same instant the rungs stop rendering.
+The question is not whether the audit notices in time; it is how long the tiles stay frozen,
+which is the poll interval plus the repair.
+
+**Drift cascades.** One raise darkened eight rungs, not one, because the raised window swallowed
+everything between it and the front. The blast radius stayed on its own side: all ten rungs on
+the other edge were untouched, which is a second reason to split the pile across the left and
+right edges rather than pile it on one.
+
+**The repair is cheap and needs no raise.** Re-rank the rungs against the order actually
+observed, re-lay the ladder with moves, and all twenty recover in under 60ms.
+
+So the outage is set by the polling cadence. The existing window-resolve cadence in this repo is
+`Config.claudeWindowResolveInterval` / `codexWindowResolveInterval`, both 3s, which would leave a
+cascade frozen for up to three seconds. A window-list read is cheap enough to poll far tighter
+if that is too long, and `NSWorkspace` activation notifications would usually fire alongside the
+raise as a cheaper trigger, though that has not been measured.
+
 ## What the tiles cost
 
 Measured on this Mac (1800x1169, WindowServer shared with a running `AgentDeskHost` and two
