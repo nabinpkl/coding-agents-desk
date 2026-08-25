@@ -150,8 +150,20 @@ error is not evidence the window moved; the frame clamp above is the standing pr
 
 ## What it deliberately does not carry
 
-No z-order. macOS gives no way to restore a global stacking order without raising windows,
-which raises focus, which the standing constraint forbids.
+No z-order, and the reason is availability rather than focus. The tool this repo already drives
+does support raising without focusing -- `yabai -m window <id> --raise` -- but it routes through
+the scripting addition, which needs SIP partially disabled. Measured on this Mac: `csrutil
+status` reports enabled, `/Library/ScriptingAdditions/` is empty, and the call fails with `could
+not raise window with id '...' due to an error with the scripting-addition`, leaving both the
+stacking order and the frontmost application untouched. Recording a stacking order the restore
+has no way to reapply would be a promise the manifest cannot keep.
+
+Nothing here needs it. The staircase depends on *reading* the front-to-back order
+(`CGWindowListCopyWindowInfo(.optionOnScreenOnly)`, no private API and no focus) and then
+assigning offsets by rank, so exposure is produced by moves alone. The live cost of not owning
+z-order is drift: an app that raises its own window reshuffles the stack, and a window whose
+offset no longer matches its rank can become fully covered and stop rendering. That is repaired
+by re-running the layout, which is another move, not a raise.
 
 No minimized, fullscreen, or tabbed state. A window in any of those is not a park candidate in
 the first place, and recording state the park refuses to touch invites a future restore to try
