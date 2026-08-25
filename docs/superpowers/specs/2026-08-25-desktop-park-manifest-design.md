@@ -189,6 +189,27 @@ reveal zone vertically. The bottom edge would give a smaller footprint -- twenty
 268x32pt corner -- but puts every strip exactly where the Dock appears, and whether a revealed
 Dock counts as opaque coverage has not been measured.
 
+## Input reaches only the exposed strip
+
+A parked window's offscreen bulk can be looked at but not clicked. Posted mouse events are not
+clamped to the display -- `CGWarpMouseCursorPosition` to x=2060 lands at 1800, but posting a
+mouse event at 2060 keeps 2060 -- yet the window server hit-tests clicks against the part of a
+window that is actually on a display. Measured on a window with 40pt on screen and 560pt past
+the edge: a click on the visible strip arrived as `mouseDown at window(20,250)`, a click 260pt
+past the edge arrived nowhere, and a negative control outside the window also arrived nowhere.
+
+What does work needs no Accessibility at all. The strip click focused the window
+(`keyWindow=true`) and an ordinary posted keystroke then landed in it. Notably the click did
+*not* raise it -- z-rank held at 21 of 28 -- though that was measured on a borderless
+`.stationary` window and may not hold for an ordinary application window. If it does not, a
+click is simply the drift case above, repaired in under 60ms.
+
+So the strip is both the liveness requirement and the entire input surface, and a canvas cannot
+map a tile-relative click onto the window behind it. Real interaction means bringing that one
+window on screen, which is a move: no focus theft, no raise, no synthetic input plumbing, and
+macOS delivers the clicks and keystrokes itself. Zooming a tile un-parks its window; zooming out
+re-parks it.
+
 ## Drift, and how long a tile stays frozen
 
 The ladder assumes offsets run monotonically with the stacking order, and nothing the park does
