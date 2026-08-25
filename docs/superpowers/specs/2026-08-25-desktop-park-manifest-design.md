@@ -189,6 +189,41 @@ reveal zone vertically. The bottom edge would give a smaller footprint -- twenty
 268x32pt corner -- but puts every strip exactly where the Dock appears, and whether a revealed
 Dock counts as opaque coverage has not been measured.
 
+## What the tiles cost
+
+Measured on this Mac (1800x1169, WindowServer shared with a running `AgentDeskHost` and two
+observer processes, so treat the absolute percentages as contaminated and the deltas as the
+result). Twenty windows, one `SCStream` each, cost charged to both the capturing process and
+WindowServer.
+
+ScreenCaptureKit **damage-gates a window on the active Space**. Twenty static windows streamed
+for eight seconds delivered 0 `.complete` frames and 4714 `.idle` ones, costing 3.5% of a core
+in the client and nothing measurable in WindowServer. Genuinely idle tiles are close to free.
+
+Real agent windows are not idle, though. A live Codex window with nobody typing still produced
+138 complete frames in eight seconds, about 17fps, from cursor blink alone. Budget for busy.
+
+Twenty busy tiles at 30fps cost, over an animating-but-uncaptured baseline of 21.2% WindowServer
+and 6.2% client: **60.3% WindowServer and 19.9% client**. The shape of that cost is worth
+knowing -- one stream alone already adds 25 points to WindowServer, and the next nineteen add
+only 14 more, so it is dominated by capture being switched on at all rather than by tile count.
+
+Two levers, only one of which works:
+
+- **Frame rate works.** The same twenty tiles at 5fps cost 50.2% WindowServer and 9.9% client.
+  A canvas should give the zoomed tile a high rate and everything else a low one.
+- **Resolution does not.** Halving the output size measured 57.2% / 22.6%, no better than full
+  size and slightly worse in the client, because downscaling adds a step rather than removing
+  one.
+
+The result that bears on the park itself: **damage gating does not survive leaving the Desktop.**
+The same Codex window, same stream configuration, measured back to back -- on the active Space,
+138 complete frames in 8s (17fps); parked one Space away, 243 complete frames (29.6fps, the full
+cap) with zero idle frames, of content that is provably not being drawn. Capturing a parked
+window costs more than capturing a live one and shows a frozen image for the money. That is a
+second, independent reason to bring windows onto the active Space rather than stream them where
+they sit.
+
 ## Evidence behind the shape
 
 Measured on macOS 25.4, Codex Desktop (`com.openai.codex`), one 1800x1169 display:
