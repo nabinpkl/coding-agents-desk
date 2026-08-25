@@ -269,6 +269,18 @@ and 6.2% client: **60.3% WindowServer and 19.9% client**. The shape of that cost
 knowing -- one stream alone already adds 25 points to WindowServer, and the next nineteen add
 only 14 more, so it is dominated by capture being switched on at all rather than by tile count.
 
+Measured at fourteen real windows, hashing every delivered frame costs about 11 points of one
+core on top of the capture (11.3% to 22.2%) for roughly 871 MB/s of memory traffic, and leaves
+WindowServer untouched. So the dedupe is affordable and lands entirely in the client, where it
+can be scheduled.
+
+The saving is real but smaller than one quiet window suggests. A single idle Codex window gives
+about 60:1; across a working desktop it is **440 distinct images in 2526 frames, roughly 6:1**,
+because a real set of windows always contains a few that genuinely animate and one busy tile
+pays for its own frames regardless of the others. And hashing costs CPU per frame *delivered*,
+not per frame *kept*, so it reduces everything downstream of the hash without reducing the
+capture itself.
+
 Two levers, only one of which works:
 
 - **Frame rate works.** The same twenty tiles at 5fps cost 50.2% WindowServer and 9.9% client.
