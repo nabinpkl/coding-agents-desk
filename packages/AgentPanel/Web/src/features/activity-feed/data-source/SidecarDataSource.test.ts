@@ -7,7 +7,7 @@
  * there is nothing here to test but the calls themselves and the one translation.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SidecarDataSource, SidecarError } from "./SidecarDataSource";
 import { FakeHttpTransport } from "../transport/FakeHttpTransport";
 import type { SessionEventsHandlers } from "./AgentDataSource";
@@ -201,5 +201,58 @@ describe("SidecarDataSource", () => {
     const source = new SidecarDataSource(transport);
 
     await expect(source.createSession("/projects/alpha")).rejects.toBeInstanceOf(SidecarError);
+  });
+});
+
+describe("fetchConfig", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("serves every asker from one request", async () => {
+    const transport = new FakeHttpTransport();
+    transport.responses.set("GET /api/config", { status: 200, body: '{"parkAvailable":true}' });
+    const feed = new SidecarDataSource(transport);
+    const [a, b, c] = await Promise.all([feed.fetchConfig(), feed.fetchConfig(), feed.fetchConfig()]);
+    expect(transport.requests.filter((r) => r.path === "/api/config")).toHaveLength(1);
+    expect(a).toEqual({ parkAvailable: true });
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+  });
+
+  it("retries a refused read instead of taking the loss as the answer", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeHttpTransport();
+    transport.responses.set("GET /api/config", {
+      status: 503,
+      body: '{"error":{"code":"relay-full","message":"too many agent-feed requests in flight"}}',
+    });
+    const feed = new SidecarDataSource(transport);
+    const read = feed.fetchConfig();
+    // The mount storm passes; the sidecar answers on the second attempt.
+    await vi.advanceTimersByTimeAsync(10);
+    transport.responses.set("GET /api/config", { status: 200, body: '{"parkAvailable":true}' });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(read).resolves.toEqual({ parkAvailable: true });
+    expect(transport.requests.filter((r) => r.path === "/api/config")).toHaveLength(2);
+  });
+
+  it("rejects after every attempt fails, and the next call starts fresh", async () => {
+    vi.useFakeTimers();
+    const transport = new FakeHttpTransport();
+    transport.responses.set("GET /api/config", { status: 503, body: '{"error":{"code":"relay-full"}}' });
+    const feed = new SidecarDataSource(transport);
+    const read = feed.fetchConfig();
+    const outcome = read.then(
+      () => "resolved",
+      () => "rejected",
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await outcome).toBe("rejected");
+    const attempts = transport.requests.filter((r) => r.path === "/api/config").length;
+    expect(attempts).toBe(3);
+    // A fresh call is a fresh read, not the dead promise again.
+    transport.responses.set("GET /api/config", { status: 200, body: '{"parkAvailable":false}' });
+    await expect(feed.fetchConfig()).resolves.toEqual({ parkAvailable: false });
   });
 });

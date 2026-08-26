@@ -120,6 +120,17 @@ export interface SessionAddress {
 export class SidecarDataSource implements AgentDataSource {
   constructor(private readonly transport: AgentHttpTransport) {}
 
+  /**
+   * The one config read, shared. Several features ask "what does this sidecar
+   * offer" at mount, and each asking separately turned a startup burst into
+   * real failures: the host relay admits a small fixed number of concurrent
+   * requests, a config read that lost that race rejected, and the hook that
+   * asked hid its feature for the life of the page ("no yabai" on a machine
+   * with yabai). One request serves every asker, and a loss is retried after
+   * the mount storm has passed instead of being taken as an answer.
+   */
+  private configRead: Promise<SidecarConfig> | null = null;
+
   // ---------------------------------------------------------------------
   // Inventory
   // ---------------------------------------------------------------------
@@ -399,7 +410,28 @@ export class SidecarDataSource implements AgentDataSource {
 
   /** The sidecar's process-global facts, read once so the panel knows what to offer. */
   async fetchConfig(): Promise<SidecarConfig> {
-    return parse<SidecarConfig>(await this.transport.request("GET", "/api/config"));
+    this.configRead ??= this.readConfigPatiently();
+    try {
+      return await this.configRead;
+    } catch (error) {
+      // The next caller starts over rather than inheriting a dead promise.
+      this.configRead = null;
+      throw error;
+    }
+  }
+
+  private async readConfigPatiently(): Promise<SidecarConfig> {
+    const delaysMs = [0, 1_000, 4_000];
+    let lastFailure: unknown;
+    for (const delayMs of delaysMs) {
+      if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+      try {
+        return parse<SidecarConfig>(await this.transport.request("GET", "/api/config"));
+      } catch (error) {
+        lastFailure = error;
+      }
+    }
+    throw lastFailure;
   }
 
   // ---------------------------------------------------------------------
