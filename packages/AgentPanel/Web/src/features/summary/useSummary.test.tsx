@@ -9,6 +9,7 @@ const enabled: SidecarConfig = {
   watcherState: "live", sessionCount: 1,
   summaryEnabled: true, summaryModel: "opencode-go/deepseek-v4-flash",
   usageVendors: ["codex"],
+  parkAvailable: false,
 };
 
 function digest(headline: string): SummaryResult {

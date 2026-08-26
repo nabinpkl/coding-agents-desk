@@ -193,4 +193,6 @@ export interface SidecarConfig {
    * the machine, not the thread on screen.
    */
   usageVendors: UsageVendorId[];
+  /** Whether the Desktop park surface has a window manager to drive. */
+  parkAvailable: boolean;
 }

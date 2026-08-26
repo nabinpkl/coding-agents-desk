@@ -102,6 +102,11 @@ const server = Bun.serve<undefined>({
         // host is running should offer the surface without a relaunch, and the check is one
         // `existsSync`.
         usageVendors: detectUsageVendors(),
+        // Whether this machine can gather windows onto one Desktop. Carried here
+        // rather than probed by the panel: the relay admits only a few concurrent
+        // requests per surface, and an extra availability call fired on mount
+        // loses that race and reads as "this machine cannot do it".
+        parkAvailable: config.yabaiPath !== null,
       };
       return jsonResponse(body);
     }

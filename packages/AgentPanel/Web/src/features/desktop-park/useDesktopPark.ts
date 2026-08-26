@@ -24,7 +24,7 @@ export type ParkAction =
   | { kind: "failed"; what: "park" | "restore"; message: string };
 
 export interface DesktopParkHandle {
-  /** False when this machine has no yabai, which hides the menu entry entirely. */
+  /** False when this machine has no window manager to drive. Disables the entry. */
   available: boolean;
   view: ParkView;
   action: ParkAction;
@@ -37,7 +37,7 @@ export interface DesktopParkHandle {
 
 export type ParkDataSource = Pick<
   SidecarDataSource,
-  "fetchParkState" | "fetchParkPlan" | "park" | "restorePark"
+  "fetchParkState" | "fetchParkPlan" | "park" | "restorePark" | "fetchConfig"
 >;
 
 function messageOf(error: unknown): string {
@@ -47,10 +47,10 @@ function messageOf(error: unknown): string {
 /**
  * The Desktop Park panel's data.
  *
- * Availability is probed once by asking for state, the same shape as the usage
- * feature's config probe: whether this machine can park windows is a property of
- * the machine, not of the moment. A 503 from the sidecar means no yabai, and the
- * entry stays hidden rather than offering something that cannot work.
+ * Availability rides the config read the panel already makes, the same way the
+ * summarizer's and the usage vendors' do: whether this machine can park windows
+ * is a property of the machine, not of the moment, and the panel should not
+ * spend a request discovering it.
  *
  * State and plan are fetched together and always as a pair. A plan describes the
  * state it was computed from, and showing one beside a newer other would invite
@@ -85,16 +85,24 @@ export function useDesktopPark(feed: ParkDataSource): DesktopParkHandle {
     );
   }, [feed]);
 
-  // The availability probe. Cheap: one yabai query, no windows touched.
+  // Availability comes from the config read the panel already makes, not from a
+  // probe of our own.
+  //
+  // A probe fired on mount competes for one of the few concurrent relay slots at
+  // the busiest moment of startup, and it lost: the host logged
+  // `relay refused /api/park/state: 4 concurrent requests already in flight`,
+  // which this hook then reported to the user as "no yabai". A failed request is
+  // not an absent capability, and the fix is to stop asking a second time for
+  // something a process-global fact can carry.
   useEffect(() => {
     let cancelled = false;
-    void feed.fetchParkState().then(
-      () => {
-        if (!cancelled) setAvailable(true);
+    void feed.fetchConfig().then(
+      (config) => {
+        if (!cancelled) setAvailable(config.parkAvailable === true);
       },
-      () => {
-        if (!cancelled) setAvailable(false);
-      },
+      // A config read that fails means the sidecar is not answering at all, and
+      // the panel's own connection errors are what the viewer sees.
+      () => {},
     );
     return () => {
       cancelled = true;

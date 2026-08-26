@@ -1,0 +1,306 @@
+// One window in, fragmented HEVC out.
+//
+// The bare-metal half of the live-tile path: capture a window with
+// ScreenCaptureKit, encode it with VideoToolbox through AVAssetWriter, and write
+// the resulting fMP4 fragments to stdout. It makes no policy decisions. It does
+// not dedupe, does not adapt quality, does not pace, and does not know what a
+// tile or a ladder is. The caller says which window and how big; everything else
+// downstream is TypeScript's.
+//
+// The output is what Media Source Extensions eats directly, so the whole
+// delivery path after this process is: sidecar copies bytes to an HTTP body,
+// page appends them to a SourceBuffer, WebKit hardware-decodes and composites.
+// No pacer, no jitter buffer, no packet repair, no keyframe negotiation.
+//
+// Backpressure is the pipe. If nobody reads stdout the write blocks, the capture
+// handler stops draining, and frames are simply not produced. That is the entire
+// flow-control design.
+
+import AVFoundation
+import AppKit
+import CoreMedia
+import Foundation
+import ScreenCaptureKit
+import UniformTypeIdentifiers
+import VideoToolbox
+
+// MARK: - stdout framing
+
+/// `[1 byte kind][4 bytes big-endian length][payload]`. Kind 0 is a JSON header,
+/// 1 is the fMP4 initialization segment, 2 is a media fragment.
+enum Frame: UInt8 { case meta = 0, initialization = 1, media = 2 }
+
+let stdoutLock = NSLock()
+func emit(_ kind: Frame, _ payload: Data) {
+    stdoutLock.lock()
+    defer { stdoutLock.unlock() }
+    var header = Data([kind.rawValue])
+    var length = UInt32(payload.count).bigEndian
+    withUnsafeBytes(of: &length) { header.append(contentsOf: $0) }
+    FileHandle.standardOutput.write(header)
+    FileHandle.standardOutput.write(payload)
+}
+func emitMeta(_ object: [String: Any]) {
+    guard let data = try? JSONSerialization.data(withJSONObject: object) else { return }
+    emit(.meta, data)
+}
+func fail(_ message: String) -> Never {
+    FileHandle.standardError.write(Data("grid-encoder: \(message)\n".utf8))
+    emitMeta(["type": "error", "message": message])
+    exit(1)
+}
+
+// MARK: - codec string
+
+/// The RFC 6381 codec string for the stream we actually produced, parsed out of
+/// the `hvcC` box in the initialization segment.
+///
+/// Derived rather than hardcoded because the browser's `addSourceBuffer` string
+/// has to describe the real profile, tier and level, and AVFoundation picks the
+/// level from the resolution and bitrate we asked for. Guessing it produces a
+/// `NotSupportedError` at append time, which is a confusing way to learn that a
+/// constant was wrong.
+func hevcCodecString(fromInitializationSegment data: Data) -> String? {
+    let marker = Array("hvcC".utf8)
+    let bytes = [UInt8](data)
+    guard bytes.count > 8 else { return nil }
+    var box = -1
+    for i in 0...(bytes.count - marker.count) where Array(bytes[i..<(i + marker.count)]) == marker {
+        box = i + marker.count
+        break
+    }
+    guard box >= 0, bytes.count >= box + 13 else { return nil }
+    let profileSpace = (bytes[box + 1] & 0xC0) >> 6
+    let tierFlag = (bytes[box + 1] & 0x20) >> 5
+    let profileIDC = bytes[box + 1] & 0x1F
+    let compatibility = (UInt32(bytes[box + 2]) << 24) | (UInt32(bytes[box + 3]) << 16)
+        | (UInt32(bytes[box + 4]) << 8) | UInt32(bytes[box + 5])
+    let levelIDC = bytes[box + 12]
+    let constraints = Array(bytes[(box + 6)...(box + 11)])
+
+    // The compatibility field is written with the bit order reversed.
+    var reversed: UInt32 = 0
+    for i in 0..<32 where compatibility & (1 << i) != 0 { reversed |= 1 << (31 - i) }
+
+    var parts = ["hvc1"]
+    parts.append((["", "A", "B", "C"][Int(profileSpace)]) + String(profileIDC))
+    parts.append(String(reversed, radix: 16))
+    parts.append((tierFlag == 0 ? "L" : "H") + String(levelIDC))
+    // Trailing zero constraint bytes are omitted.
+    var tail = constraints
+    while let last = tail.last, last == 0 { tail.removeLast() }
+    for byte in tail { parts.append(String(format: "%02X", byte)) }
+    return parts.joined(separator: ".")
+}
+
+// MARK: - encode and mux
+
+/// Hardware HEVC through VideoToolbox, muxed to fragmented MP4 by AVAssetWriter.
+///
+/// The split is forced by the framework and happens to be the split we want.
+/// AVAssetWriter will only flush a fragment per call when its input is
+/// PASSTHROUGH -- ask it to encode for you and it insists on a fixed segment
+/// interval, which buries a fixed buffer under MSE's own. So VideoToolbox
+/// encodes, the writer only wraps, and one frame in is one fragment out.
+final class EncodingMuxer: NSObject, AVAssetWriterDelegate {
+    private var session: VTCompressionSession?
+    private var writer: AVAssetWriter?
+    private var input: AVAssetWriterInput?
+    private var firstPTS: CMTime?
+    private var announcedCodec = false
+    private let width: Int, height: Int, bitrate: Int
+    private(set) var submitted = 0, encodedCount = 0, appended = 0, notReady = 0, encodeErrors = 0
+
+    init(width: Int, height: Int, bitrate: Int) {
+        self.width = width; self.height = height; self.bitrate = bitrate
+        super.init()
+    }
+
+    func start() {
+        var created: VTCompressionSession?
+        let status = VTCompressionSessionCreate(
+            allocator: kCFAllocatorDefault,
+            width: Int32(width), height: Int32(height),
+            codecType: kCMVideoCodecType_HEVC,
+            encoderSpecification: [
+                kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true,
+            ] as CFDictionary,
+            imageBufferAttributes: nil, compressedDataAllocator: nil,
+            outputCallback: { refcon, _, status, _, sample in
+                guard status == noErr, let sample, let refcon else { return }
+                Unmanaged<EncodingMuxer>.fromOpaque(refcon).takeUnretainedValue().encoded(sample)
+            },
+            refcon: Unmanaged.passUnretained(self).toOpaque(),
+            compressionSessionOut: &created,
+        )
+        guard status == noErr, let created else { fail("VTCompressionSessionCreate failed: \(status)") }
+        session = created
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_ProfileLevel,
+                             value: kVTProfileLevel_HEVC_Main_AutoLevel)
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
+                             value: NSNumber(value: 60))
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AverageBitRate,
+                             value: NSNumber(value: bitrate))
+        VTCompressionSessionPrepareToEncodeFrames(created)
+    }
+
+    /// A raw captured frame on its way into the encoder.
+    func submit(_ sample: CMSampleBuffer) {
+        guard let session, let pixels = CMSampleBufferGetImageBuffer(sample) else { return }
+        let pts = CMSampleBufferGetPresentationTimeStamp(sample)
+        if firstPTS == nil { firstPTS = pts }
+        submitted += 1
+        let encodeStatus = VTCompressionSessionEncodeFrame(
+            session, imageBuffer: pixels,
+            presentationTimeStamp: CMTimeSubtract(pts, firstPTS!),
+            duration: CMSampleBufferGetDuration(sample),
+            frameProperties: nil, sourceFrameRefcon: nil, infoFlagsOut: nil,
+        )
+        if encodeStatus != noErr { encodeErrors += 1 }
+    }
+
+    /// An encoded frame on its way into the muxer.
+    private func encoded(_ sample: CMSampleBuffer) {
+        encodedCount += 1
+        if writer == nil {
+            // Built on the first encoded frame, because the passthrough input
+            // needs the real format description and only the encoder has it.
+            guard let format = CMSampleBufferGetFormatDescription(sample) else { return }
+            let assetWriter = AVAssetWriter(contentType: UTType.mpeg4Movie)
+            assetWriter.outputFileTypeProfile = .mpeg4AppleHLS
+            assetWriter.preferredOutputSegmentInterval = .indefinite
+            assetWriter.initialSegmentStartTime = .zero
+            assetWriter.delegate = self
+            let writerInput = AVAssetWriterInput(
+                mediaType: .video, outputSettings: nil, sourceFormatHint: format,
+            )
+            writerInput.expectsMediaDataInRealTime = true
+            guard assetWriter.canAdd(writerInput) else { fail("writer refused the passthrough input") }
+            assetWriter.add(writerInput)
+            guard assetWriter.startWriting() else {
+                let error = assetWriter.error as NSError?
+                fail("startWriting failed: \(error?.userInfo ?? [:])")
+            }
+            assetWriter.startSession(atSourceTime: .zero)
+            writer = assetWriter
+            input = writerInput
+        }
+        guard let writer, let input else { return }
+        guard input.isReadyForMoreMediaData else { notReady += 1; return }
+        appended += 1
+        guard input.append(sample) else {
+            fail("append failed: \(String(describing: writer.error))")
+        }
+        writer.flushSegment()
+    }
+
+    func assetWriter(
+        _ writer: AVAssetWriter,
+        didOutputSegmentData segmentData: Data,
+        segmentType: AVAssetSegmentType,
+        segmentReport: AVAssetSegmentReport?
+    ) {
+        switch segmentType {
+        case .initialization:
+            if !announcedCodec {
+                announcedCodec = true
+                let codec = hevcCodecString(fromInitializationSegment: segmentData)
+                emitMeta([
+                    "type": "codec",
+                    "codec": codec ?? "hvc1.1.6.L93.B0",
+                    "derived": codec != nil,
+                ])
+            }
+            emit(.initialization, segmentData)
+        case .separable:
+            emit(.media, segmentData)
+        @unknown default:
+            break
+        }
+    }
+}
+
+// MARK: - capture
+
+final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
+    let muxer: EncodingMuxer
+    init(muxer: EncodingMuxer) { self.muxer = muxer }
+    func stream(_ stream: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard type == .screen,
+              let attachments = CMSampleBufferGetSampleAttachmentsArray(sb, createIfNecessary: false)
+                as? [[SCStreamFrameInfo: Any]],
+              let raw = attachments.first?[.status] as? Int,
+              SCFrameStatus(rawValue: raw) == .complete,
+              CMSampleBufferGetImageBuffer(sb) != nil
+        else { return }
+        muxer.submit(sb)
+    }
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        fail("capture stopped: \(error.localizedDescription)")
+    }
+}
+
+// MARK: - main
+
+let arguments = CommandLine.arguments
+func argument(_ name: String) -> String? {
+    guard let index = arguments.firstIndex(of: "--\(name)"), index + 1 < arguments.count else { return nil }
+    return arguments[index + 1]
+}
+guard let windowArgument = argument("window"), let windowID = UInt32(windowArgument) else {
+    fail("usage: grid-encoder --window <id> [--width N] [--height N] [--fps N] [--bitrate BPS]")
+}
+let requestedWidth = argument("width").flatMap(Int.init)
+let requestedHeight = argument("height").flatMap(Int.init)
+let fps = argument("fps").flatMap(Int32.init) ?? 30
+let bitrate = argument("bitrate").flatMap(Int.init) ?? 4_000_000
+
+_ = NSApplication.shared
+let semaphore = DispatchSemaphore(value: 0)
+var counters: (() -> String)?
+Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+    if let counters { FileHandle.standardError.write(Data((counters() + "\n").utf8)) }
+}
+Task {
+    guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false),
+          let window = content.windows.first(where: { $0.windowID == windowID })
+    else { fail("window \(windowID) is not shareable") }
+
+    // Even dimensions: the encoder rejects odd ones for 4:2:0 chroma.
+    let width = (requestedWidth ?? Int(window.frame.width)) & ~1
+    let height = (requestedHeight ?? Int(window.frame.height)) & ~1
+    emitMeta([
+        "type": "open", "window": Int(windowID), "width": width, "height": height,
+        "app": window.owningApplication?.applicationName ?? "",
+        "title": window.title ?? "",
+    ])
+
+    let muxer = EncodingMuxer(width: width, height: height, bitrate: bitrate)
+    muxer.start()
+    let capturer = Capturer(muxer: muxer)
+    counters = {
+        "submitted=\(muxer.submitted) encoded=\(muxer.encodedCount) appended=\(muxer.appended) "
+            + "notReady=\(muxer.notReady) encodeErrors=\(muxer.encodeErrors)"
+    }
+    let configuration = SCStreamConfiguration()
+    configuration.width = width
+    configuration.height = height
+    configuration.minimumFrameInterval = CMTime(value: 1, timescale: fps)
+    configuration.queueDepth = 5
+    configuration.showsCursor = false
+    configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+    let stream = SCStream(
+        filter: SCContentFilter(desktopIndependentWindow: window),
+        configuration: configuration,
+        delegate: capturer,
+    )
+    do {
+        try stream.addStreamOutput(capturer, type: .screen, sampleHandlerQueue: DispatchQueue(label: "grid-encoder"))
+        try await stream.startCapture()
+    } catch {
+        fail("startCapture failed: \(error.localizedDescription)")
+    }
+}
+semaphore.wait()
