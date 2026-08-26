@@ -22,6 +22,13 @@ import { useEffect, useRef, useState } from "react";
  * back as level 90 where a hardcoded guess would have claimed 93, and MSE
  * rejects a SourceBuffer whose codec string does not describe the bytes.
  */
+/** Fall this far behind the newest buffered frame and playback jumps forward. */
+const MAX_LAG_SECONDS = 3;
+/** Where the jump lands, back from the very edge so the seek target is buffered. */
+const LIVE_EDGE_OFFSET_SECONDS = 0.3;
+/** How much played history stays buffered before old ranges are evicted. */
+const KEEP_BEHIND_SECONDS = 10;
+
 export type TileState =
   | { kind: "connecting" }
   | { kind: "playing"; codec: string; firstFrameMs: number }
@@ -80,6 +87,7 @@ export function TileStream({
     const controller = new AbortController();
     let objectUrl: string | null = null;
     let cancelled = false;
+    let removeVisibilityListener: (() => void) | null = null;
     const started = performance.now();
 
     void (async () => {
@@ -161,6 +169,31 @@ export function TileStream({
           buffer.addEventListener("updateend", () => resolve(), { once: true });
         });
 
+      // This is a live view, not a tape. The viewer always wants the newest
+      // frame, so playback rides the live edge: snap there on start, re-snap
+      // whenever we have fallen behind (a stall, a hidden page, a slow first
+      // connect all leave currentTime in the past while the buffer runs ahead).
+      const liveEdge = () => {
+        const ranges = element.buffered;
+        return ranges.length ? ranges.end(ranges.length - 1) : 0;
+      };
+      const chaseLiveEdge = () => {
+        const edge = liveEdge();
+        if (edge - element.currentTime > MAX_LAG_SECONDS && !element.seeking) {
+          element.currentTime = Math.max(0, edge - LIVE_EDGE_OFFSET_SECONDS);
+        }
+      };
+      // The browser pauses muted video on its own (hidden page, power saving).
+      // When the page comes back, resume at the live edge rather than staying
+      // frozen on a frame from minutes ago.
+      const onVisible = () => {
+        if (document.visibilityState !== "visible" || cancelled) return;
+        chaseLiveEdge();
+        void element.play().catch(() => {});
+      };
+      document.addEventListener("visibilitychange", onVisible);
+      removeVisibilityListener = () => document.removeEventListener("visibilitychange", onVisible);
+
       const reader = response.body.getReader();
       let painted = false;
       try {
@@ -172,6 +205,15 @@ export function TileStream({
           if (cancelled) break;
           buffer.appendBuffer(value);
           await settle();
+          chaseLiveEdge();
+          // Only the recent past is worth its memory. Without this the buffer
+          // grows for as long as the tile is open; measured at 117s in two
+          // minutes before this existed.
+          const ranges = element.buffered;
+          if (ranges.length && element.currentTime - ranges.start(0) > KEEP_BEHIND_SECONDS) {
+            buffer.remove(ranges.start(0), element.currentTime - KEEP_BEHIND_SECONDS / 2);
+            await settle();
+          }
           if (!painted) {
             painted = true;
             setState({ kind: "playing", codec, firstFrameMs: Math.round(performance.now() - started) });
@@ -188,6 +230,7 @@ export function TileStream({
 
     return () => {
       cancelled = true;
+      removeVisibilityListener?.();
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       element.replaceChildren();

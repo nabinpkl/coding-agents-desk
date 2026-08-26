@@ -69,6 +69,29 @@ export default defineConfig({
         target: sidecarOrigin,
         changeOrigin: true,
         headers: controlToken ? { authorization: `Bearer ${controlToken}` } : undefined,
+        // http-proxy does not tear down the upstream leg when the browser goes
+        // away: an aborted fetch kept streaming from the sidecar into the
+        // proxy's void, which held live window captures alive with no viewer.
+        // Destroying the upstream side when the client side closes is what
+        // lets the sidecar see the abort at all. After a normally finished
+        // response these destroys are no-ops.
+        // The signal for "the browser is gone" is the client RESPONSE
+        // closing before it ended. The request's own "close" is a trap: on a
+        // GET it fires as soon as the empty body completes, which is
+        // immediately, and destroying there killed every proxied request at
+        // birth.
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq, _req, res) => {
+            res.on("close", () => {
+              if (!res.writableEnded) proxyReq.destroy();
+            });
+          });
+          proxy.on("proxyRes", (proxyRes, _req, res) => {
+            res.on("close", () => {
+              if (!res.writableEnded) proxyRes.destroy();
+            });
+          });
+        },
       },
     },
   },

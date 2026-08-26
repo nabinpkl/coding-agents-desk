@@ -31,6 +31,28 @@ import VideoToolbox
 enum Frame: UInt8 { case meta = 0, initialization = 1, media = 2 }
 
 let stdoutLock = NSLock()
+// A reader that goes away without closing the pipe is the dangerous case, not
+// the broken pipe. The pipe fills, the write BLOCKS rather than erroring, and
+// this process sits alive forever holding a capture nobody sees. Worse,
+// measured: a Bun parent with unconsumed child pipes stops delivering stdout
+// for every LATER spawn in that process, so one abandoned encoder wedges all
+// future tiles until something reaps it. The watchdog turns a write stalled
+// past `stalledWriteLimit` into an exit; a healthy write completes in
+// microseconds, so ten seconds of stall only ever means the consumer is gone.
+let stalledWriteLimit: TimeInterval = 10
+let stdoutDeadlineLock = NSLock()
+nonisolated(unsafe) var writeDeadline: Date?
+let watchdog = Thread {
+    while true {
+        Thread.sleep(forTimeInterval: 1)
+        stdoutDeadlineLock.lock()
+        let deadline = writeDeadline
+        stdoutDeadlineLock.unlock()
+        if let deadline, Date() > deadline { exit(0) }
+    }
+}
+watchdog.start()
+
 func emit(_ kind: Frame, _ payload: Data) {
     stdoutLock.lock()
     defer { stdoutLock.unlock() }
@@ -42,8 +64,14 @@ func emit(_ kind: Frame, _ payload: Data) {
         // process dies. The parent kills us when it sees the reader go, but a
         // dev-server proxy in between does not always propagate the abort, and
         // a capture nobody is reading is pure cost.
+        stdoutDeadlineLock.lock()
+        writeDeadline = Date().addingTimeInterval(stalledWriteLimit)
+        stdoutDeadlineLock.unlock()
         try FileHandle.standardOutput.write(contentsOf: header)
         try FileHandle.standardOutput.write(contentsOf: payload)
+        stdoutDeadlineLock.lock()
+        writeDeadline = nil
+        stdoutDeadlineLock.unlock()
     } catch {
         exit(0)
     }
