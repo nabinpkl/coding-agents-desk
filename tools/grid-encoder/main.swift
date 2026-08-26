@@ -108,11 +108,15 @@ final class EncodingMuxer: NSObject, AVAssetWriterDelegate {
     private var input: AVAssetWriterInput?
     private var firstPTS: CMTime?
     private var announcedCodec = false
-    private let width: Int, height: Int, bitrate: Int
+    private let width: Int, height: Int, bitrate: Int, segmentSeconds: Double
+    /// True once a sample has gone into the current segment, so the very first
+    /// keyframe opens a segment rather than closing an empty one.
+    private var segmentOpen = false
     private(set) var submitted = 0, encodedCount = 0, appended = 0, notReady = 0, encodeErrors = 0
 
-    init(width: Int, height: Int, bitrate: Int) {
+    init(width: Int, height: Int, bitrate: Int, segmentSeconds: Double) {
         self.width = width; self.height = height; self.bitrate = bitrate
+        self.segmentSeconds = segmentSeconds
         super.init()
     }
 
@@ -139,8 +143,14 @@ final class EncodingMuxer: NSObject, AVAssetWriterDelegate {
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_ProfileLevel,
                              value: kVTProfileLevel_HEVC_Main_AutoLevel)
+        // Keyed by DURATION rather than frame count, because the segment length
+        // is what the viewer feels and the capture rate varies with how much the
+        // window is doing. A sparse window would otherwise stretch its GOP, and
+        // its segment, to minutes.
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
+                             value: NSNumber(value: segmentSeconds))
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
-                             value: NSNumber(value: 60))
+                             value: NSNumber(value: 600))
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AverageBitRate,
                              value: NSNumber(value: bitrate))
         VTCompressionSessionPrepareToEncodeFrames(created)
@@ -169,7 +179,7 @@ final class EncodingMuxer: NSObject, AVAssetWriterDelegate {
             // needs the real format description and only the encoder has it.
             guard let format = CMSampleBufferGetFormatDescription(sample) else { return }
             let assetWriter = AVAssetWriter(contentType: UTType.mpeg4Movie)
-            assetWriter.outputFileTypeProfile = .mpeg4AppleHLS
+            assetWriter.outputFileTypeProfile = .mpeg4CMAFCompliant
             assetWriter.preferredOutputSegmentInterval = .indefinite
             assetWriter.initialSegmentStartTime = .zero
             assetWriter.delegate = self
@@ -189,11 +199,28 @@ final class EncodingMuxer: NSObject, AVAssetWriterDelegate {
         }
         guard let writer, let input else { return }
         guard input.isReadyForMoreMediaData else { notReady += 1; return }
+
+        // A segment has to START with a sync sample: AVAssetWriter rejects
+        // anything else with "segment is not allowed to start with a non-sync
+        // sample", under the HLS profile and the CMAF one alike. So a segment is
+        // a GOP. Flush BEFORE appending a keyframe, which closes the segment the
+        // previous frames filled and lets this keyframe open the next one.
+        if isSyncSample(sample) && segmentOpen {
+            writer.flushSegment()
+            segmentOpen = false
+        }
         appended += 1
         guard input.append(sample) else {
             fail("append failed: \(String(describing: writer.error))")
         }
-        writer.flushSegment()
+        segmentOpen = true
+    }
+
+    /// A frame other decoders can start from. Absent attachments means sync.
+    private func isSyncSample(_ sample: CMSampleBuffer) -> Bool {
+        guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false)
+            as? [[CFString: Any]], let first = attachments.first else { return true }
+        return !((first[kCMSampleAttachmentKey_NotSync] as? Bool) ?? false)
     }
 
     func assetWriter(
@@ -250,18 +277,37 @@ func argument(_ name: String) -> String? {
     return arguments[index + 1]
 }
 guard let windowArgument = argument("window"), let windowID = UInt32(windowArgument) else {
-    fail("usage: grid-encoder --window <id> [--width N] [--height N] [--fps N] [--bitrate BPS]")
+    fail("usage: grid-encoder --window <id> [--width N] [--height N] [--fps N] "
+        + "[--bitrate BPS] [--segment SECONDS] [--verbose]")
 }
 let requestedWidth = argument("width").flatMap(Int.init)
 let requestedHeight = argument("height").flatMap(Int.init)
 let fps = argument("fps").flatMap(Int32.init) ?? 30
 let bitrate = argument("bitrate").flatMap(Int.init) ?? 4_000_000
+// One segment per GOP, so this is the latency floor the muxer imposes. MSE adds
+// its own buffer on top; there is no point going far below it.
+let segmentSeconds = argument("segment").flatMap(Double.init) ?? 0.4
 
 _ = NSApplication.shared
 let semaphore = DispatchSemaphore(value: 0)
-var counters: (() -> String)?
-Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-    if let counters { FileHandle.standardError.write(Data((counters() + "\n").utf8)) }
+// Retained at file scope, not inside the Task that creates them. An SCStream
+// held only by a local stops delivering the moment that scope returns, which
+// looks exactly like a capture that produced one frame and then hung.
+nonisolated(unsafe) var liveStream: SCStream?
+nonisolated(unsafe) var liveCapturer: Capturer?
+nonisolated(unsafe) var liveMuxer: EncodingMuxer?
+// A plain thread rather than a Timer: the main thread blocks on the semaphore
+// below, so there is no run loop for a scheduled timer to fire on.
+let countersLock = NSLock()
+nonisolated(unsafe) var counters: (() -> String)?
+let verbose = CommandLine.arguments.contains("--verbose")
+Thread.detachNewThread {
+    guard verbose else { return }
+    while true {
+        Thread.sleep(forTimeInterval: 1.0)
+        countersLock.lock(); let snapshot = counters?(); countersLock.unlock()
+        if let snapshot { FileHandle.standardError.write(Data((snapshot + "\n").utf8)) }
+    }
 }
 Task {
     guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false),
@@ -273,17 +319,24 @@ Task {
     let height = (requestedHeight ?? Int(window.frame.height)) & ~1
     emitMeta([
         "type": "open", "window": Int(windowID), "width": width, "height": height,
+        "segmentSeconds": segmentSeconds,
         "app": window.owningApplication?.applicationName ?? "",
         "title": window.title ?? "",
     ])
 
-    let muxer = EncodingMuxer(width: width, height: height, bitrate: bitrate)
+    let muxer = EncodingMuxer(
+        width: width, height: height, bitrate: bitrate, segmentSeconds: segmentSeconds,
+    )
     muxer.start()
     let capturer = Capturer(muxer: muxer)
+    liveMuxer = muxer
+    liveCapturer = capturer
+    countersLock.lock()
     counters = {
         "submitted=\(muxer.submitted) encoded=\(muxer.encodedCount) appended=\(muxer.appended) "
             + "notReady=\(muxer.notReady) encodeErrors=\(muxer.encodeErrors)"
     }
+    countersLock.unlock()
     let configuration = SCStreamConfiguration()
     configuration.width = width
     configuration.height = height
@@ -296,6 +349,7 @@ Task {
         configuration: configuration,
         delegate: capturer,
     )
+    liveStream = stream
     do {
         try stream.addStreamOutput(capturer, type: .screen, sampleHandlerQueue: DispatchQueue(label: "grid-encoder"))
         try await stream.startCapture()
