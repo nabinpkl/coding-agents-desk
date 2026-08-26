@@ -10,6 +10,7 @@ import { createAgentRoutes } from "./http/agentRoutes.ts";
 import { createCliInputRoutes } from "./http/cliInputRoutes.ts";
 import { createInventoryRoutes } from "./http/inventoryRoutes.ts";
 import { createParkRoutes } from "./http/parkRoutes.ts";
+import { createTileRoutes } from "./http/tileRoutes.ts";
 import type { RouteHandler } from "./http/route.ts";
 import { createSessionRoutes } from "./http/sessionRoutes.ts";
 import { createSummaryRoutes } from "./http/summaryRoutes.ts";
@@ -74,6 +75,7 @@ const routes: RouteHandler[] = [
   createUsageRoutes(),
   // Same: a Desktop belongs to the machine, not to a thread.
   createParkRoutes(),
+  createTileRoutes(),
   createSessionRoutes(describeAgentSession),
 ];
 const SHUTDOWN_GRACE_MS = 500;
@@ -81,6 +83,14 @@ const SHUTDOWN_GRACE_MS = 500;
 const server = Bun.serve<undefined>({
   hostname: config.host,
   port: config.port,
+  // Bun closes an idle connection after 10 seconds by default, and it counts a
+  // streaming response as idle. Every long-lived surface here outlives that: the
+  // timeline and task SSE streams, and the tile stream, which is a video that is
+  // supposed to run for as long as someone is watching. Left at the default it
+  // hangs up at exactly ten seconds and the page sees a bare 500 with no body.
+  // 0 disables it; the sidecar is a loopback service and its clients are the
+  // panel and the host.
+  idleTimeout: 0,
   fetch(request, bunServer) {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) {

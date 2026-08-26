@@ -26,9 +26,19 @@
       "name": "agent-panel-web-park",
       "runtimeExecutable": "sh",
       "runtimeArgs": [
-        "tools/park-panel-dev.sh"
+        "tools/park-panel-dev.sh",
+        "dev"
       ],
       "port": 5184
+    },
+    {
+      "name": "agent-panel-web-park-host",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "tools/park-panel-dev.sh",
+        "host"
+      ],
+      "port": 5185
     }
   ]
 }

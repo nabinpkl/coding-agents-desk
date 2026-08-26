@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftToLine, ArrowRightToLine, RotateCcw, X } from "lucide-react";
 import type { ParkMove, ParkStateResponse, ParkWindow } from "@agentdesk/agent-feed-wire";
+import { TileStream, type TileState } from "./TileStream";
 import type { DesktopParkHandle } from "./useDesktopPark";
 
 /**
@@ -81,6 +82,11 @@ export function DesktopParkPanel({
   }, [ready]);
   const groups = useMemo(() => groupByDesktop(ready?.state), [ready]);
   const unsound = ready ? !ready.plan.sound : false;
+  // One window at a time for now. The grid comes after a compositor; this proves
+  // the delivery path with the piece that already exists.
+  const [watching, setWatching] = useState<number | null>(null);
+  const [tile, setTile] = useState<TileState>({ kind: "connecting" });
+  const watched = ready?.state.windows.find((w) => w.id === watching) ?? null;
 
   return (
     <div className="flex max-h-[88dvh] flex-col">
@@ -143,6 +149,40 @@ export function DesktopParkPanel({
 
       <Outcome action={action} />
 
+      {watched ? (
+        <section className="shrink-0 border-b border-border">
+          <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
+            <span className="min-w-0 flex-1 truncate">
+              <span className="text-muted-foreground">{watched.app}</span>{" "}
+              {watched.title || "untitled"}
+            </span>
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+              {tile.kind === "playing"
+                ? `${tile.codec} · first frame ${tile.firstFrameMs}ms`
+                : tile.kind}
+            </span>
+            <button
+              type="button"
+              onClick={() => setWatching(null)}
+              className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground
+                transition-colors hover:bg-muted hover:text-foreground active:bg-muted/70
+                focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
+            >
+              stop
+            </button>
+          </div>
+          <div className="mx-3 mb-2 max-h-64 overflow-hidden rounded border border-border">
+            <TileStream
+              key={watched.id}
+              windowID={watched.id}
+              width={watched.frame.w}
+              height={watched.frame.h}
+              onState={setTile}
+            />
+          </div>
+        </section>
+      ) : null}
+
       {/* The scroller. Everything above and below it is fixed height so the list is
           the only thing that moves. */}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -178,7 +218,13 @@ export function DesktopParkPanel({
             </h3>
             <ul>
               {group.windows.map((w) => (
-                <WindowRow key={w.id} window={w} move={movesById.get(w.id)} />
+                <WindowRow
+                  key={w.id}
+                  window={w}
+                  move={movesById.get(w.id)}
+                  watching={w.id === watching}
+                  onWatch={() => setWatching((current) => (current === w.id ? null : w.id))}
+                />
               ))}
             </ul>
           </section>
@@ -199,12 +245,32 @@ export function DesktopParkPanel({
   );
 }
 
-function WindowRow({ window: w, move }: { window: ParkWindow; move: ParkMove | undefined }) {
+function WindowRow({
+  window: w,
+  move,
+  watching,
+  onWatch,
+}: {
+  window: ParkWindow;
+  move: ParkMove | undefined;
+  watching: boolean;
+  onWatch: () => void;
+}) {
   const leaving = move && !move.noop;
   return (
-    <li className="flex items-baseline gap-2 border-b border-border/50 px-3 py-1.5 text-sm
-      last:border-b-0">
-      <span className="w-20 shrink-0 truncate text-xs text-muted-foreground">{w.app}</span>
+    <li className={`flex items-baseline gap-2 border-b border-border/50 px-3 py-1.5 text-sm
+      last:border-b-0 ${watching ? "bg-accent/40" : ""}`}>
+      <button
+        type="button"
+        onClick={onWatch}
+        aria-pressed={watching}
+        title={watching ? "Stop watching this window" : "Watch this window live"}
+        className="w-20 shrink-0 truncate rounded text-left text-xs text-muted-foreground
+          transition-colors hover:text-foreground focus-visible:outline-2
+          focus-visible:-outline-offset-2 focus-visible:outline-primary"
+      >
+        {w.app}
+      </button>
       <span className="min-w-0 flex-1 truncate" title={w.title}>
         {w.title || <span className="text-muted-foreground">untitled</span>}
       </span>

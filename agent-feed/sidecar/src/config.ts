@@ -354,6 +354,12 @@ export const config = {
   // the stacking order is re-read. Offsets have to run monotonically with the
   // real order, so reading it too early lays a ladder against a stale one.
   parkSettleMs: integerEnvironment("AGENT_FEED_PARK_SETTLE_MS", 900, 0, 10_000),
+  // The one compiled piece of the live-tile path: one window in, fragmented
+  // HEVC out. Resolved relative to this source file so a from-source run finds
+  // the build output without anyone spelling a home directory, and overridable
+  // for a bundled sidecar whose source layout is gone.
+  gridEncoderPath: process.env.AGENT_FEED_GRID_ENCODER_PATH?.trim()
+    || resolve(import.meta.dir, "../../../.build/grid-encoder"),
   // Durable state, not a cache: it is the only record of where each parked
   // window came from, so losing it makes the park a one-way trip.
   parkManifestPath: resolve(

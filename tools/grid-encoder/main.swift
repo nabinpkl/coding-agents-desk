@@ -37,8 +37,16 @@ func emit(_ kind: Frame, _ payload: Data) {
     var header = Data([kind.rawValue])
     var length = UInt32(payload.count).bigEndian
     withUnsafeBytes(of: &length) { header.append(contentsOf: $0) }
-    FileHandle.standardOutput.write(header)
-    FileHandle.standardOutput.write(payload)
+    do {
+        // Reaping ourselves on a broken pipe is the only reliable way this
+        // process dies. The parent kills us when it sees the reader go, but a
+        // dev-server proxy in between does not always propagate the abort, and
+        // a capture nobody is reading is pure cost.
+        try FileHandle.standardOutput.write(contentsOf: header)
+        try FileHandle.standardOutput.write(contentsOf: payload)
+    } catch {
+        exit(0)
+    }
 }
 func emitMeta(_ object: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: object) else { return }

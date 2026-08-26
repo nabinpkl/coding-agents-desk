@@ -1,21 +1,43 @@
 #!/bin/sh
-# The Agent Panel's Vite dev server, pointed at the park dev sidecar rather than
-# the host's. Pairs with tools/park-sidecar-dev.sh: that one binds 7690 and mints
-# the token, this one proxies /api there and attaches it.
+# The Agent Panel's Vite dev server for park work, pointed at one of the two
+# sidecars by argument.
 #
-# A separate port and a separate script so neither the running host's sidecar nor
-# the panel dev server a host launch would start is disturbed.
+#   dev  (default)  tools/park-sidecar-dev.sh on 7690. Fast to restart, but it
+#                   is spawned outside the running host's process tree, so any
+#                   helper IT spawns has no Screen Recording grant and window
+#                   capture comes back "not shareable".
+#   host            the sidecar the running host spawned, on 7682. Inherits the
+#                   host's TCC, so capture works. This is the one to use for
+#                   anything involving pixels.
 set -eu
 root="$(cd "$(dirname "$0")/.." && pwd)"
-sidecar_port="${AGENT_FEED_PARK_DEV_PORT:-7690}"
-token_file="$root/.build/agent-park-dev/control-token"
+which="${1:-dev}"
+
+case "$which" in
+  host)
+    port="${AGENT_FEED_PORT_HOST:-7682}"
+    token_file="$root/.build/agent-panel-dev/control-token"
+    panel_port="${AGENTDESK_PARK_PANEL_PORT:-5185}"
+    ;;
+  dev)
+    port="${AGENT_FEED_PARK_DEV_PORT:-7690}"
+    token_file="$root/.build/agent-park-dev/control-token"
+    panel_port="${AGENTDESK_PARK_PANEL_PORT:-5184}"
+    ;;
+  *)
+    echo "park-panel-dev: expected 'dev' or 'host', got '$which'" >&2
+    exit 1
+    ;;
+esac
 
 if [ ! -s "$token_file" ]; then
-  echo "park-panel-dev: no token at $token_file; start tools/park-sidecar-dev.sh first" >&2
+  echo "park-panel-dev: no token at $token_file" >&2
+  [ "$which" = host ] && echo "  start the host first: just host-run" >&2
+  [ "$which" = dev ] && echo "  start the dev sidecar first: tools/park-sidecar-dev.sh" >&2
   exit 1
 fi
 
-echo "park panel dev: http://127.0.0.1:${AGENTDESK_PARK_PANEL_PORT:-5184} -> sidecar 127.0.0.1:$sidecar_port"
-AGENTDESK_AGENT_FEED_ORIGIN="http://127.0.0.1:$sidecar_port" \
+echo "park panel dev ($which): http://127.0.0.1:$panel_port -> sidecar 127.0.0.1:$port"
+AGENTDESK_AGENT_FEED_ORIGIN="http://127.0.0.1:$port" \
 AGENT_FEED_CONTROL_TOKEN="$(cat "$token_file")" \
-exec bun run --cwd "$root/packages/AgentPanel/Web" vite --port "${AGENTDESK_PARK_PANEL_PORT:-5184}"
+exec bun run --cwd "$root/packages/AgentPanel/Web" vite --port "$panel_port"
