@@ -210,6 +210,34 @@ window on screen, which is a move: no focus theft, no raise, no synthetic input 
 macOS delivers the clicks and keystrokes itself. Zooming a tile un-parks its window; zooming out
 re-parks it.
 
+## What the panel's webview can receive
+
+Live tiles eventually need pixels in front of the viewer, and the panel is a WKWebView on both
+surfaces. Measured inside a real WKWebView on macOS 26.4.1, loaded from the panel's own https
+origin so the secure-context and TLS conditions match production:
+
+```
+ManagedMediaSource   function        hevcFragmented   true
+MediaSource          function        h264Fragmented   true
+WebTransport         function        av1Fragmented    false
+VideoDecoder         function
+```
+
+So the viable shape is VideoToolbox HEVC on the Mac, fragmented into fMP4, carried over
+WebTransport, appended to a `ManagedMediaSource`, and hardware-decoded and composited by WebKit.
+JavaScript only ever hands over `ArrayBuffer`s; it never touches a pixel, which is the property
+that makes this affordable at many tiles. WebCodecs is present but is the wrong tool here: it
+returns frames the page must draw.
+
+Three details worth keeping. `ManagedMediaSource` is available on **macOS**, not only iOS, so
+one code path serves both surfaces. AV1 is absent from this MSE and it does not matter, because
+Apple ships no hardware AV1 *encoder* and HEVC was always the codec. And the same probe run in
+Chromium reports `ManagedMediaSource` missing, which is why the panel detects this at runtime
+rather than trusting a release note.
+
+**The iOS reading is still unmeasured** and it is the one the design turns on. The panel prints
+its own verdict in the profile menu, so it can be read off a phone screenshot.
+
 ## Drift, and how long a tile stays frozen
 
 The ladder assumes offsets run monotonically with the stacking order, and nothing the park does
