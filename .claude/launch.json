@@ -21,6 +21,14 @@
         "tools/park-sidecar-dev.sh"
       ],
       "port": 7690
+    },
+    {
+      "name": "agent-panel-web-park",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "tools/park-panel-dev.sh"
+      ],
+      "port": 5184
     }
   ]
 }

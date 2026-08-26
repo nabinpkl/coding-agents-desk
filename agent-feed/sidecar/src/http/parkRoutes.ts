@@ -16,6 +16,11 @@
 // comes from one `yabai` subprocess, and the geometry is pure TypeScript. No
 // native code is reached until something wants pixels.
 
+import type {
+  ParkMove,
+  ParkPlanResponse,
+  ParkStateResponse,
+} from "@agentdesk/agent-feed-wire";
 import { config } from "../config.ts";
 import { plan as planLadder } from "../park/ladder.ts";
 import { park, restore } from "../park/park.ts";
@@ -67,7 +72,7 @@ function unavailable(error: unknown): Response {
 async function state(): Promise<Response> {
   const [all, space, screens] = await Promise.all([windows(), activeSpace(), displays()]);
   const candidates = parkable(all);
-  return jsonResponse({
+  const payload: ParkStateResponse = {
     yabaiPath: config.yabaiPath,
     activeSpace: space,
     displays: screens,
@@ -91,7 +96,8 @@ async function state(): Promise<Response> {
       onActiveSpace: w.space === space.index,
       isVisible: w.isVisible,
     })),
-  });
+  };
+  return jsonResponse(payload);
 }
 
 async function planResponse(url: URL): Promise<Response> {
@@ -117,7 +123,7 @@ async function planResponse(url: URL): Promise<Response> {
   );
 
   const byId = new Map(candidates.map((w) => [w.id, w]));
-  return jsonResponse({
+  const payload: ParkPlanResponse = {
     activeSpace: space,
     display: screen,
     options: { strip: config.parkStrip, step: config.parkStep, topMargin: config.parkTopMargin },
@@ -127,7 +133,7 @@ async function planResponse(url: URL): Promise<Response> {
     sound: laid.starved.length === 0,
     overflow: laid.overflow,
     starved: laid.starved.map((p) => p.id),
-    moves: laid.placements.map((p) => {
+    moves: laid.placements.map((p): ParkMove => {
       const w = byId.get(p.id)!;
       return {
         id: p.id,
@@ -144,7 +150,8 @@ async function planResponse(url: URL): Promise<Response> {
         noop: w.space === space.index && w.frame.x === p.x && w.frame.y === p.y,
       };
     }),
-  });
+  };
+  return jsonResponse(payload);
 }
 
 async function parkResponse(request: Request): Promise<Response> {

@@ -13,6 +13,7 @@ import {
 } from "react";
 import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { ProfileRow } from "../profile/ProfileRow";
+import type { DesktopParkHandle } from "../desktop-park/useDesktopPark";
 import type { UsageHandle } from "../usage/useUsage";
 
 const INITIAL_SESSION_COUNT = 3;
@@ -46,6 +47,7 @@ interface AgentSidebarProps {
   /** Drives the Profile section's Usage entry. Owned by the app, so all three sidebar mounts
    *  share one subscription rather than opening one each. */
   usage: UsageHandle;
+  park: DesktopParkHandle;
 }
 
 export function AgentSidebar(props: AgentSidebarProps) {
@@ -107,7 +109,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         )}
       </div>
 
-      <ProfileRow usage={props.usage} />
+      <ProfileRow usage={props.usage} park={props.park} />
     </div>
   );
 }

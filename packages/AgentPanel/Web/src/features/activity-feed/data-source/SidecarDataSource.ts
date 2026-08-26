@@ -20,6 +20,10 @@ import type {
   CliInputReceipt,
   CliInputStatus,
   EventsPage as WireEventsPage,
+  ParkPlanResponse,
+  ParkReport,
+  ParkRestoreReport,
+  ParkStateResponse,
   ProjectSummary,
   SessionSummary,
   SidecarConfig,
@@ -396,6 +400,42 @@ export class SidecarDataSource implements AgentDataSource {
   /** The sidecar's process-global facts, read once so the panel knows what to offer. */
   async fetchConfig(): Promise<SidecarConfig> {
     return parse<SidecarConfig>(await this.transport.request("GET", "/api/config"));
+  }
+
+  // ---------------------------------------------------------------------
+  // Desktop park
+  // ---------------------------------------------------------------------
+
+  /** What the Desktops currently hold. Read-only. */
+  async fetchParkState(): Promise<ParkStateResponse> {
+    return parse<ParkStateResponse>(await this.transport.request("GET", "/api/park/state"));
+  }
+
+  /** Where a park would put everything, and whether that plan holds up. Read-only. */
+  async fetchParkPlan(app?: string): Promise<ParkPlanResponse> {
+    const query = app && app.trim() !== "" ? `?app=${encodeURIComponent(app.trim())}` : "";
+    return parse<ParkPlanResponse>(await this.transport.request("GET", `/api/park/plan${query}`));
+  }
+
+  /**
+   * Gather every candidate onto one Desktop and lay the ladder.
+   *
+   * `confirm` is sent explicitly rather than implied by calling this, because the
+   * sidecar refuses without it: this rearranges someone's whole workspace and a
+   * request that arrives by accident must do nothing.
+   */
+  async park(options: { app?: string } = {}): Promise<ParkReport> {
+    return parse<ParkReport>(
+      await this.transport.request("POST", "/api/park", {
+        body: { confirm: true, ...(options.app ? { app: options.app } : {}) },
+      }),
+    );
+  }
+
+  async restorePark(): Promise<ParkRestoreReport> {
+    return parse<ParkRestoreReport>(
+      await this.transport.request("POST", "/api/park/restore", { body: { confirm: true } }),
+    );
   }
 
   async abortSession(session: SessionAddress): Promise<AgentCommandReceipt> {

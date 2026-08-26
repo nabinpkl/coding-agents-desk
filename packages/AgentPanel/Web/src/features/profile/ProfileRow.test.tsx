@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UsageReport } from "@agentdesk/agent-feed-wire";
+import type { DesktopParkHandle } from "../desktop-park/useDesktopPark";
 import { ProfileRow } from "./ProfileRow";
 import type { UsageHandle, UsageState } from "../usage/useUsage";
 
@@ -90,13 +91,31 @@ function dayFigures(): HTMLElement {
   return dayDetail().querySelector("dl")!;
 }
 
+/**
+ * A Desktop-park handle that is present but has nothing to offer, which is the
+ * state these tests care about: the entry exists, the usage assertions below are
+ * unaffected by it.
+ */
+function parkHandle(overrides: Partial<DesktopParkHandle> = {}): DesktopParkHandle {
+  return {
+    available: false,
+    view: { kind: "idle" },
+    action: { kind: "none" },
+    load: () => {},
+    park: () => {},
+    restore: () => {},
+    busy: false,
+    ...overrides,
+  };
+}
+
 function openMenu() {
   fireEvent.click(screen.getByRole("button", { name: /^Profile/ }));
 }
 
 describe("the profile row", () => {
   it("opens its menu upward, out of the row it belongs to", () => {
-    render(<ProfileRow usage={handle()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} />);
     openMenu();
     const menu = screen.getByRole("menu", { name: "Profile" });
     // `bottom-full` is what makes it open upward, with no measurement and nothing to clip it. It
@@ -107,7 +126,7 @@ describe("the profile row", () => {
   });
 
   it("says the trigger is a menu, and whether it is open", () => {
-    render(<ProfileRow usage={handle()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} />);
     const trigger = screen.getByRole("button", { name: /^Profile/ });
     expect(trigger).toHaveAttribute("aria-haspopup", "menu");
     expect(trigger).toHaveAttribute("aria-expanded", "false");
@@ -116,7 +135,7 @@ describe("the profile row", () => {
   });
 
   it("closes on Escape and hands focus back to the trigger", () => {
-    render(<ProfileRow usage={handle()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} />);
     openMenu();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
@@ -124,14 +143,14 @@ describe("the profile row", () => {
   });
 
   it("closes when something outside it is pressed", () => {
-    render(<ProfileRow usage={handle()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} />);
     openMenu();
     fireEvent.pointerDown(document.body);
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("offers Usage as unavailable rather than hiding the machine has none", () => {
-    render(<ProfileRow usage={handle({ vendors: [], state: { kind: "idle" } })} />);
+    render(<ProfileRow usage={handle({ vendors: [], state: { kind: "idle" } })} park={parkHandle()} />);
     openMenu();
     const item = screen.getByRole("menuitem", { name: /Usage/ });
     expect(item).toBeDisabled();
@@ -139,13 +158,13 @@ describe("the profile row", () => {
   });
 
   it("shows the quota on the row itself, once a report has arrived", () => {
-    render(<ProfileRow usage={handle()} />);
+    render(<ProfileRow usage={handle()} park={parkHandle()} />);
     expect(screen.getByRole("button", { name: /^Profile/ })).toHaveTextContent("13%");
   });
 
   it("sweeps only when Usage is pressed", () => {
     const usage = handle();
-    render(<ProfileRow usage={usage} />);
+    render(<ProfileRow usage={usage} park={parkHandle()} />);
     openMenu();
     expect(usage.load).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("menuitem", { name: /Usage/ }));
@@ -155,7 +174,7 @@ describe("the profile row", () => {
 
 describe("the usage modal", () => {
   function openModal(usage: UsageHandle = handle()) {
-    const rendered = render(<ProfileRow usage={usage} />);
+    const rendered = render(<ProfileRow usage={usage} park={parkHandle()} />);
     openMenu();
     fireEvent.click(screen.getByRole("menuitem", { name: /Usage/ }));
     return rendered;

@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { ChevronUp, CircleUser, Gauge } from "lucide-react";
+import { ChevronUp, CircleUser, Gauge, LayoutGrid } from "lucide-react";
+import { DesktopParkModal } from "../desktop-park/DesktopParkModal";
+import type { DesktopParkHandle } from "../desktop-park/useDesktopPark";
 import { UsageModal } from "../usage/UsageModal";
 import type { UsageHandle } from "../usage/useUsage";
 import { formatResetIn } from "../usage/formatTokens";
@@ -17,9 +19,10 @@ import { formatResetIn } from "../usage/formatTokens";
  * measurement, no anchor positioning, and nothing to clip it, because the row sits outside the
  * project tree's scroller.
  */
-export function ProfileRow({ usage }: { usage: UsageHandle }) {
+export function ProfileRow({ usage, park }: { usage: UsageHandle; park: DesktopParkHandle }) {
   const [open, setOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [parkOpen, setParkOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const menuId = useId();
@@ -99,6 +102,32 @@ export function ProfileRow({ usage }: { usage: UsageHandle }) {
               <span className="shrink-0 text-xs text-muted-foreground">no records</span>
             ) : null}
           </button>
+          {/* Gathering every window onto one Desktop is a machine-level action, not a
+              thread-level one, so it belongs beside Usage rather than in the thread header.
+              Disabled rather than hidden when yabai is absent: "this Mac cannot do it" is a
+              more useful answer than an entry that was never there. */}
+          <button
+            type="button"
+            role="menuitem"
+            aria-disabled={!park.available}
+            disabled={!park.available}
+            onClick={() => {
+              park.load();
+              setParkOpen(true);
+              close(false);
+            }}
+            className="flex w-full items-center gap-2 border-t border-border px-3 py-2 text-left text-sm
+              transition-colors hover:bg-accent hover:text-accent-foreground active:bg-accent/80
+              focus-visible:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2
+              focus-visible:outline-primary disabled:cursor-not-allowed disabled:text-muted-foreground
+              disabled:hover:bg-transparent"
+          >
+            <LayoutGrid className="size-4 shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1 truncate">Desktop park</span>
+            {!park.available ? (
+              <span className="shrink-0 text-xs text-muted-foreground">no yabai</span>
+            ) : null}
+          </button>
           {/* Identity, and not interactive. What makes this a profile menu rather than a button
               with a step in front of it. Both facts come from records the sidecar already parses;
               nothing here reads Codex's token store. */}
@@ -144,6 +173,8 @@ export function ProfileRow({ usage }: { usage: UsageHandle }) {
           aria-hidden
         />
       </button>
+
+      <DesktopParkModal open={parkOpen} park={park} onClose={() => setParkOpen(false)} />
 
       <UsageModal
         open={modalOpen}

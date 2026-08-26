@@ -27,6 +27,22 @@ export type {
 } from "./session.ts";
 
 export type {
+  ParkMove,
+  ParkPlanResponse,
+  ParkRect,
+  ParkReport,
+  ParkRestoreOutcome,
+  ParkRestoreReport,
+  ParkRestoreResult,
+  ParkSide,
+  ParkSpaceRef,
+  ParkStateResponse,
+  ParkStepResult,
+  ParkUnavailable,
+  ParkWindow,
+} from "./park.ts";
+
+export type {
   SummaryCoverage,
   SummaryFileAction,
   SummaryFileChange,

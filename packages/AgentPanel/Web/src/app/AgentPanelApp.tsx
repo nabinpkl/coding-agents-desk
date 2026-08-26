@@ -25,6 +25,7 @@ import { loadCacheHitsVisible, storeCacheHitsVisible } from "../features/activit
 import { SummaryBand } from "../features/summary/SummaryBand";
 import { SummaryControl } from "../features/summary/SummaryControl";
 import { useSummary } from "../features/summary/useSummary";
+import { useDesktopPark } from "../features/desktop-park/useDesktopPark";
 import { useUsage } from "../features/usage/useUsage";
 import { cliInputReasonText, useCliInput, type CliInputHandle } from "../features/cli-input/useCliInput";
 import type { OpenAskUserQuestion } from "./askUserQuestion";
@@ -191,6 +192,9 @@ export function App({ feed, host }: Props) {
   // This machine's per-day token usage, behind the sidebar's Profile section. The stream opens
   // when somebody asks for it, not on mount.
   const usage = useUsage(feed);
+  // Gathering windows onto one Desktop is a machine-level capability, probed once
+  // the same way usage is. Absent yabai, the menu entry stays disabled.
+  const park = useDesktopPark(feed);
   // Whether the selected thread is a Claude Code session running in someone's terminal, which is
   // what decides between the window composer and a plain send. Asked only for claude rows; every
   // other source leaves the hook inert and never issues a request.
@@ -644,6 +648,7 @@ export function App({ feed, host }: Props) {
   // twice when they are.
   const sidebarProps = {
     usage,
+    park,
     projects,
     sessionsByProject,
     loading: loadingLayer,
