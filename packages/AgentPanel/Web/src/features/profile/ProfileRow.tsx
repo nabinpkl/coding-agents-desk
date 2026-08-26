@@ -1,12 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChevronUp, CircleUser, Gauge, LayoutGrid } from "lucide-react";
 import { DesktopParkModal } from "../desktop-park/DesktopParkModal";
 import type { DesktopParkHandle } from "../desktop-park/useDesktopPark";
 import { UsageModal } from "../usage/UsageModal";
 import type { UsageHandle } from "../usage/useUsage";
 import { formatResetIn } from "../usage/formatTokens";
+import {
+  canReceiveFragmentedVideo,
+  detectMediaCapabilities,
+  summarizeMediaCapabilities,
+} from "./mediaCapabilities";
 
 /**
  * The sidebar's bottom section, and the menu that opens up out of it.
@@ -52,6 +57,10 @@ export function ProfileRow({ usage, park }: { usage: UsageHandle; park: DesktopP
   }, [open]);
 
   const quota = quotaOf(usage);
+  // Detected once per mount. These are engine facts, not session facts: they
+  // cannot change while the page is alive, and re-probing on every menu open
+  // would be pretending otherwise.
+  const media = useMemo(() => detectMediaCapabilities(), []);
 
   return (
     <div className="relative shrink-0 border-t border-border pb-[env(safe-area-inset-bottom)]">
@@ -143,6 +152,26 @@ export function ProfileRow({ usage, park }: { usage: UsageHandle; park: DesktopP
                 {quota.label} {quota.usedPercent}%, resets in {formatResetIn(quota.resetsAt, Date.now())}
               </p>
             ) : null}
+            {/* What this webview can receive. Reported rather than assumed because
+                the panel runs in two different WKWebViews and WebKit's release
+                notes describe Safari. */}
+            {/* Wraps rather than truncates: the whole point is that this line is
+                readable in a screenshot taken on a phone, and a cut-off
+                capability list answers nothing. */}
+            <p
+              className="font-mono text-[10px] leading-tight"
+              title={
+                canReceiveFragmentedVideo(media)
+                  ? "This surface can play fragmented HEVC with the page only appending bytes."
+                  : "This surface cannot play fragmented HEVC; video would need another path."
+              }
+            >
+              <span className={canReceiveFragmentedVideo(media) ? "text-foreground" : "text-destructive"}>
+                video {canReceiveFragmentedVideo(media) ? "ok" : "no"}
+              </span>
+              {" "}
+              {summarizeMediaCapabilities(media)}
+            </p>
           </div>
         </div>
       ) : null}
