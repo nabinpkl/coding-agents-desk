@@ -707,7 +707,12 @@ enum WindowSpaceMover {
             && class_getInstanceMethod(operationClass, NSSelectorFromString("performWithWMBridgeDelegate")) != nil
     }
 
-    static func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {
+    static func move(
+        windowID: UInt32,
+        toSpaceID targetSpaceID: UInt64,
+        verifyAttempts: Int,
+        verifyIntervalMs: Int
+    ) throws {
         guard isAvailable,
               let operationClass = NSClassFromString("SLSBridgedMoveWindowsToManagedSpaceOperation")
         else { throw ComposerFailure.windowMoverUnavailable }
@@ -718,9 +723,22 @@ enum WindowSpaceMover {
         // Fire-and-verify: the operation reports nothing, so membership is re-read rather than
         // trusted. A move that silently did not take would otherwise leave the caller writing into a
         // window still on another Space, which is the collapsed-tree case all over again.
+        //
+        // POLLED, not sampled once. `performWithWMBridgeDelegate` returns when the operation is
+        // DISPATCHED; WindowServer converges a few milliseconds later. Reading membership
+        // immediately observes the old Space often enough that a move which plainly worked reports
+        // `move-failed` -- and on the restore leg that means the window is both stranded on the
+        // active Desktop and blamed on the wrong step.
         guard let sl = SkyLight.shared else { throw ComposerFailure.moveFailed }
-        let spaces = DesktopAudit.spaceIDs(sl: sl, cid: sl.mainConnectionID(), windowID: windowID)
-        guard spaces == [targetSpaceID] else { throw ComposerFailure.moveFailed }
+        let cid = sl.mainConnectionID()
+        let attempts = max(1, verifyAttempts)
+        for attempt in 0..<attempts {
+            if DesktopAudit.spaceIDs(sl: sl, cid: cid, windowID: windowID) == [targetSpaceID] { return }
+            if attempt + 1 < attempts, verifyIntervalMs > 0 {
+                Thread.sleep(forTimeInterval: Double(verifyIntervalMs) / 1_000)
+            }
+        }
+        throw ComposerFailure.moveFailed
     }
 }
 

@@ -2219,6 +2219,8 @@ function composerReasonText(reason: string | null): string {
       return "The window exposed no prompt field to write into.";
     case "move-failed":
       return "The window could not be brought to this Desktop.";
+    case "restore-failed":
+      return "The window was brought to this Desktop and could not be sent back, so it is still here. Whatever you asked for most likely landed; move the window back by hand.";
     case "window-mover-unavailable":
       return "This macOS version does not expose the window mover needed for another Desktop.";
     case "write-failed":

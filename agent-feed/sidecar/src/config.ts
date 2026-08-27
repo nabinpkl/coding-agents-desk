@@ -413,6 +413,23 @@ export const config = {
     250,
     60_000,
   ),
+  // The bridged SkyLight move reports DISPATCH, not WindowServer convergence, so the helper re-reads
+  // the window's Space membership to decide whether it landed. That read has to be retried: a single
+  // immediate one races the operation and reports `move-failed` for a move that was seconds from
+  // taking, which strands the window on the wrong Desktop AND blames the wrong step. The numbers live
+  // here rather than in the helper because they are a timing policy, not a capability.
+  claudeWindowMoveVerifyAttempts: integerEnvironment(
+    "AGENT_FEED_CLAUDE_WINDOW_MOVE_VERIFY_ATTEMPTS",
+    4,
+    1,
+    50,
+  ),
+  claudeWindowMoveVerifyIntervalMs: integerEnvironment(
+    "AGENT_FEED_CLAUDE_WINDOW_MOVE_VERIFY_INTERVAL_MS",
+    50,
+    5,
+    2_000,
+  ),
   // Codex Desktop is hosted by ChatGPT.app. A process whose argv is exactly this path is the app's
   // main process; a wrong pid degrades to "no window" at targeting, never to a write against another
   // application. Env-overridable like the Claude one.

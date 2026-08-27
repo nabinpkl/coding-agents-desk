@@ -37,7 +37,16 @@ export type WindowInputReason =
    * writing into whatever text element happened to be first is worse than refusing.
    */
   | "composer-missing"
+  /** A window could not be brought to the active Desktop, so nothing was attempted in it. */
   | "move-failed"
+  /**
+   * A window was brought here, acted on, and could not be sent back. Distinct from `move-failed`
+   * because the user's workspace is now visibly wrong -- the window is sitting on the Desktop they
+   * are looking at -- and because whatever was asked for probably DID happen. Telling them the
+   * window "could not be brought here" while it stares at them from this Desktop is the one wording
+   * that makes the state impossible to reason about.
+   */
+  | "restore-failed"
   /**
    * This macOS build does not expose the private bridged operation for moving another application's
    * window between Desktops. Separate from `move-failed` because retrying cannot restore a native

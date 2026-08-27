@@ -172,7 +172,12 @@ func registerComposerVerbs(on control: ControlMode) {
               let spaceID = UInt64(raw)
         else { return .failure("move-failed") }
         do {
-            try WindowSpaceMover.move(windowID: windowID, toSpaceID: spaceID)
+            try WindowSpaceMover.move(
+                windowID: windowID,
+                toSpaceID: spaceID,
+                verifyAttempts: min(max((request["verifyAttempts"] as? NSNumber)?.intValue ?? 4, 1), 50),
+                verifyIntervalMs: milliseconds(request, "verifyIntervalMs", 50)
+            )
             return .ok([:])
         } catch let failure as ComposerFailure {
             return .failure(failure.reason)

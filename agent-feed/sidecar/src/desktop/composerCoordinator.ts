@@ -48,6 +48,20 @@ export type QuestionStatus = WindowQuestionStatus;
 export type ComposerEnvelope = WindowComposerEnvelope;
 export type QuestionAction = WindowQuestionAction;
 
+/**
+ * One line per composer event that moved a window or refused to.
+ *
+ * The Swift path this replaced logged every move-in, move-back, and unverified move to the host's
+ * unified log; the port arrived with no diagnostics at all, so the first real failure had to be
+ * diagnosed from a screenshot. Same `console.log(JSON.stringify(...))` shape as the catalog, which
+ * means it lands in the host's `agent-feed-sidecar` category and greps beside everything else.
+ *
+ * Only failures and window movement. A per-poll line would bury them.
+ */
+function logComposer(event: string, fields: Record<string, unknown>): void {
+  console.log(JSON.stringify({ event: `agent-feed-composer-${event}`, ...fields }));
+}
+
 /** A failure carrying a code the panel maps to a sentence. */
 export class ComposerError extends Error {
   constructor(readonly reason: WindowInputReason) {
@@ -227,7 +241,7 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
 
     let moved = false;
     if (!target.onActiveDesktop) {
-      await call("window-move", { windowID: target.windowID, spaceID: target.activeSpaceID });
+      await moveWindow(target.windowID, target.activeSpaceID, "move-in");
       moved = true;
       // Chromium builds the tree lazily and only for the current Space, so the composer is absent
       // for a moment after the move and the first search reliably misses it.
@@ -243,9 +257,7 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
       outcome = undefined as T;
     }
 
-    if (moved) {
-      await call("window-move", { windowID: target.windowID, spaceID: target.homeSpaceID });
-    }
+    if (moved) await restoreWindow(target);
 
     if (failure !== undefined) throw failure;
 
@@ -260,6 +272,56 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
   async function frontmostPid(): Promise<number | null> {
     const answer = await call("frontmost-pid", {});
     return typeof answer.pid === "number" ? answer.pid : null;
+  }
+
+  /**
+   * Moves a window between Desktops, carrying the verify budget.
+   *
+   * The helper dispatches the bridged operation and then re-reads Space membership to decide whether
+   * it took; WindowServer converges a moment later, so how long to keep re-reading is timing policy
+   * and belongs here rather than compiled into the helper.
+   */
+  async function moveWindow(windowID: number, spaceID: string, leg: string): Promise<void> {
+    try {
+      await call("window-move", {
+        windowID,
+        spaceID,
+        verifyAttempts: config.claudeWindowMoveVerifyAttempts,
+        verifyIntervalMs: config.claudeWindowMoveVerifyIntervalMs,
+      });
+    } catch (error) {
+      logComposer("window-move-failed", {
+        windowID,
+        spaceID,
+        leg,
+        reason: error instanceof ComposerError ? error.reason : String(error),
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Sends a borrowed window back, retrying once before giving up.
+   *
+   * The retry is not superstition: the move-in that preceded it has already proven the mover works
+   * for this window, so a failure here is a convergence miss rather than a capability problem, and a
+   * second attempt is far cheaper than what failing costs -- a window abandoned on the Desktop the
+   * user is looking at.
+   *
+   * A failure is reported as `restore-failed`, never `move-failed`. The two are opposite states and
+   * the panel's sentence for each has to name which one the user is in.
+   */
+  async function restoreWindow(target: WindowTarget): Promise<void> {
+    for (const leg of ["restore", "restore-retry"] as const) {
+      try {
+        await moveWindow(target.windowID, target.homeSpaceID, leg);
+        return;
+      } catch (error) {
+        // A capability that is not there does not arrive on the second try.
+        if (error instanceof ComposerError && error.reason === "window-mover-unavailable") throw error;
+      }
+    }
+    throw new ComposerError("restore-failed");
   }
 
   /**
@@ -348,24 +410,27 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
     if ("reason" in resolved || resolved.onActiveDesktop) return;
 
     try {
-      await call("ax-latch", { claudeMainPid: resolved.claudeMainPid });
-      await call("window-move", { windowID: resolved.windowID, spaceID: resolved.activeSpaceID });
+      // Source-aware for the same reason `withWindowHere` is: Codex exposes no `AXManualAccessibility`
+      // attribute and its composer answers different verbs. Latching and awaiting as though every
+      // session were a Claude one made the borrow fail on the app it was borrowing for.
+      if (key.source === "claude") {
+        await call("ax-latch", { claudeMainPid: resolved.claudeMainPid });
+      }
+      await moveWindow(resolved.windowID, resolved.activeSpaceID, "lease-in");
       try {
-        await call("composer-await", {
-          ...targetPayload(resolved),
-          timeoutMs: config.claudeComposerMaterializeTimeoutMs,
-          pollMs: config.claudeComposerMaterializePollMs,
-        });
+        await awaitComposer(key.source, resolved);
       } catch (error) {
         // The borrow failed after the window was already moved. Put it back before reporting, or the
         // user is left with a window on the wrong Desktop and an error that does not mention it.
-        await call("window-move", { windowID: resolved.windowID, spaceID: resolved.homeSpaceID })
-          .catch(() => {});
+        await restoreWindow(resolved).catch(() => {});
         throw error;
       }
       editingLeases.set(id, resolved);
     } catch (error) {
+      // `move-failed` is the default only because a borrow is a move; anything the helper actually
+      // named wins over it.
       const reason = error instanceof ComposerError ? error.reason : "move-failed";
+      logComposer("lease-failed", { session: id, reason });
       editingLeaseFailures.set(id, reason);
     }
   }
@@ -383,11 +448,19 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
     const target = editingLeases.get(id);
     if (!target) return;
     try {
-      await call("window-move", { windowID: target.windowID, spaceID: target.homeSpaceID });
+      await restoreWindow(target);
       editingLeases.delete(id);
       lastTargets.delete(id);
-    } catch {
-      // Kept, so the next unwatch or a later detach retries.
+    } catch (error) {
+      // Kept, so the next unwatch or a later detach retries. Logged because nothing else will say
+      // it: there is no subscriber left to emit a status to, and the only other evidence is a window
+      // sitting on the wrong Desktop.
+      logComposer("lease-restore-failed", {
+        session: id,
+        windowID: target.windowID,
+        homeSpaceID: target.homeSpaceID,
+        reason: error instanceof ComposerError ? error.reason : String(error),
+      });
     }
   }
 
@@ -781,6 +854,7 @@ const KNOWN_REASONS = new Set<string>([
   "ax-denied",
   "composer-missing",
   "move-failed",
+  "restore-failed",
   "window-mover-unavailable",
   "write-failed",
   "verify-mismatch",

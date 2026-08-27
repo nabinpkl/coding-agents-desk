@@ -104,7 +104,25 @@ compiled into both. That is two readers of one OS API, not duplicated state: nei
   true, and `desktop-audit` reported 8 Desktops and 311 windows with `screenRecordingTrusted: true`.
 - The bug that started this reproduces in the port's test suite: of one instance's eight layer-0
   windows, the audit shows exactly one titled, single-Space window, and targeting selects it.
-- Not yet confirmed: any Codex verb, and the end-to-end panel write. Both need a host run.
+- The two live mechanisms above, measured on a running host with no relaunch: a rebuilt helper was
+  spawned one second after `build-grid-encoder.sh` wrote the binary, and the move verify polls at the
+  budget it is handed (1 attempt fails in 0ms, 4x50ms in 177ms, 8x100ms in 740ms) while a window
+  already on its target Space still answers in 7ms.
+- Corrected after the first live Codex write, which landed its text and then reported failure with
+  the window stranded on the active Desktop. Three defects, all in the port and none in the
+  decision: the helper's mover verified membership ONCE where the Swift it replaced polled four
+  times at 50ms, so a move that converged a few milliseconds later read as `move-failed`; the
+  move-back was unguarded, so its failure both stranded the window and reported it as a failure to
+  BRING the window here; and the editing lease ran Claude's `ax-latch` and `composer-await` for
+  every source, while `withWindowHere` beside it was correctly source-aware. The restore now retries
+  and reports `restore-failed`, which says the window is here and needs moving back by hand.
+- The composer path shipped with NO diagnostics, so that first failure had to be diagnosed from a
+  screenshot; the Swift it replaced logged every move-in, move-back, and unverified move. It now
+  emits `agent-feed-composer-*` lines for window movement and lease failures, which land in the
+  host's `agent-feed-sidecar` log category. `composerCoordinator.test.ts` covers the sequence the
+  three defects lived in.
+- Still not confirmed: the Codex resolver's window matching against a live app, and the end-to-end
+  panel write. Both need a host run.
 
 ## Links
 
