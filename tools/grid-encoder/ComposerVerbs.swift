@@ -15,6 +15,7 @@ import Foundation
 
 func registerComposerVerbs(on control: ControlMode) {
     let observer = ComposerObserver { control.push($0) }
+    let workspace = WorkspaceObserver { control.push($0) }
 
     /// Decodes the target and runs `body`, turning a `ComposerFailure` into its reason code.
     ///
@@ -184,6 +185,21 @@ func registerComposerVerbs(on control: ControlMode) {
         } catch {
             return .failure("move-failed")
         }
+    }
+
+    /// Starts and stops the window-system notifications.
+    ///
+    /// Separate from `composer-observe` because they are not per-pid: an application LAUNCHING is
+    /// exactly the event nobody has a pid for yet, so the sidecar turns this on once while it has
+    /// any watched session and off when it has none.
+    control.register("workspace-observe") { _ in
+        workspace.start()
+        return .ok(["observing": true])
+    }
+
+    control.register("workspace-unobserve") { _ in
+        workspace.stop()
+        return .ok(["observing": false])
     }
 
     control.register("window-mover-available") { _ in

@@ -238,18 +238,6 @@ export const config = {
     "http://127.0.0.1:9155",
   ),
   claudeLiveEnabled: booleanEnvironment("AGENT_FEED_CLAUDE_LIVE_ENABLED", true),
-  // How often an open thread stream that has no live tail re-asks whether it can have one.
-  // A mirror can arrive after the stream opened -- the observer process starts, or it acquires a
-  // projection for this session the first time that session's traffic passes through -- and nothing
-  // publishes either transition. Only streams WITHOUT a tail poll, the check is a map lookup, and it
-  // stops at the first success, so this is the cost of a thread that is not live yet rather than a
-  // standing cost per viewer.
-  liveTailCapabilityPollMs: integerEnvironment(
-    "AGENT_FEED_LIVE_TAIL_CAPABILITY_POLL_MS",
-    5_000,
-    500,
-    120_000,
-  ),
   claudeLiveReconnectMs: integerEnvironment(
     "AGENT_FEED_CLAUDE_LIVE_RECONNECT_MS",
     1000,
@@ -416,12 +404,16 @@ export const config = {
   // Env-overridable because it is another application's private field and can change without notice.
   claudeDesktopRegistryEntrypoint: process.env.AGENTDESK_CLAUDE_REGISTRY_ENTRYPOINT?.trim()
     || "claude-desktop",
-  // How often a watched session is re-resolved against the process table. A `ps` scan plus a chain
-  // walk is cheap, but the thing it observes changes only when a human opens or closes a Claude
-  // window, so a slower cadence than the panel's other streams is right.
+  // The backstop cadence for re-resolving a watched session against the process table.
+  //
+  // It used to be the primary mechanism at 3s. Composer text, the question panel, application
+  // launches and terminations, and Desktop switches are all pushed by the helper now, so the only
+  // thing left for a timer is a `claude --resume` child appearing or exiting -- which macOS
+  // publishes no notification for without EndpointSecurity. That is a real gap, not a solved one,
+  // so the timer stays; it just no longer carries the responsive cases.
   claudeWindowResolveIntervalMs: integerEnvironment(
     "AGENT_FEED_CLAUDE_WINDOW_RESOLVE_INTERVAL_MS",
-    3_000,
+    30_000,
     250,
     60_000,
   ),

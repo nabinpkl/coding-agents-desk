@@ -105,6 +105,17 @@ function renotifyEvent(
   }
 }
 
+/**
+ * Lines the replay guard below refused, per scan.
+ *
+ * Refusing a replayed line is normal and harmless. Refusing EVERY line of a scan that consumed
+ * new bytes is not: it means this session will never emit again, because the guard compares
+ * against an offset the scan can no longer get past. That is what a frozen transcript looks like
+ * from in here, and without this counter it looks like nothing at all -- the case that had to be
+ * diagnosed from a screenshot. Reset by `scanFrom` at the top of each pass.
+ */
+let guardRefusals = 0;
+
 function emitParsedRaw(
   key: string,
   byteOffset: number,
@@ -117,7 +128,10 @@ function emitParsedRaw(
     state.eventByteOffsets.set(key, offsets);
   }
   const last = offsets.length > 0 ? offsets[offsets.length - 1]! : -1;
-  if (byteOffset <= last) return null;
+  if (byteOffset <= last) {
+    guardRefusals += 1;
+    return null;
+  }
   let niceToRaw = state.niceToRaw.get(key);
   if (!niceToRaw) {
     niceToRaw = [];
@@ -164,6 +178,8 @@ async function scanFrom(
   // cluster that renders no badge. The assistant's prose row is the one a
   // viewer can actually see the badge on.
   let lastText: { event: ActivityEvent; niceIndex: number | null } | null = null;
+  guardRefusals = 0;
+  let emitted = 0;
   while (cursor < endOffset) {
     const chunkEnd = Math.min(endOffset, cursor + INDEX_READ_BYTES);
     const chunk = await Bun.file(transcriptPath).slice(cursor, chunkEnd).bytes();
@@ -196,6 +212,7 @@ async function scanFrom(
           if (result.cacheHit) result.event.cacheHit = result.cacheHit;
           const notice = emitParsedRaw(key, carryStart + lineStart, result.event, result.lineClass);
           if (notice) {
+            emitted += 1;
             if (isContent && result.event.blocks.some((block) => block.kind === "text")) {
               lastText = notice;
             } else if (result.cacheHit && lastText) {
@@ -216,6 +233,19 @@ async function scanFrom(
     carry = combined.slice(lineStart);
     carryStart += lineStart;
     cursor = chunkEnd;
+  }
+  if (emitted === 0 && guardRefusals > 0) {
+    // Every line this pass read was refused as a replay. The session is not idle, it is stuck:
+    // its recorded offsets are ahead of where the scan is reading from, and no later pass can
+    // get past them either. Says so rather than returning quietly.
+    console.error(JSON.stringify({
+      event: "agent-feed-index-scan-emitted-nothing",
+      key,
+      startOffset,
+      endOffset,
+      refused: guardRefusals,
+      lastIndexedOffset: state.eventByteOffsets.get(key)?.at(-1) ?? null,
+    }));
   }
   return carryStart;
 }
@@ -245,8 +275,11 @@ async function buildOrSyncIndex(
       let metadata: Awaited<ReturnType<typeof stat>>;
       try {
         metadata = await stat(transcriptPath);
-      } catch {
-        return;
+      } catch (error) {
+        // A transcript that cannot be measured cannot be followed, and returning quietly here
+        // freezes the session's stream with nothing to explain it. Raised so the follower's
+        // `onError` reports it, exactly like a watcher failure.
+        throw new Error(`failed to stat transcript for ${key}`, { cause: error });
       }
       let startOffset = state.indexedSizes.get(key) ?? 0;
       if (metadata.size < startOffset) {
@@ -271,8 +304,12 @@ async function buildOrSyncIndex(
   try {
     await build;
   } finally {
-    state.indexBuilds.delete(key);
-    state.indexResyncs.delete(key);
+    // Only this build's own entry. A drop that ran mid-flight can have cleared it and let a
+    // successor register, and deleting that successor's entry would open the same gap again.
+    if (state.indexBuilds.get(key) === build) {
+      state.indexBuilds.delete(key);
+      state.indexResyncs.delete(key);
+    }
   }
 }
 

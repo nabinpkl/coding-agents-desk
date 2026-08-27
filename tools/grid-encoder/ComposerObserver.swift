@@ -8,8 +8,9 @@
 //
 // This is the reason `--control` is a resident process rather than one spawn per verb.
 // `AXObserverGetRunLoopSource` delivers on the run loop of the process that created it, so a helper
-// that exited after answering would never fire a single notification. `main.swift` ends in
-// `dispatchMain()` for exactly this.
+// that exited after answering would never fire a single notification. `runControlMode` ends in
+// `CFRunLoopRun()` for exactly this -- and specifically NOT in `dispatchMain()`, which parks the
+// main thread without running a run loop and delivers none of these.
 //
 // One observer per owning pid, not per session: a Claude Desktop instance is one AX application, and
 // registering twice on the same element delivers twice.
@@ -28,15 +29,29 @@ final class ComposerObserver {
     private final class Observation {
         let observer: AXObserver
         let element: AXUIElement
+        /// The application element, carrying the create/destroy notifications. Separate from
+        /// `element` because those fire for the whole tree, not for one field.
+        let application: AXUIElement
         let source: CFRunLoopSource
         /// Owns the retained `Unmanaged` box the C callback receives as its refcon.
         let box: Unmanaged<HandlerBox>
+        /// The application-level box, retained for as long as its notifications are registered.
+        let applicationBox: Unmanaged<HandlerBox>?
 
-        init(observer: AXObserver, element: AXUIElement, source: CFRunLoopSource, box: Unmanaged<HandlerBox>) {
+        init(
+            observer: AXObserver,
+            element: AXUIElement,
+            application: AXUIElement,
+            source: CFRunLoopSource,
+            box: Unmanaged<HandlerBox>,
+            applicationBox: Unmanaged<HandlerBox>?
+        ) {
             self.observer = observer
             self.element = element
+            self.application = application
             self.source = source
             self.box = box
+            self.applicationBox = applicationBox
         }
     }
 
@@ -99,10 +114,41 @@ final class ComposerObserver {
             throw ComposerFailure.accessibilityDenied
         }
 
+        // The AskUserQuestion panel appearing and disappearing is a tree change, not a value
+        // change, so it rides the APPLICATION element rather than the composer. Its absence is why
+        // the panel's live state was read on a timer; with this the sidecar is told, and asks once.
+        //
+        // Best-effort: a build that refuses these notifications still gets composer text events,
+        // and the sidecar's backstop still reports the question eventually. Losing the whole
+        // observation over the optional half would be the worse trade.
+        let application = AXUIElementCreateApplication(pid)
+        var applicationBox: Unmanaged<HandlerBox>? = Unmanaged.passRetained(HandlerBox { [weak self] in
+            self?.emit(["type": "question-changed", "pid": Int(pid)])
+        })
+        for notification in [kAXCreatedNotification, kAXUIElementDestroyedNotification] {
+            guard let boxed = applicationBox else { break }
+            if AXObserverAddNotification(
+                observer,
+                application,
+                notification as CFString,
+                boxed.toOpaque()
+            ) != .success {
+                boxed.release()
+                applicationBox = nil
+            }
+        }
+
         let source = AXObserverGetRunLoopSource(observer)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         lock.lock()
-        observations[pid] = Observation(observer: observer, element: composer, source: source, box: box)
+        observations[pid] = Observation(
+            observer: observer,
+            element: composer,
+            application: application,
+            source: source,
+            box: box,
+            applicationBox: applicationBox
+        )
         lock.unlock()
     }
 
@@ -119,6 +165,16 @@ final class ComposerObserver {
             observation.element,
             kAXValueChangedNotification as CFString
         )
+        if let applicationBox = observation.applicationBox {
+            for notification in [kAXCreatedNotification, kAXUIElementDestroyedNotification] {
+                AXObserverRemoveNotification(
+                    observation.observer,
+                    observation.application,
+                    notification as CFString
+                )
+            }
+            applicationBox.release()
+        }
         CFRunLoopSourceInvalidate(observation.source)
         observation.box.release()
     }

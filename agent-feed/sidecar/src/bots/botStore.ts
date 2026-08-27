@@ -1,3 +1,4 @@
+import chokidar, { type FSWatcher } from "chokidar";
 import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { BotRecord } from "@agentdesk/agent-feed-wire";
@@ -104,6 +105,7 @@ export class BotStore {
   private snapshotValue: StoredBotSnapshot = emptySnapshot();
   private mutationTail: Promise<void> = Promise.resolve();
   private readonly listeners = new Set<(snapshot: StoredBotSnapshot) => void>();
+  private watcher: FSWatcher | null = null;
 
   constructor(private readonly path: string) {
     this.loaded = this.load();
@@ -116,9 +118,65 @@ export class BotStore {
     return structuredClone(this.snapshotValue);
   }
 
+  /**
+   * Watches for changes while anyone is listening, this process's own writes included.
+   *
+   * `mutate` announces the writes made here, so the watch exists for the ones made ELSEWHERE --
+   * another sidecar, an editor, a script. That used to be covered by a one-second poll in the
+   * registry that rebuilt a full snapshot per subscriber per second, whether or not anything had
+   * changed. A file that changes a few times a day does not need to be asked 86,400 times.
+   */
   subscribe(listener: (snapshot: StoredBotSnapshot) => void): () => void {
     this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    this.startWatching();
+    return () => {
+      this.listeners.delete(listener);
+      if (this.listeners.size === 0) this.stopWatching();
+    };
+  }
+
+  private startWatching(): void {
+    if (this.watcher) return;
+    // The DIRECTORY, not the file: `write` lands as a temp file plus a `rename`, so the path being
+    // watched is replaced rather than modified, and a watch bound to the old inode would see one
+    // change and then nothing. `depth: 0` keeps it to that directory's own entries.
+    const watcher = chokidar.watch(dirname(this.path), {
+      ignoreInitial: true,
+      depth: 0,
+      persistent: true,
+      awaitWriteFinish: false,
+    });
+    const reload = (changed: string): void => {
+      if (changed !== this.path) return;
+      void this.announceExternalChange().catch((error) => {
+        console.error("agent feed bot store reload failed", error);
+      });
+    };
+    watcher.on("add", reload);
+    watcher.on("change", reload);
+    watcher.on("unlink", reload);
+    watcher.on("error", (error) => console.error("agent feed bot store watcher failed", error));
+    this.watcher = watcher;
+  }
+
+  private stopWatching(): void {
+    const watcher = this.watcher;
+    if (!watcher) return;
+    this.watcher = null;
+    void watcher.close();
+  }
+
+  /**
+   * Re-reads after a change on disk and announces it, unless it was ours.
+   *
+   * Gated on the revision because `mutate` already told the listeners about its own write, and the
+   * rename it performed is what woke this up.
+   */
+  private async announceExternalChange(): Promise<void> {
+    const latest = await this.readSnapshot();
+    if (latest.revision === this.snapshotValue.revision) return;
+    this.snapshotValue = latest;
+    for (const listener of this.listeners) listener(structuredClone(latest));
   }
 
   mutate<T>(mutation: (snapshot: StoredBotSnapshot) => { snapshot: StoredBotSnapshot; value: T }): Promise<T> {

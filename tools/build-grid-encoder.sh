@@ -17,6 +17,7 @@ swiftc -O \
   "$root/tools/grid-encoder/ComposerAccess.swift" \
   "$root/tools/grid-encoder/CodexAccess.swift" \
   "$root/tools/grid-encoder/ComposerObserver.swift" \
+  "$root/tools/grid-encoder/WorkspaceObserver.swift" \
   "$root/tools/grid-encoder/ComposerVerbs.swift" \
   "$root/tools/grid-encoder/DesktopInputController.swift" \
   "$root/tools/grid-encoder/CaptureControlCommand.swift" \

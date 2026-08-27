@@ -62,9 +62,22 @@ func runControlMode(
     ])
 
     control.start()
-    // The AX observers registered in S3 deliver on this run loop. Without it the process would exit
-    // as soon as the command thread was detached.
-    dispatchMain()
+    // A CFRunLoop, NOT `dispatchMain()`, and the difference is the whole event-driven half.
+    //
+    // `dispatchMain()` parks the main thread on the dispatch queue and never runs a run loop, so
+    // anything delivered through one is silently never delivered: `AXObserverGetRunLoopSource` is
+    // added to `CFRunLoopGetMain()`, and `NSWorkspace`'s notification center needs the same loop.
+    // Measured with an isolated probe registering one `didLaunchApplicationNotification`: nothing
+    // under `dispatchMain()`, the notification under `CFRunLoopRun()`.
+    //
+    // This ran under `dispatchMain()` from the start, which means the composer's AX observer has
+    // never fired in production and its text has been arriving on the poll the observer was
+    // introduced to replace. `CFRunLoopRun()` also drains the main dispatch queue, so it is
+    // strictly the more capable of the two and nothing that worked before stops.
+    CFRunLoopRun()
+    // `CFRunLoopRun` returns if every source is removed, which for this process means there is
+    // nothing left to answer with. Exiting says so rather than falling out of a `Never`.
+    exit(0)
 }
 
 /// One request/response channel over stdin/stdout, plus the idle watchdog.

@@ -146,6 +146,10 @@ export class CodexLiveBackend implements AgentBackend {
   readonly capabilities = CODECX_LIVE_CAPABILITIES;
 
   private readonly projections = new Map<string, LiveAgentProjection>();
+
+  /** Told when a session gains a projection. See `onSessionLive`. */
+
+  private readonly sessionLiveListeners = new Set<(sessionId: string) => void>();
   private readonly tracks = new Map<string, SessionTrack>();
   private readonly subscriberCounts = new Map<string, number>();
   private readonly usage = new Map<string, TokenUsage>();
@@ -664,12 +668,38 @@ export class CodexLiveBackend implements AgentBackend {
     return projection;
   }
 
+  /**
+   * Told when a session gains a projection, which is the moment it becomes live-capable.
+   *
+   * A thread stream reads `canStreamLive` once, when its request arrives, so a session that
+   * becomes capable afterwards was invisible to every stream already open. This is the event that
+   * makes it visible without a reload and without anyone polling to ask.
+   *
+   * Not on `AgentBackend`: a backend with no live mirror has nothing to announce, and callers
+   * probe for this the same way they probe `sessionUsage`.
+   */
+  onSessionLive(listener: (sessionId: string) => void): () => void {
+    this.sessionLiveListeners.add(listener);
+    return () => this.sessionLiveListeners.delete(listener);
+  }
+
+  private announceSessionLive(sessionId: string): void {
+    for (const listener of this.sessionLiveListeners) {
+      try {
+        listener(sessionId);
+      } catch (error) {
+        console.error("agent feed session-live listener failed", error);
+      }
+    }
+  }
+
   private ensureProjection(sessionId: string): LiveAgentProjection {
     let projection = this.projections.get(sessionId);
     if (!projection) {
       projection = new LiveAgentProjection();
       this.projections.set(sessionId, projection);
       this.enforceSessionBound();
+      this.announceSessionLive(sessionId);
     }
     this.touch(sessionId);
     return projection;

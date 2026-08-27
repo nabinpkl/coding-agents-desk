@@ -43,6 +43,7 @@ function fakeHelper(
 ) {
   const calls: { type: string; payload: Record<string, unknown> }[] = [];
   const counts = new Map<string, number>();
+  const pushHandlers = new Set<(event: Record<string, unknown>) => void>();
   const helper: ControlHelper = {
     async request(type, payload = {}) {
       calls.push({ type, payload });
@@ -55,10 +56,20 @@ function fakeHelper(
     async capabilities() {
       return { inputTrusted: true, screenRecordingTrusted: true, composerVersion: 1 };
     },
-    onPush: () => () => {},
+    onPush(handler) {
+      pushHandlers.add(handler);
+      return () => pushHandlers.delete(handler);
+    },
     stop() {},
   };
-  return { helper, calls, of: (type: string) => calls.filter((call) => call.type === type) };
+  return {
+    helper,
+    calls,
+    of: (type: string) => calls.filter((call) => call.type === type),
+    push: (event: Record<string, unknown>) => {
+      for (const handler of pushHandlers) handler(event);
+    },
+  };
 }
 
 function claudeRows(sessionId: string): ProcessRow[] {
@@ -211,6 +222,59 @@ describe("the editing lease", () => {
     await settle();
     expect(of("ax-latch").length).toBe(0);
     expect(of("composer-await").length).toBe(0);
+    stop();
+    subject.stop();
+  });
+});
+
+describe("window-system events", () => {
+  const session = "s-4";
+  const audit = snapshot([{ windowID: 900, ownerPID: CLAUDE_PID, spaceIDs: ["3"] }]);
+
+  test("an application launching re-resolves without waiting for the backstop", async () => {
+    // The case a pid filter cannot narrow: at launch there is no session on that pid yet, so the
+    // refresh has to cover everything. Before this the only thing that noticed was the timer, which
+    // is why the interval had to be responsive and now does not.
+    const { helper, of, push } = fakeHelper({
+      "composer-read": () => ({ text: "" }),
+      "question-read": () => ({ present: false }),
+    }, audit);
+    const subject = coordinator(helper, claudeRows(session));
+    const stop = subject.watch({ source: "claude", sessionId: session }, () => {});
+    await settle();
+    // Watching turns the window-system notifications on; nothing else would deliver them.
+    expect(of("workspace-observe").length).toBe(1);
+
+    const before = of("desktop-audit").length;
+    push({ type: "workspace-changed", phase: "launched", pid: 9999 });
+    await settle();
+    expect(of("desktop-audit").length).toBeGreaterThan(before);
+
+    stop();
+    await settle();
+    expect(of("workspace-unobserve").length).toBe(1);
+    subject.stop();
+  });
+
+  test("a question panel appearing refreshes only the sessions on that process", async () => {
+    const { helper, of, push } = fakeHelper({
+      "composer-read": () => ({ text: "" }),
+      "question-read": () => ({ present: false }),
+    }, audit);
+    const subject = coordinator(helper, claudeRows(session));
+    const stop = subject.watch({ source: "claude", sessionId: session }, () => {});
+    await settle();
+
+    const before = of("question-read").length;
+    // Another instance's tree changed. This session must not pay an AX read for it.
+    push({ type: "question-changed", pid: CLAUDE_PID + 1 });
+    await settle();
+    expect(of("question-read").length).toBe(before);
+
+    push({ type: "question-changed", pid: CLAUDE_PID });
+    await settle();
+    expect(of("question-read").length).toBeGreaterThan(before);
+
     stop();
     subject.stop();
   });

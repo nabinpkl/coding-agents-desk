@@ -11,7 +11,6 @@
 // one stream and reads messages off it.
 
 import type { AgentBackend } from "../agents/agentBackend.ts";
-import { config } from "../config.ts";
 import {
   findSession,
   getWatcherState,
@@ -42,6 +41,11 @@ export const TIMELINE_WINDOW = 100;
 
 /** A live backend additionally publishes session occupancy; most do not. */
 type UsageReportingBackend = AgentBackend & { sessionUsage(sessionId: string): TokenUsage | null };
+
+/** A backend that announces when a session gains a live projection; most do not. */
+type LiveAnnouncingBackend = AgentBackend & {
+  onSessionLive(listener: (sessionId: string) => void): () => void;
+};
 
 function backendUsage(backend: AgentBackend, sessionId: string): TokenUsage | null {
   const reporting = backend as UsageReportingBackend;
@@ -211,27 +215,27 @@ function timelineStream(options: {
      * only when the server closes or the connection errors, and a healthy stream does
      * neither, so the thread stayed half-live until somebody reloaded the panel.
      *
-     * Polled rather than pushed because nothing publishes this transition. Two things
-     * produce it and only one is a connection: the observer process starting, and the
-     * mirror acquiring a projection for THIS session, which happens the first time the
-     * session's traffic passes through after that. `describeSession` is a map lookup,
-     * this runs only while a stream has no tail, and it stops at the first success.
+     * Driven by the mirror, not by a timer. The transition has exactly one cause -- the backend
+     * acquiring a projection for this session, which happens the first time its traffic passes
+     * through after the mirror is up -- and `onSessionLive` fires there. A poll asking the same
+     * question every few seconds would answer "not yet" indistinguishably from a mirror that was
+     * never coming, which is the failure mode this whole area already paid for once.
      *
-     * A backend that declares no live capability at all is skipped rather than polled:
-     * Pi's is a static `false`, so waiting for it to change would be a timer per open
-     * thread that can never fire.
+     * `onSessionLive` is probed rather than required, the same way `sessionUsage` is above: a
+     * backend with no live mirror has nothing to announce, and Pi implements neither.
      */
     const awaitLiveCapability = (live: AgentBackend): void => {
-      if (!live.capabilities.canStreamLive) return;
-      const timer = setInterval(() => {
-        if (cancelled) return;
+      const announcing = live as LiveAnnouncingBackend;
+      if (typeof announcing.onSessionLive !== "function") return;
+      const stop = announcing.onSessionLive((live_id) => {
+        if (cancelled || live_id !== sessionId) return;
         const capable = sessionCapabilities(source, sessionId, options.resolveAgentSession)
           .canStreamLive;
         if (!capable) return;
-        clearInterval(timer);
+        stop();
         void attachTail(live);
-      }, config.liveTailCapabilityPollMs);
-      hold(() => clearInterval(timer));
+      });
+      hold(stop);
     };
 
     void (async () => {

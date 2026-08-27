@@ -46,7 +46,6 @@ const MAX_CUSTOM_VALUE = 256;
 const MAX_ICON_URL = 2_048;
 const MAX_SESSION_REFS_PER_COMMAND = 64;
 const MAX_IDEMPOTENCY_ENTRIES = 512;
-const EXTERNAL_STORE_POLL_MS = 1_000;
 
 interface NormalizedAddBot {
   requestId: string;
@@ -439,11 +438,10 @@ export class BotRegistry {
       stopCatalog();
       throw error;
     }
-    const poll = setInterval(() => emit(false), EXTERNAL_STORE_POLL_MS);
-    poll.unref?.();
+    // No timer: the store watches its own file, so a change made by another process arrives as a
+    // store event exactly like one made here. Both of these subscriptions are the whole signal.
     return () => {
       closed = true;
-      clearInterval(poll);
       stopStore();
       stopCatalog();
     };

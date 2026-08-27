@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -12,6 +12,7 @@ import {
   readEventRaw,
   readEvents,
   releaseIndex,
+  subscribeEvents,
   syncIndex,
   translateEventIndex,
 } from "./eventIndex.ts";
@@ -45,6 +46,15 @@ afterEach(async () => {
  * them, or that numbered rows by position in the span, would come back with indices
  * that address different lines than the ones it delivered.
  */
+/** One content line, the shape the codex adapter turns into a visible event. */
+function contentLine(turn: number): string {
+  return JSON.stringify({
+    timestamp: `2026-01-01T00:00:${String(turn % 60).padStart(2, "0")}Z`,
+    type: "response_item",
+    payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: `turn ${turn}` }] },
+  });
+}
+
 async function interleavedTranscript(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "agent-feed-mode-"));
   roots.push(root);
@@ -52,11 +62,7 @@ async function interleavedTranscript(): Promise<string> {
   const lines: string[] = [];
   for (let turn = 0; turn < 12; turn++) {
     const at = `2026-01-01T00:00:${String(turn).padStart(2, "0")}Z`;
-    lines.push(JSON.stringify({
-      timestamp: at,
-      type: "response_item",
-      payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: `turn ${turn}` }] },
-    }));
+    lines.push(contentLine(turn));
     // Two machinery lines per content line, the ratio the real corpus shows.
     // The token_count records carry per-turn cache data like the real harness,
     // so the cache-badge re-stamp is exercised by the interleaved reads.
@@ -283,6 +289,44 @@ describe("following a transcript", () => {
     expect(getEventCount(source, sessionId)).toBe(36);
     releaseIndex(source, sessionId);
   });
+});
+
+test("the last reader leaving mid-build does not silence the session's events", async () => {
+  // Switching threads takes the refcount to zero and drops the index state -- including the
+  // in-flight build's entry in `indexBuilds`, which is the only thing stopping a second build
+  // for the same key. Two scans then push into one `eventByteOffsets` array, where
+  // `emitParsedRaw`'s replay guard silently drops whichever is behind.
+  //
+  // This is reachable and worth pinning, but note what it does NOT do: because `dropIndexState`
+  // clears all five maps together, both builds restart from zero and converge on the same
+  // answer. That is why this passes on the code as written, and why it is a guard against
+  // regression rather than a reproduction of the freeze -- whose mechanism is still open.
+  const transcriptPath = await interleavedTranscript();
+  const notices: number[] = [];
+  const unsubscribe = subscribeEvents(source, sessionId, ({ event }) => notices.push(event.index));
+
+  const unfollow = followTranscript(source, sessionId, transcriptPath, () => {});
+  await ensureIndexed(source, sessionId, transcriptPath);
+  await appendFile(transcriptPath, `${contentLine(100)}\n`);
+  // The build is registered and suspended on its first await by the time this returns.
+  const building = syncIndex(source, sessionId, transcriptPath);
+  // The viewer switches threads. This is the last reference, so the state is dropped --
+  // `indexBuilds` included, while that build is still running.
+  unfollow();
+  // The viewer comes back, or another surface opens the same thread. The dedupe gate is
+  // gone, so this is a SECOND concurrent build over the same key and the same arrays.
+  const refollow = followTranscript(source, sessionId, transcriptPath, () => {});
+  const racing = ensureIndexed(source, sessionId, transcriptPath);
+  await Promise.all([building, racing]);
+
+  // Whatever happened above, the session must still deliver what is appended next.
+  notices.length = 0;
+  await appendFile(transcriptPath, `${contentLine(101)}\n${contentLine(102)}\n`);
+  await syncIndex(source, sessionId, transcriptPath);
+
+  expect(notices.length).toBe(2);
+  unsubscribe();
+  refollow();
 });
 
 test("niceInsertionPoint finds the nearest content event at or after an index", () => {

@@ -126,13 +126,26 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
   let queue: Promise<unknown> = Promise.resolve();
 
   helper.onPush((event) => {
-    if (event.type !== "composer-changed") return;
     const pid = typeof event.pid === "number" ? event.pid : null;
-    if (pid === null) return;
-    // The helper reports the PROCESS; which sessions that is depends on resolution, which lives
-    // here. Refreshing only the sessions on that pid keeps an unrelated instance's typing from
-    // costing every watcher an AX read.
-    void refresh({ onlyPid: pid });
+    switch (event.type) {
+      // The helper reports the PROCESS; which sessions that is depends on resolution, which lives
+      // here. Refreshing only the sessions on that pid keeps an unrelated instance's typing from
+      // costing every watcher an AX read.
+      case "composer-changed":
+      case "question-changed":
+        if (pid !== null) void refresh({ onlyPid: pid });
+        return;
+      // An application appeared or went away, or the Desktop changed under the windows. Both
+      // invalidate resolution for every watched session rather than one pid's worth, and neither
+      // is something a pid filter could narrow: the launch case is precisely the one where no
+      // session has that pid yet.
+      case "workspace-changed":
+      case "space-changed":
+        void refresh({});
+        return;
+      default:
+        return;
+    }
   });
 
   // MARK: - Resolution
@@ -466,15 +479,32 @@ export function createComposerCoordinator(options: ComposerCoordinatorOptions = 
 
   // MARK: - Polling
 
+  /**
+   * The backstop, and the window-system subscription that demoted it to one.
+   *
+   * Composer text, the question panel, application lifecycle, and Desktop switches all arrive as
+   * events now. What remains unpushed is the part macOS does not publish: a session is resolved
+   * through a `claude --resume <id>` CHILD process, and there is no notification for an arbitrary
+   * process starting or exiting short of EndpointSecurity, which is its own entitlement and its
+   * own TCC grant for something a `/bin/ps` scan answers in milliseconds.
+   *
+   * So this interval still exists and still re-resolves everything. It is just no longer how
+   * anything is normally noticed, which is what lets it run at a backstop cadence instead of a
+   * responsive one. Said out loud rather than described as event-driven, because a reader who
+   * believes the poll is gone will not understand why a new terminal session takes a while to
+   * appear.
+   */
   function startPolling() {
     if (timer !== null) return;
     timer = setInterval(() => void refresh({}), pollIntervalMs);
+    void helper.request("workspace-observe").catch(() => {});
   }
 
   function stopPollingIfIdle() {
     if (subscriptions.size > 0 || timer === null) return;
     clearInterval(timer);
     timer = null;
+    void helper.request("workspace-unobserve").catch(() => {});
   }
 
   /**
