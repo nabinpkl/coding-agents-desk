@@ -28,6 +28,7 @@ export type {
   BotSessionRef,
   BotSnapshot,
   BotView,
+  DetachBotSessionsCommand,
 } from "./bot.ts";
 
 export type {

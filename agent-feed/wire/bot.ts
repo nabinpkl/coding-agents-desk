@@ -74,3 +74,17 @@ export interface AttachBotSessionsCommand {
   requestId: string;
   sessionRefs: BotSessionRef[];
 }
+
+/**
+ * Removes references from a Bot's projection. The sessions themselves are untouched: a Bot is a
+ * curated view over transcripts it does not own, so detaching is forgetting, not deleting.
+ *
+ * Same fields as attaching, and deliberately not the same type. Attaching resolves every reference
+ * against the live catalog, because a Bot may only claim sessions from its own directory; detaching
+ * must NOT, or a session that has gone missing would be the one thing that can never be removed --
+ * and those are exactly the ones a viewer wants gone.
+ */
+export interface DetachBotSessionsCommand {
+  requestId: string;
+  sessionRefs: BotSessionRef[];
+}

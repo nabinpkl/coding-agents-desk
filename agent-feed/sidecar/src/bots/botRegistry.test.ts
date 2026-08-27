@@ -184,3 +184,55 @@ test("rejects directories and sessions outside the current catalog", async () =>
     sessionRefs: [{ source: "claude", sessionId: "missing" }],
   }, { kind: "user" })).rejects.toBeInstanceOf(BotNotFoundError);
 });
+
+test("detaches a session and leaves the rest of the projection alone", async () => {
+  const { project, ref, secondRef, registry } = await fixture();
+  const bot = await registry.add({ requestId: "add", name: "Captain", directoryPath: project }, { kind: "user" });
+  await registry.attachSessions(bot.botId, { requestId: "attach", sessionRefs: [ref, secondRef] }, { kind: "user" });
+
+  const command = { requestId: "detach", sessionRefs: [ref] };
+  const detached = await registry.detachSessions(bot.botId, command, { kind: "user" });
+
+  expect(detached.sessionRefs).toEqual([secondRef]);
+  expect(detached.sessions).toEqual([summary(secondRef, false)]);
+  // Replayed rather than reapplied: a retried removal must not read as "already gone".
+  expect((await registry.detachSessions(bot.botId, command, { kind: "user" })).sessionRefs).toEqual([secondRef]);
+  expect((await registry.snapshot()).revision).toBe(3);
+});
+
+test("detaches a session the catalog has forgotten", async () => {
+  const { project, ref, registry } = await fixture();
+  const bot = await registry.add({ requestId: "add", name: "Captain", directoryPath: project }, { kind: "user" });
+  await registry.attachSessions(bot.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
+
+  // The transcript is gone from the catalog, so the Bot now carries it as a missing reference.
+  // Attaching resolves against the catalog; detaching must not, or this row could never leave.
+  sessions.delete(`${ref.source}:${ref.sessionId}`);
+  expect((await registry.snapshot()).bots[0]!.missingSessionRefs).toEqual([ref]);
+
+  const detached = await registry.detachSessions(
+    bot.botId,
+    { requestId: "detach-missing", sessionRefs: [ref] },
+    { kind: "user" },
+  );
+  expect(detached.sessionRefs).toEqual([]);
+  expect(detached.missingSessionRefs).toEqual([]);
+});
+
+test("refuses to detach what a Bot does not hold, and refuses agent actors entirely", async () => {
+  const { project, ref, secondRef, registry } = await fixture();
+  const bot = await registry.add({ requestId: "add", name: "Captain", directoryPath: project }, { kind: "user" });
+  await registry.attachSessions(bot.botId, { requestId: "attach", sessionRefs: [ref] }, { kind: "user" });
+
+  await expect(registry.detachSessions(bot.botId, { requestId: "absent", sessionRefs: [secondRef] }, { kind: "user" }))
+    .rejects.toBeInstanceOf(BotNotFoundError);
+  await expect(registry.detachSessions("missing-bot", { requestId: "no-bot", sessionRefs: [ref] }, { kind: "user" }))
+    .rejects.toBeInstanceOf(BotNotFoundError);
+  // Curating the roster is the user's, not a granted Bot's: `add_bot` widens what an agent may
+  // create, never what it may take away.
+  await expect(registry.detachSessions(bot.botId, { requestId: "agent", sessionRefs: [ref] }, {
+    kind: "agent",
+    session: ref,
+  })).rejects.toBeInstanceOf(BotForbiddenError);
+  expect((await registry.snapshot()).bots[0]!.sessionRefs).toEqual([ref]);
+});

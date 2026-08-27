@@ -410,11 +410,109 @@ describe("App shell", () => {
       });
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Session Claude 01/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Session Claude 01/ }));
 
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Release Captain");
     expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-claude-01");
     expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
+    unmount();
+  });
+
+  it("removes an attached session from a Bot through the row's actions menu", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Bots" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { role: "Coordinates releases", labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]!],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+    transport.responses.set("POST /api/bots/bot-1/sessions/detach", {
+      status: 200,
+      body: JSON.stringify({ botId: "bot-1" }),
+    });
+
+    // The menu is a sibling of the row's own button, not inside it, so opening it must not also
+    // open the session.
+    fireEvent.click(screen.getByRole("button", { name: /Actions for Session Claude 01/ }));
+    expect(screen.queryByTestId("activity-feed")).toBeNull();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
+
+    await waitFor(() => {
+      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions/detach"))
+        .toEqual({
+          // A POST, because the host relay admits GET and POST only.
+          method: "POST",
+          path: "/api/bots/bot-1/sessions/detach",
+          body: {
+            requestId: expect.any(String),
+            sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          },
+        });
+    });
+    // Nothing is removed locally: the row leaves when the Bot stream publishes without it, which
+    // is also what happens when the same Bot is edited from another surface.
+    expect(screen.getByRole("button", { name: /^Session Claude 01/ })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Remove from bot" })).not.toBeInTheDocument();
+    unmount();
+  });
+
+  it("removes a reference whose transcript the catalog has forgotten", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Bots" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "codex", sessionId: "sid-gone" }],
+          metadata: { role: "", labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [],
+          // This row has no summary and cannot be opened, so the menu is the only thing that can
+          // act on it -- and without one it would be the single entry a Bot can never be rid of.
+          missingSessionRefs: [{ source: "codex", sessionId: "sid-gone" }],
+        }],
+      });
+    });
+    transport.responses.set("POST /api/bots/bot-1/sessions/detach", {
+      status: 200,
+      body: JSON.stringify({ botId: "bot-1" }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Actions for sid-gone" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from bot" }));
+
+    await waitFor(() => {
+      expect(transport.requests.find((request) => request.path === "/api/bots/bot-1/sessions/detach")?.body)
+        .toEqual({
+          requestId: expect.any(String),
+          sessionRefs: [{ source: "codex", sessionId: "sid-gone" }],
+        });
+    });
     unmount();
   });
 

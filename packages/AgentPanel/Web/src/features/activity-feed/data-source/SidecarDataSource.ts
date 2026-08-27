@@ -27,6 +27,7 @@ import type {
   BotView,
   CliInputReceipt,
   CliInputStatus,
+  DetachBotSessionsCommand,
   EventsPage as WireEventsPage,
   ParkPlanResponse,
   ParkReport,
@@ -239,6 +240,20 @@ export class SidecarDataSource implements AgentDataSource {
       await this.transport.request(
         "POST",
         `/api/bots/${encodeURIComponent(botId)}/sessions`,
+        { body: { ...command, requestId: crypto.randomUUID() } },
+      ),
+    );
+  }
+
+  /** A POST, not a DELETE: the host relay admits GET and POST only. */
+  async detachBotSessions(
+    botId: string,
+    command: Omit<DetachBotSessionsCommand, "requestId">,
+  ): Promise<BotView> {
+    return parse<BotView>(
+      await this.transport.request(
+        "POST",
+        `/api/bots/${encodeURIComponent(botId)}/sessions/detach`,
         { body: { ...command, requestId: crypto.randomUUID() } },
       ),
     );

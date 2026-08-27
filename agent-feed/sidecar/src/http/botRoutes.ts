@@ -1,4 +1,8 @@
-import type { AddBotCommand, AttachBotSessionsCommand } from "@agentdesk/agent-feed-wire";
+import type {
+  AddBotCommand,
+  AttachBotSessionsCommand,
+  DetachBotSessionsCommand,
+} from "@agentdesk/agent-feed-wire";
 import {
   BotConflictError,
   BotForbiddenError,
@@ -44,6 +48,15 @@ export function createBotRoutes(registry: BotRegistry): RouteHandler {
     if (request.method === "POST" && sessionsMatch) {
       return attachBotSessions(request, sessionsMatch[1]!, registry);
     }
+    // Removal is a POST to its own path rather than a DELETE on the one above, because the panel's
+    // only route to this sidecar inside the WKWebView is the host relay, and that relay admits GET
+    // and POST alone (`AgentFeedRelay.PathPolicy`). The allow-list is the boundary that keeps the
+    // relay from being an open local proxy, so it is worth spelling a verb around rather than
+    // widening.
+    const detachMatch = /^\/api\/bots\/([^/]+)\/sessions\/detach$/.exec(url.pathname);
+    if (request.method === "POST" && detachMatch) {
+      return detachBotSessions(request, detachMatch[1]!, registry);
+    }
     return undefined;
   };
 }
@@ -64,12 +77,7 @@ async function attachBotSessions(
   registry: BotRegistry,
 ): Promise<Response> {
   try {
-    let decodedBotId: string;
-    try {
-      decodedBotId = decodeURIComponent(botId);
-    } catch (error) {
-      throw new BotInvalidError("botId is not valid URL encoding", { cause: error });
-    }
+    const decodedBotId = decodeBotId(botId);
     const body = await requestObject(request);
     if (body instanceof Response) return body;
     return jsonResponse(
@@ -77,6 +85,31 @@ async function attachBotSessions(
     );
   } catch (error) {
     return routeError(error);
+  }
+}
+
+async function detachBotSessions(
+  request: Request,
+  botId: string,
+  registry: BotRegistry,
+): Promise<Response> {
+  try {
+    const decodedBotId = decodeBotId(botId);
+    const body = await requestObject(request);
+    if (body instanceof Response) return body;
+    return jsonResponse(
+      await registry.detachSessions(decodedBotId, body as unknown as DetachBotSessionsCommand, { kind: "user" }),
+    );
+  } catch (error) {
+    return routeError(error);
+  }
+}
+
+function decodeBotId(botId: string): string {
+  try {
+    return decodeURIComponent(botId);
+  } catch (error) {
+    throw new BotInvalidError("botId is not valid URL encoding", { cause: error });
   }
 }
 

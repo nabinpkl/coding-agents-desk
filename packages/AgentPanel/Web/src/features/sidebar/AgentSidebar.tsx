@@ -12,7 +12,7 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from "react";
-import type { BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { BotSessionRef, BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { ProfileRow } from "../profile/ProfileRow";
 import { BotSidebarPanel } from "../bots/BotSidebarPanel";
 import type { DesktopParkHandle } from "../desktop-park/useDesktopPark";
@@ -55,6 +55,7 @@ interface AgentSidebarProps {
   selectedBotId: string | null;
   onSelectBotSession: (bot: BotView, session: SessionSummary) => void;
   onAddBotSession: (bot: BotView) => void;
+  onDetachBotSession: (bot: BotView, session: BotSessionRef) => void;
   onAddBot: () => void;
   onClose?: () => void;
   ownsWindowTitlebar?: boolean;
@@ -202,6 +203,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
             selectedSessionKey={props.selectedSessionKey}
             onSelectSession={props.onSelectBotSession}
             onAddSession={props.onAddBotSession}
+            onDetachSession={props.onDetachBotSession}
             onAddBot={props.onAddBot}
           />
         </div>

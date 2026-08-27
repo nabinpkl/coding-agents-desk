@@ -107,3 +107,51 @@ test("maps registry conflicts to a typed 409 response", async () => {
     },
   });
 });
+
+test("detaches sessions through a POST route the host relay can reach", async () => {
+  const calls: unknown[] = [];
+  const registry = {
+    async detachSessions(botId: string, command: unknown, actor: unknown) {
+      calls.push({ botId, command, actor });
+      return bot;
+    },
+    async attachSessions() {
+      throw new Error("detach must not reach the attach path");
+    },
+  } as unknown as BotRegistry;
+  const route = createBotRoutes(registry);
+  // The relay admits GET and POST only, so removal is a POST to its own path rather than a DELETE
+  // on the attach path. `/sessions` and `/sessions/detach` must therefore stay distinguishable.
+  const request = new Request("http://localhost/api/bots/bot%201/sessions/detach", {
+    method: "POST",
+    body: JSON.stringify({
+      requestId: "detach-1",
+      sessionRefs: [{ source: "pi", sessionId: "pi-1" }],
+    }),
+  });
+
+  const response = await route(request, new URL(request.url), server);
+
+  expect(response?.status).toBe(200);
+  expect(await response?.json()).toEqual(bot);
+  expect(calls).toEqual([{
+    botId: "bot 1",
+    command: {
+      requestId: "detach-1",
+      sessionRefs: [{ source: "pi", sessionId: "pi-1" }],
+    },
+    actor: { kind: "user" },
+  }]);
+});
+
+test("leaves a DELETE on the sessions path unmatched rather than answering it", async () => {
+  const registry = {
+    async detachSessions() {
+      throw new Error("a DELETE must not reach the registry");
+    },
+  } as unknown as BotRegistry;
+  const route = createBotRoutes(registry);
+  const request = new Request("http://localhost/api/bots/bot-1/sessions", { method: "DELETE" });
+
+  expect(await route(request, new URL(request.url), server)).toBeUndefined();
+});

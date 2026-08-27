@@ -9,6 +9,7 @@ import type {
   BotSessionRef,
   BotSnapshot,
   BotView,
+  DetachBotSessionsCommand,
   SessionSummary,
 } from "@agentdesk/agent-feed-wire";
 import { BOT_STORE_VERSION, type BotStore, type StoredBotSnapshot } from "./botStore.ts";
@@ -43,7 +44,7 @@ const MAX_CUSTOM_ENTRIES = 16;
 const MAX_CUSTOM_KEY = 64;
 const MAX_CUSTOM_VALUE = 256;
 const MAX_ICON_URL = 2_048;
-const MAX_SESSIONS_PER_ATTACH = 64;
+const MAX_SESSION_REFS_PER_COMMAND = 64;
 const MAX_IDEMPOTENCY_ENTRIES = 512;
 const EXTERNAL_STORE_POLL_MS = 1_000;
 
@@ -57,7 +58,7 @@ interface NormalizedAddBot {
   grants: BotGrant[];
 }
 
-interface NormalizedAttachSessions {
+interface NormalizedSessionRefCommand {
   requestId: string;
   sessionRefs: BotSessionRef[];
 }
@@ -175,12 +176,14 @@ function normalizeAddBot(command: AddBotCommand): NormalizedAddBot {
   };
 }
 
-function normalizeAttachSessions(command: AttachBotSessionsCommand): NormalizedAttachSessions {
+function normalizeSessionRefCommand(
+  command: AttachBotSessionsCommand | DetachBotSessionsCommand,
+): NormalizedSessionRefCommand {
   if (!Array.isArray(command.sessionRefs) || command.sessionRefs.length === 0) {
     throw new BotInvalidError("sessionRefs must contain at least one session");
   }
-  if (command.sessionRefs.length > MAX_SESSIONS_PER_ATTACH) {
-    throw new BotInvalidError(`sessionRefs may contain at most ${MAX_SESSIONS_PER_ATTACH} sessions`);
+  if (command.sessionRefs.length > MAX_SESSION_REFS_PER_COMMAND) {
+    throw new BotInvalidError(`sessionRefs may contain at most ${MAX_SESSION_REFS_PER_COMMAND} sessions`);
   }
   const sessionRefs = command.sessionRefs.map(normalizeSessionRef);
   if (new Set(sessionRefs.map(sessionKey)).size !== sessionRefs.length) {
@@ -314,7 +317,7 @@ export class BotRegistry {
       throw new BotForbiddenError("only the authenticated user may attach sessions to a Bot");
     }
     if (!/^[A-Za-z0-9._:-]{1,128}$/.test(botId)) throw new BotInvalidError("botId is invalid");
-    const normalized = normalizeAttachSessions(command);
+    const normalized = normalizeSessionRefCommand(command);
     const resolved = normalized.sessionRefs.map((ref) => {
       const session = this.catalog.resolveSession(ref);
       if (!session) throw new BotNotFoundError(`session ${sessionKey(ref)} is not in the current catalog`);
@@ -340,6 +343,52 @@ export class BotRegistry {
       const updated: BotRecord = {
         ...bot,
         sessionRefs: [...bot.sessionRefs, ...normalized.sessionRefs],
+      };
+      const bots = [...snapshot.bots];
+      bots[index] = updated;
+      const next: StoredBotSnapshot = {
+        ...snapshot,
+        revision: snapshot.revision + 1,
+        bots,
+        idempotency: appendIdempotency(snapshot, idempotencyKey, signature, bot.botId),
+      };
+      return { snapshot: next, value: updated };
+    });
+    return this.viewRecord(record);
+  }
+
+  async detachSessions(
+    botId: string,
+    command: DetachBotSessionsCommand,
+    actor: BotActor,
+  ): Promise<BotView> {
+    if (actor.kind !== "user") {
+      throw new BotForbiddenError("only the authenticated user may detach sessions from a Bot");
+    }
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(botId)) throw new BotInvalidError("botId is invalid");
+    // Deliberately no catalog resolution: see `DetachBotSessionsCommand`. What has to be true is
+    // that the Bot currently holds the reference, which the mutation below checks against the
+    // stored record -- the one authority on what this Bot claims.
+    const normalized = normalizeSessionRefCommand(command);
+    const signature = commandSignature({ botId, ...normalized });
+    const idempotencyKey = `detach:${actorKey(actor)}:${normalized.requestId}`;
+
+    const record = await this.store.mutate((snapshot) => {
+      const prior = priorBot(snapshot, idempotencyKey, signature);
+      if (prior) return { snapshot, value: prior };
+      const index = snapshot.bots.findIndex((bot) => bot.botId === botId);
+      if (index < 0) throw new BotNotFoundError(`Bot "${botId}" was not found`);
+      const bot = snapshot.bots[index]!;
+      const attached = new Set(bot.sessionRefs.map(sessionKey));
+      const absent = normalized.sessionRefs.find((ref) => !attached.has(sessionKey(ref)));
+      if (absent) {
+        throw new BotNotFoundError(`session ${sessionKey(absent)} is not attached to this Bot`);
+      }
+
+      const removing = new Set(normalized.sessionRefs.map(sessionKey));
+      const updated: BotRecord = {
+        ...bot,
+        sessionRefs: bot.sessionRefs.filter((ref) => !removing.has(sessionKey(ref))),
       };
       const bots = [...snapshot.bots];
       bots[index] = updated;

@@ -558,6 +558,35 @@ export function App({ feed, host }: Props) {
   }, [feed]);
 
   /**
+   * Drops one session from a Bot's projection.
+   *
+   * Nothing is set here on success: the Bot stream publishes a new snapshot and the row leaves on
+   * its own, which is also what happens when the same Bot is edited from another surface. A
+   * failure surfaces on the same band the thread's own command errors use, because a removal that
+   * silently did nothing is indistinguishable from one that worked.
+   */
+  const detachBotSession = useCallback((bot: BotView, ref: BotSessionRef) => {
+    // A missing reference has no summary to take a title from, which is exactly the row this has
+    // to work on, so the id stands in.
+    const label = bot.sessions
+      .find((session) => session.source === ref.source && session.sessionId === ref.sessionId)
+      ?.title || ref.sessionId;
+    // Rebuilt field by field rather than forwarded. A `SessionSummary` structurally satisfies
+    // `BotSessionRef`, so an attached row hands this its whole summary -- capabilities, title,
+    // timestamps -- and passing it straight on would put all of it on the wire.
+    const target: BotSessionRef = { source: ref.source, sessionId: ref.sessionId };
+    void feed
+      .detachBotSessions(bot.botId, { sessionRefs: [target] })
+      .catch((error: unknown) => {
+        setCommandError(
+          `Could not remove ${label} from ${bot.name}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
+  }, [feed]);
+
+  /**
    * Reopen whatever was on screen before the last reload.
    *
    * Runs once, and only while nothing is selected: a viewer who has already picked a thread must
@@ -728,6 +757,7 @@ export function App({ feed, host }: Props) {
       setBotSessionPickerId(bot.botId);
       setHoverPreviewOpen(false);
     },
+    onDetachBotSession: detachBotSession,
     onAddBot: () => {
       setBotCreatorOpen(true);
       setHoverPreviewOpen(false);
