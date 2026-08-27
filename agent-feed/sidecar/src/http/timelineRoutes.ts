@@ -11,6 +11,7 @@
 // one stream and reads messages off it.
 
 import type { AgentBackend } from "../agents/agentBackend.ts";
+import { config } from "../config.ts";
 import {
   findSession,
   getWatcherState,
@@ -113,6 +114,7 @@ export function createTimelineRoutes(
       backend,
       transcript,
       streamsLive: capabilities.canStreamLive,
+      resolveAgentSession,
       servesExtensionUi: capabilities.supportsExtensionUi,
     });
   };
@@ -128,6 +130,8 @@ function timelineStream(options: {
   /** The transcript adapter that owns this session's durable record, if any. */
   transcript: TranscriptSourceId | null;
   streamsLive: boolean;
+  /** Re-reads `canStreamLive` for a stream that opened before the mirror had this session. */
+  resolveAgentSession: AgentSessionDescriptorResolver;
   servesExtensionUi: boolean;
 }): Response {
   const { source, sessionId, mode, backend, transcript } = options;
@@ -151,6 +155,83 @@ function timelineStream(options: {
       if (!stop) return;
       if (cancelled) stop();
       else teardowns.push(stop);
+    };
+
+    /**
+     * Opens the live tail: the ONE row being written right now.
+     *
+     * The tail is drawn from a projection that is a whole live timeline, and its
+     * envelopes carry more than this slot can hold.
+     *
+     * A state-only envelope (a run-state or queue change) has no events at all,
+     * and forwarding its missing first event as `null` blanked the message
+     * mid-write every time the queue moved.
+     *
+     * And the projection keeps revising rows the newest one has already replaced:
+     * a turn's tool results are their own row, published when the follow-up
+     * request carries them, so a completed result row would arrive AFTER the next
+     * message had started streaming and take the slot back from it. On screen that
+     * was a loose RESULT block appearing under the message being written, then
+     * vanishing when the next delta arrived. Those rows are not lost by staying
+     * out of the tail: the transcript stream above already carries them, in order
+     * and paired with the call that produced them, and for a session with no
+     * transcript the projection reaches the viewer through that same stream.
+     */
+    const attachTail = async (live: AgentBackend): Promise<void> => {
+      let newestIndex = -1;
+      hold(
+        await live
+          .subscribe(sessionId, 0, (envelope) => {
+            // The LAST row, not the first. A live upsert carries exactly one either
+            // way, but the subscription opens by replaying what the projection
+            // already holds, and reading that window's first row put the oldest
+            // message in the slot on every open.
+            const event = envelope.events.at(-1);
+            if (!event || event.index < newestIndex) return;
+            newestIndex = event.index;
+            emit({ type: "tail", event: { ...event, otherModeIndex: event.index } });
+          })
+          .catch(() => {
+            // The mirror going away is not the thread failing: clear the tail so
+            // no half-written message is left on screen, and keep the durable
+            // stream running.
+            emit({ type: "tail", event: null });
+            return null;
+          }),
+      );
+    };
+
+    /**
+     * Attaches the tail if the session becomes live-capable AFTER this stream opened.
+     *
+     * The capability was read once, when the request arrived, and a stream opened
+     * without it never asked again -- so a mirror that came up late was invisible to
+     * every thread already on screen, and the transcript kept updating while the
+     * live row never appeared. `EventSource` does not rescue this either: it reopens
+     * only when the server closes or the connection errors, and a healthy stream does
+     * neither, so the thread stayed half-live until somebody reloaded the panel.
+     *
+     * Polled rather than pushed because nothing publishes this transition. Two things
+     * produce it and only one is a connection: the observer process starting, and the
+     * mirror acquiring a projection for THIS session, which happens the first time the
+     * session's traffic passes through after that. `describeSession` is a map lookup,
+     * this runs only while a stream has no tail, and it stops at the first success.
+     *
+     * A backend that declares no live capability at all is skipped rather than polled:
+     * Pi's is a static `false`, so waiting for it to change would be a timer per open
+     * thread that can never fire.
+     */
+    const awaitLiveCapability = (live: AgentBackend): void => {
+      if (!live.capabilities.canStreamLive) return;
+      const timer = setInterval(() => {
+        if (cancelled) return;
+        const capable = sessionCapabilities(source, sessionId, options.resolveAgentSession)
+          .canStreamLive;
+        if (!capable) return;
+        clearInterval(timer);
+        void attachTail(live);
+      }, config.liveTailCapabilityPollMs);
+      hold(() => clearInterval(timer));
     };
 
     void (async () => {
@@ -201,45 +282,9 @@ function timelineStream(options: {
       // the mirror shows the message while it is being written, the transcript shows
       // it once it lands. Only a session whose backend advertises canStreamLive has
       // one, so this is a capability check rather than a source check.
-      if (options.streamsLive && backend) {
-        // The tail is ONE row -- the message being written -- but it is drawn from a
-        // projection that is a whole live timeline, and its envelopes carry more than
-        // this slot can hold.
-        //
-        // A state-only envelope (a run-state or queue change) has no events at all,
-        // and forwarding its missing first event as `null` blanked the message
-        // mid-write every time the queue moved.
-        //
-        // And the projection keeps revising rows the newest one has already replaced:
-        // a turn's tool results are their own row, published when the follow-up
-        // request carries them, so a completed result row would arrive AFTER the next
-        // message had started streaming and take the slot back from it. On screen that
-        // was a loose RESULT block appearing under the message being written, then
-        // vanishing when the next delta arrived. Those rows are not lost by staying
-        // out of the tail: the transcript stream above already carries them, in order
-        // and paired with the call that produced them, and for a session with no
-        // transcript the projection reaches the viewer through that same stream.
-        let newestIndex = -1;
-        hold(
-          await backend
-            .subscribe(sessionId, 0, (envelope) => {
-              // The LAST row, not the first. A live upsert carries exactly one either
-              // way, but the subscription opens by replaying what the projection
-              // already holds, and reading that window's first row put the oldest
-              // message in the slot on every open.
-              const event = envelope.events.at(-1);
-              if (!event || event.index < newestIndex) return;
-              newestIndex = event.index;
-              emit({ type: "tail", event: { ...event, otherModeIndex: event.index } });
-            })
-            .catch(() => {
-              // The mirror going away is not the thread failing: clear the tail so
-              // no half-written message is left on screen, and keep the durable
-              // stream running.
-              emit({ type: "tail", event: null });
-              return null;
-            }),
-        );
+      if (backend) {
+        if (options.streamsLive) await attachTail(backend);
+        else awaitLiveCapability(backend);
       }
       if (cancelled) return;
 

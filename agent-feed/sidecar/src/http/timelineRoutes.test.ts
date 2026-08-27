@@ -6,6 +6,7 @@ import type {
   TimelineEnvelope,
   TimelineMessage,
 } from "@agentdesk/agent-feed-wire";
+import { config } from "../config.ts";
 import { state } from "../transcripts/transcriptState.ts";
 import { createTimelineRoutes, TIMELINE_WINDOW } from "./timelineRoutes.ts";
 
@@ -235,6 +236,59 @@ function tailEvents(messages: TimelineMessage[]): Array<number | null> {
     .filter((message) => message.type === "tail")
     .map((message) => (message.type === "tail" ? (message.event?.index ?? null) : null));
 }
+
+test("a mirror that arrives after the stream opened still gets a tail, with no reload", async () => {
+  // The capability was read once, when the request arrived, so a stream that opened
+  // without it never asked again. A live mirror coming up late -- the observer process
+  // starting, or acquiring a projection for this session the first time its traffic
+  // passes through -- was therefore invisible to every thread already on screen, and
+  // `EventSource` does not rescue it: it reopens only when the server closes or the
+  // connection errors, and a healthy stream does neither. The thread stayed half-live
+  // until somebody reloaded the panel.
+  const pollMs = (config as unknown as { liveTailCapabilityPollMs: number });
+  const original = pollMs.liveTailCapabilityPollMs;
+  pollMs.liveTailCapabilityPollMs = 10;
+  try {
+    const recorded = recorder();
+    const { backend, publish } = liveBackend(recorded);
+    // The BACKEND can stream live; this SESSION has no projection in it yet. That gap is
+    // the whole case: a per-session capability that turns on after the stream opened.
+    (backend as { capabilities: AgentSessionCapabilities }).capabilities = {
+      ...PI_CAPABILITIES,
+      canStreamLive: true,
+    };
+    const offline = { ...PI_CAPABILITIES, canStreamLive: false };
+    let live = false;
+    backend.describeSession = (sessionId) => ({
+      sessionId,
+      source: "pi",
+      projectPath: "/project",
+      title: sessionId,
+      lastEventAt: 0,
+      activity: "ready",
+      capabilities: live ? { ...PI_CAPABILITIES, canStreamLive: true } : offline,
+    });
+
+    const request = timelineRequest();
+    const response = (await routesFor(backend)(request, new URL(request.url), server)) as Response;
+    const reader = readMessages(response, 2);
+    await Bun.sleep(5);
+    // The tail is the subscription that starts at zero. Nothing has one yet.
+    expect(recorded.subscribeCalls).not.toContain(0);
+
+    live = true;
+    await Bun.sleep(40);
+    expect(recorded.subscribeCalls).toContain(0);
+
+    publish(liveEnvelope([liveRow(4, "assistant", "streaming")], 1));
+    const { messages, leave } = await reader;
+
+    expect(tailEvents(messages)).toEqual([4]);
+    await leave();
+  } finally {
+    pollMs.liveTailCapabilityPollMs = original;
+  }
+});
 
 test("opening the tail lands on the newest row the projection holds, not its oldest", async () => {
   // The subscription opens by replaying what the projection already has, as one

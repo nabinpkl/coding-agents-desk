@@ -238,6 +238,18 @@ export const config = {
     "http://127.0.0.1:9155",
   ),
   claudeLiveEnabled: booleanEnvironment("AGENT_FEED_CLAUDE_LIVE_ENABLED", true),
+  // How often an open thread stream that has no live tail re-asks whether it can have one.
+  // A mirror can arrive after the stream opened -- the observer process starts, or it acquires a
+  // projection for this session the first time that session's traffic passes through -- and nothing
+  // publishes either transition. Only streams WITHOUT a tail poll, the check is a map lookup, and it
+  // stops at the first success, so this is the cost of a thread that is not live yet rather than a
+  // standing cost per viewer.
+  liveTailCapabilityPollMs: integerEnvironment(
+    "AGENT_FEED_LIVE_TAIL_CAPABILITY_POLL_MS",
+    5_000,
+    500,
+    120_000,
+  ),
   claudeLiveReconnectMs: integerEnvironment(
     "AGENT_FEED_CLAUDE_LIVE_RECONNECT_MS",
     1000,
