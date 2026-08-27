@@ -160,8 +160,10 @@ export function DesktopViewer({ transport }: { transport: AgentHttpTransport }) 
             autoKeyboard={keyboard.autoKeyboard}
             modifiers={keyboard.modifiers}
             receipt={keyboard.receipt}
+            localEcho={keyboard.localEcho}
             deliveryStatus={keyboard.deliveryStatus}
             bottom={keyboard.accessoryBottom}
+            softwareKeyboardVisible={keyboard.softwareKeyboardVisible}
             onShow={keyboard.showManually}
             onHide={keyboard.hide}
             onAutoChange={keyboard.setAutoKeyboard}

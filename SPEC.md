@@ -959,6 +959,21 @@ timeout, rejection, channel close, revocation, or reconnect. Paste, dictation in
 commit are prevalidated atomically. The last 64 acknowledged events form a non-editable receipt;
 secure printable events become bullets and plaintext is not retained.
 
+The accessory also shows an immediate, bounded local typing echo, separate from the acknowledged
+receipt and delivery status. Backspace removes a local character and Return clears that local line;
+neither action dismisses the keyboard. Secure or not-yet-classified targets use bullets. The capture
+textarea retains a non-user sentinel so WebKit emits deletion even when the echo is empty. Native
+`beforeinput` is bound directly, rather than React's text-only polyfill. The capture and accessory
+are portaled to the document body so a blurred or clipped viewer toolbar cannot trap fixed positioning.
+Viewport dismissal compares with the pre-keyboard height, not a concurrently shrinking layout viewport.
+The keyboard chrome uses a 32 px echo field and one 36 px key rail with an inverted-T arrow cluster.
+Auto and Hide sit in the echo line; acknowledged event history stays screen-reader-accessible without
+a second visible receipt row. The software keyboard already owns the bottom safe area, so the web
+accessory does not add that inset again. WebKit's native form toolbar is outside this page's authority:
+the iOS desktop container opts out through `WKWebView.inputAccessoryView`, leaving the software keyboard
+intact and the TypeScript rail as its only accessory. Other panels retain the system toolbar. This
+shell change needs one client update; later keyboard behavior and chrome remain TypeScript-owned.
+
 The sidecar validates and forwards canonical NDJSON, but does not translate key names or own keyboard
 behavior. The latest intentional interaction acquires one helper ownership epoch, resets native
 pointer state, and revokes the prior page. Frame kind 4 is the control-event frame and carries cursor,

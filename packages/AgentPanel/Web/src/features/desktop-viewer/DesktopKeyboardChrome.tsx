@@ -1,20 +1,18 @@
 import type { RemoteKeyCode, RemoteModifier } from "@agentdesk/agent-feed-wire";
 import type { RefObject, TextareaHTMLAttributes } from "react";
+import { createPortal } from "react-dom";
 import type { ModifierState } from "./desktopKeyboardModel";
 
-const KEYS: Array<{ label: string; code: RemoteKeyCode }> = [
-  { label: "Esc", code: "escape" },
-  { label: "Tab", code: "tab" },
-  { label: "←", code: "left" },
-  { label: "↓", code: "down" },
-  { label: "↑", code: "up" },
-  { label: "→", code: "right" },
+const ARROWS: Array<{ label: string; code: RemoteKeyCode; position: string }> = [
+  { label: "↑", code: "up", position: "col-start-2 row-start-1" },
+  { label: "←", code: "left", position: "col-start-1 row-start-2" },
+  { label: "↓", code: "down", position: "col-start-2 row-start-2" },
+  { label: "→", code: "right", position: "col-start-3 row-start-2" },
 ];
 const MODIFIERS: Array<{ label: string; modifier: RemoteModifier }> = [
   { label: "Cmd", modifier: "cmd" },
   { label: "Ctrl", modifier: "ctrl" },
   { label: "Opt", modifier: "option" },
-  { label: "⇧", modifier: "shift" },
 ];
 
 export function DesktopKeyboardChrome({
@@ -25,8 +23,10 @@ export function DesktopKeyboardChrome({
   autoKeyboard,
   modifiers,
   receipt,
+  localEcho,
   deliveryStatus,
   bottom,
+  softwareKeyboardVisible,
   onShow,
   onHide,
   onAutoChange,
@@ -40,17 +40,21 @@ export function DesktopKeyboardChrome({
   autoKeyboard: boolean;
   modifiers: Record<RemoteModifier, ModifierState>;
   receipt: string[];
+  localEcho: string[];
   deliveryStatus: string | null;
   bottom: number;
+  softwareKeyboardVisible: boolean;
   onShow: () => void;
   onHide: () => void;
   onAutoChange: (enabled: boolean) => void;
   onKey: (code: RemoteKeyCode) => void;
   onModifier: (modifier: RemoteModifier) => void;
 }) {
+  const deliveryPending = deliveryStatus === "Delivering…" || deliveryStatus === "Waiting for focus…";
+  const deliveryProblem = deliveryStatus !== null && deliveryStatus !== "Delivered" && !deliveryPending;
   return (
     <>
-      <textarea
+      {createPortal(<textarea
         ref={captureRef}
         aria-label="Remote Mac keyboard input"
         autoCapitalize="none"
@@ -59,8 +63,10 @@ export function DesktopKeyboardChrome({
         spellCheck={false}
         inputMode="text"
         {...captureProps}
-        className="fixed left-0 top-0 h-4 w-4 opacity-0 pointer-events-none"
-      />
+        tabIndex={-1}
+        style={{ bottom: `${bottom + 8}px`, fontSize: 16 }}
+        className="fixed left-2 h-4 w-4 opacity-0 pointer-events-none"
+      />, document.body)}
 
       {!shown ? (
         <div className="pointer-events-auto flex items-center gap-2">
@@ -82,27 +88,65 @@ export function DesktopKeyboardChrome({
             Keyboard
           </button>
         </div>
-      ) : (
+      ) : createPortal(
         <section
           aria-label="Remote keyboard controls"
-          style={{ bottom: `${bottom}px` }}
-          className="fixed inset-x-0 z-40 border-t border-white/15 bg-zinc-950/95 px-2 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-2 text-white shadow-2xl backdrop-blur"
+          style={{
+            bottom: `${bottom}px`,
+            paddingBottom: softwareKeyboardVisible ? 4 : "max(4px, env(safe-area-inset-bottom))",
+          }}
+          onPointerDown={(event) => event.preventDefault()}
+          onMouseDown={(event) => event.preventDefault()}
+          className="pointer-events-auto fixed inset-x-0 z-50 border-t border-border bg-background px-1.5 pt-1 text-foreground"
         >
-          <div className="mb-2 flex min-h-8 items-center gap-2 rounded-md bg-white/8 px-2">
+          <div className="mb-1 flex h-8 items-center gap-1 rounded-lg border border-border bg-muted px-2">
             <output
-              aria-label="Acknowledged remote input"
-              className="min-w-0 flex-1 select-none truncate font-mono text-xs text-white/90"
+              aria-label="Local typing echo"
+              className={`flex min-w-0 flex-1 select-none justify-end overflow-hidden text-sm ${localEcho.length ? "text-foreground" : "text-muted-foreground"}`}
             >
-              {receipt.length > 0 ? receipt.join("") : "Type to send to Mac"}
+              <span className="min-w-full shrink-0 whitespace-pre">
+                {localEcho.length > 0 ? localEcho.join("") : "Type to send to Mac"}
+              </span>
             </output>
-            <span className="shrink-0 font-mono text-[10px] text-white/55">
+            <span
+              role="status"
+              aria-label="Input delivery"
+              className={deliveryProblem
+                ? "max-w-[35%] truncate text-[10px] text-destructive"
+                : "sr-only"}
+            >
               {deliveryStatus ?? "Ready"}
             </span>
+            {deliveryPending ? <span aria-hidden className="text-xs text-muted-foreground">…</span> : null}
+            <button
+              type="button"
+              aria-label="Auto keyboard"
+              aria-pressed={autoKeyboard}
+              onClick={() => onAutoChange(!autoKeyboard)}
+              className={`h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent ${autoKeyboard ? "text-foreground" : "text-muted-foreground"}`}
+            >
+              Auto
+            </button>
+            <button
+              type="button"
+              onClick={onHide}
+              className="h-7 shrink-0 cursor-pointer rounded px-1.5 text-[10px] text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring active:bg-accent"
+            >
+              Hide
+            </button>
           </div>
-          <div className="flex gap-1 overflow-x-auto pb-1" onPointerDown={(event) => event.preventDefault()}>
-            {KEYS.map((key) => (
-              <KeyboardButton key={key.code} label={key.label} onClick={() => onKey(key.code)} />
-            ))}
+          <output aria-label="Acknowledged remote input" className="sr-only">
+            {receipt.join("")}
+          </output>
+          <div aria-label="Remote key rail" className="grid h-9 grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,2fr)_repeat(3,minmax(0,1fr))] gap-1">
+            <KeyboardButton label="Esc" onClick={() => onKey("escape")} />
+            <KeyboardButton label="Tab" onClick={() => onKey("tab")} />
+            <KeyboardButton label="⇧" state={modifiers.shift} onClick={() => onModifier("shift")} />
+            <div role="group" aria-label="Arrow keys" className="grid h-full grid-cols-3 grid-rows-2 gap-0.5">
+              {ARROWS.map((key) => (
+                <KeyboardButton key={key.code} label={key.label} className={`${key.position} text-base leading-none`} onClick={() => onKey(key.code)} />
+              ))}
+            </div>
             {MODIFIERS.map(({ label, modifier }) => (
               <KeyboardButton
                 key={modifier}
@@ -111,17 +155,8 @@ export function DesktopKeyboardChrome({
                 onClick={() => onModifier(modifier)}
               />
             ))}
-            <button
-              type="button"
-              aria-pressed={autoKeyboard}
-              onClick={() => onAutoChange(!autoKeyboard)}
-              className="min-w-16 shrink-0 rounded-md border border-white/15 bg-white/8 px-2 py-2 text-xs text-white focus-visible:outline-2 focus-visible:outline-blue-400 active:scale-95"
-            >
-              Auto {autoKeyboard ? "On" : "Off"}
-            </button>
-            <KeyboardButton label="Hide" onClick={onHide} />
           </div>
-        </section>
+        </section>, document.body,
       )}
     </>
   );
@@ -131,23 +166,26 @@ function KeyboardButton({
   label,
   state = "off",
   onClick,
+  className = "text-xs",
 }: {
   label: string;
   state?: ModifierState;
   onClick: () => void;
+  className?: string;
 }) {
   return (
     <button
       type="button"
-      aria-pressed={state === "off" ? undefined : state === "locked"}
+      aria-label={label === "⇧" ? "Shift" : label}
+      aria-pressed={state === "off" ? undefined : true}
       data-state={state}
       onClick={onClick}
-      className={`min-w-12 shrink-0 rounded-md border px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-blue-400 active:scale-95 ${
+      className={`min-h-0 min-w-0 cursor-pointer rounded border px-1 focus-visible:outline-2 focus-visible:outline-ring active:bg-accent ${className} ${
         state === "locked"
-          ? "border-blue-300 bg-blue-500 text-white"
+          ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
           : state === "armed"
-            ? "border-blue-400/70 bg-blue-500/25 text-blue-100"
-            : "border-white/15 bg-white/8 text-white"
+            ? "border-primary bg-accent text-accent-foreground hover:bg-muted"
+            : "border-border bg-muted text-foreground hover:bg-accent"
       }`}
     >
       {label}

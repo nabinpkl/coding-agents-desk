@@ -51,6 +51,16 @@ The synchronous pre-arm may briefly show the iOS keyboard after a non-text tap. 
 because a later asynchronous focus callback normally cannot summon it. If that flash is unacceptable,
 the alternative is a one-time native focus portal without changing the rest of this ownership model.
 
+The accessory distinguishes immediate local typing echo from acknowledged delivery. The echo is a
+bounded local line, not remote text or caret synchronization; Backspace edits it and Return clears it.
+Secure and unclassified focus masks it. The receipt remains acknowledgement-only. Both clear on
+dismissal, disconnect, and ownership loss. This restores typing feedback without claiming that local
+acceptance means the Mac applied the input.
+
+The iOS desktop container suppresses WebKit's native form-navigation/Done accessory through the public
+`WKWebView.inputAccessoryView` override. This opt-in shell policy leaves other panels unchanged and
+does not move input, focus arbitration, or accessory rendering out of TypeScript.
+
 ### Consequences
 
 - Good, because interaction, keyboard, and diagnostics now update through the live TypeScript origin.

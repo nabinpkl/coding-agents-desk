@@ -8,6 +8,8 @@ import type {
 export const KEYBOARD_FOCUS_TIMEOUT_MS = 700;
 export const MAX_PENDING_KEY_EVENTS = 32;
 export const MAX_RECEIPT_EVENTS = 64;
+export const KEYBOARD_VIEWPORT_SHRINK_PX = 80;
+export const KEYBOARD_VIEWPORT_RESTORE_TOLERANCE_PX = 24;
 export const REMOTE_MODIFIER_ORDER: RemoteModifier[] = ["cmd", "ctrl", "option", "shift"];
 
 export type KeyboardPresentation = "unavailable" | "hidden" | "pending" | "shown";
@@ -193,4 +195,19 @@ export function receiptToken(event: RemoteKeyEvent, secure: boolean): string {
   }
   const table = shifted ? SHIFTED_PUNCTUATION : UNSHIFTED_PUNCTUATION;
   return Object.entries(table).find(([, code]) => code === event.code)?.[0] ?? "?";
+}
+
+/** Local typing feedback, not a mirror of the Mac's text, caret, or selection. */
+export function appendLocalEcho(current: string[], keys: RemoteKeyEvent[], secure: boolean): string[] {
+  let echo = [...current];
+  for (const key of keys) {
+    if (key.code === "return") echo = [];
+    else if (key.code === "delete") {
+      echo = key.modifiers.includes("cmd") ? [] : echo.slice(0, -1);
+    } else if (!CONTROL_RECEIPT[key.code]
+        && !key.modifiers.some((modifier) => modifier !== "shift")) {
+      echo.push(receiptToken(key, secure));
+    }
+  }
+  return echo.slice(-MAX_RECEIPT_EVENTS);
 }

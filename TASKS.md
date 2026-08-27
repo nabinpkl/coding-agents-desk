@@ -2077,3 +2077,30 @@ default, unlike Claude.
   empty backspace, paste, Return, modifiers, arrows, hardware keyboard, dictation, dismiss-and-consume,
   resumed pinch/scroll, ownership loss, and LTE/Wi-Fi reconnect with no key replay. Pull all evidence
   from the TypeScript telemetry route. Do not rebuild, reinstall, or relaunch either app.
+- D272. Fix the live Web desktop keyboard regressions: consume native DOM backspace without
+  dismissing, retain a deletable capture sentinel, show bounded immediate local echo separately from
+  acknowledgement, and portal the complete accessory above the visual viewport. Compare dismissal
+  with the pre-keyboard viewport height and record its cause via TypeScript telemetry. Cover actual
+  DOM events, secure echo, backpressure, composition/paste, accessory focus, and simultaneous layout
+  viewport shrinking. No Swift change, client install, or app relaunch.
+  Implemented and self-reviewed: 70 focused tests, Agent Panel typecheck/534 tests, production build,
+  and host-free phone-width browser checks pass. The compact controls measure 81 px total at 375 px
+  width with no horizontal overflow; Backspace preserves focus. Final `just check` passes, including
+  the previously failing host supervision tests (829 host tests), and all 709 client simulator tests
+  pass. Physical software-keyboard acceptance remains under R271.
+  Follow-up from device screenshots: compact the echo to 32 px and keys to one 36 px rail with the
+  native inverted-T arrow arrangement, move Auto/Hide into the echo line, remove the visible receipt
+  row, and avoid double-counting the keyboard safe area. Hiding WebKit's native tickmark/form toolbar
+  is not available through the installed TypeScript bridge; the approved native follow-up is R273.
+- R273. Suppress the native WebKit form-navigation/tickmark accessory only in the iOS desktop
+  WebView using the public `inputAccessoryView` override. Default other panels to the system accessory;
+  leave the software keyboard intact and keep local echo, key rail, input behavior, and telemetry
+  TypeScript-owned.
+  The user approved this native slice. Verify per-panel policy isolation, WebPanelKit tests, client
+  compilation and `just check`; stop at the exact in-place client-update command before hardware
+  installation. No host deployment/relaunch or TestFlight upload is part of this slice.
+  Native implementation is self-reviewed and ready: WebPanelKit 13 tests, AgentPanel 6 tests, all
+  709 client simulator tests, signed generic-iOS Debug build, and final `just check` pass. The built
+  client uses `.build/DerivedData-keyboard-device` to avoid a shared Xcode build-database lock.
+  Pending: approved in-place install and real iPhone confirmation that the native toolbar is absent
+  while the TypeScript rail, typing, and Hide continue to work.

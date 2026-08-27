@@ -93,7 +93,8 @@ public final class WebPanelWebViewController: NSObject {
         additionalMessageHandlers: [String: WebPanelScriptMessageHandler] = [:],
         logSubsystem: String = "com.example.agentdesk.WebPanelKit",
         developmentOrigin: URL? = nil,
-        loadsImmediately: Bool = true
+        loadsImmediately: Bool = true,
+        hidesSystemKeyboardAccessory: Bool = false
     ) throws {
         // A dev origin serves its own assets, so a missing bundled root is survivable when one is
         // set -- that is the case the override exists for, a tree whose bundled build is stale or
@@ -130,6 +131,7 @@ public final class WebPanelWebViewController: NSObject {
             )
         }
         let createdWebView = WebPanelWebView(frame: .zero, configuration: configuration)
+        createdWebView.hidesSystemKeyboardAccessory = hidesSystemKeyboardAccessory
         // What WebKit paints before the document has a background of its own: on the first load,
         // and again on every `loadPanel` switch, which happens under a panel already on screen.
         // Left alone it is white, and a dark panel blinks white each time it navigates.

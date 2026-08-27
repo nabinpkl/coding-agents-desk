@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type ClipboardEvent as ReactClipboardEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type CompositionEvent as ReactCompositionEvent,
 } from "react";
@@ -21,11 +22,14 @@ import {
 import type { DesktopControlTransport } from "./TileStreamRtc";
 import {
   activeModifiers,
+  appendLocalEcho,
   clearArmedModifiers,
   cycleModifier,
   INITIAL_KEYBOARD_PRESENTATION,
   keyboardPresentationReducer,
   KEYBOARD_FOCUS_TIMEOUT_MS,
+  KEYBOARD_VIEWPORT_SHRINK_PX,
+  KEYBOARD_VIEWPORT_RESTORE_TOLERANCE_PX,
   MAX_PENDING_KEY_EVENTS,
   MAX_RECEIPT_EVENTS,
   receiptToken,
@@ -38,6 +42,8 @@ import {
 } from "./desktopKeyboardModel";
 
 const AUTO_KEYBOARD_STORAGE_KEY = "agentdesk.desktop-keyboard-auto.v2";
+// Give WebKit a deletable character even when the local echo is empty.
+const CAPTURE_SENTINEL = "\u200b";
 const OFF_MODIFIERS: Record<RemoteModifier, ModifierState> = {
   cmd: "off", ctrl: "off", option: "off", shift: "off",
 };
@@ -56,7 +62,7 @@ export interface DesktopKeyboardTelemetry {
 }
 
 interface PendingDelivery {
-  keys: RemoteKeyEvent[];
+  tokens: string[];
   secure: boolean;
 }
 
@@ -75,8 +81,10 @@ export function useDesktopKeyboard({
   const [modifiers, setModifiers] = useState<Record<RemoteModifier, ModifierState>>(OFF_MODIFIERS);
   const modifiersRef = useRef(modifiers);
   const [receipt, setReceipt] = useState<string[]>([]);
+  const [localEcho, setLocalEcho] = useState<string[]>([]);
   const [deliveryStatus, setDeliveryStatus] = useState<string | null>(null);
   const [accessoryBottom, setAccessoryBottom] = useState(0);
+  const [softwareKeyboardVisible, setSoftwareKeyboardVisible] = useState(false);
   const pendingKeys = useRef<RemoteKeyEvent[]>([]);
   const pendingDeliveries = useRef(new Map<number, PendingDelivery>());
   const nextSequence = useRef(1);
@@ -86,6 +94,16 @@ export function useDesktopKeyboard({
   const composing = useRef(false);
   const compositionCommitEcho = useRef<string | null>(null);
   const sawKeyboardViewport = useRef(false);
+  const fullViewportHeight = useRef(window.visualViewport?.height ?? window.innerHeight);
+  const handledNativeInput = useRef(false);
+  const blurTimer = useRef<number | null>(null);
+
+  const resetCapture = useCallback(() => {
+    const capture = captureRef.current;
+    if (!capture) return;
+    capture.value = CAPTURE_SENTINEL;
+    capture.setSelectionRange(CAPTURE_SENTINEL.length, CAPTURE_SENTINEL.length);
+  }, []);
 
   const updatePresentation = useCallback((action: KeyboardPresentationAction) => {
     const previous = presentationRef.current;
@@ -100,6 +118,7 @@ export function useDesktopKeyboard({
           to: next.presentation,
           focusRequestId: next.focusRequestId,
           secure: next.secure,
+          cause: action.type,
         },
       });
     }
@@ -111,7 +130,10 @@ export function useDesktopKeyboard({
     focusTimer.current = null;
   }, []);
 
-  const clearLocalState = useCallback((action: "hide" | "transport-close") => {
+  const clearLocalState = useCallback((action: "hide" | "transport-close", reason: string = action) => {
+    if (presentationRef.current.presentation === "pending" || presentationRef.current.presentation === "shown") {
+      report({ phase: "keyboard-state", detail: { event: "dismiss", reason } });
+    }
     clearFocusTimer();
     pendingKeys.current = [];
     pendingDeliveries.current.clear();
@@ -119,13 +141,19 @@ export function useDesktopKeyboard({
     modifiersRef.current = OFF_MODIFIERS;
     setModifiers(OFF_MODIFIERS);
     setReceipt([]);
+    setLocalEcho([]);
     setDeliveryStatus(null);
+    composing.current = false;
+    compositionCommitEcho.current = null;
+    handledNativeInput.current = false;
+    sawKeyboardViewport.current = false;
+    setSoftwareKeyboardVisible(false);
+    updatePresentation({ type: action });
     if (captureRef.current) {
       captureRef.current.value = "";
       captureRef.current.blur();
     }
-    updatePresentation({ type: action });
-  }, [clearFocusTimer, updatePresentation]);
+  }, [clearFocusTimer, report, updatePresentation]);
 
   useEffect(() => {
     transportRef.current = transport;
@@ -136,7 +164,10 @@ export function useDesktopKeyboard({
     }
   }, [clearLocalState, transport, updatePresentation]);
 
-  useEffect(() => () => clearFocusTimer(), [clearFocusTimer]);
+  useEffect(() => () => {
+    clearFocusTimer();
+    if (blurTimer.current !== null) window.clearTimeout(blurTimer.current);
+  }, [clearFocusTimer]);
 
   const sendControl = useCallback((input: DesktopControlInput): boolean => {
     const result = transportRef.current?.send(input) ?? "channel-closed";
@@ -147,7 +178,7 @@ export function useDesktopKeyboard({
         phase: "keyboard-input-rejected",
         detail: { focusRequestId: input.focusRequestId, reason: result },
       });
-      clearLocalState("hide");
+      clearLocalState("hide", result);
     }
     return accepted;
   }, [clearLocalState, report]);
@@ -169,7 +200,7 @@ export function useDesktopKeyboard({
       });
       return false;
     }
-    pendingDeliveries.current.set(sequence, { keys, secure });
+    pendingDeliveries.current.set(sequence, { tokens: keys.map((key) => receiptToken(key, secure)), secure });
     if (!sendControl(input)) {
       pendingDeliveries.current.delete(sequence);
       setDeliveryStatus("Input not sent: control channel unavailable");
@@ -185,14 +216,11 @@ export function useDesktopKeyboard({
 
   const decorateWithStickyModifiers = useCallback((keys: RemoteKeyEvent[]): RemoteKeyEvent[] => {
     let states = modifiersRef.current;
-    const decorated = keys.map((key) => {
+    return keys.map((key) => {
       const next = { ...key, modifiers: activeModifiers(states, key.modifiers) };
       states = clearArmedModifiers(states);
       return next;
     });
-    modifiersRef.current = states;
-    setModifiers(states);
-    return decorated;
   }, []);
 
   const acceptEncodedKeys = useCallback((keys: RemoteKeyEvent[]): boolean => {
@@ -223,9 +251,15 @@ export function useDesktopKeyboard({
     const decorated = decorateWithStickyModifiers(keys);
     if (state.presentation === "pending") {
       pendingKeys.current.push(...decorated);
-      return true;
+      setDeliveryStatus("Waiting for focus…");
+    } else if (!sendBatch(decorated, state.secure || state.editability === null)) {
+      return false;
     }
-    return sendBatch(decorated, state.secure);
+    const nextModifiers = clearArmedModifiers(modifiersRef.current);
+    modifiersRef.current = nextModifiers;
+    setModifiers(nextModifiers);
+    setLocalEcho((current) => appendLocalEcho(current, decorated, state.secure || state.editability === null));
+    return true;
   }, [decorateWithStickyModifiers, report, sendBatch]);
 
   const acceptText = useCallback((text: string): boolean => {
@@ -241,16 +275,27 @@ export function useDesktopKeyboard({
     return acceptEncodedKeys(encoded);
   }, [acceptEncodedKeys, report]);
 
-  const hide = useCallback(() => clearLocalState("hide"), [clearLocalState]);
+  const hide = useCallback(() => clearLocalState("hide", "explicit-hide"), [clearLocalState]);
+
+  const prepareCapture = useCallback(() => {
+    const state = presentationRef.current.presentation;
+    if (state !== "pending" && state !== "shown") {
+      fullViewportHeight.current = window.visualViewport?.height ?? window.innerHeight;
+      sawKeyboardViewport.current = false;
+    }
+    resetCapture();
+    captureRef.current?.focus({ preventScroll: true });
+  }, [resetCapture]);
 
   const beforeRemoteClick = useCallback((): string | undefined => {
     if (!autoKeyboard || !transportRef.current) return undefined;
     const focusRequestId = crypto.randomUUID();
     clearFocusTimer();
     pendingKeys.current = [];
+    setLocalEcho([]);
+    prepareCapture();
     updatePresentation({ type: "remote-tap", focusRequestId });
     focusStarted.current = { requestID: focusRequestId, at: performance.now() };
-    captureRef.current?.focus({ preventScroll: true });
     focusTimer.current = window.setTimeout(() => {
       if (presentationRef.current.focusRequestId !== focusRequestId) return;
       focusTimer.current = null;
@@ -266,27 +311,28 @@ export function useDesktopKeyboard({
           latencyMs: started === null ? KEYBOARD_FOCUS_TIMEOUT_MS : Math.round(performance.now() - started),
         },
       });
-      pendingKeys.current = [];
-      captureRef.current?.blur();
-      updatePresentation({ type: "focus-timeout", focusRequestId });
+      clearLocalState("hide", "focus-timeout");
     }, KEYBOARD_FOCUS_TIMEOUT_MS);
     return focusRequestId;
-  }, [autoKeyboard, clearFocusTimer, report, updatePresentation]);
+  }, [autoKeyboard, clearFocusTimer, clearLocalState, prepareCapture, report, updatePresentation]);
 
   const consumePointerGesture = useCallback(() => {
     if (presentationRef.current.presentation !== "shown") return false;
-    hide();
+    clearLocalState("hide", "tile-gesture");
     return true;
-  }, [hide]);
+  }, [clearLocalState]);
 
   const showManually = useCallback(() => {
     if (!transportRef.current) return;
+    clearFocusTimer();
+    pendingKeys.current = [];
+    setLocalEcho([]);
     const focusRequestId = crypto.randomUUID();
-    captureRef.current?.focus({ preventScroll: true });
+    prepareCapture();
     updatePresentation({ type: "manual-show", focusRequestId });
     focusStarted.current = { requestID: focusRequestId, at: performance.now() };
     if (!sendControl({ type: "focus-query", focusRequestId })) hide();
-  }, [hide, sendControl, updatePresentation]);
+  }, [clearFocusTimer, hide, prepareCapture, sendControl, updatePresentation]);
 
   const sendChromeKey = useCallback((code: RemoteKeyCode) => {
     acceptEncodedKeys([{ code, modifiers: [] }]);
@@ -313,7 +359,7 @@ export function useDesktopKeyboard({
   const handleControlEvent = useCallback((event: DesktopControlEvent) => {
     if (event.type === "control-revoked") {
       report({ phase: "control-ownership", detail: { state: "revoked", epoch: event.epoch } });
-      clearLocalState("hide");
+      clearLocalState("hide", "control-revoked");
       return;
     }
     if (event.type === "control-granted") {
@@ -343,10 +389,12 @@ export function useDesktopKeyboard({
       if (before === "pending" && next.presentation === "shown") {
         const keys = pendingKeys.current;
         pendingKeys.current = [];
-        if (keys.length > 0) sendBatch(keys, event.secure);
+        if (keys.length > 0) {
+          if (sendBatch(keys, event.secure)) setLocalEcho(appendLocalEcho([], keys, event.secure));
+          else setLocalEcho([]);
+        }
       } else if (next.presentation === "hidden") {
-        pendingKeys.current = [];
-        captureRef.current?.blur();
+        clearLocalState("hide", "non-editable-focus");
       }
       return;
     }
@@ -354,12 +402,11 @@ export function useDesktopKeyboard({
       const delivery = pendingDeliveries.current.get(event.sequence);
       if (!delivery) return;
       pendingDeliveries.current.delete(event.sequence);
-      const tokens = delivery.keys.map((key) => receiptToken(key, delivery.secure));
-      setReceipt((current) => [...current, ...tokens].slice(-MAX_RECEIPT_EVENTS));
-      setDeliveryStatus("Delivered");
+      setReceipt((current) => [...current, ...delivery.tokens].slice(-MAX_RECEIPT_EVENTS));
+      setDeliveryStatus(pendingDeliveries.current.size > 0 ? "Delivering…" : "Delivered");
       report({
         phase: "keyboard-input-applied",
-        detail: { sequence: event.sequence, count: delivery.keys.length, secure: delivery.secure },
+        detail: { sequence: event.sequence, count: delivery.tokens.length, secure: delivery.secure },
       });
       return;
     }
@@ -368,12 +415,13 @@ export function useDesktopKeyboard({
         ? undefined
         : pendingDeliveries.current.get(event.sequence);
       if (event.sequence !== undefined) pendingDeliveries.current.delete(event.sequence);
+      setLocalEcho([]);
       setDeliveryStatus(`Input rejected: ${event.reason}`);
       report({
         phase: "keyboard-input-rejected",
         detail: {
           sequence: event.sequence,
-          count: delivery?.keys.length,
+          count: delivery?.tokens.length,
           reason: event.reason,
           secure: delivery?.secure ?? presentationRef.current.secure,
         },
@@ -381,17 +429,18 @@ export function useDesktopKeyboard({
       if (presentationRef.current.presentation === "pending"
           || event.reason === "accessibility-denied"
           || event.reason === "not-owner") {
-        clearLocalState("hide");
+        clearLocalState("hide", event.reason);
       }
     }
   }, [clearFocusTimer, clearLocalState, report, sendBatch, updatePresentation]);
 
-  const onBeforeInput = useCallback((event: FormEvent<HTMLTextAreaElement>) => {
-    const input = event.nativeEvent as InputEvent;
+  const onBeforeInput = useCallback((input: InputEvent) => {
+    handledNativeInput.current = false;
     if (compositionCommitEcho.current !== null && input.data === compositionCommitEcho.current) {
       compositionCommitEcho.current = null;
-      event.preventDefault();
-      event.currentTarget.value = "";
+      input.preventDefault();
+      handledNativeInput.current = !input.cancelable;
+      resetCapture();
       return;
     }
     if (composing.current || input.isComposing || input.inputType === "insertCompositionText") return;
@@ -406,20 +455,44 @@ export function useDesktopKeyboard({
       recognized = true;
       acceptText(input.data);
     }
-    if (recognized) event.preventDefault();
-    event.currentTarget.value = "";
-  }, [acceptEncodedKeys, acceptText]);
+    if (recognized) {
+      input.preventDefault();
+      handledNativeInput.current = !input.cancelable;
+      resetCapture();
+    }
+  }, [acceptEncodedKeys, acceptText, resetCapture]);
+
+  // React 19 polyfills onBeforeInput from textInput/keypress and misses native deletes.
+  useEffect(() => {
+    const capture = captureRef.current;
+    capture?.addEventListener("beforeinput", onBeforeInput);
+    return () => capture?.removeEventListener("beforeinput", onBeforeInput);
+  }, [onBeforeInput]);
 
   const onInput = useCallback((event: FormEvent<HTMLTextAreaElement>) => {
     if (composing.current) return;
-    const text = event.currentTarget.value;
-    event.currentTarget.value = "";
+    const input = event.nativeEvent as InputEvent;
+    const text = event.currentTarget.value.replace(/^\u200b/, "");
+    resetCapture();
+    if (handledNativeInput.current) {
+      handledNativeInput.current = false;
+      return;
+    }
     if (compositionCommitEcho.current !== null && text === compositionCommitEcho.current) {
       compositionCommitEcho.current = null;
       return;
     }
-    if (text) acceptText(text);
-  }, [acceptText]);
+    if (input.inputType === "deleteContentBackward") acceptEncodedKeys([{ code: "delete", modifiers: [] }]);
+    else if (input.inputType === "insertLineBreak" || input.inputType === "insertParagraph") {
+      acceptEncodedKeys([{ code: "return", modifiers: [] }]);
+    } else if (text) acceptText(text);
+  }, [acceptEncodedKeys, acceptText, resetCapture]);
+
+  const onPaste = useCallback((event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    event.preventDefault();
+    acceptText(event.clipboardData.getData("text/plain"));
+    resetCapture();
+  }, [acceptText, resetCapture]);
 
   const onCompositionStart = useCallback(() => {
     composing.current = true;
@@ -427,19 +500,19 @@ export function useDesktopKeyboard({
 
   const onCompositionEnd = useCallback((event: ReactCompositionEvent<HTMLTextAreaElement>) => {
     composing.current = false;
-    event.currentTarget.value = "";
+    resetCapture();
     if (event.data) {
       compositionCommitEcho.current = event.data;
       window.setTimeout(() => { compositionCommitEcho.current = null; }, 0);
       acceptText(event.data);
     }
-  }, [acceptText]);
+  }, [acceptText, resetCapture]);
 
   const onKeyDown = useCallback((event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return;
     const controls: Partial<Record<string, RemoteKeyCode>> = {
       Escape: "escape", Tab: "tab", ArrowLeft: "left", ArrowRight: "right",
-      ArrowUp: "up", ArrowDown: "down",
+      ArrowUp: "up", ArrowDown: "down", Backspace: "delete", Enter: "return",
     };
     let key = controls[event.key]
       ? { code: controls[event.key]!, modifiers: [] as RemoteModifier[] }
@@ -456,15 +529,20 @@ export function useDesktopKeyboard({
     key.modifiers = REMOTE_MODIFIER_ORDER.filter((modifier) => (
       physical.includes(modifier) || key!.modifiers.includes(modifier)
     ));
-    if (acceptEncodedKeys([key])) event.preventDefault();
+    event.preventDefault();
+    event.stopPropagation();
+    acceptEncodedKeys([key]);
   }, [acceptEncodedKeys]);
 
   const onBlur = useCallback(() => {
-    window.setTimeout(() => {
+    if (blurTimer.current !== null) window.clearTimeout(blurTimer.current);
+    blurTimer.current = window.setTimeout(() => {
+      blurTimer.current = null;
       if (document.activeElement !== captureRef.current
-          && presentationRef.current.presentation === "shown") hide();
+          && (presentationRef.current.presentation === "shown"
+            || presentationRef.current.presentation === "pending")) clearLocalState("hide", "dom-blur");
     }, 0);
-  }, [hide]);
+  }, [clearLocalState]);
 
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -472,22 +550,35 @@ export function useDesktopKeyboard({
     const update = () => {
       const bottom = Math.max(0, window.innerHeight - (viewport.offsetTop + viewport.height));
       setAccessoryBottom(bottom);
-      if (viewport.height < window.innerHeight - 80) sawKeyboardViewport.current = true;
+      const typing = presentationRef.current.presentation === "shown" || presentationRef.current.presentation === "pending";
+      if (!typing) fullViewportHeight.current = viewport.height;
+      if (typing && viewport.height < fullViewportHeight.current - KEYBOARD_VIEWPORT_SHRINK_PX) {
+        sawKeyboardViewport.current = true;
+        setSoftwareKeyboardVisible(true);
+      }
+      if (typing) {
+        report({ phase: "keyboard-state", detail: {
+          event: "viewport", height: Math.round(viewport.height), layoutHeight: window.innerHeight,
+          fullHeight: Math.round(fullViewportHeight.current), bottom: Math.round(bottom),
+          offsetTop: Math.round(viewport.offsetTop), captureFocused: document.activeElement === captureRef.current,
+        } });
+      }
       if (sawKeyboardViewport.current
-          && viewport.height >= window.innerHeight - 24
-          && presentationRef.current.presentation === "shown") {
-        sawKeyboardViewport.current = false;
-        hide();
+          && viewport.height >= fullViewportHeight.current - KEYBOARD_VIEWPORT_RESTORE_TOLERANCE_PX
+          && typing) {
+        clearLocalState("hide", "viewport-restored");
       }
     };
     update();
     viewport.addEventListener("resize", update);
     viewport.addEventListener("scroll", update);
+    window.addEventListener("resize", update);
     return () => {
       viewport.removeEventListener("resize", update);
       viewport.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
     };
-  }, [hide]);
+  }, [clearLocalState, report]);
 
   return {
     captureRef,
@@ -496,8 +587,10 @@ export function useDesktopKeyboard({
     autoKeyboard,
     modifiers,
     receipt,
+    localEcho,
     deliveryStatus,
     accessoryBottom,
+    softwareKeyboardVisible,
     sendControl,
     handleControlEvent,
     beforeRemoteClick,
@@ -508,8 +601,8 @@ export function useDesktopKeyboard({
     tapModifier,
     setAutoKeyboard,
     captureProps: {
-      onBeforeInput,
       onInput,
+      onPaste,
       onCompositionStart,
       onCompositionEnd,
       onKeyDown,

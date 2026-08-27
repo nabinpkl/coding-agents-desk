@@ -90,6 +90,34 @@ struct WebPanelKitTests {
     }
 
     @MainActor
+    @Test(arguments: [false, true])
+    func keyboardAccessoryPolicyIsScopedToEachPanel(hidesAccessory: Bool) throws {
+        let controller = try WebPanelWebViewController(
+            contract: WebPanelContract(
+                scheme: "paneltest", host: "app", indexPath: "/index.html",
+                messageHandlerName: "panelTestMessage",
+                deliveryFunctionName: "__panelTestDeliver", bridgeGlobalName: "__panelTestBridge"
+            ),
+            resourceRootDirectory: nil,
+            messageSink: nil,
+            developmentOrigin: URL(string: "https://panel.example.test"),
+            loadsImmediately: false,
+            hidesSystemKeyboardAccessory: hidesAccessory
+        )
+        defer { controller.teardown() }
+        let webView = try #require(controller.webView as? WebPanelWebView)
+        #expect(webView.hidesSystemKeyboardAccessory == hidesAccessory)
+        let ordinaryPanel = WebPanelWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        #expect(!ordinaryPanel.hidesSystemKeyboardAccessory)
+        #if os(iOS)
+        if hidesAccessory {
+            #expect(webView.inputAccessoryView == nil)
+        }
+        #endif
+        #expect(webView.url == nil)
+    }
+
+    @MainActor
     @Test func queuedPushesFlushInOrderAfterWebReadiness() {
         var delivered: [String] = []
         let queue = WebPanelDeliveryQueue { delivered.append($0) }

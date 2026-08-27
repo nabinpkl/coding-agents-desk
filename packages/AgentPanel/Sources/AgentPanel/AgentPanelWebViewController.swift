@@ -57,7 +57,8 @@ public final class AgentPanelWebViewController: NSObject, WebPanelMessageSink {
         contract: AgentPanelJavaScriptContract = .agentFeed,
         additionalUserScripts: [WKUserScript] = [],
         additionalMessageHandlers: [String: AgentPanelScriptMessageHandler] = [:],
-        loadsImmediately: Bool = true
+        loadsImmediately: Bool = true,
+        hidesSystemKeyboardAccessory: Bool = false
     ) throws {
         let developmentOrigin = try Self.launchDevelopmentOrigin()
         // The bundled tree is resolved even when starting from a dev origin, because the panel can
@@ -89,7 +90,8 @@ public final class AgentPanelWebViewController: NSObject, WebPanelMessageSink {
                 additionalMessageHandlers: additionalMessageHandlers,
                 logSubsystem: Self.logSubsystem,
                 developmentOrigin: developmentOrigin,
-                loadsImmediately: loadsImmediately
+                loadsImmediately: loadsImmediately,
+                hidesSystemKeyboardAccessory: hidesSystemKeyboardAccessory
             )
         } catch {
             // The typed error keeps the public surface small, so the underlying cause is logged

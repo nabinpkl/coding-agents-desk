@@ -34,7 +34,7 @@ function setup() {
   };
   let controller!: Controller;
   render(<Harness transport={transport} expose={(next) => { controller = next; }} />);
-  return { sent, get controller() { return controller; }, capture: screen.getByLabelText("capture") };
+  return { sent, transport, get controller() { return controller; }, capture: screen.getByLabelText("capture") };
 }
 
 function editableFocus(controller: Controller, focusRequestId: string, secure = false) {
@@ -48,12 +48,10 @@ function editableFocus(controller: Controller, focusRequestId: string, secure = 
   });
 }
 
-function beforeInput(controller: Controller, element: HTMLTextAreaElement, inputType: string, data: string | null) {
-  act(() => controller.captureProps.onBeforeInput?.({
-    nativeEvent: { inputType, data, isComposing: false },
-    currentTarget: element,
-    preventDefault: vi.fn(),
-  } as never));
+function beforeInput(_controller: Controller, element: HTMLTextAreaElement, inputType: string, data: string | null) {
+  const event = new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType, data });
+  act(() => element.dispatchEvent(event));
+  return event;
 }
 
 describe("useDesktopKeyboard", () => {
@@ -127,6 +125,57 @@ describe("useDesktopKeyboard", () => {
       { type: "key-batch", sequence: 2, keys: [{ code: "ansi-A", modifiers: [] }] },
       { type: "key-batch", sequence: 3, keys: [{ code: "left", modifiers: [] }] },
     ]);
+    expect(harness.controller.presentation.presentation).toBe("shown");
+    expect(document.activeElement).toBe(harness.capture);
+  });
+
+  it("consumes native backspace without blurring or letting it navigate the page", () => {
+    const harness = setup();
+    act(() => harness.controller.showManually());
+    const input = beforeInput(harness.controller, harness.capture as HTMLTextAreaElement, "deleteContentBackward", null);
+    expect(input.defaultPrevented).toBe(true);
+    expect(harness.controller.presentation.presentation).toBe("shown");
+    expect(document.activeElement).toBe(harness.capture);
+  });
+
+  it("shows local echo immediately, deletes locally, and keeps receipts acknowledgement-only", () => {
+    const harness = setup();
+    let requestID: string | undefined;
+    act(() => { requestID = harness.controller.beforeRemoteClick(); });
+    act(() => editableFocus(harness.controller, requestID!));
+    beforeInput(harness.controller, harness.capture as HTMLTextAreaElement, "insertText", "Ab");
+    expect(harness.controller.localEcho).toEqual(["A", "b"]);
+    expect(harness.controller.receipt).toEqual([]);
+    beforeInput(harness.controller, harness.capture as HTMLTextAreaElement, "deleteContentBackward", null);
+    expect(harness.controller.localEcho).toEqual(["A"]);
+    act(() => harness.controller.handleControlEvent({ type: "input-applied", sequence: 1 }));
+    expect(harness.controller.receipt).toEqual(["A", "b"]);
+    expect(harness.controller.deliveryStatus).toBe("Delivering…");
+    beforeInput(harness.controller, harness.capture as HTMLTextAreaElement, "insertLineBreak", null);
+    expect(harness.controller.localEcho).toEqual([]);
+  });
+
+  it("does not mistake a resized WKWebView for a dismissed keyboard", () => {
+    const previous = window.visualViewport;
+    const originalHeight = window.innerHeight;
+    const viewport = Object.assign(new EventTarget(), { height: originalHeight, offsetTop: 0 });
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    try {
+      const harness = setup();
+      act(() => harness.controller.showManually());
+      viewport.height = originalHeight - 300;
+      act(() => viewport.dispatchEvent(new Event("resize")));
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: viewport.height });
+      act(() => viewport.dispatchEvent(new Event("resize")));
+      beforeInput(harness.controller, harness.capture as HTMLTextAreaElement, "deleteContentBackward", null);
+      expect(harness.controller.presentation.presentation).toBe("shown");
+      expect(harness.controller.softwareKeyboardVisible).toBe(true);
+      expect(harness.controller.accessoryBottom).toBe(0);
+      expect(document.activeElement).toBe(harness.capture);
+    } finally {
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalHeight });
+      Object.defineProperty(window, "visualViewport", { configurable: true, value: previous });
+    }
   });
 
   it("rejects paste atomically and commits composition once", () => {
@@ -137,15 +186,11 @@ describe("useDesktopKeyboard", () => {
     beforeInput(harness.controller, harness.capture as HTMLTextAreaElement, "insertFromPaste", "ok😀no");
     expect(harness.sent).toEqual([]);
 
-    act(() => harness.controller.captureProps.onCompositionStart?.());
+    fireEvent.compositionStart(harness.capture);
     beforeInput(harness.controller, harness.capture as HTMLTextAreaElement, "insertCompositionText", "a");
-    act(() => harness.controller.captureProps.onCompositionEnd?.({
-      data: "A", currentTarget: harness.capture,
-    } as never));
+    fireEvent.compositionEnd(harness.capture, { data: "A" });
     (harness.capture as HTMLTextAreaElement).value = "A";
-    act(() => harness.controller.captureProps.onInput?.({
-      currentTarget: harness.capture,
-    } as never));
+    fireEvent.input(harness.capture, { inputType: "insertText", data: "A" });
     expect(harness.sent).toEqual([{
       type: "key-batch",
       sequence: 1,
@@ -181,15 +226,66 @@ describe("useDesktopKeyboard", () => {
     act(() => { requestID = harness.controller.beforeRemoteClick(); });
     act(() => editableFocus(harness.controller, requestID!, true));
     beforeInput(harness.controller, harness.capture as HTMLTextAreaElement, "insertText", "A");
+    expect(harness.controller.localEcho).toEqual(["•"]);
     act(() => harness.controller.handleControlEvent({ type: "input-applied", sequence: 1 }));
     expect(harness.controller.receipt).toEqual(["•"]);
 
     act(() => harness.controller.handleControlEvent({ type: "control-revoked", epoch: 2 }));
     expect(harness.controller.presentation.presentation).toBe("hidden");
     expect(harness.controller.receipt).toEqual([]);
+    expect(harness.controller.localEcho).toEqual([]);
     expect(harness.controller.modifiers).toEqual({
       cmd: "off", ctrl: "off", option: "off", shift: "off",
     });
+  });
+
+  it("preserves armed modifiers and echo when a backpressured channel refuses input", () => {
+    const harness = setup();
+    act(() => harness.controller.showManually());
+    act(() => harness.controller.tapModifier("shift"));
+    harness.transport.send = () => "backpressured";
+    beforeInput(harness.controller, harness.capture as HTMLTextAreaElement, "insertText", "a");
+    expect(harness.controller.modifiers.shift).toBe("armed");
+    expect(harness.controller.localEcho).toEqual([]);
+    expect(harness.controller.receipt).toEqual([]);
+    expect(harness.controller.presentation.presentation).toBe("shown");
+  });
+
+  it("handles non-cancelable beforeinput followed by input exactly once", () => {
+    const harness = setup();
+    act(() => harness.controller.showManually());
+    harness.sent.length = 0;
+    fireEvent(harness.capture, new InputEvent("beforeinput", {
+      bubbles: true, cancelable: false, inputType: "insertText", data: "a",
+    }));
+    fireEvent.input(harness.capture, { target: { value: "a" }, inputType: "insertText", data: "a" });
+    expect(harness.sent).toHaveLength(1);
+  });
+
+  it("captures paste and dictation atomically using actual DOM events", () => {
+    const harness = setup();
+    act(() => harness.controller.showManually());
+    harness.sent.length = 0;
+    fireEvent.paste(harness.capture, { clipboardData: { getData: () => "abc" } });
+    fireEvent.input(harness.capture, { target: { value: "dictated words" }, inputType: "insertText", data: null });
+    expect(harness.sent).toHaveLength(2);
+    expect(harness.sent[0]).toMatchObject({ type: "key-batch", keys: expect.any(Array) });
+    fireEvent.paste(harness.capture, { clipboardData: { getData: () => "ok😀bad" } });
+    expect(harness.sent).toHaveLength(2);
+  });
+
+  it("handles hardware backspace and return as single control keys while retaining focus", () => {
+    const harness = setup();
+    act(() => harness.controller.showManually());
+    harness.sent.length = 0;
+    expect(fireEvent.keyDown(harness.capture, { key: "Backspace" })).toBe(false);
+    expect(fireEvent.keyDown(harness.capture, { key: "Enter" })).toBe(false);
+    expect(harness.sent).toEqual([
+      { type: "key-batch", sequence: 1, keys: [{ code: "delete", modifiers: [] }] },
+      { type: "key-batch", sequence: 2, keys: [{ code: "return", modifiers: [] }] },
+    ]);
+    expect(document.activeElement).toBe(harness.capture);
+    expect(harness.controller.presentation.presentation).toBe("shown");
   });
 
   it("dismisses from visualViewport events without polling", () => {
@@ -198,16 +294,18 @@ describe("useDesktopKeyboard", () => {
       height: number;
       offsetTop: number;
     };
-    viewport.height = window.innerHeight - 200;
+    viewport.height = window.innerHeight;
     viewport.offsetTop = 0;
     Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
     try {
       const harness = setup();
       act(() => harness.controller.showManually());
+      viewport.height = window.innerHeight - 200;
       act(() => viewport.dispatchEvent(new Event("resize")));
       viewport.height = window.innerHeight;
       act(() => viewport.dispatchEvent(new Event("resize")));
       expect(harness.controller.presentation.presentation).toBe("hidden");
+      expect(harness.controller.softwareKeyboardVisible).toBe(false);
     } finally {
       Object.defineProperty(window, "visualViewport", { configurable: true, value: previous });
     }

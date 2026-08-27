@@ -92,7 +92,8 @@ final class DesktopWebSurface: UIView {
             let controller = try AgentPanelWebViewController(
                 transport: nil,
                 additionalUserScripts: [entryScript],
-                loadsImmediately: false
+                loadsImmediately: false,
+                hidesSystemKeyboardAccessory: true
             )
             panelController = controller
             contentView = controller.webView

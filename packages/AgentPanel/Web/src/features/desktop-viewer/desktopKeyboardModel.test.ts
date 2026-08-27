@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { DesktopTextFocusEvent } from "@agentdesk/agent-feed-wire";
 import {
   activeModifiers,
+  appendLocalEcho,
   clearArmedModifiers,
   cycleModifier,
   INITIAL_KEYBOARD_PRESENTATION,
@@ -81,5 +82,14 @@ describe("desktop keyboard model", () => {
     expect(receiptToken(key, true)).toBe("•");
     expect(receiptToken({ code: "space", modifiers: [] }, true)).toBe("•");
     expect(receiptToken({ code: "delete", modifiers: [] }, true)).toBe("⌫");
+  });
+
+  test("bounds local echo, masks secure input, deletes on backspace and clears on Return", () => {
+    expect(appendLocalEcho([], remoteKeysForText("A ")!, true)).toEqual(["•", "•"]);
+    expect(appendLocalEcho(["a", "b"], [{ code: "delete", modifiers: [] }], false)).toEqual(["a"]);
+    expect(appendLocalEcho([], [{ code: "delete", modifiers: [] }], false)).toEqual([]);
+    expect(appendLocalEcho(["a"], [{ code: "return", modifiers: [] }], false)).toEqual([]);
+    expect(appendLocalEcho([], remoteKeysForText("a".repeat(100))!, false)).toHaveLength(64);
+    expect(appendLocalEcho([], [{ code: "ansi-A", modifiers: ["cmd"] }], false)).toEqual([]);
   });
 });

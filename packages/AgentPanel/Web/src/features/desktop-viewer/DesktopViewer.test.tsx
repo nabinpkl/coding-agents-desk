@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
 import { desktopDocumentFallbackHeight, DesktopViewer } from "./DesktopViewer";
 
@@ -40,6 +40,40 @@ function transport(): AgentHttpTransport {
 }
 
 describe("DesktopViewer", () => {
+  it("keeps the capture and every accessory control outside the clipped viewer toolbar", async () => {
+    tileMock.publishSource = true;
+    tileMock.controlVersion = 2;
+    const { container } = render(<DesktopViewer transport={transport()} />);
+    const show = await screen.findByRole("button", { name: "Keyboard" });
+    await waitFor(() => expect(show).toBeEnabled());
+    fireEvent.click(show);
+    const chrome = screen.getByRole("region", { name: "Remote keyboard controls" });
+    const capture = screen.getByLabelText("Remote Mac keyboard input");
+    expect(chrome.parentElement).toBe(document.body);
+    expect(capture.parentElement).toBe(document.body);
+    expect(container).not.toContainElement(chrome);
+    expect(capture).toHaveStyle({ fontSize: "16px" });
+    expect(within(chrome).getAllByRole("button")).toHaveLength(12);
+    const rail = within(chrome).getByLabelText("Remote key rail");
+    expect(within(rail).getAllByRole("button").map((button) => button.textContent))
+      .toEqual(["Esc", "Tab", "⇧", "↑", "←", "↓", "→", "Cmd", "Ctrl", "Opt"]);
+    expect(within(chrome).getByLabelText("Acknowledged remote input")).toHaveClass("sr-only");
+    expect(within(chrome).getByLabelText("Input delivery")).toHaveClass("sr-only");
+    expect(within(chrome).queryByText("Local echo above; delivery confirmed here")).not.toBeInTheDocument();
+    expect(rail).not.toContainElement(within(chrome).getByRole("button", { name: "Hide" }));
+    expect(rail).not.toContainElement(within(chrome).getByRole("button", { name: "Auto keyboard" }));
+    for (const name of ["Esc", "Tab", "Shift", "Cmd", "Ctrl", "Opt", "Hide"]) {
+      expect(within(chrome).getByRole("button", { name })).toBeVisible();
+    }
+    fireEvent.pointerDown(within(chrome).getByRole("button", { name: "Shift" }));
+    fireEvent.click(within(chrome).getByRole("button", { name: "Shift" }));
+    expect(document.activeElement).toBe(capture);
+    expect(chrome).toBeInTheDocument();
+    fireEvent.click(within(chrome).getByRole("button", { name: "Hide" }));
+    expect(chrome).not.toBeInTheDocument();
+    expect(capture).toBeInTheDocument();
+  });
+
   it("recovers a zero-height WebKit viewport from the physical CSS screen", () => {
     expect(desktopDocumentFallbackHeight(0, 956)).toBe(956);
     expect(desktopDocumentFallbackHeight(844, 956)).toBeNull();
