@@ -1412,6 +1412,26 @@ describe("Claude window composer field", () => {
     unmount();
   });
 
+  it("does not read as unavailable before the watch has said anything", () => {
+    // The watch is focus-gated, so an unfocused session has no status, and keying the placeholder
+    // on `enabled` alone made every one of them announce "Composer unavailable" -- most visibly on
+    // a passively-watched thread, where nothing ever focuses the field. The field is usable here,
+    // and the placeholder has to say so.
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+
+    const field = screen.getByLabelText("Claude composer text");
+    expect(field).toBeEnabled();
+    expect(field).toHaveAttribute("placeholder", expect.stringContaining("Type into Claude"));
+
+    focusComposer(transport);
+    deliverStatus(transport, { en: false, r: "no-window" });
+
+    expect(screen.getByLabelText("Claude composer text"))
+      .toHaveAttribute("placeholder", "Composer unavailable");
+    unmount();
+  });
+
   it("names the two-instance case instead of leaving it as a bare unavailable", () => {
     // The host used to resolve this by picking the lowest-pid instance, which wrote into whichever
     // Claude launched first. Now it refuses and says so, and the viewer's fix -- close the session in

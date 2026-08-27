@@ -1147,7 +1147,13 @@ function SessionComposer({
         // delivers the status. Only a KNOWN reason disables it.
         disabled: (windowComposer.statusKnown && !windowComposer.enabled) || windowComposer.pending,
         ariaLabel: isCodex ? "Codex composer text" : "Claude composer text",
-        placeholder: windowComposer.enabled
+        // Three states, three strings. `enabled` is false BEFORE the first status as well as after
+        // a refusal, and the watch is focus-gated, so keying the placeholder on it alone labelled
+        // every unfocused window session "Composer unavailable" -- including one whose window was
+        // sitting there resolvable, which is what a passive surface like the Bots tab shows all the
+        // time. The placeholder now agrees with `disabled` right above it, which already treats an
+        // unknown status as usable.
+        placeholder: !windowComposer.statusKnown || windowComposer.enabled
           ? isCodex
             ? "Type into Codex's composer…"
             : "Type into Claude's composer…"
