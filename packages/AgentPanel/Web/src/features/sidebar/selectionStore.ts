@@ -9,7 +9,7 @@ const STORAGE_KEY = "agent-panel.selection";
  * against the inventory once the stream delivers it.
  *
  * This exists because the panel is edited while it is being read. A Vite reload throws away every
- * piece of React state, and landing back on "Select a session from Projects" after each save makes
+ * piece of React state, and landing back on "Select a session from Sessions" after each save makes
  * the panel unusable to develop against -- and does the same to a phone that was backgrounded long
  * enough for its webview to be discarded.
  */

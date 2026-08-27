@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftToLine, ArrowRightToLine, MousePointer2, RotateCcw, X } from "lucide-react";
 import type { ParkMove, ParkStateResponse, ParkWindow } from "@agentdesk/agent-feed-wire";
 import type { DesktopStreamState } from "../desktop-viewer/DesktopStreamState";
-import { TileStreamRtc, type PointerInputTransport } from "../desktop-viewer/TileStreamRtc";
+import { TileStreamRtc, type DesktopControlTransport } from "../desktop-viewer/TileStreamRtc";
 import { TileViewport } from "../desktop-viewer/TileViewport";
 import { TileStream } from "./TileStream";
 import type { DesktopParkHandle } from "./useDesktopPark";
@@ -99,7 +99,7 @@ export function DesktopParkPanel({
   const [expanded, setExpanded] = useState(false);
   const [tile, setTile] = useState<DesktopStreamState>({ kind: "connecting" });
   const [pointerMode, setPointerMode] = useState(false);
-  const [pointerTransport, setPointerTransport] = useState<PointerInputTransport | null>(null);
+  const [pointerTransport, setPointerTransport] = useState<DesktopControlTransport | null>(null);
   const watchedWindow =
     typeof watching === "number" ? ready?.state.windows.find((w) => w.id === watching) ?? null : null;
   const displayFrame = ready?.plan.display.frame ?? null;
@@ -287,7 +287,9 @@ export function DesktopParkPanel({
             <TileViewport
               className={expanded ? "h-full" : ""}
               pointerMode={pointerMode}
-              sendPointerInput={pointerTransport?.send}
+              sendPointerInput={pointerTransport
+                ? (input) => pointerTransport.send(input) === "sent"
+                : undefined}
             >
             {transport === "rtc" ? (
               <TileStreamRtc
@@ -297,7 +299,7 @@ export function DesktopParkPanel({
                 height={watched.frame.h}
                 fill={expanded}
                 onState={setTile}
-                onPointerTransport={setPointerTransport}
+                onControlTransport={setPointerTransport}
               />
             ) : (
               <TileStream

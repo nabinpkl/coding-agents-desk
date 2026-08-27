@@ -195,8 +195,66 @@ export function clusterLabel(events: ActivityEvent[]): string {
 export interface DisplayItemOptions {
   /** Fold runs of tool work. False in the raw view, which stays one row per line. */
   cluster?: boolean;
+  /** Omit transcript scaffolding from the content-only Nice projection. */
+  hideSystem?: boolean;
+  /** Show only what each cumulative Codex reasoning snapshot added. */
+  incrementalReasoning?: boolean;
   /** Lead event indices of clusters the viewer opened. */
   expandedClusters?: ReadonlySet<number>;
+}
+
+/**
+ * Codex persists reasoning summaries as cumulative snapshots: `[A]`, then
+ * `[A, B]`, then `[A, B, C]`. Raw must preserve those source records, but Nice
+ * reads them as a sequence and therefore projects the later rows to `B`, then
+ * `C`. A discontinuity starts a new sequence, and an exact repeat contributes
+ * no row.
+ *
+ * The first event in a loaded window stays complete. That is the required page
+ * boundary anchor when the preceding snapshot is not present; prepending an
+ * older page recomputes the projection and turns it into a suffix naturally.
+ */
+function projectIncrementalReasoning(events: ActivityEvent[]): ActivityEvent[] {
+  const projected: ActivityEvent[] = [];
+  let previousText: string | null = null;
+
+  for (const event of events) {
+    const reasoningBlocks = event.type === "reasoning"
+      ? event.blocks.filter((block) => block.kind === "reasoning" && block.text)
+      : [];
+    if (reasoningBlocks.length !== 1) {
+      previousText = null;
+      projected.push(event);
+      continue;
+    }
+
+    const block = reasoningBlocks[0]!;
+    const cumulativeText = block.text!.trim();
+    if (previousText === null) {
+      previousText = cumulativeText;
+      projected.push(event);
+      continue;
+    }
+    if (cumulativeText === previousText) continue;
+
+    const prefix = `${previousText}\n\n`;
+    previousText = cumulativeText;
+    if (!cumulativeText.startsWith(prefix)) {
+      projected.push(event);
+      continue;
+    }
+
+    const suffix = cumulativeText.slice(prefix.length).trim();
+    if (!suffix) continue;
+    projected.push({
+      ...event,
+      blocks: event.blocks.map((candidate) =>
+        candidate === block ? { ...candidate, text: suffix } : candidate
+      ),
+    });
+  }
+
+  return projected;
 }
 
 export function buildActivityDisplayItems(
@@ -294,8 +352,14 @@ export function buildFeedLayout(
   events: ActivityEvent[],
   options: DisplayItemOptions = {},
 ): FeedLayout {
+  const contentEvents = options.hideSystem
+    ? events.filter((event) => event.type !== "system")
+    : events;
+  const visibleEvents = options.incrementalReasoning
+    ? projectIncrementalReasoning(contentEvents)
+    : contentEvents;
   const toolCallIds = new Set(
-    events.flatMap((event) =>
+    visibleEvents.flatMap((event) =>
       event.blocks.flatMap((block) =>
         block.kind === "tool_use" && block.callId ? [block.callId] : [],
       ),
@@ -304,7 +368,7 @@ export function buildFeedLayout(
   const pairedToolResults = new Map<string, PairedToolResult>();
   const pairedResultEventIds = new Set<number>();
 
-  for (const event of events) {
+  for (const event of visibleEvents) {
     const resultBlocks = event.blocks
       .map((block, blockIndex) => ({ block, blockIndex }))
       .filter(({ block }) => block.kind === "tool_result");
@@ -339,7 +403,7 @@ export function buildFeedLayout(
     });
   }
 
-  const displayEvents = events.filter(
+  const displayEvents = visibleEvents.filter(
     (event) => !pairedResultEventIds.has(event.index),
   );
   const items = buildActivityDisplayItems(displayEvents, options);

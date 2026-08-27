@@ -64,6 +64,32 @@ struct WebPanelKitTests {
     }
 
     @MainActor
+    @Test func deferredPanelDoesNotNavigateUntilContainerStartsIt() throws {
+        let origin = try #require(URL(string: "https://panel.example.test"))
+        let controller = try WebPanelWebViewController(
+            contract: WebPanelContract(
+                scheme: "paneltest",
+                host: "app",
+                indexPath: "/index.html",
+                messageHandlerName: "panelTestMessage",
+                deliveryFunctionName: "__panelTestDeliver",
+                bridgeGlobalName: "__panelTestBridge"
+            ),
+            resourceRootDirectory: nil,
+            messageSink: nil,
+            developmentOrigin: origin,
+            loadsImmediately: false
+        )
+        defer { controller.teardown() }
+
+        #expect(controller.webView.url == nil)
+
+        controller.loadPanel(origin: origin)
+
+        #expect(controller.webView.url != nil)
+    }
+
+    @MainActor
     @Test func queuedPushesFlushInOrderAfterWebReadiness() {
         var delivered: [String] = []
         let queue = WebPanelDeliveryQueue { delivered.append($0) }

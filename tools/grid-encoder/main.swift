@@ -28,9 +28,10 @@ import VideoToolbox
 
 /// `[1 byte kind][4 bytes big-endian length][payload]`. Kind 0 is a JSON header,
 /// 1 is the fMP4 initialization segment, 2 is a media fragment. Kind 3 is one
-/// raw H.264 access unit in Annex-B form (annexb mode only): 8 bytes of
+/// raw H.264 or HEVC access unit in Annex-B form (annexb modes only): 8 bytes of
 /// big-endian presentation time in microseconds, 1 keyframe byte, then NALUs.
-enum Frame: UInt8 { case meta = 0, initialization = 1, media = 2, accessUnit = 3 }
+/// Kind 4 is one desktop-control JSON event for the TypeScript control path.
+enum Frame: UInt8 { case meta = 0, initialization = 1, media = 2, accessUnit = 3, control = 4 }
 
 let stdoutLock = NSLock()
 // A reader that goes away without closing the pipe is the dangerous case, not
@@ -287,28 +288,53 @@ final class EncodingMuxer: NSObject, AVAssetWriterDelegate {
     }
 }
 
-// MARK: - raw H.264 for a transport that packetizes
+// MARK: - raw video for a transport that packetizes
 
-/// Hardware H.264 through VideoToolbox, emitted as bare Annex-B access units.
+enum RawAnnexBCodec {
+    case h264(profile: CFString)
+    case hevc
+
+    var videoToolboxType: CMVideoCodecType {
+        switch self {
+        case .h264: kCMVideoCodecType_H264
+        case .hevc: kCMVideoCodecType_HEVC
+        }
+    }
+
+    var profile: CFString {
+        switch self {
+        case .h264(let profile): profile
+        case .hevc: kVTProfileLevel_HEVC_Main_AutoLevel
+        }
+    }
+
+    var metadataName: String {
+        switch self {
+        case .h264: "h264"
+        case .hevc: "h265"
+        }
+    }
+}
+
+/// Hardware H.264 or HEVC through VideoToolbox, emitted as Annex-B access units.
 ///
 /// No muxer at all: this mode exists for an RTP transport that wants
-/// encoded frames to packetize itself. Constrained Baseline because that is the
-/// profile every browser's RTP answer advertises (42e01f), so the bytes match
-/// what the SDP promised. SPS and PPS ride in front of every keyframe, which is
-/// what lets a receiver join or recover mid-stream.
-final class RawH264Encoder: NSObject {
+/// encoded frames to packetize itself. The codec is selected from the browser's
+/// SDP answer. Parameter sets ride in front of every keyframe, which lets a
+/// receiver join or recover mid-stream without out-of-band decoder state.
+final class RawAnnexBEncoder: NSObject {
     private var session: VTCompressionSession?
     private var firstPTS: CMTime?
-    private let width: Int, height: Int, bitrate: Int, keyframeSeconds: Double
-    private let profile: CFString
+    private let width: Int, height: Int, bitrate: Int
+    private let codec: RawAnnexBCodec
     private let forceKeyLock = NSLock()
     private var forceKeyframe = false
+    private var loggedForcedEncodeStatus = false
     private(set) var submitted = 0, encodedCount = 0, appended = 0, notReady = 0, encodeErrors = 0
 
-    init(width: Int, height: Int, bitrate: Int, keyframeSeconds: Double, profile: CFString) {
+    init(width: Int, height: Int, bitrate: Int, codec: RawAnnexBCodec) {
         self.width = width; self.height = height; self.bitrate = bitrate
-        self.keyframeSeconds = keyframeSeconds
-        self.profile = profile
+        self.codec = codec
         super.init()
     }
 
@@ -334,14 +360,15 @@ final class RawH264Encoder: NSObject {
         let status = VTCompressionSessionCreate(
             allocator: kCFAllocatorDefault,
             width: Int32(width), height: Int32(height),
-            codecType: kCMVideoCodecType_H264,
+            codecType: codec.videoToolboxType,
             encoderSpecification: [
                 kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true,
+                kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true,
             ] as CFDictionary,
             imageBufferAttributes: nil, compressedDataAllocator: nil,
             outputCallback: { refcon, _, status, _, sample in
                 guard status == noErr, let sample, let refcon else { return }
-                Unmanaged<RawH264Encoder>.fromOpaque(refcon).takeUnretainedValue().encoded(sample)
+                Unmanaged<RawAnnexBEncoder>.fromOpaque(refcon).takeUnretainedValue().encoded(sample)
             },
             refcon: Unmanaged.passUnretained(self).toOpaque(),
             compressionSessionOut: &created,
@@ -350,15 +377,17 @@ final class RawH264Encoder: NSObject {
         session = created
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_RealTime, value: kCFBooleanTrue)
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AllowFrameReordering, value: kCFBooleanFalse)
-        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_ProfileLevel, value: profile)
-        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration,
-                             value: NSNumber(value: keyframeSeconds))
-        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_MaxKeyFrameInterval,
-                             value: NSNumber(value: 600))
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_ProfileLevel, value: codec.profile)
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_ColorPrimaries,
+                             value: kCVImageBufferColorPrimaries_ITU_R_709_2)
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_TransferFunction,
+                             value: kCVImageBufferTransferFunction_ITU_R_709_2)
+        VTSessionSetProperty(created, key: kVTCompressionPropertyKey_YCbCrMatrix,
+                             value: kCVImageBufferYCbCrMatrix_ITU_R_709_2)
         VTSessionSetProperty(created, key: kVTCompressionPropertyKey_AverageBitRate,
                              value: NSNumber(value: bitrate))
         VTCompressionSessionPrepareToEncodeFrames(created)
-        emitMeta(["type": "codec", "codec": "h264", "derived": false])
+        emitMeta(["type": "codec", "codec": codec.metadataName, "derived": false])
     }
 
     func submit(_ sample: CMSampleBuffer) {
@@ -379,6 +408,10 @@ final class RawH264Encoder: NSObject {
             duration: CMSampleBufferGetDuration(sample),
             frameProperties: properties, sourceFrameRefcon: nil, infoFlagsOut: nil,
         )
+        if key && !loggedForcedEncodeStatus {
+            loggedForcedEncodeStatus = true
+            emitMeta(["type": "keyframe-control", "phase": "forced-submit", "status": Int(encodeStatus)])
+        }
         if encodeStatus != noErr { encodeErrors += 1 }
     }
 
@@ -394,11 +427,20 @@ final class RawH264Encoder: NSObject {
         }()
 
         var lengthPrefixSize: Int32 = 4
-        CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-            format, parameterSetIndex: 0, parameterSetPointerOut: nil,
-            parameterSetSizeOut: nil, parameterSetCountOut: nil,
-            nalUnitHeaderLengthOut: &lengthPrefixSize,
-        )
+        switch codec {
+        case .h264:
+            CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                format, parameterSetIndex: 0, parameterSetPointerOut: nil,
+                parameterSetSizeOut: nil, parameterSetCountOut: nil,
+                nalUnitHeaderLengthOut: &lengthPrefixSize,
+            )
+        case .hevc:
+            CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(
+                format, parameterSetIndex: 0, parameterSetPointerOut: nil,
+                parameterSetSizeOut: nil, parameterSetCountOut: nil,
+                nalUnitHeaderLengthOut: &lengthPrefixSize,
+            )
+        }
 
         var totalLength = 0
         var pointer: UnsafeMutablePointer<Int8>?
@@ -412,19 +454,39 @@ final class RawH264Encoder: NSObject {
         // Parameter sets ahead of every keyframe: a receiver can start here.
         if keyframe {
             var parameterSetCount = 0
-            CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-                format, parameterSetIndex: 0, parameterSetPointerOut: nil,
-                parameterSetSizeOut: nil, parameterSetCountOut: &parameterSetCount,
-                nalUnitHeaderLengthOut: nil,
-            )
+            switch codec {
+            case .h264:
+                CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                    format, parameterSetIndex: 0, parameterSetPointerOut: nil,
+                    parameterSetSizeOut: nil, parameterSetCountOut: &parameterSetCount,
+                    nalUnitHeaderLengthOut: nil,
+                )
+            case .hevc:
+                CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(
+                    format, parameterSetIndex: 0, parameterSetPointerOut: nil,
+                    parameterSetSizeOut: nil, parameterSetCountOut: &parameterSetCount,
+                    nalUnitHeaderLengthOut: nil,
+                )
+            }
             for index in 0..<parameterSetCount {
                 var setPointer: UnsafePointer<UInt8>?
                 var setSize = 0
-                guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-                    format, parameterSetIndex: index, parameterSetPointerOut: &setPointer,
-                    parameterSetSizeOut: &setSize, parameterSetCountOut: nil,
-                    nalUnitHeaderLengthOut: nil,
-                ) == noErr, let setPointer else { continue }
+                let status: OSStatus
+                switch codec {
+                case .h264:
+                    status = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                        format, parameterSetIndex: index, parameterSetPointerOut: &setPointer,
+                        parameterSetSizeOut: &setSize, parameterSetCountOut: nil,
+                        nalUnitHeaderLengthOut: nil,
+                    )
+                case .hevc:
+                    status = CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(
+                        format, parameterSetIndex: index, parameterSetPointerOut: &setPointer,
+                        parameterSetSizeOut: &setSize, parameterSetCountOut: nil,
+                        nalUnitHeaderLengthOut: nil,
+                    )
+                }
+                guard status == noErr, let setPointer else { continue }
                 annexB.append(contentsOf: startCode)
                 annexB.append(setPointer, count: setSize)
             }
@@ -460,7 +522,7 @@ protocol FrameSink: AnyObject {
     func submit(_ sample: CMSampleBuffer)
 }
 extension EncodingMuxer: FrameSink {}
-extension RawH264Encoder: FrameSink {}
+extension RawAnnexBEncoder: FrameSink {}
 
 // MARK: - capture
 
@@ -473,8 +535,14 @@ final class Capturer: NSObject, SCStreamOutput, SCStreamDelegate {
                 as? [[SCStreamFrameInfo: Any]],
               let raw = attachments.first?[.status] as? Int,
               SCFrameStatus(rawValue: raw) == .complete,
-              CMSampleBufferGetImageBuffer(sb) != nil
+              let imageBuffer = CMSampleBufferGetImageBuffer(sb)
         else { return }
+        CVBufferSetAttachment(imageBuffer, kCVImageBufferColorPrimariesKey,
+                              kCVImageBufferColorPrimaries_ITU_R_709_2, .shouldPropagate)
+        CVBufferSetAttachment(imageBuffer, kCVImageBufferYCbCrMatrixKey,
+                              kCVImageBufferYCbCrMatrix_ITU_R_709_2, .shouldPropagate)
+        CVBufferSetAttachment(imageBuffer, kCVImageBufferTransferFunctionKey,
+                              kCVImageBufferTransferFunction_ITU_R_709_2, .shouldPropagate)
         muxer.submit(sb)
     }
     func stream(_ stream: SCStream, didStopWithError error: Error) {
@@ -503,10 +571,10 @@ let bitrate = argument("bitrate").flatMap(Int.init) ?? 4_000_000
 // One segment per GOP, so this is the latency floor the muxer imposes. MSE adds
 // its own buffer on top; there is no point going far below it.
 let segmentSeconds = argument("segment").flatMap(Double.init) ?? 0.4
-/// `hevc-fmp4` feeds MSE; `h264-annexb` feeds a transport that packetizes.
+/// `hevc-fmp4` feeds MSE; the Annex-B modes feed a transport that packetizes.
 let codecMode = argument("codec") ?? "hevc-fmp4"
-guard codecMode == "hevc-fmp4" || codecMode == "h264-annexb" else {
-    fail("unknown --codec \(codecMode); expected hevc-fmp4 or h264-annexb")
+guard codecMode == "hevc-fmp4" || codecMode == "h264-annexb" || codecMode == "h265-annexb" else {
+    fail("unknown --codec \(codecMode); expected hevc-fmp4, h264-annexb, or h265-annexb")
 }
 /// H.264 profile for annexb mode. High is the text-quality profile (CABAC,
 /// 8x8 transform); receivers configure their decoder from the SPS in-band, so
@@ -522,16 +590,16 @@ default: fail("unknown --profile \(profileArgument); expected high, main, or cb"
 }
 
 _ = NSApplication.shared
-let semaphore = DispatchSemaphore(value: 0)
 // Retained at file scope, not inside the Task that creates them. An SCStream
 // held only by a local stops delivering the moment that scope returns, which
 // looks exactly like a capture that produced one frame and then hung.
 nonisolated(unsafe) var liveStream: SCStream?
 nonisolated(unsafe) var liveCapturer: Capturer?
 nonisolated(unsafe) var liveMuxer: EncodingMuxer?
-nonisolated(unsafe) var liveRawEncoder: RawH264Encoder?
-// A plain thread rather than a Timer: the main thread blocks on the semaphore
-// below, so there is no run loop for a scheduled timer to fire on.
+nonisolated(unsafe) var liveRawEncoder: RawAnnexBEncoder?
+nonisolated(unsafe) var liveCursorMirror: CursorMirror?
+// A plain thread is sufficient for optional counters. The AppKit main queue remains
+// dedicated to cursor sampling below.
 let countersLock = NSLock()
 nonisolated(unsafe) var counters: (() -> String)?
 let verbose = CommandLine.arguments.contains("--verbose")
@@ -582,62 +650,92 @@ Task {
         openMeta = ["type": "open", "display": Int(display.displayID)]
     }
 
-    let pointerInput = PointerInputController(bounds: inputBounds)
+    let desktopInput = DesktopInputController(
+        bounds: inputBounds,
+        emit: { emit(.control, $0) }
+    )
+    if displayArgument != nil {
+        let cursorMirror = CursorMirror(
+            bounds: inputBounds,
+            remoteInputIsActive: desktopInput.isCursorInputActive,
+            emit: { emit(.control, $0) }
+        )
+        liveCursorMirror = cursorMirror
+        DispatchQueue.main.async { cursorMirror.start() }
+    }
 
-    // Even dimensions: the encoder rejects odd ones for 4:2:0 chroma.
+    guard let initialCursor = CursorMirror.sourceLocalPosition(in: inputBounds) else {
+        fail("cursor location unavailable")
+    }
+
+    // Even dimensions: the encoder rejects odd ones for 4:2:0 chroma. A width-only
+    // request lets the browser choose density before it knows the source aspect ratio.
     let width = (requestedWidth ?? sourceWidth) & ~1
-    let height = (requestedHeight ?? sourceHeight) & ~1
+    let aspectHeight = requestedWidth == nil
+        ? sourceHeight
+        : Int((Double(width) * Double(sourceHeight) / Double(sourceWidth)).rounded())
+    let height = (requestedHeight ?? aspectHeight) & ~1
     var meta = openMeta
     meta["width"] = width
     meta["height"] = height
-    meta["segmentSeconds"] = segmentSeconds
-    meta["inputTrusted"] = pointerInput.isTrusted
+    if codecMode == "hevc-fmp4" {
+        meta["segmentSeconds"] = segmentSeconds
+    }
+    meta["inputTrusted"] = desktopInput.isTrusted
+    meta["desktopControlVersion"] = 2
     meta["inputBounds"] = [
         "x": inputBounds.minX,
         "y": inputBounds.minY,
         "w": inputBounds.width,
         "h": inputBounds.height,
     ]
+    meta["cursor"] = ["x": initialCursor.x, "y": initialCursor.y]
     emitMeta(meta)
 
     let sink: FrameSink
-    if codecMode == "h264-annexb" {
-        let encoder = RawH264Encoder(
-            width: width, height: height, bitrate: bitrate, keyframeSeconds: segmentSeconds,
-            profile: h264Profile,
+    if codecMode == "h264-annexb" || codecMode == "h265-annexb" {
+        let rawCodec: RawAnnexBCodec = codecMode == "h265-annexb"
+            ? .hevc
+            : .h264(profile: h264Profile)
+        let encoder = RawAnnexBEncoder(
+            width: width, height: height, bitrate: bitrate, codec: rawCodec,
         )
         encoder.start()
         sink = encoder
         liveRawEncoder = encoder
-        // Transport control arrives as lines on stdin: "K" forces a keyframe
-        // on the next frame (picture loss on the far side), "B<bps>" applies
-        // the transport's bandwidth estimate to the encoder. Pointer input uses
-        // separate M/C/S/X commands consumed before capture control is considered.
-        // Anything else is ignored, so an older parent that writes bare bytes still
-        // gets its keyframe behaviour from the "K".
+        // Transport control arrives as exact line commands. JSON is desktop-control-v2,
+        // "K" forces a keyframe, and a bounded "B<number>" applies the receiver estimate.
         Thread.detachNewThread {
             var buffer = Data()
             while true {
-                guard let data = try? FileHandle.standardInput.read(upToCount: 256), !data.isEmpty else {
+                // read(upToCount:) waited for the full 256-byte request on this
+                // pipe, hiding a lone PLI until about 128 `K\n` commands had
+                // accumulated. availableData wakes for the first flushed line.
+                let data = FileHandle.standardInput.availableData
+                guard !data.isEmpty else {
                     return
                 }
                 buffer.append(data)
                 while let newline = buffer.firstIndex(of: 0x0A) {
-                    let line = String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self)
-                        .trimmingCharacters(in: .whitespaces)
+                    let rawLine = String(decoding: buffer[buffer.startIndex..<newline], as: UTF8.self)
+                    let line = rawLine.last == "\r" ? String(rawLine.dropLast()) : rawLine
                     buffer.removeSubrange(buffer.startIndex...newline)
-                    if pointerInput.handle(line) {
+                    if desktopInput.handle(line) {
                         continue
-                    } else if line.hasPrefix("B"), let bits = Int(line.dropFirst()) {
-                        encoder.setBitrate(bits)
-                    } else if line.contains("K") {
-                        encoder.requestKeyframe()
+                    } else if let capture = CaptureControlCommand.parse(line) {
+                        switch capture {
+                        case .keyframe: encoder.requestKeyframe()
+                        case .bitrate(let bits): encoder.setBitrate(bits)
+                        }
                     }
                 }
                 // A bare "K" with no newline still works: flush it eagerly.
                 if buffer == Data([0x4B]) {
                     encoder.requestKeyframe()
                     buffer.removeAll()
+                } else if buffer.count > DesktopInputController.maximumCommandBytes {
+                    buffer.removeAll(keepingCapacity: true)
+                    desktopInput.rejectOversized()
                 }
             }
         }
@@ -673,6 +771,7 @@ Task {
     // parked window's tile stays clean.
     configuration.showsCursor = displayArgument != nil
     configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+    configuration.colorSpaceName = CGColorSpace.sRGB
     let stream = SCStream(filter: filter, configuration: configuration, delegate: capturer)
     liveStream = stream
     do {
@@ -698,4 +797,6 @@ Task {
         }
     }
 }
-semaphore.wait()
+// Keep the AppKit main queue alive for NSCursor sampling. Capture and encode callbacks keep
+// their existing queues; this replaces the old blocked semaphore with an actual event loop.
+dispatchMain()

@@ -183,7 +183,6 @@ extension PairingViewController {
     }
 
     func showTrackpad() {
-        showDesktopViewerTabBarIfNeeded()
         if trackpadView.superview != nil {
             _ = reconcileSessionLayout()
             attachVideoTouchRecognizers()
@@ -747,7 +746,6 @@ extension PairingViewController {
         showKeyboardButton.removeFromSuperview()
         dictationButton.removeFromSuperview()
         displayRailView.removeFromSuperview()
-        desktopViewerTabBar.removeFromSuperview()
         displayRailView.renderEmpty()
         updateDisplayRailHeight()
         thumbnailStripView.removeFromSuperview()
@@ -801,22 +799,6 @@ extension PairingViewController {
         // sink re-derives the video-only arrangement and keeps the held frame on screen for
         // the length of the outage.
         reconcileSessionLayout()
-    }
-
-    private func showDesktopViewerTabBarIfNeeded() {
-        guard desktopViewerTabBar.superview == nil else { return }
-        desktopViewerTabBar.translatesAutoresizingMaskIntoConstraints = false
-        desktopViewerTabBar.select(desktopViewerMode)
-        desktopViewerTabBar.onSelection = { [weak self] mode in
-            self?.desktopViewerSelectionChanged(mode)
-        }
-        stage(.overlay).addSubview(desktopViewerTabBar)
-        NSLayoutConstraint.activate([
-            desktopViewerTabBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            desktopViewerTabBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            desktopViewerTabBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            desktopViewerTabBar.heightAnchor.constraint(equalToConstant: 44),
-        ])
     }
 
     // R23: swap the active orientation's constraint set. Safe to call

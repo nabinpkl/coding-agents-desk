@@ -623,6 +623,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
         agentSayTask?.cancel()
         agentSaySpeechTask?.cancel()
         agentSayHideTask?.cancel()
+        desktopWebSurface?.teardown()
         mediaTransport?.stop()
         pairingOfferListener?.stop()
     }
@@ -1019,6 +1020,7 @@ final class PairingViewController: UIViewController, @preconcurrency AVCaptureMe
             hostContentView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
         installHostContentStages()
+        installDesktopViewerSurfaces()
 
         statusLabel.font = .preferredFont(forTextStyle: .headline)
         statusLabel.textAlignment = .center

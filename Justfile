@@ -784,7 +784,11 @@ agent-panel-web-check:
     bun run test
 
 build-tools-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
     node --test tools/build-system/*.test.mjs
+    sh tools/test-desktop-input-controller.sh
+    sh tools/build-grid-encoder.sh
 
 # Build the gesture/voice interaction webview bundle into InteractionPanel's
 # package resources. The gesture-agent web app is the authored renderer; its
@@ -1470,6 +1474,7 @@ host-run-dev variant="stable" install_live_bridge="true" panel="live" sidecar="l
     # default that ignored the override would point that tab at the wrong host's feed.
     FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
     VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
+    export AGENT_FEED_PTY_MANAGER_SOCKET="$PTY_SOCKET"
     if [ "${AGENTDESK_AX_AUTOMATION_ENABLED:-0}" != "0" ]; then
         EXTRA+=(INFOPLIST_KEY_LSUIElement=NO)
     fi
@@ -1674,6 +1679,7 @@ host-run variant="stable" panel="live" sidecar="live": build-agent-feed-sidecar 
     # default that ignored the override would point that tab at the wrong host's feed.
     FEEDPORT="${AGENTDESK_AGENT_FEED_PORT:-$FEEDPORT}"
     VOICEPORT="${AGENTDESK_VOICE_SIDECAR_PORT:-$VOICEPORT}"
+    export AGENT_FEED_PTY_MANAGER_SOCKET="$PTY_SOCKET"
     if [ "${AGENTDESK_AX_AUTOMATION_ENABLED:-0}" != "0" ]; then
         EXTRA+=(INFOPLIST_KEY_LSUIElement=NO)
     fi

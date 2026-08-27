@@ -131,10 +131,9 @@ describe("LiveTailRow", () => {
     const ev = tail([{ kind: "text", text: "Working" }]);
     ev.phase = "complete";
     const live = renderLive(ev);
-    // The chip is the role, same as the durable row; live-ness rides the heading
-    // as a pulse and a label, not as a band above the prose. So the marker adds
-    // no text, and its removal at handoff moves nothing.
-    expect(live.container.textContent).toContain("assistant");
+    // Nice omits the repeated Assistant role chip from both forms. Live-ness
+    // rides the heading as a pulse and an accessible label, not a text band.
+    expect(live.container.textContent).not.toContain("assistant");
     expect(live.getByLabelText(/, streaming/)).toBeDefined();
     expect(live.container.textContent).toBe(
       renderLanded(ev).container.textContent,

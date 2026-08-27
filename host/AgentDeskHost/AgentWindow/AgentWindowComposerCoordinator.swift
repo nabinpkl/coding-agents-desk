@@ -55,6 +55,13 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
     /// sessionId -> the last successfully resolved target, reused by the event-driven refresh so a
     /// value-changed event costs no process-table scan. Tagged so the right writer is dispatched.
     private var lastTargets: [String: ResolvedTarget] = [:]
+    /// sessionId -> the original off-Desktop target for a Claude window borrowed while at least one
+    /// composer field is focused. This original target is the only restoration authority.
+    private var editingLeases: [String: AgentWindowSessionTarget] = [:]
+    /// A failed first lease acquisition is part of the watch's status until that watch ends. Without
+    /// this, the following refresh would describe the still off-Desktop window as writable even though
+    /// live sync cannot safely reach it.
+    private var editingLeaseFailures: [String: AgentWindowInputReason] = [:]
     private var timer: DispatchSourceTimer?
 
     init(
@@ -96,11 +103,13 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
     /// lane detaches; without it a dead phone's sessions would keep being re-resolved on every poll.
     func detachSink(_ id: SinkID) {
         queue.async { [self] in
+            let removedSessions = Set(subscriptions[id]?.values ?? Dictionary<String, String>().values)
             sinks[id] = nil
             subscriptions[id] = nil
             lastStatus[id] = nil
             questionSubscriptions[id] = nil
             lastQuestionStatus[id] = nil
+            for sessionId in removedSessions { endEditingLeaseIfUnwatched(sessionId) }
             stopPollingIfIdle()
             if subscriptions.isEmpty, questionSubscriptions.isEmpty {
                 for pid in observer.observedPids { observer.stopObserving(claudeMainPid: pid) }
@@ -113,13 +122,23 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         switch request {
         case .windowInputWatch(let subscriptionId, let sessionId):
             queue.async { [self] in
+                let replacedSession = subscriptions[sink]?[subscriptionId]
+                let wasAlreadyWatched = isComposerSessionWatched(sessionId)
                 subscriptions[sink, default: [:]][subscriptionId] = sessionId
+                if let replacedSession, replacedSession != sessionId {
+                    lastStatus[sink]?[subscriptionId] = nil
+                    endEditingLeaseIfUnwatched(replacedSession)
+                }
                 startPollingIfNeeded()
                 // Selecting a thread is the one moment a sweep is allowed. Codex Desktop will not list
                 // the windows on other Desktops, so a thread living in one cannot be resolved until the
                 // host has taken a handle for it, and taking one means bringing the window here briefly.
                 // Doing it here rather than in the poll is what keeps that flash to once per window.
                 acquireCodexWindowsIfNeeded(for: sessionId)
+                // Claude's AX tree only exists while its window is on this Desktop. The first focused
+                // watcher borrows that window once; later watchers share the same lease, and writes
+                // stay on the free active-Desktop path until the final watcher leaves.
+                if !wasAlreadyWatched { beginEditingLeaseIfNeeded(sessionId) }
                 // Forced for THIS subscription only: a re-watch under an id this sink already knows would
                 // otherwise stay silent and leave the panel with no status at all. Forcing globally would
                 // let one surface's subscribe rewrite every other panel's field mid-edit.
@@ -127,9 +146,11 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
             }
         case .windowInputUnwatch(let subscriptionId):
             queue.async { [self] in
+                let sessionId = subscriptions[sink]?[subscriptionId]
                 subscriptions[sink]?[subscriptionId] = nil
                 if subscriptions[sink]?.isEmpty == true { subscriptions[sink] = nil }
                 lastStatus[sink]?[subscriptionId] = nil
+                if let sessionId { endEditingLeaseIfUnwatched(sessionId) }
                 stopPollingIfIdle()
                 // A blur that unwatched everything must also stop the AX events: nobody is listening,
                 // and keeping Chromium's observer alive is exactly the continuous traffic focus gating
@@ -192,6 +213,51 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         codexWriter.acquireWindows(mainPid: mainPids[0], in: audit.snapshot())
     }
 
+    // MARK: - Focused editing lease
+
+    private func isComposerSessionWatched(_ sessionId: String) -> Bool {
+        subscriptions.values.contains { $0.values.contains(sessionId) }
+    }
+
+    /// Acquires only for Claude windows that are not already on the active Desktop. Codex exposes its
+    /// tree across Desktops, and a Claude window already here needs neither ownership nor restoration.
+    private func beginEditingLeaseIfNeeded(_ sessionId: String) {
+        editingLeaseFailures[sessionId] = nil
+        guard editingLeases[sessionId] == nil else { return }
+        let resolution = resolveTarget(
+            sessionId: sessionId,
+            rows: processRows(),
+            snapshot: audit.snapshot()
+        )
+        guard case .success(.claude(let target)) = resolution, !target.isOnActiveDesktop else { return }
+        switch writer.beginEditingLease(target) {
+        case .success:
+            editingLeases[sessionId] = target
+        case .failure(let reason):
+            editingLeaseFailures[sessionId] = reason
+            logger.error(
+                "composer editing lease failed session=\(sessionId, privacy: .public) reason=\(reason.rawValue, privacy: .public)"
+            )
+        }
+    }
+
+    /// Releases only after every surface has stopped watching this session. A failed restore remains
+    /// recorded so a later blur or detach can retry rather than forgetting a visibly stranded window.
+    private func endEditingLeaseIfUnwatched(_ sessionId: String) {
+        guard !isComposerSessionWatched(sessionId) else { return }
+        editingLeaseFailures[sessionId] = nil
+        guard let target = editingLeases[sessionId] else { return }
+        switch writer.endEditingLease(target) {
+        case .success:
+            editingLeases[sessionId] = nil
+            lastTargets[sessionId] = nil
+        case .failure(let reason):
+            logger.error(
+                "composer editing lease restore failed session=\(sessionId, privacy: .public) reason=\(reason.rawValue, privacy: .public)"
+            )
+        }
+    }
+
     // MARK: - Resolution
 
     /// A session resolved to the window that owns it, tagged by harness so the right writer and the
@@ -222,6 +288,9 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
     ) -> Result<ResolvedTarget, AgentWindowInputReason> {
         let resolution = AgentWindowSessionResolver.resolve(sessionId: sessionId, in: rows)
         if let resolved = resolution.claudeMainPid {
+            if let leased = activeLeasedTarget(sessionId: sessionId, claudeMainPid: resolved) {
+                return .success(.claude(leased))
+            }
             return AgentWindowSessionTargeting.target(sessionId: sessionId, claudeMainPid: resolved, in: snapshot)
                 .map(ResolvedTarget.claude)
         }
@@ -233,10 +302,29 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
             rows: rows,
             claudeMainPath: Config.claudeDesktopMainPath
         ) {
+            if let leased = activeLeasedTarget(sessionId: sessionId, claudeMainPid: runtimeOwner) {
+                return .success(.claude(leased))
+            }
             return AgentWindowSessionTargeting.target(sessionId: sessionId, claudeMainPid: runtimeOwner, in: snapshot)
                 .map(ResolvedTarget.claude)
         }
         return resolveCodexTarget(sessionId: sessionId, rows: rows, snapshot: snapshot)
+    }
+
+    /// The successful move is authoritative for the lease interval. This avoids waiting for a later
+    /// WindowServer audit to observe the move before the first status and first keystroke can use it.
+    private func activeLeasedTarget(sessionId: String, claudeMainPid: pid_t) -> AgentWindowSessionTarget? {
+        guard let original = editingLeases[sessionId], original.claudeMainPid == claudeMainPid else {
+            return nil
+        }
+        return AgentWindowSessionTarget(
+            sessionId: original.sessionId,
+            claudeMainPid: original.claudeMainPid,
+            windowID: original.windowID,
+            homeSpaceID: original.activeSpaceID,
+            activeSpaceID: original.activeSpaceID,
+            frame: original.frame
+        )
     }
 
     /// Resolves a session through Codex Desktop's own state: the thread's registry row and display
@@ -323,6 +411,11 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
             for (subscriptionId, sessionId) in watches {
                 let isForced = forced?.sink == sink && forced?.subscriptionId == subscriptionId
                 let target = resolved[sessionId] ?? {
+                    if let reason = editingLeaseFailures[sessionId] {
+                        let result: Result<ResolvedTarget, AgentWindowInputReason> = .failure(reason)
+                        resolved[sessionId] = result
+                        return result
+                    }
                     // A codex session whose observer is live is NOT re-scanned on the poll: its
                     // resolution is a full-tree accessibility walk (thread registry plus every
                     // window's header), and Chromium answers AX queries on its main thread, so a
@@ -348,16 +441,16 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
                     lastTargets[sessionId] = resolved
                     let composerText: String?
                     if isForced || !observer.isObserving(claudeMainPid: target.claudeMainPid) {
-                        // Read: a forced pass is a fresh watcher that needs the value, and a missing
-                        // observer means registration needs (re)establishing -- a revived web contents
-                        // has a new composer element whose changes the old registration cannot see.
-                        // The read both prefills and proves the composer is reachable; the observer is
-                        // then registered on the element the scan found.
+                        // Read only when it is free. A fresh watcher gets the value when the window is
+                        // already here; an off-Desktop window reports nil so the panel can choose one
+                        // explicit prefill round trip. A missing observer also needs re-establishing on
+                        // a revived web contents, but only after a free read found its new element.
                         composerText = prefilled[sessionId] ?? {
                             let text: String?
-                            if let value = try? readComposer(resolved).get() {
+                            switch readComposerIfFree(resolved) {
+                            case .success(let value):
                                 text = value
-                                if let element = composerElement(resolved) {
+                                if value != nil, let element = composerElement(resolved) {
                                     observer.ensureObserving(
                                         target: target,
                                         composer: element,
@@ -366,7 +459,7 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
                                         }
                                     )
                                 }
-                            } else {
+                            case .failure:
                                 // A transient read failure -- a web contents rebuilding its tree -- must not
                                 // wipe the field with nil: the window is still there, and the panel adopts a
                                 // nil text as its own field contents. Keep the last known text until a read
@@ -536,9 +629,10 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         guard !subscriptions.isEmpty, let resolved = lastTargets[sessionId] else { return }
         let target = resolved.target
         let text: String?
-        if let value = try? readComposer(resolved).get() {
+        switch readComposerIfFree(resolved) {
+        case .success(let value):
             text = value
-        } else {
+        case .failure:
             text = nil
             // The tree is gone; the registration on the old element is dead. Drop the observer so the
             // next poll pass re-registers on the respawned element instead of trusting a silent one.
@@ -614,7 +708,7 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
         case .success(let resolved):
             // An explicit load is the user asking for the round trip, so unlike the poll it is allowed
             // to bring the window here. Writing back what was read is what performs the move.
-            switch readComposer(resolved) {
+            switch readComposerAcrossDesktops(resolved) {
             case .success(let text):
                 result = .success(text)
             case .failure(let reason):
@@ -724,18 +818,27 @@ final class AgentWindowComposerCoordinator: @unchecked Sendable {
 
     // MARK: - Writer dispatch
 
-    /// Reads the composer for a resolved target through the writer that owns its harness.
-    ///
-    /// The codex read is always free (its trees exist on every Desktop), so the claude
-    /// read-if-free / read-across-desktops split collapses to one path there.
-    private func readComposer(_ resolved: ResolvedTarget) -> Result<String, AgentWindowInputReason> {
+    /// Reads without moving another application's window. A focused Claude watch already owns its
+    /// editing lease, so its observer refresh stays on this free path with no placement churn.
+    private func readComposerIfFree(
+        _ resolved: ResolvedTarget
+    ) -> Result<String?, AgentWindowInputReason> {
         switch resolved {
         case .claude(let target):
-            switch writer.readIfFree(target) {
-            case .success(let text?): return .success(text)
-            case .success(nil): return writer.readAcrossDesktops(target)
-            case .failure(let reason): return .failure(reason)
-            }
+            return writer.readIfFree(target)
+        case .codex(let target):
+            return codexWriter.readIfFree(target).map(Optional.some)
+        }
+    }
+
+    /// Reads for an explicit user request, paying Claude's move-in/move-back cost when necessary.
+    /// Codex Desktop materializes its trees on every Desktop, so its read remains free.
+    private func readComposerAcrossDesktops(
+        _ resolved: ResolvedTarget
+    ) -> Result<String, AgentWindowInputReason> {
+        switch resolved {
+        case .claude(let target):
+            return writer.readAcrossDesktops(target)
         case .codex(let target):
             return codexWriter.readIfFree(target)
         }

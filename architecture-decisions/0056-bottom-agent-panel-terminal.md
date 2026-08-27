@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-07-13
+superseded-by: ADR-0108
 ---
 
 # Bottom Agent Panel terminal

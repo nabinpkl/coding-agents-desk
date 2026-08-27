@@ -1,152 +1,192 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { DesktopDisplayResponse } from "@agentdesk/agent-feed-wire";
-import { Hand, MousePointer2, RefreshCw } from "lucide-react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import type {
+  DesktopControlEvent,
+  WebrtcCursorEvent,
+  WebrtcTileSourceMetadata,
+} from "@agentdesk/agent-feed-wire";
+import { Hand, MousePointer2 } from "lucide-react";
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
 import type { DesktopStreamState } from "./DesktopStreamState";
-import { TileStreamRtc, type PointerInputTransport } from "./TileStreamRtc";
-import { TileViewport } from "./TileViewport";
+import {
+  postTileTelemetry,
+  TileStreamRtc,
+  type DesktopControlTransport,
+} from "./TileStreamRtc";
+import { TileViewport, type ViewportGestureTelemetry } from "./TileViewport";
+import { DesktopKeyboardChrome } from "./DesktopKeyboardChrome";
+import { useDesktopKeyboard } from "./useDesktopKeyboard";
 
-type DisplayState =
-  | { kind: "loading" }
-  | { kind: "ready"; display: DesktopDisplayResponse["display"] }
-  | { kind: "error"; message: string };
-
-function errorMessage(body: string, status: number): string {
-  try {
-    const parsed = JSON.parse(body) as { message?: unknown };
-    if (typeof parsed.message === "string" && parsed.message.trim() !== "") return parsed.message;
-  } catch {
-    // The status below is still a complete, visible failure when the body is not JSON.
-  }
-  return body.trim() || `HTTP ${status}`;
-}
-
-function validDisplay(value: unknown): value is DesktopDisplayResponse {
-  if (typeof value !== "object" || value === null) return false;
-  const display = (value as { display?: unknown }).display;
-  if (typeof display !== "object" || display === null) return false;
-  if (typeof (display as { index?: unknown }).index !== "number") return false;
-  const frame = (display as { frame?: unknown }).frame;
-  if (typeof frame !== "object" || frame === null) return false;
-  const candidate = frame as Record<"x" | "y" | "w" | "h", unknown>;
-  const coordinatesValid = [candidate.x, candidate.y, candidate.w, candidate.h].every(
-    (coordinate) => typeof coordinate === "number" && Number.isFinite(coordinate),
-  );
-  return coordinatesValid
-    && typeof candidate.w === "number"
-    && typeof candidate.h === "number"
-    && candidate.w > 0
-    && candidate.h > 0;
+export function desktopDocumentFallbackHeight(
+  viewportHeight: number,
+  screenHeight: number,
+): number | null {
+  if (viewportHeight > 0 || !Number.isFinite(screenHeight) || screenHeight <= 0) return null;
+  return Math.round(screenHeight);
 }
 
 /** The whole Mac desktop, with no window inventory or Desktop Park controls. */
 export function DesktopViewer({ transport }: { transport: AgentHttpTransport }) {
-  const [display, setDisplay] = useState<DisplayState>({ kind: "loading" });
-  const [reload, setReload] = useState(0);
+  const [source, setSource] = useState<WebrtcTileSourceMetadata | null>(null);
   const [tile, setTile] = useState<DesktopStreamState>({ kind: "connecting" });
-  const [pointerTransport, setPointerTransport] = useState<PointerInputTransport | null>(null);
+  const [controlTransport, setControlTransport] = useState<DesktopControlTransport | null>(null);
   const [pointerMode, setPointerMode] = useState(true);
+  const cursorListeners = useRef(new Set<(event: WebrtcCursorEvent) => void>());
+  const latestCursorEvents = useRef(new Map<WebrtcCursorEvent["type"], WebrtcCursorEvent>());
 
-  useEffect(() => {
-    const controller = new AbortController();
-    setDisplay({ kind: "loading" });
-    void (async () => {
-      try {
-        const response = await transport.request(
-          "GET",
-          "/api/desktop/display",
-          { signal: controller.signal },
-        );
-        if (response.status < 200 || response.status >= 300) {
-          setDisplay({ kind: "error", message: errorMessage(response.body, response.status) });
-          return;
-        }
-        const payload: unknown = JSON.parse(response.body);
-        if (!validDisplay(payload)) throw new Error("desktop display response was invalid");
-        setDisplay({ kind: "ready", display: payload.display });
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          setDisplay({
-            kind: "error",
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-    })();
-    return () => controller.abort();
-  }, [reload, transport]);
+  useLayoutEffect(() => {
+    const documentRoot = document.documentElement;
+    const previousHeight = documentRoot.style.height;
+    const applyHeight = () => {
+      const fallback = desktopDocumentFallbackHeight(window.innerHeight, window.screen.height);
+      documentRoot.style.height = fallback === null ? previousHeight : `${fallback}px`;
+    };
+    applyHeight();
+    window.addEventListener("resize", applyHeight);
+    window.addEventListener("orientationchange", applyHeight);
+    return () => {
+      window.removeEventListener("resize", applyHeight);
+      window.removeEventListener("orientationchange", applyHeight);
+      documentRoot.style.height = previousHeight;
+    };
+  }, []);
 
+  const reportKeyboardTelemetry = useCallback((event: { phase: string; detail: Record<string, unknown> }) => {
+    postTileTelemetry("display", {
+      attempt: crypto.randomUUID(),
+      phase: event.phase,
+      detail: JSON.stringify(event.detail),
+      elapsedMs: 0,
+    }, transport);
+  }, [transport]);
+  const compatibleControlTransport = source?.desktopControlVersion === 2 ? controlTransport : null;
+  const keyboard = useDesktopKeyboard({
+    transport: compatibleControlTransport,
+    report: reportKeyboardTelemetry,
+  });
   const sendPointerInput = useCallback(
-    (input: Parameters<PointerInputTransport["send"]>[0]) => pointerTransport?.send(input) ?? false,
-    [pointerTransport],
+    (input: Parameters<DesktopControlTransport["send"]>[0]) => (
+      source !== null && keyboard.sendControl(input)
+    ),
+    [keyboard.sendControl, source],
+  );
+  const publishControlEvent = useCallback((event: DesktopControlEvent) => {
+    if (
+      event.type === "cursor-applied"
+      || event.type === "cursor-image"
+      || event.type === "cursor-position"
+    ) {
+      if (event.type !== "cursor-applied") latestCursorEvents.current.set(event.type, event);
+      for (const listener of cursorListeners.current) listener(event);
+    }
+    keyboard.handleControlEvent(event);
+  }, [keyboard.handleControlEvent]);
+  const subscribeCursorEvents = useCallback((listener: (event: WebrtcCursorEvent) => void) => {
+    cursorListeners.current.add(listener);
+    for (const event of latestCursorEvents.current.values()) listener(event);
+    return () => cursorListeners.current.delete(listener);
+  }, []);
+  const applySourceMetadata = useCallback((metadata: WebrtcTileSourceMetadata) => {
+    setSource((current) => {
+      if (
+        current
+        && current.width === metadata.width
+        && current.height === metadata.height
+      ) return current;
+      latestCursorEvents.current.clear();
+      return metadata;
+    });
+  }, []);
+  const reportGestureTelemetry = useCallback(
+    (event: ViewportGestureTelemetry) => {
+      postTileTelemetry("display", {
+        attempt: event.gestureId,
+        phase: event.phase,
+        detail: JSON.stringify(event.detail),
+        elapsedMs: event.elapsedMs,
+      }, transport);
+    },
+    [transport],
   );
 
-  if (display.kind !== "ready") {
-    return (
-      <main className="grid h-full place-items-center bg-black px-6 text-center text-white">
-        <div className="space-y-3">
-          <p className="font-mono text-xs text-white/70">
-            {display.kind === "loading" ? "connecting to desktop…" : display.message}
-          </p>
-          {display.kind === "error" ? (
-            <button
-              type="button"
-              onClick={() => setReload((value) => value + 1)}
-              className="mx-auto flex items-center gap-1.5 rounded-md bg-white/10 px-3 py-1.5 text-xs
-                text-white transition-colors hover:bg-white/15 active:bg-white/20
-                focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-            >
-              <RefreshCw className="size-3.5" aria-hidden />
-              Retry
-            </button>
-          ) : null}
-        </div>
-      </main>
-    );
-  }
-
-  const { frame } = display.display;
-  const pointerReady = pointerTransport !== null && tile.kind === "playing";
+  const controlMismatch = source !== null && source.desktopControlVersion !== 2;
+  const pointerReady = !controlMismatch
+    && source !== null
+    && compatibleControlTransport !== null
+    && tile.kind === "playing";
   return (
     <main className="relative h-full overflow-hidden bg-black text-white">
       <TileViewport
         className="size-full"
-        pointerMode={pointerMode}
+        pointerMode={pointerMode && source !== null}
         sendPointerInput={sendPointerInput}
+        keyboardPresented={keyboard.keyboardPresented}
+        onPointerGestureStart={keyboard.consumePointerGesture}
+        onBeforeRemoteClick={keyboard.beforeRemoteClick}
+        onGestureTelemetry={reportGestureTelemetry}
+        sourceWidth={source?.width}
+        sourceHeight={source?.height}
+        initialCursor={source?.cursor}
+        subscribeCursorEvents={subscribeCursorEvents}
       >
         <TileStreamRtc
           windowID="display"
-          width={frame.w}
-          height={frame.h}
           fill
           httpTransport={transport}
           onState={setTile}
-          onPointerTransport={setPointerTransport}
+          onControlTransport={setControlTransport}
+          onControlEvent={publishControlEvent}
+          onSourceMetadata={applySourceMetadata}
         />
       </TileViewport>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between
+      <div className={`pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between
         gap-3 bg-gradient-to-t from-black/65 to-transparent px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]
-        pt-10">
-        <p className="min-w-0 truncate font-mono text-[10px] text-white/70">
-          {tile.kind === "playing" ? `${frame.w}×${frame.h} · ${tile.codec}` : tile.kind}
-        </p>
+        pt-10 ${keyboard.keyboardPresented ? "bg-none" : ""}`}>
+        {!keyboard.keyboardPresented ? (
+          <p className="min-w-0 truncate font-mono text-[10px] text-white/70">
+            {tile.kind === "playing" && source
+              ? `${source.width}×${source.height} · ${tile.codec}`
+              : tile.kind}
+          </p>
+        ) : <span />}
         <div className="pointer-events-auto flex shrink-0 rounded-lg bg-black/60 p-1 backdrop-blur">
-          <ModeButton
-            active={!pointerMode}
-            label="View"
-            icon={<Hand className="size-3.5" aria-hidden />}
-            onClick={() => setPointerMode(false)}
+          <DesktopKeyboardChrome
+            captureRef={keyboard.captureRef}
+            captureProps={keyboard.captureProps}
+            shown={keyboard.keyboardPresented}
+            available={compatibleControlTransport !== null}
+            autoKeyboard={keyboard.autoKeyboard}
+            modifiers={keyboard.modifiers}
+            receipt={keyboard.receipt}
+            deliveryStatus={keyboard.deliveryStatus}
+            bottom={keyboard.accessoryBottom}
+            onShow={keyboard.showManually}
+            onHide={keyboard.hide}
+            onAutoChange={keyboard.setAutoKeyboard}
+            onKey={keyboard.sendChromeKey}
+            onModifier={keyboard.tapModifier}
           />
-          <ModeButton
-            active={pointerMode}
-            disabled={!pointerReady}
-            label={pointerReady ? "Pointer" : "Input connecting"}
-            icon={<MousePointer2 className="size-3.5" aria-hidden />}
-            onClick={() => setPointerMode(true)}
-          />
+          {!keyboard.keyboardPresented ? (
+            <>
+              <ModeButton
+                active={!pointerMode}
+                label="View"
+                icon={<Hand className="size-3.5" aria-hidden />}
+                onClick={() => setPointerMode(false)}
+              />
+              <ModeButton
+                active={pointerMode}
+                disabled={!pointerReady}
+                label={controlMismatch
+                  ? `Control v${source.desktopControlVersion || "unknown"} unsupported`
+                  : pointerReady ? "Pointer" : "Input connecting"}
+                icon={<MousePointer2 className="size-3.5" aria-hidden />}
+                onClick={() => setPointerMode(true)}
+              />
+            </>
+          ) : null}
         </div>
       </div>
     </main>

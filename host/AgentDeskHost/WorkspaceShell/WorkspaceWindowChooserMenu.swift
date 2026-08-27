@@ -1,7 +1,8 @@
 import AppKit
 
 /// The dropdown beside a "＋" chip: every open window of that family, each of which can be gone to or
-/// closed. One menu serves every family, because a list of windows is the same list whichever it is.
+/// closed. The Agents menu additionally starts with the external `New Codex Window` command. One menu
+/// still serves every family because the window rows and empty state are the same whichever it is.
 ///
 /// Built fresh each time it is opened, from a list asked for at that moment. A menu that cached its
 /// rows would offer to close a window that had since closed itself, and would omit one opened since.
@@ -25,6 +26,7 @@ enum WorkspaceWindowChooserMenu {
     static func make(
         kind: WorkspaceWindowKind,
         windows: [WorkspaceWindowSummary],
+        openCodexWindow: (() -> Void)? = nil,
         focus: @escaping (UUID) -> Void,
         close: @escaping (UUID) -> Void
     ) -> NSMenu {
@@ -33,6 +35,22 @@ enum WorkspaceWindowChooserMenu {
         // Rows are custom views, and AppKit would otherwise reserve the leading gutter every view
         // has to indent past for a state column none of them use.
         menu.autoenablesItems = false
+
+        if kind == .agents, let openCodexWindow {
+            let target = WorkspaceWindowChooserCommandTarget(action: openCodexWindow)
+            let item = NSMenuItem(
+                title: "New Codex Window",
+                action: #selector(WorkspaceWindowChooserCommandTarget.performAction),
+                keyEquivalent: ""
+            )
+            item.target = target
+            // NSMenuItem does not retain its target. The represented object owns the target for exactly
+            // as long as this freshly-built menu owns the item.
+            item.representedObject = target
+            item.setAccessibilityIdentifier("agents-window-chooser-new-codex")
+            menu.addItem(item)
+            menu.addItem(.separator())
+        }
 
         guard !windows.isEmpty else {
             let empty = NSMenuItem(title: "No \(kind.label) windows open", action: nil, keyEquivalent: "")
@@ -51,6 +69,16 @@ enum WorkspaceWindowChooserMenu {
         }
         return menu
     }
+}
+
+private final class WorkspaceWindowChooserCommandTarget: NSObject {
+    private let action: () -> Void
+
+    init(action: @escaping () -> Void) {
+        self.action = action
+    }
+
+    @objc func performAction() { action() }
 }
 
 /// One row: the window's name, which goes to it, and the button that closes it.

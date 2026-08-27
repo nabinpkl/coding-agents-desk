@@ -6,35 +6,7 @@
 // unit packet, a bigger one is fragmented as FU-A. werift owns everything with
 // judgment in it (SRTP, sequence numbers on the wire, feedback, connectivity).
 
-/** Split an Annex-B buffer (3- or 4-byte start codes) into bare NALUs. */
-export function splitAnnexB(accessUnit: Uint8Array): Uint8Array[] {
-  const units: Uint8Array[] = [];
-  const starts: number[] = [];
-  for (let i = 0; i + 3 <= accessUnit.length; i += 1) {
-    if (accessUnit[i] === 0 && accessUnit[i + 1] === 0) {
-      if (accessUnit[i + 2] === 1) {
-        starts.push(i + 3);
-        i += 2;
-      } else if (accessUnit[i + 2] === 0 && accessUnit[i + 3] === 1) {
-        starts.push(i + 4);
-        i += 3;
-      }
-    }
-  }
-  for (let s = 0; s < starts.length; s += 1) {
-    const from = starts[s]!;
-    // The next start code begins 3 or 4 bytes before the next NALU start.
-    let to = accessUnit.length;
-    if (s + 1 < starts.length) {
-      const nextStart = starts[s + 1]!;
-      to = accessUnit[nextStart - 4] === 0 && accessUnit[nextStart - 3] === 0 && accessUnit[nextStart - 2] === 0
-        ? nextStart - 4
-        : nextStart - 3;
-    }
-    if (to > from) units.push(accessUnit.subarray(from, to));
-  }
-  return units;
-}
+import { splitAnnexB } from "./annexB.ts";
 
 export interface H264Payload {
   payload: Uint8Array;
@@ -47,6 +19,9 @@ export interface H264Payload {
  * UDP overhead inside a 1500 MTU.
  */
 export function packetizeH264(accessUnit: Uint8Array, maxPayload = 1200): H264Payload[] {
+  if (!Number.isInteger(maxPayload) || maxPayload < 3) {
+    throw new RangeError("H.264 RTP payload ceiling must be an integer of at least 3 bytes");
+  }
   const payloads: H264Payload[] = [];
   const units = splitAnnexB(accessUnit);
   for (const nalu of units) {

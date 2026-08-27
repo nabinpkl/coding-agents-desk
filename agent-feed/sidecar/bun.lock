@@ -8,6 +8,7 @@
         "@earendil-works/pi-ai": "0.83.0",
         "@earendil-works/pi-coding-agent": "0.83.0",
         "chokidar": "^5.0.0",
+        "protobufjs": "7.6.5",
         "werift": "^0.24.4",
       },
       "devDependencies": {
@@ -15,6 +16,9 @@
         "typescript": "^5",
       },
     },
+  },
+  "patchedDependencies": {
+    "werift@0.24.4": "patches/werift@0.24.4.patch",
   },
   "packages": {
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.91.1", "", { "dependencies": { "json-schema-to-ts": "^3.1.1" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw=="],

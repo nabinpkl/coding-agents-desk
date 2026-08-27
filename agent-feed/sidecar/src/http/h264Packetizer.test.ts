@@ -1,35 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { packetizeH264, splitAnnexB } from "./h264Packetizer.ts";
+import { packetizeH264 } from "./h264Packetizer.ts";
 
 function annexB(...units: number[][]): Uint8Array {
   const parts: number[] = [];
   for (const unit of units) parts.push(0, 0, 0, 1, ...unit);
   return new Uint8Array(parts);
 }
-
-describe("splitAnnexB", () => {
-  test("splits four-byte start codes into bare NALUs", () => {
-    const units = splitAnnexB(annexB([0x67, 1, 2], [0x68, 3], [0x65, 4, 5, 6]));
-    expect(units.map((u) => [...u])).toEqual([
-      [0x67, 1, 2],
-      [0x68, 3],
-      [0x65, 4, 5, 6],
-    ]);
-  });
-
-  test("handles three-byte start codes mixed in", () => {
-    const data = new Uint8Array([0, 0, 1, 0x67, 9, 0, 0, 0, 1, 0x65, 7]);
-    const units = splitAnnexB(data);
-    expect(units.map((u) => [...u])).toEqual([
-      [0x67, 9],
-      [0x65, 7],
-    ]);
-  });
-
-  test("returns nothing for a buffer with no start code", () => {
-    expect(splitAnnexB(new Uint8Array([1, 2, 3]))).toEqual([]);
-  });
-});
 
 describe("packetizeH264", () => {
   test("a small NALU ships whole, and the AU's final packet carries the marker", () => {
@@ -63,5 +39,9 @@ describe("packetizeH264", () => {
     for (const { payload } of packetizeH264(annexB(big), 1200)) {
       expect(payload.length).toBeLessThanOrEqual(1200);
     }
+  });
+
+  test("rejects a payload ceiling that cannot carry an FU-A byte", () => {
+    expect(() => packetizeH264(annexB([0x65, 1, 2]), 2)).toThrow(RangeError);
   });
 });

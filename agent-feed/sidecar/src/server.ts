@@ -7,8 +7,8 @@ import {
 } from "./http/httpResponses.ts";
 import { authorizeApiRequest } from "./http/auth.ts";
 import { createAgentRoutes } from "./http/agentRoutes.ts";
+import { createBotRoutes } from "./http/botRoutes.ts";
 import { createCliInputRoutes } from "./http/cliInputRoutes.ts";
-import { createDesktopDisplayRoutes } from "./http/desktopDisplayRoutes.ts";
 import { createInventoryRoutes } from "./http/inventoryRoutes.ts";
 import { createParkRoutes } from "./http/parkRoutes.ts";
 import { createTileRoutes } from "./http/tileRoutes.ts";
@@ -17,6 +17,7 @@ import type { RouteHandler } from "./http/route.ts";
 import { createSessionRoutes } from "./http/sessionRoutes.ts";
 import { createSummaryRoutes } from "./http/summaryRoutes.ts";
 import { createTaskRoutes } from "./http/taskRoutes.ts";
+import { createAgentTerminalRoutes } from "./http/agentTerminalRoutes.ts";
 import { createTimelineRoutes } from "./http/timelineRoutes.ts";
 import { createUsageRoutes } from "./http/usageRoutes.ts";
 import { detectUsageVendors } from "./usage/usageReport.ts";
@@ -24,6 +25,9 @@ import { state } from "./transcripts/transcriptState.ts";
 import {
   getSnapshot,
   getWatcherState,
+  findSession,
+  summarizeSession,
+  subscribeCatalog,
   startCatalog,
   stopCatalog,
   registerPiSession,
@@ -34,6 +38,10 @@ import { AgentBackendRegistry } from "./agents/agentBackend.ts";
 import { PiAgentBackend } from "./agents/piAgentBackend.ts";
 import { ClaudeLiveBackend } from "./live/claudeLiveBackend.ts";
 import { CodexLiveBackend } from "./live/codexLiveBackend.ts";
+import { BotStore } from "./bots/botStore.ts";
+import { BotRegistry } from "./bots/botRegistry.ts";
+import { createAddBotTool } from "./bots/addBotTool.ts";
+import { AgentTerminalService } from "./terminal/agentTerminalService.ts";
 
 // Pi normally lazy-loads OAuth providers from sibling files. A standalone Bun
 // executable has no such files beside it, so use Pi's static loader registry to
@@ -41,10 +49,45 @@ import { CodexLiveBackend } from "./live/codexLiveBackend.ts";
 registerBunOAuthFlows();
 
 const backends = new AgentBackendRegistry();
+const resolveBackend = (id: string) => backends.get(id);
+const describeAgentSession = (source: string, sessionId: string) =>
+  backends.get(source)?.describeSession(sessionId);
+const botStore = new BotStore(config.botsPath);
+const botRegistry = new BotRegistry(botStore, {
+  resolveProject(path) {
+    return getSnapshot().some((session) => session.project === path)
+      ? { projectPath: path }
+      : undefined;
+  },
+  resolveSession(ref) {
+    const session = findSession(ref.source, ref.sessionId);
+    return session
+      ? { projectPath: session.project, summary: summarizeSession(session, describeAgentSession) }
+      : undefined;
+  },
+  subscribe(listener) {
+    return subscribeCatalog(() => listener());
+  },
+});
+const agentTerminals = new AgentTerminalService(
+  config.ptyManagerSocketPath,
+  (source, sessionId) => {
+    const session = findSession(source, sessionId);
+    if (!session) return undefined;
+    return {
+      projectPath: session.project,
+      activity: summarizeSession(session, describeAgentSession).activity,
+    };
+  },
+);
 backends.register(new PiAgentBackend({
   resolveSession: resolvePiSession,
   onSessionCreated: registerPiSession,
   onSessionChanged: notifyPiSessionChanged,
+  customToolsForSession: async ({ source, sessionId }) =>
+    await botRegistry.botAllowedToAdd({ source, sessionId })
+      ? [createAddBotTool(botRegistry, { source, sessionId })]
+      : [],
 }));
 // Read-only live mirror of Claude Code traffic observed through proxy-agent.
 // Registered unconditionally so its routes answer with a precise "unknown
@@ -56,11 +99,10 @@ backends.register(claudeLive);
 // with the same registration contract as the claude live mirror.
 const codexLive = new CodexLiveBackend();
 backends.register(codexLive);
-const resolveBackend = (id: string) => backends.get(id);
-const describeAgentSession = (source: string, sessionId: string) =>
-  backends.get(source)?.describeSession(sessionId);
 const routes: RouteHandler[] = [
   createInventoryRoutes(describeAgentSession),
+  createBotRoutes(botRegistry),
+  createAgentTerminalRoutes(agentTerminals),
   createAgentRoutes(resolveBackend),
   // Ahead of the session routes so `/timeline` is matched before their
   // catch-all rejection of unknown `/api/sessions/` paths.
@@ -75,8 +117,6 @@ const routes: RouteHandler[] = [
   // Not under `/api/sessions/` at all -- usage is a fact about the machine -- so its position
   // here is only for readability.
   createUsageRoutes(),
-  // Same: a Desktop belongs to the machine, not to a thread.
-  createDesktopDisplayRoutes(),
   createParkRoutes(),
   createTileRoutes(),
   createWebrtcTileRoutes(),
@@ -165,6 +205,7 @@ async function shutdown(signal: string): Promise<void> {
   await Bun.sleep(SHUTDOWN_GRACE_MS);
   for (const stream of [...state.openStreams]) stream.teardown();
   await stopCatalog();
+  agentTerminals.stop();
   try {
     await backends.dispose();
   } catch (error) {

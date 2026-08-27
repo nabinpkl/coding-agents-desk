@@ -63,6 +63,7 @@ struct AgentWindowComposerCoordinatorTests {
         private let lock = NSLock()
         private var _writes: [String] = []
         private var _reads = 0
+        private var _moves: [(UInt32, UInt64)] = []
         var composerText = "existing draft"
         var readError: AgentWindowInputReason?
         var questionState = AgentWindowQuestionState(
@@ -83,6 +84,12 @@ struct AgentWindowComposerCoordinatorTests {
             lock.lock()
             defer { lock.unlock() }
             return _reads
+        }
+
+        var moves: [(UInt32, UInt64)] {
+            lock.lock()
+            defer { lock.unlock() }
+            return _moves
         }
 
         func frontmostApplicationPID() -> pid_t? { 100 }
@@ -199,7 +206,11 @@ struct AgentWindowComposerCoordinatorTests {
             if let error { throw error }
         }
 
-        func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {}
+        func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {
+            lock.lock()
+            _moves.append((windowID, targetSpaceID))
+            lock.unlock()
+        }
     }
 
     /// The Codex Desktop side of the same seams: a writer access plus the state/summary readers the
@@ -479,6 +490,96 @@ struct AgentWindowComposerCoordinatorTests {
         #expect(!status.enabled)
         #expect(status.reason == AgentWindowInputReason.terminalOnly.rawValue)
         #expect(status.composerText == nil)
+    }
+
+    @Test func anOffDesktopWatchLeasesTheWindowAndSyncsWithoutAnotherMove() async throws {
+        let access = Access()
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer, windowSpaceID: 4)
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+
+        coordinator.handle(
+            .windowInputWatch(subscriptionId: "sub-mac", sessionId: session),
+            from: "mac"
+        )
+
+        let status = try decodeStatus(await mac.wait(count: 1)[0])
+        #expect(status.enabled)
+        #expect(status.onActiveDesktop)
+        #expect(status.composerText == "existing draft")
+        #expect(access.moves.map { "\($0.0):\($0.1)" } == ["42:1"])
+
+        coordinator.handle(
+            .windowInputSync(requestId: "sync-lease", sessionId: session, text: "live draft"),
+            from: "mac"
+        )
+        let result = try decodeResult(await mac.wait(count: 2)[1])
+        #expect(result.ok)
+        #expect(access.writes == ["live draft"])
+        // The focused watch owns the window placement, so a keystroke sync does not round-trip it.
+        #expect(access.moves.map { "\($0.0):\($0.1)" } == ["42:1"])
+
+        coordinator.handle(.windowInputUnwatch(subscriptionId: "sub-mac"), from: "mac")
+        coordinator.handle(
+            .windowInputWatch(subscriptionId: "barrier", sessionId: terminalSession),
+            from: "mac"
+        )
+        _ = await mac.wait(count: 3)
+        #expect(access.moves.map { "\($0.0):\($0.1)" } == ["42:1", "42:4"])
+    }
+
+    @Test func aSharedEditingLeaseReturnsOnlyAfterTheLastWatcherLeaves() async throws {
+        let access = Access()
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer, windowSpaceID: 4)
+        let mac = Sink()
+        let phone = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+        coordinator.attachSink("phone", emit: phone.emit)
+
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-mac", sessionId: session), from: "mac")
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-phone", sessionId: session), from: "phone")
+        _ = await mac.wait(count: 1)
+        _ = await phone.wait(count: 1)
+        #expect(access.moves.map { "\($0.0):\($0.1)" } == ["42:1"])
+
+        coordinator.handle(.windowInputUnwatch(subscriptionId: "sub-mac"), from: "mac")
+        coordinator.handle(
+            .windowInputSync(requestId: "phone-barrier", sessionId: session, text: "still focused"),
+            from: "phone"
+        )
+        _ = await phone.wait(count: 2)
+        #expect(access.moves.map { "\($0.0):\($0.1)" } == ["42:1"])
+
+        coordinator.handle(.windowInputUnwatch(subscriptionId: "sub-phone"), from: "phone")
+        coordinator.handle(
+            .windowInputWatch(subscriptionId: "barrier", sessionId: terminalSession),
+            from: "mac"
+        )
+        _ = await mac.wait(count: 2)
+        #expect(access.moves.map { "\($0.0):\($0.1)" } == ["42:1", "42:4"])
+    }
+
+    @Test func detachingTheLastWatcherReturnsItsEditingLease() async throws {
+        let access = Access()
+        let observer = FakeValueObserver()
+        let coordinator = makeCoordinator(access: access, observer: observer, windowSpaceID: 4)
+        let phone = Sink()
+        coordinator.attachSink("phone", emit: phone.emit)
+        coordinator.handle(.windowInputWatch(subscriptionId: "sub-phone", sessionId: session), from: "phone")
+        _ = await phone.wait(count: 1)
+        #expect(access.moves.map { "\($0.0):\($0.1)" } == ["42:1"])
+
+        coordinator.detachSink("phone")
+        let mac = Sink()
+        coordinator.attachSink("mac", emit: mac.emit)
+        coordinator.handle(
+            .windowInputWatch(subscriptionId: "barrier", sessionId: terminalSession),
+            from: "mac"
+        )
+        _ = await mac.wait(count: 1)
+        #expect(access.moves.map { "\($0.0):\($0.1)" } == ["42:1", "42:4"])
     }
 
     @Test func aWriteAnswersItsRequesterAndRefreshesEveryOtherWatcherOfTheSameSession() async throws {

@@ -18,10 +18,9 @@ enum WorkspaceWindowSpaceMoveError: Error, Equatable, CustomStringConvertible {
 
 /// Which Desktops a window currently belongs to, straight from SkyLight.
 ///
-/// Split from moving because reading membership is universal while moving is not: SkyLight can report
-/// any window's Desktop, but it can only MOVE windows this host's connection owns. A third-party
-/// window is moved by `YabaiWindowSpaceMover`, which verifies through this same reader so the answer
-/// agrees with the desktop audit.
+/// Split from moving because reading membership is universal while the operation used to move an
+/// app-owned window differs from the bridged operation for a third-party WindowServer id. Both verify
+/// through this reader so the answer agrees with the desktop audit.
 protocol WindowSpaceMembershipReading: Sendable {
     func spaceIDs(for windowID: UInt32) throws -> [UInt64]
 }

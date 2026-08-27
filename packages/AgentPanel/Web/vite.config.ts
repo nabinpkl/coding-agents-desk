@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
@@ -35,6 +36,13 @@ const https =
   tlsCertificate && tlsKey
     ? { cert: readFileSync(tlsCertificate), key: readFileSync(tlsKey) }
     : undefined;
+const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
+const xtermPackage = fileURLToPath(
+  new URL("../../../terminal/vendor/xterm/package", import.meta.url),
+);
+const agentFeedWire = fileURLToPath(
+  new URL("../../../agent-feed/wire/index.ts", import.meta.url),
+);
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -43,10 +51,17 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
   },
+  resolve: {
+    alias: {
+      "@agentdesk/agent-feed-wire": agentFeedWire,
+      "@xterm/xterm": xtermPackage,
+    },
+  },
   server: {
     // Bound to every interface rather than loopback only, so the Mac host's webview, the phone
     // over the tailnet, and an ordinary browser all reach the same server.
     host: true,
+    fs: { allow: [repositoryRoot] },
     https,
     // Only matters when this server is run by hand without a certificate. Vite's host check exists
     // to stop DNS rebinding, and it installs the middleware only when `https` is unset -- a

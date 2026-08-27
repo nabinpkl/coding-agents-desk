@@ -12,19 +12,157 @@ export interface ViewportTransform {
   ty: number;
 }
 
+export interface ViewportPoint {
+  x: number;
+  y: number;
+}
+
 export const MIN_SCALE = 1;
 export const MAX_SCALE = 8;
+const SCALE_EPSILON = 1e-9;
 
 export const IDENTITY: ViewportTransform = { scale: 1, tx: 0, ty: 0 };
+
+function aspectFitPicture(
+  sourceWidth: number,
+  sourceHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+) {
+  if (
+    sourceWidth <= 0
+    || sourceHeight <= 0
+    || viewportWidth <= 0
+    || viewportHeight <= 0
+  ) return null;
+  const fit = Math.min(viewportWidth / sourceWidth, viewportHeight / sourceHeight);
+  const width = sourceWidth * fit;
+  const height = sourceHeight * fit;
+  return {
+    x: (viewportWidth - width) / 2,
+    y: (viewportHeight - height) / 2,
+    width,
+    height,
+  };
+}
 
 /** Matches GestureTranslator's default relative pointer acceleration. */
 export function pointerAccelerationGain(speed: number): number {
   return 1.5 + Math.min(Math.max(0, speed) * 0.005, 8.5);
 }
 
-/** Matches GestureTranslator's default two-finger scroll acceleration. */
+/** Matches GestureTranslator's free-axis scroll acceleration curve. */
 export function scrollAccelerationGain(speed: number): number {
   return 1 + Math.min(Math.max(0, speed) * 0.0045, 11);
+}
+
+/** Mirrors the native current + delta + display-bounds clamp. */
+export function advanceRemoteCursor(
+  current: ViewportPoint,
+  dx: number,
+  dy: number,
+  sourceWidth: number,
+  sourceHeight: number,
+): ViewportPoint {
+  return {
+    x: Math.min(Math.max(0, current.x + dx), Math.max(0, sourceWidth - 1)),
+    y: Math.min(Math.max(0, current.y + dy), Math.max(0, sourceHeight - 1)),
+  };
+}
+
+/** Projects a source-display cursor into the transformed viewport. */
+export function projectRemoteCursor(
+  transform: ViewportTransform,
+  cursor: ViewportPoint,
+  sourceWidth: number,
+  sourceHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): ViewportPoint | null {
+  const picture = aspectFitPicture(
+    sourceWidth,
+    sourceHeight,
+    viewportWidth,
+    viewportHeight,
+  );
+  if (!picture) return null;
+  return {
+    x: (picture.x + cursor.x * (picture.width / sourceWidth)) * transform.scale + transform.tx,
+    y: (picture.y + cursor.y * (picture.height / sourceHeight)) * transform.scale + transform.ty,
+  };
+}
+
+/**
+ * Native-style cursor edge-follow for an aspect-fit desktop picture.
+ *
+ * The cursor lives in source-display points and the CSS transform lives in
+ * viewport pixels. Project through the aspect-fit picture, keep the cursor in
+ * the inner safe band, and clamp only axes where zoom leaves more video to
+ * reveal. Scale is copied through unchanged.
+ */
+export function followRemoteCursor(
+  transform: ViewportTransform,
+  cursor: ViewportPoint,
+  sourceWidth: number,
+  sourceHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  edgeMargin = 0.12,
+): ViewportTransform {
+  if (transform.scale <= 1) return transform;
+  const picture = aspectFitPicture(
+    sourceWidth,
+    sourceHeight,
+    viewportWidth,
+    viewportHeight,
+  );
+  if (!picture) return transform;
+
+  const followAxis = (
+    sourcePosition: number,
+    sourceExtent: number,
+    pictureNear: number,
+    pictureExtent: number,
+    viewportExtent: number,
+    translation: number,
+  ) => {
+    const scaledExtent = pictureExtent * transform.scale;
+    if (scaledExtent <= viewportExtent) return translation;
+
+    const cursorContent = pictureNear + sourcePosition * (pictureExtent / sourceExtent);
+    const cursorViewport = cursorContent * transform.scale + translation;
+    const margin = viewportExtent * edgeMargin;
+    let next = translation;
+    if (cursorViewport < margin) {
+      next += margin - cursorViewport;
+    } else if (cursorViewport > viewportExtent - margin) {
+      next -= cursorViewport - (viewportExtent - margin);
+    }
+
+    const maximum = -pictureNear * transform.scale;
+    const minimum = viewportExtent - scaledExtent - pictureNear * transform.scale;
+    return Math.min(maximum, Math.max(minimum, next));
+  };
+
+  return {
+    scale: transform.scale,
+    tx: followAxis(
+      cursor.x,
+      sourceWidth,
+      picture.x,
+      picture.width,
+      viewportWidth,
+      transform.tx,
+    ),
+    ty: followAxis(
+      cursor.y,
+      sourceHeight,
+      picture.y,
+      picture.height,
+      viewportHeight,
+      transform.ty,
+    ),
+  };
 }
 
 /** Pan so no edge of the content pulls inside the viewport. */
@@ -52,7 +190,7 @@ export function zoomAt(
   viewportHeight: number,
 ): ViewportTransform {
   const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, transform.scale * factor));
-  if (scale === 1) return IDENTITY;
+  if (scale <= MIN_SCALE + SCALE_EPSILON) return IDENTITY;
   // The content point under (cx, cy) stays under (cx, cy).
   const contentX = (cx - transform.tx) / transform.scale;
   const contentY = (cy - transform.ty) / transform.scale;

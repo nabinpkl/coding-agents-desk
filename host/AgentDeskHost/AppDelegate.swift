@@ -187,14 +187,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var agentWindowComposerCoordinator = AgentWindowComposerCoordinator(
         writer: AgentWindowComposerWriter(
             access: AgentWindowComposerAccess(),
-            placement: YabaiWindowSpaceMover()
+            placement: BridgedWindowSpaceMover()
         ),
         // Codex Desktop sessions resolve through the same coordinator: one access instance serves both
         // the window-identity scans and the composer writes, so the summary a session resolved to and
         // the window a write targets are always the same AX scan.
         codexWriter: CodexWindowComposerWriter(
             access: codexWindowComposerAccess,
-            placement: YabaiWindowSpaceMover()
+            placement: BridgedWindowSpaceMover()
         ),
         codexSummaries: codexWindowComposerAccess,
         audit: HostWorkspaceDesktopAudit()
@@ -756,6 +756,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .agents: agentWindows?.closeWindow(id: id)
             case .ide: ideWindows?.closeWindow(id: id)
             case .terminal: terminalWindows?.closeWindow(id: id)
+            }
+        }
+
+        let codexWindowLauncher = CodexWindowLauncher()
+        presenter.onOpenCodexWindow = { [weak presenter] desktop in
+            codexWindowLauncher.open(on: desktop) { [weak presenter] result in
+                if case .failure(let error) = result {
+                    presenter?.presentCodexWindowLaunchFailure(error)
+                }
             }
         }
 

@@ -334,6 +334,34 @@ export const config = {
       || join(userHomeDirectory, "Library", "Caches", "agentdesk-agent-feed", "usage.json"),
   ),
 
+  // The curated Bot roster. Shared by stable and dev sidecars because it names machine-level
+  // projects and provider sessions, not one host process's ephemeral runtime. The file itself is
+  // the authority; project directories deliberately receive no mirrored bot metadata.
+  botsPath: resolve(
+    process.env.AGENT_FEED_BOTS_PATH?.trim()
+      || join(
+        userHomeDirectory,
+        "Library",
+        "Application Support",
+        "agentdesk-agent-feed",
+        "bots.json",
+      ),
+  ),
+
+  // The sidecar speaks the pty-manager protocol directly for Agent Feed terminals. The host
+  // launch recipes override this for the dev tier; the stable path is the from-source default
+  // so an already-running live sidecar can pick the feature up without a host rebuild.
+  ptyManagerSocketPath: resolve(
+    process.env.AGENT_FEED_PTY_MANAGER_SOCKET?.trim()
+      || join(
+        userHomeDirectory,
+        "Library",
+        "Application Support",
+        "com.example.agentdesk.AgentDeskHost",
+        "pty-manager.sock",
+      ),
+  ),
+
   // Desktop park. A window renders only while it is on the active Space and not
   // completely covered, so showing many windows at once means bringing them all
   // to one Desktop and leaving a strip of each one uncovered. Geometry and
@@ -360,6 +388,16 @@ export const config = {
   // for a bundled sidecar whose source layout is gone.
   gridEncoderPath: process.env.AGENT_FEED_GRID_ENCODER_PATH?.trim()
     || resolve(import.meta.dir, "../../../.build/grid-encoder"),
+  // Werift's stock sender retains only 128 RTP packets for NACK repair. LTE traces showed
+  // requests continuing after that ring had been overwritten, so the repository patch makes
+  // the history an explicit peer option and this central knob raises it to roughly 6 seconds
+  // at the measured high-motion packet rate. The RTP sequence space is the hard upper bound.
+  webrtcRtpHistoryPackets: integerEnvironment(
+    "AGENT_FEED_WEBRTC_RTP_HISTORY_PACKETS",
+    1024,
+    1,
+    65_536,
+  ),
   // Durable state, not a cache: it is the only record of where each parked
   // window came from, so losing it makes the park a one-way trip.
   parkManifestPath: resolve(

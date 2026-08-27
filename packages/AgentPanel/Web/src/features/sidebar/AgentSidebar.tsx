@@ -9,17 +9,24 @@ import {
   useId,
   useRef,
   useState,
+  type KeyboardEvent,
   type RefObject,
 } from "react";
-import type { ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type { BotView, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
 import { ProfileRow } from "../profile/ProfileRow";
+import { BotSidebarPanel } from "../bots/BotSidebarPanel";
 import type { DesktopParkHandle } from "../desktop-park/useDesktopPark";
 import type { UsageHandle } from "../usage/useUsage";
+import { SourceBadge } from "./SourceBadge";
 
 const INITIAL_SESSION_COUNT = 3;
 const SESSION_BATCH_SIZE = 10;
 
+export type AgentSidebarMode = "sessions" | "bots";
+
 interface AgentSidebarProps {
+  mode: AgentSidebarMode;
+  onModeChange: (mode: AgentSidebarMode) => void;
   projects: ProjectSummary[];
   /**
    * Sessions for every expanded project, or no entry for one whose list has not
@@ -42,6 +49,13 @@ interface AgentSidebarProps {
   onToggleProject: (projectPath: string) => void;
   onSelectSession: (project: ProjectSummary, session: SessionSummary) => void;
   onCreatePiSession: (project: ProjectSummary) => void;
+  bots: BotView[];
+  botsLoading: boolean;
+  botsError: string | null;
+  selectedBotId: string | null;
+  onSelectBotSession: (bot: BotView, session: SessionSummary) => void;
+  onAddBotSession: (bot: BotView) => void;
+  onAddBot: () => void;
   onClose?: () => void;
   ownsWindowTitlebar?: boolean;
   /** Drives the Profile section's Usage entry. Owned by the app, so all three sidebar mounts
@@ -51,23 +65,82 @@ interface AgentSidebarProps {
 }
 
 export function AgentSidebar(props: AgentSidebarProps) {
+  const sessionsTabId = useId();
+  const sessionsPanelId = useId();
+  const botsTabId = useId();
+  const botsPanelId = useId();
+  const sessionsTabRef = useRef<HTMLButtonElement>(null);
+  const botsTabRef = useRef<HTMLButtonElement>(null);
+
+  const selectMode = (mode: AgentSidebarMode, focus = false) => {
+    props.onModeChange(mode);
+    if (focus) {
+      const target = mode === "sessions" ? sessionsTabRef : botsTabRef;
+      globalThis.requestAnimationFrame?.(() => target.current?.focus());
+    }
+  };
+
+  const handleTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    let next: AgentSidebarMode | null = null;
+    if (event.key === "ArrowLeft" || event.key === "Home") next = "sessions";
+    else if (event.key === "ArrowRight" || event.key === "End") next = "bots";
+    if (next === null) return;
+    event.preventDefault();
+    selectMode(next, true);
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-card text-foreground">
       <div
         data-window-drag
-        className={`flex min-h-11 shrink-0 items-center border-b border-border px-3${
+        className={`flex min-h-11 shrink-0 items-center border-b border-border px-1.5${
           props.ownsWindowTitlebar ? " agent-window-titlebar-sidebar-leading" : ""
         }`}
       >
-        <h2 className="min-w-0 flex-1 truncate text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold">
-          Projects
-        </h2>
+        <div role="tablist" aria-label="Agent views" className="flex min-w-0 flex-1 self-stretch">
+          <button
+            ref={sessionsTabRef}
+            id={sessionsTabId}
+            type="button"
+            role="tab"
+            aria-selected={props.mode === "sessions"}
+            aria-controls={sessionsPanelId}
+            tabIndex={props.mode === "sessions" ? 0 : -1}
+            onClick={() => selectMode("sessions")}
+            onKeyDown={handleTabKeyDown}
+            className={`flex min-h-11 items-center border-b-2 px-2 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/70 ${
+              props.mode === "sessions"
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            }`}
+          >
+            Sessions
+          </button>
+          <button
+            ref={botsTabRef}
+            id={botsTabId}
+            type="button"
+            role="tab"
+            aria-selected={props.mode === "bots"}
+            aria-controls={botsPanelId}
+            tabIndex={props.mode === "bots" ? 0 : -1}
+            onClick={() => selectMode("bots")}
+            onKeyDown={handleTabKeyDown}
+            className={`flex min-h-11 items-center border-b-2 px-2 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset active:bg-muted/70 ${
+              props.mode === "bots"
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            }`}
+          >
+            Bots
+          </button>
+        </div>
         {props.onClose ? (
           <button
             type="button"
             onClick={props.onClose}
-            aria-label="Close projects"
-            className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label="Close agent navigation"
+            className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary active:bg-muted/70"
           >
             <X className="size-5" aria-hidden />
           </button>
@@ -77,37 +150,62 @@ export function AgentSidebar(props: AgentSidebarProps) {
       {/* The bottom safe area is no longer spent here. It moved to the Profile row below, which is
           now what touches the home indicator; leaving it on the scroller would hold back a strip
           under a row that is already clear of it. */}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {props.loading ? (
-          <SidebarStatus>Loading projects…</SidebarStatus>
-        ) : props.error ? (
-          <SidebarError message={`Projects unavailable: ${props.error}`} retrying={props.retrying} />
-        ) : props.projects.length === 0 ? (
-          <SidebarStatus>No projects yet</SidebarStatus>
-        ) : (
-          <ul role="list" aria-label="Projects">
-            {props.projects.map((project) => (
-              <ProjectSidebarItem
-                key={project.projectPath}
-                project={project}
-                sessions={props.sessionsByProject.get(project.projectPath)}
-                expanded={props.expandedProjectPaths.has(project.projectPath)}
-                active={props.selectedProjectPath === project.projectPath}
-                selectedSessionKey={
-                  props.selectedProjectPath === project.projectPath
-                    ? props.selectedSessionKey
-                    : null
-                }
-                creating={props.creatingProjectPath === project.projectPath}
-                creationError={props.creationErrors.get(project.projectPath) ?? null}
-                onToggle={() => props.onToggleProject(project.projectPath)}
-                onSelectSession={(session) => props.onSelectSession(project, session)}
-                onCreatePiSession={() => props.onCreatePiSession(project)}
-              />
-            ))}
-          </ul>
-        )}
-      </div>
+      {props.mode === "sessions" ? (
+        <div
+          id={sessionsPanelId}
+          role="tabpanel"
+          aria-labelledby={sessionsTabId}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        >
+          {props.loading ? (
+            <SidebarStatus>Loading projects…</SidebarStatus>
+          ) : props.error ? (
+            <SidebarError message={`Projects unavailable: ${props.error}`} retrying={props.retrying} />
+          ) : props.projects.length === 0 ? (
+            <SidebarStatus>No projects yet</SidebarStatus>
+          ) : (
+            <ul role="list" aria-label="Projects">
+              {props.projects.map((project) => (
+                <ProjectSidebarItem
+                  key={project.projectPath}
+                  project={project}
+                  sessions={props.sessionsByProject.get(project.projectPath)}
+                  expanded={props.expandedProjectPaths.has(project.projectPath)}
+                  active={props.selectedProjectPath === project.projectPath}
+                  selectedSessionKey={
+                    props.selectedProjectPath === project.projectPath
+                      ? props.selectedSessionKey
+                      : null
+                  }
+                  creating={props.creatingProjectPath === project.projectPath}
+                  creationError={props.creationErrors.get(project.projectPath) ?? null}
+                  onToggle={() => props.onToggleProject(project.projectPath)}
+                  onSelectSession={(session) => props.onSelectSession(project, session)}
+                  onCreatePiSession={() => props.onCreatePiSession(project)}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <div
+          id={botsPanelId}
+          role="tabpanel"
+          aria-labelledby={botsTabId}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        >
+          <BotSidebarPanel
+            bots={props.bots}
+            loading={props.botsLoading}
+            error={props.botsError}
+            selectedBotId={props.selectedBotId}
+            selectedSessionKey={props.selectedSessionKey}
+            onSelectSession={props.onSelectBotSession}
+            onAddSession={props.onAddBotSession}
+            onAddBot={props.onAddBot}
+          />
+        </div>
+      )}
 
       <ProfileRow usage={props.usage} park={props.park} />
     </div>
@@ -158,7 +256,7 @@ export function AgentSidebarDialog({
     globalThis.requestAnimationFrame?.(() => triggerRef.current?.focus());
   };
 
-  // The drawer is the compact-layout project navigation, so it only ever renders on the phone,
+  // The drawer is the compact-layout agent navigation, so it only ever renders on the phone,
   // where it is also the one surface the app shell's safe-area padding cannot reach: `showModal`
   // puts it in the top layer, a sibling of the tree that pays for the edges. It sits against the
   // leading edge, so it pays for that one itself; the bottom is paid inside, by the scroller, so
@@ -166,7 +264,7 @@ export function AgentSidebarDialog({
   return (
     <dialog
       ref={dialogRef}
-      aria-label="Projects"
+      aria-label="Agent navigation"
       className="agent-sidebar-dialog fixed inset-y-0 left-0 m-0 h-dvh max-h-none w-[min(88vw,320px)] max-w-none border-0 border-r border-border bg-card p-0 pl-[env(safe-area-inset-left)] text-foreground shadow-2xl"
       onClose={closeAndRestoreFocus}
       onCancel={(event) => {
@@ -379,25 +477,5 @@ function SidebarError({
         </span>
       ) : null}
     </div>
-  );
-}
-
-function SourceBadge({ source }: { source: string }) {
-  const label = source === "claude" ? "Claude" : source === "codex" ? "Codex" : source === "pi" ? "Pi" : source;
-  const cls =
-    source === "claude"
-      ? "bg-violet-500/20 text-violet-500 dark:text-violet-400"
-      : source === "codex"
-        ? "bg-amber-500/20 text-amber-600 dark:text-amber-400"
-        : source === "pi"
-          ? "bg-cyan-500/20 text-cyan-700 dark:text-cyan-400"
-          : "bg-muted text-muted-foreground";
-  return (
-    <span
-      aria-label={`Source: ${label}`}
-      className={`inline-flex items-center rounded px-1.5 py-0.5 font-mono text-(length:--agent-panel-fs-sidebar-chip,11px) font-semibold uppercase tracking-wide ${cls}`}
-    >
-      {label}
-    </span>
   );
 }

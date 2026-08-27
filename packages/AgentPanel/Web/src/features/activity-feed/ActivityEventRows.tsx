@@ -76,6 +76,14 @@ export const ROLE_BORDER: Record<DisplayRole, string> = {
   system: "border-l-sky-500",
 };
 
+/** Nice keeps operational roles, but lets model prose and reasoning read as one response. */
+export function showEventRoleLabel(
+  mode: SessionReference["mode"],
+  role: DisplayRole,
+): boolean {
+  return mode === "raw" || (role !== "assistant" && role !== "reasoning");
+}
+
 // `leading-none` is load-bearing, not cosmetic. The heading floats, and a float
 // taller than one line of body text overlaps the SECOND line too, indenting it
 // as well -- at the 16px/1.375 body the line is 22px, and the chip's default
@@ -88,6 +96,7 @@ export const ROLE_BORDER: Record<DisplayRole, string> = {
 // and is where to look first if the chip's leading or padding ever changes.
 const CHIP_CLASS =
   "rounded-sm px-[0.4em] py-[0.15em] font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-bold uppercase leading-none tracking-wider ";
+const FEED_ROW_GUTTER_CLASS = "px-6";
 
 /**
  * An event's role chip and collapse toggle, floated so the first line of the
@@ -109,6 +118,7 @@ function EventHeading({
   onToggle,
   showCacheHits,
   isLive,
+  showRole,
 }: {
   ev: ActivityEvent;
   role: DisplayRole;
@@ -116,6 +126,7 @@ function EventHeading({
   onToggle: () => void;
   showCacheHits: boolean;
   isLive: boolean;
+  showRole: boolean;
 }) {
   const when = ev.ts ? new Date(ev.ts).toLocaleTimeString() : null;
   const intent = role === "tool" ? toolIntent(ev) : null;
@@ -141,7 +152,7 @@ function EventHeading({
         }
         aria-hidden
       />
-      <span className={CHIP_CLASS + ROLE_STYLES[role]}>{role}</span>
+      {showRole ? <span className={CHIP_CLASS + ROLE_STYLES[role]}>{role}</span> : null}
       {/* The ONLY thing a still-streaming row shows that a landed one does not.
           Inline and sub-chip sized, so when the transcript takes the message over
           and the dot goes away, one line loses a few pixels of width and nothing
@@ -256,6 +267,9 @@ function EventRowShell({
         onToggle={onToggle}
         showCacheHits={ctx.showCacheHits}
         isLive={isLive}
+        // Nice reads as one continuous agent response, so prose and reasoning
+        // do not repeat their role on every row. Raw keeps every role label.
+        showRole={showEventRoleLabel(ctx.session.mode, role)}
       />
       {isCollapsed ? <CollapsedPreview ev={ev} /> : <EventBody ev={ev} ctx={ctx} />}
     </div>
@@ -273,7 +287,7 @@ export function UserRow({
 }) {
   return (
     <div
-      className="px-[0.55em] py-[0.4em]"
+      className={`${FEED_ROW_GUTTER_CLASS} py-[0.4em]`}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       <div
@@ -308,18 +322,28 @@ export function SegmentEventRow({
   isLive?: boolean;
 }) {
   const role = displayRole(ev);
-  const wrapperClass =
-    "border-x border-border bg-muted/60 px-[0.6em] transition-shadow duration-300 " +
-    (isFirst ? "rounded-t-md border-t pt-[0.4em] " : "pt-[0.3em] ") +
-    (isLast ? "rounded-b-md border-b pb-[0.4em] " : "pb-[0.3em] ") +
-    (!isLast ? "border-b border-dashed border-border/60 " : "") +
-    (isHighlighted ? "ring-2 ring-primary ring-offset-2 ring-offset-background " : "");
+  const isNice = ctx.session.mode === "nice";
+  const niceCardKind = role === "tool" || role === "result" ? "tool" : "text";
+  const wrapperClass = isNice
+    ? "rounded-md border px-[0.6em] py-[0.3em] transition-shadow duration-300 " +
+      (niceCardKind === "tool"
+        ? "border-border bg-muted/60 "
+        : "border-border/60 bg-card ") +
+      (isHighlighted ? "ring-2 ring-primary ring-offset-2 ring-offset-background " : "")
+    : "border-x border-border bg-muted/60 px-[0.6em] transition-shadow duration-300 " +
+      (isFirst ? "rounded-t-md border-t pt-[0.4em] " : "pt-[0.3em] ") +
+      (isLast ? "rounded-b-md border-b pb-[0.4em] " : "pb-[0.3em] ") +
+      (!isLast ? "border-b border-dashed border-border/60 " : "") +
+      (isHighlighted ? "ring-2 ring-primary ring-offset-2 ring-offset-background " : "");
+  const rowSpacing = isNice
+    ? `${FEED_ROW_GUTTER_CLASS} py-[0.1em]`
+    : FEED_ROW_GUTTER_CLASS + " " + (isFirst ? "pt-[0.4em] " : "") + (isLast ? "pb-[0.4em]" : "");
   return (
     <div
-      className={"px-[0.55em] " + (isFirst ? "pt-[0.4em] " : "") + (isLast ? "pb-[0.4em]" : "")}
+      className={rowSpacing}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
-      <div className={wrapperClass}>
+      <div className={wrapperClass} data-feed-card={isNice ? niceCardKind : undefined}>
         <EventRowShell
           ev={ev}
           role={role}
@@ -397,7 +421,7 @@ export function ClusterRow({
     (!isLast ? "border-b border-dashed border-border/60 " : "");
   return (
     <div
-      className={"px-[0.55em] " + (isFirst ? "pt-[0.4em] " : "") + (isLast ? "pb-[0.4em]" : "")}
+      className={FEED_ROW_GUTTER_CLASS + " " + (isFirst ? "pt-[0.4em] " : "") + (isLast ? "pb-[0.4em]" : "")}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       <div className={wrapperClass}>
@@ -698,7 +722,7 @@ export function CompactionRow({
   const { folded, hasRawJson } = partitionEventBlocks(ev);
   return (
     <div
-      className="px-[0.55em] py-[0.5em]"
+      className={`${FEED_ROW_GUTTER_CLASS} py-[0.5em]`}
       style={{ fontSize: "var(--agent-panel-fs-tile-other-text, 16px)" }}
     >
       <div className="flex items-center gap-2 text-muted-foreground">

@@ -311,5 +311,40 @@
         "scannedAt": 1755676800000
       }
     ]
+  },
+  "desktopControlV2": {
+    "keyCodes": [
+      "escape", "tab", "return", "delete", "space", "left", "right", "up", "down",
+      "ansi-A", "ansi-B", "ansi-C", "ansi-D", "ansi-E", "ansi-F", "ansi-G", "ansi-H",
+      "ansi-I", "ansi-J", "ansi-K", "ansi-L", "ansi-M", "ansi-N", "ansi-O", "ansi-P",
+      "ansi-Q", "ansi-R", "ansi-S", "ansi-T", "ansi-U", "ansi-V", "ansi-W", "ansi-X",
+      "ansi-Y", "ansi-Z", "ansi-0", "ansi-1", "ansi-2", "ansi-3", "ansi-4", "ansi-5",
+      "ansi-6", "ansi-7", "ansi-8", "ansi-9", "ansi-comma", "ansi-period", "ansi-slash",
+      "ansi-semicolon", "ansi-quote", "ansi-leftbracket", "ansi-rightbracket",
+      "ansi-backslash", "ansi-minus", "ansi-equal", "ansi-grave"
+    ],
+    "validInputs": [
+      { "type": "configure", "initialFocusDelayMs": 80, "settleFocusDelayMs": 160 },
+      { "type": "pointer-move", "revision": 41, "dx": 12.5, "dy": -3 },
+      {
+        "type": "click",
+        "button": "left",
+        "focusRequestId": "5f03b272-2922-4ca1-93ee-82d902fdbe21"
+      },
+      { "type": "scroll", "dx": 2, "dy": -8, "phase": "changed" },
+      {
+        "type": "key-batch",
+        "sequence": 9,
+        "keys": [
+          { "code": "ansi-A", "modifiers": ["cmd", "shift"] },
+          { "code": "return", "modifiers": [] }
+        ]
+      },
+      {
+        "type": "focus-query",
+        "focusRequestId": "f7d14184-bfc7-4510-9e33-6f74bd611c25"
+      },
+      { "type": "release-control" }
+    ]
   }
 }

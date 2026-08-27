@@ -60,9 +60,10 @@ public final class WebPanelWebViewController: NSObject {
     private let contract: WebPanelContract
     /// Where the bundled build lives, or nil when this panel was built without one.
     private let bundledRequestURL: URL?
-    /// What is on screen now, so a switch that changes nothing does not reload the page under a
-    /// panel that is mid-conversation with its host.
-    private var loadedURL: URL
+    /// What is on screen now, or nil while a container is mounting a deferred first load.
+    /// A switch that changes nothing must not reload the page under a panel that is
+    /// mid-conversation with its host.
+    private var loadedURL: URL?
     private let additionalMessageHandlers: [String: WebPanelScriptMessageHandler]
     private let logger: Logger
     private var deliveryQueue: WebPanelDeliveryQueue?
@@ -91,7 +92,8 @@ public final class WebPanelWebViewController: NSObject {
         additionalUserScripts: [WKUserScript] = [],
         additionalMessageHandlers: [String: WebPanelScriptMessageHandler] = [:],
         logSubsystem: String = "com.example.agentdesk.WebPanelKit",
-        developmentOrigin: URL? = nil
+        developmentOrigin: URL? = nil,
+        loadsImmediately: Bool = true
     ) throws {
         // A dev origin serves its own assets, so a missing bundled root is survivable when one is
         // set -- that is the case the override exists for, a tree whose bundled build is stale or
@@ -147,7 +149,7 @@ public final class WebPanelWebViewController: NSObject {
         self.messageSink = messageSink
         self.contract = contract
         self.bundledRequestURL = bundledURL
-        self.loadedURL = requestURL
+        self.loadedURL = loadsImmediately ? requestURL : nil
         self.additionalMessageHandlers = additionalMessageHandlers
         self.logger = Logger(subsystem: logSubsystem, category: "web-panel-js")
         super.init()
@@ -186,7 +188,9 @@ public final class WebPanelWebViewController: NSObject {
             forMainFrameOnly: false
         ))
         createdWebView.navigationDelegate = self
-        createdWebView.load(URLRequest(url: requestURL))
+        if loadsImmediately {
+            createdWebView.load(URLRequest(url: requestURL))
+        }
     }
 
     /// Point the panel at a dev origin, or back at the bundled build with nil.

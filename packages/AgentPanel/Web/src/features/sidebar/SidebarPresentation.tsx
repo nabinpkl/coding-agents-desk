@@ -95,7 +95,7 @@ export function ResizableSidebar({
       {children}
       <div
         role="separator"
-        aria-label="Resize projects sidebar"
+        aria-label="Resize agent sidebar"
         aria-orientation="vertical"
         aria-valuemin={MIN_SIDEBAR_WIDTH}
         aria-valuemax={MAX_SIDEBAR_WIDTH}
@@ -142,7 +142,7 @@ export function HoverSidebarPreview({
 }) {
   return (
     <aside
-      aria-label="Projects preview"
+      aria-label="Agent navigation preview"
       className="absolute top-11 bottom-0 left-0 z-40 border-r border-border bg-card shadow-2xl"
       style={{ width }}
       onPointerEnter={onPointerEnter}

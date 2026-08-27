@@ -204,11 +204,8 @@ extension PairingViewController {
             agentSurfaceBoundTransport = nil
         }
 
-        desktopWebSurface?.teardown()
-        desktopWebSurface?.removeFromSuperview()
-        desktopWebSurface = nil
-        desktopViewerMode = .native
-        desktopViewerTabBar.select(.native)
+        desktopViewerTabBar.isHidden = true
+        desktopWebSurface?.setPresented(false)
 
         if #available(iOS 26.0, *) {
             terminalSurface?.detach()
@@ -518,7 +515,7 @@ extension PairingViewController {
 
         desktopViewerTabBar.isHidden = desktop.tabsHidden
         desktopViewerTabBar.select(desktopViewerMode)
-        desktopWebSurface?.isHidden = desktop.webViewHidden
+        desktopWebSurface?.setPresented(!desktop.webViewHidden)
 
         agentSurface?.isHidden = v.agentHidden
         agentSurface?.setViewportPresented(!v.agentHidden)
@@ -546,20 +543,32 @@ extension PairingViewController {
     func desktopViewerSelectionChanged(_ mode: DesktopViewerMode) {
         guard desktopViewerMode != mode else { return }
         desktopViewerMode = mode
-        if mode == .web {
-            ensureDesktopWebSurface()
-        }
         applySurface(activeControlSurface)
     }
 
-    @discardableResult
-    private func ensureDesktopWebSurface() -> DesktopWebSurface {
-        if let desktopWebSurface { return desktopWebSurface }
+    /// Mounts the native Desktop implementations before any session exists. The WebView is a
+    /// local first-party surface; QUIC can later select its live origin and relay requests, but
+    /// neither creating nor sizing the surface belongs to the transport lifecycle.
+    func installDesktopViewerSurfaces() {
+        guard desktopWebSurface == nil else { return }
+
+        desktopViewerTabBar.translatesAutoresizingMaskIntoConstraints = false
+        desktopViewerTabBar.isHidden = true
+        desktopViewerTabBar.select(desktopViewerMode)
+        desktopViewerTabBar.onSelection = { [weak self] mode in
+            self?.desktopViewerSelectionChanged(mode)
+        }
+        stage(.overlay).addSubview(desktopViewerTabBar)
+
         let surface = DesktopWebSurface()
         surface.translatesAutoresizingMaskIntoConstraints = false
-        surface.isHidden = true
+        surface.setPresented(false)
         stage(.surface).addSubview(surface)
         NSLayoutConstraint.activate([
+            desktopViewerTabBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            desktopViewerTabBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            desktopViewerTabBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            desktopViewerTabBar.heightAnchor.constraint(equalToConstant: 44),
             surface.topAnchor.constraint(equalTo: desktopViewerTabBar.bottomAnchor),
             surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -569,9 +578,6 @@ extension PairingViewController {
         if let latestPanelOrigin {
             surface.applyPanelOrigin(latestPanelOrigin)
         }
-        view.bringSubviewToFront(surfaceControlRail)
-        stage(.overlay).bringSubviewToFront(desktopViewerTabBar)
-        return surface
     }
 
     // Idempotent: opens the .files lane, builds the browser + workbench, and loads the workspace list.

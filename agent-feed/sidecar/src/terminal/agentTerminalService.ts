@@ -1,0 +1,349 @@
+import { realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { relative, resolve } from "node:path";
+import type {
+  AgentTerminalContext,
+  AgentTerminalDescriptor,
+  AgentTerminalStreamMessage,
+  AgentTerminalViewport,
+} from "@agentdesk/agent-feed-wire";
+import { PtyManagerClient, type PtySessionConnection } from "./ptyClient.ts";
+import type { PtyEnvelope, PtySessionSummary } from "./ptyProtocol.ts";
+
+const BOOTSTRAP_COLUMNS = 80;
+const BOOTSTRAP_ROWS = 24;
+const MAXIMUM_INPUT_BYTES = 64 * 1024;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+export class AgentTerminalInvalidError extends Error {}
+export class AgentTerminalNotFoundError extends Error {}
+export class AgentTerminalConflictError extends Error {}
+export class AgentTerminalUnavailableError extends Error {}
+
+export interface ResolvedAgentTerminalSession {
+  projectPath: string;
+  activity: string;
+}
+
+interface ActiveTerminal {
+  descriptor: AgentTerminalDescriptor;
+  connection: PtySessionConnection;
+  listeners: Set<(message: AgentTerminalStreamMessage) => void>;
+  removeEnvelope: () => void;
+  removeFailure: () => void;
+  ended: boolean;
+}
+
+export interface AgentTerminalPtyClient {
+  listSessions(): Promise<PtySessionSummary[]>;
+  openSession(options: Parameters<PtyManagerClient["openSession"]>[0]): Promise<PtySessionConnection>;
+}
+
+export class AgentTerminalService {
+  private readonly terminals = new Map<string, ActiveTerminal>();
+
+  constructor(
+    socketPath: string,
+    private readonly resolveSession: (
+      source: "claude" | "codex",
+      sessionId: string,
+    ) => ResolvedAgentTerminalSession | undefined,
+    private readonly userHomeDirectory = homedir(),
+    private readonly pty: AgentTerminalPtyClient = new PtyManagerClient(socketPath),
+  ) {
+  }
+
+  async open(
+    context: AgentTerminalContext,
+    dimensions: { columns: number; rows: number },
+  ): Promise<AgentTerminalDescriptor> {
+    const identity = await this.validate(context);
+    let sessions: PtySessionSummary[];
+    try {
+      sessions = await this.pty.listSessions();
+    } catch (error) {
+      throw new AgentTerminalUnavailableError("PTY manager is unavailable", { cause: error });
+    }
+    const existing = sessions.find((session) => session.name === identity.ptySessionName);
+    if (existing && !isRunning(existing)) {
+      throw new AgentTerminalConflictError("the deterministic terminal session has already exited");
+    }
+    if (!existing && identity.activity === "live") {
+      throw new AgentTerminalConflictError("the agent session is already active in another terminal");
+    }
+
+    const columns = requiredDimension(dimensions.columns, "terminal columns");
+    const rows = requiredDimension(dimensions.rows, "terminal rows");
+    const harnessArguments = identity.source === "claude"
+      ? ["claude", "--resume", identity.sessionId]
+      : ["codex", "resume", identity.sessionId];
+    let connection: PtySessionConnection;
+    try {
+      connection = await this.pty.openSession({
+        sessionName: identity.ptySessionName,
+        launch: {
+          cwd: identity.projectPath,
+          executable: "/bin/zsh",
+          arguments: ["-l", "-c", 'exec "$0" "$@"', ...harnessArguments],
+        },
+        columns,
+        rows,
+        createIfMissing: existing === undefined,
+        clientTitle: "Agent Feed",
+      });
+    } catch (error) {
+      throw new AgentTerminalUnavailableError("PTY manager refused the terminal connection", {
+        cause: error,
+      });
+    }
+    if (connection.attachment.sessionName !== identity.ptySessionName) {
+      connection.detach();
+      throw new AgentTerminalConflictError("PTY manager returned the wrong terminal session");
+    }
+
+    const terminalId = crypto.randomUUID();
+    const descriptor: AgentTerminalDescriptor = {
+      terminalId,
+      ptySessionName: identity.ptySessionName,
+      pid: connection.attachment.pid,
+      columns: connection.attachment.columns,
+      rows: connection.attachment.rows,
+    };
+    const active: ActiveTerminal = {
+      descriptor,
+      connection,
+      listeners: new Set(),
+      removeEnvelope: () => {},
+      removeFailure: () => {},
+      ended: false,
+    };
+    active.removeEnvelope = connection.onEnvelope((envelope) => this.receive(active, envelope));
+    active.removeFailure = connection.onFailure((error) => {
+      if (!active.ended) this.publish(active, { type: "error", message: error.message });
+      this.finish(active);
+    });
+    this.terminals.set(terminalId, active);
+    return descriptor;
+  }
+
+  subscribe(
+    terminalId: string,
+    listener: (message: AgentTerminalStreamMessage) => void,
+  ): () => void {
+    const active = this.require(terminalId);
+    active.listeners.add(listener);
+    active.connection.requestCheckpoint("0");
+    return () => active.listeners.delete(listener);
+  }
+
+  has(terminalId: string): boolean {
+    return this.terminals.has(terminalId);
+  }
+
+  sendInput(terminalId: string, data: string, encoding: "utf8" | "base64"): void {
+    const byteLength = encoding === "utf8"
+      ? Buffer.byteLength(data, "utf8")
+      : decodedBase64Length(data);
+    if (byteLength > MAXIMUM_INPUT_BYTES) {
+      throw new AgentTerminalInvalidError("terminal input exceeds 64 KiB");
+    }
+    const connection = this.require(terminalId).connection;
+    if (encoding === "utf8") connection.sendInput(data);
+    else connection.sendBinaryInput(data);
+  }
+
+  updateViewport(terminalId: string, viewport: AgentTerminalViewport): void {
+    const columns = requiredDimension(viewport.columns, "viewport columns");
+    const rows = requiredDimension(viewport.rows, "viewport rows");
+    if (!/^\d+$/.test(viewport.sequence)) {
+      throw new AgentTerminalInvalidError("viewport sequence must be an unsigned integer string");
+    }
+    this.require(terminalId).connection.updateViewerState({ ...viewport, columns, rows });
+  }
+
+  close(terminalId: string, mode: "detach" | "kill"): void {
+    const active = this.require(terminalId);
+    if (mode === "kill") {
+      active.connection.kill();
+      return;
+    }
+    active.ended = true;
+    this.publish(active, { type: "detached" });
+    active.connection.detach();
+    this.finish(active);
+  }
+
+  stop(): void {
+    for (const active of this.terminals.values()) {
+      active.ended = true;
+      try {
+        active.connection.detach();
+      } catch (error) {
+        console.error("agent terminal detach during shutdown failed", error);
+      }
+      this.finish(active);
+    }
+  }
+
+  private async validate(context: AgentTerminalContext): Promise<{
+    source: "claude" | "codex";
+    sessionId: string;
+    projectPath: string;
+    ptySessionName: string;
+    activity: string;
+  }> {
+    if (context.source !== "claude" && context.source !== "codex") {
+      throw new AgentTerminalInvalidError("terminal source must be claude or codex");
+    }
+    const sessionId = context.sessionId.toLowerCase();
+    if (!UUID_PATTERN.test(sessionId) || context.sessionId !== sessionId) {
+      throw new AgentTerminalInvalidError("terminal session id must be a canonical UUID");
+    }
+    if (!context.projectPath.startsWith("/")) {
+      throw new AgentTerminalInvalidError("terminal project path must be absolute");
+    }
+
+    let projectPath: string;
+    let homePath: string;
+    try {
+      [projectPath, homePath] = await Promise.all([
+        realpath(resolve(context.projectPath)),
+        realpath(resolve(this.userHomeDirectory)),
+      ]);
+      if (!(await stat(projectPath)).isDirectory()) {
+        throw new AgentTerminalInvalidError("terminal project path must be a directory");
+      }
+    } catch (error) {
+      if (error instanceof AgentTerminalInvalidError) throw error;
+      throw new AgentTerminalInvalidError("terminal project directory does not exist");
+    }
+    const fromHome = relative(homePath, projectPath);
+    if (!fromHome || fromHome.startsWith("..") || fromHome.startsWith("/")) {
+      throw new AgentTerminalInvalidError("terminal project directory must be inside the user home");
+    }
+
+    const session = this.resolveSession(context.source, sessionId);
+    if (!session) throw new AgentTerminalNotFoundError("agent session was not found");
+    let catalogProject: string;
+    try {
+      catalogProject = await realpath(resolve(session.projectPath));
+    } catch {
+      throw new AgentTerminalConflictError("agent session project directory is no longer available");
+    }
+    if (catalogProject !== projectPath) {
+      throw new AgentTerminalConflictError("agent session belongs to another project directory");
+    }
+
+    return {
+      source: context.source,
+      sessionId,
+      projectPath,
+      ptySessionName: `agent-resume-${context.source}-${sessionId}`,
+      activity: session.activity,
+    };
+  }
+
+  private receive(active: ActiveTerminal, envelope: PtyEnvelope): void {
+    const message = streamMessage(envelope);
+    if (!message) return;
+    this.publish(active, message);
+    if (message.type === "exited" || message.type === "detached" || message.type === "error") {
+      active.ended = true;
+      this.finish(active);
+    }
+  }
+
+  private publish(active: ActiveTerminal, message: AgentTerminalStreamMessage): void {
+    for (const listener of active.listeners) listener(message);
+  }
+
+  private finish(active: ActiveTerminal): void {
+    if (!this.terminals.delete(active.descriptor.terminalId)) return;
+    active.removeEnvelope();
+    active.removeFailure();
+    active.connection.closeTransport();
+    active.listeners.clear();
+  }
+
+  private require(terminalId: string): ActiveTerminal {
+    const active = this.terminals.get(terminalId);
+    if (!active) throw new AgentTerminalNotFoundError("terminal connection was not found");
+    return active;
+  }
+}
+
+function requiredDimension(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 1 || value > 1_000) {
+    throw new AgentTerminalInvalidError(`${name} must be an integer between 1 and 1000`);
+  }
+  return value;
+}
+
+function decodedBase64Length(value: string): number {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new AgentTerminalInvalidError("base64 terminal input is malformed");
+  }
+  return Buffer.from(value, "base64").byteLength;
+}
+
+function isRunning(session: PtySessionSummary): boolean {
+  return session.state === "SESSION_STATE_RUNNING" || session.state === 1;
+}
+
+function streamMessage(envelope: PtyEnvelope): AgentTerminalStreamMessage | null {
+  if (envelope.output) {
+    return {
+      type: "output",
+      revision: envelope.output.revision ?? "0",
+      data: envelope.output.data ?? "",
+    };
+  }
+  if (envelope.terminalCheckpointBegin) {
+    const value = envelope.terminalCheckpointBegin;
+    return {
+      type: "checkpointBegin",
+      checkpointId: value.checkpointId ?? "0",
+      revision: value.revision ?? "0",
+      columns: value.columns ?? BOOTSTRAP_COLUMNS,
+      rows: value.rows ?? BOOTSTRAP_ROWS,
+      totalBytes: value.totalBytes ?? "0",
+      chunkCount: value.chunkCount ?? 0,
+      historyTruncated: value.historyTruncated ?? false,
+    };
+  }
+  if (envelope.terminalCheckpointChunk) {
+    const value = envelope.terminalCheckpointChunk;
+    return {
+      type: "checkpointChunk",
+      checkpointId: value.checkpointId ?? "0",
+      index: value.index ?? 0,
+      data: value.data ?? "",
+    };
+  }
+  if (envelope.terminalCheckpointEnd) {
+    return {
+      type: "checkpointEnd",
+      checkpointId: envelope.terminalCheckpointEnd.checkpointId ?? "0",
+      revision: envelope.terminalCheckpointEnd.revision ?? "0",
+    };
+  }
+  if (envelope.terminalViewportStatus) {
+    const value = envelope.terminalViewportStatus;
+    return {
+      type: "viewport",
+      ownershipEpoch: value.ownershipEpoch ?? "0",
+      ownerClientId: value.ownerClientId ?? "0",
+      ownerTitle: value.ownerTitle ?? "",
+      isOwner: value.isOwner ?? false,
+      sourceColumns: value.sourceColumns ?? BOOTSTRAP_COLUMNS,
+      sourceRows: value.sourceRows ?? BOOTSTRAP_ROWS,
+      sourceRevision: value.sourceRevision ?? "0",
+      viewColumns: value.viewColumns ?? BOOTSTRAP_COLUMNS,
+      viewRows: value.viewRows ?? BOOTSTRAP_ROWS,
+    };
+  }
+  if (envelope.sessionExited) return { type: "exited", status: envelope.sessionExited.status ?? 0 };
+  if (envelope.clientDetached) return { type: "detached" };
+  if (envelope.error) return { type: "error", message: envelope.error.message ?? "PTY manager error" };
+  return null;
+}

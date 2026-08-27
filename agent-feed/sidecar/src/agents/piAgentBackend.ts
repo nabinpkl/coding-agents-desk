@@ -7,6 +7,7 @@ import {
   type AgentSessionEvent,
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
+  type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -59,6 +60,11 @@ interface PiBackendOptions {
   onSessionCreated: (location: PiSessionLocation) => void;
   onSessionChanged?: (sessionId: string) => void;
   runtimeFactory?: PiRuntimeFactory;
+  customToolsForSession?: (context: {
+    source: "pi";
+    sessionId: string;
+    projectPath: string;
+  }) => ToolDefinition[] | Promise<ToolDefinition[]>;
   idleRuntimeMs?: number;
   toolCallBudget?: number;
   now?: () => number;
@@ -122,7 +128,8 @@ export class PiAgentBackend implements AgentBackend {
   private disposed = false;
 
   constructor(private readonly options: PiBackendOptions) {
-    this.runtimeFactory = options.runtimeFactory ?? createOfficialPiRuntime;
+    this.runtimeFactory = options.runtimeFactory ?? ((projectPath, transcriptPath) =>
+      createOfficialPiRuntime(projectPath, transcriptPath, options.customToolsForSession));
     this.idleRuntimeMs = options.idleRuntimeMs ?? config.piIdleRuntimeMs;
     this.toolCallBudget = options.toolCallBudget ?? config.piToolCallBudget;
     this.now = options.now ?? Date.now;
@@ -407,24 +414,37 @@ export class PiAgentBackend implements AgentBackend {
   }
 }
 
-const officialRuntimeFactory: CreateAgentSessionRuntimeFactory = async ({
-  cwd,
-  sessionManager,
-  sessionStartEvent,
-}) => {
-  const services = await createAgentSessionServices({ cwd, agentDir: config.piAgentDirectory });
-  return {
-    ...(await createAgentSessionFromServices({ services, sessionManager, sessionStartEvent })),
-    services,
-    diagnostics: services.diagnostics,
-  };
-};
-
-async function createOfficialPiRuntime(projectPath: string, transcriptPath?: string): Promise<PiRuntimeFacade> {
+async function createOfficialPiRuntime(
+  projectPath: string,
+  transcriptPath?: string,
+  customToolsForSession?: PiBackendOptions["customToolsForSession"],
+): Promise<PiRuntimeFacade> {
   const sessionManager = transcriptPath
     ? SessionManager.open(transcriptPath, dirname(transcriptPath), projectPath)
     : createPersistentPiSessionManager(projectPath);
-  return createAgentSessionRuntime(officialRuntimeFactory, {
+  const runtimeFactory: CreateAgentSessionRuntimeFactory = async ({
+    cwd,
+    sessionManager: runtimeSessionManager,
+    sessionStartEvent,
+  }) => {
+    const services = await createAgentSessionServices({ cwd, agentDir: config.piAgentDirectory });
+    const customTools = await customToolsForSession?.({
+      source: "pi",
+      sessionId: runtimeSessionManager.getSessionId(),
+      projectPath: cwd,
+    });
+    return {
+      ...(await createAgentSessionFromServices({
+        services,
+        sessionManager: runtimeSessionManager,
+        sessionStartEvent,
+        customTools,
+      })),
+      services,
+      diagnostics: services.diagnostics,
+    };
+  };
+  return createAgentSessionRuntime(runtimeFactory, {
     cwd: projectPath,
     agentDir: config.piAgentDirectory,
     sessionManager,

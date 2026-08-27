@@ -2042,3 +2042,38 @@ default, unlike Claude.
   Open question worth its own look: ADR-0090 says the host keeps its encoder across a reconnect,
   and this run shows it building a new one each time. If encoder reuse is not happening on this
   path, the LTR machinery is doing less than the ADR claims.
+
+## Host Agents dropdown Codex window creation
+
+- D268. Put `New Codex Window` first in the top-bar Agents dropdown. Capture the issuing Desktop
+  before leaving the non-activating shell, invoke Codex Desktop's own File > New Window command (or
+  launch the app once when it is absent), identify exactly one new layer-zero WindowServer id from a
+  before/after desktop audit, and use the existing verified third-party mover only when that window
+  did not already land on the captured Space. Refuse an unavailable Desktop, multiple Codex app
+  instances, an absent/disabled AX command, a timeout, or an ambiguous new-window set instead of
+  guessing. Keep Codex windows outside `AgentWindowRegistry`; AgentDesk creates and initially places
+  them but Codex owns their lifetime and restoration. Focused menu and launcher tests cover command
+  ordering/action, no command leakage to IDE/Terminal, initial-app launch, exact placement, and
+  ambiguity refusal. Verified with 15 focused tests and the complete 938-test host suite. The wider
+  `just check` remains blocked before its host leg by the unrelated dirty AgentPanel
+  `DesktopViewer.tsx` / `TileViewport` `refreshCursor` prop mismatch.
+- R269. After an explicit host-launch go-ahead, drive the real top-bar command on a non-primary
+  Desktop and prove the new ChatGPT/Codex WindowServer id has exactly that stable Space id. Repeat
+  once with Codex already running; the absent-app branch remains a controlled manual checkpoint
+  because exercising it requires quitting the user's current Codex session.
+
+## TypeScript-owned Web desktop control
+
+- R270. Replace the first-party WebView's native keyboard and pointer-v1 split with the single
+  `agentdesk-control-v2` WebRTC channel from ADR-0109. TypeScript owns focus correlation, keyboard
+  state, DOM capture, atomic ANSI encoding, modifiers, pending input, secure acknowledged receipts,
+  Auto preference, dismissal, visual-viewport chrome, and privacy-bounded telemetry. The sidecar owns
+  validation, exact NDJSON relay, and helper ownership epochs. The standalone helper owns only AX
+  classification and `CGEvent` injection. Delete pointer-v1 rather than carrying a fallback. Gates:
+  AgentPanel and sidecar typecheck/tests, shared Bun/Swift fixture tests, helper compile, then
+  `just check` after final self-review.
+- R271. At the explicit device-run checkpoint, reopen the existing WebRTC stream with the rebuilt
+  standalone helper and run the real iPhone matrix: editable and non-editable taps, secure receipt,
+  empty backspace, paste, Return, modifiers, arrows, hardware keyboard, dictation, dismiss-and-consume,
+  resumed pinch/scroll, ownership loss, and LTE/Wi-Fi reconnect with no key replay. Pull all evidence
+  from the TypeScript telemetry route. Do not rebuild, reinstall, or relaunch either app.

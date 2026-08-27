@@ -12,7 +12,12 @@ import { render, screen } from "@testing-library/react";
 import { stubDataSource } from "./data-source/stubDataSource";
 import { DataSourceProvider } from "./data-source/AgentDataSourceContext";
 import type { AgentDataSource } from "./data-source/AgentDataSource";
-import { SegmentEventRow, UserRow, type EventRowContext } from "./ActivityEventRows";
+import {
+  SegmentEventRow,
+  UserRow,
+  showEventRoleLabel,
+  type EventRowContext,
+} from "./ActivityEventRows";
 import type { ActivityEvent } from "./useSessionEventsStream";
 
 // @git-diff-view and next-themes do not run under jsdom. Markdown stays REAL:
@@ -32,6 +37,10 @@ const CTX: EventRowContext = {
   pairedToolResults: new Map(),
   showCacheHits: true,
 };
+const NICE_CTX: EventRowContext = {
+  ...CTX,
+  session: { ...CTX.session, mode: "nice" },
+};
 
 function renderRow(node: React.ReactNode) {
   return render(<DataSourceProvider source={DATA_SOURCE}>{node}</DataSourceProvider>);
@@ -48,6 +57,139 @@ function event(overrides: Partial<ActivityEvent> = {}): ActivityEvent {
 }
 
 describe("event heading", () => {
+  it("removes Assistant and Reasoning labels in Nice while Raw keeps them", () => {
+    expect(showEventRoleLabel("nice", "assistant")).toBe(false);
+    expect(showEventRoleLabel("nice", "reasoning")).toBe(false);
+    expect(showEventRoleLabel("raw", "assistant")).toBe(true);
+
+    const assistant = renderRow(
+      <SegmentEventRow
+        ev={event({ type: "assistant", blocks: [{ kind: "text", text: "answer body" }] })}
+        ctx={NICE_CTX}
+        isFirst
+        isLast
+        isCollapsed={false}
+        onToggle={() => {}}
+        isHighlighted={false}
+      />,
+    );
+    expect(assistant.queryByText("assistant")).toBeNull();
+    assistant.unmount();
+
+    const reasoning = renderRow(
+      <SegmentEventRow
+        ev={event({ type: "reasoning", blocks: [{ kind: "reasoning", text: "trace body" }] })}
+        ctx={NICE_CTX}
+        isFirst
+        isLast
+        isCollapsed={false}
+        onToggle={() => {}}
+        isHighlighted={false}
+      />,
+    );
+    expect(reasoning.queryByText("reasoning")).toBeNull();
+    reasoning.unmount();
+
+    const raw = renderRow(
+      <SegmentEventRow
+        ev={event({ type: "assistant", blocks: [{ kind: "text", text: "raw answer" }] })}
+        ctx={CTX}
+        isFirst
+        isLast
+        isCollapsed={false}
+        onToggle={() => {}}
+        isHighlighted={false}
+      />,
+    );
+    expect(raw.getByText("assistant")).toBeTruthy();
+  });
+
+  it("keeps operational role labels in Nice", () => {
+    const row = renderRow(
+      <SegmentEventRow
+        ev={event({
+          type: "assistant",
+          blocks: [{ kind: "tool_use", tool: "Read", summary: "Read file", callId: "call-1" }],
+        })}
+        ctx={NICE_CTX}
+        isFirst
+        isLast
+        isCollapsed={false}
+        onToggle={() => {}}
+        isHighlighted={false}
+      />,
+    );
+    expect(row.getByText("tool")).toBeTruthy();
+  });
+
+  it("separates Nice tool and text rows into tightly spaced cards", () => {
+    const view = renderRow(
+      <>
+        <SegmentEventRow
+          ev={event({ type: "assistant", blocks: [{ kind: "text", text: "answer body" }] })}
+          ctx={NICE_CTX}
+          isFirst
+          isLast={false}
+          isCollapsed={false}
+          onToggle={() => {}}
+          isHighlighted={false}
+        />
+        <SegmentEventRow
+          ev={event({
+            index: 8,
+            blocks: [{ kind: "tool_use", tool: "Read", summary: "Read file", callId: "call-1" }],
+          })}
+          ctx={NICE_CTX}
+          isFirst={false}
+          isLast
+          isCollapsed={false}
+          onToggle={() => {}}
+          isHighlighted={false}
+        />
+      </>,
+    );
+
+    const textCard = view.container.querySelector('[data-feed-card="text"]');
+    const toolCard = view.container.querySelector('[data-feed-card="tool"]');
+    expect(textCard?.className).toContain("rounded-md");
+    expect(textCard?.className).toContain("bg-card");
+    expect(toolCard?.className).toContain("rounded-md");
+    expect(toolCard?.className).toContain("bg-muted/60");
+    expect(textCard?.className).not.toContain("border-dashed");
+    expect(toolCard?.className).not.toContain("border-dashed");
+    expect(textCard?.parentElement?.className).toContain("py-[0.1em]");
+    expect(toolCard?.parentElement?.className).toContain("py-[0.1em]");
+  });
+
+  it("uses a 24px horizontal gutter around Nice feed cards", () => {
+    const view = renderRow(
+      <>
+        <UserRow
+          ev={event({ type: "user" })}
+          ctx={NICE_CTX}
+          isCollapsed={false}
+          onToggle={() => {}}
+          isHighlighted={false}
+        />
+        <SegmentEventRow
+          ev={event({ index: 8 })}
+          ctx={NICE_CTX}
+          isFirst
+          isLast
+          isCollapsed={false}
+          onToggle={() => {}}
+          isHighlighted={false}
+        />
+      </>,
+    );
+
+    expect(view.container.children).toHaveLength(2);
+    for (const row of view.container.children) {
+      expect(row.className).toContain("px-6");
+      expect(row.className).not.toContain("px-[0.55em]");
+    }
+  });
+
   it("floats so the body's first line sits beside it rather than below", () => {
     // The recovered row: the heading used to be a full-width bar above the
     // body, costing every event ~30px that carried no content.

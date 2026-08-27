@@ -83,6 +83,7 @@ final class WorkspaceShellPresenter: NSObject {
     /// Never carries `.terminal`: a Terminal is rooted at the active workspace's folder and cascades
     /// within that workspace, so the session places it and `onOpenTerminal` is what its chip calls.
     var onOpenWindow: ((WorkspaceWindowKind, WorkspaceWindowPlacement) -> Void)?
+    var onOpenCodexWindow: ((WorkspaceDesktopAssignment) -> Void)?
 
     /// Lists the windows of one kind open right now, for that kind's chooser. Asked at the moment the
     /// chooser opens rather than mirrored into the shell, so there is no second copy of the registry's
@@ -691,9 +692,18 @@ final class WorkspaceShellPresenter: NSObject {
         WorkspaceWindowChooserMenu.make(
             kind: kind,
             windows: onListWindows?(kind) ?? [],
+            openCodexWindow: { [weak self] in self?.openCodexWindowTapped() },
             focus: { [weak self] id in self?.onFocusWindow?(kind, id) },
             close: { [weak self] id in self?.onCloseWindow?(kind, id) }
         )
+    }
+
+    private func openCodexWindowTapped() {
+        guard let desktop = desktopSwitcher.currentAssignment() else {
+            logger.error("workspace-shell: cannot open Codex because the current Desktop is unavailable")
+            return
+        }
+        onOpenCodexWindow?(desktop)
     }
 
     @objc private func browserTapped() { onBrowserCommand?() }
@@ -782,6 +792,10 @@ final class WorkspaceShellPresenter: NSObject {
         alert.informativeText = String(describing: error)
         alert.alertStyle = .warning
         alert.runModal()
+    }
+
+    func presentCodexWindowLaunchFailure(_ error: CodexWindowLaunchError) {
+        presentFailure("Could not open Codex window", error)
     }
 
     // MARK: - Switcher render

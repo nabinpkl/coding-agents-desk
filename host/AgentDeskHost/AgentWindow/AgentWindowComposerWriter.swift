@@ -41,10 +41,10 @@ protocol AgentWindowComposerAccessing {
     func pressQuestionViewOptions(for target: AgentWindowSessionTarget) throws
 }
 
-/// The Space move a composer write needs. `YabaiWindowSpaceMover` is the real one.
+/// The Space move a composer write needs. `BridgedWindowSpaceMover` is the real one.
 ///
-/// Deliberately NOT `DesktopWindowPlacementCoordinator`: its SkyLight mover only moves windows this
-/// host owns, and Claude's window is another application's.
+/// Deliberately NOT `DesktopWindowPlacementCoordinator`: its legacy SkyLight operation only moves
+/// windows this host owns, while the bridged operation accepts another application's WindowServer id.
 protocol AgentWindowDesktopMoving {
     func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws
 }
@@ -65,6 +65,75 @@ struct AgentWindowComposerWriter {
     init(access: AgentWindowComposerAccessing, placement: AgentWindowDesktopMoving) {
         self.access = access
         self.placement = placement
+    }
+
+    /// Borrows an off-Desktop Claude window for one focused Agent Feed editing interval.
+    ///
+    /// Unlike a single write, success deliberately leaves the window on the active Desktop. The
+    /// coordinator owns the matching `endEditingLease` call when the last watcher leaves. If the AX tree
+    /// never materializes, this restores the window before reporting the failure.
+    func beginEditingLease(_ target: AgentWindowSessionTarget) -> Result<Void, AgentWindowInputReason> {
+        guard !target.isOnActiveDesktop else { return .success(()) }
+        let frontmostBefore = access.frontmostApplicationPID()
+
+        do {
+            try access.latchManualAccessibility(pid: target.claudeMainPid)
+        } catch let reason as AgentWindowInputReason {
+            return .failure(reason)
+        } catch {
+            return .failure(.accessibilityDenied)
+        }
+
+        do {
+            try placement.move(windowID: target.windowID, toSpaceID: target.activeSpaceID)
+        } catch {
+            logger.error(
+                "composer lease move-in failed window=\(target.windowID, privacy: .public) targetSpace=\(target.activeSpaceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+            return .failure(reason(from: error, default: .moveFailed))
+        }
+
+        let materializeFailure: AgentWindowInputReason?
+        do {
+            try access.awaitComposer(for: target)
+            materializeFailure = nil
+        } catch let reason as AgentWindowInputReason {
+            materializeFailure = reason
+        } catch {
+            materializeFailure = .composerMissing
+        }
+
+        let focusChanged = frontmostBefore.map { access.frontmostApplicationPID() != $0 } ?? false
+        if let failure = materializeFailure ?? (focusChanged ? .focusStolen : nil) {
+            do {
+                try placement.move(windowID: target.windowID, toSpaceID: target.homeSpaceID)
+            } catch {
+                logger.error(
+                    "composer lease rollback failed window=\(target.windowID, privacy: .public) homeSpace=\(target.homeSpaceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                )
+                return .failure(reason(from: error, default: .moveFailed))
+            }
+            return .failure(failure)
+        }
+        return .success(())
+    }
+
+    /// Returns a window borrowed by `beginEditingLease` to the Desktop it occupied before focus.
+    func endEditingLease(_ target: AgentWindowSessionTarget) -> Result<Void, AgentWindowInputReason> {
+        guard !target.isOnActiveDesktop else { return .success(()) }
+        let frontmostBefore = access.frontmostApplicationPID()
+        do {
+            try placement.move(windowID: target.windowID, toSpaceID: target.homeSpaceID)
+        } catch {
+            logger.error(
+                "composer lease move-back failed window=\(target.windowID, privacy: .public) homeSpace=\(target.homeSpaceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
+            )
+            return .failure(reason(from: error, default: .moveFailed))
+        }
+        if let frontmostBefore, access.frontmostApplicationPID() != frontmostBefore {
+            return .failure(.focusStolen)
+        }
+        return .success(())
     }
 
     /// The composer's current text, but only when reading it costs nothing.
@@ -247,9 +316,9 @@ struct AgentWindowComposerWriter {
         return outcome
     }
 
-    /// Keeps a mover's own diagnosis when it has one. "yabai is not installed" and "the move did not
-    /// take" are different problems with different fixes, and collapsing both to `moveFailed` would
-    /// tell the user to retry something that cannot work.
+    /// Keeps a mover's own diagnosis when it has one. "This macOS lacks the bridged operation" and
+    /// "the move did not take" are different problems, so collapsing both to `moveFailed` would tell
+    /// the user to retry something that cannot work.
     private func reason(from error: Error, default fallback: AgentWindowInputReason) -> AgentWindowInputReason {
         (error as? AgentWindowInputReason) ?? fallback
     }

@@ -79,7 +79,9 @@ export function RawDetails({
   includesRawJson: boolean;
   label?: string;
 }) {
-  if (metadata.length === 0 && !includesRawJson) return null;
+  // Nice is the reading surface. Transcript metadata and source JSON belong
+  // to Raw mode, where each event index has the matching raw-line identity.
+  if (session.mode === "nice" || (metadata.length === 0 && !includesRawJson)) return null;
   return (
     // Closed, this is plumbing, so it gets a chip's worth of space rather than a
     // bordered full-width band: four of these were spending 97px of a 535px

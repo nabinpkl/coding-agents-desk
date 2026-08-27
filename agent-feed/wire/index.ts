@@ -17,7 +17,49 @@ export type {
   CliInputUnavailableReason,
 } from "./cliInput.ts";
 
-export type { DesktopDisplayResponse } from "./desktop.ts";
+export type {
+  AddBotCommand,
+  AttachBotSessionsCommand,
+  BotCreatedBy,
+  BotDirectoryEnvironment,
+  BotGrant,
+  BotMetadata,
+  BotRecord,
+  BotSessionRef,
+  BotSnapshot,
+  BotView,
+} from "./bot.ts";
+
+export type {
+  DesktopCursorKind,
+  WebrtcCursorApplied,
+  WebrtcCursorEvent,
+  WebrtcCursorImage,
+  WebrtcCursorPosition,
+  WebrtcTileAnswer,
+  WebrtcTileSourceMetadata,
+} from "./desktop.ts";
+
+export type {
+  DesktopControlConfiguration,
+  DesktopControlEvent,
+  DesktopControlInput,
+  DesktopPointerInput,
+  DesktopScrollPhase,
+  DesktopTextFocusEvent,
+  InputRejectionReason,
+  RemoteDigit,
+  RemoteKeyCode,
+  RemoteKeyEvent,
+  RemoteLetter,
+  RemoteModifier,
+  TextInputEditability,
+  TextInputFocusSource,
+} from "./desktopControl.ts";
+export {
+  DESKTOP_CONTROL_MAX_KEY_BATCH,
+  DESKTOP_CONTROL_MAX_MESSAGE_BYTES,
+} from "./desktopControl.ts";
 
 export type {
   AgentQueueState,
@@ -42,7 +84,6 @@ export type {
   ParkStepResult,
   ParkUnavailable,
   ParkWindow,
-  WebrtcPointerInput,
 } from "./park.ts";
 
 export type {
@@ -76,6 +117,16 @@ export type {
   TaskActivity,
   TaskOutputMessage,
 } from "./tasks.ts";
+
+export type {
+  AgentTerminalContext,
+  AgentTerminalDescriptor,
+  AgentTerminalInput,
+  AgentTerminalStreamMessage,
+  AgentTerminalViewport,
+  CloseAgentTerminalRequest,
+  OpenAgentTerminalRequest,
+} from "./terminal.ts";
 
 export type {
   AgentCommandReceipt,

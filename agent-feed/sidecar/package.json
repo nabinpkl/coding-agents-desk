@@ -12,10 +12,14 @@
     "@earendil-works/pi-ai": "0.83.0",
     "@earendil-works/pi-coding-agent": "0.83.0",
     "chokidar": "^5.0.0",
+    "protobufjs": "7.6.5",
     "werift": "^0.24.4"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5"
+  },
+  "patchedDependencies": {
+    "werift@0.24.4": "patches/werift@0.24.4.patch"
   }
 }

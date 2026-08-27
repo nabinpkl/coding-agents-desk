@@ -46,23 +46,6 @@ export interface ParkStateResponse {
   windows: ParkWindow[];
 }
 
-/** Relative pointer-mode input carried beside a WebRTC tile's video track. */
-export type WebrtcPointerInput =
-  | { t: "move"; dx: number; dy: number }
-  | { t: "click"; button: "left" | "right" }
-  | {
-      t: "scroll";
-      dx: number;
-      dy: number;
-      phase:
-        | "began"
-        | "changed"
-        | "ended"
-        | "momentumBegan"
-        | "momentumChanged"
-        | "momentumEnded";
-    };
-
 export type ParkSide = "left" | "right";
 
 export interface ParkMove {

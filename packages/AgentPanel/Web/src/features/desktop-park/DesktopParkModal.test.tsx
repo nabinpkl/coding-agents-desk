@@ -212,7 +212,12 @@ describe("the WebRTC tile", () => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       requests.push({ url, body });
       if (url.endsWith("/telemetry")) return new Response(null, { status: 204 });
-      return Response.json({ type: "answer", sdp: "answer" });
+      return Response.json({
+        type: "answer",
+        sdp: "answer",
+        codec: "h265",
+        source: { width: 1800, height: 1169, cursor: { x: 900, y: 584 } },
+      });
     }));
 
     class ConnectingPeer {
@@ -256,6 +261,7 @@ describe("the WebRTC tile", () => {
             ssrc: 1,
             trackIdentifier: "video",
             packetsReceived: 120,
+            bytesReceived: 12_000,
             packetsLost: 2,
             packetsRepaired: 1,
             packetsDiscarded: 3,
@@ -286,6 +292,9 @@ describe("the WebRTC tile", () => {
             localCandidateId: "local",
             remoteCandidateId: "remote",
             state: "succeeded",
+            nominated: true,
+            bytesReceived: 12_000,
+            bytesSent: 2_000,
             currentRoundTripTime: 0.08,
             availableIncomingBitrate: 1_500_000,
           } as RTCIceCandidatePairStats],
@@ -353,25 +362,62 @@ describe("the WebRTC tile", () => {
     });
     expect(requests.some(({ body }) => body.phase === "first-frame-timeout")).toBe(true);
     const receiverStats = requests.find(({ body }) => body.phase === "receiver-stats");
-    expect(JSON.parse(String(receiverStats?.body.detail))).toEqual({
-      packetsReceived: 120,
-      packetsLost: 2,
-      packetsRepaired: 1,
-      packetsDiscarded: 3,
-      jitterMs: 12,
-      framesReceived: 60,
-      framesDecoded: 58,
-      framesDropped: 2,
-      jitterBufferMs: 20,
-      jitterTargetMs: 40,
-      decodeMs: 10,
-      nackCount: 4,
-      pliCount: 1,
-      rttMs: 80,
-      incomingKbps: 1500,
-      decoder: "VideoToolbox",
-      powerEfficient: true,
+    expect(JSON.parse(String(receiverStats?.body.detail))).toMatchObject({
+      event: "connection-connected",
+      progress: "baseline",
+      peer: {
+        connection: "connected",
+        ice: "connected",
+      },
+      inbound: {
+        bytes: 12_000,
+        packets: 120,
+        lost: 2,
+        repaired: 1,
+        discarded: 3,
+        jitterMs: 12,
+        received: 60,
+        decoded: 58,
+        dropped: 2,
+        jitterBufferMs: 20,
+        jitterTargetMs: 40,
+        decodeMs: 10,
+        nack: 4,
+        pli: 1,
+        decoder: "VideoToolbox",
+        powerEfficient: true,
+      },
+      path: {
+        pair: "pair",
+        state: "succeeded",
+        nominated: true,
+        bytesReceived: 12_000,
+        bytesSent: 2_000,
+        rttMs: 80,
+        incomingKbps: 1500,
+      },
     });
     third.unmount();
+
+    const onState = vi.fn();
+    const fourth = render(
+      <TileStreamRtc
+        windowID="display"
+        width={1800}
+        height={1169}
+        onState={onState}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const playing = document.querySelector("video");
+    expect(playing).not.toBeNull();
+    act(() => playing!.dispatchEvent(new Event("loadeddata")));
+    expect(onState).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "playing",
+      codec: "webrtc/h265",
+    }));
+    fourth.unmount();
   });
 });

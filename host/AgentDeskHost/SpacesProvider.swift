@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import ObjectiveC.runtime
 import os
 import AgentDeskWire
 
@@ -128,6 +129,55 @@ struct HostWorkspaceWindowSpaceMover: WorkspaceWindowSpaceMoving {
         }
         return spaces.map(\.uint64Value)
     }
+}
+
+/// The current macOS operation for moving an arbitrary WindowServer window between user Spaces.
+///
+/// `SLSMoveWindowsToManagedSpace` is ignored for third-party windows when called from the host's
+/// connection. macOS 26.4 added this bridged operation, which accepts a WindowServer id directly and
+/// therefore does not require an Accessibility reference for the window. Keep the Objective-C
+/// runtime surface here beside the rest of the SkyLight binding so private API drift has one owner.
+protocol BridgedWindowSpaceOperating: Sendable {
+    func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws
+}
+
+struct SkyLightBridgedWindowSpaceOperation: BridgedWindowSpaceOperating {
+    static var isAvailable: Bool {
+        guard SkyLight.shared != nil,
+              let operationClass = NSClassFromString("SLSBridgedMoveWindowsToManagedSpaceOperation")
+        else { return false }
+        return class_getInstanceMethod(
+            operationClass,
+            NSSelectorFromString("initWithWindows:spaceID:")
+        ) != nil && class_getInstanceMethod(
+            operationClass,
+            NSSelectorFromString("performWithWMBridgeDelegate")
+        ) != nil
+    }
+
+    func move(windowID: UInt32, toSpaceID targetSpaceID: UInt64) throws {
+        guard Self.isAvailable,
+              let operationClass = NSClassFromString("SLSBridgedMoveWindowsToManagedSpaceOperation")
+        else {
+            throw WorkspaceWindowSpaceMoveError.missingSymbols
+        }
+        let typedClass = unsafeBitCast(
+            operationClass,
+            to: SkyLightBridgedWindowManagementOperation.Type.self
+        )
+        let operation = typedClass.init(
+            windows: [NSNumber(value: windowID)] as NSArray,
+            spaceID: targetSpaceID
+        )
+        operation.performWithWMBridgeDelegate()
+    }
+}
+
+/// A compile-time view of selectors implemented by SkyLight's private operation class. The class
+/// does not declare this protocol, so the metatype is checked for both selectors before the cast.
+@objc private protocol SkyLightBridgedWindowManagementOperation: AnyObject {
+    init(windows: NSArray, spaceID: UInt64)
+    func performWithWMBridgeDelegate()
 }
 
 // MARK: - Dock-enrichment desktop/window audit (ADR-0054)

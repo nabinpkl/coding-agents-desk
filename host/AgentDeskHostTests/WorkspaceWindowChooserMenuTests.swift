@@ -46,6 +46,59 @@ struct WorkspaceWindowChooserMenuTests {
         #expect(menu.items[0].view == nil)
     }
 
+    @Test func theAgentsMenuStartsWithANewCodexWindowCommand() throws {
+        let (first, _) = Self.windows(.agents)
+        var opened = 0
+        let menu = WorkspaceWindowChooserMenu.make(
+            kind: .agents,
+            windows: [first],
+            openCodexWindow: { opened += 1 },
+            focus: { _ in },
+            close: { _ in }
+        )
+
+        #expect(menu.items.count == 3)
+        #expect(menu.items[0].title == "New Codex Window")
+        #expect(menu.items[0].accessibilityIdentifier() == "agents-window-chooser-new-codex")
+        #expect(menu.items[1].isSeparatorItem)
+        #expect(menu.items[2].title == "Agents 1 · Desktop 1")
+
+        let action = try #require(menu.items[0].action)
+        _ = NSApp.sendAction(action, to: menu.items[0].target, from: menu.items[0])
+
+        #expect(opened == 1)
+    }
+
+    @Test(arguments: [WorkspaceWindowKind.ide, .terminal])
+    func onlyTheAgentsMenuOffersTheCodexCommand(kind: WorkspaceWindowKind) {
+        let menu = WorkspaceWindowChooserMenu.make(
+            kind: kind,
+            windows: [],
+            openCodexWindow: {},
+            focus: { _ in },
+            close: { _ in }
+        )
+
+        #expect(menu.items.count == 1)
+        #expect(menu.items[0].title == "No \(kind.label) windows open")
+    }
+
+    @Test func theCodexCommandRemainsAvailableWhenNoAgentsWindowsAreOpen() {
+        let menu = WorkspaceWindowChooserMenu.make(
+            kind: .agents,
+            windows: [],
+            openCodexWindow: {},
+            focus: { _ in },
+            close: { _ in }
+        )
+
+        #expect(menu.items.count == 3)
+        #expect(menu.items[0].title == "New Codex Window")
+        #expect(menu.items[1].isSeparatorItem)
+        #expect(menu.items[2].title == "No Agents windows open")
+        #expect(!menu.items[2].isEnabled)
+    }
+
     @Test(arguments: chooserKinds)
     func everyOpenWindowGetsItsOwnNamedRow(kind: WorkspaceWindowKind) {
         let (first, second) = Self.windows(kind)

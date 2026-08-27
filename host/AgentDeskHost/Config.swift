@@ -931,6 +931,15 @@ enum Config {
     // notice.
     static let codexMainPath = ProcessInfo.processInfo.environment["AGENTDESK_CODEX_MAIN_PATH"]
         ?? "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"
+    static let codexBundleIdentifier = ProcessInfo.processInfo.environment["AGENTDESK_CODEX_BUNDLE_ID"]
+        ?? "com.openai.codex"
+    static let codexFileMenuTitle = ProcessInfo.processInfo.environment["AGENTDESK_CODEX_FILE_MENU_TITLE"]
+        ?? "File"
+    static let codexNewWindowMenuItemTitle =
+        ProcessInfo.processInfo.environment["AGENTDESK_CODEX_NEW_WINDOW_MENU_TITLE"] ?? "New Window"
+    static let codexApplicationLaunchTimeout: TimeInterval = 10
+    static let codexWindowOpenPollInterval: TimeInterval = 0.05
+    static let codexWindowOpenPollAttempts = 100
     // The `AXDescription` Codex Desktop gives its prompt composer. Matched together with the
     // `AXTextArea` role, never on role alone. Env-overridable because it is another application's
     // private UI string and can change without notice.

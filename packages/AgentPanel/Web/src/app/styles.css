@@ -182,7 +182,7 @@
   }
 }
 
-/* The compact project navigation uses the browser top layer so keyboard focus
+/* The compact agent navigation uses the browser top layer so keyboard focus
    cannot escape into the thread while the drawer is open. WebKit maps backdrop
    pointer events to the dialog itself, which gives the drawer a second explicit
    close path alongside Escape and the labelled close button. */
@@ -195,7 +195,7 @@
 }
 
 /* Exactly one web header owns the physical leading edge of the Mac window:
-   the pinned project sidebar when present, otherwise the thread header. Keep
+   the pinned agent sidebar when present, otherwise the thread header. Keep
    each header's existing padding as the cross-platform minimum. */
 .agent-window-titlebar-main-leading {
   padding-inline-start: max(0.375rem, var(--agent-window-titlebar-leading));

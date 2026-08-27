@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { WebrtcPointerInput } from "@agentdesk/agent-feed-wire";
+import type {
+  DesktopControlEvent,
+  DesktopControlInput,
+  WebrtcTileAnswer,
+  WebrtcTileSourceMetadata,
+} from "@agentdesk/agent-feed-wire";
 import type { AgentHttpTransport } from "../activity-feed/transport/AgentHttpTransport";
 import type { DesktopStreamState } from "./DesktopStreamState";
 
@@ -10,10 +15,9 @@ import type { DesktopStreamState } from "./DesktopStreamState";
  *
  * Where the MSE tile hand-feeds bytes and had to grow a live-edge chase,
  * buffer pruning, and reconnect policy, this one delegates all of it: the
- * sidecar's werift stack ships our VideoToolbox H.264 as SRTP, and the
+ * sidecar's werift stack ships our negotiated VideoToolbox codec as SRTP, and the
  * webview's built-in WebRTC receiver owns jitter, late-frame dropping,
  * retransmit requests, and hardware decode straight into the compositor.
- * The component's whole job is one offer/answer POST and `srcObject`.
  *
  * A reconnect loop still exists, but only for peer death (a sidecar reload, a
  * network change ICE cannot restart across); packet-level trouble never
@@ -23,7 +27,19 @@ const RECONNECT_FIRST_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 8_000;
 const HEALTHY_SESSION_MS = 15_000;
 const RECONNECT_ATTEMPT_LIMIT = 6;
-const RECEIVER_STATS_INTERVAL_MS = 10_000;
+const ICE_DISCONNECTED_GRACE_MS = 8_000;
+// One sample per second is the diagnostic clock for correlating host RTP writes,
+// selected-candidate delivery, and receiver progress. Presentation-gap samples may
+// occur between ticks; the sidecar coalesces them onto the same one-second timeline.
+export const RECEIVER_STATS_INTERVAL_MS = 1_000;
+const VIDEO_PRESENTATION_INTERVAL_MS = 5_000;
+const PRESENTATION_WATCHDOG_INTERVAL_MS = 250;
+const PRESENTATION_GAP_THRESHOLD_MS = 750;
+const PRESENTATION_GAP_REPORT_INTERVAL_MS = 1_000;
+// Fast Refresh preserves mounted effects when their dependency values do not
+// change. Bump this only when live diagnostic ownership itself changes so the
+// running WebView adopts that instrumentation without a reload or relaunch.
+const VIDEO_DIAGNOSTIC_REVISION = 13;
 // WebKit can leave a peer in `connecting` forever when no candidate pair is
 // viable. A setup attempt either connects inside this window or yields to the
 // existing reconnect loop with an explicit diagnostic phase.
@@ -34,18 +50,217 @@ export const FIRST_FRAME_TIMEOUT_MS = 12_000;
 // does. Bits follow pixels via the scale-squared bitrate, so the cost lands
 // only where the density exists.
 const CAPTURE_PIXEL_RATIO_CAP = 3;
-const POINTER_CHANNEL_LABEL = "agentdesk-pointer-v1";
-const POINTER_MOVE_BUFFER_LIMIT = 64 * 1024;
+const MAX_SOURCE_EXTENT = 100_000;
+const CONTROL_CHANNEL_LABEL = "agentdesk-control-v2";
+const CONTROL_BUFFER_LIMIT = 64 * 1024;
 
-export interface PointerInputTransport {
-  send(input: WebrtcPointerInput): boolean;
+export interface DesktopControlTransport {
+  send(input: DesktopControlInput): DesktopControlSendResult;
+}
+
+export type DesktopControlSendResult = "sent" | "channel-closed" | "backpressured";
+
+export interface TileTelemetryEvent {
+  attempt: string;
+  phase: string;
+  detail?: string;
+  elapsedMs?: number;
+}
+
+function validSourceMetadata(value: unknown): value is WebrtcTileSourceMetadata {
+  if (typeof value !== "object" || value === null) return false;
+  const source = value as Record<string, unknown>;
+  const cursor = source.cursor;
+  return typeof source.width === "number"
+    && Number.isFinite(source.width)
+    && source.width > 0
+    && source.width <= MAX_SOURCE_EXTENT
+    && typeof source.height === "number"
+    && Number.isFinite(source.height)
+    && source.height > 0
+    && source.height <= MAX_SOURCE_EXTENT
+    && (source.desktopControlVersion === undefined
+      || (typeof source.desktopControlVersion === "number"
+        && Number.isSafeInteger(source.desktopControlVersion)
+        && source.desktopControlVersion > 0))
+    && typeof cursor === "object"
+    && cursor !== null
+    && typeof (cursor as { x?: unknown }).x === "number"
+    && Number.isFinite((cursor as { x: number }).x)
+    && (cursor as { x: number }).x >= 0
+    && (cursor as { x: number }).x < source.width
+    && typeof (cursor as { y?: unknown }).y === "number"
+    && Number.isFinite((cursor as { y: number }).y)
+    && (cursor as { y: number }).y >= 0
+    && (cursor as { y: number }).y < source.height;
+}
+
+export function parseWebrtcTileAnswer(body: string): WebrtcTileAnswer {
+  let value: unknown;
+  try {
+    value = JSON.parse(body);
+  } catch {
+    throw new Error("WebRTC answer was invalid");
+  }
+  if (typeof value !== "object" || value === null) {
+    throw new Error("WebRTC answer was invalid");
+  }
+  const answer = value as Record<string, unknown>;
+  if (
+    answer.type !== "answer"
+    || typeof answer.sdp !== "string"
+    || answer.sdp.length === 0
+    || (answer.codec !== "h264" && answer.codec !== "h265")
+    || !validSourceMetadata(answer.source)
+  ) throw new Error("WebRTC answer was invalid");
+  const source = answer.source as unknown as Record<string, unknown>;
+  return {
+    type: "answer",
+    sdp: answer.sdp,
+    codec: answer.codec,
+    source: {
+      ...source,
+      desktopControlVersion: typeof source.desktopControlVersion === "number"
+        ? source.desktopControlVersion
+        : 0,
+    },
+  } as WebrtcTileAnswer;
+}
+
+export function tileCaptureSize(
+  shownWidth: number,
+  sourceWidth: number | undefined,
+  sourceHeight: number | undefined,
+  devicePixelRatio: number,
+  bitrate: number,
+): { width?: number; height?: number; bitrate: number } {
+  const ratio = Math.min(devicePixelRatio || 1, CAPTURE_PIXEL_RATIO_CAP);
+  if (
+    typeof sourceWidth !== "number"
+    || !Number.isFinite(sourceWidth)
+    || sourceWidth <= 0
+    || typeof sourceHeight !== "number"
+    || !Number.isFinite(sourceHeight)
+    || sourceHeight <= 0
+  ) {
+    return {
+      width: shownWidth > 0 ? Math.max(16, Math.round(shownWidth * ratio)) : undefined,
+      bitrate,
+    };
+  }
+  const visibleWidth = shownWidth > 0 ? shownWidth : sourceWidth;
+  const scale = Math.min(1, (visibleWidth * ratio) / sourceWidth);
+  return {
+    width: Math.max(16, Math.round(sourceWidth * scale)),
+    height: Math.max(16, Math.round(sourceHeight * scale)),
+    bitrate: Math.max(300_000, Math.round(bitrate * scale * scale)),
+  };
+}
+
+/**
+ * Sends WebView-authored evidence through the same authenticated control path
+ * as the rest of the panel. The page never receives the sidecar token.
+ */
+export function postTileTelemetry(
+  windowID: number | "display",
+  event: TileTelemetryEvent,
+  httpTransport?: Pick<AgentHttpTransport, "request">,
+) {
+  const request = httpTransport
+    ? httpTransport.request(
+        "POST",
+        `/api/park/tile/${windowID}/webrtc/telemetry`,
+        { body: event },
+      )
+    : fetch(`/api/park/tile/${windowID}/webrtc/telemetry`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(event),
+      });
+  void request.catch(() => {
+    // Evidence is best effort. The gesture or connection state remains
+    // authoritative when its diagnostic request cannot reach the Mac.
+  });
 }
 
 type ReceiverVideoStats = RTCInboundRtpStreamStats & {
+  bytesReceived?: number;
+  freezeCount?: number;
+  totalFreezesDuration?: number;
+  framesPerSecond?: number;
+  keyFramesDecoded?: number;
   mediaType?: string;
   packetsRepaired?: number;
   powerEfficientDecoder?: boolean;
 };
+
+type CandidateStats = RTCStats & {
+  candidateType?: string;
+  networkType?: string;
+  protocol?: string;
+  relayProtocol?: string;
+  tcpType?: string;
+};
+
+type CandidatePairStats = RTCIceCandidatePairStats & {
+  bytesReceived?: number;
+  bytesSent?: number;
+  nominated?: boolean;
+  state?: string;
+};
+
+export interface ReceiverProgressSample {
+  atMs: number;
+  bytesReceived: number;
+  packetsReceived: number;
+  framesReceived: number;
+  framesDecoded: number;
+  framesDropped: number;
+  presentedSamples: number;
+  connectionState: RTCPeerConnectionState;
+  visibilityState: DocumentVisibilityState;
+}
+
+export function receiverProgressDelta(
+  previous: ReceiverProgressSample | null,
+  current: ReceiverProgressSample,
+) {
+  if (!previous) return null;
+  return {
+    intervalMs: Math.max(0, Math.round(current.atMs - previous.atMs)),
+    bytes: current.bytesReceived - previous.bytesReceived,
+    packets: current.packetsReceived - previous.packetsReceived,
+    received: current.framesReceived - previous.framesReceived,
+    decoded: current.framesDecoded - previous.framesDecoded,
+    dropped: current.framesDropped - previous.framesDropped,
+    presented: current.presentedSamples - previous.presentedSamples,
+  };
+}
+
+/**
+ * Classifies the first pipeline boundary that stopped moving. This is deliberately
+ * counter-based: a static desktop still produces access units, so decoded frames without
+ * compositor callbacks is our/WebKit presentation trouble, while no inbound bytes after
+ * the Mac reports sends is genuine path silence.
+ */
+export function classifyReceiverProgress(
+  previous: ReceiverProgressSample | null,
+  current: ReceiverProgressSample,
+): string {
+  if (current.visibilityState !== "visible") return "page-hidden";
+  if (
+    current.connectionState === "disconnected"
+    || current.connectionState === "failed"
+    || current.connectionState === "closed"
+  ) return "transport-disconnected";
+  const delta = receiverProgressDelta(previous, current);
+  if (!delta) return "baseline";
+  if (delta.bytes <= 0 && delta.packets <= 0) return "source-or-network-silent";
+  if (delta.received <= 0) return "rtp-frame-assembly-stalled";
+  if (delta.decoded <= 0) return "decoder-stalled";
+  if (delta.presented <= 0) return "presentation-stalled";
+  return "progressing";
+}
 
 export function TileStreamRtc({
   windowID,
@@ -55,31 +270,47 @@ export function TileStreamRtc({
   bitrate = 1_200_000,
   fill = false,
   onState,
-  onPointerTransport,
+  onControlTransport,
+  onControlEvent,
+  onSourceMetadata,
   httpTransport,
 }: {
   /** A window id, or "display" for the whole active screen. */
   windowID: number | "display";
-  /** The source's own size. Sets the tile's aspect; capture may be smaller. */
-  width: number;
-  height: number;
+  /** Known source size for catalogued windows. A display learns this from the answer. */
+  width?: number;
+  height?: number;
   fps?: number;
   bitrate?: number;
   /** Fill the parent instead of imposing the source's aspect ratio. */
   fill?: boolean;
   onState?: (state: DesktopStreamState) => void;
-  onPointerTransport?: (transport: PointerInputTransport | null) => void;
+  onControlTransport?: (transport: DesktopControlTransport | null) => void;
+  /** Cursor, focus, delivery, and ownership events on the ordered control channel. */
+  onControlEvent?: (event: DesktopControlEvent) => void;
+  /** Authoritative logical-point geometry from the native capture helper. */
+  onSourceMetadata?: (metadata: WebrtcTileSourceMetadata) => void;
   /** Control-plane HTTP transport; omitted callers use same-origin fetch. */
   httpTransport?: Pick<AgentHttpTransport, "request">;
 }) {
   const video = useRef<HTMLVideoElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<DesktopStreamState>({ kind: "connecting" });
-  const onPointerTransportRef = useRef(onPointerTransport);
+  const onControlTransportRef = useRef(onControlTransport);
+  const onControlEventRef = useRef(onControlEvent);
+  const onSourceMetadataRef = useRef(onSourceMetadata);
 
   useEffect(() => {
-    onPointerTransportRef.current = onPointerTransport;
-  }, [onPointerTransport]);
+    onControlTransportRef.current = onControlTransport;
+  }, [onControlTransport]);
+
+  useEffect(() => {
+    onControlEventRef.current = onControlEvent;
+  }, [onControlEvent]);
+
+  useEffect(() => {
+    onSourceMetadataRef.current = onSourceMetadata;
+  }, [onSourceMetadata]);
 
   useEffect(() => {
     onState?.(state);
@@ -97,22 +328,201 @@ export function TileStreamRtc({
     let activePeer: RTCPeerConnection | null = null;
     let cancelActiveSession: (() => void) | null = null;
     let wake: (() => void) | null = null;
-    let activePointerTransport: PointerInputTransport | null = null;
+    let activeControlTransport: DesktopControlTransport | null = null;
+    type VideoPresentationOwner = {
+      attempt: string;
+      report: (phase: string, detail?: string) => void;
+      sampleHealth: (reason: string, gapMs?: number) => void;
+      frameRequest: number | null;
+      presentedSamples: number;
+      lastPresentedAt: number | null;
+      mediaTime: number | null;
+      gapStartedAt: number | null;
+      lastGapReportAt: number | null;
+      lastGapClassification: string | null;
+    };
+    let videoOwner: VideoPresentationOwner | null = null;
+    const pixelCanvas = document.createElement("canvas");
+    pixelCanvas.width = 4;
+    pixelCanvas.height = 4;
+    const pixelContext = pixelCanvas.getContext("2d", { willReadFrequently: true });
 
-    const publishPointerTransport = (transport: PointerInputTransport | null) => {
-      activePointerTransport = transport;
-      onPointerTransportRef.current?.(transport);
+    const decodedPixelSample = (): Record<string, unknown> => {
+      if (!pixelContext || element.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        return { pixelSample: "unavailable" };
+      }
+      try {
+        pixelContext.drawImage(element, 0, 0, pixelCanvas.width, pixelCanvas.height);
+        const pixels = pixelContext.getImageData(
+          0,
+          0,
+          pixelCanvas.width,
+          pixelCanvas.height,
+        ).data;
+        let total = 0;
+        let minimum = 255;
+        let maximum = 0;
+        for (let index = 0; index < pixels.length; index += 4) {
+          const luma = Math.round(
+            (pixels[index] * 54 + pixels[index + 1] * 183 + pixels[index + 2] * 19) / 256,
+          );
+          total += luma;
+          minimum = Math.min(minimum, luma);
+          maximum = Math.max(maximum, luma);
+        }
+        return {
+          pixelMean: Math.round(total / (pixels.length / 4)),
+          pixelRange: `${minimum}-${maximum}`,
+        };
+      } catch (error) {
+        return {
+          pixelSampleError: error instanceof Error ? error.message : String(error),
+        };
+      }
+    };
+
+    const videoPresentationDetail = (event: string, extra: Record<string, unknown> = {}) => {
+      const owner = videoOwner;
+      if (!owner) return;
+      const stream = element.srcObject instanceof MediaStream ? element.srcObject : null;
+      const track = stream?.getVideoTracks()[0];
+      const quality = typeof element.getVideoPlaybackQuality === "function"
+        ? element.getVideoPlaybackQuality()
+        : null;
+      const style = getComputedStyle(element);
+      const elementRect = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        Math.max(0, Math.min(window.innerWidth - 1, elementRect.left + elementRect.width / 2)),
+        Math.max(0, Math.min(window.innerHeight - 1, elementRect.top + elementRect.height / 2)),
+      ) as HTMLElement | null;
+      const contentStyle = element.parentElement?.parentElement
+        ? getComputedStyle(element.parentElement.parentElement)
+        : null;
+      const ancestorSizes: string[] = [];
+      let ancestor: HTMLElement | null = element;
+      for (let depth = 0; ancestor && depth < 6; depth += 1) {
+        ancestorSizes.push(`${ancestor.tagName}:${ancestor.clientWidth}x${ancestor.clientHeight}`);
+        ancestor = ancestor.parentElement;
+      }
+      owner.report("video-presentation", JSON.stringify({
+        event,
+        owner: owner.attempt.slice(0, 8),
+        document: document.visibilityState,
+        currentTime: Math.round(element.currentTime * 1_000) / 1_000,
+        presentedSamples: owner.presentedSamples,
+        lastPresentedAgeMs: owner.lastPresentedAt === null
+          ? -1
+          : Math.round(performance.now() - owner.lastPresentedAt),
+        mediaTime: owner.mediaTime,
+        presentation: "video",
+        contentTransform: contentStyle?.transform ?? "none",
+        contentWillChange: contentStyle?.willChange ?? "none",
+        centerHit: hit
+          ? `${hit.tagName}.${typeof hit.className === "string" ? hit.className.slice(0, 80) : ""}`
+          : "none",
+        ...decodedPixelSample(),
+        readyState: element.readyState,
+        networkState: element.networkState,
+        paused: element.paused,
+        ended: element.ended,
+        trackState: track?.readyState ?? "none",
+        trackMuted: track?.muted,
+        trackEnabled: track?.enabled,
+        video: `${element.videoWidth}x${element.videoHeight}`,
+        client: `${element.clientWidth}x${element.clientHeight}`,
+        ancestors: ancestorSizes.join("|"),
+        viewport: `${window.innerWidth}x${window.innerHeight}`,
+        outer: `${window.outerWidth}x${window.outerHeight}@${window.screenX},${window.screenY}`,
+        screen: `${window.screen.width}x${window.screen.height}`,
+        available: `${window.screen.availWidth}x${window.screen.availHeight}`,
+        visualViewport: window.visualViewport
+          ? `${Math.round(window.visualViewport.width)}x${Math.round(window.visualViewport.height)}`
+          : "none",
+        cssSize: `${style.width}x${style.height}`,
+        opacity: style.opacity,
+        visibility: style.visibility,
+        display: style.display,
+        ...(quality && (quality.totalVideoFrames > 0 || quality.droppedVideoFrames > 0)
+          ? {
+              totalFrames: quality.totalVideoFrames,
+              droppedFrames: quality.droppedVideoFrames,
+            }
+          : {}),
+        ...extra,
+      }));
+    };
+
+    const armVideoPresentationSample = (owner: VideoPresentationOwner): void => {
+      if (videoOwner !== owner || owner.frameRequest !== null) return;
+      if (typeof element.requestVideoFrameCallback !== "function") return;
+      owner.frameRequest = element.requestVideoFrameCallback((_now, metadata) => {
+        if (videoOwner !== owner) return;
+        const recoveredGapMs = owner.gapStartedAt === null
+          ? null
+          : Math.round(performance.now() - owner.gapStartedAt);
+        owner.frameRequest = null;
+        owner.presentedSamples += 1;
+        owner.lastPresentedAt = performance.now();
+        owner.mediaTime = metadata.mediaTime;
+        if (recoveredGapMs !== null) {
+          owner.gapStartedAt = null;
+          owner.lastGapReportAt = null;
+          owner.sampleHealth("recovered", recoveredGapMs);
+        }
+        armVideoPresentationSample(owner);
+      });
+    };
+
+    const videoEvents = [
+      "playing",
+      "waiting",
+      "stalled",
+      "suspend",
+      "pause",
+      "ended",
+      "emptied",
+      "error",
+      "resize",
+    ] as const;
+    const onVideoEvent = (event: Event) => videoPresentationDetail(event.type);
+    for (const event of videoEvents) element.addEventListener(event, onVideoEvent);
+    const presentationTimer = window.setInterval(() => {
+      videoPresentationDetail("sample");
+      if (videoOwner) armVideoPresentationSample(videoOwner);
+    }, VIDEO_PRESENTATION_INTERVAL_MS);
+    const presentationWatchdogTimer = window.setInterval(() => {
+      const owner = videoOwner;
+      if (
+        !owner
+        || owner.lastPresentedAt === null
+        || document.visibilityState !== "visible"
+        || element.paused
+        || element.ended
+      ) return;
+      const stream = element.srcObject instanceof MediaStream ? element.srcObject : null;
+      const track = stream?.getVideoTracks()[0];
+      if (!track || track.readyState !== "live" || track.muted) return;
+      const now = performance.now();
+      const gapMs = now - owner.lastPresentedAt;
+      if (gapMs < PRESENTATION_GAP_THRESHOLD_MS) return;
+      if (owner.gapStartedAt === null) owner.gapStartedAt = owner.lastPresentedAt;
+      if (
+        owner.lastGapReportAt !== null
+        && now - owner.lastGapReportAt < PRESENTATION_GAP_REPORT_INTERVAL_MS
+      ) return;
+      const reason = owner.lastGapReportAt === null ? "detected" : "progress";
+      owner.lastGapReportAt = now;
+      owner.sampleHealth(reason, Math.round(gapMs));
+    }, PRESENTATION_WATCHDOG_INTERVAL_MS);
+
+    const publishControlTransport = (transport: DesktopControlTransport | null) => {
+      activeControlTransport = transport;
+      onControlTransportRef.current?.(transport);
     };
 
     const captureSize = () => {
-      const shown = frame.current?.clientWidth ?? width;
-      const ratio = Math.min(window.devicePixelRatio || 1, CAPTURE_PIXEL_RATIO_CAP);
-      const scale = Math.min(1, (shown * ratio) / width);
-      return {
-        width: Math.max(16, Math.round(width * scale)),
-        height: Math.max(16, Math.round(height * scale)),
-        bitrate: Math.max(300_000, Math.round(bitrate * scale * scale)),
-      };
+      const shown = frame.current?.clientWidth ?? 0;
+      return tileCaptureSize(shown, width, height, window.devicePixelRatio, bitrate);
     };
 
     /** Resolves "ended" on peer death, "failed" when setup itself broke. */
@@ -123,57 +533,63 @@ export function TileStreamRtc({
         activePeer = peer;
         let sawFrames = false;
         let finished = false;
+        let negotiatedCodec: WebrtcTileAnswer["codec"] | null = null;
+        let controlCompatible = false;
         const attempt = crypto.randomUUID();
         const report = (phase: string, detail?: string) => {
-          const body = {
+          postTileTelemetry(windowID, {
             attempt,
             phase,
             detail,
             elapsedMs: Math.round(performance.now() - started),
-          };
-          const request = httpTransport
-            ? httpTransport.request(
-                "POST",
-                `/api/park/tile/${windowID}/webrtc/telemetry`,
-                { body },
-              )
-            : fetch(`/api/park/tile/${windowID}/webrtc/telemetry`, {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify(body),
-              });
-          void request.catch(() => {
-            // The Mac-side log is best effort. The connection state and retry
-            // remain authoritative when the control request cannot get out.
-          });
+          }, httpTransport);
         };
-        const inputChannel = peer.createDataChannel(POINTER_CHANNEL_LABEL, { ordered: true });
-        const pointerTransport: PointerInputTransport = {
-          send(input) {
-            if (inputChannel.readyState !== "open") return false;
-            if (input.t === "move" && inputChannel.bufferedAmount > POINTER_MOVE_BUFFER_LIMIT) {
-              return false;
+        const inputChannel = peer.createDataChannel(CONTROL_CHANNEL_LABEL, { ordered: true });
+        inputChannel.onmessage = (message) => {
+          if (typeof message.data !== "string") return;
+          try {
+            const event = JSON.parse(message.data) as Partial<DesktopControlEvent>;
+            if (typeof event.type === "string") {
+              onControlEventRef.current?.(event as DesktopControlEvent);
             }
+          } catch {
+            report("control-channel-state", "invalid control event");
+          }
+        };
+        const controlTransport: DesktopControlTransport = {
+          send(input) {
+            if (inputChannel.readyState !== "open") return "channel-closed";
+            if (inputChannel.bufferedAmount > CONTROL_BUFFER_LIMIT) return "backpressured";
             inputChannel.send(JSON.stringify(input));
-            return true;
+            return "sent";
           },
         };
-        const clearPointerTransport = () => {
-          if (activePointerTransport === pointerTransport) publishPointerTransport(null);
+        const clearControlTransport = () => {
+          if (activeControlTransport === controlTransport) publishControlTransport(null);
         };
         inputChannel.onopen = () => {
-          report("input-channel-state", "open");
-          publishPointerTransport(pointerTransport);
+          if (!controlCompatible) {
+            report("control-channel-state", "protocol-mismatch client=2");
+            inputChannel.close();
+            return;
+          }
+          report("control-channel-state", "open");
+          controlTransport.send({ type: "configure", initialFocusDelayMs: 80, settleFocusDelayMs: 160 });
+          publishControlTransport(controlTransport);
         };
         inputChannel.onclose = () => {
-          report("input-channel-state", "closed");
-          clearPointerTransport();
+          report("control-channel-state", "closed");
+          clearControlTransport();
         };
         inputChannel.onerror = () => {
-          report("input-channel-state", "error");
-          clearPointerTransport();
+          report("control-channel-state", "error");
+          clearControlTransport();
         };
         let statsInFlight = false;
+        let pendingStatsReason: { reason: string; gapMs?: number } | null = null;
+        let lastReceiverSample: ReceiverProgressSample | null = null;
+        let lastCandidatePairID: string | null = null;
+        let receiverStatsSample = 0;
         const rounded = (value: unknown, scale = 1) =>
           typeof value === "number" && Number.isFinite(value)
             ? Math.round(value * scale)
@@ -186,8 +602,28 @@ export function TileStreamRtc({
           && count > 0
             ? Math.round((total * 1_000) / count)
             : undefined;
-        const sampleReceiverStats = async () => {
-          if (finished || statsInFlight) return;
+        const candidateDescription = (candidate: CandidateStats | undefined) => {
+          if (!candidate) return "unknown";
+          return [
+            candidate.candidateType ?? "unknown",
+            candidate.protocol ?? "unknown",
+            candidate.networkType,
+            candidate.relayProtocol,
+            candidate.tcpType,
+          ].filter(Boolean).join("/");
+        };
+        const sampleReceiverStats = async (reason = "interval", gapMs?: number) => {
+          if (finished) return;
+          if (statsInFlight) {
+            const isGapReason = reason === "detected"
+              || reason === "progress"
+              || reason === "recovered";
+            const pendingIsGap = pendingStatsReason?.reason === "detected"
+              || pendingStatsReason?.reason === "progress"
+              || pendingStatsReason?.reason === "recovered";
+            if (!pendingIsGap || isGapReason) pendingStatsReason = { reason, gapMs };
+            return;
+          }
           statsInFlight = true;
           try {
             const stats = await peer.getStats();
@@ -209,32 +645,112 @@ export function TileStreamRtc({
               return;
             }
             const candidatePair = transport?.selectedCandidatePairId
-              ? stats.get(transport.selectedCandidatePairId) as RTCIceCandidatePairStats | undefined
+              ? stats.get(transport.selectedCandidatePairId) as CandidatePairStats | undefined
               : undefined;
-            report("receiver-stats", JSON.stringify({
-              packetsReceived: rounded(inbound.packetsReceived),
-              packetsLost: rounded(inbound.packetsLost),
-              packetsRepaired: rounded(inbound.packetsRepaired),
-              packetsDiscarded: rounded(inbound.packetsDiscarded),
-              jitterMs: rounded(inbound.jitter, 1_000),
-              framesReceived: rounded(inbound.framesReceived),
-              framesDecoded: rounded(inbound.framesDecoded),
-              framesDropped: rounded(inbound.framesDropped),
-              jitterBufferMs: averageMilliseconds(
-                inbound.jitterBufferDelay,
-                inbound.jitterBufferEmittedCount,
-              ),
-              jitterTargetMs: averageMilliseconds(
-                inbound.jitterBufferTargetDelay,
-                inbound.jitterBufferEmittedCount,
-              ),
-              decodeMs: averageMilliseconds(inbound.totalDecodeTime, inbound.framesDecoded),
-              nackCount: rounded(inbound.nackCount),
-              pliCount: rounded(inbound.pliCount),
-              rttMs: rounded(candidatePair?.currentRoundTripTime, 1_000),
-              incomingKbps: rounded(candidatePair?.availableIncomingBitrate, 1 / 1_000),
-              decoder: inbound.decoderImplementation,
-              powerEfficient: inbound.powerEfficientDecoder,
+            let selectedPair = candidatePair;
+            if (!selectedPair) {
+              stats.forEach((entry) => {
+                const pair = entry as CandidatePairStats;
+                if (
+                  !selectedPair
+                  && pair.type === "candidate-pair"
+                  && pair.state === "succeeded"
+                  && pair.nominated
+                ) selectedPair = pair;
+              });
+            }
+            const localCandidate = selectedPair?.localCandidateId
+              ? stats.get(selectedPair.localCandidateId) as CandidateStats | undefined
+              : undefined;
+            const remoteCandidate = selectedPair?.remoteCandidateId
+              ? stats.get(selectedPair.remoteCandidateId) as CandidateStats | undefined
+              : undefined;
+            const now = performance.now();
+            const owner = videoOwner?.attempt === attempt ? videoOwner : null;
+            const current: ReceiverProgressSample = {
+              atMs: now,
+              bytesReceived: rounded(inbound.bytesReceived) ?? 0,
+              packetsReceived: rounded(inbound.packetsReceived) ?? 0,
+              framesReceived: rounded(inbound.framesReceived) ?? 0,
+              framesDecoded: rounded(inbound.framesDecoded) ?? 0,
+              framesDropped: rounded(inbound.framesDropped) ?? 0,
+              presentedSamples: owner?.presentedSamples ?? 0,
+              connectionState: peer.connectionState,
+              visibilityState: document.visibilityState,
+            };
+            const delta = receiverProgressDelta(lastReceiverSample, current);
+            const progress = classifyReceiverProgress(lastReceiverSample, current);
+            receiverStatsSample += 1;
+            const pairID = selectedPair?.id ?? null;
+            const pairChanged = lastCandidatePairID !== null && pairID !== lastCandidatePairID;
+            const presentationGapEvent = reason === "detected"
+              || reason === "progress"
+              || reason === "recovered";
+            lastReceiverSample = current;
+            lastCandidatePairID = pairID;
+            if (owner && presentationGapEvent) owner.lastGapClassification = progress;
+            report(presentationGapEvent ? "presentation-gap" : "receiver-stats", JSON.stringify({
+              event: reason,
+              sample: receiverStatsSample,
+              gapMs,
+              progress,
+              delta,
+              peer: {
+                connection: peer.connectionState,
+                ice: peer.iceConnectionState,
+                signaling: peer.signalingState,
+                gathering: peer.iceGatheringState,
+              },
+              presentation: {
+                document: document.visibilityState,
+                presented: current.presentedSamples,
+                ageMs: owner?.lastPresentedAt === null || owner?.lastPresentedAt === undefined
+                  ? -1
+                  : Math.round(now - owner.lastPresentedAt),
+                readyState: element.readyState,
+                paused: element.paused,
+                ended: element.ended,
+              },
+              inbound: {
+                bytes: current.bytesReceived,
+                packets: current.packetsReceived,
+                lost: rounded(inbound.packetsLost),
+                repaired: rounded(inbound.packetsRepaired),
+                discarded: rounded(inbound.packetsDiscarded),
+                jitterMs: rounded(inbound.jitter, 1_000),
+                received: current.framesReceived,
+                decoded: current.framesDecoded,
+                dropped: current.framesDropped,
+                fps: rounded(inbound.framesPerSecond),
+                keyframes: rounded(inbound.keyFramesDecoded),
+                freezes: rounded(inbound.freezeCount),
+                freezeMs: rounded(inbound.totalFreezesDuration, 1_000),
+                jitterBufferMs: averageMilliseconds(
+                  inbound.jitterBufferDelay,
+                  inbound.jitterBufferEmittedCount,
+                ),
+                jitterTargetMs: averageMilliseconds(
+                  inbound.jitterBufferTargetDelay,
+                  inbound.jitterBufferEmittedCount,
+                ),
+                decodeMs: averageMilliseconds(inbound.totalDecodeTime, inbound.framesDecoded),
+                nack: rounded(inbound.nackCount),
+                pli: rounded(inbound.pliCount),
+                decoder: inbound.decoderImplementation,
+                powerEfficient: inbound.powerEfficientDecoder,
+              },
+              path: {
+                pair: pairID?.slice(0, 16),
+                changed: pairChanged,
+                state: selectedPair?.state,
+                nominated: selectedPair?.nominated,
+                local: candidateDescription(localCandidate),
+                remote: candidateDescription(remoteCandidate),
+                bytesReceived: rounded(selectedPair?.bytesReceived),
+                bytesSent: rounded(selectedPair?.bytesSent),
+                rttMs: rounded(selectedPair?.currentRoundTripTime, 1_000),
+                incomingKbps: rounded(selectedPair?.availableIncomingBitrate, 1 / 1_000),
+              },
             }));
           } catch (error) {
             if (!finished) {
@@ -245,10 +761,16 @@ export function TileStreamRtc({
             }
           } finally {
             statsInFlight = false;
+            const pending = pendingStatsReason;
+            pendingStatsReason = null;
+            if (pending && !finished) {
+              void sampleReceiverStats(pending.reason, pending.gapMs);
+            }
           }
         };
         let setupTimer = 0;
         let statsTimer = 0;
+        let disconnectTimer = 0;
         let removeLoadedDataListener = () => {};
         const clearSetupTimer = () => {
           if (setupTimer === 0) return;
@@ -258,12 +780,20 @@ export function TileStreamRtc({
         let cancelSession: (() => void) | null = null;
         const finish = (outcome: "ended" | "cancelled" | string) => {
           if (finished) return;
+          if (videoOwner?.attempt === attempt) {
+            videoPresentationDetail("peer-finished", {
+              outcome,
+              ice: peer.iceConnectionState,
+              connection: peer.connectionState,
+            });
+          }
           finished = true;
           clearSetupTimer();
           if (statsTimer !== 0) window.clearInterval(statsTimer);
+          if (disconnectTimer !== 0) window.clearTimeout(disconnectTimer);
           removeLoadedDataListener();
           if (cancelActiveSession === cancelSession) cancelActiveSession = null;
-          clearPointerTransport();
+          clearControlTransport();
           inputChannel.close();
           peer.close();
           resolve(outcome);
@@ -278,20 +808,48 @@ export function TileStreamRtc({
         peer.addTransceiver("video", { direction: "recvonly" });
         peer.ontrack = (event) => {
           report("track-received", event.track.kind);
+          const previousOwner = videoOwner;
+          if (
+            previousOwner
+            && previousOwner.frameRequest !== null
+            && typeof element.cancelVideoFrameCallback === "function"
+          ) {
+            element.cancelVideoFrameCallback(previousOwner.frameRequest);
+          }
+          videoOwner = {
+            attempt,
+            report,
+            sampleHealth: (reason, gapMs) => void sampleReceiverStats(reason, gapMs),
+            frameRequest: null,
+            presentedSamples: 0,
+            lastPresentedAt: null,
+            mediaTime: null,
+            gapStartedAt: null,
+            lastGapReportAt: null,
+            lastGapClassification: null,
+          };
           element.srcObject = event.streams[0] ?? new MediaStream([event.track]);
+          videoPresentationDetail("owner-assigned", {
+            previousOwner: previousOwner?.attempt ?? null,
+          });
+          armVideoPresentationSample(videoOwner);
           void element.play().catch((error: unknown) => {
             report("play-rejected", error instanceof Error ? error.message : String(error));
           });
         };
         const onLoadedData = () => {
           if (cancelled) return;
+          if (!negotiatedCodec) {
+            finish("video frame arrived before codec negotiation");
+            return;
+          }
           sawFrames = true;
           clearSetupTimer();
           report("first-frame");
-          void sampleReceiverStats();
+          void sampleReceiverStats("first-frame");
           setState({
             kind: "playing",
-            codec: "webrtc/h264",
+            codec: `webrtc/${negotiatedCodec}`,
             firstFrameMs: firstEver ? Math.round(performance.now() - started) : 0,
           });
         };
@@ -299,11 +857,17 @@ export function TileStreamRtc({
         removeLoadedDataListener = () => element.removeEventListener("loadeddata", onLoadedData);
         peer.oniceconnectionstatechange = () => {
           report("ice-state", peer.iceConnectionState);
+          void sampleReceiverStats(`ice-${peer.iceConnectionState}`);
         };
         peer.onconnectionstatechange = () => {
           const at = peer.connectionState;
           report("connection-state", at);
+          void sampleReceiverStats(`connection-${at}`);
           if (at === "connected") {
+            if (disconnectTimer !== 0) {
+              window.clearTimeout(disconnectTimer);
+              disconnectTimer = 0;
+            }
             clearSetupTimer();
             if (statsTimer === 0) {
               statsTimer = window.setInterval(
@@ -318,7 +882,15 @@ export function TileStreamRtc({
               }, FIRST_FRAME_TIMEOUT_MS);
             }
           }
-          if (at === "failed" || at === "closed" || at === "disconnected") {
+          if (at === "disconnected" && disconnectTimer === 0) {
+            disconnectTimer = window.setTimeout(() => {
+              disconnectTimer = 0;
+              if (peer.connectionState === "disconnected") {
+                finish(cancelled ? "cancelled" : sawFrames ? "ended" : "peer never connected");
+              }
+            }, ICE_DISCONNECTED_GRACE_MS);
+          }
+          if (at === "failed" || at === "closed") {
             finish(cancelled ? "cancelled" : sawFrames ? "ended" : "peer never connected");
           }
         };
@@ -344,8 +916,9 @@ export function TileStreamRtc({
             const body = {
               type: "offer",
               sdp: peer.localDescription!.sdp,
-              width: capture.width,
-              height: capture.height,
+              attempt,
+              ...(capture.width === undefined ? {} : { width: capture.width }),
+              ...(capture.height === undefined ? {} : { height: capture.height }),
               fps,
               bitrate: capture.bitrate,
             };
@@ -364,8 +937,21 @@ export function TileStreamRtc({
               );
               return;
             }
-            const answer = JSON.parse(response.body) as { sdp: string };
+            if (cancelled) {
+              finish("cancelled");
+              return;
+            }
+            const answer = parseWebrtcTileAnswer(response.body);
+            negotiatedCodec = answer.codec;
+            controlCompatible = answer.source.desktopControlVersion === 2;
+            if (!controlCompatible) {
+              report(
+                "control-channel-state",
+                `protocol-mismatch host=${answer.source.desktopControlVersion} client=2`,
+              );
+            }
             report("answer-received");
+            onSourceMetadataRef.current?.(answer.source);
             await peer.setRemoteDescription({ type: "answer", sdp: answer.sdp });
             report("answer-applied");
           } catch (error) {
@@ -412,19 +998,39 @@ export function TileStreamRtc({
     return () => {
       cancelled = true;
       document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(presentationTimer);
+      window.clearInterval(presentationWatchdogTimer);
+      for (const event of videoEvents) element.removeEventListener(event, onVideoEvent);
+      if (
+        videoOwner
+        && videoOwner.frameRequest !== null
+        && typeof element.cancelVideoFrameCallback === "function"
+      ) {
+        element.cancelVideoFrameCallback(videoOwner.frameRequest);
+      }
       wake?.();
       cancelActiveSession?.();
       activePeer?.close();
-      publishPointerTransport(null);
+      publishControlTransport(null);
       element.srcObject = null;
     };
-  }, [windowID, width, height, fps, bitrate, httpTransport]);
+  }, [
+    windowID,
+    width,
+    height,
+    fps,
+    bitrate,
+    httpTransport,
+    VIDEO_DIAGNOSTIC_REVISION,
+  ]);
 
   return (
     <div
       ref={frame}
       className={`relative bg-black ${fill ? "size-full" : ""}`}
-      style={fill ? undefined : { aspectRatio: `${width} / ${height}` }}
+      style={fill || width === undefined || height === undefined
+        ? undefined
+        : { aspectRatio: `${width} / ${height}` }}
     >
       <video
         ref={video}

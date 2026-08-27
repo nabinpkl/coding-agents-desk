@@ -23,6 +23,9 @@ function prose(text: string): ActivityEvent {
 function reasoning(text: string): ActivityEvent {
   return { index: nextIndex++, ts: 1, type: "reasoning", blocks: [{ kind: "reasoning", text }] };
 }
+function system(text: string): ActivityEvent {
+  return { index: nextIndex++, ts: 1, type: "system", blocks: [{ kind: "text", text }] };
+}
 function orphanResult(preview: string): ActivityEvent {
   return {
     index: nextIndex++,
@@ -32,9 +35,54 @@ function orphanResult(preview: string): ActivityEvent {
   };
 }
 
-const NICE = { cluster: true } as const;
+const NICE = { cluster: true, hideSystem: true, incrementalReasoning: true } as const;
 
 describe("nice-mode clustering", () => {
+  it("renders only the suffix added by cumulative Codex reasoning snapshots", () => {
+    nextIndex = 0;
+    const events = [
+      reasoning("**Designing diagnostics**"),
+      system("item completed"),
+      reasoning("**Designing diagnostics**\n\n**Defining sampling**"),
+      system("item completed"),
+      reasoning(
+        "**Designing diagnostics**\n\n**Defining sampling**\n\n**Adding repair metrics**",
+      ),
+      reasoning(
+        "**Designing diagnostics**\n\n**Defining sampling**\n\n**Adding repair metrics**",
+      ),
+    ];
+
+    const niceReasoning = buildFeedLayout(events, NICE).items
+      .map(leadEvent)
+      .flatMap((event) => event.blocks)
+      .filter((block) => block.kind === "reasoning")
+      .map((block) => block.text);
+
+    expect(niceReasoning).toEqual([
+      "**Designing diagnostics**",
+      "**Defining sampling**",
+      "**Adding repair metrics**",
+    ]);
+
+    const rawReasoning = buildFeedLayout(events).items
+      .map(leadEvent)
+      .flatMap((event) => event.blocks)
+      .filter((block) => block.kind === "reasoning")
+      .map((block) => block.text);
+    expect(rawReasoning[1]).toBe("**Designing diagnostics**\n\n**Defining sampling**");
+  });
+
+  it("removes System rows while Raw keeps the transcript line", () => {
+    nextIndex = 0;
+    const events = [system("session initialized"), prose("Ready")];
+
+    expect(buildFeedLayout(events, NICE).items.map(leadEvent).map((event) => event.type))
+      .toEqual(["assistant"]);
+    expect(buildFeedLayout(events).items.map(leadEvent).map((event) => event.type))
+      .toEqual(["system", "assistant"]);
+  });
+
   it("folds a run of tool work and leaves prose and reasoning alone", () => {
     nextIndex = 0;
     const events = [

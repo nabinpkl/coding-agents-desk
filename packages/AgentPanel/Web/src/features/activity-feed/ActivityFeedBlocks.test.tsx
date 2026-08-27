@@ -463,6 +463,22 @@ describe("shell command extraction", () => {
 });
 
 describe("raw drawer", () => {
+  it("is absent from Nice even when metadata and raw JSON are available", () => {
+    const { container } = render(
+      <DataSourceProvider source={source(async () => "")}>
+        <RawDetails
+          metadata={[{ kind: "metadata", label: "Working Directory", text: "/repo" }]}
+          session={{ source: "claude", sessionId: "session", mode: "nice" }}
+          eventIndex={12}
+          includesRawJson
+        />
+      </DataSourceProvider>,
+    );
+
+    expect(container.querySelector("details")).toBeNull();
+    expect(screen.queryByText("Raw")).toBeNull();
+  });
+
   it("holds the metadata and only fetches the raw line from the nested disclosure", async () => {
     const exact = '{"type":"assistant"}';
     let release: ((text: string) => void) | null = null;

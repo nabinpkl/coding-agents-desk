@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  advanceRemoteCursor,
   clampPan,
+  followRemoteCursor,
   IDENTITY,
   panBy,
   pointerAccelerationGain,
+  projectRemoteCursor,
   scrollAccelerationGain,
   toContentPoint,
   zoomAt,
@@ -19,10 +22,63 @@ describe("remote pointer acceleration", () => {
     expect(pointerAccelerationGain(10_000)).toBe(10);
   });
 
-  it("matches the native scroll gain and cap", () => {
+  it("advances and clamps the same source-point cursor model as native", () => {
+    expect(advanceRemoteCursor({ x: 790, y: 5 }, 50, -20, W, H)).toEqual({ x: 799, y: 0 });
+  });
+});
+
+describe("remote scroll acceleration", () => {
+  it("matches the native precision floor, slope, and cap", () => {
     expect(scrollAccelerationGain(0)).toBe(1);
-    expect(scrollAccelerationGain(1_000)).toBe(5.5);
+    expect(scrollAccelerationGain(800)).toBe(4.6);
     expect(scrollAccelerationGain(10_000)).toBe(12);
+  });
+});
+
+describe("followRemoteCursor", () => {
+  it("pans at the safe-band edge without changing zoom", () => {
+    const followed = followRemoteCursor(
+      { scale: 2, tx: -400, ty: -250 },
+      { x: 650, y: 250 },
+      W,
+      H,
+      W,
+      H,
+    );
+
+    expect(followed).toEqual({ scale: 2, tx: -596, ty: -250 });
+  });
+
+  it("does not pan an axis that has no additional video", () => {
+    const transform = { scale: 1.1, tx: -40, ty: -25 };
+    const followed = followRemoteCursor(
+      transform,
+      { x: 800, y: 899 },
+      1600,
+      900,
+      W,
+      H,
+    );
+
+    expect(followed.ty).toBe(transform.ty);
+    expect(followed.scale).toBe(transform.scale);
+  });
+});
+
+describe("projectRemoteCursor", () => {
+  it("projects through aspect-fit letterboxing and the viewport transform", () => {
+    expect(projectRemoteCursor(
+      { scale: 2, tx: -200, ty: -100 },
+      { x: 800, y: 450 },
+      1600,
+      900,
+      800,
+      500,
+    )).toEqual({ x: 600, y: 400 });
+  });
+
+  it("returns no position until both source and viewport geometry exist", () => {
+    expect(projectRemoteCursor(IDENTITY, { x: 1, y: 1 }, 0, 900, W, H)).toBeNull();
   });
 });
 
@@ -38,6 +94,11 @@ describe("zoomAt", () => {
     const zoomed = zoomAt(IDENTITY, 2, 100, 100, W, H);
     const back = zoomAt(zoomed, 0.5, 700, 400, W, H);
     expect(back).toEqual(IDENTITY);
+  });
+
+  it("absorbs floating-point residue at the 1x boundary", () => {
+    expect(zoomAt({ scale: 1.25, tx: -87.5, ty: -62.5 }, 0.8000000000000002, 400, 250, W, H))
+      .toEqual(IDENTITY);
   });
 
   it("clamps scale to its bounds", () => {

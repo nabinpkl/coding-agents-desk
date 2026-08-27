@@ -44,9 +44,9 @@ public enum AgentWindowInputReason: String, Error, Equatable, Sendable {
     /// writing into whatever text element happened to be first is worse than refusing.
     case composerMissing = "composer-missing"
     case moveFailed = "move-failed"
-    /// The window mover is not installed or would not start. macOS has no public API for moving another
-    /// application's window between Desktops (ADR-0059), so an off-Desktop composer is unreachable
-    /// without it. Separate from `moveFailed` because nothing about retrying will help.
+    /// The current macOS build does not expose the private bridged operation for moving another
+    /// application's window between Desktops. Separate from `moveFailed` because retrying cannot
+    /// restore an unavailable native capability.
     case windowMoverUnavailable = "window-mover-unavailable"
     case writeFailed = "write-failed"
     /// The composer read back as something other than what was written.

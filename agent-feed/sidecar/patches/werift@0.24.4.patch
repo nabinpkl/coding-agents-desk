@@ -1,0 +1,482 @@
+diff --git a/lib/index.mjs b/lib/index.mjs
+index bd453cff7e694f564dff562025b3f6047d86ee50..1767e4b2b8be86010e5d0796c869a164eb360f4c 100644
+--- a/lib/index.mjs
++++ b/lib/index.mjs
+@@ -15615,11 +15615,15 @@ var SenderBandwidthEstimator = class {
+ 
+ // src/media/rtpSender.ts
+ var log34 = debug("werift:packages/webrtc/src/media/rtpSender.ts");
+-var RTP_HISTORY_SIZE = 128;
++var DEFAULT_RTP_HISTORY_SIZE = 128;
+ var RTT_ALPHA = 0.85;
+ var RTCRtpSender = class {
+-  constructor(trackOrKind) {
++  constructor(trackOrKind, rtpHistorySize = DEFAULT_RTP_HISTORY_SIZE) {
++    if (!Number.isSafeInteger(rtpHistorySize) || rtpHistorySize < 1 || rtpHistorySize > 65536) {
++      throw new Error("rtpHistorySize must be an integer between 1 and 65536");
++    }
+     this.trackOrKind = trackOrKind;
++    this.rtpHistorySize = rtpHistorySize;
+     this.kind = typeof this.trackOrKind === "string" ? this.trackOrKind : this.trackOrKind.kind;
+     if (typeof trackOrKind !== "string") {
+       this.registerTrack(trackOrKind);
+@@ -15660,6 +15664,12 @@ var RTCRtpSender = class {
+   roundTripTimeMeasurements = 0;
+   retransmittedPacketsSent = 0;
+   retransmittedBytesSent = 0;
++  rtpHistoryCacheHits = 0;
++  rtpHistoryCacheMisses = 0;
++  retransmissionQueueDepth = 0;
++  retransmissionQueueHighWaterMark = 0;
++  retransmissionQueueBusySinceMs;
++  retransmissionSendFailures = 0;
+   nackCount = 0;
+   pliCount = 0;
+   firCount = 0;
+@@ -15683,6 +15693,20 @@ var RTCRtpSender = class {
+   get transport() {
+     return this.dtlsTransport ?? null;
+   }
++  get rtpHistoryRepairStats() {
++    return {
++      nackReports: this.nackCount,
++      packetsRequested: this.rtpHistoryCacheHits + this.rtpHistoryCacheMisses,
++      cacheHits: this.rtpHistoryCacheHits,
++      cacheMisses: this.rtpHistoryCacheMisses,
++      retransmittedPacketsSent: this.retransmittedPacketsSent,
++      retransmittedBytesSent: this.retransmittedBytesSent,
++      queueDepth: this.retransmissionQueueDepth,
++      queueHighWaterMark: this.retransmissionQueueHighWaterMark,
++      queueBusyAgeMs: this.retransmissionQueueBusySinceMs === void 0 ? 0 : Date.now() - this.retransmissionQueueBusySinceMs,
++      sendFailures: this.retransmissionSendFailures
++    };
++  }
+   get streamId() {
+     return this.streamIds[0];
+   }
+@@ -15906,7 +15930,7 @@ var RTCRtpSender = class {
+     this.octetCount += payload.length;
+     this.headerBytesSent += header.serializeSize;
+     this.packetCount = uint32Add(this.packetCount, 1);
+-    this.rtpCache[header.sequenceNumber % RTP_HISTORY_SIZE] = rtp;
++    this.rtpCache[header.sequenceNumber % this.rtpHistorySize] = rtp;
+     let rtpPayload = payload;
+     if (this.redRedundantPayloadType) {
+       this.redEncoder.push({
+@@ -15966,32 +15990,51 @@ var RTCRtpSender = class {
+               {
+                 const feedback = packet.feedback;
+                 this.nackCount++;
+-                feedback.lost.forEach(async (seqNum) => {
+-                  let packet2 = this.rtpCache[seqNum % RTP_HISTORY_SIZE];
++                feedback.lost.forEach((seqNum) => {
++                  let packet2 = this.rtpCache[seqNum % this.rtpHistorySize];
+                   if (packet2 && packet2.header.sequenceNumber !== seqNum) {
+                     packet2 = void 0;
+                   }
+-                  if (packet2) {
+-                    if (this.rtxPayloadType != void 0) {
+-                      packet2 = wrapRtx(
+-                        packet2,
+-                        this.rtxPayloadType,
+-                        this.rtxSequenceNumber,
+-                        this.rtxSsrc
+-                      );
+-                      this.rtxSequenceNumber = uint16Add(
+-                        this.rtxSequenceNumber,
+-                        1
+-                      );
+-                    }
+-                    this.retransmittedPacketsSent++;
+-                    this.retransmittedBytesSent += packet2.payload.length;
+-                    this.headerBytesSent += packet2.header.serializeSize;
+-                    await this.dtlsTransport.sendRtp(
+-                      packet2.payload,
+-                      packet2.header
++                  if (!packet2) {
++                    this.rtpHistoryCacheMisses++;
++                    return;
++                  }
++                  this.rtpHistoryCacheHits++;
++                  if (this.rtxPayloadType != void 0) {
++                    packet2 = wrapRtx(
++                      packet2,
++                      this.rtxPayloadType,
++                      this.rtxSequenceNumber,
++                      this.rtxSsrc
+                     );
++                    this.rtxSequenceNumber = uint16Add(
++                      this.rtxSequenceNumber,
++                      1
++                    );
++                  }
++                  this.retransmittedPacketsSent++;
++                  this.retransmittedBytesSent += packet2.payload.length;
++                  this.headerBytesSent += packet2.header.serializeSize;
++                  if (this.retransmissionQueueDepth === 0) {
++                    this.retransmissionQueueBusySinceMs = Date.now();
+                   }
++                  this.retransmissionQueueDepth++;
++                  this.retransmissionQueueHighWaterMark = Math.max(
++                    this.retransmissionQueueHighWaterMark,
++                    this.retransmissionQueueDepth
++                  );
++                  void this.dtlsTransport.sendRtp(
++                    packet2.payload,
++                    packet2.header
++                  ).catch((error) => {
++                    this.retransmissionSendFailures++;
++                    log34("failed to retransmit RTP packet", error);
++                  }).finally(() => {
++                    this.retransmissionQueueDepth--;
++                    if (this.retransmissionQueueDepth === 0) {
++                      this.retransmissionQueueBusySinceMs = void 0;
++                    }
++                  });
+                 });
+                 this.onGenericNack.execute(feedback);
+               }
+@@ -16067,6 +16110,12 @@ var RTCRtpSender = class {
+       headerBytesSent: this.headerBytesSent,
+       retransmittedPacketsSent: this.retransmittedPacketsSent || void 0,
+       retransmittedBytesSent: this.retransmittedBytesSent || void 0,
++      rtpHistoryCacheHits: this.rtpHistoryCacheHits || void 0,
++      rtpHistoryCacheMisses: this.rtpHistoryCacheMisses || void 0,
++      retransmissionQueueDepth: this.retransmissionQueueDepth || void 0,
++      retransmissionQueueHighWaterMark: this.retransmissionQueueHighWaterMark || void 0,
++      retransmissionQueueBusyAgeMs: this.retransmissionQueueBusySinceMs === void 0 ? void 0 : Date.now() - this.retransmissionQueueBusySinceMs,
++      retransmissionSendFailures: this.retransmissionSendFailures || void 0,
+       rtxSsrc: this.rtxPayloadType ? this.rtxSsrc : void 0,
+       mediaSourceId: this.track ? this.mediaSourceStatsId : void 0,
+       remoteId: this.rtt !== void 0 || this.remotePacketsLost !== void 0 || this.remoteFractionLost !== void 0 ? this.remoteInboundRtpStatsId : void 0,
+@@ -17373,6 +17422,9 @@ var RTCPeerConnection = class extends EventTarget {
+     )) {
+       throw new Error("certificates cannot be changed");
+     }
++    if (isReconfiguration && normalizedConfig.rtpHistorySize !== void 0 && normalizedConfig.rtpHistorySize !== this.config.rtpHistorySize) {
++      throw new Error("rtpHistorySize cannot be changed");
++    }
+     if (isReconfiguration && normalizedConfig.iceCandidatePoolSize !== void 0 && this.localDescription && normalizedConfig.iceCandidatePoolSize !== this.config.iceCandidatePoolSize) {
+       throw new Error(
+         "iceCandidatePoolSize cannot be changed after setLocalDescription"
+@@ -17390,6 +17442,9 @@ var RTCPeerConnection = class extends EventTarget {
+     if (!Number.isInteger(this.config.maxMessageSize) || this.config.maxMessageSize < 0) {
+       throw new Error("maxMessageSize must be a non-negative integer");
+     }
++    if (!Number.isSafeInteger(this.config.rtpHistorySize) || this.config.rtpHistorySize < 1 || this.config.rtpHistorySize > 65536) {
++      throw new Error("rtpHistorySize must be an integer between 1 and 65536");
++    }
+     if (this.sctpManager?.sctpTransport) {
+       this.sctpManager.sctpTransport.maxMessageSize = this.config.maxMessageSize;
+     }
+@@ -18022,7 +18077,8 @@ function generateDefaultPeerConfig() {
+     debug: {},
+     midSuffix: false,
+     forceTurnTCP: false,
+-    maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE
++    maxMessageSize: DEFAULT_MAX_MESSAGE_SIZE,
++    rtpHistorySize: 128
+   };
+ }
+ var defaultPeerConfig = generateDefaultPeerConfig();
+@@ -18133,7 +18189,7 @@ var TransceiverManager = class {
+   addTransceiver(trackOrKind, dtlsTransport, options = {}) {
+     const kind = typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
+     const direction = options.direction || "sendrecv";
+-    const sender = new RTCRtpSender(trackOrKind);
++    const sender = new RTCRtpSender(trackOrKind, this.config.rtpHistorySize);
+     const receiver = new RTCRtpReceiver(this.config, kind, sender.ssrc);
+     const newTransceiver = new RTCRtpTransceiver(
+       kind,
+diff --git a/lib/webrtc/src/media/rtpSender.d.ts b/lib/webrtc/src/media/rtpSender.d.ts
+index ec97de42709a3701cf47a0bad10c003e6262a7da..ad276a281d4592a5f6c374d29d5fa7b1b5e19f3e 100644
+--- a/lib/webrtc/src/media/rtpSender.d.ts
++++ b/lib/webrtc/src/media/rtpSender.d.ts
+@@ -27,8 +27,21 @@ import type { RTCRtpCodecParameters, RTCRtpSendParameters } from "./parameters";
+ import { SenderBandwidthEstimator } from "./sender/senderBWE";
+ import { type RTCStats, type RTCStatsReport } from "./stats";
+ import type { MediaStream, MediaStreamTrack } from "./track";
++export interface RTCRtpHistoryRepairStats {
++    nackReports: number;
++    packetsRequested: number;
++    cacheHits: number;
++    cacheMisses: number;
++    retransmittedPacketsSent: number;
++    retransmittedBytesSent: number;
++    queueDepth: number;
++    queueHighWaterMark: number;
++    queueBusyAgeMs: number;
++    sendFailures: number;
++}
+ export declare class RTCRtpSender {
+     trackOrKind: Kind | MediaStreamTrack;
++    private readonly rtpHistorySize;
+     readonly type = "sender";
+     readonly kind: Kind;
+     readonly ssrc: number;
+@@ -82,8 +95,9 @@ export declare class RTCRtpSender {
+     stopped: boolean;
+     rtcpRunning: boolean;
+     private rtcpCancel;
+-    constructor(trackOrKind: Kind | MediaStreamTrack);
++    constructor(trackOrKind: Kind | MediaStreamTrack, rtpHistorySize?: number);
+     get transport(): RTCDtlsTransport;
++    get rtpHistoryRepairStats(): RTCRtpHistoryRepairStats;
+     get streamId(): string | undefined;
+     set streamId(value: string | undefined);
+     setDtlsTransport(dtlsTransport: RTCDtlsTransport): void;
+diff --git a/lib/webrtc/src/media/rtpSender.js b/lib/webrtc/src/media/rtpSender.js
+index e16264b01c36df5594b6936d5aa990378361e5dd..4450b6289e3b83d795e999396f7c2b288e1ab242 100644
+--- a/lib/webrtc/src/media/rtpSender.js
++++ b/lib/webrtc/src/media/rtpSender.js
+@@ -32,10 +32,19 @@ const utils_1 = require("../utils");
+ const senderBWE_1 = require("./sender/senderBWE");
+ const stats_1 = require("./stats");
+ const log = (0, rtp_1.debug)("werift:packages/webrtc/src/media/rtpSender.ts");
+-const RTP_HISTORY_SIZE = 128;
++const DEFAULT_RTP_HISTORY_SIZE = 128;
+ const RTT_ALPHA = 0.85;
+ class RTCRtpSender {
+-    constructor(trackOrKind) {
++    constructor(trackOrKind, rtpHistorySize = DEFAULT_RTP_HISTORY_SIZE) {
++        if (!Number.isSafeInteger(rtpHistorySize) || rtpHistorySize < 1 || rtpHistorySize > 65536) {
++            throw new Error("rtpHistorySize must be an integer between 1 and 65536");
++        }
++        Object.defineProperty(this, "rtpHistorySize", {
++            enumerable: true,
++            configurable: true,
++            writable: false,
++            value: rtpHistorySize
++        });
+         Object.defineProperty(this, "trackOrKind", {
+             enumerable: true,
+             configurable: true,
+@@ -247,6 +256,42 @@ class RTCRtpSender {
+             writable: true,
+             value: 0
+         });
++        Object.defineProperty(this, "rtpHistoryCacheHits", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: 0
++        });
++        Object.defineProperty(this, "rtpHistoryCacheMisses", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: 0
++        });
++        Object.defineProperty(this, "retransmissionQueueDepth", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: 0
++        });
++        Object.defineProperty(this, "retransmissionQueueHighWaterMark", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: 0
++        });
++        Object.defineProperty(this, "retransmissionQueueBusySinceMs", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: void 0
++        });
++        Object.defineProperty(this, "retransmissionSendFailures", {
++            enumerable: true,
++            configurable: true,
++            writable: true,
++            value: 0
++        });
+         Object.defineProperty(this, "nackCount", {
+             enumerable: true,
+             configurable: true,
+@@ -373,6 +418,22 @@ class RTCRtpSender {
+     get transport() {
+         return this.dtlsTransport ?? null;
+     }
++    get rtpHistoryRepairStats() {
++        return {
++            nackReports: this.nackCount,
++            packetsRequested: this.rtpHistoryCacheHits + this.rtpHistoryCacheMisses,
++            cacheHits: this.rtpHistoryCacheHits,
++            cacheMisses: this.rtpHistoryCacheMisses,
++            retransmittedPacketsSent: this.retransmittedPacketsSent,
++            retransmittedBytesSent: this.retransmittedBytesSent,
++            queueDepth: this.retransmissionQueueDepth,
++            queueHighWaterMark: this.retransmissionQueueHighWaterMark,
++            queueBusyAgeMs: this.retransmissionQueueBusySinceMs === undefined
++                ? 0
++                : Date.now() - this.retransmissionQueueBusySinceMs,
++            sendFailures: this.retransmissionSendFailures,
++        };
++    }
+     get streamId() {
+         return this.streamIds[0];
+     }
+@@ -596,7 +657,7 @@ class RTCRtpSender {
+         this.octetCount += payload.length;
+         this.headerBytesSent += header.serializeSize;
+         this.packetCount = (0, common_1.uint32Add)(this.packetCount, 1);
+-        this.rtpCache[header.sequenceNumber % RTP_HISTORY_SIZE] = rtp;
++        this.rtpCache[header.sequenceNumber % this.rtpHistorySize] = rtp;
+         let rtpPayload = payload;
+         if (this.redRedundantPayloadType) {
+             this.redEncoder.push({
+@@ -661,21 +722,39 @@ class RTCRtpSender {
+                             {
+                                 const feedback = packet.feedback;
+                                 this.nackCount++;
+-                                feedback.lost.forEach(async (seqNum) => {
+-                                    let packet = this.rtpCache[seqNum % RTP_HISTORY_SIZE];
++                                feedback.lost.forEach((seqNum) => {
++                                    let packet = this.rtpCache[seqNum % this.rtpHistorySize];
+                                     if (packet && packet.header.sequenceNumber !== seqNum) {
+                                         packet = undefined;
+                                     }
+-                                    if (packet) {
+-                                        if (this.rtxPayloadType != undefined) {
+-                                            packet = (0, rtp_1.wrapRtx)(packet, this.rtxPayloadType, this.rtxSequenceNumber, this.rtxSsrc);
+-                                            this.rtxSequenceNumber = (0, common_1.uint16Add)(this.rtxSequenceNumber, 1);
+-                                        }
+-                                        this.retransmittedPacketsSent++;
+-                                        this.retransmittedBytesSent += packet.payload.length;
+-                                        this.headerBytesSent += packet.header.serializeSize;
+-                                        await this.dtlsTransport.sendRtp(packet.payload, packet.header);
++                                    if (!packet) {
++                                        this.rtpHistoryCacheMisses++;
++                                        return;
++                                    }
++                                    this.rtpHistoryCacheHits++;
++                                    if (this.rtxPayloadType != undefined) {
++                                        packet = (0, rtp_1.wrapRtx)(packet, this.rtxPayloadType, this.rtxSequenceNumber, this.rtxSsrc);
++                                        this.rtxSequenceNumber = (0, common_1.uint16Add)(this.rtxSequenceNumber, 1);
+                                     }
++                                    this.retransmittedPacketsSent++;
++                                    this.retransmittedBytesSent += packet.payload.length;
++                                    this.headerBytesSent += packet.header.serializeSize;
++                                    if (this.retransmissionQueueDepth === 0) {
++                                        this.retransmissionQueueBusySinceMs = Date.now();
++                                    }
++                                    this.retransmissionQueueDepth++;
++                                    this.retransmissionQueueHighWaterMark = Math.max(this.retransmissionQueueHighWaterMark, this.retransmissionQueueDepth);
++                                    void this.dtlsTransport.sendRtp(packet.payload, packet.header)
++                                        .catch((error) => {
++                                        this.retransmissionSendFailures++;
++                                        log("failed to retransmit RTP packet", error);
++                                    })
++                                        .finally(() => {
++                                        this.retransmissionQueueDepth--;
++                                        if (this.retransmissionQueueDepth === 0) {
++                                            this.retransmissionQueueBusySinceMs = undefined;
++                                        }
++                                    });
+                                 });
+                                 this.onGenericNack.execute(feedback);
+                             }
+@@ -752,6 +831,14 @@ class RTCRtpSender {
+             headerBytesSent: this.headerBytesSent,
+             retransmittedPacketsSent: this.retransmittedPacketsSent || undefined,
+             retransmittedBytesSent: this.retransmittedBytesSent || undefined,
++            rtpHistoryCacheHits: this.rtpHistoryCacheHits || undefined,
++            rtpHistoryCacheMisses: this.rtpHistoryCacheMisses || undefined,
++            retransmissionQueueDepth: this.retransmissionQueueDepth || undefined,
++            retransmissionQueueHighWaterMark: this.retransmissionQueueHighWaterMark || undefined,
++            retransmissionQueueBusyAgeMs: this.retransmissionQueueBusySinceMs === undefined
++                ? undefined
++                : Date.now() - this.retransmissionQueueBusySinceMs,
++            retransmissionSendFailures: this.retransmissionSendFailures || undefined,
+             rtxSsrc: this.rtxPayloadType ? this.rtxSsrc : undefined,
+             mediaSourceId: this.track ? this.mediaSourceStatsId : undefined,
+             remoteId: this.rtt !== undefined ||
+diff --git a/lib/webrtc/src/media/stats.d.ts b/lib/webrtc/src/media/stats.d.ts
+index c5d75e773299039b5ebc28c10b81e4ff19323724..37baf98f06613c578ee19ab2314474f95ac15425 100644
+--- a/lib/webrtc/src/media/stats.d.ts
++++ b/lib/webrtc/src/media/stats.d.ts
+@@ -95,6 +95,12 @@ export interface RTCOutboundRtpStreamStats extends RTCSentRtpStreamStats {
+     headerBytesSent?: number;
+     retransmittedPacketsSent?: number;
+     retransmittedBytesSent?: number;
++    rtpHistoryCacheHits?: number;
++    rtpHistoryCacheMisses?: number;
++    retransmissionQueueDepth?: number;
++    retransmissionQueueHighWaterMark?: number;
++    retransmissionQueueBusyAgeMs?: number;
++    retransmissionSendFailures?: number;
+     rtxSsrc?: number;
+     targetBitrate?: number;
+     totalEncodedBytesTarget?: number;
+diff --git a/lib/webrtc/src/peerConnection.d.ts b/lib/webrtc/src/peerConnection.d.ts
+index 792b1d91043dad641626028d38f4e9d6171f9171..bb67921777875df570dd4bd703a72b8f6deea068 100644
+--- a/lib/webrtc/src/peerConnection.d.ts
++++ b/lib/webrtc/src/peerConnection.d.ts
+@@ -161,6 +161,8 @@ export declare class RTCPeerConnection extends EventTarget {
+         midSuffix: boolean;
+         /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
+         maxMessageSize: number;
++        /** Number of recently sent RTP packets retained for NACK retransmission. */
++        rtpHistorySize: number;
+     };
+     createOffer({ iceRestart }?: {
+         iceRestart?: boolean;
+@@ -259,6 +261,8 @@ export interface PeerConfig {
+     midSuffix: boolean;
+     /** Advertised local SCTP max-message-size in SDP. Use 0 for unlimited. */
+     maxMessageSize: number;
++    /** Number of recently sent RTP packets retained for NACK retransmission. */
++    rtpHistorySize: number;
+ }
+ export declare const findCodecByMimeType: (codecs: RTCRtpCodecParameters[], target: RTCRtpCodecParameters) => RTCRtpCodecParameters | undefined;
+ export type RTCIceServer = {
+diff --git a/lib/webrtc/src/peerConnection.js b/lib/webrtc/src/peerConnection.js
+index d722a2339877c3badc360a2a16e92733777a498d..7f04b1028442629258f16fe7222a1cb420e67c24 100644
+--- a/lib/webrtc/src/peerConnection.js
++++ b/lib/webrtc/src/peerConnection.js
+@@ -451,6 +451,11 @@ class RTCPeerConnection extends helper_1.EventTarget {
+             !hasSameCertificates(normalizedConfig.certificates, this.config.certificates)) {
+             throw new Error("certificates cannot be changed");
+         }
++        if (isReconfiguration &&
++            normalizedConfig.rtpHistorySize !== undefined &&
++            normalizedConfig.rtpHistorySize !== this.config.rtpHistorySize) {
++            throw new Error("rtpHistorySize cannot be changed");
++        }
+         if (isReconfiguration &&
+             normalizedConfig.iceCandidatePoolSize !== undefined &&
+             this.localDescription &&
+@@ -472,6 +477,11 @@ class RTCPeerConnection extends helper_1.EventTarget {
+             this.config.maxMessageSize < 0) {
+             throw new Error("maxMessageSize must be a non-negative integer");
+         }
++        if (!Number.isSafeInteger(this.config.rtpHistorySize) ||
++            this.config.rtpHistorySize < 1 ||
++            this.config.rtpHistorySize > 65536) {
++            throw new Error("rtpHistorySize must be an integer between 1 and 65536");
++        }
+         if (this.sctpManager?.sctpTransport) {
+             this.sctpManager.sctpTransport.maxMessageSize =
+                 this.config.maxMessageSize;
+@@ -1109,6 +1119,7 @@ function generateDefaultPeerConfig() {
+         midSuffix: false,
+         forceTurnTCP: false,
+         maxMessageSize: sctp_1.DEFAULT_MAX_MESSAGE_SIZE,
++        rtpHistorySize: 128,
+     };
+ }
+ exports.defaultPeerConfig = generateDefaultPeerConfig();
+diff --git a/lib/webrtc/src/transceiverManager.js b/lib/webrtc/src/transceiverManager.js
+index 30222316c9a9420c162c7a79ac073cb45b0ff2e4..244bdaae7565b206078a14429a3e420859dfc3cc 100644
+--- a/lib/webrtc/src/transceiverManager.js
++++ b/lib/webrtc/src/transceiverManager.js
+@@ -81,7 +81,7 @@ class TransceiverManager {
+     addTransceiver(trackOrKind, dtlsTransport, options = {}) {
+         const kind = typeof trackOrKind === "string" ? trackOrKind : trackOrKind.kind;
+         const direction = options.direction || "sendrecv";
+-        const sender = new media_1.RTCRtpSender(trackOrKind);
++        const sender = new media_1.RTCRtpSender(trackOrKind, this.config.rtpHistorySize);
+         const receiver = new media_1.RTCRtpReceiver(this.config, kind, sender.ssrc);
+         const newTransceiver = new media_1.RTCRtpTransceiver(kind, dtlsTransport, receiver, sender, direction);
+         newTransceiver.options = options;

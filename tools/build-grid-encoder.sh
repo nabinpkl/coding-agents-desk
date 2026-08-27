@@ -8,6 +8,8 @@ out="$root/.build/grid-encoder"
 mkdir -p "$root/.build"
 swiftc -O \
   "$root/tools/grid-encoder/main.swift" \
-  "$root/tools/grid-encoder/PointerInput.swift" \
+  "$root/tools/grid-encoder/DesktopInputController.swift" \
+  "$root/tools/grid-encoder/CaptureControlCommand.swift" \
+  "$root/tools/grid-encoder/CursorMirror.swift" \
   -o "$out"
 echo "built $out"

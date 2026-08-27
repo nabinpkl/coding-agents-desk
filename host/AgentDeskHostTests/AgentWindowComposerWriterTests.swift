@@ -144,6 +144,45 @@ struct AgentWindowComposerWriterTests {
         ])
     }
 
+    @Test func anEditingLeaseKeepsTheWindowHereUntilItEnds() {
+        let recorder = Recorder()
+        let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
+        let offDesktop = target(homeSpaceID: 4)
+
+        guard case .success = writer.beginEditingLease(offDesktop) else {
+            Issue.record("editing lease did not begin")
+            return
+        }
+        #expect(recorder.steps == [
+            .latch(400),
+            .move(windowID: 42, spaceID: 1),
+            .awaitComposer,
+        ])
+
+        guard case .success = writer.endEditingLease(offDesktop) else {
+            Issue.record("editing lease did not end")
+            return
+        }
+        #expect(recorder.steps.last == .move(windowID: 42, spaceID: 4))
+    }
+
+    @Test func aLeaseWhoseComposerNeverAppearsRestoresTheWindow() {
+        let recorder = Recorder()
+        recorder.awaitError = .composerMissing
+        let writer = AgentWindowComposerWriter(access: recorder, placement: recorder)
+
+        guard case .failure(.composerMissing) = writer.beginEditingLease(target(homeSpaceID: 4)) else {
+            Issue.record("missing composer did not fail lease acquisition")
+            return
+        }
+        #expect(recorder.steps == [
+            .latch(400),
+            .move(windowID: 42, spaceID: 1),
+            .awaitComposer,
+            .move(windowID: 42, spaceID: 4),
+        ])
+    }
+
     @Test func aWindowAlreadyHereIsNotMovedOrWaitedFor() {
         // Its tree is already built, so the materialize wait would be pure latency on the common path.
         let recorder = Recorder()

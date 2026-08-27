@@ -1,11 +1,17 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { CornerDownLeft, List, LoaderCircle, PanelLeft, Send, Square, Terminal as TerminalIcon, X } from "lucide-react";
-import type { AgentUiRequest, ProjectSummary, SessionSummary } from "@agentdesk/agent-feed-wire";
+import type {
+  AddBotCommand,
+  AgentTerminalContext,
+  AgentTerminalDescriptor,
+  AgentUiRequest,
+  BotSessionRef,
+  BotView,
+  ProjectSummary,
+  SessionSummary,
+} from "@agentdesk/agent-feed-wire";
 import type { SidecarDataSource } from "../features/activity-feed/data-source/SidecarDataSource";
 import type {
-  AgentTerminalContext,
-  AgentTerminalRequest,
-  AgentTerminalStatus,
   HostActionsClient,
   QuestionPanelStatus,
   WindowComposerStatus,
@@ -32,6 +38,7 @@ import type { OpenAskUserQuestion } from "./askUserQuestion";
 import {
   AgentSidebar,
   AgentSidebarDialog,
+  type AgentSidebarMode,
 } from "../features/sidebar/AgentSidebar";
 import {
   HoverSidebarPreview,
@@ -43,6 +50,13 @@ import {
   storeSidebarPreferences,
 } from "../features/sidebar/sidebarPreferences";
 import { loadSelection, storeSelection } from "../features/sidebar/selectionStore";
+import { useBots } from "../features/bots/useBots";
+import { BotCreatorDialog } from "../features/bots/BotCreatorDialog";
+import { BotSessionPickerDialog } from "../features/bots/BotSessionPickerDialog";
+import {
+  AgentTerminalPane,
+  type AgentTerminalPaneState,
+} from "../features/terminal/AgentTerminalPane";
 
 /**
  * A textarea that grows with its content instead of scrolling inside a fixed single row.
@@ -128,8 +142,8 @@ interface SelectedThread {
  * The panel's two collaborators, kept apart because they are different systems.
  *
  * `feed` is the sidecar reached over HTTP: projects, threads, transcripts, commands. `host` is the
- * Mac's native authority reached by postMessage: another application's text fields, its question
- * panel, and the PTY. Handing the view one merged object would let a future call reach the second
+ * Mac's native authority reached by postMessage: another application's text fields and its question
+ * panel. Handing the view one merged object would let a future call reach the second
  * while believing it was talking to the first.
  */
 interface Props {
@@ -139,26 +153,13 @@ interface Props {
 
 type TerminalState =
   | { kind: "idle" }
-  | { kind: "loading"; request: AgentTerminalRequest }
-  | { kind: "ready"; request: AgentTerminalRequest; ptySessionName: string }
-  | { kind: "closing"; request: AgentTerminalRequest }
-  | { kind: "error"; request: AgentTerminalRequest; code: string }
-  | { kind: "ended"; request: AgentTerminalRequest; exitStatus?: number };
+  | { kind: "loading"; context: AgentTerminalContext }
+  | { kind: "ready"; context: AgentTerminalContext; descriptor: AgentTerminalDescriptor }
+  | { kind: "error"; context: AgentTerminalContext; code: string }
+  | { kind: "ended"; context: AgentTerminalContext; exitStatus?: number };
 
-function terminalRequest(state: TerminalState): AgentTerminalRequest | null {
-  return state.kind === "idle" ? null : state.request;
-}
-
-function sameRequest(
-  request: AgentTerminalRequest,
-  status: AgentTerminalStatus,
-): boolean {
-  return (
-    request.requestId === status.requestId &&
-    request.context.projectPath === status.context.projectPath &&
-    request.context.source === status.context.source &&
-    request.context.sessionId === status.context.sessionId
-  );
+interface AgentTerminalComposer {
+  send: (text: string) => Promise<void>;
 }
 
 export function App({ feed, host }: Props) {
@@ -173,6 +174,12 @@ export function App({ feed, host }: Props) {
   const [loadingLayer, setLoadingLayer] = useState(true);
   const [layerError, setLayerError] = useState<string | null>(null);
   const [terminal, setTerminal] = useState<TerminalState>({ kind: "idle" });
+  const terminalComposer = useMemo<AgentTerminalComposer | null>(() => {
+    if (terminal.kind !== "ready") return null;
+    return {
+      send: (text) => feed.sendTerminalPrompt(terminal.descriptor.terminalId, text),
+    };
+  }, [feed, terminal]);
   const [creatingProjectPath, setCreatingProjectPath] = useState<string | null>(null);
   const [creationErrors, setCreationErrors] = useState<Map<string, string>>(new Map());
   const [commandPending, setCommandPending] = useState(false);
@@ -216,16 +223,36 @@ export function App({ feed, host }: Props) {
   const [extensionUI, setExtensionUI] = useState<AgentUiRequest[]>([]);
   const { compact, hoverCapable } = useSidebarEnvironment();
   const [sidebarPreferences, setSidebarPreferences] = useState(loadSidebarPreferences);
+  // One owner for every rendering of the sidebar: the pinned desktop rail, hover preview,
+  // and phone drawer must never disagree about which view is selected.
+  const [sidebarMode, setSidebarMode] = useState<AgentSidebarMode>("sessions");
+  const botsState = useBots(feed);
+  const [selectedBotId, setSelectedBotId] = useState<string | null>(null);
+  const [botCreatorOpen, setBotCreatorOpen] = useState(false);
+  const [botSessionPickerId, setBotSessionPickerId] = useState<string | null>(null);
+  // A catalog selection survives a trip through Bots. A Bot selection opens that same underlying
+  // session, but entering Bots from Sessions still presents an empty middle panel rather than
+  // relabelling the current session as a Bot.
+  const displayedThread = sidebarMode === "sessions"
+    ? selectedThread
+    : selectedBotId ? selectedThread : null;
+  const selectedBotName = selectedBotId
+    ? botsState.bots.find((bot) => bot.botId === selectedBotId)?.name
+    : undefined;
+  const botSessionPicker = botSessionPickerId
+    ? botsState.bots.find((bot) => bot.botId === botSessionPickerId) ?? null
+    : null;
   const [hoverPreviewOpen, setHoverPreviewOpen] = useState(false);
   const [expandedProjectPaths, setExpandedProjectPaths] = useState<Set<string>>(new Set());
   // The subscription's identity, not merely its argument: expanding or collapsing a
   // project reopens the inventory stream exactly once, and re-rendering for any other
   // reason leaves the open stream alone. Joined on NUL, the one byte a POSIX path
   // cannot contain, so the round trip cannot invent or lose a path.
-  const subscribedProjectKey = useMemo(
-    () => [...expandedProjectPaths].sort().join("\0"),
-    [expandedProjectPaths],
-  );
+  const subscribedProjectKey = useMemo(() => {
+    const paths = [...expandedProjectPaths];
+    if (botSessionPicker) paths.push(botSessionPicker.environment.path);
+    return [...new Set(paths)].sort().join("\0");
+  }, [botSessionPicker, expandedProjectPaths]);
   const subscribedProjectPaths = useMemo(
     () => (subscribedProjectKey === "" ? [] : subscribedProjectKey.split("\0")),
     [subscribedProjectKey],
@@ -238,7 +265,9 @@ export function App({ feed, host }: Props) {
   const rememberedSelection = useRef(loadSelection());
   const restoredSelection = useRef(false);
   const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const usesModalSidebar = compact && !hoverCapable;
+  // Width owns composition. A fine pointer may change desktop affordances, but
+  // it must not turn a compact layout back into two side-by-side columns.
+  const usesModalSidebar = compact;
   const sidebarPinned = !usesModalSidebar && sidebarPreferences.open;
   const drawerOpen = usesModalSidebar && sidebarPreferences.open;
   // The thread's own controls render into the header through this node, so the
@@ -348,50 +377,21 @@ export function App({ feed, host }: Props) {
     });
   }, [projects]);
 
-  // A collapsed project's sessions are no longer on the stream, so keeping them would
-  // be keeping a copy that nothing refreshes.
+  // A directory that is neither expanded nor open in a Bot session picker is no longer
+  // on the stream, so keeping it would be keeping a copy that nothing refreshes.
   useEffect(() => {
+    const subscribed = new Set(subscribedProjectPaths);
     setSessionsByProject((current) => {
       const next = new Map(
-        [...current].filter(([projectPath]) => expandedProjectPaths.has(projectPath)),
+        [...current].filter(([projectPath]) => subscribed.has(projectPath)),
       );
       return next.size === current.size ? current : next;
     });
-  }, [expandedProjectPaths]);
+  }, [subscribedProjectPaths]);
 
   useEffect(() => () => {
     if (hoverCloseTimer.current !== null) clearTimeout(hoverCloseTimer.current);
   }, []);
-
-  useEffect(
-    () =>
-      host.subscribeTerminalStatus((status) => {
-        setTerminal((current) => {
-          const request = terminalRequest(current);
-          if (!request || !sameRequest(request, status)) return current;
-          switch (status.kind) {
-            case "ready":
-              if (current.kind !== "loading") return current;
-              return {
-                kind: "ready",
-                request,
-                ptySessionName: status.ptySessionName,
-              };
-            case "error":
-              if (current.kind === "error" || current.kind === "ended") return current;
-              return { kind: "error", request, code: status.code };
-            case "ended":
-              if (current.kind === "error" || current.kind === "ended") return current;
-              return {
-                kind: "ended",
-                request,
-                exitStatus: status.exitStatus,
-              };
-          }
-        });
-      }),
-    [host],
-  );
 
   // Extension-UI prompts arrive on the open thread's own stream, so they need no session filter
   // here and cannot outlive the thread that asked them: leaving a thread closes the stream, and
@@ -456,8 +456,8 @@ export function App({ feed, host }: Props) {
 
   const revealSidebarOnHover = useCallback(() => {
     cancelHoverClose();
-    if (hoverCapable && !sidebarPinned) setHoverPreviewOpen(true);
-  }, [cancelHoverClose, hoverCapable, sidebarPinned]);
+    if (!usesModalSidebar && hoverCapable && !sidebarPinned) setHoverPreviewOpen(true);
+  }, [cancelHoverClose, hoverCapable, sidebarPinned, usesModalSidebar]);
 
   const hideSidebarAfterHover = useCallback(() => {
     cancelHoverClose();
@@ -485,17 +485,9 @@ export function App({ feed, host }: Props) {
   }, [setSidebarOpen]);
 
   const endCurrentTerminalContext = useCallback(() => {
-    const request = terminalRequest(terminal);
-    if (!request) return;
-    if (
-      terminal.kind === "loading" ||
-      terminal.kind === "ready"
-    ) {
-      host.closeTerminal(request);
-    }
-    host.endTerminalContext(request);
+    if (terminal.kind === "idle") return;
     setTerminal({ kind: "idle" });
-  }, [host, terminal]);
+  }, [terminal.kind]);
 
   const openSession = useCallback(
     (project: ProjectSummary, session: SessionSummary) => {
@@ -519,6 +511,33 @@ export function App({ feed, host }: Props) {
     },
     [endCurrentTerminalContext, selectedThread, setSidebarOpen, usesModalSidebar],
   );
+
+  const openCatalogSession = useCallback((project: ProjectSummary, session: SessionSummary) => {
+    setSelectedBotId(null);
+    openSession(project, session);
+  }, [openSession]);
+
+  const openBotSession = useCallback((bot: BotView, session: SessionSummary) => {
+    const project = projects.find((candidate) => candidate.projectPath === bot.environment.path) ?? {
+      projectPath: bot.environment.path,
+      displayName: bot.environment.path.split("/").filter(Boolean).at(-1) ?? bot.environment.path,
+      sourceCounts: { [session.source]: 1 },
+      sessionCount: 1,
+      lastEventAt: session.lastEventAt,
+    };
+    setSelectedBotId(bot.botId);
+    openSession(project, session);
+  }, [openSession, projects]);
+
+  const createBot = useCallback(async (command: Omit<AddBotCommand, "requestId">) => {
+    await feed.createBot(command);
+    setBotCreatorOpen(false);
+  }, [feed]);
+
+  const attachBotSessions = useCallback(async (bot: BotView, sessionRefs: BotSessionRef[]) => {
+    await feed.attachBotSessions(bot.botId, { sessionRefs });
+    setBotSessionPickerId(null);
+  }, [feed]);
 
   /**
    * Reopen whatever was on screen before the last reload.
@@ -551,10 +570,8 @@ export function App({ feed, host }: Props) {
       source: selectedThread.session.source,
       sessionId: selectedThread.session.sessionId,
     };
-    const request = host.createTerminalRequest(context);
-    setTerminal({ kind: "loading", request });
-    host.openTerminal(request);
-  }, [host, selectedThread]);
+    setTerminal({ kind: "loading", context });
+  }, [selectedThread]);
 
   const createPiSession = useCallback(async (project: ProjectSummary) => {
     if (creatingProjectPath) return;
@@ -570,6 +587,7 @@ export function App({ feed, host }: Props) {
       // title, timestamps, and capabilities. The source is the one we asked for: the descriptor
       // widens it to a bare string so a backend can register an identifier neither side's build
       // knows, and this call site is not that case.
+      setSelectedBotId(null);
       openSession(project, {
         sessionId: created.sessionId,
         source: "pi",
@@ -616,11 +634,28 @@ export function App({ feed, host }: Props) {
   }, [feed, commandPending, selectedThread]);
 
   const closeTerminal = useCallback(() => {
-    const request = terminalRequest(terminal);
-    if (!request) return;
-    host.closeTerminal(request);
-    setTerminal({ kind: "closing", request });
-  }, [host, terminal]);
+    if (terminal.kind === "idle") return;
+    setTerminal({ kind: "idle" });
+  }, [terminal.kind]);
+
+  const updateTerminalState = useCallback((context: AgentTerminalContext, state: AgentTerminalPaneState) => {
+    setTerminal((current) => {
+      if (current.kind === "idle") return current;
+      if (
+        current.context.projectPath !== context.projectPath ||
+        current.context.source !== context.source ||
+        current.context.sessionId !== context.sessionId
+      ) return current;
+      switch (state.kind) {
+        case "ready":
+          return { kind: "ready", context: current.context, descriptor: state.descriptor };
+        case "error":
+          return { kind: "error", context: current.context, code: state.message };
+        case "ended":
+          return { kind: "ended", context: current.context, exitStatus: state.exitStatus };
+      }
+    });
+  }, []);
 
   // Addresses the selected session for the task stream. `mode` is required by the reference type
   // but means nothing here -- background tasks are not read in a transcript view -- so it is
@@ -647,6 +682,8 @@ export function App({ feed, host }: Props) {
   // one each; only two of them are ever mounted at once, but the report should not be fetched
   // twice when they are.
   const sidebarProps = {
+    mode: sidebarMode,
+    onModeChange: setSidebarMode,
     usage,
     park,
     projects,
@@ -662,8 +699,21 @@ export function App({ feed, host }: Props) {
     creationErrors,
     expandedProjectPaths,
     onToggleProject: toggleProject,
-    onSelectSession: openSession,
+    onSelectSession: openCatalogSession,
     onCreatePiSession: (project: ProjectSummary) => void createPiSession(project),
+    bots: botsState.bots,
+    botsLoading: botsState.loading,
+    botsError: botsState.error,
+    selectedBotId,
+    onSelectBotSession: openBotSession,
+    onAddBotSession: (bot: BotView) => {
+      setBotSessionPickerId(bot.botId);
+      setHoverPreviewOpen(false);
+    },
+    onAddBot: () => {
+      setBotCreatorOpen(true);
+      setHoverPreviewOpen(false);
+    },
   };
 
   return (
@@ -676,6 +726,21 @@ export function App({ feed, host }: Props) {
           own. */}
       <div className="relative flex h-dvh min-w-0 bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground">
         <FontSizeRoot />
+        <BotCreatorDialog
+          open={botCreatorOpen}
+          projects={projects}
+          bots={botsState.bots}
+          inventoryLoading={loadingLayer}
+          onClose={() => setBotCreatorOpen(false)}
+          onCreate={createBot}
+        />
+        <BotSessionPickerDialog
+          open={botSessionPicker !== null}
+          bot={botSessionPicker}
+          sessions={botSessionPicker ? sessionsByProject.get(botSessionPicker.environment.path) : undefined}
+          onClose={() => setBotSessionPickerId(null)}
+          onAttach={attachBotSessions}
+        />
         {usesModalSidebar ? (
           <AgentSidebarDialog
             {...sidebarProps}
@@ -697,7 +762,7 @@ export function App({ feed, host }: Props) {
             />
           </ResizableSidebar>
         ) : null}
-        {hoverCapable && !sidebarPinned && hoverPreviewOpen ? (
+        {!usesModalSidebar && hoverCapable && !sidebarPinned && hoverPreviewOpen ? (
           <HoverSidebarPreview
             width={sidebarPreferences.width}
             onPointerEnter={cancelHoverClose}
@@ -726,30 +791,32 @@ export function App({ feed, host }: Props) {
                 ref={drawerTriggerRef}
                 type="button"
                 onClick={usesModalSidebar ? () => setSidebarOpen(true) : pinSidebar}
-                onPointerEnter={hoverCapable ? revealSidebarOnHover : undefined}
-                onPointerLeave={hoverCapable ? hideSidebarAfterHover : undefined}
-                aria-label={usesModalSidebar ? "Open projects" : "Pin projects sidebar"}
+                onPointerEnter={!usesModalSidebar && hoverCapable ? revealSidebarOnHover : undefined}
+                onPointerLeave={!usesModalSidebar && hoverCapable ? hideSidebarAfterHover : undefined}
+                aria-label={usesModalSidebar ? "Open agent navigation" : "Pin agent sidebar"}
                 aria-expanded={usesModalSidebar ? drawerOpen : hoverPreviewOpen}
-                title={usesModalSidebar ? "Open projects" : "Pin projects sidebar"}
+                title={usesModalSidebar ? "Open agent navigation" : "Pin agent sidebar"}
                 className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 <PanelLeft className="size-5" aria-hidden />
-              </button>
+            </button>
             ) : null}
             <h1 className="min-w-0 flex-1 truncate px-1 text-(length:--agent-panel-fs-sidebar-title,15px) font-semibold leading-none text-foreground">
-              {selectedThread?.session.title || selectedThread?.session.sessionId || "Agent Feed"}
+              {sidebarMode === "bots"
+                ? selectedBotName || "Bots"
+                : displayedThread?.session.title || displayedThread?.session.sessionId || "Agent Feed"}
             </h1>
             <div ref={setThreadControlsHost} className="flex shrink-0 items-center" />
-            {selectedThread && summary.available ? (
+            {displayedThread && summary.available ? (
               <SummaryControl
                 state={summary.state}
                 running={sessionState.runState === "running"}
                 onSummarize={summary.summarize}
               />
             ) : null}
-            {selectedThread?.session.capabilities.canOpenTerminal && isTerminalSource(selectedThread.session.source) ? (
+            {displayedThread?.session.capabilities.canOpenTerminal && isTerminalSource(displayedThread.session.source) ? (
               <TerminalControl
-                source={selectedThread.session.source}
+                source={displayedThread.session.source}
                 state={terminal}
                 onOpen={openTerminal}
                 onClose={closeTerminal}
@@ -761,17 +828,17 @@ export function App({ feed, host }: Props) {
               its own scroller, so sticky transcript headers and virtualization
               still read the same scrollTop they did before this shell changed. */}
           <main className="min-h-0 flex-1 overflow-hidden bg-background">
-            {selectedThread ? (
+            {displayedThread ? (
               <div
-                key={`${selectedThread.session.sessionId}:${eventMode}`}
+                key={`${displayedThread.session.sessionId}:${eventMode}`}
                 className="h-full"
               >
                 <ActivityFeed
-                  source={selectedThread.session.source}
-                  sessionId={selectedThread.session.sessionId}
+                  source={displayedThread.session.source}
+                  sessionId={displayedThread.session.sessionId}
                   mode={eventMode}
                   onToggleMode={toggleEventMode}
-                  canToggleMode={selectedThread.session.capabilities.modes.length > 1}
+                  canToggleMode={displayedThread.session.capabilities.modes.length > 1}
                   showCacheHits={showCacheHits}
                   onToggleCacheHits={toggleCacheHits}
                   controlsHost={threadControlsHost}
@@ -780,19 +847,19 @@ export function App({ feed, host }: Props) {
                   onOpenQuestion={setOpenQuestion}
                 />
               </div>
-            ) : (
+            ) : sidebarMode === "sessions" ? (
               <div className="flex h-full items-center justify-center p-8 text-center text-(length:--agent-panel-fs-sidebar-body,15px) text-muted-foreground">
-                Select a session from Projects
+                Select a session from Sessions
               </div>
-            )}
+            ) : null}
           </main>
-          {selectedThread?.session.capabilities.supportsExtensionUi ? (
+          {displayedThread?.session.capabilities.supportsExtensionUi ? (
             <ExtensionUISurface
               requests={extensionUI}
               onRespond={async (request, value) => {
                 setCommandError(null);
                 try {
-                  await feed.respondToExtensionUI(selectedThread.session, request.requestId, value);
+                  await feed.respondToExtensionUI(displayedThread.session, request.requestId, value);
                 } catch (error) {
                   setCommandError(String((error as Error).message ?? error));
                   throw error;
@@ -803,45 +870,54 @@ export function App({ feed, host }: Props) {
             />
           ) : null}
           {/* One composer band for every source. The UI is shared code; the send
-              mechanism is per-source (Pi reaches the harness, Claude writes into
-              its window composer, Codex is available only once its window-fill
-              work lands). The context meter lives here, below the action row,
+              mechanism is selected explicitly: native window, CLI inbox, then an
+              already-open Agent Feed pty; Pi reaches its harness. The context meter lives here, below the action row,
               instead of in the header. Keyed by session so switching threads
               remounts rather than carrying a draft written for one session into
               another. */}
           {/* Above the composer, below the transcript. Not rows in the feed: ActivityFeed is the
               thread's only scroll owner and synthetic rows would fight its tail-follow. */}
-          <SummaryBand state={summary.state} model={summary.model} onDismiss={summary.dismiss} />
-          {taskSession ? (
+          {displayedThread ? (
+            <SummaryBand state={summary.state} model={summary.model} onDismiss={summary.dismiss} />
+          ) : null}
+          {displayedThread && taskSession ? (
             <RunningTasksChip
               count={runningTaskCount}
               open={tasksPanelOpen}
               onToggle={() => setTasksPanelOpen((open) => !open)}
             />
           ) : null}
-          {selectedThread ? (
+          {displayedThread ? (
             <SessionComposer
-              key={selectedThread.session.sessionId}
+              key={displayedThread.session.sessionId}
               host={host}
-              session={selectedThread.session}
+              session={displayedThread.session}
               state={sessionState}
               usage={sessionUsage}
               pending={commandPending}
               error={commandError}
               question={openQuestion}
               cliInput={cliInput}
+              agentTerminal={terminalComposer}
               onSendMessage={sendPrompt}
               onAbort={abortRun}
             />
           ) : null}
-          {selectedThread && isTerminalSource(selectedThread.session.source) ? (
-            <TerminalNotice source={selectedThread.session.source} state={terminal} />
+          {displayedThread && isTerminalSource(displayedThread.session.source) ? (
+            <TerminalNotice source={displayedThread.session.source} state={terminal} />
+          ) : null}
+          {displayedThread && (terminal.kind === "loading" || terminal.kind === "ready") ? (
+            <AgentTerminalPane
+              feed={feed}
+              context={terminal.context}
+              onState={updateTerminalState}
+            />
           ) : null}
         </div>
         {/* Outside the main column, so on the Mac it is a real column beside the thread rather
             than a band inside it. On a phone it renders as a sheet over everything, and the
             `compact` switch deciding which is the shell's own, not a second rule. */}
-        {tasksPanelOpen && taskSession ? (
+        {displayedThread && tasksPanelOpen && taskSession ? (
           <BackgroundTasksPanel
             compact={compact}
             snapshot={backgroundTasks}
@@ -872,6 +948,7 @@ function SessionComposer({
   error,
   question,
   cliInput,
+  agentTerminal,
   onSendMessage,
   onAbort,
 }: {
@@ -892,17 +969,16 @@ function SessionComposer({
    * Resolved by the app, because it is a sidecar read and this component takes only the host.
    */
   cliInput: CliInputHandle;
+  /** The already-open Agent Feed pty, or null while no owned terminal is ready. */
+  agentTerminal: AgentTerminalComposer | null;
   onSendMessage: (text: string, delivery: "next" | "steer") => Promise<void>;
   onAbort: () => Promise<void>;
 }) {
   const { source, sessionId, capabilities } = session;
   const isClaude = source === "claude";
   const isCodex = source === "codex";
-  // A Claude session running in a terminal has no window field to mirror, so it takes the plain
-  // send band instead of the window one. The two are exclusive by construction: a session is
-  // either being rendered into an app window or into a pty, never both.
-  const inboxBand = isClaude && cliInput.isTerminalSession;
-  const windowBand = (isClaude || isCodex) && !inboxBand;
+  const inboxCandidate = isClaude && cliInput.isTerminalSession;
+  const windowCandidate = (isClaude || isCodex) && !inboxCandidate;
   const running = state.runState === "running";
   const queued = state.queue.followUp + state.queue.steer;
 
@@ -910,7 +986,36 @@ function SessionComposer({
   // composer. The hook is inert -- and never subscribes -- for every other source AND for a
   // terminal session, so hook order here never varies. Codex reads are free on any Desktop, so it
   // skips the off-Desktop bring-and-move-back round trip Claude's windows need.
-  const windowComposer = useWindowComposer(host, sessionId, windowBand, isCodex ? "Codex" : "Claude", isCodex);
+  const windowComposer = useWindowComposer(
+    host,
+    sessionId,
+    windowCandidate,
+    isCodex ? "Codex" : "Claude",
+    isCodex,
+  );
+
+  // Delivery priority is one explicit state, not several independent availability flags. A live
+  // native window owns composition first. A Claude CLI inbox owns it next. Only a KNOWN native
+  // refusal or an unavailable inbox may fall through to the Agent Feed pty, and only while that
+  // pty is already open. Opening a process remains an explicit action in the terminal control.
+  const transport:
+    | { kind: "window" }
+    | { kind: "cli-inbox" }
+    | { kind: "agent-terminal"; terminal: AgentTerminalComposer }
+    | { kind: "agent-session" } = inboxCandidate
+      ? cliInput.available
+        ? { kind: "cli-inbox" }
+        : agentTerminal
+          ? { kind: "agent-terminal", terminal: agentTerminal }
+          : { kind: "cli-inbox" }
+      : windowCandidate
+        ? windowComposer.statusKnown && !windowComposer.enabled && agentTerminal
+          ? { kind: "agent-terminal", terminal: agentTerminal }
+          : { kind: "window" }
+        : { kind: "agent-session" };
+  const windowBand = transport.kind === "window";
+  const inboxBand = transport.kind === "cli-inbox";
+  const agentTerminalBand = transport.kind === "agent-terminal";
   // The AskUserQuestion mirror is Claude-only too, and only while the feed says a
   // question is open. Its content comes from the transcript JSON; the hook adds
   // the focus-gated watch for live state and the press actions.
@@ -921,14 +1026,23 @@ function SessionComposer({
   // inbox instead of through a window, which is a different feature from typing a turn.
   const questionPanel = useClaudeWindowQuestion(host, sessionId, isClaude && question != null, question);
 
-  // Two of the three bands compose against local draft state -- Pi, and a terminal session, which
-  // has no field to mirror. Only the window band composes against the live window's text.
+  // Every non-window transport composes against local state. If native resolution refuses after
+  // somebody has already typed, hand that exact draft to the selected local transport before the
+  // native watcher releases ownership.
   const [localDraft, setLocalDraft] = useState("");
+  const previousTransport = useRef(transport.kind);
+  useEffect(() => {
+    if (previousTransport.current === "window" && transport.kind !== "window") {
+      setLocalDraft((current) => current.length > 0 ? current : windowComposer.draft);
+      windowComposer.stopWatching();
+    }
+    previousTransport.current = transport.kind;
+  }, [transport.kind, windowComposer.draft, windowComposer.stopWatching]);
   const editorValue = windowBand ? windowComposer.draft : localDraft;
   const autoGrow = useAutoGrowingTextArea(editorValue);
 
-  const [inboxPending, setInboxPending] = useState(false);
-  const [inboxError, setInboxError] = useState<string | null>(null);
+  const [deliveryPending, setDeliveryPending] = useState(false);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
 
   const piUnavailable = !isClaude && !isCodex && !capabilities.canSend;
   const unavailable = windowBand
@@ -937,7 +1051,9 @@ function SessionComposer({
       // A terminal session that stopped running: the field stays visible with the reason under
       // it, rather than swapping the whole band out from under someone mid-sentence.
       ? !cliInput.available
-      : piUnavailable;
+      : agentTerminalBand
+        ? false
+        : piUnavailable;
 
   const editor: {
     value: string;
@@ -972,7 +1088,7 @@ function SessionComposer({
     ? {
         value: localDraft,
         onChange: unavailable ? () => {} : setLocalDraft,
-        disabled: unavailable || inboxPending,
+        disabled: unavailable || deliveryPending,
         ariaLabel: "Message this terminal session",
         placeholder: unavailable
           ? "Session not reachable"
@@ -984,6 +1100,16 @@ function SessionComposer({
         // The status is re-read here rather than on a timer: focus is the moment someone intends
         // to type, so it is the moment a stale "not running" is worth correcting.
         onFocus: cliInput.refresh,
+      }
+    : agentTerminalBand
+    ? {
+        value: localDraft,
+        onChange: setLocalDraft,
+        disabled: deliveryPending,
+        ariaLabel: "Message through Agent Feed terminal",
+        placeholder: "Send through the open terminal…",
+        maxLength: 64 * 1024,
+        sendOnEnter: true,
       }
     : {
         value: localDraft,
@@ -1000,28 +1126,33 @@ function SessionComposer({
       };
 
   /**
-   * One turn into a terminal session's inbox.
+   * One turn through a transport owned outside the panel's agent-session queue.
    *
    * Separate from `submit` rather than folded into it because the two do different things: this
-   * is a delivery to a session someone else owns, with no queue to join, nothing to steer, and no
-   * receipt beyond whether the bytes landed. The draft survives a refusal so nothing is lost.
+   * is a delivery to a CLI inbox or an already-open pty, with no queue to join and nothing to
+   * steer. The draft survives a refusal so nothing is lost.
    */
-  const submitInbox = async () => {
-    if (inboxPending || !editorValue.trim()) return;
+  const submitOwnedTransport = async () => {
+    if (deliveryPending || !editorValue.trim()) return;
     const text = editorValue.trim();
-    setInboxPending(true);
-    setInboxError(null);
+    setDeliveryPending(true);
+    setDeliveryError(null);
     try {
-      if (await cliInput.send(text)) setLocalDraft("");
+      if (transport.kind === "agent-terminal") {
+        await transport.terminal.send(text);
+        setLocalDraft("");
+      } else if (transport.kind === "cli-inbox" && await cliInput.send(text)) {
+        setLocalDraft("");
+      }
     } catch (failure) {
-      setInboxError(String((failure as Error).message ?? failure));
+      setDeliveryError(String((failure as Error).message ?? failure));
     } finally {
-      setInboxPending(false);
+      setDeliveryPending(false);
     }
   };
 
   const submit = async (delivery: "next" | "steer") => {
-    if (inboxBand) return await submitInbox();
+    if (inboxBand || agentTerminalBand) return await submitOwnedTransport();
     if (pending || !editorValue.trim()) return;
     const text = editorValue.trim();
     try {
@@ -1053,22 +1184,22 @@ function SessionComposer({
         "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
       onClick: () => void windowComposer.submitWindow(),
     });
-  } else if (inboxBand) {
+  } else if (inboxBand || agentTerminalBand) {
     // One action, deliberately. Steer and Stop act on a queue the panel owns; a terminal session
     // owns its own, and the person at that keyboard is the one who can interrupt it.
     actions.push({
-      key: "send-inbox",
-      ariaLabel: "Send to the terminal session",
-      title: "Send to the terminal session",
-      icon: inboxPending ? (
+      key: agentTerminalBand ? "send-agent-terminal" : "send-inbox",
+      ariaLabel: agentTerminalBand ? "Send through Agent Feed terminal" : "Send to the terminal session",
+      title: agentTerminalBand ? "Send through the open Agent Feed terminal" : "Send to the terminal session",
+      icon: deliveryPending ? (
         <LoaderCircle className="size-4 animate-spin" aria-hidden />
       ) : (
         <Send className="size-4" aria-hidden />
       ),
-      disabled: unavailable || inboxPending || !editorValue.trim(),
+      disabled: unavailable || deliveryPending || !editorValue.trim(),
       className:
         "flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40",
-      onClick: () => void submitInbox(),
+      onClick: () => void submitOwnedTransport(),
     });
   } else if (!unavailable) {
     if (running && capabilities.canSteer) {
@@ -1119,8 +1250,11 @@ function SessionComposer({
   } else if (inboxBand) {
     // The reason outranks a transport error: "this session is not running" explains the failure,
     // where the message from a request that never had anywhere to go does not.
-    caption = cliInput.reason ? cliInputReasonText(cliInput.reason) : inboxError;
-    captionIsError = cliInput.reason != null || inboxError != null;
+    caption = cliInput.reason ? cliInputReasonText(cliInput.reason) : deliveryError;
+    captionIsError = cliInput.reason != null || deliveryError != null;
+  } else if (agentTerminalBand) {
+    caption = deliveryError ?? "Sending through the open Agent Feed terminal.";
+    captionIsError = deliveryError != null;
   } else if (unavailable) {
     caption = "This session's composer is unavailable.";
   } else if (error) {
@@ -1132,6 +1266,8 @@ function SessionComposer({
 
   const sectionLabel = inboxBand
     ? "Terminal session composer"
+    : agentTerminalBand
+    ? "Agent Feed terminal composer"
     : isClaude
     ? "Claude window composer"
     : isCodex
@@ -1139,7 +1275,7 @@ function SessionComposer({
       : "Agent prompt";
 
   return (
-    <section aria-label={sectionLabel} className="shrink-0 border-t border-border bg-card px-3 py-3">
+    <section aria-label={sectionLabel} className="shrink-0 border-t border-border bg-card px-6 py-3">
       {questionPanel.visible ? (
         <AskUserQuestionMirror
           question={questionPanel.question!}
@@ -1267,6 +1403,7 @@ function useWindowComposer(
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [focused, setFocused] = useState(false);
+  const statusRef = useRef<WindowComposerStatus | null>(null);
   const draftRef = useRef("");
   const edited = useRef(false);
   const inSync = useRef(true);
@@ -1319,14 +1456,17 @@ function useWindowComposer(
     [adopt, reportFailure],
   );
 
-  // The automatic push behind every edit. Deliberately silent: it is the field's
-  // own echo, so no spinner freezes the field mid-keystroke, and the caption
-  // carries the reason when the window refused. The result is NOT adopted: the
-  // write's read-back can lag the draft (the user keeps typing while the host
-  // settles the write), and the field must never be replaced by stale text. The
-  // write echo arrives as a status and the status handler reconciles it; the
-  // draft stays so nothing is lost, and the next edit retries.
+  // The automatic push behind edits made while the window is already here. Deliberately silent: it
+  // is the field's own echo, so no spinner freezes the field mid-keystroke, and the caption carries
+  // the reason when the window refused. The result is NOT adopted: the write's read-back can lag the
+  // draft (the user keeps typing while the host settles the write), and the field must never be
+  // replaced by stale text. The write echo arrives as a status and the status handler reconciles it;
+  // the draft stays so nothing is lost, and the next edit retries.
   const push = useCallback(async () => {
+    // The focused watch borrows an off-Desktop Claude window once and reports it active before live
+    // syncing begins. A false status means the lease was not acquired, so keep the draft local instead
+    // of falling back to per-keystroke move-in/move-back traffic.
+    if (statusRef.current?.onActiveDesktop !== true) return;
     try {
       await host.syncWindowComposer(sessionId, draftRef.current);
     } catch (failure) {
@@ -1335,7 +1475,6 @@ function useWindowComposer(
   }, [host, reportFailure, sessionId]);
 
   const load = useCallback(async () => {
-    setPending(true);
     setError(null);
     try {
       const text = await host.readWindowComposer(sessionId);
@@ -1347,13 +1486,17 @@ function useWindowComposer(
       }
     } catch (failure) {
       reportFailure(failure);
-    } finally {
-      setPending(false);
     }
   }, [adopt, host, reportFailure, sessionId]);
 
   const submitWindow = useCallback(
-    () => run(() => host.submitWindowComposer(sessionId, draftRef.current)),
+    () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+        debounceTimer.current = null;
+      }
+      return run(() => host.submitWindowComposer(sessionId, draftRef.current));
+    },
     [host, run, sessionId],
   );
 
@@ -1364,8 +1507,17 @@ function useWindowComposer(
     if (!active || !focused) return;
     roundTripDone.current = false;
     return host.subscribeWindowComposer(sessionId, (next) => {
+      statusRef.current = next;
       setStatus(next);
-      if (next.composerText === null) return;
+      if (next.composerText === null) {
+        // Compatibility fallback for a host that could resolve the window but could not acquire an
+        // editing lease. Read once without disabling the local field.
+        if (!freeReads && next.enabled && !next.onActiveDesktop && !roundTripDone.current) {
+          roundTripDone.current = true;
+          void load();
+        }
+        return;
+      }
       if (!edited.current) {
         // Fresh prefill (or an independent edit while idle): the window is the source.
         inSync.current = true;
@@ -1376,20 +1528,11 @@ function useWindowComposer(
         edited.current = false;
         inSync.current = true;
       }
-      // A window on another Desktop is read for free only by the explicit
-      // round trip; the prefill already told us it is elsewhere, so do the one
-      // automatic bring-and-move-back instead of leaving the field empty. Free
-      // reads (Codex) never need this: the watch status always carries the text.
-      if (!freeReads && next.enabled === true && next.onActiveDesktop === false && !roundTripDone.current) {
-        roundTripDone.current = true;
-        void load();
-      }
     });
   }, [active, host, focused, freeReads, load, sessionId, setDraftBoth]);
 
-  // Debounced auto-sync: every edit while focused pushes the full value 500ms
-  // after the last keystroke. Clearing the field is an edit too, so deletions
-  // reach the window instead of drifting, which is the whole point of syncing.
+  // Debounced auto-sync while the owning window is here, either originally or under the focused watch's
+  // editing lease. Every edit pushes the full value 500ms after the last keystroke.
   useEffect(() => {
     if (!active || !focused || inSync.current) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -1400,7 +1543,7 @@ function useWindowComposer(
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
-  }, [active, draft, focused, push]);
+  }, [active, draft, focused, push, status?.onActiveDesktop]);
 
   const onFocus = useCallback(() => setFocused(true), []);
   const onBlur = useCallback(() => {
@@ -1412,6 +1555,17 @@ function useWindowComposer(
     if (!inSync.current) void push();
     setFocused(false);
   }, [push]);
+
+  // Releases the native watch without flushing. Used only when another transport has taken the
+  // draft after a known native refusal, so retrying a write into that refused window would be both
+  // wasted work and a second owner for the same prompt.
+  const stopWatching = useCallback(() => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+      debounceTimer.current = null;
+    }
+    setFocused(false);
+  }, []);
 
   const enabled = status?.enabled === true;
   const notice =
@@ -1436,6 +1590,7 @@ function useWindowComposer(
     notice,
     onFocus,
     onBlur,
+    stopWatching,
   };
 }
 
@@ -1921,17 +2076,15 @@ function TerminalControl({
   onClose: () => void;
 }) {
   const harness = harnessName(source);
-  const busy = state.kind === "loading" || state.kind === "closing";
+  const busy = state.kind === "loading";
   const ready = state.kind === "ready";
   const label = ready ? `Close ${harness} terminal` : `Open ${harness} terminal`;
   const announcement =
     state.kind === "loading"
       ? `Opening ${harness}`
-      : state.kind === "closing"
-        ? `Closing ${harness}`
-        : ready
-          ? `${harness} terminal ready`
-          : null;
+      : ready
+        ? `${harness} terminal ready`
+        : null;
   return (
     <>
       <button
@@ -1994,7 +2147,7 @@ function composerReasonText(reason: string | null): string {
     case "move-failed":
       return "The window could not be brought to this Desktop.";
     case "window-mover-unavailable":
-      return "Filling a window on another Desktop needs yabai, which is not available to the host.";
+      return "This macOS version does not expose the window mover needed for another Desktop.";
     case "write-failed":
       return "The composer refused the write.";
     case "verify-mismatch":

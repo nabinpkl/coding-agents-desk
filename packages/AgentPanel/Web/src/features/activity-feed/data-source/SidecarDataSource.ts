@@ -12,11 +12,19 @@
  */
 
 import type {
+  AddBotCommand,
+  AttachBotSessionsCommand,
   ActivityEvent,
   AgentCommandReceipt,
   AgentSessionDescriptor,
+  AgentTerminalContext,
+  AgentTerminalDescriptor,
+  AgentTerminalStreamMessage,
+  AgentTerminalViewport,
   AgentUiEvent,
   BackgroundTaskSnapshot,
+  BotSnapshot,
+  BotView,
   CliInputReceipt,
   CliInputStatus,
   EventsPage as WireEventsPage,
@@ -78,6 +86,11 @@ function parse<T>(response: { status: number; body: string }): T {
     );
   }
   return payload as T;
+}
+
+function expectEmpty(response: { status: number; body: string }): void {
+  if (response.status >= 200 && response.status < 300) return;
+  parse<never>(response);
 }
 
 function timelinePath(session: SessionReference): string {
@@ -177,6 +190,144 @@ export class SidecarDataSource implements AgentDataSource {
         onError: (reason) => onError?.(reason),
       },
     );
+  }
+
+  // ---------------------------------------------------------------------
+  // Curated Bots
+  // ---------------------------------------------------------------------
+
+  subscribeBots(
+    onSnapshot: (snapshot: BotSnapshot) => void,
+    onError?: (reason: string) => void,
+  ): () => void {
+    return this.transport.subscribe("/api/bots/stream", {
+      onMessage: (payload) => {
+        try {
+          const message = JSON.parse(payload) as Partial<BotSnapshot> & {
+            error?: { message?: string };
+          };
+          if (message.error) {
+            onError?.(message.error.message ?? "Bot stream failed");
+            return;
+          }
+          if (message.version !== 2 || !Number.isSafeInteger(message.revision) || !Array.isArray(message.bots)) {
+            onError?.("Bot stream returned an invalid snapshot");
+            return;
+          }
+          onSnapshot(message as BotSnapshot);
+        } catch {
+          onError?.("Bot stream returned malformed JSON");
+        }
+      },
+      onError: (reason) => onError?.(reason),
+    });
+  }
+
+  async createBot(command: Omit<AddBotCommand, "requestId">): Promise<BotView> {
+    return parse<BotView>(
+      await this.transport.request("POST", "/api/bots", {
+        body: { ...command, requestId: crypto.randomUUID() },
+      }),
+    );
+  }
+
+  async attachBotSessions(
+    botId: string,
+    command: Omit<AttachBotSessionsCommand, "requestId">,
+  ): Promise<BotView> {
+    return parse<BotView>(
+      await this.transport.request(
+        "POST",
+        `/api/bots/${encodeURIComponent(botId)}/sessions`,
+        { body: { ...command, requestId: crypto.randomUUID() } },
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // Agent terminal
+  // ---------------------------------------------------------------------
+
+  async openTerminal(
+    context: AgentTerminalContext,
+    columns: number,
+    rows: number,
+  ): Promise<AgentTerminalDescriptor> {
+    return parse<AgentTerminalDescriptor>(
+      await this.transport.request("POST", "/api/terminals", {
+        body: { context, columns, rows },
+      }),
+    );
+  }
+
+  subscribeTerminal(
+    terminalId: string,
+    handlers: {
+      onMessage: (message: AgentTerminalStreamMessage) => void;
+      onError?: (reason: string) => void;
+    },
+  ): () => void {
+    return this.transport.subscribe(
+      `/api/terminals/${encodeURIComponent(terminalId)}/stream`,
+      {
+        onMessage: (payload) => {
+          try {
+            handlers.onMessage(JSON.parse(payload) as AgentTerminalStreamMessage);
+          } catch {
+            handlers.onError?.("Terminal stream returned malformed JSON");
+          }
+        },
+        onError: (reason) => handlers.onError?.(reason),
+      },
+    );
+  }
+
+  async sendTerminalInput(
+    terminalId: string,
+    data: string,
+    encoding: "utf8" | "base64" = "utf8",
+  ): Promise<void> {
+    expectEmpty(await this.transport.request(
+      "POST",
+      `/api/terminals/${encodeURIComponent(terminalId)}/input`,
+      { body: { data, encoding } },
+    ));
+  }
+
+  /**
+   * Delivers one composer turn through an already-open Agent Feed terminal.
+   *
+   * This is deliberately a paste followed by Return, not a sequence of synthetic key presses.
+   * Claude and Codex both accept bracketed paste, which preserves a multiline prompt as one edit
+   * instead of executing every line as it arrives. Escape is rendered visibly so text from the
+   * composer cannot smuggle terminal control sequences into the owned pty.
+   */
+  async sendTerminalPrompt(terminalId: string, text: string): Promise<void> {
+    const safeText = text.replaceAll("\u001b", "\u241b");
+    const input = `\u001b[200~${safeText}\u001b[201~\r`;
+    if (new TextEncoder().encode(input).byteLength > 64 * 1024) {
+      throw new Error("Terminal prompt exceeds the 64 KiB input limit");
+    }
+    await this.sendTerminalInput(terminalId, input);
+  }
+
+  async updateTerminalViewport(
+    terminalId: string,
+    viewport: AgentTerminalViewport,
+  ): Promise<void> {
+    expectEmpty(await this.transport.request(
+      "POST",
+      `/api/terminals/${encodeURIComponent(terminalId)}/viewport`,
+      { body: viewport },
+    ));
+  }
+
+  async closeTerminal(terminalId: string, mode: "detach" | "kill"): Promise<void> {
+    expectEmpty(await this.transport.request(
+      "POST",
+      `/api/terminals/${encodeURIComponent(terminalId)}/close`,
+      { body: { mode } },
+    ));
   }
 
   // ---------------------------------------------------------------------

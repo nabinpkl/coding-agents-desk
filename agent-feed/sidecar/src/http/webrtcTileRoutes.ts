@@ -2,7 +2,7 @@
 //
 // The transport-only bet, spelled out: the old ADR-0001 pipeline used libwebrtc
 // as encoder, transport, AND renderer, and lost on software codecs. Here WebRTC
-// is ONLY the transport. Our grid encoder produces hardware H.264, werift
+// is ONLY the transport. Our grid encoder produces hardware H.264 or HEVC, werift
 // carries it as SRTP with the feedback machinery (NACK retransmit, PLI keyframe
 // requests, connectivity checks), and the webview's built-in WebRTC stack
 // hardware-decodes into the compositor. TypeScript's whole job is offer/answer
@@ -14,11 +14,19 @@
 // are the jitter buffer's problem on the far side. Even the encoder's bitrate
 // is the receiver's number (REMB), not ours.
 
+import type {
+  DesktopControlEvent,
+  DesktopControlInput,
+  WebrtcTileAnswer,
+  WebrtcTileSourceMetadata,
+} from "@agentdesk/agent-feed-wire";
 import { networkInterfaces } from "node:os";
 import {
   MediaStreamTrack,
   RTCPeerConnection,
   RTCRtpCodecParameters,
+  type RTCDataChannel,
+  type RTCRtpHistoryRepairStats,
   RtpHeader,
   RtpPacket,
 } from "werift";
@@ -27,12 +35,25 @@ import { jsonResponse } from "./httpResponses.ts";
 import type { RouteHandler } from "./route.ts";
 import { frames, KIND_META } from "./tileEncoderPool.ts";
 import { packetizeH264 } from "./h264Packetizer.ts";
-import { encoderPointerCommand } from "./webrtcPointerInput.ts";
+import { packetizeH265 } from "./h265Packetizer.ts";
+import {
+  desktopControlInput,
+  desktopControlLine,
+  desktopControlRejectionReason,
+} from "./webrtcDesktopControl.ts";
+import { WebrtcDesktopControlEvents } from "./webrtcDesktopControlEvents.ts";
+import { DesktopControlOwnership } from "./webrtcDesktopControlOwnership.ts";
+import { chooseTileVideoCodec, type TileVideoCodec } from "./webrtcTileCodec.ts";
+import { gridEncoderSourceMetadata } from "./webrtcTileMetadata.ts";
 
 /** The target is a window id, or the literal `display` for the whole screen. */
 const WEBRTC_TILE_ROUTE = /^\/api\/park\/tile\/(\d{1,10}|display)\/webrtc$/;
 const WEBRTC_TILE_TELEMETRY_ROUTE =
   /^\/api\/park\/tile\/(\d{1,10}|display)\/webrtc\/telemetry$/;
+
+export function isTerminalWebrtcConnectionState(state: string): boolean {
+  return state === "failed" || state === "closed";
+}
 
 // Connection diagnostics, appended per event so a failing surface (a phone on
 // LTE) leaves evidence readable on the Mac without touching the device. The
@@ -50,6 +71,100 @@ function diag(line: string) {
     // Diagnostics never take the path down.
   }
 }
+
+type KeyframeRequestReason = "pli" | "bootstrap";
+
+/**
+ * Bounded sender-side evidence for the question receiver stats cannot answer:
+ * how many requested refreshes became actual keyframes, and what share of the
+ * encoded bytes those keyframes consumed. A request count and an output count
+ * are deliberately separate because VideoToolbox coalesces repeated force-key
+ * requests before the next captured frame.
+ */
+export class WebrtcEncoderDiagnostics {
+  private windowStartedAtMs: number;
+  private windowAccessUnits = 0;
+  private windowKeyframes = 0;
+  private windowDeltaFrames = 0;
+  private windowBytes = 0;
+  private windowKeyframeBytes = 0;
+  private windowPliRequests = 0;
+  private windowBootstrapRequests = 0;
+  private totalAccessUnits = 0;
+  private totalKeyframes = 0;
+  private accessUnitsSinceKeyframe = 0;
+  private lastKeyframeAtMs: number | null = null;
+  private pendingPliRequests = 0;
+  private pendingBootstrapRequests = 0;
+
+  constructor(
+    private readonly key: string,
+    private readonly record: (line: string) => void = diag,
+    startedAtMs = Date.now(),
+  ) {
+    this.windowStartedAtMs = startedAtMs;
+  }
+
+  recordKeyframeRequest(reason: KeyframeRequestReason) {
+    if (reason === "pli") {
+      this.windowPliRequests += 1;
+      this.pendingPliRequests += 1;
+    } else {
+      this.windowBootstrapRequests += 1;
+      this.pendingBootstrapRequests += 1;
+    }
+  }
+
+  recordAccessUnit(bytes: number, keyframe: boolean, atMs = Date.now()) {
+    this.totalAccessUnits += 1;
+    this.windowAccessUnits += 1;
+    this.windowBytes += bytes;
+    this.accessUnitsSinceKeyframe += 1;
+    if (!keyframe) {
+      this.windowDeltaFrames += 1;
+      return;
+    }
+
+    this.totalKeyframes += 1;
+    this.windowKeyframes += 1;
+    this.windowKeyframeBytes += bytes;
+    const intervalMs = this.lastKeyframeAtMs === null ? -1 : atMs - this.lastKeyframeAtMs;
+    const requestContext = this.pendingPliRequests > 0
+      ? "pending-pli"
+      : this.pendingBootstrapRequests > 0
+        ? "pending-bootstrap"
+        : this.totalKeyframes === 1
+          ? "startup"
+          : "none";
+    this.record(
+      `encoder key=${this.key} keyframe output=${this.totalKeyframes} accessUnit=${this.totalAccessUnits} bytes=${bytes} intervalMs=${intervalMs} accessUnitsSincePrevious=${this.accessUnitsSinceKeyframe} requestContext=${requestContext} pendingPli=${this.pendingPliRequests} pendingBootstrap=${this.pendingBootstrapRequests}`,
+    );
+    this.lastKeyframeAtMs = atMs;
+    this.accessUnitsSinceKeyframe = 0;
+    this.pendingPliRequests = 0;
+    this.pendingBootstrapRequests = 0;
+  }
+
+  flush(atMs = Date.now(), reason = "interval") {
+    const durationMs = Math.max(0, atMs - this.windowStartedAtMs);
+    const keyframeBytePct = this.windowBytes === 0
+      ? "0.0"
+      : ((this.windowKeyframeBytes / this.windowBytes) * 100).toFixed(1);
+    const lastKeyframeAgeMs = this.lastKeyframeAtMs === null ? -1 : atMs - this.lastKeyframeAtMs;
+    this.record(
+      `encoder key=${this.key} video-window reason=${reason} durationMs=${durationMs} accessUnits=${this.windowAccessUnits} keyframes=${this.windowKeyframes} deltas=${this.windowDeltaFrames} bytes=${this.windowBytes} keyframeBytes=${this.windowKeyframeBytes} keyframeBytePct=${keyframeBytePct} pliRequests=${this.windowPliRequests} bootstrapRequests=${this.windowBootstrapRequests} pendingPli=${this.pendingPliRequests} totalAccessUnits=${this.totalAccessUnits} totalKeyframes=${this.totalKeyframes} lastKeyframeAgeMs=${lastKeyframeAgeMs}`,
+    );
+    this.windowStartedAtMs = atMs;
+    this.windowAccessUnits = 0;
+    this.windowKeyframes = 0;
+    this.windowDeltaFrames = 0;
+    this.windowBytes = 0;
+    this.windowKeyframeBytes = 0;
+    this.windowPliRequests = 0;
+    this.windowBootstrapRequests = 0;
+  }
+}
+
 function candidateLines(sdp: string): string[] {
   return [...sdp.matchAll(/a=candidate:(\S+) (\d+) (\S+) (\d+) (\S+) (\d+) typ (\S+)/g)].map(
     (m) => `${m[3]} ${m[5]}:${m[6]} typ ${m[7]}`,
@@ -58,6 +173,7 @@ function candidateLines(sdp: string): string[] {
 
 /** Kind 3 in the encoder framing: one Annex-B access unit. */
 const KIND_ACCESS_UNIT = 3;
+const KIND_CONTROL = 4;
 
 /**
  * The Mac's tailnet address, derived from the CGNAT range tailscale uses.
@@ -83,7 +199,7 @@ function tailnetIPv4(): string | null {
   return null;
 }
 
-// werift negotiates by mimeType alone and adopts the browser's own H264
+// werift negotiates by mimeType alone and adopts the browser's own codec
 // entries; the fmtp below never constrains anything. Which of the browser's
 // entries the sender actually stamps on packets is chosen after negotiation,
 // in answer(), because the receiver enforces the profile of the payload type
@@ -98,14 +214,25 @@ function tailnetIPv4(): string | null {
 // REMB, its own receiver-side estimator telling us a number directly, which is
 // both the more battle-tested estimator and the more minimal arrangement: the
 // receiver decides, the encoder obeys.
+const RTCP_FEEDBACK = [
+  { type: "nack" },
+  { type: "nack", parameter: "pli" },
+  { type: "goog-remb" },
+];
+
+const H265 = new RTCRtpCodecParameters({
+  mimeType: "video/H265",
+  clockRate: 90000,
+  rtcpFeedback: RTCP_FEEDBACK,
+  // These are RFC 7798's defaults, stated explicitly so our packetizer's
+  // absence of DONL/DOND and its one-stream ordering contract are visible.
+  parameters: "tx-mode=SRST;sprop-max-don-diff=0",
+});
+
 const H264 = new RTCRtpCodecParameters({
   mimeType: "video/H264",
   clockRate: 90000,
-  rtcpFeedback: [
-    { type: "nack" },
-    { type: "nack", parameter: "pli" },
-    { type: "goog-remb" },
-  ],
+  rtcpFeedback: RTCP_FEEDBACK,
   parameters: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
 });
 
@@ -122,35 +249,80 @@ const H264 = new RTCRtpCodecParameters({
  */
 interface SharedEncoder {
   key: string;
+  codec: TileVideoCodec;
   child: ReturnType<typeof Bun.spawn>;
   subscribers: Set<EncoderSubscriber>;
   latestKeyframe: Uint8Array | null;
   accessUnits: number;
-  inputOwner: symbol | null;
+  lastAccessUnitAtMs: number | null;
+  controlOwnership: DesktopControlOwnership<symbol>;
   firstAccessUnitDeadline: ReturnType<typeof setTimeout> | null;
   linger: ReturnType<typeof setTimeout> | null;
   dead: boolean;
+  controlEvents: WebrtcDesktopControlEvents;
+  sourceMetadata: WebrtcTileSourceMetadata | null;
+  metadataWaiters: Set<EncoderMetadataWaiter>;
+  nextInputRevision: number;
+  pendingCursorAcks: Map<number, PendingCursorAck>;
+  videoDiagnostics: WebrtcEncoderDiagnostics;
+  videoDiagnosticsTimer: ReturnType<typeof setInterval>;
+}
+
+interface EncoderMetadataWaiter {
+  resolve: (metadata: WebrtcTileSourceMetadata) => void;
+  reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
+interface PendingCursorAck {
+  inputOwner: symbol;
+  clientRevision: number;
 }
 
 interface EncoderSubscriber {
+  inputOwner: symbol;
   /** One access-unit payload: 8 bytes pts-microseconds, 1 keyframe byte, Annex-B. */
   onAccessUnit: (payload: Uint8Array) => void;
+  onControl: (event: DesktopControlEvent) => void;
   /** The encoder died; the connection has nothing left to send. */
   onDead: () => void;
 }
 
 const sharedEncoders = new Map<string, SharedEncoder>();
 const FIRST_ACCESS_UNIT_TIMEOUT_MS = 12_000;
+const ENCODER_METADATA_TIMEOUT_MS = 5_000;
 const ENCODER_LINGER_MS = 3_000;
+const MAX_PENDING_CURSOR_ACKS = 2_048;
 
-function encoderStdin(shared: SharedEncoder, line: string) {
-  const stdin = shared.child.stdin;
-  if (!stdin || typeof stdin === "number") return;
+interface EncoderControlSink {
+  write(line: string): unknown;
+  flush(): number | Promise<number>;
+}
+
+export function writeEncoderControl(
+  stdin: EncoderControlSink | number | null | undefined,
+  line: string,
+  onError: (error: unknown) => void,
+): boolean {
+  if (!stdin || typeof stdin === "number") {
+    onError(new Error("grid encoder stdin is unavailable"));
+    return false;
+  }
   try {
     stdin.write(line);
-  } catch {
-    // Dying encoder; its exit handler tears the subscribers down.
+    void Promise.resolve(stdin.flush()).catch(onError);
+    return true;
+  } catch (error) {
+    onError(error);
+    return false;
   }
+}
+
+function encoderStdin(shared: SharedEncoder, line: string) {
+  writeEncoderControl(shared.child.stdin, line, (error) => {
+    diag(`encoder key=${shared.key} control-write-failed error=${String(error)}`);
+    killSharedEncoder(shared, "encoder-control-write-failed");
+  });
 }
 
 function killSharedEncoder(shared: SharedEncoder, reason: string) {
@@ -162,6 +334,13 @@ function killSharedEncoder(shared: SharedEncoder, reason: string) {
   if (sharedEncoders.get(shared.key) === shared) sharedEncoders.delete(shared.key);
   if (shared.firstAccessUnitDeadline) clearTimeout(shared.firstAccessUnitDeadline);
   if (shared.linger) clearTimeout(shared.linger);
+  clearInterval(shared.videoDiagnosticsTimer);
+  shared.videoDiagnostics.flush(Date.now(), "encoder-stop");
+  for (const waiter of shared.metadataWaiters) {
+    clearTimeout(waiter.timeout);
+    waiter.reject(new Error(`grid encoder stopped before source metadata: ${reason}`));
+  }
+  shared.metadataWaiters.clear();
   try {
     shared.child.kill();
   } catch {
@@ -169,11 +348,62 @@ function killSharedEncoder(shared: SharedEncoder, reason: string) {
   }
   for (const subscriber of [...shared.subscribers]) subscriber.onDead();
   shared.subscribers.clear();
+  shared.pendingCursorAcks.clear();
 }
 
-function acquireSharedEncoder(windowID: string, binary: string, args: string[]): SharedEncoder {
+function publishEncoderMetadata(shared: SharedEncoder, metadata: WebrtcTileSourceMetadata) {
+  if (shared.sourceMetadata) return;
+  shared.sourceMetadata = metadata;
+  for (const waiter of shared.metadataWaiters) {
+    clearTimeout(waiter.timeout);
+    waiter.resolve(metadata);
+  }
+  shared.metadataWaiters.clear();
+}
+
+function waitForEncoderMetadata(shared: SharedEncoder): Promise<WebrtcTileSourceMetadata> {
+  if (shared.sourceMetadata) return Promise.resolve(shared.sourceMetadata);
+  if (shared.dead) return Promise.reject(new Error("grid encoder stopped before source metadata"));
+  return new Promise((resolve, reject) => {
+    const waiter: EncoderMetadataWaiter = {
+      resolve,
+      reject,
+      timeout: setTimeout(() => {
+        shared.metadataWaiters.delete(waiter);
+        reject(new Error(`grid encoder source metadata timed out after ${ENCODER_METADATA_TIMEOUT_MS}ms`));
+      }, ENCODER_METADATA_TIMEOUT_MS),
+    };
+    shared.metadataWaiters.add(waiter);
+  });
+}
+
+function reserveInputRevision(shared: SharedEncoder): number {
+  let revision = shared.nextInputRevision;
+  while (shared.pendingCursorAcks.has(revision)) {
+    revision = revision === Number.MAX_SAFE_INTEGER ? 1 : revision + 1;
+  }
+  shared.nextInputRevision = revision === Number.MAX_SAFE_INTEGER ? 1 : revision + 1;
+  return revision;
+}
+
+function rememberCursorAck(shared: SharedEncoder, revision: number, ack: PendingCursorAck) {
+  shared.pendingCursorAcks.set(revision, ack);
+  if (shared.pendingCursorAcks.size <= MAX_PENDING_CURSOR_ACKS) return;
+  const oldest = shared.pendingCursorAcks.keys().next().value as number | undefined;
+  if (oldest !== undefined) shared.pendingCursorAcks.delete(oldest);
+}
+
+function acquireSharedEncoder(
+  windowID: string,
+  binary: string,
+  args: string[],
+  codec: TileVideoCodec,
+): SharedEncoder {
   const existing = sharedEncoders.get(windowID);
   if (existing && !existing.dead) {
+    if (existing.codec !== codec) {
+      throw new Error(`shared encoder codec changed from ${existing.codec} to ${codec}`);
+    }
     diag(
       `encoder key=${windowID} reuse accessUnits=${existing.accessUnits} subscribers=${existing.subscribers.size} cachedKeyframe=${existing.latestKeyframe !== null}`,
     );
@@ -181,16 +411,26 @@ function acquireSharedEncoder(windowID: string, binary: string, args: string[]):
   }
 
   const child = Bun.spawn([binary, ...args], { stdout: "pipe", stderr: "pipe", stdin: "pipe" });
+  const videoDiagnostics = new WebrtcEncoderDiagnostics(windowID);
   const shared: SharedEncoder = {
     key: windowID,
+    codec,
     child,
     subscribers: new Set(),
     latestKeyframe: null,
     accessUnits: 0,
-    inputOwner: null,
+    lastAccessUnitAtMs: null,
+    controlOwnership: new DesktopControlOwnership(),
     firstAccessUnitDeadline: null,
     linger: null,
     dead: false,
+    controlEvents: new WebrtcDesktopControlEvents(),
+    sourceMetadata: null,
+    metadataWaiters: new Set(),
+    nextInputRevision: 1,
+    pendingCursorAcks: new Map(),
+    videoDiagnostics,
+    videoDiagnosticsTimer: setInterval(() => videoDiagnostics.flush(), 10_000),
   };
   sharedEncoders.set(windowID, shared);
   diag(`encoder key=${windowID} spawn pid=${child.pid}`);
@@ -211,11 +451,46 @@ function acquireSharedEncoder(windowID: string, binary: string, args: string[]):
             stopReason = `encoder-error-${String(meta.message)}`;
             break;
           }
+          if (meta.type === "open") {
+            const metadata = gridEncoderSourceMetadata(meta);
+            if (!metadata) {
+              stopReason = "invalid-open-metadata";
+              break;
+            }
+            publishEncoderMetadata(shared, metadata);
+          }
+          continue;
+        }
+        if (frame.kind === KIND_CONTROL) {
+          const event = shared.controlEvents.accept(frame.payload);
+          if (event) {
+            if (event.type === "cursor-applied") {
+              const pending = shared.pendingCursorAcks.get(event.revision);
+              shared.pendingCursorAcks.delete(event.revision);
+              for (const subscriber of shared.subscribers) {
+                if (pending?.inputOwner === subscriber.inputOwner) {
+                  subscriber.onControl({ ...event, revision: pending.clientRevision });
+                } else {
+                  subscriber.onControl({ type: "cursor-position", x: event.x, y: event.y });
+                }
+              }
+            } else if (event.type === "cursor-image" || event.type === "cursor-position") {
+              for (const subscriber of shared.subscribers) subscriber.onControl(event);
+            } else {
+              const owner = [...shared.subscribers].find(
+                (subscriber) => subscriber.inputOwner === shared.controlOwnership.owner,
+              );
+              owner?.onControl(event);
+            }
+          }
           continue;
         }
         if (frame.kind !== KIND_ACCESS_UNIT || frame.payload.length < 10) continue;
         shared.accessUnits += 1;
-        if (frame.payload[8] === 1) shared.latestKeyframe = frame.payload;
+        shared.lastAccessUnitAtMs = Date.now();
+        const isKeyframe = frame.payload[8] === 1;
+        shared.videoDiagnostics.recordAccessUnit(frame.payload.length, isKeyframe);
+        if (isKeyframe) shared.latestKeyframe = frame.payload;
         if (shared.accessUnits === 1) {
           if (shared.firstAccessUnitDeadline) {
             clearTimeout(shared.firstAccessUnitDeadline);
@@ -267,10 +542,12 @@ function primeSubscriber(shared: SharedEncoder, subscriber: EncoderSubscriber) {
   // Refresh the cache on the next capture callback. A static display may not
   // produce one, which is why replaying the retained keyframe above is the
   // joining viewer's authoritative bootstrap.
+  shared.videoDiagnostics.recordKeyframeRequest("bootstrap");
   encoderStdin(shared, "K\n");
 }
 
 interface TileOffer {
+  attempt?: string;
   sdp?: string;
   type?: string;
   width?: number;
@@ -286,6 +563,307 @@ interface TileTelemetry {
   elapsedMs?: unknown;
 }
 
+export interface WebrtcDeliveryServerSample {
+  sentRtpPackets: number;
+  sentRtpBytes: number;
+  retransmittedPacketsSent: number;
+  retransmittedBytesSent: number;
+  nackPacketsRequested: number;
+  nackCacheHits: number;
+  nackCacheMisses: number;
+}
+
+export interface WebrtcDeliveryClientSample {
+  sample: number;
+  elapsedMs: number;
+  pair: string | null;
+  pathState: string | null;
+  rttMs: number | null;
+  candidateBytesReceived: number;
+  candidateBytesSent: number;
+  inboundRtpPackets: number;
+  inboundRtpBytes: number;
+}
+
+type DeliverySamplePair = {
+  server: WebrtcDeliveryServerSample;
+  client: WebrtcDeliveryClientSample;
+};
+
+const DELIVERY_CORRELATION_MIN_INTERVAL_MS = 900;
+
+/**
+ * Aligns browser receiver counters with the sender counters sampled when that
+ * report reaches the sidecar. The backlog is deliberately labelled an estimate:
+ * browser packetsReceived counts accepted media packets while sender repair
+ * writes can duplicate a packet already received, so only sustained movement is
+ * meaningful. Pair changes and counter resets start a new baseline.
+ */
+export class WebrtcDeliveryDiagnostics {
+  private previous: DeliverySamplePair | null = null;
+  private estimatedPendingMediaPackets = 0;
+
+  sample(server: WebrtcDeliveryServerSample, client: WebrtcDeliveryClientSample) {
+    const previous = this.previous;
+    if (previous && client.sample <= previous.client.sample) return null;
+    if (
+      previous
+      && client.elapsedMs - previous.client.elapsedMs < DELIVERY_CORRELATION_MIN_INTERVAL_MS
+    ) return null;
+
+    const pairChanged = previous !== null && client.pair !== previous.client.pair;
+    const counterReset = previous !== null && !pairChanged && (
+      server.sentRtpPackets < previous.server.sentRtpPackets
+      || server.sentRtpBytes < previous.server.sentRtpBytes
+      || server.retransmittedPacketsSent < previous.server.retransmittedPacketsSent
+      || server.retransmittedBytesSent < previous.server.retransmittedBytesSent
+      || server.nackPacketsRequested < previous.server.nackPacketsRequested
+      || server.nackCacheHits < previous.server.nackCacheHits
+      || server.nackCacheMisses < previous.server.nackCacheMisses
+      || client.inboundRtpPackets < previous.client.inboundRtpPackets
+      || client.inboundRtpBytes < previous.client.inboundRtpBytes
+      || client.candidateBytesReceived < previous.client.candidateBytesReceived
+      || client.candidateBytesSent < previous.client.candidateBytesSent
+    );
+    this.previous = { server, client };
+
+    if (!previous || pairChanged || counterReset) {
+      this.estimatedPendingMediaPackets = 0;
+      return {
+        event: "baseline",
+        sample: client.sample,
+        pair: client.pair,
+        pairChanged,
+        counterReset,
+        path: {
+          state: client.pathState,
+          rttMs: client.rttMs,
+          bytesReceived: client.candidateBytesReceived,
+          bytesSent: client.candidateBytesSent,
+        },
+        sender: {
+          mediaPackets: server.sentRtpPackets,
+          mediaBytes: server.sentRtpBytes,
+          repairPackets: server.retransmittedPacketsSent,
+          repairBytes: server.retransmittedBytesSent,
+        },
+        receiver: {
+          mediaPackets: client.inboundRtpPackets,
+          mediaBytes: client.inboundRtpBytes,
+        },
+        backlog: { estimatedPendingMediaPackets: 0 },
+      };
+    }
+
+    const senderMediaPackets = server.sentRtpPackets - previous.server.sentRtpPackets;
+    const senderMediaBytes = server.sentRtpBytes - previous.server.sentRtpBytes;
+    const senderRepairPackets = server.retransmittedPacketsSent
+      - previous.server.retransmittedPacketsSent;
+    const senderRepairBytes = server.retransmittedBytesSent
+      - previous.server.retransmittedBytesSent;
+    const receiverMediaPackets = client.inboundRtpPackets - previous.client.inboundRtpPackets;
+    const receiverMediaBytes = client.inboundRtpBytes - previous.client.inboundRtpBytes;
+    const backlogPacketDelta = senderMediaPackets - receiverMediaPackets;
+    const recoveredPendingMediaPackets = Math.min(
+      this.estimatedPendingMediaPackets,
+      Math.max(0, -backlogPacketDelta),
+    );
+    this.estimatedPendingMediaPackets = Math.max(
+      0,
+      this.estimatedPendingMediaPackets + backlogPacketDelta,
+    );
+
+    return {
+      event: "sample",
+      sample: client.sample,
+      intervalMs: client.elapsedMs - previous.client.elapsedMs,
+      pair: client.pair,
+      pairChanged: false,
+      counterReset: false,
+      path: {
+        state: client.pathState,
+        rttMs: client.rttMs,
+        bytesReceivedDelta: client.candidateBytesReceived
+          - previous.client.candidateBytesReceived,
+        bytesSentDelta: client.candidateBytesSent - previous.client.candidateBytesSent,
+      },
+      sender: {
+        mediaPacketsDelta: senderMediaPackets,
+        mediaBytesDelta: senderMediaBytes,
+        repairPacketsDelta: senderRepairPackets,
+        repairBytesDelta: senderRepairBytes,
+        transportWritePacketsDelta: senderMediaPackets + senderRepairPackets,
+        transportWriteBytesDelta: senderMediaBytes + senderRepairBytes,
+      },
+      receiver: {
+        mediaPacketsDelta: receiverMediaPackets,
+        mediaBytesDelta: receiverMediaBytes,
+      },
+      repair: {
+        nackPacketsRequestedDelta: server.nackPacketsRequested
+          - previous.server.nackPacketsRequested,
+        cacheHitsDelta: server.nackCacheHits - previous.server.nackCacheHits,
+        cacheMissesDelta: server.nackCacheMisses - previous.server.nackCacheMisses,
+      },
+      backlog: {
+        packetDelta: backlogPacketDelta,
+        recoveredPendingMediaPackets,
+        estimatedPendingMediaPackets: this.estimatedPendingMediaPackets,
+      },
+    };
+  }
+}
+
+function nonnegativeCounter(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.round(value)
+    : null;
+}
+
+export function parseWebrtcDeliveryClientSample(
+  detail: unknown,
+  elapsedMs: unknown,
+): WebrtcDeliveryClientSample | null {
+  if (typeof detail !== "string" || detail.length > 8_192) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(detail);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null) return null;
+  const report = value as Record<string, unknown>;
+  const inbound = report.inbound;
+  const path = report.path;
+  if (
+    typeof inbound !== "object"
+    || inbound === null
+    || typeof path !== "object"
+    || path === null
+  ) return null;
+  const inboundStats = inbound as Record<string, unknown>;
+  const pathStats = path as Record<string, unknown>;
+  const sample = nonnegativeCounter(report.sample);
+  const atMs = nonnegativeCounter(elapsedMs);
+  const inboundRtpPackets = nonnegativeCounter(inboundStats.packets);
+  const inboundRtpBytes = nonnegativeCounter(inboundStats.bytes);
+  const candidateBytesReceived = nonnegativeCounter(pathStats.bytesReceived);
+  const candidateBytesSent = nonnegativeCounter(pathStats.bytesSent);
+  if (
+    sample === null
+    || sample < 1
+    || atMs === null
+    || inboundRtpPackets === null
+    || inboundRtpBytes === null
+    || candidateBytesReceived === null
+    || candidateBytesSent === null
+  ) return null;
+  return {
+    sample,
+    elapsedMs: atMs,
+    pair: typeof pathStats.pair === "string" ? pathStats.pair : null,
+    pathState: typeof pathStats.state === "string" ? pathStats.state : null,
+    rttMs: nonnegativeCounter(pathStats.rttMs),
+    candidateBytesReceived,
+    candidateBytesSent,
+    inboundRtpPackets,
+    inboundRtpBytes,
+  };
+}
+
+interface ConnectionDiagnostic {
+  attempt: string;
+  connection: number;
+  windowID: string;
+  createdAtMs: number;
+  closedAtMs: number | null;
+  iceState: string;
+  connectionState: string;
+  transportReady: boolean;
+  sentAccessUnits: number;
+  sentRtpPackets: number;
+  sentRtpBytes: number;
+  lastSentAtMs: number | null;
+  disconnectedAtMs: number | null;
+  senderRepairStats: () => RTCRtpHistoryRepairStats;
+  deliveryDiagnostics: WebrtcDeliveryDiagnostics;
+  pliRequests: number;
+  encoder: SharedEncoder | null;
+}
+
+const connectionDiagnostics = new Map<string, ConnectionDiagnostic>();
+const CONNECTION_DIAGNOSTIC_TTL_MS = 120_000;
+const CONNECTION_DIAGNOSTIC_LIMIT = 64;
+
+function pruneConnectionDiagnostics(nowMs = Date.now()) {
+  for (const [attempt, connection] of connectionDiagnostics) {
+    if (
+      connection.closedAtMs !== null
+      && nowMs - connection.closedAtMs > CONNECTION_DIAGNOSTIC_TTL_MS
+    ) connectionDiagnostics.delete(attempt);
+  }
+  while (connectionDiagnostics.size > CONNECTION_DIAGNOSTIC_LIMIT) {
+    const oldestClosed = [...connectionDiagnostics.entries()]
+      .find(([, connection]) => connection.closedAtMs !== null);
+    const oldest = oldestClosed ?? connectionDiagnostics.entries().next().value;
+    if (!oldest) break;
+    connectionDiagnostics.delete(oldest[0]);
+  }
+}
+
+function serverConnectionSnapshot(attempt: string, nowMs = Date.now()): string | null {
+  const connection = connectionDiagnostics.get(attempt);
+  if (!connection) return null;
+  const encoder = connection.encoder;
+  const repair = connection.senderRepairStats();
+  return `server-snapshot ${JSON.stringify({
+    attempt,
+    connection: connection.connection,
+    windowID: connection.windowID,
+    ageMs: nowMs - connection.createdAtMs,
+    ice: connection.iceState,
+    state: connection.connectionState,
+    transportReady: connection.transportReady,
+    sentAccessUnits: connection.sentAccessUnits,
+    sentRtpPackets: connection.sentRtpPackets,
+    sentRtpBytes: connection.sentRtpBytes,
+    lastSentAgeMs: connection.lastSentAtMs === null ? -1 : nowMs - connection.lastSentAtMs,
+    disconnectedAgeMs: connection.disconnectedAtMs === null
+      ? -1
+      : nowMs - connection.disconnectedAtMs,
+    nackReports: repair.nackReports,
+    nackPacketsRequested: repair.packetsRequested,
+    nackCacheHits: repair.cacheHits,
+    nackCacheMisses: repair.cacheMisses,
+    retransmittedPacketsSent: repair.retransmittedPacketsSent,
+    retransmittedBytesSent: repair.retransmittedBytesSent,
+    retransmissionQueueDepth: repair.queueDepth,
+    retransmissionQueueHighWaterMark: repair.queueHighWaterMark,
+    retransmissionQueueBusyAgeMs: repair.queueBusyAgeMs,
+    retransmissionSendFailures: repair.sendFailures,
+    pliRequests: connection.pliRequests,
+    encoderAccessUnits: encoder?.accessUnits,
+    encoderLastAccessUnitAgeMs: !encoder || encoder.lastAccessUnitAtMs === null
+      ? -1
+      : nowMs - encoder.lastAccessUnitAtMs,
+    encoderSubscribers: encoder?.subscribers.size,
+    encoderDead: encoder?.dead,
+  })}`;
+}
+
+function serverDeliverySample(connection: ConnectionDiagnostic): WebrtcDeliveryServerSample {
+  const repair = connection.senderRepairStats();
+  return {
+    sentRtpPackets: connection.sentRtpPackets,
+    sentRtpBytes: connection.sentRtpBytes,
+    retransmittedPacketsSent: repair.retransmittedPacketsSent,
+    retransmittedBytesSent: repair.retransmittedBytesSent,
+    nackPacketsRequested: repair.packetsRequested,
+    nackCacheHits: repair.cacheHits,
+    nackCacheMisses: repair.cacheMisses,
+  };
+}
+
 const CLIENT_PHASES = new Set([
   "answer-received",
   "answer-applied",
@@ -294,14 +872,28 @@ const CLIENT_PHASES = new Set([
   "track-received",
   "play-rejected",
   "first-frame",
+  "video-presentation",
+  "presentation-gap",
   "receiver-stats",
   "receiver-stats-error",
-  "input-channel-state",
+  "control-channel-state",
+  "control-ownership",
+  "keyboard-state",
+  "keyboard-focus-result",
+  "keyboard-input-applied",
+  "keyboard-input-rejected",
+  "keyboard-buffer-overflow",
   "setup-timeout",
   "first-frame-timeout",
+  "viewport-gesture-start",
+  "viewport-gesture-end",
 ]);
 
-function recordClientTelemetry(windowID: string, body: TileTelemetry): Response {
+function recordClientTelemetry(
+  windowID: string,
+  body: TileTelemetry,
+  recordDiagnostic: (line: string) => void,
+): Response {
   if (
     typeof body.attempt !== "string"
     || !/^[a-zA-Z0-9-]{1,80}$/.test(body.attempt)
@@ -313,9 +905,9 @@ function recordClientTelemetry(windowID: string, body: TileTelemetry): Response 
       400,
     );
   }
-  const detail = typeof body.detail === "string" ? body.detail.slice(0, 512) : undefined;
-  const elapsedMs = bounded(body.elapsedMs, 0, 600_000);
-  diag(
+  const detail = typeof body.detail === "string" ? body.detail.slice(0, 2_048) : undefined;
+  const elapsedMs = bounded(body.elapsedMs, 0, 604_800_000);
+  recordDiagnostic(
     `client ${JSON.stringify({
       windowID,
       attempt: body.attempt,
@@ -324,6 +916,34 @@ function recordClientTelemetry(windowID: string, body: TileTelemetry): Response 
       elapsedMs,
     })}`,
   );
+  const connection = connectionDiagnostics.get(body.attempt);
+  if (connection && (body.phase === "receiver-stats" || body.phase === "presentation-gap")) {
+    const clientSample = parseWebrtcDeliveryClientSample(body.detail, elapsedMs);
+    if (clientSample) {
+      const correlation = connection.deliveryDiagnostics.sample(
+        serverDeliverySample(connection),
+        clientSample,
+      );
+      if (correlation) {
+        recordDiagnostic(`delivery-correlation ${JSON.stringify({
+          attempt: body.attempt,
+          connection: connection.connection,
+          windowID,
+          ...correlation,
+        })}`);
+      }
+    }
+  }
+  if (
+    body.phase === "receiver-stats"
+    || body.phase === "presentation-gap"
+    || body.phase === "ice-state"
+    || body.phase === "connection-state"
+  ) {
+    const snapshot = serverConnectionSnapshot(body.attempt);
+    if (snapshot) recordDiagnostic(snapshot);
+  }
+  pruneConnectionDiagnostics();
   return new Response(null, { status: 204 });
 }
 
@@ -343,95 +963,205 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   if (!offer.sdp || offer.type !== "offer") {
     return jsonResponse({ code: "webrtc-bad-offer", message: "body must carry an SDP offer" }, 400);
   }
+  if (
+    offer.attempt !== undefined
+    && !/^[a-zA-Z0-9-]{1,80}$/.test(offer.attempt)
+  ) {
+    return jsonResponse({ code: "webrtc-bad-offer", message: "attempt was invalid" }, 400);
+  }
 
   const tailnet = tailnetIPv4();
   const peer = new RTCPeerConnection({
-    codecs: { video: [H264] },
+    codecs: { video: [H265, H264] },
     iceAdditionalHostAddresses: tailnet ? [tailnet] : undefined,
+    rtpHistorySize: config.webrtcRtpHistoryPackets,
   });
+  const track = new MediaStreamTrack({ kind: "video" });
+  const transceiver = peer.addTransceiver(track, { direction: "sendonly" });
   const connection = ++diagSequence;
+  const attempt = offer.attempt ?? `server-c${connection}`;
+  const connectionDiagnostic: ConnectionDiagnostic = {
+    attempt,
+    connection,
+    windowID,
+    createdAtMs: Date.now(),
+    closedAtMs: null,
+    iceState: "new",
+    connectionState: "new",
+    transportReady: false,
+    sentAccessUnits: 0,
+    sentRtpPackets: 0,
+    sentRtpBytes: 0,
+    lastSentAtMs: null,
+    disconnectedAtMs: null,
+    senderRepairStats: () => transceiver.sender.rtpHistoryRepairStats,
+    deliveryDiagnostics: new WebrtcDeliveryDiagnostics(),
+    pliRequests: 0,
+    encoder: null,
+  };
+  connectionDiagnostics.set(attempt, connectionDiagnostic);
+  pruneConnectionDiagnostics();
+  const closeConnectionDiagnostic = () => {
+    if (connectionDiagnostic.closedAtMs === null) connectionDiagnostic.closedAtMs = Date.now();
+    connectionDiagnostic.transportReady = false;
+    connectionDiagnostic.disconnectedAtMs = null;
+  };
   let inputEncoder: SharedEncoder | null = null;
-  const inputOwner = Symbol(`pointer-c${connection}`);
-  let pointerMessages = 0;
-  let rejectedPointerMessages = 0;
+  let cursorChannel: RTCDataChannel | null = null;
+  const inputOwner = Symbol(`control-c${connection}`);
+  let controlMessages = 0;
+  let rejectedControlMessages = 0;
   const releaseInputOwner = () => {
-    if (inputEncoder?.inputOwner !== inputOwner) return;
-    encoderStdin(inputEncoder, "X\n");
-    inputEncoder.inputOwner = null;
-    diag(`c${connection} pointer released messages=${pointerMessages}`);
+    const encoder = inputEncoder;
+    if (!encoder) return;
+    for (const [revision, pending] of encoder.pendingCursorAcks) {
+      if (pending.inputOwner === inputOwner) encoder.pendingCursorAcks.delete(revision);
+    }
+    const released = encoder.controlOwnership.release(inputOwner);
+    if (!released.changed) return;
+    encoderStdin(encoder, desktopControlLine({ type: "release-control" }));
+    sendControl({ type: "control-revoked", epoch: released.epoch });
+    diag(`c${connection} control released messages=${controlMessages} epoch=${released.epoch}`);
+  };
+  const sendControl = (event: DesktopControlEvent) => {
+    if (cursorChannel?.readyState !== "open") return;
+    cursorChannel.send(JSON.stringify(event));
+  };
+  const currentControlChannel = () => cursorChannel;
+  const rejectControl = (
+    reason: "helper-unavailable" | "malformed" | "not-owner" | "oversized",
+  ) => {
+    sendControl({ type: "input-rejected", reason });
+  };
+  const acquireInputOwner = (encoder: SharedEncoder) => {
+    const acquired = encoder.controlOwnership.acquire(inputOwner);
+    if (!acquired.changed) return;
+    const previousOwner = [...encoder.subscribers].find(
+      (subscriber) => subscriber.inputOwner === acquired.previous,
+    );
+    encoderStdin(encoder, desktopControlLine({ type: "release-control" }));
+    previousOwner?.onControl({ type: "control-revoked", epoch: acquired.epoch });
+    sendControl({ type: "control-granted", epoch: acquired.epoch });
+    diag(`c${connection} control acquired encoder=${encoder.key} epoch=${acquired.epoch}`);
   };
   peer.onDataChannel.subscribe((channel) => {
-    if (channel.label !== "agentdesk-pointer-v1") {
+    if (channel.label !== "agentdesk-control-v2") {
       diag(`c${connection} rejected data-channel label=${channel.label}`);
       channel.close();
       return;
     }
-    diag(`c${connection} pointer channel received`);
+    cursorChannel = channel;
+    diag(`c${connection} control channel received`);
     channel.onMessage.subscribe((data) => {
-      const command = encoderPointerCommand(data);
-      if (!command || !inputEncoder || inputEncoder.dead) {
-        rejectedPointerMessages += 1;
-        if (rejectedPointerMessages === 1) {
-          diag(`c${connection} rejected first pointer message`);
+      const input = desktopControlInput(data);
+      if (!input) {
+        rejectedControlMessages += 1;
+        const reason = desktopControlRejectionReason(data);
+        rejectControl(reason);
+        if (rejectedControlMessages === 1) {
+          diag(`c${connection} rejected first control message reason=${reason}`);
         }
         return;
       }
-      if (inputEncoder.inputOwner !== inputOwner) {
-        encoderStdin(inputEncoder, "X\n");
-        inputEncoder.inputOwner = inputOwner;
-        diag(`c${connection} pointer acquired encoder=${inputEncoder.key}`);
+      if (!inputEncoder || inputEncoder.dead) {
+        rejectedControlMessages += 1;
+        rejectControl("helper-unavailable");
+        return;
       }
-      pointerMessages += 1;
-      encoderStdin(inputEncoder, command);
+      if (input.type === "configure") {
+        encoderStdin(inputEncoder, desktopControlLine(input));
+        return;
+      }
+      if (input.type === "release-control") {
+        if (inputEncoder.controlOwnership.owner !== inputOwner) {
+          rejectControl("not-owner");
+          return;
+        }
+        releaseInputOwner();
+        return;
+      }
+      acquireInputOwner(inputEncoder);
+      controlMessages += 1;
+      if (input.type === "pointer-move") {
+        const nativeRevision = reserveInputRevision(inputEncoder);
+        rememberCursorAck(inputEncoder, nativeRevision, {
+          inputOwner,
+          clientRevision: input.revision,
+        });
+        const nativeInput: DesktopControlInput = { ...input, revision: nativeRevision };
+        encoderStdin(inputEncoder, desktopControlLine(nativeInput));
+      } else {
+        encoderStdin(inputEncoder, desktopControlLine(input));
+      }
     });
     channel.stateChange.subscribe((state) => {
-      diag(`c${connection} pointer channel=${state}`);
+      diag(`c${connection} control channel=${state}`);
+      if (state === "open" && inputEncoder) {
+        for (const event of inputEncoder.controlEvents.cursorSnapshot()) sendControl(event);
+      }
       if (state === "closed") releaseInputOwner();
     });
   });
-  const track = new MediaStreamTrack({ kind: "video" });
-  const transceiver = peer.addTransceiver(track, { direction: "sendonly" });
-
   diag(`c${connection} window=${windowID} offer candidates: ${candidateLines(offer.sdp).join(" | ") || "NONE"}`);
 
   await peer.setRemoteDescription({ type: "offer", sdp: offer.sdp });
+  diag(`c${connection} offered-codecs=${transceiver.codecs.map(
+    (codec) => `${codec.mimeType}:${codec.payloadType}:${codec.parameters ?? ""}`,
+  ).join(" | ")}`);
+  const activeCodec = sharedEncoders.get(windowID)?.codec;
+  let choice = chooseTileVideoCodec(transceiver.codecs, activeCodec);
+  if (!choice) {
+    closeConnectionDiagnostic();
+    void peer.close();
+    return jsonResponse({
+      code: "webrtc-codec-unavailable",
+      message: activeCodec
+        ? `browser did not offer the active ${activeCodec} shared-stream codec`
+        : "browser did not offer supported H.265 SRST or H.264 packetization-mode=1",
+    }, 415);
+  }
+  transceiver.sender.codec = choice.negotiated;
+  track.codec = choice.negotiated;
+
   const local = await peer.createAnswer();
   await peer.setLocalDescription(local);
   diag(`c${connection} answer candidates: ${candidateLines(peer.localDescription!.sdp).join(" | ") || "NONE"}`);
   peer.iceConnectionStateChange.subscribe((state) => {
+    connectionDiagnostic.iceState = state;
     diag(`c${connection} ice=${state}`);
   });
 
-  // werift negotiates by mimeType and keeps the browser's own H264 entries,
-  // defaulting the sender to the first one -- typically Baseline. The browser
-  // enforces the profile of the payload type it receives (measured: High bits
-  // on a Baseline PT decode zero frames), so sending better-than-Baseline text
-  // means SELECTING the browser's own High entry and encoding to match it.
-  // Preference order: High (64), Constrained High (f4), then whatever
-  // packetization-mode=1 entry remains.
-  const negotiated = transceiver.codecs.filter(
-    (codec) => codec.mimeType.toLowerCase() === "video/h264"
-      && (codec.parameters ?? "").includes("packetization-mode=1"),
-  );
-  const high = negotiated.find((codec) => /profile-level-id=(64|f4)/i.test(codec.parameters ?? ""));
-  const chosen = high ?? negotiated[0];
-  if (chosen) {
-    transceiver.sender.codec = chosen;
-    track.codec = chosen;
+  // Another offer can finish while certificates and ICE are being prepared.
+  // Re-check synchronously before acquiring so both connections cannot create
+  // different codecs for the one-window/one-capture authority.
+  const nowActiveCodec = sharedEncoders.get(windowID)?.codec;
+  if (nowActiveCodec && nowActiveCodec !== choice.kind) {
+    const activeChoice = chooseTileVideoCodec(transceiver.codecs, nowActiveCodec);
+    if (!activeChoice) {
+      closeConnectionDiagnostic();
+      void peer.close();
+      return jsonResponse({
+        code: "webrtc-codec-unavailable",
+        message: `browser did not offer the active ${nowActiveCodec} shared-stream codec`,
+      }, 415);
+    }
+    choice = activeChoice;
+    transceiver.sender.codec = choice.negotiated;
+    track.codec = choice.negotiated;
   }
-  const profile = high ? "high" : "cb";
-  diag(`c${connection} codec pt=${chosen?.payloadType} profile=${profile} size=${offer.width}x${offer.height} bitrate=${offer.bitrate}`);
+
+  const profile = choice.h264Profile ?? "main";
+  diag(`c${connection} codec=${choice.kind} pt=${choice.negotiated.payloadType} profile=${profile} size=${offer.width}x${offer.height} bitrate=${offer.bitrate} rtpHistoryPackets=${config.webrtcRtpHistoryPackets}`);
 
   const args = [
     ...(windowID === "display" ? ["--display", "main"] : ["--window", windowID]),
-    "--codec", "h264-annexb",
-    // A 4-second GOP instead of the MSE path's 0.4s: that cadence was a
-    // segment constraint, not a transport need, and at tile bitrates a
-    // keyframe every 0.4s spends the whole budget on refreshes so static text
-    // never sharpens. Joins and loss recovery are PLI's job here, not the GOP's.
-    "--segment", "4",
-    "--profile", profile,
+    "--codec", choice.kind === "h265" ? "h265-annexb" : "h264-annexb",
+    // RTP has no segment boundary to satisfy. A joining viewer receives the
+    // retained bootstrap and requests a fresh keyframe; loss recovery does the
+    // same through PLI. VideoToolbox's low-latency mode keeps that GOP infinite,
+    // because periodic keyframes only create unrequested LTE bursts.
   ];
+  if (choice.kind === "h264") args.push("--profile", profile);
   const width = bounded(offer.width, 16, 7680);
   const height = bounded(offer.height, 16, 4320);
   const fps = bounded(offer.fps, 1, 60);
@@ -441,21 +1171,36 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   if (fps) args.push("--fps", String(fps));
   if (bitrate) args.push("--bitrate", String(bitrate));
 
-  const shared = acquireSharedEncoder(windowID, binary, args);
+  const shared = acquireSharedEncoder(windowID, binary, args, choice.kind);
   inputEncoder = shared;
+  connectionDiagnostic.encoder = shared;
+  let source: WebrtcTileSourceMetadata;
+  try {
+    source = await waitForEncoderMetadata(shared);
+  } catch (error) {
+    closeConnectionDiagnostic();
+    killSharedEncoder(shared, "source-metadata-unavailable");
+    void peer.close();
+    throw error;
+  }
   let dead = false;
   let release: () => void = () => {};
-  const shutdown = () => {
+  const shutdown = (reason: string) => {
     if (dead) return;
     dead = true;
+    closeConnectionDiagnostic();
+    diag(`c${connection} shutdown reason=${reason}`);
     releaseInputOwner();
     release();
     void peer.close();
   };
 
-  // Picture loss on the far side becomes a keyframe at the source. Every
-  // viewer gets the refresh, which is what sharing a capture means.
+  // NACK is the delta-preserving repair path. The patched sender owns exact
+  // cache hit, miss, pending-send, high-water, and failure counters; snapshots
+  // read them synchronously so telemetry never polls or races an async stats refresh.
   transceiver.sender.onPictureLossIndication.subscribe(() => {
+    connectionDiagnostic.pliRequests += 1;
+    shared.videoDiagnostics.recordKeyframeRequest("pli");
     encoderStdin(shared, "K\n");
   });
   // The receiver's bandwidth estimate drives the encoder's bitrate, which
@@ -487,21 +1232,28 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
   // Feed: packetize each shared access unit into this connection's track.
   // werift rewrites SSRC and payload type to the negotiated values; sequence
   // numbers and the 90kHz timestamp are ours to keep monotonic per connection.
-  let sequence = Math.floor(Math.random() * 0xffff);
+  const randomStart = crypto.getRandomValues(new Uint32Array(2));
+  let sequence = randomStart[0]! & 0xffff;
+  const timestampOffset = randomStart[1]!;
   let sentAccessUnits = 0;
   let transportReady = false;
   const subscriber: EncoderSubscriber = {
+    inputOwner,
     onAccessUnit: (payload) => {
       if (dead || !transportReady) return;
       sentAccessUnits += 1;
+      connectionDiagnostic.sentAccessUnits = sentAccessUnits;
       if (sentAccessUnits === 1) {
         diag(`c${connection} first-access-unit bytes=${payload.length} keyframe=${payload[8] === 1}`);
       }
       const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
       const ptsMicros = view.getBigUint64(0);
-      const timestamp = Number((ptsMicros * 9n) / 100n) % 0x100000000;
+      const timestamp = Number((BigInt(timestampOffset) + ((ptsMicros * 9n) / 100n)) & 0xffff_ffffn);
       const accessUnit = payload.subarray(9);
-      for (const { payload: rtpPayload, last } of packetizeH264(accessUnit)) {
+      const rtpPayloads = choice.kind === "h265"
+        ? packetizeH265(accessUnit)
+        : packetizeH264(accessUnit);
+      for (const { payload: rtpPayload, last } of rtpPayloads) {
         const packet = new RtpPacket(
           new RtpHeader({
             sequenceNumber: sequence,
@@ -514,31 +1266,65 @@ async function answer(windowID: string, offer: TileOffer): Promise<Response> {
         );
         sequence = (sequence + 1) % 0x10000;
         track.writeRtp(packet);
+        connectionDiagnostic.sentRtpPackets += 1;
+        connectionDiagnostic.sentRtpBytes += rtpPayload.length;
+        connectionDiagnostic.lastSentAtMs = Date.now();
       }
     },
-    onDead: shutdown,
+    onControl: sendControl,
+    onDead: () => shutdown("encoder-dead"),
   };
   release = subscribeSharedEncoder(shared, subscriber);
+  if (currentControlChannel()?.readyState === "open") {
+    for (const event of shared.controlEvents.cursorSnapshot()) sendControl(event);
+  }
 
   // The transport reports peer death (ICE consent, DTLS close); that report is
   // this subscription's whole lifecycle. Bootstrap only after DTLS is ready so
   // the retained keyframe cannot be written before the peer can receive RTP.
   peer.connectionStateChange.subscribe((state) => {
+    connectionDiagnostic.connectionState = state;
     diag(`c${connection} connection=${state}`);
+    if (state === "disconnected") {
+      if (connectionDiagnostic.disconnectedAtMs === null) {
+        connectionDiagnostic.disconnectedAtMs = Date.now();
+        diag(`c${connection} transient-disconnect awaiting ICE recovery`);
+      }
+      return;
+    }
     if (state === "connected" && !transportReady) {
       transportReady = true;
+      connectionDiagnostic.transportReady = true;
       primeSubscriber(shared, subscriber);
     }
-    if (state === "failed" || state === "closed" || state === "disconnected") shutdown();
+    if (state === "connected") {
+      const disconnectedAtMs = connectionDiagnostic.disconnectedAtMs;
+      if (disconnectedAtMs !== null) {
+        connectionDiagnostic.disconnectedAtMs = null;
+        diag(`c${connection} transient-disconnect recovered durationMs=${Date.now() - disconnectedAtMs}`);
+      }
+    }
+    // `disconnected` is explicitly transient. The browser owns its eight-second
+    // reconnect window, while werift's RFC 7675 consent lifecycle eventually
+    // turns an unrecoverable path into `failed`. Closing earlier prevents both.
+    if (isTerminalWebrtcConnectionState(state)) shutdown(`connection-${state}`);
   });
 
   // Vanilla ICE: werift resolves setLocalDescription after gathering, so the
   // answer already carries the host candidates and no trickle round-trips are
   // needed over the signaling channel.
-  return jsonResponse({ type: "answer", sdp: peer.localDescription!.sdp });
+  const response: WebrtcTileAnswer = {
+    type: "answer",
+    sdp: peer.localDescription!.sdp,
+    codec: choice.kind,
+    source,
+  };
+  return jsonResponse(response);
 }
 
-export function createWebrtcTileRoutes(): RouteHandler {
+export function createWebrtcTileRoutes(
+  recordClientDiagnostic: (line: string) => void = diag,
+): RouteHandler {
   return (request, url) => {
     if (request.method !== "POST") return undefined;
     const telemetry = WEBRTC_TILE_TELEMETRY_ROUTE.exec(url.pathname);
@@ -553,7 +1339,7 @@ export function createWebrtcTileRoutes(): RouteHandler {
             400,
           );
         }
-        return recordClientTelemetry(telemetry[1]!, body);
+        return recordClientTelemetry(telemetry[1]!, body, recordClientDiagnostic);
       })();
     }
     const match = WEBRTC_TILE_ROUTE.exec(url.pathname);

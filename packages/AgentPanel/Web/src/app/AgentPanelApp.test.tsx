@@ -90,6 +90,24 @@ const feedMock = vi.hoisted(() => ({
   emitQuestion: null as ((question: unknown) => void) | null,
 }));
 
+const terminalPaneMock = vi.hoisted(() => ({
+  context: null as Record<string, unknown> | null,
+  onState: null as ((context: Record<string, unknown>, state: Record<string, unknown>) => void) | null,
+}));
+
+// App-shell tests exercise ownership and placement. The renderer itself has a focused test with a
+// fake xterm, so jsdom does not need a canvas merely because one shell test opens the pane.
+vi.mock("../features/terminal/AgentTerminalPane", () => ({
+  AgentTerminalPane: ({ context, onState }: {
+    context: Record<string, unknown>;
+    onState: (context: Record<string, unknown>, state: Record<string, unknown>) => void;
+  }) => {
+    terminalPaneMock.context = context;
+    terminalPaneMock.onState = onState;
+    return <section aria-label={`${context.source === "claude" ? "Claude" : "Codex"} terminal`} />;
+  },
+}));
+
 // Mock the Markdown renderer (used by ActivityFeed; mocked so its
 // marked/shiki/katex deps never load under jsdom if pulled in transitively).
 vi.mock("../features/activity-feed/markdown/Markdown", () => ({
@@ -217,6 +235,9 @@ function setup(terminalIds: string[] = []) {
         : `${prefix}-${++sequence}`,
   });
   const { unmount } = render(<App feed={new SidecarDataSource(transport)} host={host} />);
+  act(() => {
+    transport.deliver("/api/bots/stream", { version: 2, revision: 0, bots: [] });
+  });
   return { fake, transport, host, unmount };
 }
 
@@ -287,6 +308,13 @@ function openClaudeThread(transport: FakeHttpTransport) {
   fireEvent.click(screen.getByText("Session Claude 01"));
 }
 
+function emitTerminalState(state: Record<string, unknown>) {
+  const context = terminalPaneMock.context;
+  const onState = terminalPaneMock.onState;
+  if (!context || !onState) throw new Error("terminal pane is not mounted");
+  act(() => onState(context, state));
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -295,6 +323,8 @@ describe("App shell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    terminalPaneMock.context = null;
+    terminalPaneMock.onState = null;
   });
 
   afterEach(() => {
@@ -303,27 +333,201 @@ describe("App shell", () => {
     restoreViewport();
   });
 
-  it("renders the project list title on mount", () => {
+  it("opens on the Sessions view", () => {
     const { unmount } = setup();
     expect(screen.getByText("Agent Feed")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Bots" })).toHaveAttribute("aria-selected", "false");
     unmount();
   });
 
   it("gives the titlebar inset to the header at the window's leading edge", () => {
     const { unmount } = setup();
-    const projectsHeader = screen.getByRole("heading", { level: 2, name: "Projects" }).parentElement;
+    const navigationHeader = screen.getByRole("tablist", { name: "Agent views" }).parentElement;
     const threadHeader = screen.getByRole("banner");
 
-    expect(projectsHeader).toHaveClass("agent-window-titlebar-sidebar-leading");
+    expect(navigationHeader).toHaveClass("agent-window-titlebar-sidebar-leading");
     expect(threadHeader).not.toHaveClass("agent-window-titlebar-main-leading");
 
-    fireEvent.click(screen.getByRole("button", { name: "Close projects" }));
-    expect(screen.queryByRole("heading", { level: 2, name: "Projects" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close agent navigation" }));
+    expect(screen.queryByRole("tablist", { name: "Agent views" })).not.toBeInTheDocument();
     expect(threadHeader).toHaveClass("agent-window-titlebar-main-leading");
     expect(
-      screen.getByRole("button", { name: "Pin projects sidebar" })
+      screen.getByRole("button", { name: "Pin agent sidebar" })
         .querySelector(".lucide-panel-left"),
     ).not.toBeNull();
+    unmount();
+  });
+
+  it("clears the session workspace in the empty Bots view and restores it on return", () => {
+    const { transport, unmount } = setup();
+    openClaudeThread(transport);
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-claude-01");
+    expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Bots" }));
+    expect(screen.getByRole("tab", { name: "Bots" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("No bots yet")).toBeInTheDocument();
+    expect(screen.queryByText("Alpha Project")).not.toBeInTheDocument();
+    expect(screen.getByRole("main")).toBeEmptyDOMElement();
+    expect(screen.queryByTestId("activity-feed")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Claude composer text")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Bots");
+
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Bots" }), { key: "ArrowLeft" });
+    expect(screen.getByRole("tab", { name: "Sessions" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Alpha Project")).toBeInTheDocument();
+    expect(screen.queryByText("No bots yet")).not.toBeInTheDocument();
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-claude-01");
+    expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Session Claude 01");
+    unmount();
+  });
+
+  it("renders the curated Bot roster and opens one of its attached existing sessions", () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    deliverSessions(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Bots" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-1",
+          name: "Release Captain",
+          iconUrl: "https://example.com/captain.png",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+          sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+          metadata: { role: "Coordinates releases", labels: ["release"], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [FIXTURE_SESSIONS[0]],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Session Claude 01/ }));
+
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Release Captain");
+    expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-claude-01");
+    expect(screen.getByLabelText("Claude composer text")).toBeInTheDocument();
+    unmount();
+  });
+
+  it("creates a Bot from a name, icon, and existing project directory", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Bots" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Bot" }));
+    fireEvent.click(screen.getByRole("radio", { name: /Alpha Project/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Release Captain" } });
+    fireEvent.change(screen.getByRole("textbox", { name: /Icon URL/ }), { target: { value: "https://example.com/captain.png" } });
+    fireEvent.change(screen.getByRole("textbox", { name: /Role/ }), { target: { value: "Coordinates releases" } });
+    fireEvent.change(screen.getByRole("textbox", { name: /Labels/ }), { target: { value: "release, platform" } });
+    fireEvent.change(screen.getByRole("textbox", { name: /Metadata/ }), { target: { value: "team=platform" } });
+
+    transport.responses.set("POST /api/bots", {
+      status: 201,
+      body: JSON.stringify({
+        botId: "bot-created",
+        name: "Release Captain",
+        iconUrl: "https://example.com/captain.png",
+        environment: { kind: "directory", path: FIXTURE_PROJECT_A.projectPath },
+        sessionRefs: [],
+        metadata: {
+          role: "Coordinates releases",
+          labels: ["release", "platform"],
+          custom: { team: "platform" },
+        },
+        grants: [],
+        createdAt: 1,
+        createdBy: { kind: "user" },
+        environmentAvailability: "available",
+        sessions: [],
+        missingSessionRefs: [],
+      }),
+    });
+
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog", { name: "Add Bot" })).getByRole("button", { name: "Add Bot" }));
+    });
+
+    expect(transport.requests.find((request) => request.method === "POST" && request.path === "/api/bots")).toEqual({
+      method: "POST",
+      path: "/api/bots",
+      body: expect.objectContaining({
+        requestId: expect.any(String),
+        name: "Release Captain",
+        iconUrl: "https://example.com/captain.png",
+        directoryPath: FIXTURE_PROJECT_A.projectPath,
+        metadata: {
+          role: "Coordinates releases",
+          labels: ["release", "platform"],
+          custom: { team: "platform" },
+        },
+        grants: [],
+      }),
+    });
+    expect(screen.queryByRole("dialog", { name: "Add Bot" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Bots");
+    expect(screen.getByRole("main")).toBeEmptyDOMElement();
+    unmount();
+  });
+
+  it("attaches sessions from a Bot row using only that Bot directory", async () => {
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+    fireEvent.click(screen.getByRole("tab", { name: "Bots" }));
+    act(() => {
+      transport.deliver("/api/bots/stream", {
+        version: 2,
+        revision: 1,
+        bots: [{
+          botId: "bot-beta",
+          name: "Beta Curator",
+          environment: { kind: "directory", path: FIXTURE_PROJECT_B.projectPath },
+          sessionRefs: [],
+          metadata: { labels: [], custom: {} },
+          grants: [],
+          createdAt: 1,
+          createdBy: { kind: "user" },
+          environmentAvailability: "available",
+          sessions: [],
+          missingSessionRefs: [],
+        }],
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add sessions to Beta Curator" }));
+    await waitFor(() => {
+      expect(transport.subscriptions.map((subscription) => subscription.path)).toContainEqual(
+        expect.stringContaining(`projectPath=${encodeURIComponent(FIXTURE_PROJECT_B.projectPath)}`),
+      );
+    });
+    deliverProjectSessions(transport, FIXTURE_PROJECT_B.projectPath, [FIXTURE_SESSIONS[0]]);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Session Claude 01/ }));
+
+    transport.responses.set("POST /api/bots/bot-beta/sessions", {
+      status: 200,
+      body: JSON.stringify({ botId: "bot-beta" }),
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Add sessions" }));
+    });
+
+    expect(transport.requests.find((request) => request.path === "/api/bots/bot-beta/sessions")).toEqual({
+      method: "POST",
+      path: "/api/bots/bot-beta/sessions",
+      body: {
+        requestId: expect.any(String),
+        sessionRefs: [{ source: "claude", sessionId: "sid-claude-01" }],
+      },
+    });
+    expect(screen.queryByRole("dialog", { name: "Add sessions to Beta Curator" })).not.toBeInTheDocument();
     unmount();
   });
 
@@ -476,8 +680,8 @@ describe("App shell", () => {
     deliverProjects(transport);
     deliverSessions(transport);
 
-    const trigger = screen.getByRole("button", { name: "Open projects" });
-    const drawer = screen.getByRole("dialog", { name: "Projects" });
+    const trigger = screen.getByRole("button", { name: "Open agent navigation" });
+    const drawer = screen.getByRole("dialog", { name: "Agent navigation" });
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(drawer).toHaveAttribute("open");
 
@@ -487,7 +691,7 @@ describe("App shell", () => {
 
     fireEvent.click(trigger);
     expect(drawer).toHaveAttribute("open");
-    fireEvent.click(screen.getByRole("button", { name: "Close projects" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close agent navigation" }));
     expect(drawer).not.toHaveAttribute("open");
     await waitFor(() => expect(trigger).toHaveFocus());
 
@@ -499,19 +703,36 @@ describe("App shell", () => {
     unmount();
   });
 
+  it("keeps compact navigation modal when a mouse or trackpad can hover", () => {
+    installViewport({ compact: true, hoverCapable: true });
+    const { transport, unmount } = setup();
+    deliverProjects(transport);
+
+    const trigger = screen.getByRole("button", { name: "Open agent navigation" });
+    fireEvent.pointerEnter(trigger);
+    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" }))
+      .not.toBeInTheDocument();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("dialog", { name: "Agent navigation" }))
+      .toHaveAttribute("open");
+    expect(screen.queryByRole("complementary", { name: "Agent navigation" }))
+      .not.toBeInTheDocument();
+    unmount();
+  });
+
   it("previews on desktop hover, pins on click, and restores the saved width", () => {
     vi.useFakeTimers();
-    installViewport({ compact: true, hoverCapable: true });
+    installViewport({ compact: false, hoverCapable: true });
     storeSidebarPreferences({ open: false, width: 300 });
     const first = setup();
     deliverProjects(first.transport);
 
-    const trigger = screen.getByRole("button", { name: "Pin projects sidebar" });
-    expect(screen.queryByRole("complementary", { name: "Projects preview" })).not.toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: "Pin agent sidebar" });
+    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" })).not.toBeInTheDocument();
 
     fireEvent.pointerEnter(trigger);
-    expect(screen.getByRole("complementary", { name: "Projects preview" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "Projects" }).parentElement)
+    expect(screen.getByRole("complementary", { name: "Agent navigation preview" })).toBeInTheDocument();
+    expect(screen.getByRole("tablist", { name: "Agent views" }).parentElement)
       .toHaveClass("agent-window-titlebar-sidebar-leading");
     expect(JSON.parse(localStorage.getItem("agent-panel.sidebar.preferences")!)).toEqual({
       open: false,
@@ -520,14 +741,14 @@ describe("App shell", () => {
 
     fireEvent.pointerLeave(trigger);
     act(() => vi.advanceTimersByTime(120));
-    expect(screen.queryByRole("complementary", { name: "Projects preview" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: "Agent navigation preview" })).not.toBeInTheDocument();
 
     fireEvent.pointerEnter(trigger);
     fireEvent.click(trigger);
-    expect(screen.queryByRole("button", { name: "Pin projects sidebar" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pin agent sidebar" })).not.toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Agent navigation" })).toBeInTheDocument();
 
-    const separator = screen.getByRole("separator", { name: "Resize projects sidebar" });
+    const separator = screen.getByRole("separator", { name: "Resize agent sidebar" });
     expect(separator).toHaveAttribute("aria-valuenow", "300");
     fireEvent.keyDown(separator, { key: "ArrowRight" });
     expect(separator).toHaveAttribute("aria-valuenow", "316");
@@ -547,12 +768,12 @@ describe("App shell", () => {
 
     first.unmount();
     const restored = setup();
-    expect(screen.getByRole("separator", { name: "Resize projects sidebar" })).toHaveAttribute(
+    expect(screen.getByRole("separator", { name: "Resize agent sidebar" })).toHaveAttribute(
       "aria-valuenow",
       "356",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Close projects" }));
-    expect(screen.getByRole("button", { name: "Pin projects sidebar" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close agent navigation" }));
+    expect(screen.getByRole("button", { name: "Pin agent sidebar" })).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem("agent-panel.sidebar.preferences")!)).toEqual({
       open: false,
       width: 356,
@@ -589,7 +810,7 @@ describe("App shell", () => {
   });
 
   it("announces terminal progress without spending a row on it", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
 
@@ -598,32 +819,30 @@ describe("App shell", () => {
     // replaced.
     expect(screen.getByRole("status")).toHaveClass("sr-only");
 
-    act(() => {
-      fake.deliver({
-        t: "agent-terminal-ready",
-        rid: "request-1",
-        ctx: { pp: "/projects/alpha", src: "claude", sid: "sid-claude-01" },
-        psn: "agent-resume-claude-sid-claude-01",
-      });
+    emitTerminalState({
+      kind: "ready",
+      descriptor: {
+        terminalId: "terminal-1",
+        ptySessionName: "agent-resume-claude-sid-claude-01",
+        pid: 42,
+        columns: 80,
+        rows: 24,
+      },
     });
     expect(screen.getByRole("status")).toHaveClass("sr-only");
     unmount();
   });
 
   it("keeps failure and exit visible, because those need reading", () => {
-    const { transport, fake, unmount } = setup();
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
 
-    act(() => {
-      fake.deliver({
-        t: "agent-terminal-error",
-        rid: "request-1",
-        ctx: { pp: "/projects/alpha", src: "claude", sid: "sid-claude-01" },
-        c: "activeElsewhere",
-      });
-    });
+    emitTerminalState({ kind: "error", message: "the session is active elsewhere" });
     expect(screen.getByRole("status")).not.toHaveClass("sr-only");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Claude terminal unavailable: the session is active elsewhere",
+    );
     unmount();
   });
 
@@ -640,183 +859,122 @@ describe("App shell", () => {
     unmount();
   });
 
-  it("opens with exact context and enters loading until matching native status", () => {
+  it("opens with exact context inside the main column and sends no native terminal message", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
 
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
 
-    expect(fake.posted).toContainEqual({
-      t: "agent-terminal-open",
-      rid: "request-1",
-      ctx: { pp: "/projects/alpha", src: "claude", sid: "sid-claude-01" },
+    expect(terminalPaneMock.context).toEqual({
+      projectPath: "/projects/alpha",
+      source: "claude",
+      sessionId: "sid-claude-01",
     });
+    expect(fake.posted.some((message) =>
+      (message as { t?: string }).t?.startsWith("agent-terminal-"))).toBe(false);
     expect(screen.getByRole("status")).toHaveTextContent("Opening Claude");
-
-    act(() => {
-      fake.deliver({
-        t: "agent-terminal-ready",
-        rid: "request-1",
-        ctx: { pp: "/projects/alpha", src: "claude", sid: "sid-claude-01" },
-        psn: "agent-resume-claude-sid-claude-01",
-      });
-    });
-    expect(screen.getByRole("status")).toHaveTextContent("Claude terminal ready");
-    expect(screen.getByRole("button", { name: "Close Claude terminal" })).toBeInTheDocument();
+    const terminal = screen.getByRole("region", { name: "Claude terminal" });
+    const mainColumn = terminal.parentElement!;
+    expect(mainColumn).toContainElement(screen.getByRole("main"));
+    expect(screen.getByLabelText("Agent navigation").parentElement).toContainElement(mainColumn);
     unmount();
   });
 
-  it("updates the band for matching error and ended status", () => {
-    const { transport, fake, unmount } = setup();
+  it("updates the band for sidecar error and ended states", () => {
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
 
-    act(() => {
-      fake.deliver({
-        t: "agent-terminal-error",
-        rid: "request-1",
-        ctx: { pp: "/projects/alpha", src: "claude", sid: "sid-claude-01" },
-        c: "activeElsewhere",
-      });
-    });
-    expect(screen.getByRole("status")).toHaveTextContent("Claude terminal unavailable: activeElsewhere");
+    emitTerminalState({ kind: "error", message: "terminal-conflict" });
+    expect(screen.getByRole("status")).toHaveTextContent("Claude terminal unavailable: terminal-conflict");
 
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
-    act(() => {
-      fake.deliver({
-        t: "agent-terminal-ended",
-        rid: "request-1",
-        ctx: { pp: "/projects/alpha", src: "claude", sid: "sid-claude-01" },
-        psn: "agent-resume-claude-sid-claude-01",
-        xs: 0,
-      });
-    });
+    emitTerminalState({ kind: "ended", exitStatus: 0 });
     expect(screen.getByRole("status")).toHaveTextContent("Claude terminal ended");
     expect(screen.getByRole("button", { name: "Open Claude terminal" })).toBeInTheDocument();
     unmount();
   });
 
-  it("keeps closing fenced from delayed ready and does not close twice on replacement", () => {
-    const { transport, fake, unmount } = setup();
+  it("unmounts the Agent Feed terminal when the viewer closes it", () => {
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
-    act(() => {
-      fake.deliver({
-        t: "agent-terminal-ready",
-        rid: "request-1",
-        ctx: { pp: "/projects/alpha", src: "claude", sid: "sid-claude-01" },
-        psn: "agent-resume-claude-sid-claude-01",
-      });
+    emitTerminalState({
+      kind: "ready",
+      descriptor: {
+        terminalId: "terminal-1",
+        ptySessionName: "agent-resume-claude-sid-claude-01",
+        pid: 42,
+        columns: 80,
+        rows: 24,
+      },
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Close Claude terminal" }));
-    expect(screen.getByRole("status")).toHaveTextContent("Closing Claude");
-    act(() => {
-      fake.deliver({
-        t: "agent-terminal-ready",
-        rid: "request-1",
-        ctx: { pp: "/projects/alpha", src: "claude", sid: "sid-claude-01" },
-        psn: "agent-resume-claude-sid-claude-01",
-      });
-    });
-    expect(screen.getByRole("status")).toHaveTextContent("Closing Claude");
-
-    fireEvent.click(screen.getByText("Session Codex 01"));
-    expect(
-      fake.posted.filter(
-        (message) => (message as { t?: string }).t === "agent-terminal-close",
-      ),
-    ).toHaveLength(1);
+    expect(screen.queryByRole("region", { name: "Claude terminal" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Claude terminal" })).toBeInTheDocument();
     unmount();
   });
 
-  it("posts close then context-ended before replacing the selected thread", () => {
+  it("removes the old pane before replacing the selected thread", () => {
     const { fake, transport, unmount } = setup();
-    // Patched after mount, which is enough: the message this watches for is posted by a click,
-    // and what the test asserts is that the feed is still mounted when it goes out.
-    const observations: boolean[] = [];
-    const originalPost = fake.postToHost.bind(fake);
-    fake.postToHost = (message: unknown) => {
-      if ((message as { t?: string }).t === "agent-terminal-context-ended") {
-        observations.push(screen.queryByTestId("activity-feed") !== null);
-      }
-      originalPost(message);
-    };
     openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
 
     fireEvent.click(screen.getByText("Session Codex 01"));
 
-    expect(
-      fake.posted.filter((message) =>
-        ["agent-terminal-close", "agent-terminal-context-ended"].includes(
-          (message as { t?: string }).t ?? "",
-        ),
-      ),
-    ).toEqual([
-      {
-        t: "agent-terminal-close",
-        rid: "request-1",
-        ctx: { pp: "/projects/alpha", src: "claude", sid: "sid-claude-01" },
-      },
-      {
-        t: "agent-terminal-context-ended",
-        rid: "request-1",
-        ctx: { pp: "/projects/alpha", src: "claude", sid: "sid-claude-01" },
-      },
-    ]);
-    expect(observations).toEqual([true]);
+    expect(screen.queryByRole("region", { name: "Claude terminal" })).not.toBeInTheDocument();
+    expect(fake.posted.some((message) =>
+      (message as { t?: string }).t?.startsWith("agent-terminal-"))).toBe(false);
     expect(screen.getByTestId("activity-feed")).toHaveAttribute("data-session-id", "sid-codex-01");
     unmount();
   });
 
-  it("ends the old request before opening a replacement session", () => {
-    const { fake, transport, unmount } = setup(["request-1", "request-2"]);
+  it("opens the replacement session with its own provider context", () => {
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
     fireEvent.click(screen.getByText("Session Codex 01"));
     fireEvent.click(screen.getByRole("button", { name: "Open Codex terminal" }));
 
-    const terminalMessages = fake.posted.filter((message) =>
-      (message as { t?: string }).t?.startsWith("agent-terminal-"),
-    );
-    expect(terminalMessages).toEqual([
-      expect.objectContaining({ t: "agent-terminal-open", rid: "request-1" }),
-      expect.objectContaining({ t: "agent-terminal-close", rid: "request-1" }),
-      expect.objectContaining({ t: "agent-terminal-context-ended", rid: "request-1" }),
-      expect.objectContaining({
-        t: "agent-terminal-open",
-        rid: "request-2",
-        ctx: { pp: "/projects/alpha", src: "codex", sid: "sid-codex-01" },
-      }),
-    ]);
+    expect(terminalPaneMock.context).toEqual({
+      projectPath: "/projects/alpha",
+      source: "codex",
+      sessionId: "sid-codex-01",
+    });
     unmount();
   });
 
   it("ignores stale ready after navigation and session replacement", () => {
-    const { fake, transport, unmount } = setup(["request-1", "request-2"]);
+    const { transport, unmount } = setup();
     openClaudeThread(transport);
     fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
+    const oldContext = terminalPaneMock.context!;
+    const oldOnState = terminalPaneMock.onState!;
     fireEvent.click(screen.getByText("Session Codex 01"));
     fireEvent.click(screen.getByRole("button", { name: "Open Codex terminal" }));
 
-    act(() => {
-      fake.deliver({
-        t: "agent-terminal-ready",
-        rid: "request-1",
-        ctx: { pp: "/projects/alpha", src: "claude", sid: "sid-claude-01" },
-        psn: "stale-pty",
-      });
-    });
+    act(() => oldOnState(oldContext, {
+      kind: "ready",
+      descriptor: {
+        terminalId: "stale-terminal",
+        ptySessionName: "stale-pty",
+        pid: 41,
+        columns: 80,
+        rows: 24,
+      },
+    }));
     expect(screen.getByRole("status")).toHaveTextContent("Opening Codex");
 
-    act(() => {
-      fake.deliver({
-        t: "agent-terminal-ready",
-        rid: "request-2",
-        ctx: { pp: "/projects/alpha", src: "codex", sid: "sid-codex-01" },
-        psn: "agent-resume-codex-sid-codex-01",
-      });
+    emitTerminalState({
+      kind: "ready",
+      descriptor: {
+        terminalId: "terminal-2",
+        ptySessionName: "agent-resume-codex-sid-codex-01",
+        pid: 42,
+        columns: 80,
+        rows: 24,
+      },
     });
     expect(screen.getByRole("status")).toHaveTextContent("Codex terminal ready");
     unmount();
@@ -1001,7 +1159,10 @@ describe("visibility subscriptions recover from failure", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
     fireEvent.click(screen.getByRole("button", { name: /^Beta Project 1 session/ }));
-    const failed = transport.subscriptions.at(-1);
+    const inventorySubscriptions = () => transport.subscriptions.filter(
+      (subscription) => subscription.path.startsWith("/api/inventory/stream"),
+    );
+    const failed = inventorySubscriptions().at(-1);
 
     act(() => void transport.fail("/api/inventory/stream", "agent feed is not ready"));
     expect(screen.getByRole("alert")).toHaveTextContent("agent feed is not ready");
@@ -1010,9 +1171,9 @@ describe("visibility subscriptions recover from failure", () => {
     // One open subscription, still, and a different one: the whole inventory reopens
     // once. Per-project streams meant an outage produced a retry storm sized by how
     // much of the tree the reader had unfolded.
-    expect(transport.subscriptions).toHaveLength(1);
-    expect(transport.subscriptions.at(-1)).not.toBe(failed);
-    const reopened = transport.subscriptions.at(-1)!.path;
+    expect(inventorySubscriptions()).toHaveLength(1);
+    expect(inventorySubscriptions().at(-1)).not.toBe(failed);
+    const reopened = inventorySubscriptions().at(-1)!.path;
     for (const project of [FIXTURE_PROJECT_A, FIXTURE_PROJECT_B]) {
       expect(reopened).toContain(`projectPath=${encodeURIComponent(project.projectPath)}`);
     }
@@ -1144,6 +1305,37 @@ describe("Claude window composer field", () => {
     unmount();
   });
 
+  it("retries a draft when the leased Claude window becomes active", async () => {
+    vi.useFakeTimers();
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
+    const { field, sub } = focusComposer(fake);
+
+    // The lease is still being acquired. Typing is allowed, but the first debounce cannot send to
+    // an off-Desktop window yet.
+    deliverStatus(fake, sub, { cur: false, tx: null });
+    fireEvent.change(field, { target: { value: "sync after lease" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(
+      fake.posted.filter((message) => (message as { t?: string }).t === "agent-window-input-sync"),
+    ).toHaveLength(0);
+
+    // The host's lease status flips active. The debounce effect must wake up and retry the existing
+    // unsynced draft without requiring another keystroke.
+    deliverStatus(fake, sub, { cur: true, tx: "" });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(fake.posted.at(-1)).toMatchObject({
+      t: "agent-window-input-sync",
+      sid: "sid-claude-01",
+      tx: "sync after lease",
+    });
+    unmount();
+  });
+
   it("blur flushes an unsynced edit and unwatches, stopping the host's poll", () => {
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
@@ -1256,7 +1448,7 @@ describe("Claude window composer field", () => {
     openClaudeThread(transport);
     const { field, sub } = focusComposer(fake);
 
-    deliverStatus(fake, sub, { cur: false });
+    deliverStatus(fake, sub, { cur: false, tx: null });
 
     // No bring-window button: the round trip is the flow now, fired once on focus.
     expect(screen.queryByRole("button", { name: "Load from Claude window" })).toBeNull();
@@ -1276,15 +1468,68 @@ describe("Claude window composer field", () => {
     unmount();
   });
 
+  it("keeps the field editable while an off-Desktop prefill is in flight", () => {
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
+    const { field, sub } = focusComposer(fake);
+
+    deliverStatus(fake, sub, { cur: false, tx: null });
+
+    expect(fake.posted.at(-1)).toMatchObject({
+      t: "agent-window-input-read",
+      sid: "sid-claude-01",
+    });
+    expect(field).toBeEnabled();
+    fireEvent.change(field, { target: { value: "typing while Claude is being read" } });
+    expect(field).toHaveValue("typing while Claude is being read");
+    unmount();
+  });
+
+  it("keeps off-Desktop typing local until Send performs one submit", async () => {
+    vi.useFakeTimers();
+    const { transport, fake, unmount } = setup();
+    openClaudeThread(transport);
+    const { field, sub } = focusComposer(fake);
+
+    deliverStatus(fake, sub, { cur: false, tx: null });
+    const read = fake.posted.at(-1) as { rid: string };
+    await act(async () => {
+      fake.deliver({
+        t: "agent-window-input-result",
+        rid: read.rid,
+        sid: "sid-claude-01",
+        ok: true,
+        tx: "draft from Claude",
+      });
+    });
+
+    fireEvent.change(field, { target: { value: "finish without moving the window" } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+
+    expect(
+      fake.posted.filter((message) => (message as { t?: string }).t === "agent-window-input-sync"),
+    ).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Send to Claude's composer" }));
+    expect(fake.posted.at(-1)).toMatchObject({
+      t: "agent-window-input-submit",
+      sid: "sid-claude-01",
+      tx: "finish without moving the window",
+    });
+    unmount();
+  });
+
   it("a failed round trip says a missing window mover is not something to retry", async () => {
-    // macOS has no public API for moving another application's window between Desktops, so without
-    // yabai an off-Desktop composer is unreachable, full stop. The automatic round trip fails once
-    // and the caption names the real fix rather than inviting an endless retry.
+    // Moving another application's window between Desktops uses a private native operation. If the
+    // current macOS no longer exposes it, the automatic round trip fails once and the caption reports
+    // an unavailable capability rather than inviting an endless retry.
     const { transport, fake, unmount } = setup();
     openClaudeThread(transport);
     const { sub } = focusComposer(fake);
 
-    deliverStatus(fake, sub, { cur: false });
+    deliverStatus(fake, sub, { cur: false, tx: null });
     const read = fake.posted.at(-1) as { rid: string };
 
     await act(async () => {
@@ -1297,7 +1542,7 @@ describe("Claude window composer field", () => {
       });
     });
 
-    expect(screen.getByLabelText("Claude window composer")).toHaveTextContent("needs yabai");
+    expect(screen.getByLabelText("Claude window composer")).toHaveTextContent("does not expose the window mover");
     unmount();
   });
 
@@ -1372,6 +1617,7 @@ describe("Claude window composer field", () => {
     deliverStatus(fake, sub, { tx: "" });
 
     const field = screen.getByLabelText("Claude composer text");
+    expect(screen.getByLabelText("Claude window composer").className).toContain("px-6");
     // The resting height and padding are the load-bearing part of the redesign: a multi-line draft
     // must have room to breathe before it even begins to grow. `min-h-12` (a two-line resting field)
     // and the `px-4 py-3` gutter are the contract; the auto-grow cap stops the field from chasing a
@@ -1795,7 +2041,7 @@ describe("safe area insets", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
 
-    const drawer = screen.getByRole("dialog", { name: "Projects" });
+    const drawer = screen.getByRole("dialog", { name: "Agent navigation" });
     expect(drawer.className).toContain("pl-[env(safe-area-inset-left)]");
     // Paid by the Profile row, which is what actually touches the home indicator now that the
     // sidebar ends in one. It used to be padding inside the scroller, back when the list was the
@@ -1864,7 +2110,7 @@ describe("remembered selection", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
     deliverSessions(transport);
-    expect(screen.getByText("Select a session from Projects")).toBeInTheDocument();
+    expect(screen.getByText("Select a session from Sessions")).toBeInTheDocument();
     unmount();
   });
 
@@ -1873,7 +2119,7 @@ describe("remembered selection", () => {
     const { transport, unmount } = setup();
     deliverProjects(transport);
     deliverSessions(transport);
-    expect(screen.getByText("Select a session from Projects")).toBeInTheDocument();
+    expect(screen.getByText("Select a session from Sessions")).toBeInTheDocument();
     unmount();
   });
 });
@@ -2124,6 +2370,143 @@ describe("terminal session composer", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("Message this terminal session")).not.toBeDisabled();
     });
+    unmount();
+  });
+
+  it("falls through a refused window composer to the already-open Agent Feed terminal", async () => {
+    const { transport, fake, unmount } = setupInput({
+      available: true,
+      entrypoint: "claude-desktop",
+      reason: null,
+    });
+    transport.responses.set("POST /api/terminals/terminal-1/input", { status: 204, body: "" });
+    openClaudeThread(transport);
+    const windowField = await screen.findByLabelText("Claude composer text");
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
+    emitTerminalState({
+      kind: "ready",
+      descriptor: {
+        terminalId: "terminal-1",
+        ptySessionName: "agent-resume-claude-sid-claude-01",
+        pid: 42,
+        columns: 80,
+        rows: 24,
+      },
+    });
+    fireEvent.focus(windowField);
+    fireEvent.change(windowField, { target: { value: "keep this draft" } });
+    act(() => fake.deliver({
+      t: "agent-window-input-status",
+      sub: latestSubscription(fake, "agent-window-input-watch"),
+      sid: "sid-claude-01",
+      en: false,
+      cur: true,
+      tx: "",
+      r: "terminal-only",
+    }));
+
+    const terminalField = await screen.findByLabelText("Message through Agent Feed terminal");
+    await waitFor(() => expect(terminalField).toHaveValue("keep this draft"));
+    expect(screen.getByLabelText("Agent Feed terminal composer")).toHaveTextContent(
+      "Sending through the open Agent Feed terminal",
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Send through Agent Feed terminal"));
+    });
+    expect(transport.requests).toContainEqual({
+      method: "POST",
+      path: "/api/terminals/terminal-1/input",
+      body: { data: "\u001b[200~keep this draft\u001b[201~\r", encoding: "utf8" },
+    });
+    await waitFor(() => expect(terminalField).toHaveValue(""));
+    expect(fake.posted).toContainEqual(expect.objectContaining({
+      t: "agent-window-input-unwatch",
+    }));
+    unmount();
+  });
+
+  it("keeps an available native window ahead of the Agent Feed terminal", async () => {
+    const { transport, fake, unmount } = setupInput({
+      available: true,
+      entrypoint: "claude-desktop",
+      reason: null,
+    });
+    openClaudeThread(transport);
+    const windowField = await screen.findByLabelText("Claude composer text");
+    fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
+    emitTerminalState({
+      kind: "ready",
+      descriptor: {
+        terminalId: "terminal-1",
+        ptySessionName: "agent-resume-claude-sid-claude-01",
+        pid: 42,
+        columns: 80,
+        rows: 24,
+      },
+    });
+    fireEvent.focus(windowField);
+    act(() => fake.deliver({
+      t: "agent-window-input-status",
+      sub: latestSubscription(fake, "agent-window-input-watch"),
+      sid: "sid-claude-01",
+      en: true,
+      cur: true,
+      tx: "native draft",
+    }));
+
+    expect(screen.getByLabelText("Claude composer text")).toHaveValue("native draft");
+    expect(screen.queryByLabelText("Message through Agent Feed terminal")).toBeNull();
+    unmount();
+  });
+
+  it("keeps an available CLI inbox ahead of the Agent Feed terminal", async () => {
+    const { transport, unmount } = setupInput(
+      { available: true, entrypoint: "cli", reason: null },
+      { delivered: true, reason: null },
+    );
+    openClaudeThread(transport);
+    await screen.findByLabelText("Message this terminal session");
+    fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
+    emitTerminalState({
+      kind: "ready",
+      descriptor: {
+        terminalId: "terminal-1",
+        ptySessionName: "agent-resume-claude-sid-claude-01",
+        pid: 42,
+        columns: 80,
+        rows: 24,
+      },
+    });
+
+    expect(screen.getByLabelText("Message this terminal session")).toBeEnabled();
+    expect(screen.queryByLabelText("Message through Agent Feed terminal")).toBeNull();
+    unmount();
+  });
+
+  it("uses the Agent Feed terminal when the detected CLI inbox is unavailable", async () => {
+    const { transport, unmount } = setupInput({
+      available: false,
+      entrypoint: "cli",
+      reason: "no-inbox",
+    });
+    openClaudeThread(transport);
+    expect(await screen.findByLabelText("Message this terminal session")).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open Claude terminal" }));
+    emitTerminalState({
+      kind: "ready",
+      descriptor: {
+        terminalId: "terminal-1",
+        ptySessionName: "agent-resume-claude-sid-claude-01",
+        pid: 42,
+        columns: 80,
+        rows: 24,
+      },
+    });
+
+    expect(await screen.findByLabelText("Message through Agent Feed terminal")).toBeEnabled();
     unmount();
   });
 });

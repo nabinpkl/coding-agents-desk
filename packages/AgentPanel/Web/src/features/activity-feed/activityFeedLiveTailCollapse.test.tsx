@@ -65,6 +65,17 @@ const liveRow: ActivityEvent = {
   blocks: [{ kind: "text", text: "the message being written" }],
 };
 
+const systemRow: ActivityEvent = {
+  id: "claude:line:system",
+  index: 0,
+  otherModeIndex: 0,
+  revision: 0,
+  phase: "complete",
+  ts: 1000,
+  type: "system",
+  blocks: [{ kind: "text", text: "system bootstrap detail" }],
+};
+
 /**
  * The live tail's index is a position in the sidecar's live projection, counted per
  * session from the mirror's first row. A durable event's index is a line in the
@@ -72,6 +83,48 @@ const liveRow: ActivityEvent = {
  * so the feed must not key anything on the two of them together.
  */
 describe("live tail collapse state", () => {
+  it("hides a System-only Nice snapshot but keeps the Raw escape hatch", async () => {
+    const transport = new FakeHttpTransport();
+    const source = new SidecarDataSource(transport);
+    const controlsHost = document.createElement("div");
+    document.body.append(controlsHost);
+    const view = render(
+      <DataSourceProvider source={source}>
+        <ActivityFeed
+          source="claude"
+          sessionId="sid-system"
+          mode="nice"
+          onToggleMode={() => {}}
+          showCacheHits={false}
+          onToggleCacheHits={() => {}}
+          controlsHost={controlsHost}
+        />
+      </DataSourceProvider>,
+    );
+
+    act(() => {
+      transport.deliver("sid-system", {
+        type: "timeline",
+        envelope: {
+          kind: "snapshot",
+          sequence: 1,
+          mode: "nice",
+          events: [systemRow],
+          windowStart: 0,
+          total: 1,
+          runState: "idle",
+          queue: { steer: 0, followUp: 0 },
+        },
+      });
+    });
+
+    expect(await screen.findByText("no content events")).toBeInTheDocument();
+    expect(screen.queryByText("system bootstrap detail")).toBeNull();
+    expect(screen.getByRole("button", { name: "show every line" })).toBeInTheDocument();
+    view.unmount();
+    controlsHost.remove();
+  });
+
   it("does not share collapse state with the transcript row at the same index", async () => {
     const transport = new FakeHttpTransport();
     const source = new SidecarDataSource(transport);

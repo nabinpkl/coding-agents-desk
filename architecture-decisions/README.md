@@ -94,7 +94,7 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0053 | AgentDesk owns the terminal PTY packages | accepted | 2026-07-10 |
 | ADR-0054 | Share the workspace+files data model; port the agent-workspace-ide shell | accepted | 2026-07-11 |
 | ADR-0055 | Port the dock-enrichment strip, backed by a single SkyLight source | accepted | 2026-07-12 |
-| ADR-0056 | Bottom Agent Panel terminal | accepted | 2026-07-13 |
+| ADR-0056 | Bottom Agent Panel terminal | superseded by ADR-0108 | 2026-07-13 |
 | ADR-0057 | Shared responsive DOCX preview over the Files stream | accepted | 2026-07-16 |
 | ADR-0058 | Sequenced cursor reconciliation with explicit host provenance | accepted | 2026-07-16 |
 | ADR-0059 | Swap Dock desktop contents through yabai | accepted | 2026-07-17 |
@@ -138,3 +138,5 @@ If a decision needs to change, write a new ADR that supersedes the previous one 
 | ADR-0099 | Observe an agent's background tasks from the OS, and stream their output on demand | proposed | 2026-08-14 |
 | ADR-0100 | A keyframe is a session-start event, not a runtime one | proposed | 2026-08-15 |
 | ADR-0107 | Address a CLI session by its inbox, not its window | accepted | 2026-08-20 |
+| ADR-0108 | Render agent terminals inside the Agent Feed | proposed | 2026-08-26 |
+| ADR-0109 | Own first-party WebView desktop control in TypeScript | accepted | 2026-08-27 |

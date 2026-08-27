@@ -9,8 +9,8 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     // The agent-feed wire contract, shared with the sidecar so the model has one definition.
-    // Types only (see agent-feed/wire/README.md), so every import of it is erased at build time
-    // and Vite never has to resolve a path outside this project's root.
+    // Vite and Vitest mirror this path because desktop control also consumes its bounded
+    // protocol constants at runtime.
     "paths": {
       "@agentdesk/agent-feed-wire": ["../../../agent-feed/wire/index.ts"]
     },
@@ -19,5 +19,11 @@
     "jsx": "react-jsx",
     "skipLibCheck": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts", "vitest.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "../../../terminal/vendor/xterm/package/typings/xterm.d.ts"
+  ]
 }

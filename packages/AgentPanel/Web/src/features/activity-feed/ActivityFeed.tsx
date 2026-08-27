@@ -31,6 +31,7 @@ import {
   ROLE_BORDER,
   ROLE_STYLES,
   SegmentEventRow,
+  showEventRoleLabel,
   UserRow,
   type EventRowContext,
 } from "./ActivityEventRows";
@@ -213,10 +214,15 @@ export function ActivityFeed({
   }, [pause]);
 
   const { items, allEventIds, clusterLeadIds, pairedToolResults } = useMemo(
-    // Clustering is the nice view's alone. The raw view stays one row per line,
-    // which is what makes it the fidelity guarantee the nice view leans on.
-    () => buildFeedLayout(events, { cluster: mode === "nice", expandedClusters }),
-    [events, mode, expandedClusters],
+    // Clustering and scaffolding removal belong to Nice alone. Raw stays one
+    // row per transcript line, which is the fidelity guarantee Nice leans on.
+    () => buildFeedLayout(events, {
+      cluster: mode === "nice",
+      hideSystem: mode === "nice",
+      incrementalReasoning: mode === "nice" && source === "codex",
+      expandedClusters,
+    }),
+    [events, mode, source, expandedClusters],
   );
 
   // The live in-flight message is one extra row appended after the durable
@@ -471,11 +477,15 @@ export function ActivityFeed({
       </div>
     );
   }
-  if (events.length === 0 && !liveTail) {
+  if (rowItems.length === 0) {
+    const hasHiddenSystemEvents = mode === "nice" && events.length > 0;
     return (
-      <div className="flex h-full items-center justify-center text-(length:--agent-panel-fs-canvas-menu,13px) text-muted-foreground">
-        no events
-      </div>
+      <>
+        {hasHiddenSystemEvents ? threadControls : null}
+        <div className="flex h-full items-center justify-center text-(length:--agent-panel-fs-canvas-menu,13px) text-muted-foreground">
+          {hasHiddenSystemEvents ? "no content events" : "no events"}
+        </div>
+      </>
     );
   }
 
@@ -574,6 +584,7 @@ export function ActivityFeed({
           {stickyCurrent && stickyCurrentIndex !== null ? (
             <StickyEventHeader
               item={stickyCurrent}
+              mode={mode}
               // The user bar stays up when jumping to a row below it, so that
               // height has to stay clear.
               onClick={() =>
@@ -645,9 +656,10 @@ function StickyUserHeader({
 // whose heading has scrolled behind the bar while its content is still on
 // screen. Click jumps to that row's start.
 function StickyEventHeader({
-  item, onClick,
+  item, mode, onClick,
 }: {
   item: DisplayItem;
+  mode: EventMode;
   onClick: () => void;
 }) {
   const ev = leadEvent(item);
@@ -670,14 +682,16 @@ function StickyEventHeader({
         className="size-[1.1em] shrink-0 rotate-90 text-muted-foreground"
         aria-hidden
       />
-      <span
-        className={
-          "shrink-0 rounded-sm px-[0.4em] py-[0.1em] font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-bold uppercase tracking-wider " +
-          ROLE_STYLES[role]
-        }
-      >
-        {role}
-      </span>
+      {showEventRoleLabel(mode, role) ? (
+        <span
+          className={
+            "shrink-0 rounded-sm px-[0.4em] py-[0.1em] font-mono text-(length:--agent-panel-fs-tile-chip,12px) font-bold uppercase tracking-wider " +
+            ROLE_STYLES[role]
+          }
+        >
+          {role}
+        </span>
+      ) : null}
       <span className="min-w-0 flex-1 truncate text-muted-foreground">
         {eventPreview(ev)}
       </span>

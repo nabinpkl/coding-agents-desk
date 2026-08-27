@@ -195,6 +195,180 @@ describe("SidecarDataSource", () => {
     expect(receipt.delivery).toBe("steer");
   });
 
+  it("subscribes to Bot snapshots and creates a Bot with a generated request id", async () => {
+    const transport = new FakeHttpTransport();
+    const bot = {
+      botId: "bot-1",
+      name: "Captain",
+      environment: { kind: "directory", path: "/projects/alpha" },
+      sessionRefs: [],
+      metadata: { labels: [], custom: {} },
+      grants: [],
+      createdAt: 1,
+      createdBy: { kind: "user" },
+      environmentAvailability: "available",
+      sessions: [],
+      missingSessionRefs: [],
+    };
+    transport.responses.set("POST /api/bots", { status: 201, body: JSON.stringify(bot) });
+    const source = new SidecarDataSource(transport);
+    const snapshots: unknown[] = [];
+    source.subscribeBots((snapshot) => snapshots.push(snapshot));
+    transport.deliver("/api/bots/stream", { version: 2, revision: 0, bots: [] });
+
+    const created = await source.createBot({
+      name: "Captain",
+      directoryPath: "/projects/alpha",
+    });
+
+    expect(snapshots).toEqual([{ version: 2, revision: 0, bots: [] }]);
+    expect(created).toEqual(bot);
+    expect(transport.requests.at(-1)).toEqual({
+      method: "POST",
+      path: "/api/bots",
+      body: expect.objectContaining({
+        requestId: expect.any(String),
+        name: "Captain",
+        directoryPath: "/projects/alpha",
+      }),
+    });
+  });
+
+  it("attaches existing sessions through the Bot-scoped route", async () => {
+    const transport = new FakeHttpTransport();
+    transport.responses.set("POST /api/bots/bot-1/sessions", {
+      status: 200,
+      body: JSON.stringify({ botId: "bot-1" }),
+    });
+    const source = new SidecarDataSource(transport);
+
+    await source.attachBotSessions("bot-1", {
+      sessionRefs: [{ source: "pi", sessionId: "pi-1" }],
+    });
+
+    expect(transport.requests.at(-1)).toEqual({
+      method: "POST",
+      path: "/api/bots/bot-1/sessions",
+      body: {
+        requestId: expect.any(String),
+        sessionRefs: [{ source: "pi", sessionId: "pi-1" }],
+      },
+    });
+  });
+
+  it("surfaces a typed Bot stream error instead of treating it as an empty snapshot", () => {
+    const transport = new FakeHttpTransport();
+    const source = new SidecarDataSource(transport);
+    const errors: string[] = [];
+    const snapshots: unknown[] = [];
+    source.subscribeBots((snapshot) => snapshots.push(snapshot), (error) => errors.push(error));
+
+    transport.deliver("/api/bots/stream", {
+      error: { code: "bot-stream-failed", message: "bots.json is malformed", retryable: true },
+    });
+
+    expect(snapshots).toEqual([]);
+    expect(errors).toEqual(["bots.json is malformed"]);
+  });
+
+  it("owns terminal creation, streaming, input, and resize over the Agent Feed routes", async () => {
+    const transport = new FakeHttpTransport();
+    const descriptor = {
+      terminalId: "terminal-1",
+      ptySessionName: "agent-resume-codex-session-1",
+      pid: 42,
+      columns: 80,
+      rows: 24,
+    };
+    transport.responses.set("POST /api/terminals", {
+      status: 201,
+      body: JSON.stringify(descriptor),
+    });
+    transport.responses.set("POST /api/terminals/terminal-1/input", { status: 204, body: "" });
+    transport.responses.set("POST /api/terminals/terminal-1/viewport", { status: 204, body: "" });
+    const source = new SidecarDataSource(transport);
+    const messages: unknown[] = [];
+
+    expect(await source.openTerminal({
+      projectPath: "/projects/agent-desk",
+      source: "codex",
+      sessionId: "session-1",
+    }, 80, 24)).toEqual(descriptor);
+    source.subscribeTerminal("terminal-1", { onMessage: (message) => messages.push(message) });
+    transport.deliver("/api/terminals/terminal-1/stream", {
+      type: "output",
+      revision: "2",
+      data: "aGk=",
+    });
+    await source.sendTerminalInput("terminal-1", "pwd\r");
+    await source.updateTerminalViewport("terminal-1", {
+      sequence: "1",
+      active: true,
+      claim: true,
+      columns: 100,
+      rows: 30,
+    });
+
+    expect(messages).toEqual([{ type: "output", revision: "2", data: "aGk=" }]);
+    expect(transport.requests.slice(-3)).toEqual([
+      {
+        method: "POST",
+        path: "/api/terminals",
+        body: {
+          context: {
+            projectPath: "/projects/agent-desk",
+            source: "codex",
+            sessionId: "session-1",
+          },
+          columns: 80,
+          rows: 24,
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/terminals/terminal-1/input",
+        body: { data: "pwd\r", encoding: "utf8" },
+      },
+      {
+        method: "POST",
+        path: "/api/terminals/terminal-1/viewport",
+        body: {
+          sequence: "1",
+          active: true,
+          claim: true,
+          columns: 100,
+          rows: 30,
+        },
+      },
+    ]);
+  });
+
+  it("delivers a composer turn as one safe bracketed paste through the owned terminal", async () => {
+    const transport = new FakeHttpTransport();
+    transport.responses.set("POST /api/terminals/terminal-1/input", { status: 204, body: "" });
+    const source = new SidecarDataSource(transport);
+
+    await source.sendTerminalPrompt("terminal-1", "first line\nsecond \u001b[31mline");
+
+    expect(transport.requests).toEqual([{
+      method: "POST",
+      path: "/api/terminals/terminal-1/input",
+      body: {
+        data: "\u001b[200~first line\nsecond \u241b[31mline\u001b[201~\r",
+        encoding: "utf8",
+      },
+    }]);
+  });
+
+  it("refuses an oversized terminal prompt before writing partial input", async () => {
+    const transport = new FakeHttpTransport();
+    const source = new SidecarDataSource(transport);
+
+    await expect(source.sendTerminalPrompt("terminal-1", "x".repeat(64 * 1024)))
+      .rejects.toThrow("64 KiB");
+    expect(transport.requests).toEqual([]);
+  });
+
   it("throws a typed error when the sidecar answers something that is not JSON", async () => {
     const transport = new FakeHttpTransport();
     transport.defaultResponse = { status: 200, body: "<html>gateway</html>" };
